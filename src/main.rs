@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use gutch as g;
 
-fn ms(d: std::time::Duration) -> f64 {
-    d.as_secs_f64() * 1000.0
+fn secs(d: std::time::Duration) -> f64 {
+    d.as_secs_f64()
 }
 
 fn mib(bytes: u64) -> f64 {
@@ -21,34 +21,45 @@ fn mib_per_s(bytes: u64, d: std::time::Duration) -> f64 {
     }
 }
 
+fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        (numerator as f64 * 100.0) / denominator as f64
+    }
+}
+
 fn print_build_timings(t: &g::BuildTimings) {
     println!("timings:");
-    println!("  read files:        {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.scan_read), mib(t.scan_read_bytes), mib_per_s(t.scan_read_bytes, t.scan_read));
-    println!("  file hashing:      {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.file_hash), mib(t.file_hash_bytes), mib_per_s(t.file_hash_bytes, t.file_hash));
-    println!("  chunking:          {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.chunking), mib(t.chunking_bytes), mib_per_s(t.chunking_bytes, t.chunking));
-    println!("  metadata:          {:.2} ms", ms(t.metadata));
-    println!("  compress/dedupe:   {:.2} ms  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s", ms(t.dedupe_compress), mib(t.dedupe_input_bytes), mib(t.dedupe_output_bytes), mib_per_s(t.dedupe_input_bytes, t.dedupe_compress));
-    println!("  bundle build:      {:.2} ms  out {:.2} MiB  {:.2} MiB/s", ms(t.bundle_build), mib(t.bundle_build_bytes), mib_per_s(t.bundle_build_bytes, t.bundle_build));
-    println!("  target manifest finalize: {:.2} ms", ms(t.target_manifest_finalize));
-    println!("  total:             {:.2} ms", ms(t.total));
+    println!("  read files:        {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.scan_read), mib(t.scan_read_bytes), mib_per_s(t.scan_read_bytes, t.scan_read));
+    println!("  file hashing:      {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_hash), mib(t.file_hash_bytes), mib_per_s(t.file_hash_bytes, t.file_hash));
+    println!("  chunking:          {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.chunking), mib(t.chunking_bytes), mib_per_s(t.chunking_bytes, t.chunking));
+    println!("  hash judgment:     {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.chunk_hash_judgment), mib(t.chunk_hash_judgment_bytes), mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment));
+    println!("  metadata:          {:.2} s", secs(t.metadata));
+    println!("  dedupe lookup:     {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.dedupe_lookup), mib(t.dedupe_lookup_bytes), mib_per_s(t.dedupe_lookup_bytes, t.dedupe_lookup));
+    println!("  compression:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s", secs(t.compression), mib(t.compression_input_bytes), mib(t.compression_output_bytes), mib_per_s(t.compression_input_bytes, t.compression));
+    println!("  total dedupe ratio: {:.2}%  (out / in)", ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes));
+    println!("  bundle build:      {:.2} s  out {:.2} MiB  {:.2} MiB/s", secs(t.bundle_build), mib(t.bundle_build_bytes), mib_per_s(t.bundle_build_bytes, t.bundle_build));
+    println!("  target manifest finalize: {:.2} s", secs(t.target_manifest_finalize));
+    println!("  total:             {:.2} s", secs(t.total));
 }
 
 fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     println!("timings:");
-    println!("  bundle read:       {:.2} ms  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s", ms(t.bundle_read), mib(t.bundle_read_compressed_bytes), mib(t.bundle_read_decompressed_bytes), mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read));
-    println!("  file rebuild:      {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.file_rebuild), mib(t.file_rebuild_bytes), mib_per_s(t.file_rebuild_bytes, t.file_rebuild));
-    println!("  file verify:       {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.file_verify), mib(t.file_verify_bytes), mib_per_s(t.file_verify_bytes, t.file_verify));
-    println!("  file write:        {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.file_write), mib(t.file_write_bytes), mib_per_s(t.file_write_bytes, t.file_write));
-    println!("  total:             {:.2} ms", ms(t.total));
+    println!("  bundle read:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s", secs(t.bundle_read), mib(t.bundle_read_compressed_bytes), mib(t.bundle_read_decompressed_bytes), mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read));
+    println!("  file rebuild:      {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_rebuild), mib(t.file_rebuild_bytes), mib_per_s(t.file_rebuild_bytes, t.file_rebuild));
+    println!("  file verify:       {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_verify), mib(t.file_verify_bytes), mib_per_s(t.file_verify_bytes, t.file_verify));
+    println!("  file write:        {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_write), mib(t.file_write_bytes), mib_per_s(t.file_write_bytes, t.file_write));
+    println!("  total:             {:.2} s", secs(t.total));
 }
 
 fn print_verify_timings(t: &g::VerifyTimings) {
     println!("timings:");
-    println!("  stat:              {:.2} ms", ms(t.stat));
-    println!("  file read:         {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.file_read), mib(t.file_read_bytes), mib_per_s(t.file_read_bytes, t.file_read));
-    println!("  file hash:         {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.file_hash), mib(t.file_hash_bytes), mib_per_s(t.file_hash_bytes, t.file_hash));
-    println!("  chunk hash:        {:.2} ms  {:.2} MiB  {:.2} MiB/s", ms(t.chunk_hash), mib(t.chunk_hash_bytes), mib_per_s(t.chunk_hash_bytes, t.chunk_hash));
-    println!("  total:             {:.2} ms", ms(t.total));
+    println!("  stat:              {:.2} s", secs(t.stat));
+    println!("  file read:         {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_read), mib(t.file_read_bytes), mib_per_s(t.file_read_bytes, t.file_read));
+    println!("  file hash:         {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_hash), mib(t.file_hash_bytes), mib_per_s(t.file_hash_bytes, t.file_hash));
+    println!("  chunk hash:        {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.chunk_hash), mib(t.chunk_hash_bytes), mib_per_s(t.chunk_hash_bytes, t.chunk_hash));
+    println!("  total:             {:.2} s", secs(t.total));
 }
 
 #[derive(Parser)]
@@ -148,6 +159,7 @@ fn run(cli: Cli) -> g::Result<()> {
 
             let mut existing_bundle_ids = HashSet::new();
             let mut existing_chunk_locations = HashMap::new();
+            let mut previous_file_manifests = HashMap::new();
             for entry in walkdir::WalkDir::new(&bundles_root).sort_by_file_name() {
                 let entry = entry?;
                 if !entry.path().is_file() {
@@ -172,8 +184,23 @@ fn run(cli: Cli) -> g::Result<()> {
                     }
                 }
             }
+            let targets_root = product_root.join("targets");
+            if targets_root.exists() {
+                for entry in walkdir::WalkDir::new(&targets_root).sort_by_file_name() {
+                    let entry = entry?;
+                    if !entry.path().is_file() || entry.file_name() != "manifest.json" {
+                        continue;
+                    }
 
-            let (result, timings) = g::build_from_directory_with_timings_against_existing_store(
+                    let manifest_json = std::fs::read_to_string(entry.path())?;
+                    let manifest: g::manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
+                    for file in manifest.files {
+                        previous_file_manifests.entry(file.path.clone()).or_insert(file);
+                    }
+                }
+            }
+
+            let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests(
                 &dir,
                 &product,
                 &version,
@@ -182,6 +209,7 @@ fn run(cli: Cli) -> g::Result<()> {
                 &tier,
                 &existing_chunk_locations,
                 &existing_bundle_ids,
+                &previous_file_manifests,
             )?;
 
             let manifest_path = target_root.join("manifest.json");

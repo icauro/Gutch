@@ -1,7 +1,9 @@
 param(
     [string]$GameDir,
     [int]$Versions = 0,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [Alias('AllTests')]
+    [switch]$AllFixtures
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,9 +13,7 @@ function Select-Fixture {
         [string]$FixturesRoot
     )
 
-    $fixtures = @(Get-ChildItem $FixturesRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path (Join-Path $_.FullName "truth\v1") } |
-        Sort-Object Name)
+    $fixtures = Get-Fixtures -FixturesRoot $FixturesRoot
 
     if ($fixtures.Count -eq 0) {
         Write-Host "No fixtures found under $FixturesRoot. Run create-mock.ps1 first."
@@ -49,6 +49,76 @@ function Select-Fixture {
 
         Write-Host "Enter a number from 1 to $($fixtures.Count), or an exact fixture name."
     }
+}
+
+function Get-Fixtures {
+    param(
+        [string]$FixturesRoot
+    )
+
+    $fixtures = @(Get-ChildItem $FixturesRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path (Join-Path $_.FullName "truth\v1") } |
+        Sort-Object Name)
+    return $fixtures
+}
+
+function Get-PowerShellRunner {
+    $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+    if ($pwsh) {
+        return $pwsh.Source
+    }
+
+    $powershell = Get-Command powershell -ErrorAction SilentlyContinue
+    if ($powershell) {
+        return $powershell.Source
+    }
+
+    throw "Neither pwsh nor powershell was found."
+}
+
+if ($AllFixtures) {
+    $fixtures = Get-Fixtures -FixturesRoot (Join-Path $PSScriptRoot "fixtures")
+    if ($fixtures.Count -eq 0) {
+        Write-Host "No fixtures found under $(Join-Path $PSScriptRoot "fixtures"). Run create-mock.ps1 first."
+        exit 1
+    }
+
+    $runner = Get-PowerShellRunner
+    $failedFixtures = New-Object System.Collections.Generic.List[string]
+
+    Write-Host "Running all fixtures:"
+    for ($i = 0; $i -lt $fixtures.Count; $i++) {
+        $fixture = $fixtures[$i]
+        Write-Host ("  [{0}/{1}] {2}" -f ($i + 1), $fixtures.Count, $fixture.Name)
+
+        $invokeArgs = @(
+            "-NoLogo",
+            "-NoProfile",
+            "-File",
+            $PSCommandPath,
+            "-GameDir",
+            $fixture.FullName
+        )
+        if ($Versions -gt 0) {
+            $invokeArgs += @("-Versions", "$Versions")
+        }
+        if ($SkipBuild) {
+            $invokeArgs += "-SkipBuild"
+        }
+
+        & $runner @invokeArgs
+        if ($LASTEXITCODE -ne 0) {
+            $failedFixtures.Add($fixture.Name)
+        }
+    }
+
+    if ($failedFixtures.Count -gt 0) {
+        Write-Host "Failed fixtures: $($failedFixtures -join ', ')"
+        exit 1
+    }
+
+    Write-Host "All fixtures passed."
+    exit 0
 }
 
 if ([string]::IsNullOrWhiteSpace($GameDir)) {
@@ -112,13 +182,15 @@ $mismatchedFiles = 0
 $missingFiles = 0
 $capturedSections = New-Object System.Collections.Generic.List[string]
 $targetStats = New-Object System.Collections.Generic.List[object]
+$releaseExe = Join-Path $PSScriptRoot "..\target\release\gutch.exe"
 
 function Invoke-CargoCapture {
     param(
-        [string[]]$CargoArgs
+        [string]$ExePath,
+        [string[]]$NativeArgs
     )
 
-    $output = & cargo @CargoArgs 2>&1
+    $output = & $ExePath @NativeArgs 2>&1
     $exitCode = $LASTEXITCODE
     $lines = @($output | ForEach-Object { $_.ToString() })
     foreach ($line in $lines) {
@@ -155,6 +227,22 @@ function Get-InterestingCliLines {
     return $interesting
 }
 
+Write-Host "=== Building release binary ==="
+$releaseBuild = & cargo build --release 2>&1
+$releaseBuildExit = $LASTEXITCODE
+foreach ($line in @($releaseBuild | ForEach-Object { $_.ToString() })) {
+    Write-Host $line
+}
+if ($releaseBuildExit -ne 0) {
+    Pop-Location
+    exit $releaseBuildExit
+}
+if (-not (Test-Path $releaseExe)) {
+    Write-Host "Release binary was not found at $releaseExe after cargo build --release."
+    Pop-Location
+    exit 1
+}
+
 # --- Build ---
 if (-not $SkipBuild) {
     Write-Host "=== Building artifacts ==="
@@ -172,8 +260,8 @@ if (-not $SkipBuild) {
             }
         }
 
-        $buildResult = Invoke-CargoCapture @(
-            "run", "--", "build",
+        $buildResult = Invoke-CargoCapture -ExePath $releaseExe -NativeArgs @(
+            "build",
             "--dir", "$GameDir\truth\v$v",
             "--product", $product,
             "--version", $versionId,
@@ -253,8 +341,8 @@ if (-not $SkipBuild) {
 Write-Host "`n=== Applying latest target from shared bundles ==="
 Remove-Item -Recurse -Force "$GameDir\applied\latest" -ErrorAction SilentlyContinue
 
-$reconstructResult = Invoke-CargoCapture @(
-    "run", "--", "reconstruct",
+$reconstructResult = Invoke-CargoCapture -ExePath $releaseExe -NativeArgs @(
+    "reconstruct",
     "-m", $latestManifest,
     "-b", $bundlesRoot,
     "--output", "$GameDir\applied\latest"
@@ -271,8 +359,8 @@ $capturedSections.Add("")
 
 # --- Verify ---
 Write-Host "`n=== Verifying ==="
-$verifyResult = Invoke-CargoCapture @(
-    "run", "--", "verify",
+$verifyResult = Invoke-CargoCapture -ExePath $releaseExe -NativeArgs @(
+    "verify",
     "-m", $latestManifest,
     "--dir", "$GameDir\applied\latest"
 )

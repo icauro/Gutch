@@ -300,6 +300,8 @@ But Gutch does not need perfect packing to be useful in v1.
 Current local engine behavior:
 
 - scans existing product bundles before building a target
+- scans existing target manifests before building a target
+- reuses previous file-manifest entries for unchanged files
 - reuses existing chunk locations when a chunk hash is already present
 - compresses only newly introduced unique chunks
 - writes new chunks into content-addressed bundles up to the target compressed size

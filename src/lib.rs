@@ -66,10 +66,15 @@ pub struct BuildTimings {
     pub file_hash_bytes: u64,
     pub chunking: Duration,
     pub chunking_bytes: u64,
+    pub chunk_hash_judgment: Duration,
+    pub chunk_hash_judgment_bytes: u64,
     pub metadata: Duration,
-    pub dedupe_compress: Duration,
-    pub dedupe_input_bytes: u64,
-    pub dedupe_output_bytes: u64,
+    pub dedupe_lookup: Duration,
+    pub dedupe_lookup_bytes: u64,
+    pub compression: Duration,
+    pub compression_input_bytes: u64,
+    pub compression_output_bytes: u64,
+    pub total_compressed_bytes: u64,
     pub bundle_build: Duration,
     pub bundle_build_bytes: u64,
     pub target_manifest_finalize: Duration,
@@ -109,6 +114,9 @@ struct FileBuildEntry {
     scan_read: Duration,
     file_hash: Duration,
     chunking: Duration,
+    chunking_bytes: u64,
+    chunk_hash_judgment: Duration,
+    chunk_hash_judgment_bytes: u64,
     metadata: Duration,
 }
 
@@ -229,6 +237,30 @@ pub fn build_from_directory_with_timings_against_existing_store(
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_store_and_manifests(
+        dir,
+        product_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        &HashMap::new(),
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
+    dir: &Path,
+    product_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+    previous_file_manifests: &HashMap<String, FileManifest>,
+) -> Result<(BuildResult, BuildTimings)> {
     let total_start = Instant::now();
     let chunking_profile = manifest::ChunkingProfile::default();
     let compression_profile = manifest::CompressionProfile::default();
@@ -259,9 +291,25 @@ pub fn build_from_directory_with_timings_against_existing_store(
             let full_file_hash = hash_hex(&hash::hash_chunk(&file_data));
             let file_hash = t.elapsed();
 
-            let t = Instant::now();
-            let chunk_results = chunk::chunk_bytes(&file_data, &chunking_profile);
-            let chunking = t.elapsed();
+            if let Some(previous) = previous_file_manifests.get(&relative.to_string_lossy().replace('\\', "/")) {
+                if previous.size == file_size && previous.full_file_hash == full_file_hash {
+                    return Ok(FileBuildEntry {
+                        manifest: previous.clone(),
+                        chunks: Vec::new(),
+                        size: file_size,
+                        scan_read,
+                        file_hash,
+                        chunking: Duration::ZERO,
+                        chunking_bytes: 0,
+                        chunk_hash_judgment: Duration::ZERO,
+                        chunk_hash_judgment_bytes: 0,
+                        metadata: Duration::ZERO,
+                    });
+                }
+            }
+
+            let (chunk_results, chunk_timings) = chunk::chunk_slices(&file_data, &chunking_profile);
+            let chunking = chunk_timings.boundary_scan;
 
             let mut chunk_refs = Vec::with_capacity(chunk_results.len());
             let mut chunks = Vec::with_capacity(chunk_results.len());
@@ -269,10 +317,13 @@ pub fn build_from_directory_with_timings_against_existing_store(
                 let ch = hash_hex(&cr.hash);
                 chunk_refs.push(ChunkRef {
                     chunk_hash: ch.clone(),
-                    raw_size: cr.data.len() as u64,
+                    raw_size: cr.len as u64,
                     file_offset: cr.offset,
                 });
-                chunks.push((ch, cr.data.clone()));
+                if !existing_chunk_locations.contains_key(&ch) {
+                    let start = cr.offset as usize;
+                    chunks.push((ch, file_data[start..start + cr.len].to_vec()));
+                }
             }
 
             let t = Instant::now();
@@ -295,6 +346,9 @@ pub fn build_from_directory_with_timings_against_existing_store(
                 scan_read,
                 file_hash,
                 chunking,
+                chunking_bytes: chunk_timings.boundary_scan_bytes,
+                chunk_hash_judgment: chunk_timings.hash_judgment,
+                chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
                 metadata,
             })
         })
@@ -310,7 +364,9 @@ pub fn build_from_directory_with_timings_against_existing_store(
         timings.file_hash += entry.file_hash;
         timings.file_hash_bytes += entry.size;
         timings.chunking += entry.chunking;
-        timings.chunking_bytes += entry.size;
+        timings.chunking_bytes += entry.chunking_bytes;
+        timings.chunk_hash_judgment += entry.chunk_hash_judgment;
+        timings.chunk_hash_judgment_bytes += entry.chunk_hash_judgment_bytes;
         timings.metadata += entry.metadata;
         total_logical_size += entry.size;
         file_manifests.push(entry.manifest);
@@ -319,23 +375,41 @@ pub fn build_from_directory_with_timings_against_existing_store(
         }
     }
 
-    let mut total_compressed: u64 = 0;
     let mut all_chunk_hashes: HashSet<String> = HashSet::new();
     let mut required_bundle_set = Vec::new();
+    let mut total_compressed: u64 = 0;
+    let mut compressed_estimate_seen: HashSet<String> = HashSet::new();
+    for fm in &file_manifests {
+        for chunk_ref in &fm.chunks {
+            all_chunk_hashes.insert(chunk_ref.chunk_hash.clone());
+            if let Some(existing) = existing_chunk_locations.get(&chunk_ref.chunk_hash) {
+                required_bundle_set.push(existing.bundle_id.clone());
+                if compressed_estimate_seen.insert(chunk_ref.chunk_hash.clone()) {
+                    total_compressed += existing.compressed_size;
+                }
+            }
+        }
+    }
+
     let mut chunks_to_compress = Vec::new();
 
+    let t = Instant::now();
     for (hash, data) in unique_chunks {
         let raw_size = data.len() as u64;
-        all_chunk_hashes.insert(hash.clone());
-        timings.dedupe_input_bytes += raw_size;
+        timings.dedupe_lookup_bytes += raw_size;
 
         if let Some(existing) = existing_chunk_locations.get(&hash) {
-            required_bundle_set.push(existing.bundle_id.clone());
-            timings.dedupe_output_bytes += existing.compressed_size;
-            total_compressed += existing.compressed_size;
+            if compressed_estimate_seen.insert(hash.clone()) {
+                total_compressed += existing.compressed_size;
+            }
         } else {
             chunks_to_compress.push((hash, data));
         }
+    }
+    timings.dedupe_lookup += t.elapsed();
+
+    for (_, data) in &chunks_to_compress {
+        timings.compression_input_bytes += data.len() as u64;
     }
 
     let t = Instant::now();
@@ -347,12 +421,15 @@ pub fn build_from_directory_with_timings_against_existing_store(
             Ok(CompressedChunk { hash, raw_size, compressed })
         })
         .collect::<Result<Vec<_>>>()?;
-    timings.dedupe_compress += t.elapsed();
+    timings.compression += t.elapsed();
 
     for chunk in &compressed_chunks {
-        timings.dedupe_output_bytes += chunk.compressed.len() as u64;
-        total_compressed += chunk.compressed.len() as u64;
+        timings.compression_output_bytes += chunk.compressed.len() as u64;
+        if compressed_estimate_seen.insert(chunk.hash.clone()) {
+            total_compressed += chunk.compressed.len() as u64;
+        }
     }
+    timings.total_compressed_bytes = total_compressed;
 
     let mut sorted_chunks = compressed_chunks;
     sorted_chunks.sort_by(|a, b| a.hash.cmp(&b.hash));
