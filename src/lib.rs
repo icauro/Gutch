@@ -12,12 +12,14 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use bundle::BundleBuilder;
-use manifest::{ChunkRef, FileManifest, VersionManifest};
+use manifest::{ChunkRef, FileManifest, TargetManifest};
 
 pub use error::{Error, Result};
 
 use crate::compress::compress_chunk;
 use crate::hash::hash_hex;
+
+const TARGET_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 
 fn file_mode(metadata: &std::fs::Metadata) -> u32 {
     #[cfg(unix)]
@@ -36,9 +38,14 @@ fn file_mode(metadata: &std::fs::Metadata) -> u32 {
 }
 
 pub struct BuildResult {
-    pub version_manifest: VersionManifest,
-    pub file_manifests: Vec<FileManifest>,
-    pub bundle_data: Vec<Vec<u8>>,
+    pub target_manifest: TargetManifest,
+    pub bundles: Vec<BuiltBundle>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BuiltBundle {
+    pub bundle_id: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -55,7 +62,7 @@ pub struct BuildTimings {
     pub dedupe_output_bytes: u64,
     pub bundle_build: Duration,
     pub bundle_build_bytes: u64,
-    pub manifest_finalize: Duration,
+    pub target_manifest_finalize: Duration,
     pub total: Duration,
 }
 
@@ -177,9 +184,11 @@ pub fn build_from_directory_with_timings(
         });
     }
 
-    let mut builder = BundleBuilder::new(compression_profile);
+    let mut builder = BundleBuilder::new(compression_profile.clone());
+    let mut current_bundle_compressed_size: u64 = 0;
     let mut total_compressed: u64 = 0;
     let mut all_chunk_hashes: HashSet<String> = HashSet::new();
+    let mut unique_chunks: Vec<(String, Vec<u8>)> = Vec::new();
 
     let t = Instant::now();
     for (hash, data) in &all_chunks {
@@ -187,29 +196,45 @@ pub fn build_from_directory_with_timings(
             let compressed = compress_chunk(data, &builder.profile)?;
             timings.dedupe_input_bytes += data.len() as u64;
             timings.dedupe_output_bytes += compressed.len() as u64;
-            if builder.estimated_compressed_size() + compressed.len() as u64 > 64 * 1024 * 1024 {
-                if !builder.is_empty() {
-                    break;
-                }
-            }
-            builder.add_chunk(hash.clone(), data.clone());
             total_compressed += compressed.len() as u64;
             all_chunk_hashes.insert(hash.clone());
+            unique_chunks.push((hash.clone(), data.clone()));
         }
     }
     timings.dedupe_compress += t.elapsed();
 
     let t = Instant::now();
-    let bundles = if builder.is_empty() {
-        vec![]
-    } else {
-        vec![builder.build()?]
-    };
+    let mut bundles = Vec::new();
+    let mut required_bundle_set = Vec::new();
+    for (hash, data) in unique_chunks {
+        let compressed = compress_chunk(&data, &builder.profile)?;
+        let compressed_size = compressed.len() as u64;
+
+        if !builder.is_empty() && current_bundle_compressed_size + compressed_size > TARGET_BUNDLE_SIZE {
+            let bundle_id = builder.compute_bundle_id();
+            let bundle_data = builder.build()?;
+            required_bundle_set.push(bundle_id.clone());
+            bundles.push(BuiltBundle { bundle_id, data: bundle_data });
+            builder = BundleBuilder::new(compression_profile.clone());
+            current_bundle_compressed_size = 0;
+        }
+
+        builder.add_chunk(hash, data);
+        current_bundle_compressed_size += compressed_size;
+    }
+
+    if !builder.is_empty() {
+        let bundle_id = builder.compute_bundle_id();
+        let bundle_data = builder.build()?;
+        required_bundle_set.push(bundle_id.clone());
+        bundles.push(BuiltBundle { bundle_id, data: bundle_data });
+    }
+
     timings.bundle_build += t.elapsed();
-    timings.bundle_build_bytes = bundles.iter().map(|b| b.len() as u64).sum();
+    timings.bundle_build_bytes = bundles.iter().map(|b| b.data.len() as u64).sum();
 
     let t = Instant::now();
-    let mut vm = VersionManifest::new(
+    let mut vm = TargetManifest::new(
         product_id.to_string(),
         version_id.to_string(),
         platform.to_string(),
@@ -218,31 +243,31 @@ pub fn build_from_directory_with_timings(
     );
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
+    vm.files = file_manifests;
     vm.required_chunk_set = all_chunk_hashes.into_iter().collect();
     vm.required_chunk_set.sort();
-    timings.manifest_finalize += t.elapsed();
+    required_bundle_set.sort();
+    vm.required_bundle_set = required_bundle_set;
+    timings.target_manifest_finalize += t.elapsed();
     timings.total = total_start.elapsed();
 
     Ok((BuildResult {
-        version_manifest: vm,
-        file_manifests,
-        bundle_data: bundles,
+        target_manifest: vm,
+        bundles,
     }, timings))
 }
 
-pub fn reconstruct_from_manifest(
-    version_manifest: &VersionManifest,
-    file_manifests: &[FileManifest],
+pub fn reconstruct_from_target_manifest(
+    target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
     output_dir: &Path,
 ) -> Result<()> {
-    let (_, _) = reconstruct_from_manifest_with_timings(version_manifest, file_manifests, bundles, output_dir)?;
+    let (_, _) = reconstruct_from_target_manifest_with_timings(target_manifest, bundles, output_dir)?;
     Ok(())
 }
 
-pub fn reconstruct_from_manifest_with_timings(
-    version_manifest: &VersionManifest,
-    file_manifests: &[FileManifest],
+pub fn reconstruct_from_target_manifest_with_timings(
+    target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
     output_dir: &Path,
 ) -> Result<((), ReconstructTimings)> {
@@ -265,7 +290,7 @@ pub fn reconstruct_from_manifest_with_timings(
         timings.bundle_read += t.elapsed();
     }
 
-    for fm in file_manifests {
+    for fm in &target_manifest.files {
         let t = Instant::now();
         let mut file_data = Vec::with_capacity(fm.size as usize);
 
@@ -314,30 +339,28 @@ pub fn reconstruct_from_manifest_with_timings(
         timings.file_write_bytes += file_data.len() as u64;
     }
 
-    let _ = version_manifest;
+    let _ = target_manifest;
     timings.total = total_start.elapsed();
     Ok(((), timings))
 }
 
 pub fn verify_directory(
-    version_manifest: &VersionManifest,
-    file_manifests: &[FileManifest],
+    target_manifest: &TargetManifest,
     dir: &Path,
 ) -> Result<Vec<String>> {
-    let (errors, _) = verify_directory_with_timings(version_manifest, file_manifests, dir)?;
+    let (errors, _) = verify_directory_with_timings(target_manifest, dir)?;
     Ok(errors)
 }
 
 pub fn verify_directory_with_timings(
-    version_manifest: &VersionManifest,
-    file_manifests: &[FileManifest],
+    target_manifest: &TargetManifest,
     dir: &Path,
 ) -> Result<(Vec<String>, VerifyTimings)> {
     let total_start = Instant::now();
     let mut errors = Vec::new();
     let mut timings = VerifyTimings::default();
 
-    for fm in file_manifests {
+    for fm in &target_manifest.files {
         let file_path = dir.join(&fm.path);
 
         if !file_path.exists() {
@@ -419,21 +442,20 @@ pub fn verify_directory_with_timings(
         }
     }
 
-    let _ = version_manifest;
+    let _ = target_manifest;
     timings.total = total_start.elapsed();
     Ok((errors, timings))
 }
 
 pub fn estimate_build(
-    version_manifest: &VersionManifest,
-    file_manifests: &[FileManifest],
+    target_manifest: &TargetManifest,
     available_chunks: &HashSet<String>,
     available_disk_space: u64,
 ) -> Result<manifest::Estimate> {
     let mut missing_chunks: HashSet<String> = HashSet::new();
     let mut missing_logical: u64 = 0;
 
-    for fm in file_manifests {
+    for fm in &target_manifest.files {
         for cr in &fm.chunks {
             if !available_chunks.contains(&cr.chunk_hash) {
                 missing_chunks.insert(cr.chunk_hash.clone());
@@ -451,7 +473,7 @@ pub fn estimate_build(
         1 + (missing_chunks.len() as u64 / 2000)
     };
 
-    let _ = version_manifest;
+    let _ = target_manifest;
 
     Ok(manifest::Estimate {
         missing_logical_bytes: missing_logical,
@@ -489,23 +511,18 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!result.file_manifests.is_empty());
-        assert!(!result.version_manifest.required_chunk_set.is_empty());
+        assert!(!result.target_manifest.files.is_empty());
+        assert!(!result.target_manifest.required_chunk_set.is_empty());
 
         let out_dir = std::env::temp_dir().join("gutch_test_output");
         let _ = std::fs::remove_dir_all(&out_dir);
 
-        reconstruct_from_manifest(
-            &result.version_manifest,
-            &result.file_manifests,
-            &result.bundle_data,
-            &out_dir,
-        )
+        let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
+        reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir)
         .unwrap();
 
         let verify_errors = verify_directory(
-            &result.version_manifest,
-            &result.file_manifests,
+            &result.target_manifest,
             &out_dir,
         )
         .unwrap();
@@ -532,8 +549,10 @@ mod tests {
             chunks: vec![],
         };
 
-        let vm = VersionManifest::new("p".into(), "v".into(), "win".into(), "x64".into(), "base".into());
-        let errors = verify_directory(&vm, &[fm], &dir).unwrap();
+        let vm = TargetManifest::new("p".into(), "v".into(), "win".into(), "x64".into(), "base".into());
+        let mut vm = vm;
+        vm.files.push(fm);
+        let errors = verify_directory(&vm, &dir).unwrap();
         assert!(!errors.is_empty());
         assert!(errors[0].contains("missing"));
 
@@ -570,9 +589,9 @@ mod tests {
         let result = build_from_directory(&root, "mock-game", "1.0.0", "windows", "x86_64", "base").unwrap();
         let build_ms = t1.elapsed().as_millis();
 
-        let bundle_total: u64 = result.bundle_data.iter().map(|b| b.len() as u64).sum();
-        let compression_pct = if result.version_manifest.total_logical_size > 0 {
-            100.0 * bundle_total as f64 / result.version_manifest.total_logical_size as f64
+        let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
+        let compression_pct = if result.target_manifest.total_logical_size > 0 {
+            100.0 * bundle_total as f64 / result.target_manifest.total_logical_size as f64
         } else {
             0.0
         };
@@ -580,24 +599,25 @@ mod tests {
         let t2 = Instant::now();
         let out_dir = std::env::temp_dir().join("gutch_test_200mb_reconstructed");
         let _ = std::fs::remove_dir_all(&out_dir);
-        reconstruct_from_manifest(&result.version_manifest, &result.file_manifests, &result.bundle_data, &out_dir).unwrap();
+        let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
+        reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir).unwrap();
         let recon_ms = t2.elapsed().as_millis();
 
         let t3 = Instant::now();
-        let errors = verify_directory(&result.version_manifest, &result.file_manifests, &out_dir).unwrap();
+        let errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
         let verify_ms = t3.elapsed().as_millis();
 
         assert!(errors.is_empty(), "verification errors: {:?}", errors);
 
-        let est = estimate_build(&result.version_manifest, &result.file_manifests, &Default::default(), 1024 * 1024 * 1024).unwrap();
+        let est = estimate_build(&result.target_manifest, &Default::default(), 1024 * 1024 * 1024).unwrap();
 
         println!();
         println!("=== 200 MB mock game build ===");
-        println!("  files:           {}", result.file_manifests.len());
-        println!("  total logical:   {:.1} MB", result.version_manifest.total_logical_size as f64 / (1024.0 * 1024.0));
+        println!("  files:           {}", result.target_manifest.files.len());
+        println!("  total logical:   {:.1} MB", result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0));
         println!("  total bundled:   {:.1} MB ({:.1}% of original)", bundle_total as f64 / (1024.0 * 1024.0), compression_pct);
-        println!("  unique chunks:   {}", result.version_manifest.required_chunk_set.len());
-        println!("  bundles:         {}", result.bundle_data.len());
+        println!("  unique chunks:   {}", result.target_manifest.required_chunk_set.len());
+        println!("  bundles:         {}", result.bundles.len());
         println!();
         println!("  gen files:       {} ms", gen_ms);
         println!("  build:           {} ms", build_ms);

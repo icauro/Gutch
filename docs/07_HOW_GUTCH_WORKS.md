@@ -1,6 +1,8 @@
 # How Gutch Works
 
-Gutch is a versioned artifact system for game builds.
+For canonical terminology and design rules, start with `01_GLOSSARY.md`, `02_FOUNDATIONS.md`, and `03_TARGETS_AND_MANIFESTS.md`.
+
+Gutch is a target-based artifact system for game builds.
 
 ## Core idea
 
@@ -10,16 +12,16 @@ Gutch does not store version-to-version patch chains like:
 v1 -> patch -> v2 -> patch -> v3
 ```
 
-Instead, each version is stored as:
+Instead, each target is stored as:
 
 ```text
-version manifest
--> file manifests
+target manifest
+-> embedded file manifests
 -> chunk references
 -> bundles
 ```
 
-That means every retained version is independently reconstructable.
+That means every retained target is independently reconstructable.
 
 ## Ground up
 
@@ -79,9 +81,9 @@ Important separation:
 - BLAKE3 identifies chunk content
 - compressed bytes are not used as chunk identity
 
-### 5. Build file manifests
+### 5. Build file-manifest entries
 
-Each file gets a file manifest like:
+Each file gets a file-manifest entry like:
 
 ```json
 {
@@ -106,7 +108,7 @@ This describes:
 
 ### 6. Deduplicate chunks
 
-If two files or two versions contain identical chunk bytes, they get the same BLAKE3 hash.
+If two files or two targets contain identical chunk bytes, they get the same BLAKE3 hash.
 
 So Gutch only needs one logical copy of that chunk.
 
@@ -146,9 +148,9 @@ Chunk table entries store:
 - compressed offset
 - compression type
 
-### 9. Create the version manifest
+### 9. Create the target manifest
 
-The version manifest is the top-level description of a version.
+The target manifest is the top-level description of one target.
 
 It includes:
 
@@ -159,7 +161,7 @@ It includes:
 - tier
 - chunking profile
 - compression profile
-- list of file manifests
+- embedded file-manifest entries
 - required chunk set
 - required bundle set
 - logical size
@@ -169,26 +171,31 @@ This is the main entry point for reconstruction.
 
 ### 10. Store artifacts
 
-Conceptually, a version looks like:
+Conceptually, one exact target looks like:
 
 ```text
-artifacts/v1/
-  version.gutch.json
-  file_*.json
-  bundle-000.gutch.bundle
+v1/products/{product_id}/targets/{version_id}/{platform}/{architecture}/{tier_id}/
+  manifest.json
+  manifest.sig
+```
+
+Its shared payload bundles live separately under the same product:
+
+```text
+v1/products/{product_id}/bundles/{bundle_id_prefix}/{bundle_id}.bundle
 ```
 
 In production, these would be stored in R2.
 
 ## How reconstruction works
 
-To reconstruct a version:
+To reconstruct a target:
 
-### 1. Load the version manifest
+### 1. Load the target manifest
 
 It tells Gutch what files should exist.
 
-### 2. Load file manifests
+### 2. Load embedded file-manifest entries
 
 They describe each file's chunk layout.
 
@@ -210,7 +217,7 @@ For each file:
 After rebuilding:
 
 - compute the full-file BLAKE3 hash
-- compare it to the file manifest
+- compare it to the embedded file-manifest entry
 
 Only then is the file trusted.
 
@@ -218,8 +225,8 @@ Only then is the file trusted.
 
 Suppose:
 
-- `v1` has chunks `A B C D E`
-- `v2` has chunks `A B X D E Y`
+- target `v1` has chunks `A B C D E`
+- target `v2` has chunks `A B X D E Y`
 
 Then:
 
@@ -228,27 +235,28 @@ Then:
 
 So `v2` only needs:
 
-- a new version manifest
-- new file manifests
+- a new target manifest
+- updated embedded file-manifest entries
 - bundles containing the new chunks
 
-That is why later versions can behave like deltas even though the system is manifest-based.
+That is why later targets can behave like deltas even though the system is manifest-based.
 
 ## What "apply latest from v1 + deltas" means here
 
 In the examples layout:
 
-- `artifacts/v1` holds the full first build
-- later artifact folders hold only new bundles for changed chunks
-- reconstructing the latest version means:
-  - use `v1` bundles for unchanged chunks
+- `targets/.../manifest.json` holds the target metadata
+- `bundles/...` holds the shared payload containers
+- later target releases add a new manifest and only new bundles for changed chunks
+- reconstructing the latest target means:
+  - use older product bundles for unchanged chunks
   - use later bundles for changed or new chunks
   - rebuild the latest files from the combined chunk pool
 
 So it behaves like a delta system operationally, but structurally it is still:
 
 - chunk store
-- manifests over chunk references
+- target manifests with embedded file-manifest entries over chunk references
 
 ## What Gutch uses today
 
@@ -267,7 +275,7 @@ The local engine works, but the full production system is not finished yet.
 Not done yet:
 
 - R2 integration
-- signed manifests
+- signed target manifests
 - SQLite install state
 - planner
 - repair flow
@@ -285,6 +293,6 @@ files
 -> chunk hashes
 -> compressed chunk blobs
 -> packed into bundles
--> referenced by manifests
+ -> referenced by target manifests
 -> reconstructed and verified later
 ```

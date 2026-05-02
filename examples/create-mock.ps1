@@ -7,8 +7,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$project = Join-Path $PSScriptRoot "CreateMock\CreateMock.csproj"
-$argsList = @("run", "--project", $project, "--")
+$app = Join-Path $PSScriptRoot "CreateMock.cs"
+$fixturesRoot = Join-Path $PSScriptRoot "fixtures"
+$argsList = @("run", "--file", $app, "--", "--fixtures-root", $fixturesRoot)
 
 if (-not [string]::IsNullOrWhiteSpace($Name)) {
     $argsList += @("--name", $Name)

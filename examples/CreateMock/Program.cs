@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 var options = PromptedOptions.Parse(args);
 
@@ -67,16 +68,32 @@ for (var version = 2; version <= options.Versions; version++)
     Console.WriteLine($" done ({changed} changed, {unchanged} unchanged)");
 }
 
-Directory.CreateDirectory(Path.Combine(gameDir, "artifacts", "v1"));
+Directory.CreateDirectory(Path.Combine(gameDir, "artifacts"));
 Directory.CreateDirectory(Path.Combine(gameDir, "applied"));
-for (var version = 2; version <= options.Versions; version++)
+
+var fixtureMetadata = new FixtureMetadata
 {
-    Directory.CreateDirectory(Path.Combine(gameDir, "artifacts", $"v{version}"));
-}
+    Name = options.Name,
+    ProductId = options.Name,
+    SizeMB = options.SizeMB,
+    Versions = options.Versions,
+    ChangePercent = options.ChangePercent,
+    Platform = "windows",
+    Architecture = "x86_64",
+    TierId = "base",
+    VersionIds = Enumerable.Range(1, options.Versions).Select(v => $"{v}.0.0").ToArray(),
+};
+var metadataPath = Path.Combine(gameDir, "fixture.json");
+File.WriteAllText(
+    metadataPath,
+    JsonSerializer.Serialize(fixtureMetadata, new JsonSerializerOptions { WriteIndented = true }),
+    Encoding.UTF8
+);
 
 var v1Count = Directory.GetFiles(truthV1, "*", SearchOption.AllDirectories).Length;
 var vLastCount = Directory.GetFiles(Path.Combine(gameDir, "truth", $"v{options.Versions}"), "*", SearchOption.AllDirectories).Length;
 Console.WriteLine($"    Created: v1={v1Count} files, v{options.Versions}={vLastCount} files");
+Console.WriteLine($"    Metadata: {metadataPath}");
 Console.WriteLine($"    Path: {gameDir}");
 
 static void CreateVersionDirectories(string versionDir, IReadOnlyCollection<FileLayout> layout)
@@ -288,4 +305,17 @@ sealed class PromptedOptions
         var value = Console.ReadLine();
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
+}
+
+sealed class FixtureMetadata
+{
+    public required string Name { get; init; }
+    public required string ProductId { get; init; }
+    public required int SizeMB { get; init; }
+    public required int Versions { get; init; }
+    public required int ChangePercent { get; init; }
+    public required string Platform { get; init; }
+    public required string Architecture { get; init; }
+    public required string TierId { get; init; }
+    public required string[] VersionIds { get; init; }
 }

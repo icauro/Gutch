@@ -37,13 +37,18 @@ impl BundleBuilder {
     }
 
     pub fn compute_bundle_id(&self) -> String {
-        let mut hashes: Vec<&str> = self.chunks.iter().map(|c| c.hash.as_str()).collect();
-        hashes.sort();
+        let mut chunks: Vec<(&str, u64)> = self
+            .chunks
+            .iter()
+            .map(|c| (c.hash.as_str(), c.raw.len() as u64))
+            .collect();
+        chunks.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
 
         let mut hasher = blake3::Hasher::new();
-        for h in &hashes {
+        for (h, size) in &chunks {
             hasher.update(h.as_bytes());
             hasher.update(b"\x00");
+            hasher.update(&size.to_le_bytes());
         }
         hasher.update(&FORMAT_VERSION.to_le_bytes());
         hash::hash_hex(&hasher.finalize())
@@ -208,16 +213,21 @@ pub fn read_bundle(data: &[u8]) -> Result<BundleReader<std::io::Cursor<Vec<u8>>>
 }
 
 pub fn bundle_id_from_chunks(chunk_hashes: &[(&str, u64)], format_version: u8) -> String {
-    let mut sorted: Vec<&str> = chunk_hashes.iter().map(|(h, _)| *h).collect();
-    sorted.sort();
+    let mut sorted: Vec<(&str, u64)> = chunk_hashes.to_vec();
+    sorted.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
 
     let mut hasher = blake3::Hasher::new();
-    for h in &sorted {
+    for (h, size) in &sorted {
         hasher.update(h.as_bytes());
         hasher.update(b"\x00");
+        hasher.update(&size.to_le_bytes());
     }
     hasher.update(&format_version.to_le_bytes());
     hash::hash_hex(&hasher.finalize())
+}
+
+pub fn bundle_id_prefix(bundle_id: &str) -> &str {
+    &bundle_id[..2.min(bundle_id.len())]
 }
 
 #[cfg(test)]

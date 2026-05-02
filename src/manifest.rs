@@ -49,7 +49,7 @@ impl Default for CompressionProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VersionManifest {
+pub struct TargetManifest {
     pub manifest_version: u32,
     pub product_id: String,
     pub version_id: String,
@@ -60,12 +60,11 @@ pub struct VersionManifest {
     pub chunking_profile: ChunkingProfile,
     pub compression_profile: CompressionProfile,
     pub bundle_format_version: String,
-    pub file_manifest_refs: Vec<String>,
+    pub files: Vec<FileManifest>,
     pub required_chunk_set: Vec<String>,
     pub required_bundle_set: Vec<String>,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,
-    pub full_build_fallback_ref: Option<String>,
     pub signature_metadata: Option<SignatureMetadata>,
 }
 
@@ -106,20 +105,6 @@ pub struct TierOverlayManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkIndexEntry {
-    pub chunk_hash: String,
-    pub bundle_id: String,
-    pub compressed_offset: u64,
-    pub compressed_size: u64,
-    pub raw_size: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BundleIndex {
-    pub entries: Vec<ChunkIndexEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleTableEntry {
     pub chunk_hash: String,
     pub raw_size: u64,
@@ -140,7 +125,7 @@ pub struct Estimate {
     pub fragmentation_score: f64,
 }
 
-impl VersionManifest {
+impl TargetManifest {
     pub fn new(
         product_id: String,
         version_id: String,
@@ -148,7 +133,7 @@ impl VersionManifest {
         architecture: String,
         tier_id: String,
     ) -> Self {
-        VersionManifest {
+        TargetManifest {
             manifest_version: FORMAT_VERSION,
             product_id,
             version_id,
@@ -159,12 +144,11 @@ impl VersionManifest {
             chunking_profile: ChunkingProfile::default(),
             compression_profile: CompressionProfile::default(),
             bundle_format_version: BUNDLE_FORMAT.to_string(),
-            file_manifest_refs: Vec::new(),
+            files: Vec::new(),
             required_chunk_set: Vec::new(),
             required_bundle_set: Vec::new(),
             total_logical_size: 0,
             total_compressed_size_estimate: 0,
-            full_build_fallback_ref: None,
             signature_metadata: None,
         }
     }
@@ -191,8 +175,8 @@ mod tests {
     }
 
     #[test]
-    fn test_version_manifest_new() {
-        let m = VersionManifest::new(
+    fn test_target_manifest_new() {
+        let m = TargetManifest::new(
             "prod-1".into(), "1.0.0".into(), "windows".into(), "x86_64".into(), "base".into(),
         );
         assert_eq!(m.product_id, "prod-1");
@@ -203,11 +187,11 @@ mod tests {
 
     #[test]
     fn test_manifest_serialization_roundtrip() {
-        let m = VersionManifest::new(
+        let m = TargetManifest::new(
             "prod-1".into(), "1.0.0".into(), "windows".into(), "x86_64".into(), "base".into(),
         );
         let json = serde_json::to_string_pretty(&m).unwrap();
-        let m2: VersionManifest = serde_json::from_str(&json).unwrap();
+        let m2: TargetManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(m.product_id, m2.product_id);
         assert_eq!(m.version_id, m2.version_id);
     }

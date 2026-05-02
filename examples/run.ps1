@@ -1,10 +1,15 @@
 param(
     [string]$GameDir = "$PSScriptRoot\fixtures\mock-game-1",
-    [int]$Versions = 2,
+    [int]$Versions = 0,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
+$GameDir = if ([System.IO.Path]::IsPathRooted($GameDir)) {
+    $GameDir
+} else {
+    Join-Path $PSScriptRoot $GameDir
+}
 Push-Location $PSScriptRoot\..
 
 if (-not (Test-Path "$GameDir\truth\v1")) {
@@ -12,41 +17,72 @@ if (-not (Test-Path "$GameDir\truth\v1")) {
     exit 1
 }
 
+$fixturePath = Join-Path $GameDir "fixture.json"
+if (Test-Path $fixturePath) {
+    $fixture = Get-Content $fixturePath -Raw | ConvertFrom-Json
+    $product = [string]$fixture.ProductId
+    $platform = [string]$fixture.Platform
+    $architecture = [string]$fixture.Architecture
+    $tier = [string]$fixture.TierId
+    $versionIds = @($fixture.VersionIds)
+
+    if ($Versions -le 0) {
+        $Versions = [int]$fixture.Versions
+    }
+
+    if ($Versions -ne $versionIds.Count) {
+        Write-Host "Requested Versions=$Versions but fixture metadata defines $($versionIds.Count) versions."
+        exit 1
+    }
+} else {
+    $truthVersions = @(Get-ChildItem (Join-Path $GameDir "truth") -Directory | Where-Object { $_.Name -match '^v\d+$' } | Sort-Object Name)
+    if ($Versions -le 0) {
+        $Versions = $truthVersions.Count
+    }
+    $product = Split-Path $GameDir -Leaf
+    $platform = "windows"
+    $architecture = "x86_64"
+    $tier = "base"
+    $versionIds = 1..$Versions | ForEach-Object { "$_.0.0" }
+}
+
+$artifactsRoot = Join-Path $GameDir "artifacts"
+$productRoot = Join-Path $artifactsRoot "v1\products\$product"
+$bundlesRoot = Join-Path $productRoot "bundles"
+$latestVersionId = [string]$versionIds[-1]
+$latestManifest = Join-Path $productRoot "targets\$latestVersionId\$platform\$architecture\$tier\manifest.json"
+
 # --- Build ---
 if (-not $SkipBuild) {
     Write-Host "=== Building artifacts ==="
+    Remove-Item -Recurse -Force $artifactsRoot -ErrorAction SilentlyContinue
     for ($v = 1; $v -le $Versions; $v++) {
-        Write-Host "  v$v ($(if ($v -eq 1){"full"}else{"delta"}))..."
+        $versionId = [string]$versionIds[$v - 1]
+        Write-Host "  $versionId..."
         cargo run -- build `
             --dir "$GameDir\truth\v$v" `
-            --product mock-game `
-            --version "$v.0.0" `
-            --output "$GameDir\artifacts\v$v"
+            --product $product `
+            --version $versionId `
+            --platform $platform `
+            --architecture $architecture `
+            --tier $tier `
+            --output $artifactsRoot
     }
 }
 
-# --- Apply: reconstruct latest version from all bundles ---
-Write-Host "`n=== Applying (v1 full + deltas -> v$Versions) ==="
-$bundleDir = "$GameDir\applied\_bundles"
-Remove-Item -Recurse -Force $bundleDir,"$GameDir\applied\latest" -ErrorAction SilentlyContinue
-$null = mkdir -Force $bundleDir
-for ($v = 1; $v -le $Versions; $v++) {
-    Copy-Item "$GameDir\artifacts\v$v\bundle-000.gutch.bundle" "$bundleDir\v$v.gutch.bundle" -ErrorAction SilentlyContinue
-}
+# --- Apply: reconstruct latest version from shared bundle store ---
+Write-Host "`n=== Applying latest target from shared bundles ==="
+Remove-Item -Recurse -Force "$GameDir\applied\latest" -ErrorAction SilentlyContinue
 
 cargo run -- reconstruct `
-    -m "$GameDir\artifacts\v$Versions\version.gutch.json" `
-    -f "$GameDir\artifacts\v$Versions" `
-    -b $bundleDir `
+    -m $latestManifest `
+    -b $bundlesRoot `
     --output "$GameDir\applied\latest"
-
-Remove-Item -Recurse -Force $bundleDir -ErrorAction SilentlyContinue
 
 # --- Verify ---
 Write-Host "`n=== Verifying ==="
 cargo run -- verify `
-    -m "$GameDir\artifacts\v$Versions\version.gutch.json" `
-    -f "$GameDir\artifacts\v$Versions" `
+    -m $latestManifest `
     --dir "$GameDir\applied\latest"
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  gutch verify: PASSED"

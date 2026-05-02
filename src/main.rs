@@ -28,7 +28,7 @@ fn print_build_timings(t: &g::BuildTimings) {
     println!("  metadata:          {:.2} ms", ms(t.metadata));
     println!("  compress/dedupe:   {:.2} ms  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s", ms(t.dedupe_compress), mib(t.dedupe_input_bytes), mib(t.dedupe_output_bytes), mib_per_s(t.dedupe_input_bytes, t.dedupe_compress));
     println!("  bundle build:      {:.2} ms  out {:.2} MiB  {:.2} MiB/s", ms(t.bundle_build), mib(t.bundle_build_bytes), mib_per_s(t.bundle_build_bytes, t.bundle_build));
-    println!("  manifest finalize: {:.2} ms", ms(t.manifest_finalize));
+    println!("  target manifest finalize: {:.2} ms", ms(t.target_manifest_finalize));
     println!("  total:             {:.2} ms", ms(t.total));
 }
 
@@ -86,9 +86,6 @@ enum Commands {
         #[arg(short = 'm', long)]
         manifest: PathBuf,
 
-        #[arg(short = 'f', long)]
-        files: PathBuf,
-
         #[arg(short = 'b', long)]
         bundles: PathBuf,
 
@@ -99,9 +96,6 @@ enum Commands {
     Verify {
         #[arg(short = 'm', long)]
         manifest: PathBuf,
-
-        #[arg(short = 'f', long)]
-        files: PathBuf,
 
         #[arg(short, long)]
         dir: PathBuf,
@@ -140,36 +134,43 @@ fn run(cli: Cli) -> g::Result<()> {
                 &dir, &product, &version, &platform, &architecture, &tier,
             )?;
 
-            std::fs::create_dir_all(&output)?;
+            let product_root = output
+                .join("v1")
+                .join("products")
+                .join(&product);
+            let target_root = product_root
+                .join("targets")
+                .join(&version)
+                .join(&platform)
+                .join(&architecture)
+                .join(&tier);
+            let bundles_root = product_root.join("bundles");
 
-            let manifest_path = output.join("version.gutch.json");
-            let manifest_json = serde_json::to_string_pretty(&result.version_manifest)?;
+            std::fs::create_dir_all(&target_root)?;
+            std::fs::create_dir_all(&bundles_root)?;
+
+            let manifest_path = target_root.join("manifest.json");
+            let manifest_json = serde_json::to_string_pretty(&result.target_manifest)?;
             std::fs::write(&manifest_path, &manifest_json)?;
-            println!("wrote version manifest: {}", manifest_path.display());
+            println!("wrote target manifest: {}", manifest_path.display());
 
-            for (i, bundle) in result.bundle_data.iter().enumerate() {
-                let bundle_path = output.join(format!("bundle-{:03}.gutch.bundle", i));
-                std::fs::write(&bundle_path, bundle)?;
-                println!("wrote bundle: {} ({} bytes)", bundle_path.display(), bundle.len());
-            }
-
-            for fm in &result.file_manifests {
-                let safe_name = fm.path.replace(['/', '\\'], "_");
-                let fm_path = output.join(format!("file_{}.json", safe_name));
-                let fm_json = serde_json::to_string_pretty(fm)?;
-                std::fs::write(&fm_path, &fm_json)?;
-                println!("wrote file manifest: {}", fm_path.display());
+            for bundle in &result.bundles {
+                let prefix = g::bundle::bundle_id_prefix(&bundle.bundle_id);
+                let bundle_dir = bundles_root.join(prefix);
+                std::fs::create_dir_all(&bundle_dir)?;
+                let bundle_path = bundle_dir.join(format!("{}.bundle", bundle.bundle_id));
+                std::fs::write(&bundle_path, &bundle.data)?;
+                println!("wrote bundle: {} ({} bytes)", bundle_path.display(), bundle.data.len());
             }
 
             println!(
                 "done. {} files in manifest, total logical: {} bytes",
-                result.file_manifests.len(),
-                result.version_manifest.total_logical_size
+                result.target_manifest.files.len(),
+                result.target_manifest.total_logical_size
             );
 
             if let Ok(est) = g::estimate_build(
-                &result.version_manifest,
-                &result.file_manifests,
+                &result.target_manifest,
                 &Default::default(),
                 0,
             ) {
@@ -183,29 +184,9 @@ fn run(cli: Cli) -> g::Result<()> {
             print_build_timings(&timings);
         }
 
-        Commands::Reconstruct { manifest, files, bundles, output } => {
+        Commands::Reconstruct { manifest, bundles, output } => {
             let manifest_json = std::fs::read_to_string(&manifest)?;
-            let vm: g::manifest::VersionManifest = serde_json::from_str(&manifest_json)?;
-
-            let file_manifests: Vec<g::manifest::FileManifest> = if files.is_dir() {
-                let mut fms = Vec::new();
-                for entry in walkdir::WalkDir::new(&files).sort_by_file_name() {
-                    let entry = entry?;
-                    if entry.path().extension().map_or(false, |e| e == "json") {
-                        let fname = entry.file_name().to_string_lossy();
-                        if fname.contains("version") {
-                            continue;
-                        }
-                        let json = std::fs::read_to_string(entry.path())?;
-                        let fm: g::manifest::FileManifest = serde_json::from_str(&json)?;
-                        fms.push(fm);
-                    }
-                }
-                fms
-            } else {
-                let json = std::fs::read_to_string(&files)?;
-                serde_json::from_str(&json)?
-            };
+            let tm: g::manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
 
             let bundle_vec: Vec<Vec<u8>> = if bundles.is_dir() {
                 let mut bvs = Vec::new();
@@ -222,36 +203,16 @@ fn run(cli: Cli) -> g::Result<()> {
                 Vec::new()
             };
 
-            let (_, timings) = g::reconstruct_from_manifest_with_timings(&vm, &file_manifests, &bundle_vec, &output)?;
+            let (_, timings) = g::reconstruct_from_target_manifest_with_timings(&tm, &bundle_vec, &output)?;
             println!("reconstructed to: {}", output.display());
             print_reconstruct_timings(&timings);
         }
 
-        Commands::Verify { manifest, files, dir } => {
+        Commands::Verify { manifest, dir } => {
             let manifest_json = std::fs::read_to_string(&manifest)?;
-            let vm: g::manifest::VersionManifest = serde_json::from_str(&manifest_json)?;
+            let tm: g::manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
 
-            let file_manifests: Vec<g::manifest::FileManifest> = if files.is_dir() {
-                let mut fms = Vec::new();
-                for entry in walkdir::WalkDir::new(&files).sort_by_file_name() {
-                    let entry = entry?;
-                    if entry.path().extension().map_or(false, |e| e == "json") {
-                        let fname = entry.file_name().to_string_lossy();
-                        if fname.contains("version") {
-                            continue;
-                        }
-                        let json = std::fs::read_to_string(entry.path())?;
-                        let fm: g::manifest::FileManifest = serde_json::from_str(&json)?;
-                        fms.push(fm);
-                    }
-                }
-                fms
-            } else {
-                let json = std::fs::read_to_string(&files)?;
-                serde_json::from_str(&json)?
-            };
-
-            let (errors, timings) = g::verify_directory_with_timings(&vm, &file_manifests, &dir)?;
+            let (errors, timings) = g::verify_directory_with_timings(&tm, &dir)?;
 
             if errors.is_empty() {
                 println!("verification passed for {}", dir.display());
@@ -289,15 +250,14 @@ fn run(cli: Cli) -> g::Result<()> {
             )?;
 
             let est = g::estimate_build(
-                &result.version_manifest,
-                &result.file_manifests,
+                &result.target_manifest,
                 &Default::default(),
                 1024 * 1024 * 1024,
             )?;
 
             println!("fresh install estimate:");
-            println!("  files: {}", result.file_manifests.len());
-            println!("  logical size:  {:.2} MiB", result.version_manifest.total_logical_size as f64 / (1024.0 * 1024.0));
+            println!("  files: {}", result.target_manifest.files.len());
+            println!("  logical size:  {:.2} MiB", result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0));
             println!("  missing chunks: {}", est.missing_chunk_count);
             println!("  missing logical: {:.2} MiB", est.missing_logical_bytes as f64 / (1024.0 * 1024.0));
             println!("  missing compressed: {:.2} MiB", est.missing_compressed_bytes as f64 / (1024.0 * 1024.0));
