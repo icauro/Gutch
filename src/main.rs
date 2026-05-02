@@ -30,7 +30,7 @@ fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
 }
 
 struct InputSizingStats {
-    total_uncompressed_size_bytes: u64,
+    target_logical_size_bytes: u64,
     median_file_size_bytes: u64,
 }
 
@@ -44,7 +44,7 @@ fn collect_input_sizing_stats(dir: &PathBuf) -> g::Result<InputSizingStats> {
     }
 
     sizes.sort_unstable();
-    let total_uncompressed_size_bytes = sizes.iter().copied().sum();
+    let target_logical_size_bytes = sizes.iter().copied().sum();
     let median_file_size_bytes = if sizes.is_empty() {
         0
     } else {
@@ -57,41 +57,119 @@ fn collect_input_sizing_stats(dir: &PathBuf) -> g::Result<InputSizingStats> {
     };
 
     Ok(InputSizingStats {
-        total_uncompressed_size_bytes,
+        target_logical_size_bytes,
         median_file_size_bytes,
     })
 }
 
 fn print_build_timings(t: &g::BuildTimings) {
     println!("timings:");
-    println!("  read files:        {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.scan_read), mib(t.scan_read_bytes), mib_per_s(t.scan_read_bytes, t.scan_read));
-    println!("  file hashing:      {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_hash), mib(t.file_hash_bytes), mib_per_s(t.file_hash_bytes, t.file_hash));
-    println!("  chunking:          {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.chunking), mib(t.chunking_bytes), mib_per_s(t.chunking_bytes, t.chunking));
-    println!("  hash judgment:     {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.chunk_hash_judgment), mib(t.chunk_hash_judgment_bytes), mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment));
+    println!(
+        "  read files:        {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.scan_read),
+        mib(t.scan_read_bytes),
+        mib_per_s(t.scan_read_bytes, t.scan_read)
+    );
+    println!(
+        "  file hashing:      {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.file_hash),
+        mib(t.file_hash_bytes),
+        mib_per_s(t.file_hash_bytes, t.file_hash)
+    );
+    println!(
+        "  chunking:          {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.chunking),
+        mib(t.chunking_bytes),
+        mib_per_s(t.chunking_bytes, t.chunking)
+    );
+    println!(
+        "  hash judgment:     {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.chunk_hash_judgment),
+        mib(t.chunk_hash_judgment_bytes),
+        mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment)
+    );
     println!("  metadata:          {:.2} s", secs(t.metadata));
-    println!("  dedupe lookup:     {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.dedupe_lookup), mib(t.dedupe_lookup_bytes), mib_per_s(t.dedupe_lookup_bytes, t.dedupe_lookup));
-    println!("  compression:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s", secs(t.compression), mib(t.compression_input_bytes), mib(t.compression_output_bytes), mib_per_s(t.compression_input_bytes, t.compression));
-    println!("  total dedupe ratio: {:.2}%  (out / in)", ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes));
-    println!("  bundle build:      {:.2} s  out {:.2} MiB  {:.2} MiB/s", secs(t.bundle_build), mib(t.bundle_build_bytes), mib_per_s(t.bundle_build_bytes, t.bundle_build));
-    println!("  target manifest finalize: {:.2} s", secs(t.target_manifest_finalize));
+    println!(
+        "  dedupe lookup:     {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.dedupe_lookup),
+        mib(t.dedupe_lookup_bytes),
+        mib_per_s(t.dedupe_lookup_bytes, t.dedupe_lookup)
+    );
+    println!(
+        "  compression:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
+        secs(t.compression),
+        mib(t.compression_input_bytes),
+        mib(t.compression_output_bytes),
+        mib_per_s(t.compression_input_bytes, t.compression)
+    );
+    println!(
+        "  total dedupe ratio: {:.2}%  (out / in)",
+        ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)
+    );
+    println!(
+        "  bundle build:      {:.2} s  out {:.2} MiB  {:.2} MiB/s",
+        secs(t.bundle_build),
+        mib(t.bundle_build_bytes),
+        mib_per_s(t.bundle_build_bytes, t.bundle_build)
+    );
+    println!(
+        "  target manifest finalize: {:.2} s",
+        secs(t.target_manifest_finalize)
+    );
     println!("  total:             {:.2} s", secs(t.total));
 }
 
 fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     println!("timings:");
-    println!("  bundle read:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s", secs(t.bundle_read), mib(t.bundle_read_compressed_bytes), mib(t.bundle_read_decompressed_bytes), mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read));
-    println!("  file rebuild:      {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_rebuild), mib(t.file_rebuild_bytes), mib_per_s(t.file_rebuild_bytes, t.file_rebuild));
-    println!("  file verify:       {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_verify), mib(t.file_verify_bytes), mib_per_s(t.file_verify_bytes, t.file_verify));
-    println!("  file write:        {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_write), mib(t.file_write_bytes), mib_per_s(t.file_write_bytes, t.file_write));
+    println!(
+        "  bundle read:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
+        secs(t.bundle_read),
+        mib(t.bundle_read_compressed_bytes),
+        mib(t.bundle_read_decompressed_bytes),
+        mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read)
+    );
+    println!(
+        "  file rebuild:      {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.file_rebuild),
+        mib(t.file_rebuild_bytes),
+        mib_per_s(t.file_rebuild_bytes, t.file_rebuild)
+    );
+    println!(
+        "  file verify:       {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.file_verify),
+        mib(t.file_verify_bytes),
+        mib_per_s(t.file_verify_bytes, t.file_verify)
+    );
+    println!(
+        "  file write:        {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.file_write),
+        mib(t.file_write_bytes),
+        mib_per_s(t.file_write_bytes, t.file_write)
+    );
     println!("  total:             {:.2} s", secs(t.total));
 }
 
 fn print_verify_timings(t: &g::VerifyTimings) {
     println!("timings:");
     println!("  stat:              {:.2} s", secs(t.stat));
-    println!("  file read:         {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_read), mib(t.file_read_bytes), mib_per_s(t.file_read_bytes, t.file_read));
-    println!("  file hash:         {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.file_hash), mib(t.file_hash_bytes), mib_per_s(t.file_hash_bytes, t.file_hash));
-    println!("  chunk hash:        {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.chunk_hash), mib(t.chunk_hash_bytes), mib_per_s(t.chunk_hash_bytes, t.chunk_hash));
+    println!(
+        "  file read:         {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.file_read),
+        mib(t.file_read_bytes),
+        mib_per_s(t.file_read_bytes, t.file_read)
+    );
+    println!(
+        "  file hash:         {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.file_hash),
+        mib(t.file_hash_bytes),
+        mib_per_s(t.file_hash_bytes, t.file_hash)
+    );
+    println!(
+        "  chunk hash:        {:.2} s  {:.2} MiB  {:.2} MiB/s",
+        secs(t.chunk_hash),
+        mib(t.chunk_hash_bytes),
+        mib_per_s(t.chunk_hash_bytes, t.chunk_hash)
+    );
     println!("  total:             {:.2} s", secs(t.total));
 }
 
@@ -128,6 +206,9 @@ enum Commands {
 
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
         bundle_profile: g::manifest::BundleSizingPreset,
+
+        #[arg(long = "compression-unit", value_parser = ["chunk", "bundle"], default_value = "chunk")]
+        compression_unit: String,
 
         #[arg(short, long)]
         output: PathBuf,
@@ -180,12 +261,20 @@ fn main() {
 
 fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
-        Commands::Build { dir, product, version, platform, architecture, tier, chunk_profile, bundle_profile, output } => {
+        Commands::Build {
+            dir,
+            product,
+            version,
+            platform,
+            architecture,
+            tier,
+            chunk_profile,
+            bundle_profile,
+            compression_unit,
+            output,
+        } => {
             let input_stats = collect_input_sizing_stats(&dir)?;
-            let product_root = output
-                .join("v1")
-                .join("products")
-                .join(&product);
+            let product_root = output.join("v1").join("products").join(&product);
             let target_root = product_root
                 .join("targets")
                 .join(&version)
@@ -233,9 +322,12 @@ fn run(cli: Cli) -> g::Result<()> {
                     }
 
                     let manifest_json = std::fs::read_to_string(entry.path())?;
-                    let manifest: g::manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
+                    let manifest: g::manifest::TargetManifest =
+                        serde_json::from_str(&manifest_json)?;
                     for file in manifest.files {
-                        previous_file_manifests.entry(file.path.clone()).or_insert(file);
+                        previous_file_manifests
+                            .entry(file.path.clone())
+                            .or_insert(file);
                     }
                 }
             }
@@ -246,10 +338,15 @@ fn run(cli: Cli) -> g::Result<()> {
             );
             let bundle_sizing_profile = g::manifest::BundleSizingProfile::for_selection(
                 bundle_profile,
-                input_stats.total_uncompressed_size_bytes,
+                input_stats.target_logical_size_bytes,
             );
+            let compression_profile = g::manifest::CompressionProfile {
+                compression: g::manifest::COMPRESSION_ZSTD.to_string(),
+                compression_unit,
+                zstd_level: 3,
+            };
 
-            let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
+            let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
                 &dir,
                 &product,
                 &version,
@@ -261,6 +358,7 @@ fn run(cli: Cli) -> g::Result<()> {
                 &previous_file_manifests,
                 &chunk_sizing_profile,
                 &bundle_sizing_profile,
+                &compression_profile,
             )?;
 
             let manifest_path = target_root.join("manifest.json");
@@ -274,7 +372,11 @@ fn run(cli: Cli) -> g::Result<()> {
                 std::fs::create_dir_all(&bundle_dir)?;
                 let bundle_path = bundle_dir.join(format!("{}.bundle", bundle.bundle_id));
                 std::fs::write(&bundle_path, &bundle.data)?;
-                println!("wrote bundle: {} ({} bytes)", bundle_path.display(), bundle.data.len());
+                println!(
+                    "wrote bundle: {} ({} bytes)",
+                    bundle_path.display(),
+                    bundle.data.len()
+                );
             }
 
             println!(
@@ -283,11 +385,7 @@ fn run(cli: Cli) -> g::Result<()> {
                 result.target_manifest.total_logical_size
             );
 
-            if let Ok(est) = g::estimate_build(
-                &result.target_manifest,
-                &Default::default(),
-                0,
-            ) {
+            if let Ok(est) = g::estimate_build(&result.target_manifest, &Default::default(), 0) {
                 println!(
                     "estimate: {} chunks missing, {:.1} MiB logical",
                     est.missing_chunk_count,
@@ -298,13 +396,18 @@ fn run(cli: Cli) -> g::Result<()> {
             print_build_timings(&timings);
         }
 
-        Commands::Reconstruct { manifest, bundles, output } => {
+        Commands::Reconstruct {
+            manifest,
+            bundles,
+            output,
+        } => {
             let manifest_json = std::fs::read_to_string(&manifest)?;
             let tm: g::manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
 
             let bundle_paths: Vec<PathBuf> = if bundles.is_dir() {
                 let mut paths = Vec::new();
-                let required_bundle_ids: HashSet<&str> = tm.required_bundle_set.iter().map(String::as_str).collect();
+                let required_bundle_ids: HashSet<&str> =
+                    tm.required_bundle_set.iter().map(String::as_str).collect();
                 for entry in walkdir::WalkDir::new(&bundles).sort_by_file_name() {
                     let entry = entry?;
                     if !entry.path().is_file() {
@@ -312,7 +415,8 @@ fn run(cli: Cli) -> g::Result<()> {
                     }
                     if entry.path().extension().map_or(false, |e| e == "bundle") {
                         if !required_bundle_ids.is_empty() {
-                            let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) else {
+                            let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str())
+                            else {
                                 continue;
                             };
                             if !required_bundle_ids.contains(stem) {
@@ -329,7 +433,8 @@ fn run(cli: Cli) -> g::Result<()> {
                 Vec::new()
             };
 
-            let (_, timings) = g::reconstruct_from_bundle_paths_with_timings(&tm, &bundle_paths, &output)?;
+            let (_, timings) =
+                g::reconstruct_from_bundle_paths_with_timings(&tm, &bundle_paths, &output)?;
             println!("reconstructed to: {}", output.display());
             print_reconstruct_timings(&timings);
         }
@@ -370,10 +475,13 @@ fn run(cli: Cli) -> g::Result<()> {
             }
         }
 
-        Commands::Estimate { dir, product, version } => {
-            let result = g::build_from_directory(
-                &dir, &product, &version, "windows", "x86_64", "base",
-            )?;
+        Commands::Estimate {
+            dir,
+            product,
+            version,
+        } => {
+            let result =
+                g::build_from_directory(&dir, &product, &version, "windows", "x86_64", "base")?;
 
             let est = g::estimate_build(
                 &result.target_manifest,
@@ -383,10 +491,19 @@ fn run(cli: Cli) -> g::Result<()> {
 
             println!("fresh install estimate:");
             println!("  files: {}", result.target_manifest.files.len());
-            println!("  logical size:  {:.2} MiB", result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0));
+            println!(
+                "  logical size:  {:.2} MiB",
+                result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0)
+            );
             println!("  missing chunks: {}", est.missing_chunk_count);
-            println!("  missing logical: {:.2} MiB", est.missing_logical_bytes as f64 / (1024.0 * 1024.0));
-            println!("  missing compressed: {:.2} MiB", est.missing_compressed_bytes as f64 / (1024.0 * 1024.0));
+            println!(
+                "  missing logical: {:.2} MiB",
+                est.missing_logical_bytes as f64 / (1024.0 * 1024.0)
+            );
+            println!(
+                "  missing compressed: {:.2} MiB",
+                est.missing_compressed_bytes as f64 / (1024.0 * 1024.0)
+            );
             println!("  estimated bundles: {}", est.required_bundle_count);
             println!("  fragmentation score: {:.1}", est.fragmentation_score);
         }

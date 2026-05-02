@@ -19,7 +19,10 @@ impl Rng {
     }
 
     fn next(&mut self) -> u64 {
-        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.state
     }
 
@@ -95,7 +98,9 @@ fn generate_config_json(size: usize) -> String {
     while out.len() + 64 < size {
         out.push_str(&format!(
             "  \"key_{:06}\": \"value_{:06}_{:08}\",\n",
-            i, i, i.wrapping_mul(0x9e3779b9)
+            i,
+            i,
+            i.wrapping_mul(0x9e3779b9)
         ));
         i = i.wrapping_add(1);
     }
@@ -105,9 +110,9 @@ fn generate_config_json(size: usize) -> String {
 
 fn generate_text(size: usize) -> String {
     let words = [
-        "the", "game", "version", "update", "patch", "install", "launcher", "data",
-        "file", "config", "build", "release", "asset", "texture", "audio", "level",
-        "player", "enemy", "weapon", "health", "score", "save", "load", "menu",
+        "the", "game", "version", "update", "patch", "install", "launcher", "data", "file",
+        "config", "build", "release", "asset", "texture", "audio", "level", "player", "enemy",
+        "weapon", "health", "score", "save", "load", "menu",
     ];
     let mut out = String::with_capacity(size + 64);
     let mut wi = 0u64;

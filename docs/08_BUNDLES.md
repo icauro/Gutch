@@ -151,6 +151,8 @@ In implementation, Gutch exposes five chunk sizing presets and six bundle sizing
 
 Each preset maps to a chunk sizing envelope and a bundle sizing envelope. The manifest records both chosen profiles so later tooling can understand how the artifact was produced.
 
+If bundle sizing is selected automatically, the reference input is the logical size of the single target currently being built. It must not be derived from the sum of all retained targets already stored for the product.
+
 | Preset | Chunk sizing | Bundle sizing |
 |---|---|---|
 | `tiny` | `8 KiB` / `32 KiB` / `128 KiB` | `8 MiB` max / `4 MiB` preferred |

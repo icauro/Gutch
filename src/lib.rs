@@ -20,6 +20,7 @@ pub use error::{Error, Result};
 
 use crate::compress::compress_chunk;
 use crate::hash::hash_hex;
+use crate::manifest::COMPRESSION_UNIT_BUNDLE;
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const MIN_PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
@@ -162,7 +163,9 @@ impl BundleSizingPolicy {
         }
 
         if compressed_bytes <= self.max_size {
-            return compressed_bytes.max(self.min_preferred_size).min(self.max_size);
+            return compressed_bytes
+                .max(self.min_preferred_size)
+                .min(self.max_size);
         }
 
         let bundle_count = compressed_bytes.div_ceil(self.max_size);
@@ -297,9 +300,39 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     chunk_profile: &manifest::ChunkSizingProfile,
     bundle_profile: &manifest::BundleSizingProfile,
 ) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
+        dir,
+        product_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        previous_file_manifests,
+        chunk_profile,
+        bundle_profile,
+        &manifest::CompressionProfile::default(),
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
+    dir: &Path,
+    product_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+    previous_file_manifests: &HashMap<String, FileManifest>,
+    chunk_profile: &manifest::ChunkSizingProfile,
+    bundle_profile: &manifest::BundleSizingProfile,
+    compression_profile: &manifest::CompressionProfile,
+) -> Result<(BuildResult, BuildTimings)> {
     let total_start = Instant::now();
     let chunking_profile = chunk_profile;
-    let compression_profile = manifest::CompressionProfile::default();
+    let compression_profile = compression_profile.clone();
     let mut timings = BuildTimings::default();
 
     let mut file_paths: Vec<PathBuf> = Vec::new();
@@ -327,7 +360,9 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
             let full_file_hash = hash_hex(&hash::hash_chunk(&file_data));
             let file_hash = t.elapsed();
 
-            if let Some(previous) = previous_file_manifests.get(&relative.to_string_lossy().replace('\\', "/")) {
+            if let Some(previous) =
+                previous_file_manifests.get(&relative.to_string_lossy().replace('\\', "/"))
+            {
                 if previous.size == file_size && previous.full_file_hash == full_file_hash {
                     return Ok(FileBuildEntry {
                         manifest: previous.clone(),
@@ -449,53 +484,94 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     }
 
     let t = Instant::now();
-    let compressed_chunks: Vec<CompressedChunk> = chunks_to_compress
-        .into_par_iter()
-        .map(|(hash, data)| -> Result<CompressedChunk> {
-            let raw_size = data.len() as u64;
-            let compressed = compress_chunk(&data, &compression_profile)?;
-            Ok(CompressedChunk { hash, raw_size, compressed })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    timings.compression += t.elapsed();
-
-    for chunk in &compressed_chunks {
-        timings.compression_output_bytes += chunk.compressed.len() as u64;
-        if compressed_estimate_seen.insert(chunk.hash.clone()) {
-            total_compressed += chunk.compressed.len() as u64;
-        }
-    }
-    timings.total_compressed_bytes = total_compressed;
-
-    let mut sorted_chunks = compressed_chunks;
-    sorted_chunks.sort_by(|a, b| a.hash.cmp(&b.hash));
-
-    let t = Instant::now();
     let mut bundles = Vec::new();
     let mut builder = BundleBuilder::new(compression_profile.clone());
-    let mut current_bundle_compressed_size: u64 = 0;
-    let new_compressed_bytes: u64 = sorted_chunks.iter().map(|c| c.compressed.len() as u64).sum();
-    let bundle_target_size = BundleSizingPolicy::new(
+    let mut current_bundle_size: u64 = 0;
+    let bundle_target_size_policy = BundleSizingPolicy::new(
         bundle_profile.bundle_max_size_bytes(),
         bundle_profile.bundle_preferred_size_bytes(),
-    )
-    .target_size_for(new_compressed_bytes);
+    );
 
-    for chunk in sorted_chunks {
-        let compressed_size = chunk.compressed.len() as u64;
-        if !builder.is_empty() && current_bundle_compressed_size + compressed_size > bundle_target_size {
-            let bundle_id = builder.compute_bundle_id();
-            required_bundle_set.push(bundle_id.clone());
-            if !existing_bundle_ids.contains(&bundle_id) {
-                let bundle_data = builder.build()?;
-                bundles.push(BuiltBundle { bundle_id, data: bundle_data });
+    if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
+        let mut sorted_chunks = chunks_to_compress;
+        sorted_chunks.sort_by(|a, b| a.0.cmp(&b.0));
+        let new_raw_bytes: u64 = sorted_chunks
+            .iter()
+            .map(|(_, data)| data.len() as u64)
+            .sum();
+        let bundle_target_size = bundle_target_size_policy.target_size_for(new_raw_bytes);
+
+        for (hash, data) in sorted_chunks {
+            let raw_size = data.len() as u64;
+            if !builder.is_empty() && current_bundle_size + raw_size > bundle_target_size {
+                let bundle_id = builder.compute_bundle_id();
+                required_bundle_set.push(bundle_id.clone());
+                if !existing_bundle_ids.contains(&bundle_id) {
+                    let bundle_data = builder.build()?;
+                    timings.compression_output_bytes += bundle_data.len() as u64;
+                    total_compressed += bundle_data.len() as u64;
+                    bundles.push(BuiltBundle {
+                        bundle_id,
+                        data: bundle_data,
+                    });
+                }
+                builder = BundleBuilder::new(compression_profile.clone());
+                current_bundle_size = 0;
             }
-            builder = BundleBuilder::new(compression_profile.clone());
-            current_bundle_compressed_size = 0;
+
+            builder.add_chunk(hash, data);
+            current_bundle_size += raw_size;
+        }
+    } else {
+        let t = Instant::now();
+        let compressed_chunks: Vec<CompressedChunk> = chunks_to_compress
+            .into_par_iter()
+            .map(|(hash, data)| -> Result<CompressedChunk> {
+                let raw_size = data.len() as u64;
+                let compressed = compress_chunk(&data, &compression_profile)?;
+                Ok(CompressedChunk {
+                    hash,
+                    raw_size,
+                    compressed,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        timings.compression += t.elapsed();
+
+        for chunk in &compressed_chunks {
+            timings.compression_output_bytes += chunk.compressed.len() as u64;
+            if compressed_estimate_seen.insert(chunk.hash.clone()) {
+                total_compressed += chunk.compressed.len() as u64;
+            }
         }
 
-        builder.add_precompressed_chunk(chunk.hash, chunk.raw_size, chunk.compressed);
-        current_bundle_compressed_size += compressed_size;
+        let mut sorted_chunks = compressed_chunks;
+        sorted_chunks.sort_by(|a, b| a.hash.cmp(&b.hash));
+        let new_compressed_bytes: u64 = sorted_chunks
+            .iter()
+            .map(|c| c.compressed.len() as u64)
+            .sum();
+        let bundle_target_size = bundle_target_size_policy.target_size_for(new_compressed_bytes);
+
+        for chunk in sorted_chunks {
+            let compressed_size = chunk.compressed.len() as u64;
+            if !builder.is_empty() && current_bundle_size + compressed_size > bundle_target_size {
+                let bundle_id = builder.compute_bundle_id();
+                required_bundle_set.push(bundle_id.clone());
+                if !existing_bundle_ids.contains(&bundle_id) {
+                    let bundle_data = builder.build()?;
+                    bundles.push(BuiltBundle {
+                        bundle_id,
+                        data: bundle_data,
+                    });
+                }
+                builder = BundleBuilder::new(compression_profile.clone());
+                current_bundle_size = 0;
+            }
+
+            builder.add_precompressed_chunk(chunk.hash, chunk.raw_size, chunk.compressed);
+            current_bundle_size += compressed_size;
+        }
     }
 
     if !builder.is_empty() {
@@ -503,10 +579,21 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
         required_bundle_set.push(bundle_id.clone());
         if !existing_bundle_ids.contains(&bundle_id) {
             let bundle_data = builder.build()?;
-            bundles.push(BuiltBundle { bundle_id, data: bundle_data });
+            if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
+                timings.compression_output_bytes += bundle_data.len() as u64;
+                total_compressed += bundle_data.len() as u64;
+            }
+            bundles.push(BuiltBundle {
+                bundle_id,
+                data: bundle_data,
+            });
         }
     }
 
+    if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
+        timings.compression = t.elapsed();
+    }
+    timings.total_compressed_bytes = total_compressed;
     timings.bundle_build += t.elapsed();
     timings.bundle_build_bytes = bundles.iter().map(|b| b.data.len() as u64).sum();
 
@@ -522,6 +609,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
     vm.chunk_sizing_profile = chunk_profile.clone();
+    vm.compression_profile = compression_profile.clone();
     vm.bundle_sizing_profile = bundle_profile.clone();
     vm.files = file_manifests;
     vm.required_chunk_set = all_chunk_hashes.into_iter().collect();
@@ -532,10 +620,13 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     timings.target_manifest_finalize += t.elapsed();
     timings.total = total_start.elapsed();
 
-    Ok((BuildResult {
-        target_manifest: vm,
-        bundles,
-    }, timings))
+    Ok((
+        BuildResult {
+            target_manifest: vm,
+            bundles,
+        },
+        timings,
+    ))
 }
 
 pub fn reconstruct_from_target_manifest(
@@ -543,7 +634,8 @@ pub fn reconstruct_from_target_manifest(
     bundles: &[Vec<u8>],
     output_dir: &Path,
 ) -> Result<()> {
-    let (_, _) = reconstruct_from_target_manifest_with_timings(target_manifest, bundles, output_dir)?;
+    let (_, _) =
+        reconstruct_from_target_manifest_with_timings(target_manifest, bundles, output_dir)?;
     Ok(())
 }
 
@@ -573,7 +665,9 @@ pub fn reconstruct_from_target_manifest_with_timings(
             .enumerate()
             .filter_map(|e| {
                 let (index, entry) = e;
-                if needed_chunks.contains(&entry.chunk_hash) && !chunk_map.contains_key(&entry.chunk_hash) {
+                if needed_chunks.contains(&entry.chunk_hash)
+                    && !chunk_map.contains_key(&entry.chunk_hash)
+                {
                     Some(index)
                 } else {
                     None
@@ -625,11 +719,13 @@ pub fn reconstruct_from_bundle_paths_with_timings(
         let reader = bundle::BundleReader::open(file)?;
         for (index, entry) in reader.entries().iter().enumerate() {
             if needed_chunks.contains(&entry.chunk_hash) {
-                locations.entry(entry.chunk_hash.clone()).or_insert_with(|| ChunkLocation {
-                    bundle_path: bundle_path.clone(),
-                    index,
-                    compressed_size: entry.compressed_size,
-                });
+                locations
+                    .entry(entry.chunk_hash.clone())
+                    .or_insert_with(|| ChunkLocation {
+                        bundle_path: bundle_path.clone(),
+                        index,
+                        compressed_size: entry.compressed_size,
+                    });
             }
         }
 
@@ -703,9 +799,7 @@ fn reconstruct_files_from_locations(
         if written != fm.size {
             return Err(Error::Reconstruct(format!(
                 "reconstructed size {} does not match expected {} for {}",
-                written,
-                fm.size,
-                fm.path
+                written, fm.size, fm.path
             )));
         }
 
@@ -782,10 +876,7 @@ fn rebuild_files_from_chunks(
     Ok(())
 }
 
-pub fn verify_directory(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-) -> Result<Vec<String>> {
+pub fn verify_directory(target_manifest: &TargetManifest, dir: &Path) -> Result<Vec<String>> {
     let (errors, _) = verify_directory_with_timings(target_manifest, dir)?;
     Ok(errors)
 }
@@ -844,9 +935,7 @@ pub fn verify_directory_with_timings(
         if actual_hash != fm.full_file_hash {
             errors.push(format!(
                 "hash mismatch for {}: expected {}, got {}",
-                fm.path,
-                fm.full_file_hash,
-                actual_hash
+                fm.path, fm.full_file_hash, actual_hash
             ));
         }
 
@@ -856,9 +945,7 @@ pub fn verify_directory_with_timings(
             if end > file_data.len() {
                 errors.push(format!(
                     "chunk reference out of bounds in {}: offset {}, size {}",
-                    fm.path,
-                    chunk_ref.file_offset,
-                    chunk_ref.raw_size
+                    fm.path, chunk_ref.file_offset, chunk_ref.raw_size
                 ));
                 continue;
             }
@@ -871,10 +958,7 @@ pub fn verify_directory_with_timings(
             if actual_chunk_hash != chunk_ref.chunk_hash {
                 errors.push(format!(
                     "chunk hash mismatch in {} at offset {}: expected {}, got {}",
-                    fm.path,
-                    chunk_ref.file_offset,
-                    chunk_ref.chunk_hash,
-                    actual_chunk_hash
+                    fm.path, chunk_ref.file_offset, chunk_ref.chunk_hash, actual_chunk_hash
                 ));
             }
         }
@@ -937,14 +1021,21 @@ mod tests {
         let sub = dir.join("subdir");
         std::fs::create_dir_all(&sub).unwrap();
 
-        std::fs::write(dir.join("file1.txt"), b"hello world, this is file one ".repeat(50)).unwrap();
-        std::fs::write(dir.join("file2.txt"), b"goodbye world, this is file two ".repeat(80)).unwrap();
-        std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
-
-        let result = build_from_directory(
-            &dir, "test-product", "1.0.0", "windows", "x86_64", "base",
+        std::fs::write(
+            dir.join("file1.txt"),
+            b"hello world, this is file one ".repeat(50),
         )
         .unwrap();
+        std::fs::write(
+            dir.join("file2.txt"),
+            b"goodbye world, this is file two ".repeat(80),
+        )
+        .unwrap();
+        std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
+
+        let result =
+            build_from_directory(&dir, "test-product", "1.0.0", "windows", "x86_64", "base")
+                .unwrap();
 
         assert!(!result.target_manifest.files.is_empty());
         assert!(!result.target_manifest.required_chunk_set.is_empty());
@@ -953,12 +1044,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&out_dir);
 
         let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
-        reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir)
-            .unwrap();
+        reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir).unwrap();
 
         let verify_errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
 
-        assert!(verify_errors.is_empty(), "verification errors: {:?}", verify_errors);
+        assert!(
+            verify_errors.is_empty(),
+            "verification errors: {:?}",
+            verify_errors
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&out_dir);
@@ -980,7 +1074,13 @@ mod tests {
             chunks: vec![],
         };
 
-        let vm = TargetManifest::new("p".into(), "v".into(), "win".into(), "x64".into(), "base".into());
+        let vm = TargetManifest::new(
+            "p".into(),
+            "v".into(),
+            "win".into(),
+            "x64".into(),
+            "base".into(),
+        );
         let mut vm = vm;
         vm.files.push(fm);
         let errors = verify_directory(&vm, &dir).unwrap();
@@ -1005,22 +1105,55 @@ mod tests {
 
         let t0 = Instant::now();
 
-        test_util::make_file(root.join("game.exe"), 42 * 1024 * 1024, test_util::Seed::Binary);
-        test_util::make_file(root.join("audio/eng.pak"), 48 * 1024 * 1024, test_util::Seed::Audio);
-        test_util::make_file(root.join("audio/fr.pak"), 32 * 1024 * 1024, test_util::Seed::Audio);
-        test_util::make_file(root.join("textures/characters.tex"), 22 * 1024 * 1024, test_util::Seed::Texture);
-        test_util::make_file(root.join("textures/environment.tex"), 22 * 1024 * 1024, test_util::Seed::Texture);
-        test_util::make_file(root.join("data/assets.pak"), 38 * 1024 * 1024, test_util::Seed::Archive);
-        test_util::make_file(root.join("data/config.json"), 2 * 1024 * 1024, test_util::Seed::Config);
+        test_util::make_file(
+            root.join("game.exe"),
+            42 * 1024 * 1024,
+            test_util::Seed::Binary,
+        );
+        test_util::make_file(
+            root.join("audio/eng.pak"),
+            48 * 1024 * 1024,
+            test_util::Seed::Audio,
+        );
+        test_util::make_file(
+            root.join("audio/fr.pak"),
+            32 * 1024 * 1024,
+            test_util::Seed::Audio,
+        );
+        test_util::make_file(
+            root.join("textures/characters.tex"),
+            22 * 1024 * 1024,
+            test_util::Seed::Texture,
+        );
+        test_util::make_file(
+            root.join("textures/environment.tex"),
+            22 * 1024 * 1024,
+            test_util::Seed::Texture,
+        );
+        test_util::make_file(
+            root.join("data/assets.pak"),
+            38 * 1024 * 1024,
+            test_util::Seed::Archive,
+        );
+        test_util::make_file(
+            root.join("data/config.json"),
+            2 * 1024 * 1024,
+            test_util::Seed::Config,
+        );
         test_util::make_file(root.join("readme.txt"), 500 * 1024, test_util::Seed::Text);
 
         let gen_ms = t0.elapsed().as_millis();
 
         let total_original = test_util::dir_size(&root);
-        assert!(total_original >= 190 * 1024 * 1024, "expected >=190 MB, got {} MB", total_original / (1024 * 1024));
+        assert!(
+            total_original >= 190 * 1024 * 1024,
+            "expected >=190 MB, got {} MB",
+            total_original / (1024 * 1024)
+        );
 
         let t1 = Instant::now();
-        let result = build_from_directory(&root, "mock-game", "1.0.0", "windows", "x86_64", "base").unwrap();
+        let result =
+            build_from_directory(&root, "mock-game", "1.0.0", "windows", "x86_64", "base").unwrap();
         let build_ms = t1.elapsed().as_millis();
 
         let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
@@ -1056,15 +1189,33 @@ mod tests {
 
         assert!(errors.is_empty(), "verification errors: {:?}", errors);
 
-        let est = estimate_build(&result.target_manifest, &Default::default(), 1024 * 1024 * 1024).unwrap();
+        let est = estimate_build(
+            &result.target_manifest,
+            &Default::default(),
+            1024 * 1024 * 1024,
+        )
+        .unwrap();
 
         println!();
         println!("=== 200 MB mock game build ===");
         println!("  files:           {}", result.target_manifest.files.len());
-        println!("  total logical:   {:.1} MB", result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0));
-        println!("  total bundled:   {:.1} MB ({:.1}% of original)", bundle_total as f64 / (1024.0 * 1024.0), compression_pct);
-        println!("  artifacts dir:   {:.1} MB", artifacts_total as f64 / (1024.0 * 1024.0));
-        println!("  unique chunks:   {}", result.target_manifest.required_chunk_set.len());
+        println!(
+            "  total logical:   {:.1} MB",
+            result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0)
+        );
+        println!(
+            "  total bundled:   {:.1} MB ({:.1}% of original)",
+            bundle_total as f64 / (1024.0 * 1024.0),
+            compression_pct
+        );
+        println!(
+            "  artifacts dir:   {:.1} MB",
+            artifacts_total as f64 / (1024.0 * 1024.0)
+        );
+        println!(
+            "  unique chunks:   {}",
+            result.target_manifest.required_chunk_set.len()
+        );
         println!("  bundles:         {}", result.bundles.len());
         println!();
         println!("  gen files:       {} ms", gen_ms);
@@ -1072,12 +1223,21 @@ mod tests {
         println!("  reconstruct:     {} ms", recon_ms);
         println!("  total no verify: {} ms", pipeline_without_verify_ms);
         println!("  verify:          {} ms", verify_ms);
-        println!("  total pipeline:  {} ms", gen_ms + build_ms + recon_ms + verify_ms);
+        println!(
+            "  total pipeline:  {} ms",
+            gen_ms + build_ms + recon_ms + verify_ms
+        );
         println!();
         println!("  fresh install estimate:");
         println!("    missing chunks:      {}", est.missing_chunk_count);
-        println!("    missing logical:     {:.1} MB", est.missing_logical_bytes as f64 / (1024.0 * 1024.0));
-        println!("    missing compressed:  {:.1} MB", est.missing_compressed_bytes as f64 / (1024.0 * 1024.0));
+        println!(
+            "    missing logical:     {:.1} MB",
+            est.missing_logical_bytes as f64 / (1024.0 * 1024.0)
+        );
+        println!(
+            "    missing compressed:  {:.1} MB",
+            est.missing_compressed_bytes as f64 / (1024.0 * 1024.0)
+        );
         println!("    estimated bundles:   {}", est.required_bundle_count);
 
         let _ = std::fs::remove_dir_all(&root);

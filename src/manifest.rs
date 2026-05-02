@@ -5,6 +5,8 @@ pub const FORMAT_VERSION: u32 = 1;
 pub const CHUNKER_FASTCDC: &str = "fastcdc-v2020";
 pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const COMPRESSION_ZSTD: &str = "zstd";
+pub const COMPRESSION_UNIT_CHUNK: &str = "chunk";
+pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
 pub const BUNDLE_FORMAT: &str = "gutch-bundle-v1";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
@@ -97,7 +99,9 @@ impl ChunkSizingProfile {
         self.max_chunk_kib * 1024
     }
 
-    pub fn auto_preset_for_median_file_size_bytes(median_file_size_bytes: u64) -> ArtifactSizingPreset {
+    pub fn auto_preset_for_median_file_size_bytes(
+        median_file_size_bytes: u64,
+    ) -> ArtifactSizingPreset {
         if median_file_size_bytes <= 32 * 1024 {
             ArtifactSizingPreset::Tiny
         } else if median_file_size_bytes <= 256 * 1024 {
@@ -113,7 +117,9 @@ impl ChunkSizingProfile {
 
     pub fn for_selection(preset: ArtifactSizingPreset, median_file_size_bytes: u64) -> Self {
         let resolved = match preset {
-            ArtifactSizingPreset::Auto => Self::auto_preset_for_median_file_size_bytes(median_file_size_bytes),
+            ArtifactSizingPreset::Auto => {
+                Self::auto_preset_for_median_file_size_bytes(median_file_size_bytes)
+            }
             other => other,
         };
         Self::for_preset(resolved)
@@ -155,25 +161,29 @@ impl BundleSizingProfile {
         self.bundle_preferred_mib * 1024 * 1024
     }
 
-    pub fn auto_preset_for_total_uncompressed_size_bytes(total_uncompressed_size_bytes: u64) -> BundleSizingPreset {
-        if total_uncompressed_size_bytes <= 64 * 1024 * 1024 {
+    pub fn auto_preset_for_target_logical_size_bytes(
+        target_logical_size_bytes: u64,
+    ) -> BundleSizingPreset {
+        if target_logical_size_bytes <= 64 * 1024 * 1024 {
             BundleSizingPreset::Tiny
-        } else if total_uncompressed_size_bytes <= 256 * 1024 * 1024 {
+        } else if target_logical_size_bytes <= 256 * 1024 * 1024 {
             BundleSizingPreset::Small
-        } else if total_uncompressed_size_bytes <= 1024 * 1024 * 1024 {
+        } else if target_logical_size_bytes <= 1024 * 1024 * 1024 {
             BundleSizingPreset::Balanced
-        } else if total_uncompressed_size_bytes <= 4 * 1024 * 1024 * 1024 {
+        } else if target_logical_size_bytes <= 4 * 1024 * 1024 * 1024 {
             BundleSizingPreset::Large
-        } else if total_uncompressed_size_bytes <= 16 * 1024 * 1024 * 1024 {
+        } else if target_logical_size_bytes <= 16 * 1024 * 1024 * 1024 {
             BundleSizingPreset::Huge
         } else {
             BundleSizingPreset::Massive
         }
     }
 
-    pub fn for_selection(preset: BundleSizingPreset, total_uncompressed_size_bytes: u64) -> Self {
+    pub fn for_selection(preset: BundleSizingPreset, target_logical_size_bytes: u64) -> Self {
         let resolved = match preset {
-            BundleSizingPreset::Auto => Self::auto_preset_for_total_uncompressed_size_bytes(total_uncompressed_size_bytes),
+            BundleSizingPreset::Auto => {
+                Self::auto_preset_for_target_logical_size_bytes(target_logical_size_bytes)
+            }
             other => other,
         };
         Self::for_preset(resolved)
@@ -197,7 +207,7 @@ impl Default for CompressionProfile {
     fn default() -> Self {
         CompressionProfile {
             compression: COMPRESSION_ZSTD.to_string(),
-            compression_unit: "chunk".to_string(),
+            compression_unit: COMPRESSION_UNIT_CHUNK.to_string(),
             zstd_level: 3,
         }
     }
@@ -269,6 +279,14 @@ pub struct BundleTableEntry {
     pub compressed_size: u64,
     pub compressed_offset: u64,
     pub compression: String,
+    #[serde(default = "default_compression_unit")]
+    pub compression_unit: String,
+    #[serde(default)]
+    pub raw_offset: u64,
+}
+
+fn default_compression_unit() -> String {
+    COMPRESSION_UNIT_CHUNK.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -345,12 +363,17 @@ mod tests {
         let p = CompressionProfile::default();
         assert_eq!(p.zstd_level, 3);
         assert_eq!(p.compression, "zstd");
+        assert_eq!(p.compression_unit, "chunk");
     }
 
     #[test]
     fn test_target_manifest_new() {
         let m = TargetManifest::new(
-            "prod-1".into(), "1.0.0".into(), "windows".into(), "x86_64".into(), "base".into(),
+            "prod-1".into(),
+            "1.0.0".into(),
+            "windows".into(),
+            "x86_64".into(),
+            "base".into(),
         );
         assert_eq!(m.product_id, "prod-1");
         assert_eq!(m.manifest_version, 1);
@@ -361,7 +384,11 @@ mod tests {
     #[test]
     fn test_manifest_serialization_roundtrip() {
         let m = TargetManifest::new(
-            "prod-1".into(), "1.0.0".into(), "windows".into(), "x86_64".into(), "base".into(),
+            "prod-1".into(),
+            "1.0.0".into(),
+            "windows".into(),
+            "x86_64".into(),
+            "base".into(),
         );
         let json = serde_json::to_string_pretty(&m).unwrap();
         let m2: TargetManifest = serde_json::from_str(&json).unwrap();
@@ -379,8 +406,16 @@ mod tests {
             symlink_target: None,
             full_file_hash: "abc123".to_string(),
             chunks: vec![
-                ChunkRef { chunk_hash: "def456".to_string(), raw_size: 8192, file_offset: 0 },
-                ChunkRef { chunk_hash: "ghi789".to_string(), raw_size: 4153, file_offset: 8192 },
+                ChunkRef {
+                    chunk_hash: "def456".to_string(),
+                    raw_size: 8192,
+                    file_offset: 0,
+                },
+                ChunkRef {
+                    chunk_hash: "ghi789".to_string(),
+                    raw_size: 4153,
+                    file_offset: 8192,
+                },
             ],
         };
         let json = serde_json::to_string(&fm).unwrap();
