@@ -993,8 +993,11 @@ mod tests {
     #[test]
     fn test_large_game_build_200mb() {
         let root = std::env::temp_dir().join("gutch_test_200mb");
+        let artifacts_dir = std::env::temp_dir().join("gutch_test_200mb_artifacts");
         let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&artifacts_dir);
         std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&artifacts_dir).unwrap();
 
         for sub in &["audio", "textures", "data"] {
             std::fs::create_dir_all(root.join(sub)).unwrap();
@@ -1027,6 +1030,18 @@ mod tests {
             0.0
         };
 
+        let manifest_path = artifacts_dir.join("manifest.json");
+        let manifest_json = serde_json::to_string_pretty(&result.target_manifest).unwrap();
+        std::fs::write(&manifest_path, manifest_json).unwrap();
+        for bundle in &result.bundles {
+            let prefix = bundle::bundle_id_prefix(&bundle.bundle_id);
+            let bundle_dir = artifacts_dir.join("bundles").join(prefix);
+            std::fs::create_dir_all(&bundle_dir).unwrap();
+            let bundle_path = bundle_dir.join(format!("{}.bundle", bundle.bundle_id));
+            std::fs::write(bundle_path, &bundle.data).unwrap();
+        }
+        let artifacts_total = test_util::dir_size(&artifacts_dir);
+
         let t2 = Instant::now();
         let out_dir = std::env::temp_dir().join("gutch_test_200mb_reconstructed");
         let _ = std::fs::remove_dir_all(&out_dir);
@@ -1037,6 +1052,7 @@ mod tests {
         let t3 = Instant::now();
         let errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
         let verify_ms = t3.elapsed().as_millis();
+        let pipeline_without_verify_ms = gen_ms + build_ms + recon_ms;
 
         assert!(errors.is_empty(), "verification errors: {:?}", errors);
 
@@ -1047,12 +1063,14 @@ mod tests {
         println!("  files:           {}", result.target_manifest.files.len());
         println!("  total logical:   {:.1} MB", result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0));
         println!("  total bundled:   {:.1} MB ({:.1}% of original)", bundle_total as f64 / (1024.0 * 1024.0), compression_pct);
+        println!("  artifacts dir:   {:.1} MB", artifacts_total as f64 / (1024.0 * 1024.0));
         println!("  unique chunks:   {}", result.target_manifest.required_chunk_set.len());
         println!("  bundles:         {}", result.bundles.len());
         println!();
         println!("  gen files:       {} ms", gen_ms);
         println!("  build:           {} ms", build_ms);
         println!("  reconstruct:     {} ms", recon_ms);
+        println!("  total no verify: {} ms", pipeline_without_verify_ms);
         println!("  verify:          {} ms", verify_ms);
         println!("  total pipeline:  {} ms", gen_ms + build_ms + recon_ms + verify_ms);
         println!();
@@ -1063,6 +1081,7 @@ mod tests {
         println!("    estimated bundles:   {}", est.required_bundle_count);
 
         let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&artifacts_dir);
         let _ = std::fs::remove_dir_all(&out_dir);
     }
 }
