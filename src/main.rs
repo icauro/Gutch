@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -130,10 +131,6 @@ fn main() {
 fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
         Commands::Build { dir, product, version, platform, architecture, tier, output } => {
-            let (result, timings) = g::build_from_directory_with_timings(
-                &dir, &product, &version, &platform, &architecture, &tier,
-            )?;
-
             let product_root = output
                 .join("v1")
                 .join("products")
@@ -148,6 +145,44 @@ fn run(cli: Cli) -> g::Result<()> {
 
             std::fs::create_dir_all(&target_root)?;
             std::fs::create_dir_all(&bundles_root)?;
+
+            let mut existing_bundle_ids = HashSet::new();
+            let mut existing_chunk_locations = HashMap::new();
+            for entry in walkdir::WalkDir::new(&bundles_root).sort_by_file_name() {
+                let entry = entry?;
+                if !entry.path().is_file() {
+                    continue;
+                }
+                if entry.path().extension().map_or(false, |e| e == "bundle") {
+                    if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
+                        let bundle_id = stem.to_string();
+                        existing_bundle_ids.insert(bundle_id.clone());
+
+                        let file = std::fs::File::open(entry.path())?;
+                        let reader = g::bundle::BundleReader::open(file)?;
+                        for chunk in reader.entries() {
+                            existing_chunk_locations
+                                .entry(chunk.chunk_hash.clone())
+                                .or_insert_with(|| g::ExistingChunkLocation {
+                                    bundle_id: bundle_id.clone(),
+                                    raw_size: chunk.raw_size,
+                                    compressed_size: chunk.compressed_size,
+                                });
+                        }
+                    }
+                }
+            }
+
+            let (result, timings) = g::build_from_directory_with_timings_against_existing_store(
+                &dir,
+                &product,
+                &version,
+                &platform,
+                &architecture,
+                &tier,
+                &existing_chunk_locations,
+                &existing_bundle_ids,
+            )?;
 
             let manifest_path = target_root.join("manifest.json");
             let manifest_json = serde_json::to_string_pretty(&result.target_manifest)?;
@@ -190,9 +225,21 @@ fn run(cli: Cli) -> g::Result<()> {
 
             let bundle_vec: Vec<Vec<u8>> = if bundles.is_dir() {
                 let mut bvs = Vec::new();
+                let required_bundle_ids: HashSet<&str> = tm.required_bundle_set.iter().map(String::as_str).collect();
                 for entry in walkdir::WalkDir::new(&bundles).sort_by_file_name() {
                     let entry = entry?;
+                    if !entry.path().is_file() {
+                        continue;
+                    }
                     if entry.path().extension().map_or(false, |e| e == "bundle") {
+                        if !required_bundle_ids.is_empty() {
+                            let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) else {
+                                continue;
+                            };
+                            if !required_bundle_ids.contains(stem) {
+                                continue;
+                            }
+                        }
                         bvs.push(std::fs::read(entry.path())?);
                     }
                 }

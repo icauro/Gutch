@@ -113,7 +113,7 @@ static void GenerateVersion(string versionDir, IReadOnlyCollection<FileLayout> l
     });
 }
 
-static void GenerateFile(string path, int size, int seed)
+static void GenerateFile(string path, long size, int seed)
 {
     size = Math.Max(size, 10);
     var ext = Path.GetExtension(path).ToLowerInvariant();
@@ -128,60 +128,77 @@ static void GenerateFile(string path, int size, int seed)
     GenerateBinaryFile(path, size, seed);
 }
 
-static void GenerateBinaryFile(string path, int size, int seed)
+static void GenerateBinaryFile(string path, long size, int seed)
 {
     var rng = new Random(seed);
-    var buffer = new byte[size];
-    var position = 0;
+    var buffer = new byte[(int)Math.Min(1024 * 1024, size)];
+    long remaining = size;
 
-    while (position < size)
+    using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: buffer.Length);
+    while (remaining > 0)
     {
-        var chunk = Math.Min(rng.Next(2048, 18432), size - position);
-        var mode = rng.Next(0, 3);
+        var writeSize = (int)Math.Min(buffer.Length, remaining);
+        var position = 0;
 
-        for (var i = 0; i < chunk; i++)
+        while (position < writeSize)
         {
-            buffer[position + i] = mode switch
-            {
-                0 => (byte)rng.Next(0, 256),
-                1 => (byte)Math.Floor(Math.Sin((i * 0.03) * Math.PI / 180) * 127 + 128),
-                _ => (byte)(i % 4 switch { 0 => 0x00, 1 => 0xFF, 2 => 0xAA, _ => 0x55 }),
-            };
+            var chunk = Math.Min(rng.Next(2048, 18432), writeSize - position);
+            FillGeneratedBytes(buffer, position, chunk, rng);
+            position += chunk;
         }
 
-        position += chunk;
+        stream.Write(buffer, 0, writeSize);
+        remaining -= writeSize;
     }
-
-    File.WriteAllBytes(path, buffer);
 }
 
-static void GenerateTextFile(string path, int size, int seed, string ext)
+static void FillGeneratedBytes(byte[] buffer, int offset, int count, Random rng)
+{
+    var mode = rng.Next(0, 3);
+
+    for (var i = 0; i < count; i++)
+    {
+        buffer[offset + i] = mode switch
+        {
+            0 => (byte)rng.Next(0, 256),
+            1 => (byte)Math.Floor(Math.Sin((i * 0.03) * Math.PI / 180) * 127 + 128),
+            _ => (byte)(i % 4 switch { 0 => 0x00, 1 => 0xFF, 2 => 0xAA, _ => 0x55 }),
+        };
+    }
+}
+
+static void GenerateTextFile(string path, long size, int seed, string ext)
 {
     var rng = new Random(seed);
-    var sb = new StringBuilder(size + 64);
+    using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 1024 * 1024);
+    using var writer = new StreamWriter(stream, Encoding.UTF8, bufferSize: 1024 * 1024);
+    long written = 0;
+
+    void WritePiece(string value)
+    {
+        writer.Write(value);
+        written += Encoding.UTF8.GetByteCount(value);
+    }
 
     if (ext == ".json")
     {
-        sb.Append("{ \"data\": { ");
-        while (sb.Length < size - 20)
+        WritePiece("{ \"data\": { ");
+        while (written < size - 20)
         {
-            sb.Append('"').Append('k').Append(rng.Next(0, 99999)).Append("\":")
-                .Append(rng.Next(0, 9_999_999)).Append(',');
+            WritePiece($"\"k{rng.Next(0, 99999)}\":{rng.Next(0, 9_999_999)},");
         }
-        sb.Append("\"_end\":0 } }");
+        WritePiece("\"_end\":0 } }");
     }
     else
     {
         var words = new[] { "the", "game", "version", "update", "patch", "build", "file", "data", "config", "asset" };
         var index = 0;
-        while (sb.Length < size)
+        while (written < size)
         {
-            sb.Append(words[index % words.Length]).Append(' ').Append(index).Append('\n');
+            WritePiece($"{words[index % words.Length]} {index}\n");
             index++;
         }
     }
-
-    File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
 }
 
 static class HashUtil
@@ -202,15 +219,10 @@ static class HashUtil
 
 sealed record FileLayout(string Name, int Percent, string Dir)
 {
-    public int SizeBytes(long totalBytes)
+    public long SizeBytes(long totalBytes)
     {
         var size = totalBytes * Percent / 100;
-        size = Math.Max(10L, size);
-        if (size > int.MaxValue)
-        {
-            throw new ArgumentOutOfRangeException(nameof(totalBytes), "Generated file size exceeds int.MaxValue.");
-        }
-        return (int)size;
+        return Math.Max(10L, size);
     }
 
     public bool ShouldChange(int baseSeed, int version, int changePercent)

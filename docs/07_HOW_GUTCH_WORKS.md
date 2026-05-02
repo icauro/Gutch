@@ -114,13 +114,17 @@ So Gutch only needs one logical copy of that chunk.
 
 That is the main storage saving.
 
-### 7. Compress each chunk
+### 7. Reuse or compress each chunk
 
-Each unique chunk is compressed with zstd.
+Gutch checks whether each unique chunk already exists in the product bundle store.
+
+If the chunk already exists, the new target manifest reuses the existing bundle location.
+
+If the chunk is new, Gutch compresses it with zstd and packs it into a newly created bundle.
 
 Current default:
 
-- zstd level `3`
+- zstd level `6`
 
 This is per-chunk compression.
 
@@ -237,7 +241,8 @@ So `v2` only needs:
 
 - a new target manifest
 - updated embedded file-manifest entries
-- bundles containing the new chunks
+- existing bundles for reused chunks
+- new bundles containing only `X` and `Y`
 
 That is why later targets can behave like deltas even though the system is manifest-based.
 
@@ -263,7 +268,7 @@ So it behaves like a delta system operationally, but structurally it is still:
 - language: Rust
 - chunking: FastCDC
 - chunk hash: BLAKE3
-- compression: zstd level 3
+- compression: zstd level 6
 - storage unit: bundle
 - manifests: JSON
 - verification: full-file hash and chunk hash checks
@@ -280,7 +285,8 @@ Not done yet:
 - planner
 - repair flow
 - staged promotion
-- proper multi-bundle splitting logic
+- range-read reconstruction from remote bundles
+- persisted chunk-location index for faster remote planning
 - backend-managed delta publication rules
 
 ## Mental model

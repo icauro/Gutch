@@ -42,15 +42,18 @@ bundle_id = blake3(sorted_or_ordered_chunk_hashes + chunk_sizes + format_version
 
 This allows bundle reuse across targets and lets upload skip bundles that already exist.
 
+Bundle objects are immutable after publication. A build that discovers more chunks later must create additional bundle objects, not mutate an existing bundle.
+
 ### Initial Bundle Defaults
 
 ```text
-bundle_target_size = 16-64 MiB compressed
+bundle_max_size = 64 MiB compressed
+bundle_min_preferred_size = 8 MiB compressed
 bundle_format = gutch-bundle-v1
 bundle_hash = blake3 over canonical bundle bytes
 ```
 
-The exact target size should be benchmarked with R2 request behavior, range reads, CDN/cache behavior, and real game build layouts.
+Bundle sizes are dynamic. The max size is a hard packing limit for normal bundles, while the preferred minimum prevents large releases from producing too many tiny objects. Small updates may still create one bundle below the preferred minimum.
 
 ## 8. R2 Storage Layout
 
@@ -77,6 +80,7 @@ Rules:
 - `manifest.json` is the authoritative signed target description.
 - `manifest.sig` is the detached signature for `manifest.json`.
 - Bundles are product-scoped shared payload containers, not target-scoped files.
+- New target builds should reuse existing chunk locations when possible and create bundles only for chunks not already present in the product bundle store.
 - `bundle_id_prefix` should be derived from the first bytes of the full content-derived bundle ID.
 
 The backend should own R2 object key generation. Clients should not guess trust-sensitive paths.
@@ -151,6 +155,8 @@ target manifest -> required_bundle_set -> bundle chunk tables
 ```
 
 The manifest identifies which bundles may be needed for the target, and each bundle's internal chunk table resolves exact chunk locations within that bundle.
+
+`required_bundle_set` is the union of bundles containing reused chunks and bundles newly created for this target. It is not limited to bundles produced by the current build.
 
 An additional derived chunk-to-bundle index may be added later for faster planning, but it is not required as part of the canonical v1 object layout.
 

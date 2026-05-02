@@ -26,6 +26,7 @@ The pipeline should not need to diff against every previous target. It only need
 
 - Skip chunks already known to exist.
 - Skip bundles already known to exist.
+- Create new bundles only for unique chunks not already present in the product bundle store.
 - Upload bundles before publishing the signed target manifest.
 - Never publish a target manifest that references missing bundles.
 

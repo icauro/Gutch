@@ -1,10 +1,60 @@
 param(
-    [string]$GameDir = "$PSScriptRoot\fixtures\mock-game-1",
+    [string]$GameDir,
     [int]$Versions = 0,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
+
+function Select-Fixture {
+    param(
+        [string]$FixturesRoot
+    )
+
+    $fixtures = @(Get-ChildItem $FixturesRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path (Join-Path $_.FullName "truth\v1") } |
+        Sort-Object Name)
+
+    if ($fixtures.Count -eq 0) {
+        Write-Host "No fixtures found under $FixturesRoot. Run create-mock.ps1 first."
+        exit 1
+    }
+
+    Write-Host "Available fixtures:"
+    for ($i = 0; $i -lt $fixtures.Count; $i++) {
+        $fixturePath = Join-Path $fixtures[$i].FullName "fixture.json"
+        $details = ""
+        if (Test-Path $fixturePath) {
+            $fixture = Get-Content $fixturePath -Raw | ConvertFrom-Json
+            $details = " ($($fixture.SizeMB) MB, $($fixture.Versions) versions, $($fixture.ChangePercent)% change)"
+        }
+        Write-Host ("  [{0}] {1}{2}" -f ($i + 1), $fixtures[$i].Name, $details)
+    }
+
+    while ($true) {
+        $choice = Read-Host "Fixture to run [1]"
+        if ([string]::IsNullOrWhiteSpace($choice)) {
+            return $fixtures[0].FullName
+        }
+
+        $index = 0
+        if ([int]::TryParse($choice, [ref]$index) -and $index -ge 1 -and $index -le $fixtures.Count) {
+            return $fixtures[$index - 1].FullName
+        }
+
+        $named = $fixtures | Where-Object { $_.Name -eq $choice } | Select-Object -First 1
+        if ($named) {
+            return $named.FullName
+        }
+
+        Write-Host "Enter a number from 1 to $($fixtures.Count), or an exact fixture name."
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($GameDir)) {
+    $GameDir = Select-Fixture -FixturesRoot (Join-Path $PSScriptRoot "fixtures")
+}
+
 $GameDir = if ([System.IO.Path]::IsPathRooted($GameDir)) {
     $GameDir
 } else {
@@ -61,6 +111,7 @@ $matchedFiles = 0
 $mismatchedFiles = 0
 $missingFiles = 0
 $capturedSections = New-Object System.Collections.Generic.List[string]
+$targetStats = New-Object System.Collections.Generic.List[object]
 
 function Invoke-CargoCapture {
     param(
@@ -111,6 +162,16 @@ if (-not $SkipBuild) {
     for ($v = 1; $v -le $Versions; $v++) {
         $versionId = [string]$versionIds[$v - 1]
         Write-Host "  $versionId..."
+        $previousChunkIds = New-Object 'System.Collections.Generic.HashSet[string]'
+        if (Test-Path (Join-Path $productRoot "targets")) {
+            Get-ChildItem (Join-Path $productRoot "targets") -Recurse -File -Filter manifest.json -ErrorAction SilentlyContinue | ForEach-Object {
+                $previousManifest = Get-Content $_.FullName -Raw | ConvertFrom-Json
+                foreach ($chunkId in @($previousManifest.required_chunk_set)) {
+                    [void]$previousChunkIds.Add([string]$chunkId)
+                }
+            }
+        }
+
         $buildResult = Invoke-CargoCapture @(
             "run", "--", "build",
             "--dir", "$GameDir\truth\v$v",
@@ -130,6 +191,61 @@ if (-not $SkipBuild) {
             $capturedSections.Add($line)
         }
         $capturedSections.Add("")
+
+        $manifestPath = Join-Path $productRoot "targets\$versionId\$platform\$architecture\$tier\manifest.json"
+        $manifest = $null
+        $requiredChunkCount = 0
+        $requiredBundleCount = 0
+        if (Test-Path $manifestPath) {
+            $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+            $requiredChunkCount = @($manifest.required_chunk_set).Count
+            $requiredBundleCount = @($manifest.required_bundle_set).Count
+        }
+
+        $generatedBundleCount = @($buildResult.Lines | Where-Object { $_ -match '^wrote bundle:' }).Count
+        $generatedBundlePct = if ($requiredBundleCount -gt 0) {
+            [math]::Round(($generatedBundleCount * 100.0) / $requiredBundleCount, 2)
+        } else {
+            0.0
+        }
+        $reusedBundleCount = if ($requiredBundleCount -gt $generatedBundleCount) {
+            $requiredBundleCount - $generatedBundleCount
+        } else {
+            0
+        }
+        $reusedBundlePct = if ($requiredBundleCount -gt 0) {
+            [math]::Round(($reusedBundleCount * 100.0) / $requiredBundleCount, 2)
+        } else {
+            0.0
+        }
+
+        $reusedChunkCount = 0
+        if ($manifest) {
+            foreach ($chunkId in @($manifest.required_chunk_set)) {
+                if ($previousChunkIds.Contains([string]$chunkId)) {
+                    $reusedChunkCount++
+                }
+            }
+        }
+        $newChunkCount = $requiredChunkCount - $reusedChunkCount
+        $reusedChunkPct = if ($requiredChunkCount -gt 0) {
+            [math]::Round(($reusedChunkCount * 100.0) / $requiredChunkCount, 2)
+        } else {
+            0.0
+        }
+
+        $targetStats.Add([pscustomobject]@{
+            VersionId = $versionId
+            ChunkCount = $requiredChunkCount
+            NewChunkCount = $newChunkCount
+            ReusedChunkCount = $reusedChunkCount
+            ReusedChunkPercent = $reusedChunkPct
+            RequiredBundleCount = $requiredBundleCount
+            GeneratedBundleCount = $generatedBundleCount
+            GeneratedBundlePercent = $generatedBundlePct
+            ReusedBundleCount = $reusedBundleCount
+            ReusedBundlePercent = $reusedBundlePct
+        })
     }
 }
 
@@ -222,6 +338,21 @@ $summaryLines = @(
     "manifest_path: $latestManifest"
     "manifest_bytes: $manifestBytes"
 )
+$summaryLines += ""
+$summaryLines += "[target-stats]"
+foreach ($stat in $targetStats) {
+    $summaryLines += "target: $($stat.VersionId)/$platform/$architecture/$tier"
+    $summaryLines += "chunks_generated: $($stat.ChunkCount)"
+    $summaryLines += "chunks_new: $($stat.NewChunkCount)"
+    $summaryLines += "chunks_reused: $($stat.ReusedChunkCount)"
+    $summaryLines += "reused_chunk_pct: $($stat.ReusedChunkPercent)"
+    $summaryLines += "bundles_required: $($stat.RequiredBundleCount)"
+    $summaryLines += "bundles_generated: $($stat.GeneratedBundleCount)"
+    $summaryLines += "generated_bundle_pct: $($stat.GeneratedBundlePercent)"
+    $summaryLines += "bundles_reused: $($stat.ReusedBundleCount)"
+    $summaryLines += "reused_bundle_pct: $($stat.ReusedBundlePercent)"
+    $summaryLines += ""
+}
 $summaryLines += ""
 $summaryLines += "[gutch-cli]"
 $summaryLines += $capturedSections

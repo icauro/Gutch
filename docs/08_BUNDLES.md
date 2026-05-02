@@ -40,8 +40,9 @@ file bytes
 -> FastCDC chunk boundaries
 -> BLAKE3 hash each raw chunk
 -> deduplicate by chunk hash
--> zstd-compress each unique chunk
--> pack compressed chunks into bundle(s)
+-> resolve existing chunk locations in the product bundle store
+-> zstd-compress each new unique chunk
+-> pack new compressed chunks into bundle(s)
 ```
 
 Important:
@@ -126,16 +127,20 @@ That is the basis for:
 
 ## Bundle creation goal
 
-Bundle creation should try to pack many compressed chunks into a target compressed size window.
+Bundle creation should choose a target compressed size for the current set of new chunks.
 
 Blueprint default:
 
-- target bundle size: `16 MiB` to `64 MiB` compressed
+- max bundle size: `64 MiB` compressed
+- preferred minimum bundle size: `8 MiB` compressed
 
 That is a practical tradeoff:
 
 - small enough to avoid huge waste when downloading
 - large enough to avoid too many object-store objects
+- flexible enough that small updates can produce one small bundle
+
+The max size is a normal upper bound, not an exact output size. The final bundle may be smaller, and a hotfix with only a few new chunks may create a bundle below the preferred minimum.
 
 ## How bundles should be created
 
@@ -145,19 +150,26 @@ The correct algorithm is:
 2. split into chunks
 3. hash chunks
 4. deduplicate chunks by hash
-5. compress each unique chunk exactly once
-6. append compressed chunks into the current bundle until target size is reached
-7. finalize that bundle
-8. start a new bundle
-9. continue until all unique chunks are packed
+5. look up each unique chunk in the existing product bundle store
+6. reuse existing bundle locations for chunks already present
+7. compress only new unique chunks exactly once
+8. append new compressed chunks into the current bundle until target size is reached
+9. finalize that bundle
+10. start a new bundle
+11. continue until all new unique chunks are packed
 
 In pseudocode:
 
 ```text
 current_bundle = empty
 current_size = 0
+bundle_target_size = choose_target_size(total_new_compressed_bytes)
 
 for each unique chunk:
+  if chunk already exists in product bundle store:
+    add existing bundle to target required_bundle_set
+    continue
+
   compressed = compress(chunk)
 
   if current_bundle is not empty and current_size + compressed.size > bundle_target_size:
@@ -171,6 +183,10 @@ for each unique chunk:
 
 finalize last bundle if not empty
 ```
+
+Only newly introduced chunks should be written into newly generated bundles. Reused chunks should keep pointing at the bundle that already stores them.
+
+`choose_target_size` should balance the new payload across a small number of bundles. For example, `12 MiB` of new compressed chunks can become one `12 MiB` bundle, while `180 MiB` can become three roughly `60 MiB` bundles instead of two full `64 MiB` bundles plus one tiny tail.
 
 ## What "finalize bundle" means
 
@@ -229,8 +245,11 @@ Bundles are not:
 - patch files
 - a second compression layer over the whole artifact
 - target-specific by definition
+- mutable append logs
 
 A bundle may be referenced by many targets if the same chunks appear there.
+
+Once published, a bundle should be treated as write-once. Later builds create more bundles for new chunks rather than editing old bundle bytes.
 
 ## Relationship between manifests and bundles
 
@@ -280,15 +299,17 @@ But Gutch does not need perfect packing to be useful in v1.
 
 Current local engine behavior:
 
-- compresses unique chunks per chunk
-- writes them into a single bundle in the current implementation
+- scans existing product bundles before building a target
+- reuses existing chunk locations when a chunk hash is already present
+- compresses only newly introduced unique chunks
+- writes new chunks into content-addressed bundles up to the target compressed size
 - stores a chunk table and payload area
 
 Current limitations:
 
-- only one bundle is created right now
-- bundle sizing and packing still need improvement
-- the implementation is not yet the final multi-bundle production design
+- existing bundle scanning is local and prototype-oriented
+- there is not yet a persisted chunk-location index for faster remote planning
+- reconstruction still reads whole local bundle files rather than issuing object-store range reads
 
 ## Practical rules
 
@@ -296,7 +317,8 @@ Bundles should be created so that:
 
 - each unique chunk is compressed once
 - bundle size is tracked using compressed sizes
-- chunks are packed until the target size is reached
+- bundle target size is computed from the new compressed chunk volume
+- chunks are packed until the dynamic target size is reached
 - each chunk table entry points to one compressed chunk payload
 - bundle ids are deterministic
 - the whole bundle is not compressed again

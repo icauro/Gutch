@@ -56,11 +56,15 @@ Bundles are the physical object-store unit. Chunks are the logical deduplication
 
 Bundles are not target-exclusive. Multiple targets can reference the same bundle.
 
+Published bundles are immutable. If a later target introduces new chunks, Gutch creates new bundle objects for those chunks instead of appending to or rewriting existing bundles.
+
 ### Chunk
 
 A content-defined unit of file data.
 
 Chunks are identified by BLAKE3 over raw uncompressed bytes.
+
+Chunks are immutable. If the raw bytes change, the BLAKE3 hash changes and the result is a different chunk.
 
 ### Install
 

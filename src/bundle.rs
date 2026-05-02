@@ -16,7 +16,9 @@ pub struct BundleBuilder {
 
 struct ChunkData {
     hash: String,
-    raw: Vec<u8>,
+    raw_size: u64,
+    raw: Option<Vec<u8>>,
+    compressed: Option<Vec<u8>>,
 }
 
 impl BundleBuilder {
@@ -25,7 +27,22 @@ impl BundleBuilder {
     }
 
     pub fn add_chunk(&mut self, chunk_hash: String, raw_data: Vec<u8>) {
-        self.chunks.push(ChunkData { hash: chunk_hash, raw: raw_data });
+        let raw_size = raw_data.len() as u64;
+        self.chunks.push(ChunkData {
+            hash: chunk_hash,
+            raw_size,
+            raw: Some(raw_data),
+            compressed: None,
+        });
+    }
+
+    pub fn add_precompressed_chunk(&mut self, chunk_hash: String, raw_size: u64, compressed_data: Vec<u8>) {
+        self.chunks.push(ChunkData {
+            hash: chunk_hash,
+            raw_size,
+            raw: None,
+            compressed: Some(compressed_data),
+        });
     }
 
     pub fn is_empty(&self) -> bool {
@@ -40,7 +57,7 @@ impl BundleBuilder {
         let mut chunks: Vec<(&str, u64)> = self
             .chunks
             .iter()
-            .map(|c| (c.hash.as_str(), c.raw.len() as u64))
+            .map(|c| (c.hash.as_str(), c.raw_size))
             .collect();
         chunks.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
 
@@ -55,10 +72,21 @@ impl BundleBuilder {
     }
 
     pub fn estimated_compressed_size(&self) -> u64 {
-        self.chunks.iter().map(|c| {
-            let compressed: std::result::Result<Vec<u8>, _> = compress::compress_with_level(&c.raw, self.profile.zstd_level);
-            compressed.map(|v: Vec<u8>| v.len() as u64).unwrap_or(u64::MAX)
-        }).sum::<u64>() + self.estimate_overhead()
+        self.chunks
+            .iter()
+            .map(|c| {
+                if let Some(compressed) = &c.compressed {
+                    compressed.len() as u64
+                } else if let Some(raw) = &c.raw {
+                    let compressed: std::result::Result<Vec<u8>, _> =
+                        compress::compress_with_level(raw, self.profile.zstd_level);
+                    compressed.map(|v: Vec<u8>| v.len() as u64).unwrap_or(u64::MAX)
+                } else {
+                    u64::MAX
+                }
+            })
+            .sum::<u64>()
+            + self.estimate_overhead()
     }
 
     fn estimate_overhead(&self) -> u64 {
@@ -70,11 +98,18 @@ impl BundleBuilder {
         let mut current_offset: u64 = 0;
 
         for chunk in &self.chunks {
-            let compressed_data = compress::compress_with_level(&chunk.raw, self.profile.zstd_level)?;
+            let compressed_data = if let Some(compressed) = &chunk.compressed {
+                compressed.clone()
+            } else {
+                let raw = chunk.raw.as_ref().ok_or_else(|| {
+                    crate::error::Error::InvalidBundle("chunk is missing raw and compressed bytes".into())
+                })?;
+                compress::compress_with_level(raw, self.profile.zstd_level)?
+            };
             let compressed_size = compressed_data.len() as u64;
             let entry = BundleTableEntry {
                 chunk_hash: chunk.hash.clone(),
-                raw_size: chunk.raw.len() as u64,
+                raw_size: chunk.raw_size,
                 compressed_size,
                 compressed_offset: current_offset,
                 compression: "zstd".to_string(),

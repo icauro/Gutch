@@ -43,7 +43,7 @@ impl Default for CompressionProfile {
         CompressionProfile {
             compression: COMPRESSION_ZSTD.to_string(),
             compression_unit: "chunk".to_string(),
-            zstd_level: 3,
+            zstd_level: 6,
         }
     }
 }
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_compression_profile_defaults() {
         let p = CompressionProfile::default();
-        assert_eq!(p.zstd_level, 3);
+        assert_eq!(p.zstd_level, 6);
         assert_eq!(p.compression, "zstd");
     }
 
