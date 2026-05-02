@@ -124,7 +124,7 @@ If the chunk is new, Gutch compresses it with zstd and packs it into a newly cre
 
 Current default:
 
-- zstd level `6`
+- zstd level `5`
 
 This is per-chunk compression.
 
@@ -268,7 +268,7 @@ So it behaves like a delta system operationally, but structurally it is still:
 - language: Rust
 - chunking: FastCDC
 - chunk hash: BLAKE3
-- compression: zstd level 6
+- compression: zstd level 5
 - storage unit: bundle
 - manifests: JSON
 - verification: full-file hash and chunk hash checks

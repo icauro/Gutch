@@ -227,6 +227,33 @@ function Get-InterestingCliLines {
     return $interesting
 }
 
+function Format-Pct {
+    param([double]$Value)
+    if ($Value -eq [double]::NaN) { return "0.00%" }
+    return ("{0:N2}%" -f $Value)
+}
+
+function Format-Int {
+    param([int64]$Value)
+    return ("{0:N0}" -f $Value)
+}
+
+function Format-Size {
+    param([int64]$Bytes)
+
+    if ($Bytes -ge 1TB) {
+        return ("{0:N2} TiB" -f ($Bytes / 1TB))
+    } elseif ($Bytes -ge 1GB) {
+        return ("{0:N2} GiB" -f ($Bytes / 1GB))
+    } elseif ($Bytes -ge 1MB) {
+        return ("{0:N2} MiB" -f ($Bytes / 1MB))
+    } elseif ($Bytes -ge 1KB) {
+        return ("{0:N2} KiB" -f ($Bytes / 1KB))
+    } else {
+        return ("{0} B" -f $Bytes)
+    }
+}
+
 Write-Host "=== Building release binary ==="
 $releaseBuild = & cargo build --release 2>&1
 $releaseBuildExit = $LASTEXITCODE
@@ -268,6 +295,8 @@ if (-not $SkipBuild) {
             "--platform", $platform,
             "--architecture", $architecture,
             "--tier", $tier,
+            "--chunk-profile", "auto",
+            "--bundle-profile", "auto",
             "--output", $artifactsRoot
         )
         if ($buildResult.ExitCode -ne 0) {
@@ -327,6 +356,7 @@ if (-not $SkipBuild) {
             ChunkCount = $requiredChunkCount
             NewChunkCount = $newChunkCount
             ReusedChunkCount = $reusedChunkCount
+            SkippedChunkCount = $reusedChunkCount
             ReusedChunkPercent = $reusedChunkPct
             RequiredBundleCount = $requiredBundleCount
             GeneratedBundleCount = $generatedBundleCount
@@ -409,41 +439,56 @@ if ($null -eq $bundleBytes) { $bundleBytes = 0 }
 $truthFiles = @(Get-ChildItem "$GameDir\truth\v$Versions" -Recurse -File)
 $appliedFiles = @(Get-ChildItem "$GameDir\applied\latest" -Recurse -File -ErrorAction SilentlyContinue)
 $manifestBytes = if (Test-Path $latestManifest) { (Get-Item $latestManifest).Length } else { 0 }
-$summaryLines = @(
-    "fixture: $GameDir"
-    "product: $product"
-    "target: $latestVersionId/$platform/$architecture/$tier"
-    "versions: $Versions"
-    "verify: $(if ($verifyPassed) { 'PASSED' } else { 'FAILED' })"
-    "diff: $(if ($match) { 'MATCH' } else { 'FAILED' })"
-    "truth_files: $($truthFiles.Count)"
-    "applied_files: $($appliedFiles.Count)"
-    "matched_files: $matchedFiles"
-    "mismatched_files: $mismatchedFiles"
-    "missing_files: $missingFiles"
-    "bundle_count: $bundleCount"
-    "bundle_bytes: $bundleBytes"
-    "manifest_path: $latestManifest"
-    "manifest_bytes: $manifestBytes"
-)
-$summaryLines += ""
-$summaryLines += "[target-stats]"
+
+$totalChunksGenerated = 0
+$totalChunksNew = 0
+$totalChunksReused = 0
+$totalBundlesRequired = 0
+$totalBundlesGenerated = 0
+$totalBundlesReused = 0
 foreach ($stat in $targetStats) {
-    $summaryLines += "target: $($stat.VersionId)/$platform/$architecture/$tier"
-    $summaryLines += "chunks_generated: $($stat.ChunkCount)"
-    $summaryLines += "chunks_new: $($stat.NewChunkCount)"
-    $summaryLines += "chunks_reused: $($stat.ReusedChunkCount)"
-    $summaryLines += "reused_chunk_pct: $($stat.ReusedChunkPercent)"
-    $summaryLines += "bundles_required: $($stat.RequiredBundleCount)"
-    $summaryLines += "bundles_generated: $($stat.GeneratedBundleCount)"
-    $summaryLines += "generated_bundle_pct: $($stat.GeneratedBundlePercent)"
-    $summaryLines += "bundles_reused: $($stat.ReusedBundleCount)"
-    $summaryLines += "reused_bundle_pct: $($stat.ReusedBundlePercent)"
-    $summaryLines += ""
+    $totalChunksGenerated += [int64]$stat.ChunkCount
+    $totalChunksNew += [int64]$stat.NewChunkCount
+    $totalChunksReused += [int64]$stat.ReusedChunkCount
+    $totalBundlesRequired += [int64]$stat.RequiredBundleCount
+    $totalBundlesGenerated += [int64]$stat.GeneratedBundleCount
+    $totalBundlesReused += [int64]$stat.ReusedBundleCount
 }
-$summaryLines += ""
-$summaryLines += "[gutch-cli]"
-$summaryLines += $capturedSections
+
+$overallChunkReusePct = if ($totalChunksGenerated -gt 0) { [math]::Round(($totalChunksReused * 100.0) / $totalChunksGenerated, 2) } else { 0.0 }
+$overallBundleReusePct = if ($totalBundlesRequired -gt 0) { [math]::Round(($totalBundlesReused * 100.0) / $totalBundlesRequired, 2) } else { 0.0 }
+$overallBundleRatio = if ($totalBundlesRequired -gt 0) { "{0}/{1}" -f $totalBundlesGenerated, $totalBundlesRequired } else { "0/0" }
+
+$summaryLines = New-Object System.Collections.Generic.List[string]
+$summaryLines.Add("fixture: $GameDir")
+$summaryLines.Add("product: $product")
+$summaryLines.Add("target: $latestVersionId/$platform/$architecture/$tier")
+$summaryLines.Add("versions: $Versions")
+$summaryLines.Add("status: verify=$(if ($verifyPassed) { 'PASSED' } else { 'FAILED' }), diff=$(if ($match) { 'MATCH' } else { 'FAILED' })")
+$summaryLines.Add(("files: truth={0}, applied={1}, matched={2}, mismatched={3}, missing={4}" -f $truthFiles.Count, $appliedFiles.Count, $matchedFiles, $mismatchedFiles, $missingFiles))
+$summaryLines.Add(("artifacts: bundles={0}, bundle_size={1}, manifest_size={2}" -f $bundleCount, (Format-Size $bundleBytes), (Format-Size $manifestBytes)))
+$summaryLines.Add(("totals: chunks={0}, new={1}, reused={2}, chunk_reuse={3}; bundles_required={4}, generated={5}, reused={6}, bundle_reuse={7}, bundle_ratio={8}" -f `
+    (Format-Int $totalChunksGenerated), (Format-Int $totalChunksNew), (Format-Int $totalChunksReused), (Format-Pct $overallChunkReusePct), `
+    (Format-Int $totalBundlesRequired), (Format-Int $totalBundlesGenerated), (Format-Int $totalBundlesReused), (Format-Pct $overallBundleReusePct), $overallBundleRatio))
+$summaryLines.Add(("manifest: {0}" -f $latestManifest))
+$summaryLines.Add("")
+$summaryLines.Add("[target-stats]")
+$summaryLines.Add("target | chunks gen/new/reused | chunk reuse | bundles req/gen/reused | bundle reuse")
+foreach ($stat in $targetStats) {
+    $summaryLines.Add(("{0} | {1}/{2}/{3} | {4} | {5}/{6}/{7} | {8}" -f `
+        "$($stat.VersionId)/$platform/$architecture/$tier",
+        $stat.ChunkCount,
+        $stat.NewChunkCount,
+        $stat.ReusedChunkCount,
+        $stat.ReusedChunkPercent,
+        $stat.RequiredBundleCount,
+        $stat.GeneratedBundleCount,
+        $stat.ReusedBundleCount,
+        $stat.ReusedBundlePercent))
+}
+$summaryLines.Add("")
+$summaryLines.Add("[gutch-cli]")
+$summaryLines.AddRange($capturedSections)
 Set-Content -Path $summaryPath -Value $summaryLines
 
 if ($match) {

@@ -2,7 +2,7 @@
 
 Status: Directional, ready for first implementation pass  
 Owner: Artifact Platform  
-Last reviewed: 2026-05-01
+Last reviewed: 2026-05-02
 
 ## 7. Bundles / Containers
 
@@ -47,13 +47,13 @@ Bundle objects are immutable after publication. A build that discovers more chun
 ### Initial Bundle Defaults
 
 ```text
-bundle_max_size = 64 MiB compressed
-bundle_min_preferred_size = 8 MiB compressed
+bundle_max_mib = 32
+bundle_preferred_mib = 16
 bundle_format = gutch-bundle-v1
 bundle_hash = blake3 over canonical bundle bytes
 ```
 
-Bundle sizes are dynamic. The max size is a hard packing limit for normal bundles, while the preferred minimum prevents large releases from producing too many tiny objects. Small updates may still create one bundle below the preferred minimum.
+Bundle sizes are dynamic. The max size is a hard packing limit for normal bundles, while the preferred target gives the packer a normal size to aim for. Small updates may still create one bundle below the preferred target.
 
 ## 8. R2 Storage Layout
 
@@ -109,8 +109,9 @@ platform
 architecture
 tier_id
 created_at
-chunking_profile
 compression_profile
+chunk_sizing_profile
+bundle_sizing_profile
 bundle_format_version
 files
 required_chunk_set
@@ -123,6 +124,76 @@ signature_metadata
 The target manifest must be signed. Clients should reject unsigned or invalidly signed manifests.
 
 The target manifest is the single metadata JSON object for one target. It includes the per-file entries directly instead of referencing separate file-manifest JSON files.
+
+### Sizing Profiles
+
+Chunking and bundle sizing are separate profiles:
+
+- `chunk_sizing_profile` controls FastCDC chunk sizes
+- `bundle_sizing_profile` controls bundle packing sizes
+
+Chunk sizing uses five presets:
+
+- `tiny`
+- `small`
+- `balanced`
+- `large`
+- `huge`
+
+Bundle sizing uses six presets:
+
+- `tiny`
+- `small`
+- `balanced`
+- `large`
+- `huge`
+- `massive`
+
+| Preset | Chunk sizing | Bundle sizing |
+|---|---|---|
+| `tiny` | `8 KiB` / `32 KiB` / `128 KiB` | `8 MiB` max / `4 MiB` preferred |
+| `small` | `16 KiB` / `64 KiB` / `256 KiB` | `16 MiB` max / `8 MiB` preferred |
+| `balanced` | `16 KiB` / `64 KiB` / `256 KiB` | `32 MiB` max / `16 MiB` preferred |
+| `large` | `32 KiB` / `128 KiB` / `512 KiB` | `64 MiB` max / `32 MiB` preferred |
+| `huge` | `64 KiB` / `256 KiB` / `1024 KiB` | `128 MiB` max / `64 MiB` preferred |
+| `massive` | `64 KiB` / `256 KiB` / `1024 KiB` | `256 MiB` max / `128 MiB` preferred |
+
+The chunk sizing values are `min / avg / max`. The bundle sizing values are `max / preferred target`.
+
+The selected presets are recorded separately in `chunk_sizing_profile.preset` and `bundle_sizing_profile.preset`.
+
+### Auto Selection
+
+`auto` is a chooser, not a stored artifact preset. It resolves to one of the supported presets before the manifest is written.
+
+#### Chunk profile auto-selection
+
+Chunk sizing uses the **median file size** as input.
+
+| Median file size input | Resolved chunk profile | Chunk envelope |
+|---|---|---|
+| up to `32 KiB` | `tiny` | `8 KiB` / `32 KiB` / `128 KiB` |
+| up to `256 KiB` | `small` | `16 KiB` / `64 KiB` / `256 KiB` |
+| up to `2 MiB` | `balanced` | `16 KiB` / `64 KiB` / `256 KiB` |
+| up to `8 MiB` | `large` | `32 KiB` / `128 KiB` / `512 KiB` |
+| above `8 MiB` | `huge` | `64 KiB` / `256 KiB` / `1024 KiB` |
+
+#### Bundle profile auto-selection
+
+Bundle sizing uses the **total uncompressed target size** as input.
+
+| Total uncompressed size input | Resolved bundle profile | Bundle envelope |
+|---|---|---|
+| up to `64 MiB` | `tiny` | `8 MiB` max / `4 MiB` preferred |
+| up to `256 MiB` | `small` | `16 MiB` max / `8 MiB` preferred |
+| up to `1 GiB` | `balanced` | `32 MiB` max / `16 MiB` preferred |
+| up to `4 GiB` | `large` | `64 MiB` max / `32 MiB` preferred |
+| up to `16 GiB` | `huge` | `128 MiB` max / `64 MiB` preferred |
+| above `16 GiB` | `massive` | `256 MiB` max / `128 MiB` preferred |
+
+For the requested product range of roughly `4 MiB` to `40 GiB`, this means `auto` can scale from `tiny` through `massive` without leaving the supported preset set.
+
+`balanced` is the standard bundle profile and maps to a `32 MiB` maximum bundle size with a `16 MiB` preferred target size.
 
 ### File Manifest
 

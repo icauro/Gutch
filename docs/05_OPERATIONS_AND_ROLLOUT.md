@@ -24,15 +24,26 @@ Future mitigation options:
 bundle locality scoring
 packing chunks by target locality
 limited duplicate chunk rewrite for hot targets
-background compaction
 larger grouped bundle downloads for badly fragmented targets
 ```
 
-Do not let v1 depend on perfect compaction.
+Do not let v1 depend on compaction or bundle rewriting as routine maintenance.
 
 ## 17. Garbage Collection
 
-Deleting a target only removes references. It does not immediately mean the referenced chunks or bundles can be removed.
+Deleting a target removes target-level references. It does not immediately mean the referenced chunks or bundles can be removed.
+
+Gutch should treat bundles as immutable in normal operation.
+
+The default GC model is:
+
+- derive chunk liveness from retained target manifests
+- use chunk-to-bundle membership to determine bundle liveness
+- delete only bundles whose stored chunks are no longer referenced by any retained target
+- do not do per-chunk deletion
+- do not rebuild bundles as normal GC
+
+This means chunk liveness is a decision input, not a physical deletion unit.
 
 Safe GC requires:
 
@@ -40,13 +51,20 @@ Safe GC requires:
 manifest reference scan
 chunk liveness map
 bundle liveness map
-compaction plan for partially live bundles
 index update
 audit log
 delete only after new indexes are durable
 ```
 
-Initial v1 can defer GC, but the manifest and bundle formats must not block future GC.
+Practical GC rules:
+
+- Keep bundles immutable after publication.
+- A bundle is deletable only when every chunk it contains is no longer referenced by any retained target.
+- A partially live bundle stays as-is.
+- Target deletion may reclaim nothing if its chunks are still shared by other targets.
+- GC should run at the bundle level, not by trying to remove dead chunks from existing bundles.
+
+Initial v1 can defer GC automation, but the manifest and bundle formats must support target-driven bundle liveness checks.
 
 ## 18. Backend Responsibilities
 

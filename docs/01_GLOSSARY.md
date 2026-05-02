@@ -94,6 +94,22 @@ target
 - Use `bundle` for shared chunk-container artifacts.
 - Use `install` for local realized state.
 
+## Binary Storage Units
+
+Use IEC binary units for storage sizes in Gutch docs and manifests:
+
+- `KiB` = 1024 bytes
+- `MiB` = 1024 KiB
+- `GiB` = 1024 MiB
+
+Use these names when the size is based on binary powers of two, such as chunk and bundle sizing. Use `bytes` only for raw byte counts, and avoid `KB` / `MB` / `GB` unless you explicitly mean decimal units.
+
+Examples:
+
+- `64 KiB` chunk average
+- `16 MiB` preferred bundle size
+- `128 MiB` maximum bundle size
+
 ## Notes
 
 - `version` alone is not enough to identify a target once platform, architecture, and tier differ.

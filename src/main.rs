@@ -29,6 +29,39 @@ fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
     }
 }
 
+struct InputSizingStats {
+    total_uncompressed_size_bytes: u64,
+    median_file_size_bytes: u64,
+}
+
+fn collect_input_sizing_stats(dir: &PathBuf) -> g::Result<InputSizingStats> {
+    let mut sizes = Vec::new();
+    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        let entry = entry?;
+        if entry.path().is_file() {
+            sizes.push(entry.metadata()?.len());
+        }
+    }
+
+    sizes.sort_unstable();
+    let total_uncompressed_size_bytes = sizes.iter().copied().sum();
+    let median_file_size_bytes = if sizes.is_empty() {
+        0
+    } else {
+        let mid = sizes.len() / 2;
+        if sizes.len() % 2 == 1 {
+            sizes[mid]
+        } else {
+            (sizes[mid - 1] + sizes[mid]) / 2
+        }
+    };
+
+    Ok(InputSizingStats {
+        total_uncompressed_size_bytes,
+        median_file_size_bytes,
+    })
+}
+
 fn print_build_timings(t: &g::BuildTimings) {
     println!("timings:");
     println!("  read files:        {:.2} s  {:.2} MiB  {:.2} MiB/s", secs(t.scan_read), mib(t.scan_read_bytes), mib_per_s(t.scan_read_bytes, t.scan_read));
@@ -90,6 +123,12 @@ enum Commands {
         #[arg(short, long, default_value = "base")]
         tier: String,
 
+        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Balanced)]
+        chunk_profile: g::manifest::ArtifactSizingPreset,
+
+        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
+        bundle_profile: g::manifest::BundleSizingPreset,
+
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -141,7 +180,8 @@ fn main() {
 
 fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
-        Commands::Build { dir, product, version, platform, architecture, tier, output } => {
+        Commands::Build { dir, product, version, platform, architecture, tier, chunk_profile, bundle_profile, output } => {
+            let input_stats = collect_input_sizing_stats(&dir)?;
             let product_root = output
                 .join("v1")
                 .join("products")
@@ -200,7 +240,16 @@ fn run(cli: Cli) -> g::Result<()> {
                 }
             }
 
-            let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests(
+            let chunk_sizing_profile = g::manifest::ChunkSizingProfile::for_selection(
+                chunk_profile,
+                input_stats.median_file_size_bytes,
+            );
+            let bundle_sizing_profile = g::manifest::BundleSizingProfile::for_selection(
+                bundle_profile,
+                input_stats.total_uncompressed_size_bytes,
+            );
+
+            let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
                 &dir,
                 &product,
                 &version,
@@ -210,6 +259,8 @@ fn run(cli: Cli) -> g::Result<()> {
                 &existing_chunk_locations,
                 &existing_bundle_ids,
                 &previous_file_manifests,
+                &chunk_sizing_profile,
+                &bundle_sizing_profile,
             )?;
 
             let manifest_path = target_root.join("manifest.json");

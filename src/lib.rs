@@ -140,12 +140,18 @@ struct BundleSizingPolicy {
     min_preferred_size: u64,
 }
 
+impl BundleSizingPolicy {
+    fn new(max_size: u64, min_preferred_size: u64) -> Self {
+        Self {
+            max_size,
+            min_preferred_size,
+        }
+    }
+}
+
 impl Default for BundleSizingPolicy {
     fn default() -> Self {
-        Self {
-            max_size: MAX_BUNDLE_SIZE,
-            min_preferred_size: MIN_PREFERRED_BUNDLE_SIZE,
-        }
+        Self::new(MAX_BUNDLE_SIZE, MIN_PREFERRED_BUNDLE_SIZE)
     }
 }
 
@@ -237,7 +243,7 @@ pub fn build_from_directory_with_timings_against_existing_store(
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store_and_manifests(
+    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
         dir,
         product_id,
         version_id,
@@ -247,6 +253,8 @@ pub fn build_from_directory_with_timings_against_existing_store(
         existing_chunk_locations,
         existing_bundle_ids,
         &HashMap::new(),
+        &manifest::ChunkSizingProfile::default(),
+        &manifest::BundleSizingProfile::default(),
     )
 }
 
@@ -261,8 +269,36 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
 ) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
+        dir,
+        product_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        previous_file_manifests,
+        &manifest::ChunkSizingProfile::default(),
+        &manifest::BundleSizingProfile::default(),
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
+    dir: &Path,
+    product_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+    previous_file_manifests: &HashMap<String, FileManifest>,
+    chunk_profile: &manifest::ChunkSizingProfile,
+    bundle_profile: &manifest::BundleSizingProfile,
+) -> Result<(BuildResult, BuildTimings)> {
     let total_start = Instant::now();
-    let chunking_profile = manifest::ChunkingProfile::default();
+    let chunking_profile = chunk_profile;
     let compression_profile = manifest::CompressionProfile::default();
     let mut timings = BuildTimings::default();
 
@@ -439,7 +475,11 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     let mut builder = BundleBuilder::new(compression_profile.clone());
     let mut current_bundle_compressed_size: u64 = 0;
     let new_compressed_bytes: u64 = sorted_chunks.iter().map(|c| c.compressed.len() as u64).sum();
-    let bundle_target_size = BundleSizingPolicy::default().target_size_for(new_compressed_bytes);
+    let bundle_target_size = BundleSizingPolicy::new(
+        bundle_profile.bundle_max_size_bytes(),
+        bundle_profile.bundle_preferred_size_bytes(),
+    )
+    .target_size_for(new_compressed_bytes);
 
     for chunk in sorted_chunks {
         let compressed_size = chunk.compressed.len() as u64;
@@ -481,6 +521,8 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     );
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
+    vm.chunk_sizing_profile = chunk_profile.clone();
+    vm.bundle_sizing_profile = bundle_profile.clone();
     vm.files = file_manifests;
     vm.required_chunk_set = all_chunk_hashes.into_iter().collect();
     vm.required_chunk_set.sort();

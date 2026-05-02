@@ -131,8 +131,8 @@ Bundle creation should choose a target compressed size for the current set of ne
 
 Blueprint default:
 
-- max bundle size: `64 MiB` compressed
-- preferred minimum bundle size: `8 MiB` compressed
+- max bundle size: `32 MiB` compressed
+- preferred target bundle size: `16 MiB` compressed
 
 That is a practical tradeoff:
 
@@ -140,7 +140,27 @@ That is a practical tradeoff:
 - large enough to avoid too many object-store objects
 - flexible enough that small updates can produce one small bundle
 
-The max size is a normal upper bound, not an exact output size. The final bundle may be smaller, and a hotfix with only a few new chunks may create a bundle below the preferred minimum.
+In implementation, Gutch exposes five chunk sizing presets and six bundle sizing presets:
+
+- `tiny`
+- `small`
+- `balanced`
+- `large`
+- `huge`
+- `massive`
+
+Each preset maps to a chunk sizing envelope and a bundle sizing envelope. The manifest records both chosen profiles so later tooling can understand how the artifact was produced.
+
+| Preset | Chunk sizing | Bundle sizing |
+|---|---|---|
+| `tiny` | `8 KiB` / `32 KiB` / `128 KiB` | `8 MiB` max / `4 MiB` preferred |
+| `small` | `16 KiB` / `64 KiB` / `256 KiB` | `16 MiB` max / `8 MiB` preferred |
+| `balanced` | `16 KiB` / `64 KiB` / `256 KiB` | `32 MiB` max / `16 MiB` preferred |
+| `large` | `32 KiB` / `128 KiB` / `512 KiB` | `64 MiB` max / `32 MiB` preferred |
+| `huge` | `64 KiB` / `256 KiB` / `1024 KiB` | `128 MiB` max / `64 MiB` preferred |
+| `massive` | `64 KiB` / `256 KiB` / `1024 KiB` | `256 MiB` max / `128 MiB` preferred |
+
+The max size is a normal upper bound, not an exact output size. The final bundle may be smaller, and a hotfix with only a few new chunks may create a bundle below the preferred target.
 
 ## How bundles should be created
 

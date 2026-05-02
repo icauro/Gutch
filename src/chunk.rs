@@ -2,7 +2,7 @@ use fastcdc::v2020::{Chunk, FastCDC, Normalization};
 use std::time::{Duration, Instant};
 
 use crate::error::Result;
-use crate::manifest::ChunkingProfile;
+use crate::manifest::ChunkSizingProfile;
 
 pub struct ChunkResult {
     pub data: Vec<u8>,
@@ -24,7 +24,7 @@ pub struct ChunkScanTimings {
     pub hash_judgment_bytes: u64,
 }
 
-pub fn chunk_bytes(data: &[u8], profile: &ChunkingProfile) -> Vec<ChunkResult> {
+pub fn chunk_bytes(data: &[u8], profile: &ChunkSizingProfile) -> Vec<ChunkResult> {
     chunk_slices(data, profile)
         .0
         .into_iter()
@@ -36,10 +36,10 @@ pub fn chunk_bytes(data: &[u8], profile: &ChunkingProfile) -> Vec<ChunkResult> {
         .collect()
 }
 
-pub fn chunk_slices(data: &[u8], profile: &ChunkingProfile) -> (Vec<ChunkSlice>, ChunkScanTimings) {
-    let min = profile.min_chunk_size as usize;
-    let avg = profile.avg_chunk_size as usize;
-    let max = profile.max_chunk_size as usize;
+pub fn chunk_slices(data: &[u8], profile: &ChunkSizingProfile) -> (Vec<ChunkSlice>, ChunkScanTimings) {
+    let min = profile.min_chunk_size_bytes() as usize;
+    let avg = profile.avg_chunk_size_bytes() as usize;
+    let max = profile.max_chunk_size_bytes() as usize;
 
     let boundary_start = Instant::now();
     let chunker = FastCDC::with_level(data, min, avg, max, Normalization::Level1);
@@ -75,7 +75,7 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
     }
 }
 
-pub fn chunk_file(path: &std::path::Path, profile: &ChunkingProfile) -> Result<Vec<ChunkResult>> {
+pub fn chunk_file(path: &std::path::Path, profile: &ChunkSizingProfile) -> Result<Vec<ChunkResult>> {
     let data = std::fs::read(path)?;
     Ok(chunk_bytes(&data, profile))
 }
@@ -87,24 +87,24 @@ pub fn hash_hex(hash: &blake3::Hash) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::ChunkingProfile;
+    use crate::manifest::ChunkSizingProfile;
 
     #[test]
     fn test_chunk_bytes_basic() {
         let data = b"hello world here is some test data that should be longer than the minimum chunk size ".repeat(1000);
-        let profile = ChunkingProfile::default();
+        let profile = ChunkSizingProfile::default();
         let results = chunk_bytes(&data, &profile);
         assert!(!results.is_empty());
         for r in &results {
             assert!(!r.data.is_empty());
-            assert!(r.data.len() as u32 <= profile.max_chunk_size);
+            assert!(r.data.len() as u32 <= profile.max_chunk_size_bytes());
         }
     }
 
     #[test]
     fn test_chunk_bytes_empty() {
         let data: &[u8] = &[];
-        let profile = ChunkingProfile::default();
+        let profile = ChunkSizingProfile::default();
         let results = chunk_bytes(data, &profile);
         assert!(results.is_empty());
     }
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_chunk_bytes_small_data() {
         let data = b"short";
-        let profile = ChunkingProfile::default();
+        let profile = ChunkSizingProfile::default();
         let results = chunk_bytes(data, &profile);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].data, b"short");
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn test_chunks_have_increasing_offsets() {
         let data = b"x".repeat(1024 * 64);
-        let profile = ChunkingProfile::default();
+        let profile = ChunkSizingProfile::default();
         let results = chunk_bytes(&data, &profile);
         for w in results.windows(2) {
             assert!(w[1].offset > w[0].offset);
