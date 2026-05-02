@@ -18,16 +18,7 @@ if (Directory.Exists(gameDir))
 Console.WriteLine($"=== {options.Name} ===");
 Console.WriteLine($"    Size: {options.SizeMB} MB, Versions: {options.Versions}, Change: {options.ChangePercent}%");
 
-var layout = new[]
-{
-    new FileLayout("game.exe", 25, "."),
-    new FileLayout(Path.Combine("audio", "eng.pak"), 20, "audio"),
-    new FileLayout(Path.Combine("textures", "env.tex"), 15, "textures"),
-    new FileLayout(Path.Combine("textures", "chr.tex"), 12, "textures"),
-    new FileLayout(Path.Combine("data", "assets.pak"), 15, "data"),
-    new FileLayout(Path.Combine("data", "config.json"), 8, "data"),
-    new FileLayout("readme.txt", 5, "."),
-};
+var layout = BuildLayout();
 
 var baseSeed = HashUtil.StableHash(options.Name);
 
@@ -55,7 +46,7 @@ for (var version = 2; version <= options.Versions; version++)
         if (shouldChange)
         {
             var fileSeed = HashUtil.StableHash($"{options.Name}|{version}|{file.Name}|{file.Dir}");
-            GenerateFile(vnPath, file.SizeBytes(totalBytes), fileSeed);
+            GenerateFile(vnPath, file.SizeBytes(totalBytes, layout), fileSeed);
             Interlocked.Increment(ref changed);
         }
         else
@@ -96,6 +87,28 @@ Console.WriteLine($"    Created: v1={v1Count} files, v{options.Versions}={vLastC
 Console.WriteLine($"    Metadata: {metadataPath}");
 Console.WriteLine($"    Path: {gameDir}");
 
+static IReadOnlyList<FileLayout> BuildLayout()
+{
+    var files = new List<FileLayout>(capacity: 112);
+
+    AddGroup(files, "large", count: 16, weight: 100, extensions: [".pak", ".bin", ".tex", ".dat"]);
+    AddGroup(files, "medium", count: 64, weight: 20, extensions: [".pak", ".tex", ".dat", ".json"]);
+    AddGroup(files, "small", count: 32, weight: 2, extensions: [".json", ".txt", ".cfg", ".dat"]);
+
+    return files;
+}
+
+static void AddGroup(List<FileLayout> files, string group, int count, int weight, string[] extensions)
+{
+    for (var i = 0; i < count; i++)
+    {
+        var ext = extensions[i % extensions.Length];
+        var dir = Path.Combine("data", group, $"{i / 16:00}");
+        var name = Path.Combine(dir, $"{group}-{i + 1:000}{ext}");
+        files.Add(new FileLayout(name, dir, weight));
+    }
+}
+
 static void CreateVersionDirectories(string versionDir, IReadOnlyCollection<FileLayout> layout)
 {
     foreach (var file in layout)
@@ -109,7 +122,7 @@ static void GenerateVersion(string versionDir, IReadOnlyCollection<FileLayout> l
     Parallel.ForEach(layout, file =>
     {
         var seed = HashUtil.StableHash($"{baseSeed}|{file.Name}|{file.Dir}");
-        GenerateFile(Path.Combine(versionDir, file.Name), file.SizeBytes(totalBytes), seed);
+        GenerateFile(Path.Combine(versionDir, file.Name), file.SizeBytes(totalBytes, layout), seed);
     });
 }
 
@@ -217,11 +230,19 @@ static class HashUtil
     }
 }
 
-sealed record FileLayout(string Name, int Percent, string Dir)
+sealed record FileLayout(string Name, string Dir, int Weight)
 {
-    public long SizeBytes(long totalBytes)
+    public long SizeBytes(long totalBytes, IReadOnlyCollection<FileLayout> layout)
     {
-        var size = totalBytes * Percent / 100;
+        var totalWeight = layout.Sum(file => file.Weight);
+        var size = totalBytes * Weight / totalWeight;
+        if (ReferenceEquals(this, layout.Last()))
+        {
+            var allocatedBeforeLast = layout
+                .Where(file => !ReferenceEquals(file, this))
+                .Sum(file => totalBytes * file.Weight / totalWeight);
+            size = totalBytes - allocatedBeforeLast;
+        }
         return Math.Max(10L, size);
     }
 

@@ -223,8 +223,8 @@ fn run(cli: Cli) -> g::Result<()> {
             let manifest_json = std::fs::read_to_string(&manifest)?;
             let tm: g::manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
 
-            let bundle_vec: Vec<Vec<u8>> = if bundles.is_dir() {
-                let mut bvs = Vec::new();
+            let bundle_paths: Vec<PathBuf> = if bundles.is_dir() {
+                let mut paths = Vec::new();
                 let required_bundle_ids: HashSet<&str> = tm.required_bundle_set.iter().map(String::as_str).collect();
                 for entry in walkdir::WalkDir::new(&bundles).sort_by_file_name() {
                     let entry = entry?;
@@ -240,17 +240,17 @@ fn run(cli: Cli) -> g::Result<()> {
                                 continue;
                             }
                         }
-                        bvs.push(std::fs::read(entry.path())?);
+                        paths.push(entry.path().to_path_buf());
                     }
                 }
-                bvs
+                paths
             } else if bundles.is_file() {
-                vec![std::fs::read(&bundles)?]
+                vec![bundles]
             } else {
                 Vec::new()
             };
 
-            let (_, timings) = g::reconstruct_from_target_manifest_with_timings(&tm, &bundle_vec, &output)?;
+            let (_, timings) = g::reconstruct_from_bundle_paths_with_timings(&tm, &bundle_paths, &output)?;
             println!("reconstructed to: {}", output.display());
             print_reconstruct_timings(&timings);
         }
