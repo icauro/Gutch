@@ -59,7 +59,7 @@ for (var version = 2; version <= options.Versions; version++)
     Console.WriteLine($" done ({changed} changed, {unchanged} unchanged)");
 }
 
-Directory.CreateDirectory(Path.Combine(gameDir, "artifacts"));
+Directory.CreateDirectory(Path.Combine(gameDir, ".artifacts"));
 Directory.CreateDirectory(Path.Combine(gameDir, "applied"));
 
 var fixtureMetadata = new FixtureMetadata

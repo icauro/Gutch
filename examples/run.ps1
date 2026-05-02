@@ -171,7 +171,7 @@ if (Test-Path $fixturePath) {
     $versionIds = 1..$Versions | ForEach-Object { "$_.0.0" }
 }
 
-$artifactsRoot = Join-Path $GameDir "artifacts"
+$artifactsRoot = Join-Path $GameDir ".artifacts"
 $productRoot = Join-Path $artifactsRoot "v1\products\$product"
 $bundlesRoot = Join-Path $productRoot "bundles"
 $latestVersionId = [string]$versionIds[-1]
