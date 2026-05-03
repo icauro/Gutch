@@ -210,7 +210,7 @@ Only newly introduced chunks should be written into newly generated bundles. Reu
 
 `choose_target_size` should balance the new payload across a small number of bundles. For example, `12 MiB` of new compressed chunks can become one `12 MiB` bundle, while `180 MiB` can become three roughly `60 MiB` bundles instead of two full `64 MiB` bundles plus one tiny tail.
 
-When the compression unit is `bundle`, packing should still aim at the preferred compressed bundle size. That means the planner should use an estimated compressed contribution for each chunk while filling a bundle, not raw input bytes alone, otherwise bundle-compressed output will undershoot the preferred size.
+When the compression unit is `bundle`, packing should still aim at the preferred compressed bundle size. The planner should not fill bundles from raw bytes alone, because that makes bundle-compressed output undershoot the preferred size. A practical approach is to measure one probe bundle, derive an initial compression ratio from that probe, and then adapt the ratio from real bundle results while continuing to pack against compressed-size targets.
 
 ## What "finalize bundle" means
 
