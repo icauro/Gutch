@@ -129,6 +129,13 @@ struct CompressedChunk {
 }
 
 #[derive(Clone)]
+struct BundleCompressedChunkEstimate {
+    hash: String,
+    raw: Vec<u8>,
+    estimated_compressed_size: u64,
+}
+
+#[derive(Clone)]
 struct ChunkLocation {
     bundle_path: PathBuf,
     index: usize,
@@ -493,17 +500,32 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     );
 
     if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
-        let mut sorted_chunks = chunks_to_compress;
-        sorted_chunks.sort_by(|a, b| a.0.cmp(&b.0));
-        let new_raw_bytes: u64 = sorted_chunks
-            .iter()
-            .map(|(_, data)| data.len() as u64)
-            .sum();
-        let bundle_target_size = bundle_target_size_policy.target_size_for(new_raw_bytes);
+        let estimated_chunks: Vec<BundleCompressedChunkEstimate> = chunks_to_compress
+            .into_par_iter()
+            .map(|(hash, data)| -> Result<BundleCompressedChunkEstimate> {
+                let estimated_compressed_size =
+                    compress_chunk(&data, &compression_profile)?.len() as u64;
+                Ok(BundleCompressedChunkEstimate {
+                    hash,
+                    raw: data,
+                    estimated_compressed_size,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
-        for (hash, data) in sorted_chunks {
-            let raw_size = data.len() as u64;
-            if !builder.is_empty() && current_bundle_size + raw_size > bundle_target_size {
+        let mut sorted_chunks = estimated_chunks;
+        sorted_chunks.sort_by(|a, b| a.hash.cmp(&b.hash));
+        let new_estimated_compressed_bytes: u64 = sorted_chunks
+            .iter()
+            .map(|chunk| chunk.estimated_compressed_size)
+            .sum();
+        let bundle_target_size =
+            bundle_target_size_policy.target_size_for(new_estimated_compressed_bytes);
+
+        for chunk in sorted_chunks {
+            if !builder.is_empty()
+                && current_bundle_size + chunk.estimated_compressed_size > bundle_target_size
+            {
                 let bundle_id = builder.compute_bundle_id();
                 required_bundle_set.push(bundle_id.clone());
                 if !existing_bundle_ids.contains(&bundle_id) {
@@ -519,8 +541,8 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
                 current_bundle_size = 0;
             }
 
-            builder.add_chunk(hash, data);
-            current_bundle_size += raw_size;
+            builder.add_chunk(chunk.hash, chunk.raw);
+            current_bundle_size += chunk.estimated_compressed_size;
         }
     } else {
         let t = Instant::now();
