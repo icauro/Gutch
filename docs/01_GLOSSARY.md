@@ -10,21 +10,72 @@ This document defines the canonical terms used across Gutch docs and code discus
 
 ## Core Terms
 
+### Product
+
+The top-level catalog and commercial entity.
+
+A product owns:
+
+- marketing and store identity
+- entitlement rules
+- public-facing product information
+- one or more content repos
+
+### Content Repo
+
+A remote Gutch-managed storage container for one product content stream.
+
+A content repo is the holding storage in R2/S3 that receives targets and bundles produced by Gutch build work on a creator machine.
+
+A content repo owns one or more targets.
+
+Examples:
+
+- base content repo
+- DLC content repo
+- language-pack content repo
+
 ### Target
 
-One installable build identity.
+One installable build identity owned by a content repo.
+
+A target is an installable recipe produced from content in one content repo.
 
 Current compact model:
 
 ```text
-target = product + version + platform + architecture + tier
+target = content repo + version + platform + architecture + tier
 ```
 
 Example:
 
 ```text
-game_123:v2.0.0:windows:x64:premium
+base_repo:v2.0.0:windows:x64:premium
 ```
+
+### Target Tags
+
+Target tags describe the variant axes for one target.
+
+Current canonical required tags are:
+
+- `version`
+- `platform`
+- `arch`
+
+Current default values:
+
+- `platform=any`
+- `arch=any`
+
+`any` means the target is intentionally valid across that axis. It does not mean the value is unknown.
+
+Common optional tags include:
+
+- `tier`
+- `edition`
+- `language`
+- `channel`
 
 ### Target Manifest
 
@@ -78,7 +129,9 @@ Use these more specific terms when needed:
 ## Relationship Model
 
 ```text
-target
+product
+-> content repos
+-> targets
 -> target manifest
 -> embedded file manifests
 -> chunk references
@@ -86,8 +139,33 @@ target
 -> install
 ```
 
+Expanded hierarchy:
+
+```text
+product
+├─ marketing/store identity
+├─ entitlement rules
+├─ public-facing info
+├─ content repos
+│  ├─ base content repo
+│  │  ├─ source snapshots
+│  │  └─ targets
+│  │     ├─ target: version/platform/arch/tier
+│  │     └─ target: version/platform/arch/tier
+│  ├─ dlc content repo
+│  │  ├─ source snapshots
+│  │  └─ targets
+│  │     └─ target: version/platform/arch/tier
+│  └─ language-pack content repo
+│     ├─ source snapshots
+│     └─ targets
+│        └─ target: version/platform/arch/tier
+```
+
 ## Naming Guidance
 
+- Use `product` for the catalog and commercial container.
+- Use `content repo` for the remote content-lineage and storage container.
 - Use `target` for identity.
 - Use `target manifest` for the signed install contract.
 - Use `artifact` for stored delivery objects in general.
@@ -113,5 +191,6 @@ Examples:
 ## Notes
 
 - `version` alone is not enough to identify a target once platform, architecture, and tier differ.
+- Do not shorten `content repo` to plain `repo` in contexts where it could be confused with a Git repository.
 - `artifact` alone is too broad to replace `target`.
 - `bundle` should stay distinct from `target artifact` because bundles are commonly shared across targets.

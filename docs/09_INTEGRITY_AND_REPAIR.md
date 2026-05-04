@@ -6,6 +6,12 @@ For canonical terminology and core design rules, start with `01_GLOSSARY.md`, `0
 
 This document explains how Gutch checks install integrity and how repair should work when files, chunks, or install metadata are missing or corrupted.
 
+Current status:
+
+- Full repair planning and execution are design targets for Gutch, not fully implemented behavior yet.
+- The current library implementation can verify manifest-declared files and classify install-state issues as missing, corrupt, or extra.
+- Signed target manifests are part of the intended trust model, but signature enforcement is not fully wired into the current implementation yet.
+
 ## Integrity Model
 
 Gutch verifies integrity at multiple layers:
@@ -72,6 +78,8 @@ Rules:
 
 Quick verify is the cheap routine check.
 
+This section describes the intended lightweight launcher-oriented check, not the current `gutch` library verification routine.
+
 It should verify:
 
 ```text
@@ -90,9 +98,17 @@ Use quick verify when:
 
 Quick verify is intentionally fast. It does not prove that every byte is correct.
 
+Current implementation note:
+
+- The current `gutch` verifier is stricter than this design target.
+- It verifies manifest-declared files by reading file contents, hashing the full file, and hashing each declared chunk span.
+- It also reports extra on-disk files that are not present in the target manifest.
+
 ## Full Repair
 
 Full repair is the explicit recovery flow.
+
+This section describes the intended recovery flow. The current codebase does not yet expose a complete repair planner/executor that performs all of these steps end-to-end.
 
 It should run this process:
 
@@ -160,6 +176,12 @@ If corruption is detected:
 - missing chunks are fetched from bundles
 - only affected files need reconstruction
 - unaffected verified files can stay in place
+
+If extra files are detected:
+
+- files present on disk but absent from the target manifest should be classified separately from missing or corrupt manifest-owned files
+- extra files should not be deleted automatically by default
+- repair policy may later choose to warn, quarantine, or explicitly remove extras depending on launcher mode and product policy
 
 Gutch should avoid broad recovery work unless the planner decides that grouped bundle downloads are better than highly fragmented range requests.
 

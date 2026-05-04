@@ -20,6 +20,20 @@ read files
  -> target manifest signing
 ```
 
+For `repo init`, Gutch should also support a batch mode:
+
+```text
+scan each target
+ -> hash files
+ -> chunk files
+ -> build per-target file manifests
+ -> union and dedupe chunks across the full init batch
+ -> pack bundles across the full batch
+ -> write one target manifest per target
+```
+
+Batch init should defer bundling until every target in the init batch has already been chunked. This improves bundle fill and early chunk reuse inside a new content repo.
+
 The pipeline should not need to diff against every previous target. It only needs to know whether a chunk or bundle already exists.
 
 ### Upload Rules
@@ -27,7 +41,7 @@ The pipeline should not need to diff against every previous target. It only need
 - Skip chunks already known to exist.
 - Skip bundles already known to exist.
 - Reuse previous file-manifest entries for unchanged files when the path, size, and full-file hash match.
-- Create new bundles only for unique chunks not already present in the product bundle store.
+- Create new bundles only for unique chunks not already present in the content repo bundle store.
 - Upload bundles before publishing the signed target manifest.
 - Never publish a target manifest that references missing bundles.
 

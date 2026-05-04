@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
@@ -217,10 +219,14 @@ impl Default for CompressionProfile {
 pub struct TargetManifest {
     pub manifest_version: u32,
     pub product_id: String,
+    pub content_repo_id: String,
+    pub target_id: String,
     pub version_id: String,
     pub platform: String,
     pub architecture: String,
     pub tier_id: String,
+    #[serde(default)]
+    pub target_tags: BTreeMap<String, String>,
     pub created_at: String,
     #[serde(default, alias = "chunking_profile")]
     pub chunk_sizing_profile: ChunkSizingProfile,
@@ -304,18 +310,24 @@ pub struct Estimate {
 impl TargetManifest {
     pub fn new(
         product_id: String,
+        content_repo_id: String,
+        target_id: String,
         version_id: String,
         platform: String,
         architecture: String,
         tier_id: String,
+        target_tags: BTreeMap<String, String>,
     ) -> Self {
         TargetManifest {
             manifest_version: FORMAT_VERSION,
             product_id,
+            content_repo_id,
+            target_id,
             version_id,
             platform,
             architecture,
             tier_id,
+            target_tags,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             chunk_sizing_profile: ChunkSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
@@ -370,12 +382,23 @@ mod tests {
     fn test_target_manifest_new() {
         let m = TargetManifest::new(
             "prod-1".into(),
+            "base".into(),
+            "1.0.0-windows-x86_64-base".into(),
             "1.0.0".into(),
             "windows".into(),
             "x86_64".into(),
             "base".into(),
+            BTreeMap::from([
+                ("version".to_string(), "1.0.0".to_string()),
+                ("platform".to_string(), "windows".to_string()),
+                ("arch".to_string(), "x86_64".to_string()),
+                ("tier".to_string(), "base".to_string()),
+            ]),
         );
         assert_eq!(m.product_id, "prod-1");
+        assert_eq!(m.content_repo_id, "base");
+        assert_eq!(m.target_id, "1.0.0-windows-x86_64-base");
+        assert_eq!(m.target_tags.get("platform").map(String::as_str), Some("windows"));
         assert_eq!(m.manifest_version, 1);
         assert!(m.signature_metadata.is_none());
         assert!(m.created_at.len() > 0);
@@ -385,15 +408,26 @@ mod tests {
     fn test_manifest_serialization_roundtrip() {
         let m = TargetManifest::new(
             "prod-1".into(),
+            "base".into(),
+            "1.0.0-windows-x86_64-base".into(),
             "1.0.0".into(),
             "windows".into(),
             "x86_64".into(),
             "base".into(),
+            BTreeMap::from([
+                ("version".to_string(), "1.0.0".to_string()),
+                ("platform".to_string(), "windows".to_string()),
+                ("arch".to_string(), "x86_64".to_string()),
+                ("tier".to_string(), "base".to_string()),
+            ]),
         );
         let json = serde_json::to_string_pretty(&m).unwrap();
         let m2: TargetManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(m.product_id, m2.product_id);
+        assert_eq!(m.content_repo_id, m2.content_repo_id);
+        assert_eq!(m.target_id, m2.target_id);
         assert_eq!(m.version_id, m2.version_id);
+        assert_eq!(m.target_tags, m2.target_tags);
     }
 
     #[test]

@@ -64,24 +64,26 @@ r2://gutch/
   v1/
     products/
       {product_id}/
-        targets/
-          {version_id}/{platform}/{architecture}/{tier_id}/
-            manifest.json
-            manifest.sig
-
-        bundles/
-          {bundle_id_prefix}/{bundle_id}.bundle
+        repos/
+          {content_repo_id}/
+            targets/
+              {target_id}/
+                manifest.json
+                manifest.sig
+            bundles/
+              {bundle_id}.bundle
+            metadata/
 ```
 
 Rules:
 
 - `v1/` is the artifact storage format version root.
-- One `targets/...` path is one exact installable target identity.
+- One `content_repo_id` path is one content repo within a product.
+- One `targets/{target_id}/` path is one exact installable target identity within that content repo.
 - `manifest.json` is the authoritative signed target description.
 - `manifest.sig` is the detached signature for `manifest.json`.
-- Bundles are product-scoped shared payload containers, not target-scoped files.
-- New target builds should reuse existing chunk locations when possible and create bundles only for chunks not already present in the product bundle store.
-- `bundle_id_prefix` should be derived from the first bytes of the full content-derived bundle ID.
+- Bundles are content-repo-scoped shared payload containers, not target-scoped files.
+- New target builds should reuse existing chunk locations when possible and create bundles only for chunks not already present in the content repo bundle store.
 
 The backend should own R2 object key generation. Clients should not guess trust-sensitive paths.
 
@@ -92,7 +94,7 @@ The backend should own R2 object key generation. Clients should not guess trust-
 A target is one installable build identity:
 
 ```text
-product_id + version_id + platform + architecture + tier_id
+content_repo_id + version_id + platform + architecture + tier_id
 ```
 
 ### Target Manifest
@@ -104,10 +106,13 @@ It should include:
 ```text
 manifest_version
 product_id
+content_repo_id
+target_id
 version_id
 platform
 architecture
 tier_id
+target_tags
 created_at
 compression_profile
 chunk_sizing_profile
@@ -124,6 +129,8 @@ signature_metadata
 The target manifest must be signed. Clients should reject unsigned or invalidly signed manifests.
 
 The target manifest is the single metadata JSON object for one target. It includes the per-file entries directly instead of referencing separate file-manifest JSON files.
+
+`target_tags` should carry the canonical target tag set for that target. Today the required tags are `version`, `platform`, and `arch`, with `platform=any` and `arch=any` allowed as explicit defaults for shared content.
 
 ### Sizing Profiles
 
@@ -227,7 +234,7 @@ target manifest -> required_bundle_set -> bundle chunk tables
 
 The manifest identifies which bundles may be needed for the target, and each bundle's internal chunk table resolves exact chunk locations within that bundle.
 
-`required_bundle_set` is the union of bundles containing reused chunks and bundles newly created for this target. It is not limited to bundles produced by the current build.
+`required_bundle_set` is the union of bundles containing reused chunks and bundles newly created for this target. It is not limited to bundles produced by the current build, but it is scoped to one content repo.
 
 An additional derived chunk-to-bundle index may be added later for faster planning, but it is not required as part of the canonical v1 object layout.
 
@@ -237,7 +244,7 @@ Successful installs should not require a durable local chunk index or persistent
 
 Tier overlays are deferred for now.
 
-In v1, each installable target should be represented by its own complete target manifest under its exact target path.
+In v1, each installable target should be represented by its own complete target manifest under `targets/{target_id}/`.
 
 If overlay-based tier modeling is adopted later, it should be added as a follow-up artifact model rather than assumed by the canonical v1 layout.
 

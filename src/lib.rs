@@ -7,7 +7,7 @@ pub mod manifest;
 #[cfg(test)]
 mod test_util;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -39,6 +39,40 @@ fn file_mode(metadata: &std::fs::Metadata) -> u32 {
             0o644
         }
     }
+}
+
+pub fn compute_target_id(version_id: &str, platform: &str, architecture: &str, tier_id: &str) -> String {
+    format!("{version_id}-{platform}-{architecture}-{tier_id}")
+}
+
+pub fn canonical_target_tags(
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("version".to_string(), version_id.to_string()),
+        ("platform".to_string(), platform.to_string()),
+        ("arch".to_string(), architecture.to_string()),
+        ("tier".to_string(), tier_id.to_string()),
+    ])
+}
+
+#[derive(Debug, Clone)]
+pub struct RepoInitTargetInput {
+    pub dir: PathBuf,
+    pub version_id: String,
+    pub platform: String,
+    pub architecture: String,
+    pub tier_id: String,
+    pub tags: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RepoInitResult {
+    pub target_manifests: Vec<TargetManifest>,
+    pub bundles: Vec<BuiltBundle>,
 }
 
 pub struct BuildResult {
@@ -108,6 +142,47 @@ pub struct VerifyTimings {
     pub total: Duration,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RepairIssueKind {
+    Missing,
+    Corrupt,
+    Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepairIssue {
+    pub kind: RepairIssueKind,
+    pub path: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RepairClassification {
+    pub missing_files: Vec<RepairIssue>,
+    pub corrupt_files: Vec<RepairIssue>,
+    pub extra_files: Vec<RepairIssue>,
+}
+
+impl RepairClassification {
+    fn push(&mut self, issue: RepairIssue) {
+        match issue.kind {
+            RepairIssueKind::Missing => self.missing_files.push(issue),
+            RepairIssueKind::Corrupt => self.corrupt_files.push(issue),
+            RepairIssueKind::Extra => self.extra_files.push(issue),
+        }
+    }
+
+    fn into_messages(self) -> Vec<String> {
+        let mut messages = Vec::with_capacity(
+            self.missing_files.len() + self.corrupt_files.len() + self.extra_files.len(),
+        );
+        messages.extend(self.missing_files.into_iter().map(|issue| issue.detail));
+        messages.extend(self.corrupt_files.into_iter().map(|issue| issue.detail));
+        messages.extend(self.extra_files.into_iter().map(|issue| issue.detail));
+        messages
+    }
+}
+
 struct FileBuildEntry {
     manifest: FileManifest,
     chunks: Vec<(String, Vec<u8>)>,
@@ -119,6 +194,17 @@ struct FileBuildEntry {
     chunk_hash_judgment: Duration,
     chunk_hash_judgment_bytes: u64,
     metadata: Duration,
+}
+
+struct ScannedTarget {
+    version_id: String,
+    platform: String,
+    architecture: String,
+    tier_id: String,
+    tags: BTreeMap<String, String>,
+    files: Vec<FileManifest>,
+    unique_chunks: HashMap<String, Vec<u8>>,
+    total_logical_size: u64,
 }
 
 #[derive(Clone)]
@@ -227,165 +313,12 @@ fn update_bundle_compression_ratio(
     previous_ratio * 0.7 + actual_ratio * 0.3
 }
 
-pub fn build_from_directory(
+fn scan_directory_into_file_entries(
     dir: &Path,
-    product_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-) -> Result<BuildResult> {
-    let (result, _) = build_from_directory_with_timings_against_existing_bundles(
-        dir,
-        product_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
-        &HashSet::new(),
-    )?;
-    Ok(result)
-}
-
-pub fn build_from_directory_with_timings(
-    dir: &Path,
-    product_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_bundles(
-        dir,
-        product_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
-        &HashSet::new(),
-    )
-}
-
-pub fn build_from_directory_with_timings_against_existing_bundles(
-    dir: &Path,
-    product_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-    existing_bundle_ids: &HashSet<String>,
-) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store(
-        dir,
-        product_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
-        &HashMap::new(),
-        existing_bundle_ids,
-    )
-}
-
-pub fn build_from_directory_with_timings_against_existing_store(
-    dir: &Path,
-    product_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
-        dir,
-        product_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        &HashMap::new(),
-        &manifest::ChunkSizingProfile::default(),
-        &manifest::BundleSizingProfile::default(),
-    )
-}
-
-pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
-    dir: &Path,
-    product_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
-) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
-        dir,
-        product_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        previous_file_manifests,
-        &manifest::ChunkSizingProfile::default(),
-        &manifest::BundleSizingProfile::default(),
-    )
-}
-
-pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
-    dir: &Path,
-    product_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    chunking_profile: &manifest::ChunkSizingProfile,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-    previous_file_manifests: &HashMap<String, FileManifest>,
-    chunk_profile: &manifest::ChunkSizingProfile,
-    bundle_profile: &manifest::BundleSizingProfile,
-) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
-        dir,
-        product_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        previous_file_manifests,
-        chunk_profile,
-        bundle_profile,
-        &manifest::CompressionProfile::default(),
-    )
-}
-
-pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
-    dir: &Path,
-    product_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-    previous_file_manifests: &HashMap<String, FileManifest>,
-    chunk_profile: &manifest::ChunkSizingProfile,
-    bundle_profile: &manifest::BundleSizingProfile,
-    compression_profile: &manifest::CompressionProfile,
-) -> Result<(BuildResult, BuildTimings)> {
-    let total_start = Instant::now();
-    let chunking_profile = chunk_profile;
-    let compression_profile = compression_profile.clone();
-    let mut timings = BuildTimings::default();
-
+) -> Result<Vec<FileBuildEntry>> {
     let mut file_paths: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
         let entry = entry?;
@@ -394,7 +327,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
         }
     }
 
-    let file_entries: Vec<FileBuildEntry> = file_paths
+    file_paths
         .par_iter()
         .map(|path| -> Result<FileBuildEntry> {
             let relative = path.strip_prefix(dir).map_err(|e| Error::PathError {
@@ -430,7 +363,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
                 }
             }
 
-            let (chunk_results, chunk_timings) = chunk::chunk_slices(&file_data, &chunking_profile);
+            let (chunk_results, chunk_timings) = chunk::chunk_slices(&file_data, chunking_profile);
             let chunking = chunk_timings.boundary_scan;
 
             let mut chunk_refs = Vec::with_capacity(chunk_results.len());
@@ -474,7 +407,183 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
                 metadata,
             })
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()
+}
+
+pub fn build_from_directory(
+    dir: &Path,
+    product_id: &str,
+    content_repo_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+) -> Result<BuildResult> {
+    let (result, _) = build_from_directory_with_timings_against_existing_bundles(
+        dir,
+        product_id,
+        content_repo_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        &HashSet::new(),
+    )?;
+    Ok(result)
+}
+
+pub fn build_from_directory_with_timings(
+    dir: &Path,
+    product_id: &str,
+    content_repo_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_bundles(
+        dir,
+        product_id,
+        content_repo_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        &HashSet::new(),
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_bundles(
+    dir: &Path,
+    product_id: &str,
+    content_repo_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_bundle_ids: &HashSet<String>,
+) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_store(
+        dir,
+        product_id,
+        content_repo_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        &HashMap::new(),
+        existing_bundle_ids,
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_store(
+    dir: &Path,
+    product_id: &str,
+    content_repo_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
+        dir,
+        product_id,
+        content_repo_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        &HashMap::new(),
+        &manifest::ChunkSizingProfile::default(),
+        &manifest::BundleSizingProfile::default(),
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
+    dir: &Path,
+    product_id: &str,
+    content_repo_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+    previous_file_manifests: &HashMap<String, FileManifest>,
+) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
+        dir,
+        product_id,
+        content_repo_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        previous_file_manifests,
+        &manifest::ChunkSizingProfile::default(),
+        &manifest::BundleSizingProfile::default(),
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
+    dir: &Path,
+    product_id: &str,
+    content_repo_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+    previous_file_manifests: &HashMap<String, FileManifest>,
+    chunk_profile: &manifest::ChunkSizingProfile,
+    bundle_profile: &manifest::BundleSizingProfile,
+) -> Result<(BuildResult, BuildTimings)> {
+    build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
+        dir,
+        product_id,
+        content_repo_id,
+        version_id,
+        platform,
+        architecture,
+        tier_id,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        previous_file_manifests,
+        chunk_profile,
+        bundle_profile,
+        &manifest::CompressionProfile::default(),
+    )
+}
+
+pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
+    dir: &Path,
+    product_id: &str,
+    content_repo_id: &str,
+    version_id: &str,
+    platform: &str,
+    architecture: &str,
+    tier_id: &str,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+    previous_file_manifests: &HashMap<String, FileManifest>,
+    chunk_profile: &manifest::ChunkSizingProfile,
+    bundle_profile: &manifest::BundleSizingProfile,
+    compression_profile: &manifest::CompressionProfile,
+) -> Result<(BuildResult, BuildTimings)> {
+    let total_start = Instant::now();
+    let chunking_profile = chunk_profile;
+    let compression_profile = compression_profile.clone();
+    let mut timings = BuildTimings::default();
+
+    let file_entries =
+        scan_directory_into_file_entries(dir, previous_file_manifests, chunking_profile, existing_chunk_locations)?;
 
     let mut file_manifests: Vec<FileManifest> = Vec::with_capacity(file_entries.len());
     let mut unique_chunks: HashMap<String, Vec<u8>> = HashMap::new();
@@ -676,12 +785,16 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 
     let t = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
+    let target_id = compute_target_id(version_id, platform, architecture, tier_id);
     let mut vm = TargetManifest::new(
         product_id.to_string(),
+        content_repo_id.to_string(),
+        target_id,
         version_id.to_string(),
         platform.to_string(),
         architecture.to_string(),
         tier_id.to_string(),
+        canonical_target_tags(version_id, platform, architecture, tier_id),
     );
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
@@ -700,6 +813,271 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     Ok((
         BuildResult {
             target_manifest: vm,
+            bundles,
+        },
+        timings,
+    ))
+}
+
+pub fn build_repo_init_batch_with_timings(
+    product_id: &str,
+    content_repo_id: &str,
+    targets: &[RepoInitTargetInput],
+    chunk_profile: &manifest::ChunkSizingProfile,
+    bundle_profile: &manifest::BundleSizingProfile,
+    compression_profile: &manifest::CompressionProfile,
+) -> Result<(RepoInitResult, BuildTimings)> {
+    let total_start = Instant::now();
+    let mut timings = BuildTimings::default();
+    let previous_file_manifests: HashMap<String, FileManifest> = HashMap::new();
+    let existing_chunk_locations: HashMap<String, ExistingChunkLocation> = HashMap::new();
+    let mut scanned_targets = Vec::with_capacity(targets.len());
+
+    for target in targets {
+        let file_entries = scan_directory_into_file_entries(
+            &target.dir,
+            &previous_file_manifests,
+            chunk_profile,
+            &existing_chunk_locations,
+        )?;
+
+        let mut file_manifests = Vec::with_capacity(file_entries.len());
+        let mut unique_chunks: HashMap<String, Vec<u8>> = HashMap::new();
+        let mut total_logical_size: u64 = 0;
+
+        for entry in file_entries {
+            timings.scan_read += entry.scan_read;
+            timings.scan_read_bytes += entry.size;
+            timings.file_hash += entry.file_hash;
+            timings.file_hash_bytes += entry.size;
+            timings.chunking += entry.chunking;
+            timings.chunking_bytes += entry.chunking_bytes;
+            timings.chunk_hash_judgment += entry.chunk_hash_judgment;
+            timings.chunk_hash_judgment_bytes += entry.chunk_hash_judgment_bytes;
+            timings.metadata += entry.metadata;
+            total_logical_size += entry.size;
+            file_manifests.push(entry.manifest);
+            for (hash, data) in entry.chunks {
+                unique_chunks.entry(hash).or_insert(data);
+            }
+        }
+
+        scanned_targets.push(ScannedTarget {
+            version_id: target.version_id.clone(),
+            platform: target.platform.clone(),
+            architecture: target.architecture.clone(),
+            tier_id: target.tier_id.clone(),
+            tags: target.tags.clone(),
+            files: file_manifests,
+            unique_chunks,
+            total_logical_size,
+        });
+    }
+
+    let mut repo_unique_chunks: HashMap<String, Vec<u8>> = HashMap::new();
+    for target in &scanned_targets {
+        for (hash, data) in &target.unique_chunks {
+            repo_unique_chunks
+                .entry(hash.clone())
+                .or_insert_with(|| data.clone());
+        }
+    }
+
+    let mut chunks_to_compress: Vec<(String, Vec<u8>)> = repo_unique_chunks.into_iter().collect();
+    for (_, data) in &chunks_to_compress {
+        timings.dedupe_lookup_bytes += data.len() as u64;
+        timings.compression_input_bytes += data.len() as u64;
+    }
+
+    let t = Instant::now();
+    let bundle_target_size_policy = BundleSizingPolicy::new(
+        bundle_profile.bundle_max_size_bytes(),
+        bundle_profile.bundle_preferred_size_bytes(),
+    );
+    let mut bundles = Vec::new();
+    let mut builder = BundleBuilder::new(compression_profile.clone());
+
+    if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
+        chunks_to_compress.sort_by(|a, b| a.0.cmp(&b.0));
+        let new_raw_bytes: u64 = chunks_to_compress.iter().map(|(_, data)| data.len() as u64).sum();
+        let mut bundle_compression_ratio = estimate_bundle_compression_ratio_from_probe(
+            &chunks_to_compress,
+            compression_profile,
+            bundle_profile.bundle_preferred_size_bytes(),
+        )?;
+        let estimated_total_compressed_bytes =
+            ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
+        let bundle_target_compressed_size =
+            bundle_target_size_policy.target_size_for(estimated_total_compressed_bytes);
+        let mut current_bundle_raw_size: u64 = 0;
+        let mut current_bundle_raw_target_size = raw_target_size_for_bundle_compression(
+            bundle_target_compressed_size,
+            bundle_compression_ratio,
+            bundle_target_size_policy,
+        );
+
+        for (hash, data) in chunks_to_compress {
+            let raw_size = data.len() as u64;
+            if !builder.is_empty()
+                && current_bundle_raw_size + raw_size > current_bundle_raw_target_size
+            {
+                let bundle_id = builder.compute_bundle_id();
+                let bundle_data = builder.build()?;
+                timings.compression_output_bytes += bundle_data.len() as u64;
+                timings.total_compressed_bytes += bundle_data.len() as u64;
+                bundle_compression_ratio = update_bundle_compression_ratio(
+                    bundle_compression_ratio,
+                    current_bundle_raw_size,
+                    bundle_data.len() as u64,
+                );
+                bundles.push(BuiltBundle {
+                    bundle_id,
+                    data: bundle_data,
+                });
+                builder = BundleBuilder::new(compression_profile.clone());
+                current_bundle_raw_size = 0;
+                current_bundle_raw_target_size = raw_target_size_for_bundle_compression(
+                    bundle_target_compressed_size,
+                    bundle_compression_ratio,
+                    bundle_target_size_policy,
+                );
+            }
+
+            builder.add_chunk(hash, data);
+            current_bundle_raw_size += raw_size;
+        }
+    } else {
+        let compressed_chunks: Vec<CompressedChunk> = chunks_to_compress
+            .into_par_iter()
+            .map(|(hash, data)| -> Result<CompressedChunk> {
+                let raw_size = data.len() as u64;
+                let compressed = compress_chunk(&data, compression_profile)?;
+                Ok(CompressedChunk {
+                    hash,
+                    raw_size,
+                    compressed,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        for chunk in &compressed_chunks {
+            timings.compression_output_bytes += chunk.compressed.len() as u64;
+        }
+
+        let mut sorted_chunks = compressed_chunks;
+        sorted_chunks.sort_by(|a, b| a.hash.cmp(&b.hash));
+        let new_compressed_bytes: u64 = sorted_chunks
+            .iter()
+            .map(|c| c.compressed.len() as u64)
+            .sum();
+        let bundle_target_size = bundle_target_size_policy.target_size_for(new_compressed_bytes);
+        let mut current_bundle_size: u64 = 0;
+
+        for chunk in sorted_chunks {
+            let compressed_size = chunk.compressed.len() as u64;
+            if !builder.is_empty() && current_bundle_size + compressed_size > bundle_target_size {
+                let bundle_id = builder.compute_bundle_id();
+                let bundle_data = builder.build()?;
+                timings.total_compressed_bytes += bundle_data.len() as u64;
+                bundles.push(BuiltBundle {
+                    bundle_id,
+                    data: bundle_data,
+                });
+                builder = BundleBuilder::new(compression_profile.clone());
+                current_bundle_size = 0;
+            }
+
+            builder.add_precompressed_chunk(chunk.hash, chunk.raw_size, chunk.compressed);
+            current_bundle_size += compressed_size;
+        }
+    }
+
+    if !builder.is_empty() {
+        let bundle_id = builder.compute_bundle_id();
+        let bundle_data = builder.build()?;
+        if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
+            timings.compression_output_bytes += bundle_data.len() as u64;
+        }
+        timings.total_compressed_bytes += bundle_data.len() as u64;
+        bundles.push(BuiltBundle {
+            bundle_id,
+            data: bundle_data,
+        });
+    }
+
+    timings.compression += t.elapsed();
+    timings.bundle_build += t.elapsed();
+    timings.bundle_build_bytes = bundles.iter().map(|b| b.data.len() as u64).sum();
+
+    let mut chunk_locations = HashMap::new();
+    for bundle in &bundles {
+        let reader = bundle::read_bundle(&bundle.data)?;
+        for entry in reader.entries() {
+            chunk_locations.insert(
+                entry.chunk_hash.clone(),
+                ExistingChunkLocation {
+                    bundle_id: bundle.bundle_id.clone(),
+                    raw_size: entry.raw_size,
+                    compressed_size: entry.compressed_size,
+                },
+            );
+        }
+    }
+
+    let t = Instant::now();
+    let mut target_manifests = Vec::with_capacity(scanned_targets.len());
+    for mut target in scanned_targets {
+        target.files.sort_by(|a, b| a.path.cmp(&b.path));
+        let mut manifest = TargetManifest::new(
+            product_id.to_string(),
+            content_repo_id.to_string(),
+            compute_target_id(
+                &target.version_id,
+                &target.platform,
+                &target.architecture,
+                &target.tier_id,
+            ),
+            target.version_id,
+            target.platform,
+            target.architecture,
+            target.tier_id,
+            target.tags,
+        );
+        manifest.chunk_sizing_profile = chunk_profile.clone();
+        manifest.compression_profile = compression_profile.clone();
+        manifest.bundle_sizing_profile = bundle_profile.clone();
+        manifest.total_logical_size = target.total_logical_size;
+        manifest.files = target.files;
+
+        let mut required_chunk_set: Vec<String> = manifest
+            .files
+            .iter()
+            .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.clone()))
+            .collect();
+        required_chunk_set.sort();
+        required_chunk_set.dedup();
+        manifest.required_chunk_set = required_chunk_set.clone();
+
+        let mut required_bundle_set = Vec::new();
+        let mut total_compressed_size_estimate = 0u64;
+        for chunk_hash in required_chunk_set {
+            if let Some(location) = chunk_locations.get(&chunk_hash) {
+                required_bundle_set.push(location.bundle_id.clone());
+                total_compressed_size_estimate += location.compressed_size;
+            }
+        }
+        required_bundle_set.sort();
+        required_bundle_set.dedup();
+        manifest.required_bundle_set = required_bundle_set;
+        manifest.total_compressed_size_estimate = total_compressed_size_estimate;
+        target_manifests.push(manifest);
+    }
+    timings.target_manifest_finalize += t.elapsed();
+
+    timings.total = total_start.elapsed();
+    Ok((
+        RepoInitResult {
+            target_manifests,
             bundles,
         },
         timings,
@@ -962,15 +1340,36 @@ pub fn verify_directory_with_timings(
     target_manifest: &TargetManifest,
     dir: &Path,
 ) -> Result<(Vec<String>, VerifyTimings)> {
+    let (classification, timings) = classify_directory_with_timings(target_manifest, dir)?;
+    Ok((classification.into_messages(), timings))
+}
+
+pub fn classify_directory(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+) -> Result<RepairClassification> {
+    let (classification, _) = classify_directory_with_timings(target_manifest, dir)?;
+    Ok(classification)
+}
+
+pub fn classify_directory_with_timings(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
-    let mut errors = Vec::new();
+    let mut classification = RepairClassification::default();
     let mut timings = VerifyTimings::default();
+    let manifest_paths: HashSet<&str> = target_manifest.files.iter().map(|fm| fm.path.as_str()).collect();
 
     for fm in &target_manifest.files {
         let file_path = dir.join(&fm.path);
 
         if !file_path.exists() {
-            errors.push(format!("missing file: {}", fm.path));
+            classification.push(RepairIssue {
+                kind: RepairIssueKind::Missing,
+                path: fm.path.clone(),
+                detail: format!("missing file: {}", fm.path),
+            });
             continue;
         }
 
@@ -978,19 +1377,27 @@ pub fn verify_directory_with_timings(
         let metadata = match std::fs::metadata(&file_path) {
             Ok(m) => m,
             Err(e) => {
-                errors.push(format!("cannot stat {}: {}", fm.path, e));
+                classification.push(RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: fm.path.clone(),
+                    detail: format!("cannot stat {}: {}", fm.path, e),
+                });
                 continue;
             }
         };
         timings.stat += t.elapsed();
 
         if metadata.len() != fm.size {
-            errors.push(format!(
-                "size mismatch for {}: expected {}, got {}",
-                fm.path,
-                fm.size,
-                metadata.len()
-            ));
+            classification.push(RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!(
+                    "size mismatch for {}: expected {}, got {}",
+                    fm.path,
+                    fm.size,
+                    metadata.len()
+                ),
+            });
             continue;
         }
 
@@ -998,7 +1405,11 @@ pub fn verify_directory_with_timings(
         let file_data = match std::fs::read(&file_path) {
             Ok(d) => d,
             Err(e) => {
-                errors.push(format!("cannot read {}: {}", fm.path, e));
+                classification.push(RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: fm.path.clone(),
+                    detail: format!("cannot read {}: {}", fm.path, e),
+                });
                 continue;
             }
         };
@@ -1010,20 +1421,28 @@ pub fn verify_directory_with_timings(
         timings.file_hash += t.elapsed();
         timings.file_hash_bytes += file_data.len() as u64;
         if actual_hash != fm.full_file_hash {
-            errors.push(format!(
-                "hash mismatch for {}: expected {}, got {}",
-                fm.path, fm.full_file_hash, actual_hash
-            ));
+            classification.push(RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!(
+                    "hash mismatch for {}: expected {}, got {}",
+                    fm.path, fm.full_file_hash, actual_hash
+                ),
+            });
         }
 
         for chunk_ref in &fm.chunks {
             let start = chunk_ref.file_offset as usize;
             let end = start + chunk_ref.raw_size as usize;
             if end > file_data.len() {
-                errors.push(format!(
-                    "chunk reference out of bounds in {}: offset {}, size {}",
-                    fm.path, chunk_ref.file_offset, chunk_ref.raw_size
-                ));
+                classification.push(RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: fm.path.clone(),
+                    detail: format!(
+                        "chunk reference out of bounds in {}: offset {}, size {}",
+                        fm.path, chunk_ref.file_offset, chunk_ref.raw_size
+                    ),
+                });
                 continue;
             }
 
@@ -1033,16 +1452,41 @@ pub fn verify_directory_with_timings(
             timings.chunk_hash += t.elapsed();
             timings.chunk_hash_bytes += chunk_bytes.len() as u64;
             if actual_chunk_hash != chunk_ref.chunk_hash {
-                errors.push(format!(
-                    "chunk hash mismatch in {} at offset {}: expected {}, got {}",
-                    fm.path, chunk_ref.file_offset, chunk_ref.chunk_hash, actual_chunk_hash
-                ));
+                classification.push(RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: fm.path.clone(),
+                    detail: format!(
+                        "chunk hash mismatch in {} at offset {}: expected {}, got {}",
+                        fm.path, chunk_ref.file_offset, chunk_ref.chunk_hash, actual_chunk_hash
+                    ),
+                });
             }
         }
     }
 
+    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() {
+            continue;
+        }
+
+        let Ok(relative_path) = entry.path().strip_prefix(dir) else {
+            continue;
+        };
+        let relative = relative_path.to_string_lossy().replace('\\', "/");
+        if manifest_paths.contains(relative.as_str()) {
+            continue;
+        }
+
+        classification.push(RepairIssue {
+            kind: RepairIssueKind::Extra,
+            path: relative.clone(),
+            detail: format!("extra file: {}", relative),
+        });
+    }
+
     timings.total = total_start.elapsed();
-    Ok((errors, timings))
+    Ok((classification, timings))
 }
 
 pub fn estimate_build(
@@ -1111,7 +1555,7 @@ mod tests {
         std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
 
         let result =
-            build_from_directory(&dir, "test-product", "1.0.0", "windows", "x86_64", "base")
+            build_from_directory(&dir, "test-product", "base", "1.0.0", "windows", "x86_64", "base")
                 .unwrap();
 
         assert!(!result.target_manifest.files.is_empty());
@@ -1136,6 +1580,60 @@ mod tests {
     }
 
     #[test]
+    fn test_repo_init_batch_builds_multiple_targets() {
+        let root = std::env::temp_dir().join("gutch_test_repo_init_batch");
+        let dir_a = root.join("a");
+        let dir_b = root.join("b");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+
+        std::fs::write(dir_a.join("shared.bin"), b"shared bytes".repeat(100)).unwrap();
+        std::fs::write(dir_a.join("only-a.txt"), b"alpha").unwrap();
+        std::fs::write(dir_b.join("shared.bin"), b"shared bytes".repeat(100)).unwrap();
+        std::fs::write(dir_b.join("only-b.txt"), b"beta").unwrap();
+
+        let inputs = vec![
+            RepoInitTargetInput {
+                dir: dir_a.clone(),
+                version_id: "1.0.0".to_string(),
+                platform: "windows".to_string(),
+                architecture: "x86_64".to_string(),
+                tier_id: "base".to_string(),
+                tags: canonical_target_tags("1.0.0", "windows", "x86_64", "base"),
+            },
+            RepoInitTargetInput {
+                dir: dir_b.clone(),
+                version_id: "1.0.0".to_string(),
+                platform: "windows".to_string(),
+                architecture: "x86_64".to_string(),
+                tier_id: "tr".to_string(),
+                tags: canonical_target_tags("1.0.0", "windows", "x86_64", "tr"),
+            },
+        ];
+
+        let (result, _) = build_repo_init_batch_with_timings(
+            "test-product",
+            "base",
+            &inputs,
+            &manifest::ChunkSizingProfile::default(),
+            &manifest::BundleSizingProfile::default(),
+            &manifest::CompressionProfile::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result.target_manifests.len(), 2);
+        assert!(!result.bundles.is_empty());
+        assert_eq!(result.target_manifests[0].content_repo_id, "base");
+        assert!(result
+            .target_manifests
+            .iter()
+            .all(|manifest| !manifest.required_bundle_set.is_empty()));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn test_verify_directory_missing_file() {
         let dir = std::env::temp_dir().join("gutch_test_verify");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1153,16 +1651,78 @@ mod tests {
 
         let vm = TargetManifest::new(
             "p".into(),
+            "base".into(),
+            compute_target_id("v", "win", "x64", "base"),
             "v".into(),
             "win".into(),
             "x64".into(),
             "base".into(),
+            canonical_target_tags("v", "win", "x64", "base"),
         );
         let mut vm = vm;
         vm.files.push(fm);
         let errors = verify_directory(&vm, &dir).unwrap();
         assert!(!errors.is_empty());
         assert!(errors[0].contains("missing"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_verify_directory_reports_extra_file() {
+        let dir = std::env::temp_dir().join("gutch_test_verify_extra");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(dir.join("expected.txt"), b"hello world").unwrap();
+        std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
+
+        let result = build_from_directory(&dir, "test-product", "base", "1.0.0", "windows", "x86_64", "base")
+            .unwrap();
+
+        let mut manifest = result.target_manifest.clone();
+        manifest.files.retain(|file| file.path == "expected.txt");
+        manifest.total_logical_size = b"hello world".len() as u64;
+
+        let errors = verify_directory(&manifest, &dir).unwrap();
+        assert!(
+            errors.iter().any(|error| error == "extra file: extra.log"),
+            "expected extra file error, got {:?}",
+            errors
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_classify_directory_separates_missing_corrupt_and_extra() {
+        let dir = std::env::temp_dir().join("gutch_test_classify_directory");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(dir.join("healthy.txt"), b"healthy file").unwrap();
+        std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
+
+        let result = build_from_directory(&dir, "test-product", "base", "1.0.0", "windows", "x86_64", "base")
+            .unwrap();
+
+        std::fs::remove_file(dir.join("healthy.txt")).unwrap();
+        std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
+        std::fs::write(dir.join("notes.tmp"), b"user scratch").unwrap();
+
+        let classification = classify_directory(&result.target_manifest, &dir).unwrap();
+
+        assert_eq!(classification.missing_files.len(), 1);
+        assert_eq!(classification.missing_files[0].path, "healthy.txt");
+        assert!(!classification.corrupt_files.is_empty());
+        assert!(
+            classification
+                .corrupt_files
+                .iter()
+                .any(|issue| issue.path == "corrupt.txt")
+        );
+        assert_eq!(classification.extra_files.len(), 1);
+        assert_eq!(classification.extra_files[0].path, "notes.tmp");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1230,7 +1790,7 @@ mod tests {
 
         let t1 = Instant::now();
         let result =
-            build_from_directory(&root, "mock-game", "1.0.0", "windows", "x86_64", "base").unwrap();
+            build_from_directory(&root, "mock-game", "base", "1.0.0", "windows", "x86_64", "base").unwrap();
         let build_ms = t1.elapsed().as_millis();
 
         let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
@@ -1244,8 +1804,7 @@ mod tests {
         let manifest_json = serde_json::to_string_pretty(&result.target_manifest).unwrap();
         std::fs::write(&manifest_path, manifest_json).unwrap();
         for bundle in &result.bundles {
-            let prefix = bundle::bundle_id_prefix(&bundle.bundle_id);
-            let bundle_dir = artifacts_dir.join("bundles").join(prefix);
+            let bundle_dir = artifacts_dir.join("bundles");
             std::fs::create_dir_all(&bundle_dir).unwrap();
             let bundle_path = bundle_dir.join(format!("{}.bundle", bundle.bundle_id));
             std::fs::write(bundle_path, &bundle.data).unwrap();

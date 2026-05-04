@@ -40,7 +40,7 @@ file bytes
 -> FastCDC chunk boundaries
 -> BLAKE3 hash each raw chunk
 -> deduplicate by chunk hash
--> resolve existing chunk locations in the product bundle store
+-> resolve existing chunk locations in the content repo bundle store
 -> zstd-compress each new unique chunk
 -> pack new compressed chunks into bundle(s)
 ```
@@ -172,7 +172,7 @@ The correct algorithm is:
 2. split into chunks
 3. hash chunks
 4. deduplicate chunks by hash
-5. look up each unique chunk in the existing product bundle store
+5. look up each unique chunk in the existing content repo bundle store
 6. reuse existing bundle locations for chunks already present
 7. compress only new unique chunks exactly once
 8. append new compressed chunks into the current bundle until target size is reached
@@ -188,7 +188,7 @@ current_size = 0
 bundle_target_size = choose_target_size(total_new_compressed_bytes)
 
 for each unique chunk:
-  if chunk already exists in product bundle store:
+  if chunk already exists in content repo bundle store:
     add existing bundle to target required_bundle_set
     continue
 

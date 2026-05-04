@@ -2,7 +2,7 @@
 
 For canonical terminology and design rules, start with `01_GLOSSARY.md`, `02_FOUNDATIONS.md`, and `03_TARGETS_AND_MANIFESTS.md`.
 
-Gutch is a target-based artifact system for game builds.
+Gutch is a target-based content storage and reconstruction system for game builds.
 
 ## Core idea
 
@@ -116,7 +116,7 @@ That is the main storage saving.
 
 ### 7. Reuse or compress each chunk
 
-Gutch checks whether each unique chunk already exists in the product bundle store.
+Gutch checks whether each unique chunk already exists in the content repo bundle store.
 
 If the chunk already exists, the new target manifest reuses the existing bundle location.
 
@@ -159,6 +159,8 @@ The target manifest is the top-level description of one target.
 It includes:
 
 - product id
+- content repo id
+- target id
 - version id
 - platform
 - architecture
@@ -173,20 +175,24 @@ It includes:
 
 This is the main entry point for reconstruction.
 
-### 10. Store artifacts
+### 10. Store the target and bundles
 
 Conceptually, one exact target looks like:
 
 ```text
-v1/products/{product_id}/targets/{version_id}/{platform}/{architecture}/{tier_id}/
-  manifest.json
-  manifest.sig
+v1/products/{product_id}/repos/{content_repo_id}/targets/{target_id}/manifest.json
 ```
 
-Its shared payload bundles live separately under the same product:
+Its detached signature lives beside it:
 
 ```text
-v1/products/{product_id}/bundles/{bundle_id_prefix}/{bundle_id}.bundle
+v1/products/{product_id}/repos/{content_repo_id}/targets/{target_id}/manifest.sig
+```
+
+Its shared payload bundles live separately under the same content repo:
+
+```text
+v1/products/{product_id}/repos/{content_repo_id}/bundles/{bundle_id}.bundle
 ```
 
 In production, these would be stored in R2.
@@ -250,8 +256,8 @@ That is why later targets can behave like deltas even though the system is manif
 
 In the examples layout:
 
-- `targets/.../manifest.json` holds the target metadata
-- `bundles/...` holds the shared payload containers
+- `targets/{target_id}/manifest.json` holds the target metadata
+- `bundles/{bundle_id}.bundle` holds the shared payload containers for that content repo
 - later target releases add a new manifest and only new bundles for changed chunks
 - reconstructing the latest target means:
   - use older product bundles for unchanged chunks
