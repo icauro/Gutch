@@ -35,7 +35,7 @@ gutch repo-init \
   --content-repo base \
   --init-mode batch \
   --spec init-spec.json \
-  --output ./artifacts
+  --output ./.artifacts
 ```
 
 ### Init Modes
@@ -123,7 +123,7 @@ gutch build \
   --platform windows \
   --architecture x86_64 \
   --tier base \
-  --output ./artifacts
+  --output ./.artifacts
 ```
 
 `build` writes the target manifest into the selected content repo and reuses bundles already present in that repo when possible.
@@ -134,8 +134,8 @@ gutch build \
 
 ```text
 gutch reconstruct \
-  --manifest ./artifacts/v1/products/my-game/repos/base/targets/1.0.0-windows-x86_64-base/manifest.json \
-  --bundles ./artifacts/v1/products/my-game/repos/base/bundles \
+  --manifest ./.artifacts/v1/products/my-game/repos/base/targets/1.0.0-windows-x86_64-base/manifest.json \
+  --bundles ./.artifacts/v1/products/my-game/repos/base/bundles \
   --output ./reconstructed
 ```
 
@@ -145,7 +145,7 @@ gutch reconstruct \
 
 ```text
 gutch verify \
-  --manifest ./artifacts/v1/products/my-game/repos/base/targets/1.0.0-windows-x86_64-base/manifest.json \
+  --manifest ./.artifacts/v1/products/my-game/repos/base/targets/1.0.0-windows-x86_64-base/manifest.json \
   --dir ./install
 ```
 
@@ -160,7 +160,7 @@ gutch verify \
 ### Example
 
 ```text
-gutch bundle-info --bundle ./artifacts/v1/products/my-game/repos/base/bundles/abc123.bundle
+gutch bundle-info --bundle ./.artifacts/v1/products/my-game/repos/base/bundles/abc123.bundle
 ```
 
 ## 6. Estimate
