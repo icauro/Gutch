@@ -247,7 +247,7 @@ function Invoke-CompressionRun {
     )
 
     $modeRoot = Join-Path $CompareRoot $CompressionUnit
-    $artifactsRoot = Join-Path $modeRoot "artifacts"
+    $artifactsRoot = Join-Path $modeRoot ".artifacts"
     $appliedRoot = Join-Path $modeRoot "applied\latest"
     $summaryPath = Join-Path $modeRoot "run-summary.txt"
     $capturedSections = New-Object System.Collections.Generic.List[string]
@@ -659,8 +659,8 @@ $compareLines.Add(("chunk_reuse_delta: {0}" -f (Format-SignedPctPoints ($bundleR
 $compareLines.Add(("bundle_reuse_delta: {0}" -f (Format-SignedPctPoints ($bundleResult.OverallBundleReusePct - $chunkResult.OverallBundleReusePct))))
 $compareLines.Add("")
 $compareLines.Add("[paths]")
-$compareLines.Add(("chunk_artifacts: {0}" -f (Join-Path $compareRoot "chunk\artifacts")))
-$compareLines.Add(("bundle_artifacts: {0}" -f (Join-Path $compareRoot "bundle\artifacts")))
+$compareLines.Add(("chunk_artifacts: {0}" -f (Join-Path $compareRoot "chunk\.artifacts")))
+$compareLines.Add(("bundle_artifacts: {0}" -f (Join-Path $compareRoot "bundle\.artifacts")))
 
 Set-Content -Path $compareSummaryPath -Value $compareLines
 
