@@ -10,6 +10,8 @@ pub const COMPRESSION_ZSTD: &str = "zstd";
 pub const COMPRESSION_UNIT_CHUNK: &str = "chunk";
 pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
 pub const BUNDLE_FORMAT: &str = "gutch-bundle-v1";
+pub const CONTENT_REPO_FORMAT: &str = "gutch-content-repo-v1";
+pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo.json";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -307,6 +309,31 @@ pub struct Estimate {
     pub fragmentation_score: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentRepoManifest {
+    pub format: String,
+    pub format_version: u32,
+    pub product_id: String,
+    pub content_repo_id: String,
+    pub created_at: String,
+    pub targets_dir: String,
+    pub bundles_dir: String,
+}
+
+impl ContentRepoManifest {
+    pub fn new(product_id: String, content_repo_id: String) -> Self {
+        Self {
+            format: CONTENT_REPO_FORMAT.to_string(),
+            format_version: FORMAT_VERSION,
+            product_id,
+            content_repo_id,
+            created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            targets_dir: "targets".to_string(),
+            bundles_dir: "bundles".to_string(),
+        }
+    }
+}
+
 impl TargetManifest {
     pub fn new(
         product_id: String,
@@ -456,5 +483,15 @@ mod tests {
         let fm2: FileManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(fm.path, fm2.path);
         assert_eq!(fm.chunks.len(), 2);
+    }
+
+    #[test]
+    fn test_content_repo_manifest_new() {
+        let repo = ContentRepoManifest::new("prod-1".into(), "base".into());
+        assert_eq!(repo.format, CONTENT_REPO_FORMAT);
+        assert_eq!(repo.product_id, "prod-1");
+        assert_eq!(repo.content_repo_id, "base");
+        assert_eq!(repo.targets_dir, "targets");
+        assert_eq!(repo.bundles_dir, "bundles");
     }
 }

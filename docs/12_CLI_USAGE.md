@@ -10,16 +10,17 @@ Keep command-line usage, examples, and spec-file formats here instead of scatter
 
 ## Current Commands
 
-- `gutch repo-init`
-- `gutch build`
-- `gutch reconstruct`
-- `gutch verify`
-- `gutch bundle-info`
-- `gutch estimate`
+- `gutch repo init`
+- `gutch target insert`
+- `gutch target export`
+- `gutch target estimate`
+- `gutch target_install verify`
+- `gutch bundle inspect`
+- `gutch path compare`
 
 ## 1. Repo Init
 
-`repo-init` creates a new content repo and populates it with an initial batch of targets.
+`repo init` creates a new content repo and populates it with an initial batch of targets.
 
 It is batch-oriented by design:
 
@@ -30,26 +31,22 @@ It is batch-oriented by design:
 ### Example
 
 ```text
-gutch repo-init \
+gutch repo init \
   --product my-game \
   --content-repo base \
   --init-mode batch \
   --spec init-spec.json \
-  --output ./.artifacts
+  --repo ./.content_repo
 ```
 
 ### Init Modes
 
-`repo-init` supports two initialization modes:
+`repo init` supports two initialization modes:
 
 - `--init-mode batch`
   Chunk every target first, then dedupe and bundle across the full init batch.
 - `--init-mode sequential`
   Treat init as a series of one-target-at-a-time commits in spec order.
-
-Use `batch` when you want the best early bundle fill and cross-target reuse inside the new content repo.
-
-Use `sequential` when you want first-time repo creation to behave like repeated commits, preserving commit order effects on reuse and bundle packing.
 
 ### Spec File
 
@@ -84,99 +81,160 @@ Example:
 }
 ```
 
-### Tag Rules
-
-Current tag behavior:
-
-- `version` is required
-- `platform` defaults to `any` when omitted
-- `arch` defaults to `any` when omitted
-- `tier` defaults to `base` when omitted
-
-`any` means the target is intentionally valid across that axis.
-
 ### Output Layout
 
-`repo-init` writes into:
+`repo init` writes directly into the repo root:
 
 ```text
-v1/products/{product_id}/repos/{content_repo_id}/
+{repo}/
+  repo.json
   targets/{target_id}/manifest.json
   bundles/{bundle_id}.bundle
-  metadata/
 ```
 
-## 2. Build
+## 2. Target Insert
 
-`build` creates one target from one source directory.
+`target insert` creates one target from one source directory and inserts it into an existing content repo.
 
-Use this for the current single-target build path.
+It reads product and repo identity from the repo root's `repo.json`.
+The source directory defaults to the current working directory.
+Optional reporting outputs are available:
+
+- `--summary-out <path>` writes a plain-text command summary
+- `--stats-json-out <path>` writes machine-readable JSON stats
 
 ### Example
 
 ```text
-gutch build \
+gutch target insert \
+  --repo ./.content_repo \
   --dir ./builds/base \
-  --product my-game \
-  --content-repo base \
   --version 1.0.0 \
   --platform windows \
   --architecture x86_64 \
   --tier base \
-  --output ./.artifacts
+  --summary-out ./.artifacts/target-insert.summary.txt \
+  --stats-json-out ./.artifacts/target-insert.stats.json
 ```
 
-`build` writes the target manifest into the selected content repo and reuses bundles already present in that repo when possible.
+Or use the current directory as the source input:
 
-## 3. Reconstruct
+```text
+gutch target insert \
+  --repo ./.content_repo \
+  --version 1.0.0 \
+  --platform windows \
+  --architecture x86_64 \
+  --tier base
+```
+
+## 3. Target Export
+
+`target export` reconstructs one target from a content repo into an output directory.
+
+Optional reporting outputs are available:
+
+- `--summary-out <path>` writes a plain-text command summary
+- `--stats-json-out <path>` writes machine-readable JSON stats
 
 ### Example
 
 ```text
-gutch reconstruct \
-  --manifest ./.artifacts/v1/products/my-game/repos/base/targets/1.0.0-windows-x86_64-base/manifest.json \
-  --bundles ./.artifacts/v1/products/my-game/repos/base/bundles \
-  --output ./reconstructed
+gutch target export \
+  --repo ./.content_repo \
+  --target 1.0.0-windows-x86_64-base \
+  --output ./reconstructed \
+  --summary-out ./.artifacts/target-export.summary.txt \
+  --stats-json-out ./.artifacts/target-export.stats.json
 ```
 
-## 4. Verify
+## 4. Target Estimate
 
 ### Example
 
 ```text
-gutch verify \
-  --manifest ./.artifacts/v1/products/my-game/repos/base/targets/1.0.0-windows-x86_64-base/manifest.json \
-  --dir ./install
-```
-
-`verify` currently reports:
-
-- missing files
-- corrupt files
-- extra files
-
-## 5. Bundle Info
-
-### Example
-
-```text
-gutch bundle-info --bundle ./.artifacts/v1/products/my-game/repos/base/bundles/abc123.bundle
-```
-
-## 6. Estimate
-
-### Example
-
-```text
-gutch estimate \
+gutch target estimate \
   --dir ./builds/base \
   --product my-game \
   --version 1.0.0
 ```
 
+## 5. Target Install Verify
+
+`target_install verify` validates a real install directory against one target stored in a content repo.
+
+Optional reporting outputs are available:
+
+- `--summary-out <path>` writes a plain-text command summary
+- `--stats-json-out <path>` writes machine-readable JSON stats
+
+### Example
+
+```text
+gutch target_install verify \
+  --repo ./.content_repo \
+  --target 1.0.0-windows-x86_64-base \
+  --dir ./install \
+  --summary-out ./.artifacts/target-install-verify.summary.txt \
+  --stats-json-out ./.artifacts/target-install-verify.stats.json
+```
+
+`target_install verify` currently reports:
+
+- missing files
+- corrupt files
+- extra files
+
+## 6. Bundle Inspect
+
+### Example
+
+```text
+gutch bundle inspect --bundle ./.content_repo/bundles/abc123.bundle
+```
+
+## 7. Path Compare
+
+`path compare` binary-compares two filesystem paths.
+
+Supported shapes:
+
+- file vs file
+- file vs directory
+- directory vs directory
+
+When the expected side is a file and the actual side is a directory, `path compare` compares the file against `{actual}/{expected_filename}`.
+
+Optional reporting outputs are available:
+
+- `--summary-out <path>` writes a plain-text command summary
+- `--stats-json-out <path>` writes machine-readable JSON stats
+
+### Example
+
+```text
+gutch path compare \
+  --expected ./truth \
+  --actual ./reconstructed \
+  --summary-out ./.artifacts/path-compare.summary.txt \
+  --stats-json-out ./.artifacts/path-compare.stats.json
+```
+
+## Content Repo Manifest
+
+Every content repo root contains `repo.json`.
+
+It identifies:
+
+- repo format/version
+- product id
+- content repo id
+- created timestamp
+- canonical `targets/` and `bundles/` subdirectories
+
 ## Notes
 
-- `repo-init` is the preferred entrypoint for first generation of a new content repo when multiple targets should be packed together.
-- `repo-init --init-mode sequential` is available when first generation should behave like repeated single-target commits instead of one batch pack pass.
-- `build` remains a single-target path.
+- `repo init` is the preferred entrypoint for first generation of a new content repo when multiple targets should be packed together.
+- `repo init --init-mode sequential` is available when first generation should behave like repeated single-target commits instead of one batch pack pass.
+- `target insert` is the single-target insert path for an existing repo.
 - Manifest signing is still planned but not fully implemented in the CLI yet.
