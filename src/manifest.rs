@@ -318,6 +318,29 @@ pub struct ContentRepoManifest {
     pub created_at: String,
     pub targets_dir: String,
     pub bundles_dir: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_schema: Option<ContentRepoTargetSchema>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentRepoTargetSchema {
+    #[serde(default)]
+    pub target_tags: Vec<ContentRepoTargetTagDefinition>,
+    #[serde(default)]
+    pub target_id_order: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentRepoTargetTagDefinition {
+    pub name: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub values: Vec<String>,
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
 }
 
 impl ContentRepoManifest {
@@ -330,6 +353,7 @@ impl ContentRepoManifest {
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             targets_dir: "targets".to_string(),
             bundles_dir: "bundles".to_string(),
+            target_schema: None,
         }
     }
 }
@@ -425,7 +449,10 @@ mod tests {
         assert_eq!(m.product_id, "prod-1");
         assert_eq!(m.content_repo_id, "base");
         assert_eq!(m.target_id, "1.0.0-windows-x86_64-base");
-        assert_eq!(m.target_tags.get("platform").map(String::as_str), Some("windows"));
+        assert_eq!(
+            m.target_tags.get("platform").map(String::as_str),
+            Some("windows")
+        );
         assert_eq!(m.manifest_version, 1);
         assert!(m.signature_metadata.is_none());
         assert!(m.created_at.len() > 0);

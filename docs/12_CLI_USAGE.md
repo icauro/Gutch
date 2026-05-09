@@ -18,6 +18,49 @@ Keep command-line usage, examples, and spec-file formats here instead of scatter
 - `gutch bundle inspect`
 - `gutch path compare`
 
+## Target Identity Normalization
+
+Gutch normalizes target identity values before writing a manifest.
+
+`version` is always required.
+
+Other target tags can be repo-defined through `target_schema` in the repo manifest.
+
+- versions like `v1.0.0` normalize to `1.0.0`
+- platform and OS aliases normalize into the canonical `platform` field
+- architecture aliases normalize into the canonical `architecture` field
+
+Current supported platform and OS aliases:
+
+- `windows`, `win`, `win32`, `win64` -> `windows`
+- `linux` -> `linux`
+- `mac`, `macos`, `osx`, `darwin` -> `macos`
+- `any` -> `any`
+
+Current supported architecture aliases:
+
+- `x86_64`, `x64`, `amd64`, `win64` -> `x86_64`
+- `x86_32`, `x86`, `win32` -> `x86_32`
+- `any` -> `any`
+
+For `repo init` and `target insert`, Gutch also tries to infer missing tag values from the input directory or file name. Built-in inference exists for:
+
+- `version`
+- `platform`
+- `arch`
+
+Example:
+
+```text
+my-game-v1.0.0-win-x64
+```
+
+Normalizes to:
+
+- `version=1.0.0`
+- `platform=windows`
+- `arch=x86_64`
+
 ## 1. Repo Init
 
 `repo init` creates a new content repo and populates it with an initial batch of targets.
@@ -81,6 +124,45 @@ Example:
 }
 ```
 
+`repo init` accepts canonical tag keys and these input aliases:
+
+- `os` as an alias for `platform`
+- `architecture` as an alias for `arch`
+
+Explicit spec tags win over folder-name inference.
+
+`repo init` also accepts an optional `target_schema` in the spec file.
+
+Example:
+
+```json
+{
+  "target_schema": {
+    "target_tags": [
+      {
+        "name": "loader",
+        "required": true,
+        "values": ["fabric", "forge", "neoforge"]
+      },
+      {
+        "name": "mc",
+        "required": false,
+        "values": ["1.20.1", "1.21"]
+      }
+    ],
+    "target_id_order": ["version", "loader", "mc"]
+  },
+  "targets": [
+    {
+      "dir": "./builds/ae2-v15.4.10-neoforge-1.21",
+      "tags": {
+        "version": "15.4.10"
+      }
+    }
+  ]
+}
+```
+
 ### Output Layout
 
 `repo init` writes directly into the repo root:
@@ -92,12 +174,21 @@ Example:
   bundles/{bundle_id}.bundle
 ```
 
+After writing the repo, `repo init` also prints a storage summary that includes:
+
+- total logical install size across all selected targets
+- final on-disk repo size
+- repo size as a percentage of the full combined install size
+- saved percentage versus storing full copies of every target
+- per-target added repo bytes in target order
+
 ## 2. Target Insert
 
 `target insert` creates one target from one source directory and inserts it into an existing content repo.
 
 It reads product and repo identity from the repo root's `repo.json`.
 The source directory defaults to the current working directory.
+For custom repo-defined target categories, use repeated `--tag name=value` arguments.
 Optional reporting outputs are available:
 
 - `--summary-out <path>` writes a plain-text command summary
@@ -117,15 +208,25 @@ gutch target insert \
   --stats-json-out ./.artifacts/target-insert.stats.json
 ```
 
-Or use the current directory as the source input:
+Or let Gutch infer the missing identity values from the input name:
 
 ```text
 gutch target insert \
   --repo ./.content_repo \
-  --version 1.0.0 \
-  --platform windows \
-  --architecture x86_64 \
-  --tier base
+  --dir ./builds/my-game-v1.0.0-win-x64
+```
+
+If a value is provided explicitly, the explicit CLI value wins over the folder-name inference.
+
+Example with custom repo-defined tags:
+
+```text
+gutch target insert \
+  --repo ./.content_repo \
+  --dir ./builds/ae2-v15.4.10-neoforge-1.21 \
+  --version 15.4.10 \
+  --tag loader=neoforge \
+  --tag mc=1.21
 ```
 
 ## 3. Target Export

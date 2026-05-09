@@ -41,9 +41,8 @@ This script:
 2. Reconstructs the latest selected build from the shared bundle store
 3. Verifies via gutch hash check
 4. Uses `gutch path compare` to binary-compare the reconstructed output against the latest selected source build
-5. Writes a root-level summary file at `D:\Proj\Gutch\TestData\run-summary.<Product>.txt`
 
-The script also asks `gutch` itself to write optional per-command summaries and JSON stats under the product-local `.artifacts\run\` tree, so the wrapper no longer scrapes manifests or CLI text for those numbers.
+The script also asks `gutch` to write JSON stats under the product-local `.artifacts\run\` tree.
 
 Per-product generated output lives under hidden dot folders:
 
@@ -64,9 +63,8 @@ This script:
 2. Writes each mode under `D:\Proj\Gutch\TestData\<Product>\.artifacts\compare_compress\`
 3. Reconstructs and verifies the latest selected build for each mode
 4. Uses `gutch path compare` to binary-compare both outputs against the latest selected source build
-5. Writes a root-level summary file at `D:\Proj\Gutch\TestData\compare-summary.<Product>.txt`
 
-Each compare mode also asks `gutch` to write optional per-command summaries and JSON stats under that mode's local `.artifacts\` tree.
+Each compare mode also asks `gutch` to write JSON stats under that mode's local `.artifacts\` tree.
 
 ## Notes
 
