@@ -30,6 +30,11 @@ struct ChunkLocation {
     compressed_size: u64,
 }
 
+pub struct VerifiedSourceInstall<'a> {
+    pub target_manifest: &'a TargetManifest,
+    pub install_dir: &'a Path,
+}
+
 pub fn reconstruct_from_target_manifest(
     target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
@@ -102,6 +107,20 @@ pub fn reconstruct_from_bundle_paths_with_timings(
     bundle_paths: &[PathBuf],
     output_dir: &Path,
 ) -> Result<((), ReconstructTimings)> {
+    reconstruct_from_bundle_paths_and_verified_source_with_timings(
+        target_manifest,
+        bundle_paths,
+        None,
+        output_dir,
+    )
+}
+
+pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    verified_source: Option<VerifiedSourceInstall<'_>>,
+    output_dir: &Path,
+) -> Result<((), ReconstructTimings)> {
     let total_start = Instant::now();
     let mut timings = ReconstructTimings::default();
     std::fs::create_dir_all(output_dir)?;
@@ -112,13 +131,22 @@ pub fn reconstruct_from_bundle_paths_with_timings(
         .flat_map(|fm| fm.chunks.iter().map(|cr| cr.chunk_hash.clone()))
         .collect();
 
+    let local_chunks = match verified_source {
+        Some(source) => read_reusable_source_chunks(source, &needed_chunks)?,
+        None => HashMap::new(),
+    };
+    let missing_chunks: HashSet<String> = needed_chunks
+        .iter()
+        .filter(|chunk_hash| !local_chunks.contains_key(*chunk_hash))
+        .cloned()
+        .collect();
     let mut locations: HashMap<String, ChunkLocation> = HashMap::with_capacity(needed_chunks.len());
 
     for bundle_path in bundle_paths {
         let file = std::fs::File::open(bundle_path)?;
         let reader = bundle::BundleReader::open(file)?;
         for (index, entry) in reader.entries().iter().enumerate() {
-            if needed_chunks.contains(&entry.chunk_hash) {
+            if missing_chunks.contains(&entry.chunk_hash) {
                 locations
                     .entry(entry.chunk_hash.clone())
                     .or_insert_with(|| ChunkLocation {
@@ -129,19 +157,76 @@ pub fn reconstruct_from_bundle_paths_with_timings(
             }
         }
 
-        if locations.len() == needed_chunks.len() {
+        if locations.len() == missing_chunks.len() {
             break;
         }
     }
 
-    reconstruct_files_from_locations(target_manifest, &locations, output_dir, &mut timings)?;
+    reconstruct_files_from_locations_and_chunks(
+        target_manifest,
+        &locations,
+        &local_chunks,
+        output_dir,
+        &mut timings,
+    )?;
     timings.total = total_start.elapsed();
     Ok(((), timings))
 }
 
-fn reconstruct_files_from_locations(
+fn read_reusable_source_chunks(
+    source: VerifiedSourceInstall<'_>,
+    needed_chunks: &HashSet<String>,
+) -> Result<HashMap<String, Vec<u8>>> {
+    let mut chunk_map: HashMap<String, Vec<u8>> = HashMap::new();
+
+    for fm in &source.target_manifest.files {
+        if fm
+            .chunks
+            .iter()
+            .all(|chunk_ref| !needed_chunks.contains(&chunk_ref.chunk_hash))
+        {
+            continue;
+        }
+
+        let file_path = source.install_dir.join(&fm.path);
+        let file_data = std::fs::read(&file_path)?;
+
+        for chunk_ref in &fm.chunks {
+            if !needed_chunks.contains(&chunk_ref.chunk_hash)
+                || chunk_map.contains_key(&chunk_ref.chunk_hash)
+            {
+                continue;
+            }
+
+            let start = chunk_ref.file_offset as usize;
+            let end = start.saturating_add(chunk_ref.raw_size as usize);
+            if end > file_data.len() {
+                return Err(Error::Reconstruct(format!(
+                    "source chunk out of bounds in {} at offset {}",
+                    fm.path, chunk_ref.file_offset
+                )));
+            }
+
+            let chunk_data = file_data[start..end].to_vec();
+            let actual_hash = hash_hex(&crate::hash::hash_chunk(&chunk_data));
+            if actual_hash != chunk_ref.chunk_hash {
+                return Err(Error::HashMismatch {
+                    expected: chunk_ref.chunk_hash.clone(),
+                    actual: actual_hash,
+                });
+            }
+
+            chunk_map.insert(chunk_ref.chunk_hash.clone(), chunk_data);
+        }
+    }
+
+    Ok(chunk_map)
+}
+
+fn reconstruct_files_from_locations_and_chunks(
     target_manifest: &TargetManifest,
     locations: &HashMap<String, ChunkLocation>,
+    local_chunks: &HashMap<String, Vec<u8>>,
     output_dir: &Path,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {
@@ -158,23 +243,28 @@ fn reconstruct_files_from_locations(
         let mut written = 0u64;
 
         for chunk_ref in &fm.chunks {
-            let location = locations
-                .get(&chunk_ref.chunk_hash)
-                .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
+            let chunk_data = if let Some(local_chunk) = local_chunks.get(&chunk_ref.chunk_hash) {
+                local_chunk.clone()
+            } else {
+                let location = locations
+                    .get(&chunk_ref.chunk_hash)
+                    .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
 
-            let reader = match readers.entry(location.bundle_path.clone()) {
-                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    let file = std::fs::File::open(&location.bundle_path)?;
-                    entry.insert(bundle::BundleReader::open(file)?)
-                }
+                let reader = match readers.entry(location.bundle_path.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let file = std::fs::File::open(&location.bundle_path)?;
+                        entry.insert(bundle::BundleReader::open(file)?)
+                    }
+                };
+
+                let t = Instant::now();
+                let chunk_data = reader.read_chunk(location.index)?;
+                timings.bundle_read += t.elapsed();
+                timings.bundle_read_compressed_bytes += location.compressed_size;
+                timings.bundle_read_decompressed_bytes += chunk_data.len() as u64;
+                chunk_data
             };
-
-            let t = Instant::now();
-            let chunk_data = reader.read_chunk(location.index)?;
-            timings.bundle_read += t.elapsed();
-            timings.bundle_read_compressed_bytes += location.compressed_size;
-            timings.bundle_read_decompressed_bytes += chunk_data.len() as u64;
 
             let target_offset = chunk_ref.file_offset;
             if target_offset > written {

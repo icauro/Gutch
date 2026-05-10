@@ -25,7 +25,7 @@ A product owns:
 
 A remote Gutch-managed storage container for one product content stream.
 
-A content repo is the holding storage in R2/S3 that receives targets and bundles produced by Gutch build work on a creator machine.
+A content repo is the holding storage in S3-compatible object storage that receives targets and bundles produced by Gutch build work on a creator machine.
 
 A content repo owns one or more targets.
 

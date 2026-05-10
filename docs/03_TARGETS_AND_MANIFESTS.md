@@ -8,9 +8,9 @@ Last reviewed: 2026-05-02
 
 Chunks are the logical deduplication unit.
 
-Bundles are the physical R2 object unit.
+Bundles are the physical S3 object unit.
 
-Gutch should not store every chunk as its own R2 object. R2 has no egress bandwidth fee, but storage and operations still matter. Millions of tiny objects would increase operation count and hurt listing, planning, and download efficiency.
+Gutch should not store every chunk as its own S3 object. Storage, request operations, listing, and provider-specific transfer costs still matter. Millions of tiny objects would increase operation count and hurt listing, planning, and download efficiency.
 
 A bundle stores many independently compressed chunks:
 
@@ -55,12 +55,12 @@ bundle_hash = blake3 over canonical bundle bytes
 
 Bundle sizes are dynamic. The max size is a hard packing limit for normal bundles, while the preferred target gives the packer a normal size to aim for. Small updates may still create one bundle below the preferred target.
 
-## 8. R2 Storage Layout
+## 8. S3 Storage Layout
 
 Suggested object layout:
 
 ```text
-r2://gutch/
+S3://gutch/
   v1/
     products/
       {product_id}/
@@ -85,7 +85,7 @@ Rules:
 - Bundles are content-repo-scoped shared payload containers, not target-scoped files.
 - New target builds should reuse existing chunk locations when possible and create bundles only for chunks not already present in the content repo bundle store.
 
-The backend should own R2 object key generation. Clients should not guess trust-sensitive paths.
+The backend should own S3 object key generation. Clients should not guess trust-sensitive paths.
 
 ## 9. Manifest Model
 

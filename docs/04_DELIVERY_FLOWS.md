@@ -15,7 +15,7 @@ read files
  -> dedupe lookup
  -> zstd per-chunk compression
  -> bundle packing
- -> R2 upload
+ -> S3 upload
  -> target manifest generation
  -> target manifest signing
 ```
@@ -65,7 +65,7 @@ missing chunk count
 required bundle count
 range request count
 nearby range coalescing
-R2 Class B operation count
+S3 Class B operation count
 reusable installed-file hits
 available disk space
 decompression cost

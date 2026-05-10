@@ -13,7 +13,7 @@ This is a comparison and decision-support note. It explains the tradeoffs, edge 
 
 ## Clarification: What Bundles Change
 
-Bundles exist so Gutch does not store or fetch each chunk as its own object in S3 or R2.
+Bundles exist so Gutch does not store or fetch each chunk as its own object in S3 or S3.
 
 That means the comparison in this document is not:
 

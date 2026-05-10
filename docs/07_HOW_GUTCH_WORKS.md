@@ -195,7 +195,7 @@ Its shared payload bundles live separately under the same content repo:
 v1/products/{product_id}/repos/{content_repo_id}/bundles/{bundle_id}.bundle
 ```
 
-In production, these would be stored in R2.
+In production, these would be stored in S3.
 
 ## How reconstruction works
 
@@ -285,7 +285,7 @@ The local engine works, but the full production system is not finished yet.
 
 Not done yet:
 
-- R2 integration
+- S3 integration
 - signed target manifests
 - SQLite install state
 - planner

@@ -6,6 +6,7 @@ pub mod chunk;
 pub mod compress;
 pub mod error;
 pub mod hash;
+pub mod install;
 pub mod manifest;
 pub mod reconstruct;
 pub mod repo;
@@ -27,9 +28,14 @@ pub use build_types::{
     RepoInitTargetInput,
 };
 pub use error::{Error, Result};
+pub use install::{
+    TargetInstallApplyResult, TargetInstallApplySource, apply_target_install_with_timings,
+};
 pub use reconstruct::{
-    ReconstructTimings, reconstruct_from_bundle_paths_with_timings,
-    reconstruct_from_target_manifest, reconstruct_from_target_manifest_with_timings,
+    ReconstructTimings, VerifiedSourceInstall,
+    reconstruct_from_bundle_paths_and_verified_source_with_timings,
+    reconstruct_from_bundle_paths_with_timings, reconstruct_from_target_manifest,
+    reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
     ContentRepoPaths, canonical_target_tags, compute_target_id, ensure_content_repo_layout,
@@ -100,6 +106,98 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&out_dir);
+    }
+
+    #[test]
+    fn test_apply_target_install_reuses_verified_source_install() {
+        let root = std::env::temp_dir().join("gutch_test_apply_target_install");
+        let v1_dir = root.join("v1");
+        let v2_dir = root.join("v2");
+        let bundles_dir = root.join("bundles");
+        let install_dir = root.join("install");
+        let staging_dir = root.join(".staging");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&v1_dir).unwrap();
+        std::fs::create_dir_all(&v2_dir).unwrap();
+        std::fs::create_dir_all(&bundles_dir).unwrap();
+
+        std::fs::write(v1_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
+        std::fs::write(v1_dir.join("old.txt"), b"old content").unwrap();
+        std::fs::write(v2_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
+        std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
+
+        let v1 = build_from_directory(
+            &v1_dir,
+            "test-product",
+            "base",
+            "1.0.0",
+            "windows",
+            "x86_64",
+            "base",
+        )
+        .unwrap();
+        let v2 = build_from_directory(
+            &v2_dir,
+            "test-product",
+            "base",
+            "2.0.0",
+            "windows",
+            "x86_64",
+            "base",
+        )
+        .unwrap();
+
+        let v1_bundle_data: Vec<Vec<u8>> = v1
+            .bundles
+            .iter()
+            .map(|bundle| bundle.data.clone())
+            .collect();
+        reconstruct_from_target_manifest(&v1.target_manifest, &v1_bundle_data, &install_dir)
+            .unwrap();
+        std::fs::write(install_dir.join("player.log"), b"local runtime log").unwrap();
+
+        for bundle in &v2.bundles {
+            std::fs::write(
+                bundles_dir.join(format!("{}.bundle", bundle.bundle_id)),
+                &bundle.data,
+            )
+            .unwrap();
+        }
+        let bundle_paths: Vec<PathBuf> = v2
+            .bundles
+            .iter()
+            .map(|bundle| bundles_dir.join(format!("{}.bundle", bundle.bundle_id)))
+            .collect();
+
+        let result = apply_target_install_with_timings(
+            &v2.target_manifest,
+            &bundle_paths,
+            &install_dir,
+            &staging_dir,
+            Some(TargetInstallApplySource {
+                target_manifest: &v1.target_manifest,
+                install_dir: &install_dir,
+            }),
+        )
+        .unwrap();
+
+        assert!(
+            result.reused_source_chunk_count > 0,
+            "expected at least one source chunk to be reused"
+        );
+        assert!(install_dir.join("shared.txt").exists());
+        assert!(install_dir.join("new.txt").exists());
+        assert!(!install_dir.join("old.txt").exists());
+        assert!(!staging_dir.exists());
+
+        let verify_errors = verify_directory(&v2.target_manifest, &install_dir).unwrap();
+        assert!(
+            verify_errors.is_empty(),
+            "verification errors: {:?}",
+            verify_errors
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

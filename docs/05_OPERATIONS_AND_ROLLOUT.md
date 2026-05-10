@@ -76,7 +76,7 @@ version metadata
 tier metadata
 entitlement checks
 artifact records
-R2 object key ownership
+S3 object key ownership
 bundle object ownership
 upload orchestration
 planner API
@@ -133,12 +133,12 @@ local reconstruction
 local verification
 ```
 
-### Phase 2 - R2 Storage
+### Phase 2 - S3 Storage
 
 Add:
 
 ```text
-R2 upload/download
+S3 upload/download
 bundle object layout
 target manifest object layout
 signed target manifests
@@ -171,7 +171,7 @@ reliable reconstruction
 safe staged install
 repair works under corruption
 storage savings are meaningful
-R2 operation count is acceptable
+S3 operation count is acceptable
 fragmentation is manageable
 rollback works
 ```

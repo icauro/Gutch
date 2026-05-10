@@ -14,6 +14,7 @@ Keep command-line usage, examples, and spec-file formats here instead of scatter
 - `gutch target insert`
 - `gutch target export`
 - `gutch target estimate`
+- `gutch target_install apply`
 - `gutch target_install verify`
 - `gutch bundle inspect`
 - `gutch path compare`
@@ -260,7 +261,28 @@ gutch target estimate \
   --version 1.0.0
 ```
 
-## 5. Target Install Verify
+## 5. Target Install Apply
+
+`target_install apply` reconstructs a selected target into a staging directory, verifies it, and then promotes it to the active install directory.
+
+When `--source-target` is provided, Gutch verifies the existing source install first and reuses matching chunks from it before reading required bundle chunks. If `--source-dir` is omitted, the active install directory passed through `--dir` is used as the source install.
+
+### Example
+
+```text
+gutch target_install apply \
+  --repo ./.content_repo \
+  --target 1.1.0-windows-x86_64-base \
+  --dir ./install/base \
+  --staging-dir ./install/.temp/1.1.0-windows-x86_64-base \
+  --source-target 1.0.0-windows-x86_64-base \
+  --summary-out ./.artifacts/target-install-apply.summary.txt \
+  --stats-json-out ./.artifacts/target-install-apply.stats.json
+```
+
+`target_install apply` currently expects required bundles to already be available in the local content repo. The desktop app can use backend-authorized downloads to populate those bundle files before invoking this command.
+
+## 6. Target Install Verify
 
 `target_install verify` validates a real install directory against one target stored in a content repo.
 
@@ -286,7 +308,7 @@ gutch target_install verify \
 - corrupt files
 - extra files
 
-## 6. Bundle Inspect
+## 7. Bundle Inspect
 
 ### Example
 
@@ -294,7 +316,7 @@ gutch target_install verify \
 gutch bundle inspect --bundle ./.content_repo/bundles/abc123.bundle
 ```
 
-## 7. Path Compare
+## 8. Path Compare
 
 `path compare` binary-compares two filesystem paths.
 
