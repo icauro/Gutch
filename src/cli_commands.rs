@@ -253,6 +253,19 @@ fn directory_has_any_entries(path: &std::path::Path) -> g::Result<bool> {
     Ok(std::fs::read_dir(path)?.next().is_some())
 }
 
+fn load_optional_target_schema(
+    schema_path: &Option<PathBuf>,
+) -> g::Result<Option<g::manifest::ContentRepoTargetSchema>> {
+    let Some(schema_path) = schema_path else {
+        return Ok(None);
+    };
+
+    let schema_json = std::fs::read_to_string(schema_path)?;
+    let schema: g::manifest::ContentRepoTargetSchema = serde_json::from_str(&schema_json)?;
+    validate_target_schema(&schema)?;
+    Ok(Some(schema))
+}
+
 fn load_target_manifest_from_repo(
     repo_root: &std::path::Path,
     target_id: &str,
@@ -326,6 +339,63 @@ fn default_staging_dir(install_dir: &std::path::Path, target_id: &str) -> PathBu
 
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
+        Commands::Repo {
+            command:
+                RepoCommands::Create {
+                    product,
+                    content_repo,
+                    schema,
+                    repo,
+                },
+        } => {
+            let repo_paths = g::ContentRepoPaths::from_repo_root(&repo);
+            let mut repo_manifest =
+                g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
+            repo_manifest.target_schema = load_optional_target_schema(&schema)?;
+            std::fs::write(
+                &repo_paths.repo_manifest_path,
+                serde_json::to_string_pretty(&repo_manifest)?,
+            )?;
+
+            println!(
+                "created content repo {} for product {} at {}",
+                content_repo,
+                product,
+                repo_paths.repo_root.display()
+            );
+        }
+
+        Commands::Repo {
+            command:
+                RepoCommands::SchemaSet {
+                    repo,
+                    schema,
+                    clear,
+                },
+        } => {
+            if clear && schema.is_some() {
+                return Err(g::Error::manifest(
+                    "use either --schema <path> or --clear, not both",
+                ));
+            }
+
+            let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&repo)?;
+            repo_manifest.target_schema = if clear {
+                None
+            } else {
+                load_optional_target_schema(&schema)?
+            };
+            std::fs::write(
+                &repo_paths.repo_manifest_path,
+                serde_json::to_string_pretty(&repo_manifest)?,
+            )?;
+
+            println!(
+                "updated repo schema at {}",
+                repo_paths.repo_manifest_path.display()
+            );
+        }
+
         Commands::Repo {
             command:
                 RepoCommands::Init {

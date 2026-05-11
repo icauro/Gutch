@@ -68,6 +68,32 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum RepoCommands {
+    Create {
+        #[arg(short, long)]
+        product: String,
+
+        #[arg(long = "content-repo")]
+        content_repo: String,
+
+        #[arg(long = "schema")]
+        schema: Option<PathBuf>,
+
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+    },
+
+    #[command(name = "schema-set")]
+    SchemaSet {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "schema")]
+        schema: Option<PathBuf>,
+
+        #[arg(long = "clear")]
+        clear: bool,
+    },
+
     Init {
         #[arg(short, long)]
         product: String,

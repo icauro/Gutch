@@ -10,6 +10,8 @@ Keep command-line usage, examples, and spec-file formats here instead of scatter
 
 ## Current Commands
 
+- `gutch repo create`
+- `gutch repo schema-set`
 - `gutch repo init`
 - `gutch target insert`
 - `gutch target export`
@@ -62,7 +64,50 @@ Normalizes to:
 - `platform=windows`
 - `arch=x86_64`
 
-## 1. Repo Init
+## 1. Repo Create
+
+`repo create` creates an empty local content repo with `repo.json`, `targets/`, and `bundles/`.
+
+### Example
+
+```text
+gutch repo create \
+  --product my-game \
+  --content-repo base \
+  --repo ./.content_repo
+```
+
+Optional schema file:
+
+```text
+gutch repo create \
+  --product my-game \
+  --content-repo base \
+  --schema ./target-schema.json \
+  --repo ./.content_repo
+```
+
+## 2. Repo Schema Set
+
+`repo schema-set` replaces or clears the repo-defined target schema in `repo.json`.
+
+### Example
+
+```text
+gutch repo schema-set \
+  --repo ./.content_repo \
+  --schema ./target-schema.json
+```
+
+Clear the custom schema and fall back to default identity behavior:
+
+```text
+gutch repo schema-set \
+  --repo ./.content_repo \
+  --clear
+```
+
+## 3. Repo Init
 
 `repo init` creates a new content repo and populates it with an initial batch of targets.
 
@@ -183,7 +228,7 @@ After writing the repo, `repo init` also prints a storage summary that includes:
 - saved percentage versus storing full copies of every target
 - per-target added repo bytes in target order
 
-## 2. Target Insert
+## 4. Target Insert
 
 `target insert` creates one target from one source directory and inserts it into an existing content repo.
 
@@ -230,7 +275,7 @@ gutch target insert \
   --tag mc=1.21
 ```
 
-## 3. Target Export
+## 5. Target Export
 
 `target export` reconstructs one target from a content repo into an output directory.
 
@@ -250,7 +295,7 @@ gutch target export \
   --stats-json-out ./.artifacts/target-export.stats.json
 ```
 
-## 4. Target Estimate
+## 6. Target Estimate
 
 ### Example
 
@@ -261,7 +306,7 @@ gutch target estimate \
   --version 1.0.0
 ```
 
-## 5. Target Install Apply
+## 7. Target Install Apply
 
 `target_install apply` reconstructs a selected target into a staging directory, verifies it, and then promotes it to the active install directory.
 
@@ -282,7 +327,7 @@ gutch target_install apply \
 
 `target_install apply` currently expects required bundles to already be available in the local content repo. The desktop app can use backend-authorized downloads to populate those bundle files before invoking this command.
 
-## 6. Target Install Verify
+## 8. Target Install Verify
 
 `target_install verify` validates a real install directory against one target stored in a content repo.
 
@@ -308,7 +353,7 @@ gutch target_install verify \
 - corrupt files
 - extra files
 
-## 7. Bundle Inspect
+## 9. Bundle Inspect
 
 ### Example
 
@@ -316,7 +361,7 @@ gutch target_install verify \
 gutch bundle inspect --bundle ./.content_repo/bundles/abc123.bundle
 ```
 
-## 8. Path Compare
+## 10. Path Compare
 
 `path compare` binary-compares two filesystem paths.
 
