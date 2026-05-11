@@ -13,11 +13,14 @@ Keep command-line usage, examples, and spec-file formats here instead of scatter
 - `gutch repo create`
 - `gutch repo discover-source-targets`
 - `gutch repo inspect`
+- `gutch repo list`
 - `gutch repo schema-set`
 - `gutch repo init`
+- `gutch repo delete-target`
 - `gutch target insert`
 - `gutch target export`
 - `gutch target estimate`
+- `gutch target publish`
 - `gutch target_install fetch`
 - `gutch target_install apply`
 - `gutch target_install verify`

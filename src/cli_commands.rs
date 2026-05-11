@@ -711,6 +711,114 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             );
         }
 
+        Commands::Repo {
+            command: RepoCommands::List { repo, json_out },
+        } => {
+            let status = g::inspect_content_repo(&repo)?;
+            if !status.is_repo {
+                return Err(g::Error::manifest(format!(
+                    "no content repo found at {}",
+                    repo.display()
+                )));
+            }
+
+            if let Some(json_out) = json_out.as_ref() {
+                ensure_parent_directory(json_out)?;
+                std::fs::write(json_out, serde_json::to_vec_pretty(&status.targets)?)?;
+            }
+
+            println!(
+                "repo {} has {} targets, {} bundles",
+                status.content_repo_id,
+                status.targets.len(),
+                status.bundle_count
+            );
+            for target in &status.targets {
+                println!("  - {}", target.target_id);
+            }
+        }
+
+        Commands::Repo {
+            command: RepoCommands::DeleteTarget { repo, target, yes },
+        } => {
+            let (repo_paths, _repo_manifest, _, _tm) =
+                load_target_manifest_from_repo(&repo, &target)?;
+            let target_root = repo_paths.targets_root.join(&target);
+            let confirmed = yes;
+            if !confirmed {
+                eprintln!(
+                    "WARNING: this will remove '{}' and may orphan bundles. Use --yes to confirm.",
+                    target_root.display()
+                );
+                return Err(g::Error::manifest("deletion requires --yes flag"));
+            }
+
+            // Remove target directory
+            if target_root.exists() {
+                std::fs::remove_dir_all(&target_root)?;
+                println!("removed target: {}", target);
+            }
+
+            // Clean up orphaned bundles
+            let remaining_targets: HashSet<String> = {
+                let mut ids = HashSet::new();
+                if repo_paths.targets_root.exists() {
+                    for entry in std::fs::read_dir(&repo_paths.targets_root)? {
+                        let entry = entry?;
+                        if entry.path().is_dir() {
+                            ids.insert(
+                                entry.file_name().to_string_lossy().to_string(),
+                            );
+                        }
+                    }
+                }
+                ids
+            };
+
+            let mut orphan_bundles = Vec::new();
+            if repo_paths.bundles_root.exists() {
+                for entry in walkdir::WalkDir::new(&repo_paths.bundles_root).sort_by_file_name() {
+                    let entry = entry?;
+                    if !entry.path().is_file() {
+                        continue;
+                    }
+                    if entry.path().extension().and_then(|e| e.to_str()) != Some("bundle") {
+                        continue;
+                    }
+                    if let Some(bundle_id) = entry.path().file_stem().and_then(|s| s.to_str()) {
+                        let bundle_still_needed = remaining_targets.iter().any(|target_id| {
+                            let manifest_path = repo_paths.targets_root.join(target_id).join("manifest.json");
+                            if !manifest_path.exists() {
+                                return false;
+                            }
+                            if let Ok(content) = std::fs::read_to_string(&manifest_path) {
+                                if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) {
+                                    if let Some(bundle_set) = manifest.get("required_bundle_set").and_then(|v| v.as_array()) {
+                                        return bundle_set.iter().any(|b| b.as_str() == Some(bundle_id));
+                                    }
+                                }
+                            }
+                            false
+                        });
+                        if !bundle_still_needed {
+                            orphan_bundles.push(entry.path().to_path_buf());
+                        }
+                    }
+                }
+            }
+
+            for orphan_path in &orphan_bundles {
+                std::fs::remove_file(orphan_path)?;
+                println!("removed orphaned bundle: {}", orphan_path.display());
+            }
+
+            println!(
+                "deleted target '{}': removed dir, {} orphaned bundles cleaned up",
+                target,
+                orphan_bundles.len()
+            );
+        }
+
         Commands::Target {
             command:
                 TargetCommands::Insert {
@@ -1342,6 +1450,161 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 }
                 std::process::exit(1);
             }
+        }
+
+        Commands::Target {
+            command:
+                TargetCommands::Publish {
+                    repo,
+                    target,
+                    endpoint,
+                    session_id,
+                    product_id,
+                    tier_id,
+                    content_repo_id,
+                    version_major,
+                    version_minor,
+                    version_patch,
+                    target_id,
+                    platform,
+                    architecture,
+                },
+        } => {
+            let (repo_paths, _repo_manifest, _manifest_path, tm) =
+                load_target_manifest_from_repo(&repo, &target)?;
+            let bundles_root = repo_paths.bundles_root.clone();
+            let target_root = repo_paths.targets_root.join(target.trim());
+
+            let manifest_path = target_root.join("manifest.json");
+            if !manifest_path.exists() {
+                return Err(g::Error::manifest(format!(
+                    "manifest.json not found at {}",
+                    manifest_path.display()
+                )));
+            }
+            let manifest_bytes = std::fs::read(&manifest_path)?;
+            let manifest_name = String::from("manifest.json");
+
+            let manifest_signature_path = target_root.join("manifest.sig");
+            let manifest_signature_bytes = if manifest_signature_path.exists() {
+                Some(std::fs::read(&manifest_signature_path)?)
+            } else {
+                None
+            };
+            let manifest_signature_name = String::from("manifest.sig");
+
+            // Resolve bundle IDs from target manifest
+            let mut bundles = Vec::new();
+            for bundle_id in &tm.required_bundle_set {
+                let bundle_path = bundles_root.join(format!("{}.bundle", bundle_id));
+                let bundle_data = std::fs::read(&bundle_path)?;
+                bundles.push((bundle_id.clone(), bundle_data));
+            }
+
+            // Create or update remote target
+            let existing_target_id = target_id.filter(|id| *id > 0);
+            let remote_target_id: i64 = if let Some(tid) = existing_target_id {
+                tid
+            } else {
+                let create_url = format!(
+                    "{}/v1/products/{}/targets/0",
+                    endpoint.trim_end_matches('/'),
+                    product_id
+                );
+                let client = reqwest::blocking::Client::new();
+                let mut req = client.put(&create_url).json(&serde_json::json!({
+                    "tierId": tier_id,
+                    "contentRepoId": content_repo_id,
+                    "versionMajor": version_major,
+                    "versionMinor": version_minor,
+                    "versionPatch": version_patch,
+                    "platform": platform.trim(),
+                    "architecture": architecture.trim(),
+                    "isFullBuild": true
+                }));
+                if let Some(sid) = session_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                    req = req.header("Authorization", format!("Bearer {}", sid));
+                }
+                let resp = req.send().map_err(|err| {
+                    g::Error::bundle(format!("failed to create remote target: {}", err))
+                })?;
+                let status = resp.status();
+                if !status.is_success() {
+                    return Err(g::Error::bundle(format!(
+                        "remote target creation failed with status {}",
+                        status
+                    )));
+                }
+                let payload: serde_json::Value = resp.json().map_err(|err| {
+                    g::Error::bundle(format!("failed to parse remote target response: {}", err))
+                })?;
+                payload
+                    .get("id")
+                    .or_else(|| payload.get("targetId"))
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        g::Error::bundle("remote target response missing target id")
+                    })?
+            };
+
+            // Upload content via multipart
+            let upload_url = format!(
+                "{}/v1/products/{}/targets/{}/content",
+                endpoint.trim_end_matches('/'),
+                product_id,
+                remote_target_id
+            );
+            let client = reqwest::blocking::Client::new();
+            let manifest_part = reqwest::blocking::multipart::Part::bytes(manifest_bytes)
+                .file_name(manifest_name)
+                .mime_str("application/json")
+                .map_err(|err| g::Error::bundle(format!("failed to prepare manifest part: {}", err)))?;
+            let mut form = reqwest::blocking::multipart::Form::new()
+                .part("manifest", manifest_part);
+
+            if let Some(sig_bytes) = manifest_signature_bytes {
+                let sig_part = reqwest::blocking::multipart::Part::bytes(sig_bytes)
+                    .file_name(manifest_signature_name)
+                    .mime_str("application/octet-stream")
+                    .map_err(|err| g::Error::bundle(format!("failed to prepare signature part: {}", err)))?;
+                form = form.part("manifest_sig", sig_part);
+            }
+
+            for (bundle_id, bundle_data) in &bundles {
+                let bundle_part = reqwest::blocking::multipart::Part::bytes(bundle_data.clone())
+                    .file_name(format!("{}.bundle", bundle_id))
+                    .mime_str("application/octet-stream")
+                    .map_err(|err| g::Error::bundle(format!("failed to prepare bundle part: {}", err)))?;
+                form = form.part(format!("bundle_{}", bundle_id), bundle_part);
+            }
+
+            let mut upload_req = client.post(&upload_url).multipart(form);
+            if let Some(sid) = session_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                upload_req = upload_req.header("Authorization", format!("Bearer {}", sid));
+            }
+            let upload_resp = upload_req.send().map_err(|err| {
+                g::Error::bundle(format!("failed to upload target content: {}", err))
+            })?;
+            let upload_status = upload_resp.status();
+            if !upload_status.is_success() {
+                return Err(g::Error::bundle(format!(
+                    "target content upload failed with status {}",
+                    upload_status
+                )));
+            }
+            let result: serde_json::Value = upload_resp.json().map_err(|err| {
+                g::Error::bundle(format!("failed to parse upload response: {}", err))
+            })?;
+
+            let bundles_written = result
+                .get("bundlesWritten")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(bundles.len() as i64);
+
+            println!(
+                "published target {} (remote id {}) with {} bundles",
+                target, remote_target_id, bundles_written
+            );
         }
 
         Commands::Target {

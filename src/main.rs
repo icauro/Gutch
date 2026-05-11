@@ -139,10 +139,72 @@ enum RepoCommands {
         #[arg(long = "json-out")]
         json_out: Option<PathBuf>,
     },
+
+    #[command(name = "list")]
+    List {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "json-out")]
+        json_out: Option<PathBuf>,
+    },
+
+    #[command(name = "delete-target")]
+    DeleteTarget {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "target")]
+        target: String,
+
+        #[arg(long = "yes")]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
 enum TargetCommands {
+    Publish {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "target")]
+        target: String,
+
+        #[arg(long = "endpoint")]
+        endpoint: String,
+
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+
+        #[arg(long = "product-id")]
+        product_id: i64,
+
+        #[arg(long = "tier-id")]
+        tier_id: i64,
+
+        #[arg(long = "content-repo-id")]
+        content_repo_id: Option<i64>,
+
+        #[arg(long = "version-major", default_value_t = 1)]
+        version_major: i32,
+
+        #[arg(long = "version-minor", default_value_t = 0)]
+        version_minor: i32,
+
+        #[arg(long = "version-patch", default_value_t = 0)]
+        version_patch: i32,
+
+        #[arg(long = "target-id")]
+        target_id: Option<i64>,
+
+        #[arg(long = "platform", default_value = "any")]
+        platform: String,
+
+        #[arg(long = "architecture", default_value = "any")]
+        architecture: String,
+    },
+
     Insert {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
