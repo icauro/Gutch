@@ -11,11 +11,14 @@ Keep command-line usage, examples, and spec-file formats here instead of scatter
 ## Current Commands
 
 - `gutch repo create`
+- `gutch repo discover-source-targets`
+- `gutch repo inspect`
 - `gutch repo schema-set`
 - `gutch repo init`
 - `gutch target insert`
 - `gutch target export`
 - `gutch target estimate`
+- `gutch target_install fetch`
 - `gutch target_install apply`
 - `gutch target_install verify`
 - `gutch bundle inspect`
@@ -68,12 +71,22 @@ Normalizes to:
 
 `repo create` creates an empty local content repo with `repo.json`, `targets/`, and `bundles/`.
 
+`--product` is optional for local-only repos. A repo created without a product binding can still be managed locally, but remote publish or sync flows must bind to a backend product before content can be sent upstream.
+
 ### Example
 
 ```text
 gutch repo create \
   --product my-game \
   --content-repo base \
+  --repo ./.content_repo
+```
+
+Local-only repo without a product binding:
+
+```text
+gutch repo create \
+  --content-repo sandbox \
   --repo ./.content_repo
 ```
 
@@ -87,7 +100,44 @@ gutch repo create \
   --repo ./.content_repo
 ```
 
-## 2. Repo Schema Set
+## 2. Repo Discover Source Targets
+
+`repo discover-source-targets` scans one source targets root and lists only immediate subfolders whose names match the content repo target schema.
+
+Use it when a GUI or automation flow needs to treat each matching subfolder as a truth target install candidate for `target insert`.
+
+Optional reporting output:
+
+- `--json-out <path>` writes machine-readable candidate target install JSON.
+
+### Example
+
+```text
+gutch repo discover-source-targets \
+  --repo ./.content_repo \
+  --source-targets-root ./truth-targets \
+  --json-out ./.artifacts/discovered-source-targets.json
+```
+
+## 3. Repo Inspect
+
+`repo inspect` reports local repo status for automation or GUI callers without reimplementing repo-manifest, target-manifest, and bundle-inspection rules outside `gutch`.
+
+The command prints a human summary to stdout.
+
+Optional reporting output:
+
+- `--json-out <path>` writes machine-readable JSON with repo status, targets, bundle totals, and missing-bundle counts.
+
+### Example
+
+```text
+gutch repo inspect \
+  --repo ./.content_repo \
+  --json-out ./.artifacts/repo-inspect.json
+```
+
+## 4. Repo Schema Set
 
 `repo schema-set` replaces or clears the repo-defined target schema in `repo.json`.
 
@@ -107,7 +157,7 @@ gutch repo schema-set \
   --clear
 ```
 
-## 3. Repo Init
+## 5. Repo Init
 
 `repo init` creates a new content repo and populates it with an initial batch of targets.
 
@@ -228,7 +278,7 @@ After writing the repo, `repo init` also prints a storage summary that includes:
 - saved percentage versus storing full copies of every target
 - per-target added repo bytes in target order
 
-## 4. Target Insert
+## 6. Target Insert
 
 `target insert` creates one target from one source directory and inserts it into an existing content repo.
 
@@ -275,7 +325,7 @@ gutch target insert \
   --tag mc=1.21
 ```
 
-## 5. Target Export
+## 7. Target Export
 
 `target export` reconstructs one target from a content repo into an output directory.
 
@@ -295,7 +345,7 @@ gutch target export \
   --stats-json-out ./.artifacts/target-export.stats.json
 ```
 
-## 6. Target Estimate
+## 8. Target Estimate
 
 ### Example
 
@@ -306,7 +356,27 @@ gutch target estimate \
   --version 1.0.0
 ```
 
-## 7. Target Install Apply
+## 9. Target Install Fetch
+
+`target_install fetch` prepares a local content repo for one target by downloading `manifest.json`, optional `manifest.sig`, and any missing required bundles.
+
+Use it when the install flow has backend-authorized URLs for target content and you want `gutch` to own the local repo materialization instead of reimplementing that behavior in another client.
+
+If `--bundle-urls-endpoint` is provided and explicit `--bundle <bundle-id>=<url>` values are not, Gutch requests bundle URLs for the target's required bundle IDs and then downloads any missing bundles.
+
+### Example
+
+```text
+gutch target_install fetch \
+  --repo ./.content_repo \
+  --target 1.1.0-windows-x86_64-base \
+  --manifest-url https://example.com/manifest.json \
+  --manifest-sig-url https://example.com/manifest.sig \
+  --bundle-urls-endpoint https://example.com/bundles \
+  --session-id desktop-session-token
+```
+
+## 10. Target Install Apply
 
 `target_install apply` reconstructs a selected target into a staging directory, verifies it, and then promotes it to the active install directory.
 
@@ -325,9 +395,9 @@ gutch target_install apply \
   --stats-json-out ./.artifacts/target-install-apply.stats.json
 ```
 
-`target_install apply` currently expects required bundles to already be available in the local content repo. The desktop app can use backend-authorized downloads to populate those bundle files before invoking this command.
+`target_install apply` expects required bundles to already be available in the local content repo. Use `target_install fetch` first when the repo still needs manifest or bundle content downloaded.
 
-## 8. Target Install Verify
+## 11. Target Install Verify
 
 `target_install verify` validates a real install directory against one target stored in a content repo.
 
@@ -353,7 +423,7 @@ gutch target_install verify \
 - corrupt files
 - extra files
 
-## 9. Bundle Inspect
+## 12. Bundle Inspect
 
 ### Example
 
@@ -361,7 +431,7 @@ gutch target_install verify \
 gutch bundle inspect --bundle ./.content_repo/bundles/abc123.bundle
 ```
 
-## 10. Path Compare
+## 13. Path Compare
 
 `path compare` binary-compares two filesystem paths.
 

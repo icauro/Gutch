@@ -337,6 +337,33 @@ fn default_staging_dir(install_dir: &std::path::Path, target_id: &str) -> PathBu
     install_dir.with_file_name(format!(".gutch-staging-{}-{}", install_name, target_id))
 }
 
+fn parse_bundle_downloads(bundle_args: &[String]) -> g::Result<Vec<g::GutchBundleDownload>> {
+    bundle_args
+        .iter()
+        .map(|bundle_arg| {
+            let Some((bundle_id, url)) = bundle_arg.split_once('=') else {
+                return Err(g::Error::manifest(format!(
+                    "invalid --bundle value '{}'; use <bundle-id>=<url>",
+                    bundle_arg
+                )));
+            };
+            let bundle_id = bundle_id.trim();
+            let url = url.trim();
+            if bundle_id.is_empty() || url.is_empty() {
+                return Err(g::Error::manifest(format!(
+                    "invalid --bundle value '{}'; use <bundle-id>=<url>",
+                    bundle_arg
+                )));
+            }
+
+            Ok(g::GutchBundleDownload {
+                bundle_id: bundle_id.to_string(),
+                url: url.to_string(),
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
         Commands::Repo {
@@ -631,6 +658,57 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     print_build_timings(&combined_timings);
                 }
             }
+        }
+
+        Commands::Repo {
+            command: RepoCommands::Inspect { repo, json_out },
+        } => {
+            let status = g::inspect_content_repo(&repo)?;
+            if let Some(json_out) = json_out.as_ref() {
+                ensure_parent_directory(json_out)?;
+                std::fs::write(json_out, serde_json::to_vec_pretty(&status)?)?;
+            }
+
+            if status.is_repo {
+                println!(
+                    "inspected content repo {} for product {} at {}",
+                    status.content_repo_id, status.product_id, status.repo_path
+                );
+                println!(
+                    "targets: {}, bundles: {} ({} bytes)",
+                    status.targets.len(),
+                    status.bundle_count,
+                    status.bundle_bytes
+                );
+            } else if let Some(error) = status.error.as_deref() {
+                println!("inspect status: {}", error);
+            } else {
+                println!(
+                    "inspect status: no content repo found at {}",
+                    status.repo_path
+                );
+            }
+        }
+
+        Commands::Repo {
+            command:
+                RepoCommands::DiscoverSourceTargets {
+                    repo,
+                    source_targets_root,
+                    json_out,
+                },
+        } => {
+            let candidates = g::discover_source_target_installs(&repo, &source_targets_root)?;
+            if let Some(json_out) = json_out.as_ref() {
+                ensure_parent_directory(json_out)?;
+                std::fs::write(json_out, serde_json::to_vec_pretty(&candidates)?)?;
+            }
+
+            println!(
+                "discovered {} matching source target folders in {}",
+                candidates.len(),
+                source_targets_root.display()
+            );
         }
 
         Commands::Target {
@@ -934,6 +1012,41 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             ];
             write_optional_summary(&summary_out, &summary_lines)?;
             write_stats_json_output(&stats_json_out, &stats)?;
+        }
+
+        Commands::TargetInstall {
+            command:
+                TargetInstallCommands::Fetch {
+                    repo,
+                    target,
+                    manifest_url,
+                    manifest_sig_url,
+                    bundle_urls_endpoint,
+                    session_id,
+                    bundles,
+                },
+        } => {
+            let result = g::fetch_target_install_content(&g::TargetInstallFetchRequest {
+                repo_path: repo,
+                target_id: target,
+                manifest_url,
+                manifest_sig_url,
+                bundle_urls_endpoint,
+                session_id,
+                bundles: parse_bundle_downloads(&bundles)?,
+            })?;
+
+            println!(
+                "fetched target install content for {} into {}",
+                result.target_id,
+                result.repo_path.display()
+            );
+            println!(
+                "bundles: required={}, downloaded={}, existing={}",
+                result.required_bundle_count,
+                result.downloaded_bundle_count,
+                result.skipped_existing_bundle_count
+            );
         }
 
         Commands::TargetInstall {

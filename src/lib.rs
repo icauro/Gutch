@@ -29,7 +29,9 @@ pub use build_types::{
 };
 pub use error::{Error, Result};
 pub use install::{
-    TargetInstallApplyResult, TargetInstallApplySource, apply_target_install_with_timings,
+    GutchBundleDownload, TargetInstallApplyResult, TargetInstallApplySource,
+    TargetInstallFetchRequest, TargetInstallFetchResult, apply_target_install_with_timings,
+    fetch_target_install_content,
 };
 pub use reconstruct::{
     ReconstructTimings, VerifiedSourceInstall,
@@ -38,8 +40,10 @@ pub use reconstruct::{
     reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
-    ContentRepoPaths, canonical_target_tags, compute_target_id, ensure_content_repo_layout,
-    load_content_repo_manifest, target_manifest_path,
+    ContentRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
+    canonical_target_tags, compute_target_id, discover_source_target_installs,
+    ensure_content_repo_layout, inspect_content_repo, load_content_repo_manifest,
+    target_manifest_path,
 };
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyTimings, classify_directory,

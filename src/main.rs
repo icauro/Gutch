@@ -69,7 +69,7 @@ enum Commands {
 #[derive(Subcommand)]
 enum RepoCommands {
     Create {
-        #[arg(short, long)]
+        #[arg(short, long, default_value = "")]
         product: String,
 
         #[arg(long = "content-repo")]
@@ -95,7 +95,7 @@ enum RepoCommands {
     },
 
     Init {
-        #[arg(short, long)]
+        #[arg(short, long, default_value = "")]
         product: String,
 
         #[arg(long = "content-repo")]
@@ -118,6 +118,26 @@ enum RepoCommands {
 
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
+    },
+
+    Inspect {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "json-out")]
+        json_out: Option<PathBuf>,
+    },
+
+    #[command(name = "discover-source-targets")]
+    DiscoverSourceTargets {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "source-targets-root")]
+        source_targets_root: PathBuf,
+
+        #[arg(long = "json-out")]
+        json_out: Option<PathBuf>,
     },
 }
 
@@ -192,6 +212,29 @@ enum TargetCommands {
 
 #[derive(Subcommand)]
 enum TargetInstallCommands {
+    Fetch {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "target")]
+        target: String,
+
+        #[arg(long = "manifest-url")]
+        manifest_url: String,
+
+        #[arg(long = "manifest-sig-url")]
+        manifest_sig_url: Option<String>,
+
+        #[arg(long = "bundle-urls-endpoint")]
+        bundle_urls_endpoint: Option<String>,
+
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+
+        #[arg(long = "bundle")]
+        bundles: Vec<String>,
+    },
+
     Apply {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,

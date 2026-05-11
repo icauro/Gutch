@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::manifest::TargetManifest;
+use crate::manifest::{self, TargetManifest};
 use crate::reconstruct::{
     ReconstructTimings, VerifiedSourceInstall,
     reconstruct_from_bundle_paths_and_verified_source_with_timings,
@@ -9,6 +9,7 @@ use crate::verify::{
     VerifyTimings, classify_directory_with_timings, verify_directory_with_timings,
 };
 use crate::{Error, Result};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct TargetInstallApplySource<'a> {
@@ -27,6 +28,41 @@ pub struct TargetInstallApplyResult {
     pub required_bundle_count: usize,
     pub reconstruct_timings: ReconstructTimings,
     pub verify_timings: VerifyTimings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GutchBundleDownload {
+    pub bundle_id: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallFetchRequest {
+    pub repo_path: PathBuf,
+    pub target_id: String,
+    pub manifest_url: String,
+    pub manifest_sig_url: Option<String>,
+    pub bundle_urls_endpoint: Option<String>,
+    pub session_id: Option<String>,
+    pub bundles: Vec<GutchBundleDownload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetInstallFetchResult {
+    pub target_id: String,
+    pub repo_path: PathBuf,
+    pub required_bundle_count: usize,
+    pub downloaded_bundle_count: usize,
+    pub skipped_existing_bundle_count: usize,
+    pub wrote_manifest_signature: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GutchBundleUrlsResponse {
+    #[serde(default)]
+    bundles: Vec<GutchBundleDownload>,
 }
 
 pub fn apply_target_install_with_timings(
@@ -114,6 +150,81 @@ pub fn apply_target_install_with_timings(
     })
 }
 
+pub fn fetch_target_install_content(
+    request: &TargetInstallFetchRequest,
+) -> Result<TargetInstallFetchResult> {
+    let repo_paths = crate::ContentRepoPaths::from_repo_root(&request.repo_path);
+    let target_root = repo_paths.targets_root.join(request.target_id.trim());
+
+    std::fs::create_dir_all(&target_root)?;
+    std::fs::create_dir_all(&repo_paths.bundles_root)?;
+
+    let manifest_bytes = download_url(request.manifest_url.trim())?;
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).map_err(|err| {
+        Error::manifest(format!(
+            "downloaded target manifest is invalid JSON: {}",
+            err
+        ))
+    })?;
+    write_repo_manifest(&request.repo_path, &manifest)?;
+    std::fs::write(target_root.join("manifest.json"), manifest_bytes)?;
+
+    let mut wrote_manifest_signature = false;
+    if let Some(sig_url) = request.manifest_sig_url.as_deref().map(str::trim) {
+        if !sig_url.is_empty() {
+            let sig_bytes = download_url(sig_url)?;
+            std::fs::write(target_root.join("manifest.sig"), sig_bytes)?;
+            wrote_manifest_signature = true;
+        }
+    }
+
+    let required_bundle_ids = manifest
+        .get("required_bundle_set")
+        .and_then(serde_json::Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let bundles = if request.bundles.is_empty() && !required_bundle_ids.is_empty() {
+        fetch_bundle_urls(request, &required_bundle_ids)?
+    } else {
+        request.bundles.clone()
+    };
+
+    let mut downloaded_bundle_count = 0usize;
+    let mut skipped_existing_bundle_count = 0usize;
+    for bundle in &bundles {
+        let bundle_id = bundle.bundle_id.trim();
+        if bundle_id.is_empty() {
+            continue;
+        }
+
+        let bundle_path = repo_paths
+            .bundles_root
+            .join(format!("{}.bundle", bundle_id));
+        if bundle_path.exists() {
+            skipped_existing_bundle_count += 1;
+            continue;
+        }
+
+        let bundle_bytes = download_url(bundle.url.trim())?;
+        std::fs::write(&bundle_path, bundle_bytes)?;
+        downloaded_bundle_count += 1;
+    }
+
+    Ok(TargetInstallFetchResult {
+        target_id: request.target_id.clone(),
+        repo_path: request.repo_path.clone(),
+        required_bundle_count: required_bundle_ids.len(),
+        downloaded_bundle_count,
+        skipped_existing_bundle_count,
+        wrote_manifest_signature,
+    })
+}
+
 fn count_reusable_source_chunks(
     target_manifest: &TargetManifest,
     source_manifest: &TargetManifest,
@@ -176,4 +287,212 @@ fn backup_dir_for_install(install_dir: &Path, target_id: &str) -> PathBuf {
         std::process::id()
     );
     install_dir.with_file_name(backup_name)
+}
+
+fn download_url(url: &str) -> Result<Vec<u8>> {
+    if url.is_empty() {
+        return Err(Error::bundle("download URL is required"));
+    }
+
+    let response = reqwest::blocking::get(url)
+        .map_err(|err| Error::bundle(format!("failed to download Gutch content: {}", err)))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Error::bundle(format!(
+            "Gutch content download failed with status {}.",
+            status
+        )));
+    }
+
+    response
+        .bytes()
+        .map(|bytes| bytes.to_vec())
+        .map_err(|err| Error::bundle(format!("failed to read Gutch download body: {}", err)))
+}
+
+fn fetch_bundle_urls(
+    request: &TargetInstallFetchRequest,
+    bundle_ids: &[String],
+) -> Result<Vec<GutchBundleDownload>> {
+    let endpoint = request
+        .bundle_urls_endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| Error::bundle("bundle URL endpoint is required for Gutch install"))?;
+    let separator = if endpoint.contains('?') { '&' } else { '?' };
+    let url = format!("{}{}ids={}", endpoint, separator, bundle_ids.join(","));
+    let mut builder = reqwest::blocking::Client::new().get(url);
+    if let Some(session_id) = request.session_id.as_deref().map(str::trim) {
+        if !session_id.is_empty() {
+            builder = builder.header("Authorization", format!("Bearer {}", session_id));
+        }
+    }
+
+    let response = builder
+        .send()
+        .map_err(|err| Error::bundle(format!("failed to request Gutch bundle URLs: {}", err)))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Error::bundle(format!(
+            "Gutch bundle URL request failed with status {}.",
+            status
+        )));
+    }
+
+    response
+        .json::<GutchBundleUrlsResponse>()
+        .map(|body| body.bundles)
+        .map_err(|err| Error::bundle(format!("failed to parse Gutch bundle URLs: {}", err)))
+}
+
+fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) -> Result<()> {
+    let product_id = target_manifest
+        .get("product_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown-product");
+    let content_repo_id = target_manifest
+        .get("content_repo_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("base");
+    let mut repo_manifest =
+        manifest::ContentRepoManifest::new(product_id.to_string(), content_repo_id.to_string());
+    if let Some(created_at) = target_manifest
+        .get("created_at")
+        .and_then(serde_json::Value::as_str)
+    {
+        repo_manifest.created_at = created_at.to_string();
+    }
+
+    let repo_json = serde_json::to_vec_pretty(&repo_manifest)?;
+    std::fs::write(
+        repo_path.join(manifest::CONTENT_REPO_MANIFEST_FILE),
+        repo_json,
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn fetch_target_install_content_downloads_manifest_and_bundles() {
+        let root = std::env::temp_dir().join(format!(
+            "gutch_fetch_install_test_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let repo_path = root.join("repo");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0u8; 4096];
+                let bytes_read = stream.read(&mut buffer).unwrap();
+                let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+
+                let (status, body, content_type) = match path {
+                    "/manifest" => (
+                        "200 OK",
+                        serde_json::to_vec(&serde_json::json!({
+                            "product_id": "product-1",
+                            "content_repo_id": "base",
+                            "target_id": "1.0.0-windows-x86_64-base",
+                            "version_id": "1.0.0",
+                            "platform": "windows",
+                            "architecture": "x86_64",
+                            "tier_id": "base",
+                            "created_at": "2026-05-11T00:00:00Z",
+                            "required_bundle_set": ["bundle-a"],
+                            "required_chunk_set": [],
+                            "files": [],
+                            "target_tags": {},
+                            "manifest_version": 1,
+                            "chunk_sizing_profile": manifest::ChunkSizingProfile::default(),
+                            "compression_profile": manifest::CompressionProfile::default(),
+                            "bundle_sizing_profile": manifest::BundleSizingProfile::default(),
+                            "bundle_format_version": manifest::BUNDLE_FORMAT,
+                            "total_logical_size": 0,
+                            "total_compressed_size_estimate": 0,
+                            "signature_metadata": serde_json::Value::Null
+                        }))
+                        .unwrap(),
+                        "application/json",
+                    ),
+                    "/manifest.sig" => ("200 OK", b"sig".to_vec(), "application/octet-stream"),
+                    "/bundle-a" => (
+                        "200 OK",
+                        b"bundle-a-bytes".to_vec(),
+                        "application/octet-stream",
+                    ),
+                    _ if path.starts_with("/bundles?ids=bundle-a") => (
+                        "200 OK",
+                        serde_json::to_vec(&serde_json::json!({
+                            "bundles": [{
+                                "bundleId": "bundle-a",
+                                "url": format!("http://{}/bundle-a", address)
+                            }]
+                        }))
+                        .unwrap(),
+                        "application/json",
+                    ),
+                    _ => ("404 Not Found", b"not found".to_vec(), "text/plain"),
+                };
+
+                let response = format!(
+                    "HTTP/1.1 {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n\r\n",
+                    status,
+                    body.len(),
+                    content_type
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+
+        let result = fetch_target_install_content(&TargetInstallFetchRequest {
+            repo_path: repo_path.clone(),
+            target_id: "1.0.0-windows-x86_64-base".to_string(),
+            manifest_url: format!("http://{}/manifest", address),
+            manifest_sig_url: Some(format!("http://{}/manifest.sig", address)),
+            bundle_urls_endpoint: Some(format!("http://{}/bundles", address)),
+            session_id: Some("session-1".to_string()),
+            bundles: Vec::new(),
+        })
+        .unwrap();
+
+        assert_eq!(result.required_bundle_count, 1);
+        assert_eq!(result.downloaded_bundle_count, 1);
+        assert!(result.wrote_manifest_signature);
+        assert!(repo_path.join("repo.json").exists());
+        assert!(
+            repo_path
+                .join("targets")
+                .join("1.0.0-windows-x86_64-base")
+                .join("manifest.json")
+                .exists()
+        );
+        assert!(
+            repo_path
+                .join("targets")
+                .join("1.0.0-windows-x86_64-base")
+                .join("manifest.sig")
+                .exists()
+        );
+        assert!(repo_path.join("bundles").join("bundle-a.bundle").exists());
+
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
