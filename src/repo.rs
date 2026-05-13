@@ -668,6 +668,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn compute_target_id_formats_correctly() {
+        let id = compute_target_id("1.0.0", "windows", "x86_64", "base");
+        assert_eq!(id, "1.0.0-windows-x86_64-base");
+    }
+
+    #[test]
+    fn compute_target_id_with_tags() {
+        let id = compute_target_id("2.0.1", "linux", "aarch64", "patreon-5");
+        assert_eq!(id, "2.0.1-linux-aarch64-patreon-5");
+    }
+
+    #[test]
+    fn compute_target_id_empty_parts() {
+        let id = compute_target_id("", "", "", "");
+        assert_eq!(id, "---");
+    }
+
+    #[test]
+    fn canonical_target_tags_contains_all_keys() {
+        let tags = canonical_target_tags("1.0.0", "windows", "x86_64", "base");
+        assert_eq!(tags.get("version").unwrap(), "1.0.0");
+        assert_eq!(tags.get("platform").unwrap(), "windows");
+        assert_eq!(tags.get("arch").unwrap(), "x86_64");
+        assert_eq!(tags.get("tier").unwrap(), "base");
+        assert_eq!(tags.len(), 4);
+    }
+
+    #[test]
+    fn content_repo_paths_from_repo_root() {
+        let root = PathBuf::from("/test/repo");
+        let paths = ContentRepoPaths::from_repo_root(&root);
+        assert_eq!(paths.repo_root, root);
+        assert_eq!(paths.repo_manifest_path, root.join("repo.json"));
+        assert_eq!(paths.targets_root, root.join("targets"));
+        assert_eq!(paths.bundles_root, root.join("bundles"));
+    }
+
+    #[test]
+    fn content_repo_paths_from_store_root() {
+        let root = PathBuf::from("/test/store");
+        let paths = ContentRepoPaths::from_store_root(&root, "p1", "my-repo");
+        assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
+        assert!(paths.repo_manifest_path.to_string_lossy().contains("my-repo"));
+    }
+
+    #[test]
     fn inspect_content_repo_reports_targets_and_missing_bundles() {
         let root = std::env::temp_dir().join(format!(
             "gutch_repo_inspect_test_{}_{}",

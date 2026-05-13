@@ -258,3 +258,95 @@ pub fn estimate_build(
         fragmentation_score: bundle_estimate as f64,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::TargetManifest;
+    use std::collections::BTreeMap;
+
+    fn empty_manifest() -> TargetManifest {
+        TargetManifest::new(
+            "p1".into(), "r1".into(), "t1".into(),
+            "1.0.0".into(), "windows".into(), "x86_64".into(), "base".into(),
+            BTreeMap::new(),
+        )
+    }
+
+    #[test]
+    fn estimate_build_no_missing_chunks() {
+        let manifest = empty_manifest();
+        let available = HashSet::new();
+        let result = estimate_build(&manifest, &available, 1_000_000).unwrap();
+        assert_eq!(result.missing_chunk_count, 0);
+        assert_eq!(result.missing_logical_bytes, 0);
+        assert_eq!(result.required_bundle_count, 0);
+    }
+
+    #[test]
+    fn estimate_build_missing_chunks_counted() {
+        let mut manifest = empty_manifest();
+        manifest.files.push(crate::manifest::FileManifest {
+            path: "game.exe".into(),
+            size: 1000,
+            mode: 0o755,
+            executable: true,
+            symlink_target: None,
+            full_file_hash: "hash1".into(),
+            chunks: vec![
+                crate::manifest::ChunkRef {
+                    chunk_hash: "a".into(), raw_size: 500, file_offset: 0,
+                },
+                crate::manifest::ChunkRef {
+                    chunk_hash: "b".into(), raw_size: 500, file_offset: 500,
+                },
+            ],
+        });
+        let available = HashSet::from(["a".into()]);
+        let result = estimate_build(&manifest, &available, 1_000_000).unwrap();
+        assert_eq!(result.missing_chunk_count, 1);
+        assert_eq!(result.missing_logical_bytes, 500);
+    }
+
+    #[test]
+    fn estimate_build_all_chunks_available() {
+        let mut manifest = empty_manifest();
+        manifest.files.push(crate::manifest::FileManifest {
+            path: "data.bin".into(),
+            size: 200,
+            mode: 0o644,
+            executable: false,
+            symlink_target: None,
+            full_file_hash: "hash2".into(),
+            chunks: vec![
+                crate::manifest::ChunkRef {
+                    chunk_hash: "x".into(), raw_size: 100, file_offset: 0,
+                },
+                crate::manifest::ChunkRef {
+                    chunk_hash: "y".into(), raw_size: 100, file_offset: 100,
+                },
+            ],
+        });
+        let available = HashSet::from(["x".into(), "y".into()]);
+        let result = estimate_build(&manifest, &available, 500_000).unwrap();
+        assert_eq!(result.missing_chunk_count, 0);
+        assert_eq!(result.local_cache_hits, 0);
+    }
+
+    #[test]
+    fn estimate_build_available_disk_space_passed_through() {
+        let manifest = empty_manifest();
+        let available = HashSet::new();
+        let result = estimate_build(&manifest, &available, 42_000).unwrap();
+        assert_eq!(result.available_disk_space, 42_000);
+    }
+
+    #[test]
+    fn estimate_build_empty_files_no_chunks() {
+        let manifest = empty_manifest();
+        let available = HashSet::new();
+        let result = estimate_build(&manifest, &available, 0).unwrap();
+        assert_eq!(result.missing_chunk_count, 0);
+        assert_eq!(result.required_bundle_count, 0);
+    }
+}
