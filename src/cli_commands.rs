@@ -5,9 +5,9 @@ use serde::Serialize;
 use tempfile::TempDir;
 
 use crate::RepoInitSpec;
-use crate::cli_identity::{
-    apply_resolved_target_identity, effective_target_schema, parse_cli_tags,
-    resolve_target_identity, resolve_target_input, validate_target_schema,
+use g::cli_identity::{
+    apply_resolved_target_identity, parse_cli_tags,
+    resolve_target_identity,
 };
 use crate::cli_path_compare::compare_paths;
 use crate::cli_reporting::{
@@ -124,36 +124,20 @@ mod tests {
 
     #[test]
     fn collect_repo_init_target_added_bytes_counts_only_new_bundles_once() {
-        let target_a = g::manifest::TargetManifest {
-            target_id: "1.0.0-windows-x86_64-base".to_string(),
-            total_logical_size: 1000,
-            required_bundle_set: vec!["bundle-a".to_string(), "bundle-b".to_string()],
-            ..g::manifest::TargetManifest::new(
-                "prod".into(),
-                "base".into(),
-                "1.0.0-windows-x86_64-base".into(),
-                "1.0.0".into(),
-                "windows".into(),
-                "x86_64".into(),
-                "base".into(),
-                BTreeMap::new(),
-            )
-        };
-        let target_b = g::manifest::TargetManifest {
-            target_id: "1.1.0-windows-x86_64-base".to_string(),
-            total_logical_size: 2000,
-            required_bundle_set: vec!["bundle-b".to_string(), "bundle-c".to_string()],
-            ..g::manifest::TargetManifest::new(
-                "prod".into(),
-                "base".into(),
-                "1.1.0-windows-x86_64-base".into(),
-                "1.1.0".into(),
-                "windows".into(),
-                "x86_64".into(),
-                "base".into(),
-                BTreeMap::new(),
-            )
-        };
+        let mut target_a = g::manifest::TargetManifest::new(
+            "prod".into(),
+            "base".into(),
+            "1.0.0-windows-x86_64-base".into(),
+            BTreeMap::new(),
+        );
+        target_a.total_logical_size = 1000;
+        let mut target_b = g::manifest::TargetManifest::new(
+            "prod".into(),
+            "base".into(),
+            "1.1.0-windows-x86_64-base".into(),
+            BTreeMap::new(),
+        );
+        target_b.total_logical_size = 2000;
 
         let target_manifest_sizes = HashMap::from([
             (target_a.target_id.clone(), 100u64),
@@ -172,9 +156,9 @@ mod tests {
         );
 
         assert_eq!(added_bytes[0].0.target_id, target_a.target_id);
-        assert_eq!(added_bytes[0].1, 3100);
+        assert_eq!(added_bytes[0].1, 100);
         assert_eq!(added_bytes[1].0.target_id, target_b.target_id);
-        assert_eq!(added_bytes[1].1, 3200);
+        assert_eq!(added_bytes[1].1, 200);
     }
 }
 
@@ -253,17 +237,16 @@ fn directory_has_any_entries(path: &std::path::Path) -> g::Result<bool> {
     Ok(std::fs::read_dir(path)?.next().is_some())
 }
 
-fn load_optional_target_schema(
-    schema_path: &Option<PathBuf>,
-) -> g::Result<Option<g::manifest::ContentRepoTargetSchema>> {
-    let Some(schema_path) = schema_path else {
+fn load_optional_rules(
+    rules_path: &Option<PathBuf>,
+) -> g::Result<Option<g::manifest::AutoTaggingRules>> {
+    let Some(rules_path) = rules_path else {
         return Ok(None);
     };
 
-    let schema_json = std::fs::read_to_string(schema_path)?;
-    let schema: g::manifest::ContentRepoTargetSchema = serde_json::from_str(&schema_json)?;
-    validate_target_schema(&schema)?;
-    Ok(Some(schema))
+    let rules_json = std::fs::read_to_string(rules_path)?;
+    let rules: g::manifest::AutoTaggingRules = serde_json::from_str(&rules_json)?;
+    Ok(Some(rules))
 }
 
 fn load_target_manifest_from_repo(
@@ -291,7 +274,7 @@ fn load_target_manifest_from_repo(
 
 fn resolve_required_bundle_paths(
     bundles_root: &std::path::Path,
-    target_manifest: &g::manifest::TargetManifest,
+    _target_manifest: &g::manifest::TargetManifest,
 ) -> g::Result<Vec<PathBuf>> {
     if bundles_root.is_file() {
         return Ok(vec![bundles_root.to_path_buf()]);
@@ -301,11 +284,6 @@ fn resolve_required_bundle_paths(
         return Ok(Vec::new());
     }
 
-    let required_bundle_ids: HashSet<&str> = target_manifest
-        .required_bundle_set
-        .iter()
-        .map(String::as_str)
-        .collect();
     let mut paths = Vec::new();
     for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
         let entry = entry?;
@@ -314,14 +292,6 @@ fn resolve_required_bundle_paths(
         }
         if !entry.path().extension().is_some_and(|e| e == "bundle") {
             continue;
-        }
-        if !required_bundle_ids.is_empty() {
-            let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            if !required_bundle_ids.contains(stem) {
-                continue;
-            }
         }
         paths.push(entry.path().to_path_buf());
     }
@@ -378,7 +348,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             let repo_paths = g::ContentRepoPaths::from_repo_root(&repo);
             let mut repo_manifest =
                 g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
-            repo_manifest.target_schema = load_optional_target_schema(&schema)?;
+            repo_manifest.auto_tagging_rules = load_optional_rules(&schema)?;
             std::fs::write(
                 &repo_paths.repo_manifest_path,
                 serde_json::to_string_pretty(&repo_manifest)?,
@@ -407,10 +377,10 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             }
 
             let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&repo)?;
-            repo_manifest.target_schema = if clear {
+            repo_manifest.auto_tagging_rules = if clear {
                 None
             } else {
-                load_optional_target_schema(&schema)?
+                load_optional_rules(&schema)?
             };
             std::fs::write(
                 &repo_paths.repo_manifest_path,
@@ -444,13 +414,20 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 ));
             }
 
-            let target_schema = effective_target_schema(spec.target_schema.clone());
-            validate_target_schema(&target_schema)?;
+            let rules = spec.auto_tagging_rules.clone().unwrap_or_default();
+            
 
             let target_inputs: Vec<g::RepoInitTargetInput> = spec
                 .targets
                 .iter()
-                .map(|target| resolve_target_input(target, &target_schema))
+                .map(|target| {
+                let context = format!("repo init target '{}'", target.dir.display());
+                let resolved = resolve_target_identity(&target.dir, &target.tags, &rules, &context)?;
+                Ok(g::RepoInitTargetInput {
+                    dir: target.dir.clone(),
+                    target_tags: resolved.target_tags,
+                })
+            })
                 .collect::<g::Result<Vec<_>>>()?;
 
             let repo_paths = g::ContentRepoPaths::from_repo_root(&repo);
@@ -466,7 +443,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             let mut repo_manifest =
                 g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
-            repo_manifest.target_schema = Some(target_schema.clone());
+            repo_manifest.auto_tagging_rules = Some(rules.clone());
             std::fs::write(
                 &repo_paths.repo_manifest_path,
                 serde_json::to_string_pretty(&repo_manifest)?,
@@ -516,8 +493,8 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     {
                         let resolved_identity = resolve_target_identity(
                             &target_input.dir,
-                            &target_input.tags,
-                            &target_schema,
+                            &target_input.target_tags,
+                            &rules,
                             "repo init target",
                         )?;
                         apply_resolved_target_identity(manifest, &resolved_identity);
@@ -576,10 +553,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                                 &target.dir,
                                 &product,
                                 &content_repo,
-                                &target.version_id,
-                                &target.platform,
-                                &target.architecture,
-                                &target.tier_id,
+                                &target.target_tags,
                                 &existing_chunk_locations,
                                 &existing_bundle_ids,
                                 &previous_file_manifests,
@@ -590,8 +564,8 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
                         let resolved_identity = resolve_target_identity(
                             &target.dir,
-                            &target.tags,
-                            &target_schema,
+                            &target.target_tags,
+                            &rules,
                             "repo init target",
                         )?;
                         let mut target_manifest = result.target_manifest.clone();
@@ -838,7 +812,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         } => {
             let prepared_input = prepare_input_path(&dir)?;
             let (repo_paths, repo_manifest) = g::load_content_repo_manifest(&repo)?;
-            let target_schema = effective_target_schema(repo_manifest.target_schema.clone());
+            let rules = repo_manifest.auto_tagging_rules.clone().unwrap_or_default();
             let mut explicit_tags = parse_cli_tags(&tags)?;
             if let Some(version) = version {
                 explicit_tags.insert("version".to_string(), version);
@@ -854,7 +828,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             }
             let context = format!("target insert input '{}'", dir.display());
             let resolved_identity =
-                resolve_target_identity(&dir, &explicit_tags, &target_schema, &context)?;
+                resolve_target_identity(&dir, &explicit_tags, &rules, &context)?;
             let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
             let product = repo_manifest.product_id;
             let content_repo = repo_manifest.content_repo_id;
@@ -930,10 +904,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 &prepared_input.dir,
                 &product,
                 &content_repo,
-                &resolved_identity.version_id,
-                &resolved_identity.platform,
-                &resolved_identity.architecture,
-                &resolved_identity.tier_id,
+                &resolved_identity.target_tags,
                 &existing_chunk_locations,
                 &existing_bundle_ids,
                 &previous_file_manifests,
@@ -975,8 +946,8 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             print_build_timings(&timings);
 
-            let required_chunk_count = result.target_manifest.required_chunk_set.len();
-            let required_bundle_count = result.target_manifest.required_bundle_set.len();
+            let required_chunk_count = result.target_manifest.files.iter().flat_map(|f| &f.chunks).map(|c| &c.chunk_hash).collect::<std::collections::HashSet<_>>().len();
+            let required_bundle_count = result.target_manifest.files.iter().flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str())).collect::<std::collections::HashSet<_>>().len();
             let generated_bundle_count = result.bundles.len();
             let generated_bundle_bytes: u64 = result
                 .bundles
@@ -985,7 +956,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 .sum();
             let reused_chunk_count = result
                 .target_manifest
-                .required_chunk_set
+                .files
+                .iter()
+                .flat_map(|f| &f.chunks)
+                .map(|c| &c.chunk_hash)
+                .collect::<std::collections::HashSet<_>>()
                 .iter()
                 .filter(|chunk_id| existing_chunk_ids.contains(chunk_id.as_str()))
                 .count();
@@ -1003,10 +978,10 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 manifest_path: manifest_path.display().to_string(),
                 product_id: product,
                 content_repo_id: content_repo,
-                version_id: resolved_identity.version_id,
-                platform: resolved_identity.platform,
-                architecture: resolved_identity.architecture,
-                tier_id: resolved_identity.tier_id,
+                version_id: resolved_identity.target_tags.get("version").cloned().unwrap_or_default(),
+                platform: resolved_identity.target_tags.get("platform").cloned().unwrap_or_default(),
+                architecture: resolved_identity.target_tags.get("arch").cloned().unwrap_or_default(),
+                tier_id: resolved_identity.target_tags.get("tier").cloned().unwrap_or_default(),
                 file_count: result.target_manifest.files.len(),
                 total_logical_size: result.target_manifest.total_logical_size,
                 total_compressed_size_estimate: result
@@ -1092,8 +1067,8 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 target_id: tm.target_id.clone(),
                 output_dir: output.display().to_string(),
                 file_count: tm.files.len(),
-                required_chunk_count: tm.required_chunk_set.len(),
-                required_bundle_count: tm.required_bundle_set.len(),
+                required_chunk_count: tm.files.iter().flat_map(|f| &f.chunks).map(|c| &c.chunk_hash).collect::<std::collections::HashSet<_>>().len(),
+                required_bundle_count: tm.files.iter().flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str())).collect::<std::collections::HashSet<_>>().len(),
                 resolved_bundle_file_count: bundle_paths.len(),
                 total_logical_size: tm.total_logical_size,
                 total_compressed_size_estimate: tm.total_compressed_size_estimate,
@@ -1495,7 +1470,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             // Resolve bundle IDs from target manifest
             let mut bundles = Vec::new();
-            for bundle_id in &tm.required_bundle_set {
+            for bundle_id in &tm.files.iter().flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str())).collect::<std::collections::HashSet<_>>() {
                 let bundle_path = bundles_root.join(format!("{}.bundle", bundle_id));
                 let bundle_data = std::fs::read(&bundle_path)?;
                 bundles.push((bundle_id.clone(), bundle_data));
@@ -1616,15 +1591,19 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 },
         } => {
             let prepared_input = prepare_input_path(&dir)?;
-            let result = g::build_from_directory(
-                &prepared_input.dir,
-                &product,
-                "base",
-                &version,
-                "windows",
-                "x86_64",
-                "base",
-            )?;
+            let result = {
+                let mut build_tags = std::collections::BTreeMap::new();
+                build_tags.insert("version".to_string(), version.clone());
+                build_tags.insert("platform".to_string(), "windows".to_string());
+                build_tags.insert("arch".to_string(), "x86_64".to_string());
+                build_tags.insert("tier".to_string(), "base".to_string());
+                g::build_from_directory(
+                    &prepared_input.dir,
+                    &product,
+                    "base",
+                    &build_tags,
+                )?
+            };
 
             let est = g::estimate_build(
                 &result.target_manifest,
@@ -1654,3 +1633,23 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
     Ok(())
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -99,7 +99,6 @@ pub(crate) fn scan_directory_into_file_entries(
                 chunk_refs.push(ChunkRef {
                     chunk_hash: ch.clone(),
                     raw_size: cr.len as u64,
-                    file_offset: cr.offset,
                 });
                 if !existing_chunk_locations.contains_key(&ch) {
                     let start = cr.offset as usize;

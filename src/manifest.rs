@@ -11,7 +11,7 @@ pub const COMPRESSION_UNIT_CHUNK: &str = "chunk";
 pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
 pub const BUNDLE_FORMAT: &str = "gutch-bundle-v1";
 pub const CONTENT_REPO_FORMAT: &str = "gutch-content-repo-v1";
-pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo.json";
+pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -223,10 +223,6 @@ pub struct TargetManifest {
     pub product_id: String,
     pub content_repo_id: String,
     pub target_id: String,
-    pub version_id: String,
-    pub platform: String,
-    pub architecture: String,
-    pub tier_id: String,
     #[serde(default)]
     pub target_tags: BTreeMap<String, String>,
     pub created_at: String,
@@ -237,8 +233,6 @@ pub struct TargetManifest {
     pub bundle_sizing_profile: BundleSizingProfile,
     pub bundle_format_version: String,
     pub files: Vec<FileManifest>,
-    pub required_chunk_set: Vec<String>,
-    pub required_bundle_set: Vec<String>,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,
     pub signature_metadata: Option<SignatureMetadata>,
@@ -266,7 +260,6 @@ pub struct FileManifest {
 pub struct ChunkRef {
     pub chunk_hash: String,
     pub raw_size: u64,
-    pub file_offset: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -319,28 +312,114 @@ pub struct ContentRepoManifest {
     pub targets_dir: String,
     pub bundles_dir: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_schema: Option<ContentRepoTargetSchema>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContentRepoTargetSchema {
-    #[serde(default)]
-    pub target_tags: Vec<ContentRepoTargetTagDefinition>,
-    #[serde(default)]
-    pub target_id_order: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContentRepoTargetTagDefinition {
-    pub name: String,
-    #[serde(default)]
-    pub required: bool,
-    #[serde(default)]
-    pub values: Vec<String>,
-    #[serde(default)]
-    pub aliases: BTreeMap<String, String>,
+    pub auto_tagging_rules: Option<AutoTaggingRules>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_value: Option<String>,
+    pub plugin: Option<PluginInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IncompleteInferenceBehavior {
+    Warn,
+    Error,
+}
+
+impl Default for IncompleteInferenceBehavior {
+    fn default() -> Self {
+        Self::Error
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AutoTaggingRules {
+    #[serde(default)]
+    pub aliases: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default)]
+    pub on_incomplete: IncompleteInferenceBehavior,
+}
+
+impl Default for AutoTaggingRules {
+    fn default() -> Self {
+        Self {
+            aliases: BTreeMap::from([
+                (
+                    "platform".to_string(),
+                    BTreeMap::from([
+                        ("win".to_string(), "windows".to_string()),
+                        ("win32".to_string(), "windows".to_string()),
+                        ("win64".to_string(), "windows".to_string()),
+                        ("mac".to_string(), "macos".to_string()),
+                        ("osx".to_string(), "macos".to_string()),
+                        ("darwin".to_string(), "macos".to_string()),
+                    ]),
+                ),
+                (
+                    "arch".to_string(),
+                    BTreeMap::from([
+                        ("x64".to_string(), "x86_64".to_string()),
+                        ("amd64".to_string(), "x86_64".to_string()),
+                        ("win64".to_string(), "x86_64".to_string()),
+                        ("x86".to_string(), "x86_32".to_string()),
+                        ("win32".to_string(), "x86_32".to_string()),
+                    ]),
+                ),
+            ]),
+            on_incomplete: IncompleteInferenceBehavior::Error,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkIndex {
+    pub format_version: u32,
+    pub updated_at: String,
+    pub entries: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginType {
+    Mod,
+    Dlc,
+    LangPack,
+    Plugin,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TagConstraint {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<String>,
+    #[serde(default)]
+    pub match_exact: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PluginDependency {
+    pub product_id: String,
+    pub content_repo_id: String,
+    #[serde(default)]
+    pub tag_constraints: BTreeMap<String, TagConstraint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PluginOverride {
+    pub product_id: String,
+    pub content_repo_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PluginInfo {
+    pub plugin_type: PluginType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub dependencies: Vec<PluginDependency>,
+    #[serde(default)]
+    pub overrides: Vec<PluginOverride>,
+    #[serde(default)]
+    pub incompatible_with: Vec<PluginOverride>,
 }
 
 impl ContentRepoManifest {
@@ -353,7 +432,8 @@ impl ContentRepoManifest {
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             targets_dir: "targets".to_string(),
             bundles_dir: "bundles".to_string(),
-            target_schema: None,
+            auto_tagging_rules: None,
+            plugin: None,
         }
     }
 }
@@ -363,10 +443,6 @@ impl TargetManifest {
         product_id: String,
         content_repo_id: String,
         target_id: String,
-        version_id: String,
-        platform: String,
-        architecture: String,
-        tier_id: String,
         target_tags: BTreeMap<String, String>,
     ) -> Self {
         TargetManifest {
@@ -374,10 +450,6 @@ impl TargetManifest {
             product_id,
             content_repo_id,
             target_id,
-            version_id,
-            platform,
-            architecture,
-            tier_id,
             target_tags,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             chunk_sizing_profile: ChunkSizingProfile::default(),
@@ -385,8 +457,6 @@ impl TargetManifest {
             bundle_sizing_profile: BundleSizingProfile::default(),
             bundle_format_version: BUNDLE_FORMAT.to_string(),
             files: Vec::new(),
-            required_chunk_set: Vec::new(),
-            required_bundle_set: Vec::new(),
             total_logical_size: 0,
             total_compressed_size_estimate: 0,
             signature_metadata: None,
@@ -431,24 +501,21 @@ mod tests {
 
     #[test]
     fn test_target_manifest_new() {
+        let tags = BTreeMap::from([
+            ("version".to_string(), "1.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
         let m = TargetManifest::new(
             "prod-1".into(),
             "base".into(),
-            "1.0.0-windows-x86_64-base".into(),
-            "1.0.0".into(),
-            "windows".into(),
-            "x86_64".into(),
-            "base".into(),
-            BTreeMap::from([
-                ("version".to_string(), "1.0.0".to_string()),
-                ("platform".to_string(), "windows".to_string()),
-                ("arch".to_string(), "x86_64".to_string()),
-                ("tier".to_string(), "base".to_string()),
-            ]),
+            "abc123def".into(),
+            tags.clone(),
         );
         assert_eq!(m.product_id, "prod-1");
         assert_eq!(m.content_repo_id, "base");
-        assert_eq!(m.target_id, "1.0.0-windows-x86_64-base");
+        assert_eq!(m.target_id, "abc123def");
         assert_eq!(
             m.target_tags.get("platform").map(String::as_str),
             Some("windows")
@@ -460,27 +527,23 @@ mod tests {
 
     #[test]
     fn test_manifest_serialization_roundtrip() {
+        let tags = BTreeMap::from([
+            ("version".to_string(), "1.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
         let m = TargetManifest::new(
             "prod-1".into(),
             "base".into(),
-            "1.0.0-windows-x86_64-base".into(),
-            "1.0.0".into(),
-            "windows".into(),
-            "x86_64".into(),
-            "base".into(),
-            BTreeMap::from([
-                ("version".to_string(), "1.0.0".to_string()),
-                ("platform".to_string(), "windows".to_string()),
-                ("arch".to_string(), "x86_64".to_string()),
-                ("tier".to_string(), "base".to_string()),
-            ]),
+            "abc123def".into(),
+            tags.clone(),
         );
         let json = serde_json::to_string_pretty(&m).unwrap();
         let m2: TargetManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(m.product_id, m2.product_id);
         assert_eq!(m.content_repo_id, m2.content_repo_id);
         assert_eq!(m.target_id, m2.target_id);
-        assert_eq!(m.version_id, m2.version_id);
         assert_eq!(m.target_tags, m2.target_tags);
     }
 
@@ -497,12 +560,10 @@ mod tests {
                 ChunkRef {
                     chunk_hash: "def456".to_string(),
                     raw_size: 8192,
-                    file_offset: 0,
                 },
                 ChunkRef {
                     chunk_hash: "ghi789".to_string(),
                     raw_size: 4153,
-                    file_offset: 8192,
                 },
             ],
         };

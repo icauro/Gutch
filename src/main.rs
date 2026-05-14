@@ -1,5 +1,4 @@
 mod cli_commands;
-mod cli_identity;
 mod cli_path_compare;
 mod cli_reporting;
 
@@ -21,7 +20,7 @@ struct Cli {
 struct RepoInitSpec {
     targets: Vec<RepoInitTargetSpec>,
     #[serde(default)]
-    target_schema: Option<g::manifest::ContentRepoTargetSchema>,
+    auto_tagging_rules: Option<g::manifest::AutoTaggingRules>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -374,3 +373,5 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+

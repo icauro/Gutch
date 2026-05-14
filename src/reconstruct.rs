@@ -191,19 +191,21 @@ fn read_reusable_source_chunks(
         let file_path = source.install_dir.join(&fm.path);
         let file_data = std::fs::read(&file_path)?;
 
+        let mut current_offset = 0usize;
         for chunk_ref in &fm.chunks {
             if !needed_chunks.contains(&chunk_ref.chunk_hash)
                 || chunk_map.contains_key(&chunk_ref.chunk_hash)
             {
+                current_offset += chunk_ref.raw_size as usize;
                 continue;
             }
 
-            let start = chunk_ref.file_offset as usize;
+            let start = current_offset;
             let end = start.saturating_add(chunk_ref.raw_size as usize);
             if end > file_data.len() {
                 return Err(Error::Reconstruct(format!(
                     "source chunk out of bounds in {} at offset {}",
-                    fm.path, chunk_ref.file_offset
+                    fm.path, current_offset
                 )));
             }
 
@@ -217,6 +219,7 @@ fn read_reusable_source_chunks(
             }
 
             chunk_map.insert(chunk_ref.chunk_hash.clone(), chunk_data);
+            current_offset += chunk_ref.raw_size as usize;
         }
     }
 
@@ -266,17 +269,6 @@ fn reconstruct_files_from_locations_and_chunks(
                 chunk_data
             };
 
-            let target_offset = chunk_ref.file_offset;
-            if target_offset > written {
-                let gap = vec![0u8; (target_offset - written) as usize];
-                let t = Instant::now();
-                output.write_all(&gap)?;
-                timings.file_write += t.elapsed();
-                timings.file_write_bytes += gap.len() as u64;
-                hasher.update(&gap);
-                written += gap.len() as u64;
-            }
-
             let t = Instant::now();
             output.write_all(&chunk_data)?;
             timings.file_write += t.elapsed();
@@ -322,11 +314,6 @@ fn rebuild_files_from_chunks(
             let chunk_data = chunk_map
                 .get(&chunk_ref.chunk_hash)
                 .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
-
-            let target_offset = chunk_ref.file_offset as usize;
-            if target_offset > file_data.len() {
-                file_data.resize(target_offset, 0);
-            }
 
             file_data.extend_from_slice(chunk_data);
         }

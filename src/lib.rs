@@ -3,11 +3,13 @@ pub mod build_scan;
 pub mod build_types;
 pub mod bundle;
 pub mod chunk;
+pub mod cli_identity;
 pub mod compress;
 pub mod error;
 pub mod hash;
 pub mod install;
 pub mod manifest;
+pub mod plugin;
 pub mod reconstruct;
 pub mod repo;
 #[cfg(test)]
@@ -27,6 +29,8 @@ pub use build_types::{
     BuildResult, BuildTimings, BuiltBundle, ExistingChunkLocation, RepoInitResult,
     RepoInitTargetInput,
 };
+pub use cli_identity::{ResolvedTargetIdentity, compute_target_id, parse_cli_tags, resolve_target_identity, resolve_target_identity_from_rules};
+pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use error::{Error, Result};
 pub use install::{
     GutchBundleDownload, TargetInstallApplyResult, TargetInstallApplySource,
@@ -41,9 +45,8 @@ pub use reconstruct::{
 };
 pub use repo::{
     ContentRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
-    canonical_target_tags, compute_target_id, discover_source_target_installs,
-    ensure_content_repo_layout, inspect_content_repo, load_content_repo_manifest,
-    target_manifest_path,
+    discover_source_target_installs, ensure_content_repo_layout, inspect_content_repo,
+    load_chunk_index, load_content_repo_manifest, target_manifest_path, write_chunk_index,
 };
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyTimings, classify_directory,
@@ -53,6 +56,7 @@ pub use verify::{
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use super::*;
     use crate::manifest::{FileManifest, TargetManifest};
     use crate::test_util;
@@ -80,19 +84,15 @@ mod tests {
         .unwrap();
         std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
 
-        let result = build_from_directory(
-            &dir,
-            "test-product",
-            "base",
-            "1.0.0",
-            "windows",
-            "x86_64",
-            "base",
-        )
-        .unwrap();
+        let tags = BTreeMap::from([
+            ("version".to_string(), "1.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
+        let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
 
         assert!(!result.target_manifest.files.is_empty());
-        assert!(!result.target_manifest.required_chunk_set.is_empty());
 
         let out_dir = std::env::temp_dir().join("gutch_test_output");
         let _ = std::fs::remove_dir_all(&out_dir);
@@ -130,26 +130,20 @@ mod tests {
         std::fs::write(v2_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
         std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
-        let v1 = build_from_directory(
-            &v1_dir,
-            "test-product",
-            "base",
-            "1.0.0",
-            "windows",
-            "x86_64",
-            "base",
-        )
-        .unwrap();
-        let v2 = build_from_directory(
-            &v2_dir,
-            "test-product",
-            "base",
-            "2.0.0",
-            "windows",
-            "x86_64",
-            "base",
-        )
-        .unwrap();
+        let tags = BTreeMap::from([
+            ("version".to_string(), "1.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
+        let v1 = build_from_directory(&v1_dir, "test-product", "base", &tags).unwrap();
+        let tags_v2 = BTreeMap::from([
+            ("version".to_string(), "2.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
+        let v2 = build_from_directory(&v2_dir, "test-product", "base", &tags_v2).unwrap();
 
         let v1_bundle_data: Vec<Vec<u8>> = v1
             .bundles
@@ -221,19 +215,21 @@ mod tests {
         let inputs = vec![
             RepoInitTargetInput {
                 dir: dir_a.clone(),
-                version_id: "1.0.0".to_string(),
-                platform: "windows".to_string(),
-                architecture: "x86_64".to_string(),
-                tier_id: "base".to_string(),
-                tags: canonical_target_tags("1.0.0", "windows", "x86_64", "base"),
+                target_tags: BTreeMap::from([
+                    ("version".to_string(), "1.0.0".to_string()),
+                    ("platform".to_string(), "windows".to_string()),
+                    ("arch".to_string(), "x86_64".to_string()),
+                    ("tier".to_string(), "base".to_string()),
+                ]),
             },
             RepoInitTargetInput {
                 dir: dir_b.clone(),
-                version_id: "1.0.0".to_string(),
-                platform: "windows".to_string(),
-                architecture: "x86_64".to_string(),
-                tier_id: "tr".to_string(),
-                tags: canonical_target_tags("1.0.0", "windows", "x86_64", "tr"),
+                target_tags: BTreeMap::from([
+                    ("version".to_string(), "1.0.0".to_string()),
+                    ("platform".to_string(), "windows".to_string()),
+                    ("arch".to_string(), "x86_64".to_string()),
+                    ("tier".to_string(), "tr".to_string()),
+                ]),
             },
         ];
 
@@ -250,12 +246,6 @@ mod tests {
         assert_eq!(result.target_manifests.len(), 2);
         assert!(!result.bundles.is_empty());
         assert_eq!(result.target_manifests[0].content_repo_id, "base");
-        assert!(
-            result
-                .target_manifests
-                .iter()
-                .all(|manifest| !manifest.required_bundle_set.is_empty())
-        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -273,7 +263,7 @@ mod tests {
                 .join("repos")
                 .join("base")
         );
-        assert_eq!(paths.repo_manifest_path, paths.repo_root.join("repo.json"));
+        assert_eq!(paths.repo_manifest_path, paths.repo_root.join("repo_manifest.json"));
         assert_eq!(paths.targets_root, paths.repo_root.join("targets"));
         assert_eq!(paths.bundles_root, paths.repo_root.join("bundles"));
     }
@@ -310,17 +300,13 @@ mod tests {
             chunks: vec![],
         };
 
-        let vm = TargetManifest::new(
-            "p".into(),
-            "base".into(),
-            compute_target_id("v", "win", "x64", "base"),
-            "v".into(),
-            "win".into(),
-            "x64".into(),
-            "base".into(),
-            canonical_target_tags("v", "win", "x64", "base"),
-        );
-        let mut vm = vm;
+        let tags = BTreeMap::from([
+            ("version".to_string(), "v".to_string()),
+            ("platform".to_string(), "win".to_string()),
+            ("arch".to_string(), "x64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
+        let mut vm = TargetManifest::new("p".into(), "base".into(), compute_target_id(&tags), tags);
         vm.files.push(fm);
         let errors = verify_directory(&vm, &dir).unwrap();
         assert!(!errors.is_empty());
@@ -338,16 +324,13 @@ mod tests {
         std::fs::write(dir.join("expected.txt"), b"hello world").unwrap();
         std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
-        let result = build_from_directory(
-            &dir,
-            "test-product",
-            "base",
-            "1.0.0",
-            "windows",
-            "x86_64",
-            "base",
-        )
-        .unwrap();
+        let tags = BTreeMap::from([
+            ("version".to_string(), "1.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
+        let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
 
         let mut manifest = result.target_manifest.clone();
         manifest.files.retain(|file| file.path == "expected.txt");
@@ -372,16 +355,13 @@ mod tests {
         std::fs::write(dir.join("healthy.txt"), b"healthy file").unwrap();
         std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
-        let result = build_from_directory(
-            &dir,
-            "test-product",
-            "base",
-            "1.0.0",
-            "windows",
-            "x86_64",
-            "base",
-        )
-        .unwrap();
+        let tags = BTreeMap::from([
+            ("version".to_string(), "1.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
+        let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
 
         std::fs::remove_file(dir.join("healthy.txt")).unwrap();
         std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
@@ -465,17 +445,14 @@ mod tests {
             total_original / (1024 * 1024)
         );
 
+        let tags = BTreeMap::from([
+            ("version".to_string(), "1.0.0".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("arch".to_string(), "x86_64".to_string()),
+            ("tier".to_string(), "base".to_string()),
+        ]);
         let t1 = Instant::now();
-        let result = build_from_directory(
-            &root,
-            "mock-game",
-            "base",
-            "1.0.0",
-            "windows",
-            "x86_64",
-            "base",
-        )
-        .unwrap();
+        let result = build_from_directory(&root, "mock-game", "base", &tags).unwrap();
         let build_ms = t1.elapsed().as_millis();
 
         let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
@@ -535,7 +512,7 @@ mod tests {
         );
         println!(
             "  unique chunks:   {}",
-            result.target_manifest.required_chunk_set.len()
+            result.target_manifest.files.iter().flat_map(|f| f.chunks.iter()).count()
         );
         println!("  bundles:         {}", result.bundles.len());
         println!();

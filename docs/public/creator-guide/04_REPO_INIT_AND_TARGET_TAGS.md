@@ -18,7 +18,7 @@ In general:
 
 `version` is always required.
 
-All other target tags are repo-defined through `target_schema` in `repo.json`.
+All other target tags are repo-defined through `auto_tagging_rules` in `repo_manifest.json`.
 
 Gutch normalizes built-in tags into canonical manifest values.
 
@@ -57,26 +57,18 @@ Keep tag usage predictable. If the same concept is represented by different tag 
 
 If a built-in tag is omitted, Gutch may infer `version`, `platform`, and `arch` from the input build folder or file name when it recognizes a supported pattern such as `my-game-v1.0.0-win-x64`.
 
-Example schema:
+Example auto-tagging rules:
 
 ```json
 {
-  "target_schema": {
-    "target_tags": [
-      {
-        "name": "loader",
-        "required": true,
-        "values": ["fabric", "forge", "neoforge"]
-      },
-      {
-        "name": "mc",
-        "required": false,
-        "values": ["1.20.1", "1.21"]
+  "auto_tagging_rules": {
+    "aliases": {
+      "platform": {
+        "win": "windows",
+        "osx": "macos"
       }
-    ],
-    "target_id_order": ["version", "loader", "mc"]
+    },
+    "on_incomplete": "warn"
   }
 }
 ```
-
-That repo would require `version` and `loader`, optionally allow `mc`, and generate target IDs like `15.4.10-neoforge-1.21`.

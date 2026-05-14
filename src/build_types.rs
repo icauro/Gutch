@@ -7,11 +7,7 @@ use crate::manifest::TargetManifest;
 #[derive(Debug, Clone)]
 pub struct RepoInitTargetInput {
     pub dir: PathBuf,
-    pub version_id: String,
-    pub platform: String,
-    pub architecture: String,
-    pub tier_id: String,
-    pub tags: BTreeMap<String, String>,
+    pub target_tags: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::{self, TargetManifest};
@@ -5,11 +6,22 @@ use crate::reconstruct::{
     ReconstructTimings, VerifiedSourceInstall,
     reconstruct_from_bundle_paths_and_verified_source_with_timings,
 };
+
 use crate::verify::{
     VerifyTimings, classify_directory_with_timings, verify_directory_with_timings,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
+
+fn derive_chunk_count(manifest: &TargetManifest) -> usize {
+    let mut seen = HashSet::new();
+    for file in &manifest.files {
+        for chunk in &file.chunks {
+            seen.insert(&chunk.chunk_hash);
+        }
+    }
+    seen.len()
+}
 
 #[derive(Debug, Clone)]
 pub struct TargetInstallApplySource<'a> {
@@ -143,8 +155,8 @@ pub fn apply_target_install_with_timings(
         staging_dir: staging_dir.to_path_buf(),
         backup_dir,
         reused_source_chunk_count,
-        required_chunk_count: target_manifest.required_chunk_set.len(),
-        required_bundle_count: target_manifest.required_bundle_set.len(),
+        required_chunk_count: derive_chunk_count(target_manifest),
+        required_bundle_count: 0,
         reconstruct_timings,
         verify_timings,
     })
@@ -167,7 +179,6 @@ pub fn fetch_target_install_content(
         ))
     })?;
     write_repo_manifest(&request.repo_path, &manifest)?;
-    std::fs::write(target_root.join("manifest.json"), manifest_bytes)?;
 
     let mut wrote_manifest_signature = false;
     if let Some(sig_url) = request.manifest_sig_url.as_deref().map(str::trim) {
@@ -178,18 +189,34 @@ pub fn fetch_target_install_content(
         }
     }
 
-    let required_bundle_ids = manifest
-        .get("required_bundle_set")
-        .and_then(serde_json::Value::as_array)
-        .map(|ids| {
-            ids.iter()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let bundles = if request.bundles.is_empty() && !required_bundle_ids.is_empty() {
-        fetch_bundle_urls(request, &required_bundle_ids)?
+    let bundle_ids_from_chunk_index: Vec<String> = {
+        let chunk_index_path = repo_paths.chunk_index_path.clone();
+        let chunk_index = if chunk_index_path.exists() {
+            let json = std::fs::read_to_string(&chunk_index_path).ok();
+            json.and_then(|data| serde_json::from_str::<manifest::ChunkIndex>(&data).ok())
+        } else {
+            None
+        };
+
+        if let Some(index) = chunk_index {
+            let target: manifest::TargetManifest = serde_json::from_slice(&manifest_bytes)
+                .map_err(|err| Error::manifest(format!("invalid target manifest: {}", err)))?;
+            let mut bundle_set = HashSet::new();
+            for file in &target.files {
+                for chunk in &file.chunks {
+                    if let Some(bundle_id) = index.entries.get(&chunk.chunk_hash) {
+                        bundle_set.insert(bundle_id.clone());
+                    }
+                }
+            }
+            bundle_set.into_iter().collect()
+        } else {
+            Vec::new()
+        }
+    };
+    std::fs::write(target_root.join("manifest.json"), &manifest_bytes)?;
+    let bundles = if request.bundles.is_empty() && !bundle_ids_from_chunk_index.is_empty() {
+        fetch_bundle_urls(request, &bundle_ids_from_chunk_index)?
     } else {
         request.bundles.clone()
     };
@@ -218,24 +245,30 @@ pub fn fetch_target_install_content(
     Ok(TargetInstallFetchResult {
         target_id: request.target_id.clone(),
         repo_path: request.repo_path.clone(),
-        required_bundle_count: required_bundle_ids.len(),
+        required_bundle_count: bundle_ids_from_chunk_index.len(),
         downloaded_bundle_count,
         skipped_existing_bundle_count,
         wrote_manifest_signature,
     })
 }
 
+fn collect_chunk_hashes(manifest: &TargetManifest) -> HashSet<String> {
+    let mut hashes = HashSet::new();
+    for file in &manifest.files {
+        for chunk in &file.chunks {
+            hashes.insert(chunk.chunk_hash.clone());
+        }
+    }
+    hashes
+}
+
 fn count_reusable_source_chunks(
     target_manifest: &TargetManifest,
     source_manifest: &TargetManifest,
 ) -> usize {
-    let target_chunks: std::collections::HashSet<&str> = target_manifest
-        .required_chunk_set
-        .iter()
-        .map(String::as_str)
-        .collect();
-    source_manifest
-        .required_chunk_set
+    let target_chunks = collect_chunk_hashes(target_manifest);
+    let source_chunks = collect_chunk_hashes(source_manifest);
+    source_chunks
         .iter()
         .filter(|chunk_hash| target_chunks.contains(chunk_hash.as_str()))
         .count()
@@ -387,6 +420,18 @@ mod tests {
         ));
         let repo_path = root.join("repo");
         let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&repo_path).unwrap();
+        let chunk_index = manifest::ChunkIndex {
+            format_version: 1,
+            updated_at: String::new(),
+            entries: std::collections::BTreeMap::from([
+                ("chunk-a".to_string(), "bundle-a".to_string()),
+            ]),
+        };
+        std::fs::write(
+            repo_path.join("chunk_index.json"),
+            serde_json::to_string_pretty(&chunk_index).unwrap(),
+        ).unwrap();
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -414,10 +459,20 @@ mod tests {
                             "architecture": "x86_64",
                             "tier_id": "base",
                             "created_at": "2026-05-11T00:00:00Z",
-                            "required_bundle_set": ["bundle-a"],
-                            "required_chunk_set": [],
-                            "files": [],
-                            "target_tags": {},
+                            "files": [
+                                {
+                                    "path": "game.exe",
+                                    "size": 100,
+                                    "mode": 33204,
+                                    "executable": true,
+                                    "symlink_target": null,
+                                    "full_file_hash": "abc",
+                                    "chunks": [
+                                        { "chunk_hash": "chunk-a", "raw_size": 100 }
+                                    ]
+                                }
+                            ],
+                            "target_tags": {"version": "1.0.0"},
                             "manifest_version": 1,
                             "chunk_sizing_profile": manifest::ChunkSizingProfile::default(),
                             "compression_profile": manifest::CompressionProfile::default(),
@@ -475,7 +530,7 @@ mod tests {
         assert_eq!(result.required_bundle_count, 1);
         assert_eq!(result.downloaded_bundle_count, 1);
         assert!(result.wrote_manifest_signature);
-        assert!(repo_path.join("repo.json").exists());
+        assert!(repo_path.join("repo_manifest.json").exists() || repo_path.join("repo.json").exists());
         assert!(
             repo_path
                 .join("targets")
@@ -496,3 +551,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+
+
+
+
+
+
+

@@ -26,6 +26,9 @@ Keep command-line usage, examples, and spec-file formats here instead of scatter
 - `gutch target_install verify`
 - `gutch bundle inspect`
 - `gutch path compare`
+- `gutch plugin add`
+- `gutch plugin remove`
+- `gutch plugin resolve`
 
 ## Target Identity Normalization
 
@@ -33,7 +36,7 @@ Gutch normalizes target identity values before writing a manifest.
 
 `version` is always required.
 
-Other target tags can be repo-defined through `target_schema` in the repo manifest.
+Other target tags can be repo-defined through `auto_tagging_rules` in the repo manifest.
 
 - versions like `v1.0.0` normalize to `1.0.0`
 - platform and OS aliases normalize into the canonical `platform` field
@@ -72,7 +75,7 @@ Normalizes to:
 
 ## 1. Repo Create
 
-`repo create` creates an empty local content repo with `repo.json`, `targets/`, and `bundles/`.
+`repo create` creates an empty local content repo with `repo_manifest.json`, `targets/`, and `bundles/`.
 
 `--product` is optional for local-only repos. A repo created without a product binding can still be managed locally, but remote publish or sync flows must bind to a backend product before content can be sent upstream.
 
@@ -93,13 +96,13 @@ gutch repo create \
   --repo ./.content_repo
 ```
 
-Optional schema file:
+Optional auto-tagging rules file:
 
 ```text
 gutch repo create \
   --product my-game \
   --content-repo base \
-  --schema ./target-schema.json \
+  --auto-tagging-rules ./auto-tagging-rules.json \
   --repo ./.content_repo
 ```
 
@@ -142,17 +145,17 @@ gutch repo inspect \
 
 ## 4. Repo Schema Set
 
-`repo schema-set` replaces or clears the repo-defined target schema in `repo.json`.
+`repo schema-set` replaces or clears the repo `auto_tagging_rules` in `repo_manifest.json`.
 
 ### Example
 
 ```text
 gutch repo schema-set \
   --repo ./.content_repo \
-  --schema ./target-schema.json
+  --rules ./auto-tagging-rules.json
 ```
 
-Clear the custom schema and fall back to default identity behavior:
+Clear custom rules and fall back to default identity behavior:
 
 ```text
 gutch repo schema-set \
@@ -230,26 +233,20 @@ Example:
 
 Explicit spec tags win over folder-name inference.
 
-`repo init` also accepts an optional `target_schema` in the spec file.
+`repo init` also accepts an optional `auto_tagging_rules` in the spec file.
 
 Example:
 
 ```json
 {
-  "target_schema": {
-    "target_tags": [
-      {
-        "name": "loader",
-        "required": true,
-        "values": ["fabric", "forge", "neoforge"]
-      },
-      {
-        "name": "mc",
-        "required": false,
-        "values": ["1.20.1", "1.21"]
+  "auto_tagging_rules": {
+    "aliases": {
+      "platform": {
+        "win": "windows",
+        "osx": "macos"
       }
-    ],
-    "target_id_order": ["version", "loader", "mc"]
+    },
+    "on_incomplete": "warn"
   },
   "targets": [
     {
@@ -268,7 +265,7 @@ Example:
 
 ```text
 {repo}/
-  repo.json
+  repo_manifest.json
   targets/{target_id}/manifest.json
   bundles/{bundle_id}.bundle
 ```
@@ -285,7 +282,7 @@ After writing the repo, `repo init` also prints a storage summary that includes:
 
 `target insert` creates one target from one source directory and inserts it into an existing content repo.
 
-It reads product and repo identity from the repo root's `repo.json`.
+It reads product and repo identity from the repo root's `repo_manifest.json`.
 The source directory defaults to the current working directory.
 For custom repo-defined target categories, use repeated `--tag name=value` arguments.
 Optional reporting outputs are available:
@@ -461,9 +458,38 @@ gutch path compare \
   --stats-json-out ./.artifacts/path-compare.stats.json
 ```
 
+## 14. Plugin
+
+`plugin` manages plugin metadata within a content repo.
+
+Subcommands:
+
+- `plugin add` — attach `PluginInfo` to an existing target manifest
+- `plugin remove` — remove plugin metadata from a target
+- `plugin resolve` — resolve plugin dependencies for a target, using the dependency resolver in `plugin.rs`
+
+Dependency resolution is handled by the engine's dependency resolver. It evaluates `dependencies`, `overrides`, and `incompatible_with` declarations to produce a valid install set or report conflicts.
+
+### Example
+
+```text
+gutch plugin add \
+  --repo ./.content_repo \
+  --target 1.0.0-windows-x86_64-base \
+  --type Mod \
+  --dep my-lib-v1 \
+  --incompatible my-old-mod
+```
+
+```text
+gutch plugin resolve \
+  --repo ./.content_repo \
+  --target 1.0.0-windows-x86_64-base
+```
+
 ## Content Repo Manifest
 
-Every content repo root contains `repo.json`.
+Every content repo root contains `repo_manifest.json`.
 
 It identifies:
 
@@ -471,6 +497,7 @@ It identifies:
 - product id
 - content repo id
 - created timestamp
+- `auto_tagging_rules` (aliases and incomplete-tag policy)
 - canonical `targets/` and `bundles/` subdirectories
 
 ## Notes

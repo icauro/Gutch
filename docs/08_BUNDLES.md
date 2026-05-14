@@ -189,7 +189,7 @@ bundle_target_size = choose_target_size(total_new_compressed_bytes)
 
 for each unique chunk:
   if chunk already exists in content repo bundle store:
-    add existing bundle to target required_bundle_set
+    add existing bundle to the target's chunk index entry
     continue
 
   compressed = compress(chunk)

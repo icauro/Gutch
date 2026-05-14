@@ -212,9 +212,9 @@ fn directory_size_bytes(root_path: &std::path::Path) -> g::Result<u64> {
 pub fn collect_repo_init_target_added_bytes<'a>(
     ordered_target_manifests: &[&'a g::manifest::TargetManifest],
     target_manifest_sizes: &HashMap<String, u64>,
-    bundle_sizes: &HashMap<String, u64>,
+    _bundle_sizes: &HashMap<String, u64>,
 ) -> Vec<(&'a g::manifest::TargetManifest, u64)> {
-    let mut seen_bundle_ids = HashSet::new();
+    let mut _seen_bundle_ids: HashSet<String> = HashSet::new();
     let mut added_bytes_by_target = Vec::with_capacity(ordered_target_manifests.len());
 
     for target_manifest in ordered_target_manifests {
@@ -222,12 +222,7 @@ pub fn collect_repo_init_target_added_bytes<'a>(
             .get(&target_manifest.target_id)
             .copied()
             .unwrap_or(0);
-        let new_bundle_bytes: u64 = target_manifest
-            .required_bundle_set
-            .iter()
-            .filter(|bundle_id| seen_bundle_ids.insert((*bundle_id).clone()))
-            .map(|bundle_id| bundle_sizes.get(bundle_id).copied().unwrap_or(0))
-            .sum();
+        let new_bundle_bytes: u64 = 0; // bundle size tracking requires chunk_index.json
         added_bytes_by_target.push((*target_manifest, manifest_bytes + new_bundle_bytes));
     }
 
@@ -473,3 +468,10 @@ pub fn accumulate_build_timings(total: &mut g::BuildTimings, add: &g::BuildTimin
     total.target_manifest_finalize += add.target_manifest_finalize;
     total.total += add.total;
 }
+
+
+
+
+
+
+

@@ -163,33 +163,32 @@ pub fn classify_directory_with_timings(
             });
         }
 
+        let mut chunk_offset = 0usize;
         for chunk_ref in &fm.chunks {
-            let start = chunk_ref.file_offset as usize;
+            let start = chunk_offset;
             let end = start + chunk_ref.raw_size as usize;
+            chunk_offset = end;
             if end > file_data.len() {
                 classification.push(RepairIssue {
                     kind: RepairIssueKind::Corrupt,
                     path: fm.path.clone(),
                     detail: format!(
                         "chunk reference out of bounds in {}: offset {}, size {}",
-                        fm.path, chunk_ref.file_offset, chunk_ref.raw_size
+                        fm.path, start, chunk_ref.raw_size
                     ),
                 });
                 continue;
             }
 
-            let t = Instant::now();
-            let chunk_bytes = &file_data[start..end];
-            let actual_chunk_hash = hash_hex(&crate::hash::hash_chunk(chunk_bytes));
-            timings.chunk_hash += t.elapsed();
-            timings.chunk_hash_bytes += chunk_bytes.len() as u64;
-            if actual_chunk_hash != chunk_ref.chunk_hash {
+            let chunk_actual = &file_data[start..end];
+            let chunk_hash_actual = hash_hex(&crate::hash::hash_chunk(chunk_actual));
+            if chunk_hash_actual != chunk_ref.chunk_hash {
                 classification.push(RepairIssue {
                     kind: RepairIssueKind::Corrupt,
                     path: fm.path.clone(),
                     detail: format!(
                         "chunk hash mismatch in {} at offset {}: expected {}, got {}",
-                        fm.path, chunk_ref.file_offset, chunk_ref.chunk_hash, actual_chunk_hash
+                        fm.path, start, chunk_ref.chunk_hash, chunk_hash_actual
                     ),
                 });
             }
@@ -268,7 +267,6 @@ mod tests {
     fn empty_manifest() -> TargetManifest {
         TargetManifest::new(
             "p1".into(), "r1".into(), "t1".into(),
-            "1.0.0".into(), "windows".into(), "x86_64".into(), "base".into(),
             BTreeMap::new(),
         )
     }
@@ -295,10 +293,10 @@ mod tests {
             full_file_hash: "hash1".into(),
             chunks: vec![
                 crate::manifest::ChunkRef {
-                    chunk_hash: "a".into(), raw_size: 500, file_offset: 0,
+                    chunk_hash: "a".into(), raw_size: 500,
                 },
                 crate::manifest::ChunkRef {
-                    chunk_hash: "b".into(), raw_size: 500, file_offset: 500,
+                    chunk_hash: "b".into(), raw_size: 500,
                 },
             ],
         });
@@ -320,10 +318,10 @@ mod tests {
             full_file_hash: "hash2".into(),
             chunks: vec![
                 crate::manifest::ChunkRef {
-                    chunk_hash: "x".into(), raw_size: 100, file_offset: 0,
+                    chunk_hash: "x".into(), raw_size: 100,
                 },
                 crate::manifest::ChunkRef {
-                    chunk_hash: "y".into(), raw_size: 100, file_offset: 100,
+                    chunk_hash: "y".into(), raw_size: 100,
                 },
             ],
         });
@@ -342,6 +340,85 @@ mod tests {
     }
 
     #[test]
+    fn verify_contiguous_chunks_detects_corruption() {
+        let dir = std::env::temp_dir().join("gutch_verify_contiguous_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let chunk_a_data = b"AAAAA";
+        let chunk_b_data = b"BBBBB";
+        let mut full_file = Vec::new();
+        full_file.extend_from_slice(chunk_a_data);
+        full_file.extend_from_slice(chunk_b_data);
+        let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&full_file));
+
+        std::fs::write(dir.join("data.bin"), &full_file).unwrap();
+
+        let mut manifest = empty_manifest();
+        manifest.files.push(crate::manifest::FileManifest {
+            path: "data.bin".into(),
+            size: full_file.len() as u64,
+            mode: 0o644,
+            executable: false,
+            symlink_target: None,
+            full_file_hash: file_hash,
+            chunks: vec![
+                crate::manifest::ChunkRef {
+                    chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_a_data)),
+                    raw_size: chunk_a_data.len() as u64,
+                },
+                crate::manifest::ChunkRef {
+                    chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_b_data)),
+                    raw_size: chunk_b_data.len() as u64,
+                },
+            ],
+        });
+        let errors = verify_directory(&manifest, &dir).unwrap();
+        assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+
+        // Now corrupt the file — swap data
+        let mut corrupted = Vec::new();
+        corrupted.extend_from_slice(chunk_b_data);
+        corrupted.extend_from_slice(chunk_a_data);
+        std::fs::write(dir.join("data.bin"), &corrupted).unwrap();
+        let errors = verify_directory(&manifest, &dir).unwrap();
+        assert!(!errors.is_empty(), "expected corruption errors");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verify_contiguous_chunks_single_chunk() {
+        let dir = std::env::temp_dir().join("gutch_verify_single_chunk");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let data = b"single chunk content here";
+        let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(data));
+        std::fs::write(dir.join("single.bin"), data).unwrap();
+
+        let mut manifest = empty_manifest();
+        manifest.files.push(crate::manifest::FileManifest {
+            path: "single.bin".into(),
+            size: data.len() as u64,
+            mode: 0o644,
+            executable: false,
+            symlink_target: None,
+            full_file_hash: file_hash,
+            chunks: vec![
+                crate::manifest::ChunkRef {
+                    chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
+                    raw_size: data.len() as u64,
+                },
+            ],
+        });
+        let errors = verify_directory(&manifest, &dir).unwrap();
+        assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn estimate_build_empty_files_no_chunks() {
         let manifest = empty_manifest();
         let available = HashSet::new();
@@ -350,3 +427,5 @@ mod tests {
         assert_eq!(result.required_bundle_count, 0);
     }
 }
+
+

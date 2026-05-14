@@ -11,19 +11,15 @@ use crate::build_types::{
     RepoInitTargetInput,
 };
 use crate::bundle::{self, BundleBuilder};
+use crate::cli_identity::compute_target_id;
 use crate::compress::{compress_chunk, compress_with_level};
 use crate::manifest::{self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetManifest};
-use crate::repo::{canonical_target_tags, compute_target_id};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const MIN_PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
 
 struct ScannedTarget {
-    version_id: String,
-    platform: String,
-    architecture: String,
-    tier_id: String,
-    tags: BTreeMap<String, String>,
+    target_tags: BTreeMap<String, String>,
     files: Vec<FileManifest>,
     unique_chunks: HashMap<String, Vec<u8>>,
     total_logical_size: u64,
@@ -189,19 +185,13 @@ pub fn build_from_directory(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    target_tags: &BTreeMap<String, String>,
 ) -> Result<BuildResult> {
     let (result, _) = build_from_directory_with_timings_against_existing_bundles(
         dir,
         product_id,
         content_repo_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
+        target_tags,
         &HashSet::new(),
     )?;
     Ok(result)
@@ -211,19 +201,13 @@ pub fn build_from_directory_with_timings(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    target_tags: &BTreeMap<String, String>,
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_bundles(
         dir,
         product_id,
         content_repo_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
+        target_tags,
         &HashSet::new(),
     )
 }
@@ -232,20 +216,14 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    target_tags: &BTreeMap<String, String>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_store(
         dir,
         product_id,
         content_repo_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
+        target_tags,
         &HashMap::new(),
         existing_bundle_ids,
     )
@@ -255,10 +233,7 @@ pub fn build_from_directory_with_timings_against_existing_store(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    target_tags: &BTreeMap<String, String>,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
@@ -266,10 +241,7 @@ pub fn build_from_directory_with_timings_against_existing_store(
         dir,
         product_id,
         content_repo_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
+        target_tags,
         existing_chunk_locations,
         existing_bundle_ids,
         &HashMap::new(),
@@ -282,10 +254,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    target_tags: &BTreeMap<String, String>,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
@@ -294,10 +263,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
         dir,
         product_id,
         content_repo_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
+        target_tags,
         existing_chunk_locations,
         existing_bundle_ids,
         previous_file_manifests,
@@ -310,10 +276,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    target_tags: &BTreeMap<String, String>,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
@@ -324,10 +287,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
         dir,
         product_id,
         content_repo_id,
-        version_id,
-        platform,
-        architecture,
-        tier_id,
+        target_tags,
         existing_chunk_locations,
         existing_bundle_ids,
         previous_file_manifests,
@@ -337,14 +297,12 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
+    target_tags: &BTreeMap<String, String>,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
@@ -564,16 +522,12 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 
     let t = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
-    let target_id = compute_target_id(version_id, platform, architecture, tier_id);
+    let target_id = compute_target_id(target_tags);
     let mut vm = TargetManifest::new(
         product_id.to_string(),
         content_repo_id.to_string(),
         target_id,
-        version_id.to_string(),
-        platform.to_string(),
-        architecture.to_string(),
-        tier_id.to_string(),
-        canonical_target_tags(version_id, platform, architecture, tier_id),
+        target_tags.clone(),
     );
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
@@ -581,11 +535,6 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     vm.compression_profile = compression_profile.clone();
     vm.bundle_sizing_profile = bundle_profile.clone();
     vm.files = file_manifests;
-    vm.required_chunk_set = all_chunk_hashes.into_iter().collect();
-    vm.required_chunk_set.sort();
-    required_bundle_set.sort();
-    required_bundle_set.dedup();
-    vm.required_bundle_set = required_bundle_set;
     timings.target_manifest_finalize += t.elapsed();
     timings.total = total_start.elapsed();
 
@@ -642,11 +591,7 @@ pub fn build_repo_init_batch_with_timings(
         }
 
         scanned_targets.push(ScannedTarget {
-            version_id: target.version_id.clone(),
-            platform: target.platform.clone(),
-            architecture: target.architecture.clone(),
-            tier_id: target.tier_id.clone(),
-            tags: target.tags.clone(),
+            target_tags: target.target_tags.clone(),
             files: file_manifests,
             unique_chunks,
             total_logical_size,
@@ -810,20 +755,12 @@ pub fn build_repo_init_batch_with_timings(
     let mut target_manifests = Vec::with_capacity(scanned_targets.len());
     for mut target in scanned_targets {
         target.files.sort_by(|a, b| a.path.cmp(&b.path));
+        let target_id = compute_target_id(&target.target_tags);
         let mut manifest = TargetManifest::new(
             product_id.to_string(),
             content_repo_id.to_string(),
-            compute_target_id(
-                &target.version_id,
-                &target.platform,
-                &target.architecture,
-                &target.tier_id,
-            ),
-            target.version_id,
-            target.platform,
-            target.architecture,
-            target.tier_id,
-            target.tags,
+            target_id,
+            target.target_tags,
         );
         manifest.chunk_sizing_profile = chunk_profile.clone();
         manifest.compression_profile = compression_profile.clone();
@@ -831,26 +768,20 @@ pub fn build_repo_init_batch_with_timings(
         manifest.total_logical_size = target.total_logical_size;
         manifest.files = target.files;
 
-        let mut required_chunk_set: Vec<String> = manifest
+        let required_chunk_hashes: Vec<String> = manifest
             .files
             .iter()
             .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.clone()))
+            .collect::<HashSet<_>>()
+            .into_iter()
             .collect();
-        required_chunk_set.sort();
-        required_chunk_set.dedup();
-        manifest.required_chunk_set = required_chunk_set.clone();
 
-        let mut required_bundle_set = Vec::new();
         let mut total_compressed_size_estimate = 0u64;
-        for chunk_hash in required_chunk_set {
-            if let Some(location) = chunk_locations.get(&chunk_hash) {
-                required_bundle_set.push(location.bundle_id.clone());
+        for chunk_hash in &required_chunk_hashes {
+            if let Some(location) = chunk_locations.get(chunk_hash) {
                 total_compressed_size_estimate += location.compressed_size;
             }
         }
-        required_bundle_set.sort();
-        required_bundle_set.dedup();
-        manifest.required_bundle_set = required_bundle_set;
         manifest.total_compressed_size_estimate = total_compressed_size_estimate;
         target_manifests.push(manifest);
     }

@@ -93,8 +93,7 @@ Each file gets a file-manifest entry like:
   "chunks": [
     {
       "chunk_hash": "...",
-      "raw_size": 65536,
-      "file_offset": 0
+      "raw_size": 65536
     }
   ]
 }

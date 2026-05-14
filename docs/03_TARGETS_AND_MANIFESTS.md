@@ -91,10 +91,10 @@ The backend should own S3 object key generation. Clients should not guess trust-
 
 ### Target
 
-A target is one installable build identity:
+A target is one installable build identity. The `target_id` is a content-addressed hash derived from its tag key=value pairs:
 
 ```text
-content_repo_id + version_id + platform + architecture + tier_id
+target_id = blake3(sorted(tag_key=val pairs))
 ```
 
 ### Target Manifest
@@ -108,10 +108,6 @@ manifest_version
 product_id
 content_repo_id
 target_id
-version_id
-platform
-architecture
-tier_id
 target_tags
 created_at
 compression_profile
@@ -119,8 +115,6 @@ chunk_sizing_profile
 bundle_sizing_profile
 bundle_format_version
 files
-required_chunk_set
-required_bundle_set
 total_logical_size
 total_compressed_size_estimate
 signature_metadata
@@ -130,7 +124,7 @@ The target manifest must be signed. Clients should reject unsigned or invalidly 
 
 The target manifest is the single metadata JSON object for one target. It includes the per-file entries directly instead of referencing separate file-manifest JSON files.
 
-`target_tags` should carry the canonical target tag set for that target. Today the required tags are `version`, `platform`, and `arch`, with `platform=any` and `arch=any` allowed as explicit defaults for shared content.
+`target_tags` is the sole carrier of target identity. There are no top-level `version_id`, `platform`, `architecture`, or `tier_id` fields — those values live exclusively as tag entries. Today the required tags are `version`, `platform`, and `arch`, with `platform=any` and `arch=any` allowed as explicit defaults for shared content.
 
 ### Sizing Profiles
 
@@ -221,22 +215,19 @@ Each chunk reference should include:
 ```text
 chunk_hash
 raw_size
-file_offset
 ```
+
+`file_offset` is not stored in the chunk reference. It is derived by accumulating `raw_size` in file order during reconstruction.
 
 ### Bundle Lookup
 
-For v1, the primary remote lookup model is:
+Bundle lookup uses the repo-level `ChunkIndex`:
 
 ```text
-target manifest -> required_bundle_set -> bundle chunk tables
+target manifest -> chunk_index.json -> bundle chunk tables
 ```
 
-The manifest identifies which bundles may be needed for the target, and each bundle's internal chunk table resolves exact chunk locations within that bundle.
-
-`required_bundle_set` is the union of bundles containing reused chunks and bundles newly created for this target. It is not limited to bundles produced by the current build, but it is scoped to one content repo.
-
-An additional derived chunk-to-bundle index may be added later for faster planning, but it is not required as part of the canonical v1 object layout.
+Each target manifest lists its required chunks through file entries. The chunk index at repo root maps `chunk_hash → bundle_id` for every chunk in the repo. The bundle's internal chunk table then resolves the exact location within that bundle.
 
 Successful installs should not require a durable local chunk index or persistent local chunk payload cache by default.
 
@@ -247,6 +238,50 @@ Tier overlays are deferred for now.
 In v1, each installable target should be represented by its own complete target manifest under `targets/{target_id}/`.
 
 If overlay-based tier modeling is adopted later, it should be added as a follow-up artifact model rather than assumed by the canonical v1 layout.
+
+### Content Repo Manifest
+
+Every content repo root contains `repo_manifest.json` (renamed from `repo.json`).
+
+It identifies:
+
+```text
+manifest_version
+product_id
+content_repo_id
+created_at
+auto_tagging_rules
+```
+
+The `auto_tagging_rules` field replaces the earlier `target_schema`. It contains:
+
+- `aliases`: `BTreeMap<String, BTreeMap<String, String>>` for normalizing tag values across synonyms (e.g. `win` → `windows`, `x64` → `x86_64`)
+- `on_incomplete`: `Warn | Error` controlling behavior when required tags are missing from a target
+
+### ChunkIndex
+
+A repo-level `ChunkIndex` is stored at the repo root as `chunk_index.json`. It maps every chunk in the repo to its containing bundle:
+
+```text
+chunk_hash -> bundle_id
+```
+
+This enables efficient bundle lookup during reconstruction without scanning every bundle header. The index is rebuilt whenever chunks or bundles are added or removed.
+
+### PluginInfo
+
+Targets may include plugin metadata in the manifest:
+
+```text
+plugin_type: Mod | Dlc | LangPack | Plugin
+dependencies: [plugin_id, ...]
+overrides: [plugin_id, ...]
+incompatible_with: [plugin_id, ...]
+```
+
+`plugin_type` classifies the target for install-time grouping and UI display. `dependencies` declares required plugins that must be installed alongside this target. `overrides` lists plugins whose files this target replaces at install time. `incompatible_with` lists plugins that must not be installed alongside this target.
+
+Plugin resolution is handled by the dependency resolver.
 
 ## 10. Local Install State
 

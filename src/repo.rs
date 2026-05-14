@@ -2,36 +2,15 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::manifest;
+use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
-
-pub fn compute_target_id(
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-) -> String {
-    format!("{version_id}-{platform}-{architecture}-{tier_id}")
-}
-
-pub fn canonical_target_tags(
-    version_id: &str,
-    platform: &str,
-    architecture: &str,
-    tier_id: &str,
-) -> BTreeMap<String, String> {
-    BTreeMap::from([
-        ("version".to_string(), version_id.to_string()),
-        ("platform".to_string(), platform.to_string()),
-        ("arch".to_string(), architecture.to_string()),
-        ("tier".to_string(), tier_id.to_string()),
-    ])
-}
 
 #[derive(Debug, Clone)]
 pub struct ContentRepoPaths {
     pub repo_root: PathBuf,
     pub repo_manifest_path: PathBuf,
+    pub chunk_index_path: PathBuf,
     pub targets_root: PathBuf,
     pub bundles_root: PathBuf,
 }
@@ -44,7 +23,6 @@ pub struct RepoInspectStatus {
     pub repo_path: String,
     pub product_id: String,
     pub content_repo_id: String,
-    pub target_schema: Option<manifest::ContentRepoTargetSchema>,
     pub targets: Vec<RepoInspectTargetStatus>,
     pub bundle_count: usize,
     pub bundle_bytes: u64,
@@ -55,16 +33,10 @@ pub struct RepoInspectStatus {
 #[serde(rename_all = "camelCase")]
 pub struct RepoInspectTargetStatus {
     pub target_id: String,
-    pub version_id: String,
-    pub platform: String,
-    pub architecture: String,
-    pub tier_id: String,
     pub file_count: usize,
-    pub required_bundle_count: usize,
     pub total_logical_size: u64,
     pub manifest_path: String,
     pub has_signature_file: bool,
-    pub missing_bundle_count: usize,
     pub target_tags: BTreeMap<String, String>,
 }
 
@@ -74,10 +46,6 @@ pub struct SourceTargetInstallCandidate {
     pub path: String,
     pub folder_name: String,
     pub target_id: String,
-    pub version_id: String,
-    pub platform: String,
-    pub architecture: String,
-    pub tier_id: String,
     pub target_tags: BTreeMap<String, String>,
 }
 
@@ -95,7 +63,8 @@ impl ContentRepoPaths {
     pub fn from_repo_root(repo_root: &Path) -> Self {
         Self {
             repo_root: repo_root.to_path_buf(),
-            repo_manifest_path: repo_root.join(manifest::CONTENT_REPO_MANIFEST_FILE),
+            repo_manifest_path: repo_root.join(CONTENT_REPO_MANIFEST_FILE),
+            chunk_index_path: repo_root.join("chunk_index.json"),
             targets_root: repo_root.join("targets"),
             bundles_root: repo_root.join("bundles"),
         }
@@ -166,6 +135,25 @@ pub fn load_content_repo_manifest(
     Ok((paths, repo_manifest))
 }
 
+pub fn load_chunk_index(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex> {
+    if !paths.chunk_index_path.exists() {
+        return Ok(manifest::ChunkIndex {
+            format_version: 1,
+            updated_at: String::new(),
+            entries: BTreeMap::new(),
+        });
+    }
+    let json = std::fs::read_to_string(&paths.chunk_index_path)?;
+    let index: manifest::ChunkIndex = serde_json::from_str(&json)?;
+    Ok(index)
+}
+
+pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
+    let json = serde_json::to_string_pretty(index)?;
+    std::fs::write(&paths.chunk_index_path, json)?;
+    Ok(())
+}
+
 pub fn target_manifest_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
     paths.targets_root.join(target_id).join("manifest.json")
 }
@@ -188,19 +176,19 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         ));
     }
 
-    let repo_manifest_path = repo_path.join(manifest::CONTENT_REPO_MANIFEST_FILE);
+    let repo_manifest_path = repo_path.join(CONTENT_REPO_MANIFEST_FILE);
     if !repo_manifest_path.exists() {
         return Ok(empty_repo_inspect_status(
             repo_path_display,
             true,
-            Some("repo.json was not found.".to_string()),
+            Some("repo_manifest.json was not found.".to_string()),
         ));
     }
 
     let (repo_paths, repo_manifest) = load_content_repo_manifest(&repo_path)?;
-    let (bundle_ids, bundle_count, bundle_bytes) =
+    let (_bundle_ids, bundle_count, bundle_bytes) =
         inspect_bundle_inventory(&repo_paths.bundles_root)?;
-    let targets = inspect_target_manifests(&repo_paths.targets_root, &bundle_ids)?;
+    let targets = inspect_target_manifests(&repo_paths.targets_root)?;
 
     Ok(RepoInspectStatus {
         exists: true,
@@ -208,7 +196,6 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         repo_path: repo_path_display,
         product_id: repo_manifest.product_id,
         content_repo_id: repo_manifest.content_repo_id,
-        target_schema: repo_manifest.target_schema,
         targets,
         bundle_count,
         bundle_bytes,
@@ -234,7 +221,7 @@ pub fn discover_source_target_installs(
     }
 
     let (_repo_paths, repo_manifest) = load_content_repo_manifest(repo_root)?;
-    let schema = effective_target_schema(repo_manifest.target_schema);
+    let rules = repo_manifest.auto_tagging_rules.unwrap_or_default();
     let mut candidates = Vec::new();
 
     for entry in std::fs::read_dir(source_targets_root)? {
@@ -244,7 +231,7 @@ pub fn discover_source_target_installs(
             continue;
         }
 
-        let Some(candidate) = infer_source_target_candidate(&path, &schema) else {
+        let Some(candidate) = infer_source_target_candidate(&path, &rules) else {
             continue;
         };
         candidates.push(candidate);
@@ -269,7 +256,6 @@ fn empty_repo_inspect_status(
         repo_path,
         product_id: String::new(),
         content_repo_id: String::new(),
-        target_schema: None,
         targets: Vec::new(),
         bundle_count: 0,
         bundle_bytes: 0,
@@ -306,7 +292,6 @@ fn inspect_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usi
 
 fn inspect_target_manifests(
     targets_root: &Path,
-    bundle_ids: &HashSet<String>,
 ) -> Result<Vec<RepoInspectTargetStatus>> {
     if !targets_root.exists() {
         return Ok(Vec::new());
@@ -327,24 +312,13 @@ fn inspect_target_manifests(
 
         let manifest_json = std::fs::read_to_string(&manifest_path)?;
         let manifest: manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
-        let missing_bundle_count = manifest
-            .required_bundle_set
-            .iter()
-            .filter(|bundle_id| !bundle_ids.contains(bundle_id.as_str()))
-            .count();
 
         targets.push(RepoInspectTargetStatus {
-            target_id: manifest.target_id,
-            version_id: manifest.version_id,
-            platform: manifest.platform,
-            architecture: manifest.architecture,
-            tier_id: manifest.tier_id,
+            target_id: manifest.target_id.clone(),
             file_count: manifest.files.len(),
-            required_bundle_count: manifest.required_bundle_set.len(),
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),
             has_signature_file: path.join("manifest.sig").exists(),
-            missing_bundle_count,
             target_tags: manifest.target_tags,
         });
     }
@@ -353,314 +327,23 @@ fn inspect_target_manifests(
     Ok(targets)
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct InferredTargetIdentity {
-    version_id: Option<String>,
-    platform: Option<String>,
-    architecture: Option<String>,
-}
-
-const SUPPORTED_PLATFORM_ALIASES: &[(&str, &str)] = &[
-    ("any", "any"),
-    ("windows", "windows"),
-    ("win", "windows"),
-    ("win32", "windows"),
-    ("win64", "windows"),
-    ("linux", "linux"),
-    ("mac", "macos"),
-    ("macos", "macos"),
-    ("osx", "macos"),
-    ("darwin", "macos"),
-];
-
-const SUPPORTED_ARCHITECTURE_ALIASES: &[(&str, &str)] = &[
-    ("any", "any"),
-    ("x86_64", "x86_64"),
-    ("x64", "x86_64"),
-    ("amd64", "x86_64"),
-    ("win64", "x86_64"),
-    ("x86_32", "x86_32"),
-    ("x86", "x86_32"),
-    ("win32", "x86_32"),
-];
-
-fn default_target_schema() -> manifest::ContentRepoTargetSchema {
-    manifest::ContentRepoTargetSchema {
-        target_tags: vec![
-            manifest::ContentRepoTargetTagDefinition {
-                name: "platform".to_string(),
-                required: true,
-                values: vec![
-                    "windows".to_string(),
-                    "linux".to_string(),
-                    "macos".to_string(),
-                    "any".to_string(),
-                ],
-                aliases: BTreeMap::from([
-                    ("win".to_string(), "windows".to_string()),
-                    ("win32".to_string(), "windows".to_string()),
-                    ("win64".to_string(), "windows".to_string()),
-                    ("mac".to_string(), "macos".to_string()),
-                    ("osx".to_string(), "macos".to_string()),
-                    ("darwin".to_string(), "macos".to_string()),
-                ]),
-                default_value: Some("any".to_string()),
-            },
-            manifest::ContentRepoTargetTagDefinition {
-                name: "arch".to_string(),
-                required: true,
-                values: vec![
-                    "x86_64".to_string(),
-                    "x86_32".to_string(),
-                    "any".to_string(),
-                ],
-                aliases: BTreeMap::from([
-                    ("x64".to_string(), "x86_64".to_string()),
-                    ("amd64".to_string(), "x86_64".to_string()),
-                    ("win64".to_string(), "x86_64".to_string()),
-                    ("x86".to_string(), "x86_32".to_string()),
-                    ("win32".to_string(), "x86_32".to_string()),
-                ]),
-                default_value: Some("any".to_string()),
-            },
-            manifest::ContentRepoTargetTagDefinition {
-                name: "tier".to_string(),
-                required: false,
-                values: Vec::new(),
-                aliases: BTreeMap::new(),
-                default_value: Some("base".to_string()),
-            },
-        ],
-        target_id_order: vec![
-            "version".to_string(),
-            "platform".to_string(),
-            "arch".to_string(),
-            "tier".to_string(),
-        ],
-    }
-}
-
-fn effective_target_schema(
-    schema: Option<manifest::ContentRepoTargetSchema>,
-) -> manifest::ContentRepoTargetSchema {
-    schema.unwrap_or_else(default_target_schema)
-}
-
 fn infer_source_target_candidate(
     path: &Path,
-    schema: &manifest::ContentRepoTargetSchema,
+    rules: &manifest::AutoTaggingRules,
 ) -> Option<SourceTargetInstallCandidate> {
-    let inferred = infer_target_identity_from_path(path);
-    let inferred_custom_tags = infer_custom_tag_values_from_path(path, schema);
-    let version_id = inferred.version_id.as_deref().and_then(normalize_version)?;
+    use crate::cli_identity::resolve_target_identity;
 
-    let mut target_tags = BTreeMap::new();
-    target_tags.insert("version".to_string(), version_id.clone());
-    for definition in &schema.target_tags {
-        let inferred_value = inferred_custom_tags
-            .get(&definition.name)
-            .map(String::as_str)
-            .or_else(|| {
-                if definition.name == "platform" {
-                    inferred.platform.as_deref()
-                } else if definition.name == "arch" {
-                    inferred.architecture.as_deref()
-                } else {
-                    None
-                }
-            });
+    let context = format!("source target '{}'", path.display());
+    let resolved = resolve_target_identity(path, &BTreeMap::new(), rules, &context).ok()?;
 
-        let normalized_value = if let Some(value) = inferred_value {
-            value.to_string()
-        } else if let Some(default_value) = &definition.default_value {
-            default_value.clone()
-        } else if definition.required {
-            return None;
-        } else {
-            continue;
-        };
-        target_tags.insert(definition.name.clone(), normalized_value);
-    }
-
-    let platform = target_tags
-        .get("platform")
-        .cloned()
-        .unwrap_or_else(|| "any".to_string());
-    let architecture = target_tags
-        .get("arch")
-        .cloned()
-        .unwrap_or_else(|| "any".to_string());
-    let tier_id = target_tags
-        .get("tier")
-        .cloned()
-        .unwrap_or_else(|| "base".to_string());
     let folder_name = path.file_name()?.to_str()?.to_string();
 
     Some(SourceTargetInstallCandidate {
         path: path.display().to_string(),
         folder_name,
-        target_id: build_target_id_from_tags(&version_id, &target_tags, schema),
-        version_id,
-        platform,
-        architecture,
-        tier_id,
-        target_tags,
+        target_id: resolved.target_id,
+        target_tags: resolved.target_tags,
     })
-}
-
-fn normalize_version(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let candidate = trimmed
-        .strip_prefix('v')
-        .or_else(|| trimmed.strip_prefix('V'))
-        .unwrap_or(trimmed);
-    if candidate.is_empty() {
-        return None;
-    }
-    let parts: Vec<&str> = candidate.split('.').collect();
-    if parts.is_empty()
-        || parts
-            .iter()
-            .any(|part| part.is_empty() || !part.chars().all(|ch| ch.is_ascii_digit()))
-    {
-        return None;
-    }
-    Some(candidate.to_string())
-}
-
-fn normalize_platform(raw: &str) -> Option<String> {
-    let lowered = raw.trim().to_ascii_lowercase();
-    SUPPORTED_PLATFORM_ALIASES
-        .iter()
-        .find_map(|(alias, canonical)| (*alias == lowered).then(|| (*canonical).to_string()))
-}
-
-fn normalize_architecture(raw: &str) -> Option<String> {
-    let lowered = raw.trim().to_ascii_lowercase();
-    SUPPORTED_ARCHITECTURE_ALIASES
-        .iter()
-        .find_map(|(alias, canonical)| (*alias == lowered).then(|| (*canonical).to_string()))
-}
-
-fn infer_tag_value_from_token(
-    token: &str,
-    tag_definition: &manifest::ContentRepoTargetTagDefinition,
-) -> Option<String> {
-    let lowered = token.trim().to_ascii_lowercase();
-    if let Some(value) = tag_definition.aliases.get(&lowered) {
-        return Some(value.clone());
-    }
-
-    tag_definition
-        .values
-        .iter()
-        .find(|value| value.eq_ignore_ascii_case(token))
-        .cloned()
-}
-
-fn normalize_custom_tag_value(
-    raw: &str,
-    tag_definition: &manifest::ContentRepoTargetTagDefinition,
-) -> Option<String> {
-    if tag_definition.name == "platform" {
-        return normalize_platform(raw);
-    }
-    if tag_definition.name == "arch" {
-        return normalize_architecture(raw);
-    }
-    if tag_definition.name == "tier" && tag_definition.values.is_empty() {
-        return Some(raw.trim().to_ascii_lowercase());
-    }
-
-    infer_tag_value_from_token(raw, tag_definition).or_else(|| {
-        tag_definition
-            .values
-            .is_empty()
-            .then(|| raw.trim().to_string())
-    })
-}
-
-fn tokenize_identity_name(name: &str) -> Vec<String> {
-    name.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '.'))
-        .filter(|token| !token.is_empty())
-        .map(|token| token.to_string())
-        .collect()
-}
-
-fn infer_target_identity_from_path(path: &Path) -> InferredTargetIdentity {
-    let raw_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default();
-    let mut inferred = InferredTargetIdentity::default();
-    for token in tokenize_identity_name(raw_name) {
-        if inferred.version_id.is_none() {
-            inferred.version_id = normalize_version(&token);
-        }
-        if inferred.platform.is_none() {
-            inferred.platform = normalize_platform(&token);
-        }
-        if inferred.architecture.is_none() {
-            inferred.architecture = normalize_architecture(&token);
-        }
-    }
-    inferred
-}
-
-fn infer_custom_tag_values_from_path(
-    path: &Path,
-    schema: &manifest::ContentRepoTargetSchema,
-) -> BTreeMap<String, String> {
-    let raw_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default();
-    let mut inferred_tags = BTreeMap::new();
-    for token in tokenize_identity_name(raw_name) {
-        for definition in &schema.target_tags {
-            if inferred_tags.contains_key(&definition.name) {
-                continue;
-            }
-            if let Some(value) = normalize_custom_tag_value(&token, definition) {
-                inferred_tags.insert(definition.name.clone(), value);
-            }
-        }
-    }
-    inferred_tags
-}
-
-fn build_target_id_from_tags(
-    version_id: &str,
-    target_tags: &BTreeMap<String, String>,
-    schema: &manifest::ContentRepoTargetSchema,
-) -> String {
-    let mut parts = vec![version_id.to_string()];
-    let order = if schema.target_id_order.is_empty() {
-        schema
-            .target_tags
-            .iter()
-            .map(|definition| definition.name.as_str())
-            .collect::<Vec<_>>()
-    } else {
-        schema
-            .target_id_order
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-    };
-
-    for tag_name in order {
-        if tag_name == "version" {
-            continue;
-        }
-        if let Some(tag_value) = target_tags.get(tag_name) {
-            parts.push(tag_value.clone());
-        }
-    }
-    parts.join("-")
 }
 
 #[cfg(test)]
@@ -668,39 +351,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compute_target_id_formats_correctly() {
-        let id = compute_target_id("1.0.0", "windows", "x86_64", "base");
-        assert_eq!(id, "1.0.0-windows-x86_64-base");
-    }
-
-    #[test]
-    fn compute_target_id_with_tags() {
-        let id = compute_target_id("2.0.1", "linux", "aarch64", "patreon-5");
-        assert_eq!(id, "2.0.1-linux-aarch64-patreon-5");
-    }
-
-    #[test]
-    fn compute_target_id_empty_parts() {
-        let id = compute_target_id("", "", "", "");
-        assert_eq!(id, "---");
-    }
-
-    #[test]
-    fn canonical_target_tags_contains_all_keys() {
-        let tags = canonical_target_tags("1.0.0", "windows", "x86_64", "base");
-        assert_eq!(tags.get("version").unwrap(), "1.0.0");
-        assert_eq!(tags.get("platform").unwrap(), "windows");
-        assert_eq!(tags.get("arch").unwrap(), "x86_64");
-        assert_eq!(tags.get("tier").unwrap(), "base");
-        assert_eq!(tags.len(), 4);
-    }
-
-    #[test]
     fn content_repo_paths_from_repo_root() {
         let root = PathBuf::from("/test/repo");
         let paths = ContentRepoPaths::from_repo_root(&root);
         assert_eq!(paths.repo_root, root);
-        assert_eq!(paths.repo_manifest_path, root.join("repo.json"));
+        assert_eq!(paths.repo_manifest_path, root.join("repo_manifest.json"));
+        assert_eq!(paths.chunk_index_path, root.join("chunk_index.json"));
         assert_eq!(paths.targets_root, root.join("targets"));
         assert_eq!(paths.bundles_root, root.join("bundles"));
     }
@@ -714,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn inspect_content_repo_reports_targets_and_missing_bundles() {
+    fn inspect_content_repo_reports_targets() {
         let root = std::env::temp_dir().join(format!(
             "gutch_repo_inspect_test_{}_{}",
             std::process::id(),
@@ -725,19 +381,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
 
         ensure_content_repo_layout(&repo_paths, "product-1", "base").unwrap();
-        let target_root = repo_paths.targets_root.join("1.0.0-windows-x86_64-base");
+        let target_root = repo_paths.targets_root.join("abc123def");
         std::fs::create_dir_all(&target_root).unwrap();
         let mut manifest = manifest::TargetManifest::new(
             "product-1".to_string(),
             "base".to_string(),
-            "1.0.0-windows-x86_64-base".to_string(),
-            "1.0.0".to_string(),
-            "windows".to_string(),
-            "x86_64".to_string(),
-            "base".to_string(),
-            canonical_target_tags("1.0.0", "windows", "x86_64", "base"),
+            "abc123def".to_string(),
+            BTreeMap::from([
+                ("version".to_string(), "1.0.0".to_string()),
+                ("platform".to_string(), "windows".to_string()),
+                ("arch".to_string(), "x86_64".to_string()),
+                ("tier".to_string(), "base".to_string()),
+            ]),
         );
-        manifest.required_bundle_set = vec!["bundle-a".to_string(), "bundle-missing".to_string()];
         manifest.files.push(manifest::FileManifest {
             path: "game.exe".to_string(),
             size: 42,
@@ -764,8 +420,7 @@ mod tests {
         assert_eq!(status.content_repo_id, "base");
         assert_eq!(status.bundle_count, 1);
         assert_eq!(status.targets.len(), 1);
-        assert_eq!(status.targets[0].target_id, "1.0.0-windows-x86_64-base");
-        assert_eq!(status.targets[0].missing_bundle_count, 1);
+        assert_eq!(status.targets[0].target_id, "abc123def");
         assert!(status.targets[0].has_signature_file);
 
         let _ = std::fs::remove_dir_all(&root);
@@ -784,30 +439,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
 
         ensure_content_repo_layout(&repo_paths, "", "mods").unwrap();
+
         let repo_manifest = manifest::ContentRepoManifest {
-            target_schema: Some(manifest::ContentRepoTargetSchema {
-                target_tags: vec![
-                    manifest::ContentRepoTargetTagDefinition {
-                        name: "loader".to_string(),
-                        required: true,
-                        values: vec!["fabric".to_string(), "forge".to_string()],
-                        aliases: BTreeMap::new(),
-                        default_value: None,
-                    },
-                    manifest::ContentRepoTargetTagDefinition {
-                        name: "mc".to_string(),
-                        required: true,
-                        values: vec!["1.20.1".to_string(), "1.21".to_string()],
-                        aliases: BTreeMap::new(),
-                        default_value: None,
-                    },
-                ],
-                target_id_order: vec![
-                    "version".to_string(),
-                    "loader".to_string(),
-                    "mc".to_string(),
-                ],
+            auto_tagging_rules: Some(manifest::AutoTaggingRules {
+                aliases: BTreeMap::from([
+                    (
+                        "loader".to_string(),
+                        BTreeMap::from([
+                            ("fabric".to_string(), "fabric".to_string()),
+                            ("forge".to_string(), "forge".to_string()),
+                            ("neoforge".to_string(), "neoforge".to_string()),
+                        ]),
+                    ),
+                    (
+                        "mc".to_string(),
+                        BTreeMap::from([
+                            ("1.20.1".to_string(), "1.20.1".to_string()),
+                            ("1.21".to_string(), "1.21".to_string()),
+                        ]),
+                    ),
+                ]),
+                on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
             }),
+            plugin: None,
             ..manifest::ContentRepoManifest::new("".to_string(), "mods".to_string())
         };
         std::fs::write(
@@ -823,9 +477,109 @@ mod tests {
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].folder_name, "ae2-v15.4.10-fabric-1.21");
-        assert_eq!(candidates[0].target_id, "15.4.10-fabric-1.21");
-        assert_eq!(candidates[0].version_id, "15.4.10");
+        assert_eq!(
+            candidates[0].target_tags.get("version").map(String::as_str),
+            Some("15.4.10")
+        );
+        assert_eq!(
+            candidates[0].target_tags.get("loader").map(String::as_str),
+            Some("fabric")
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn chunk_index_write_and_load_roundtrip() {
+        let root = std::env::temp_dir().join("gutch_chunk_index_test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = ContentRepoPaths::from_repo_root(&root);
+
+        let mut entries = BTreeMap::new();
+        entries.insert("chunk-a".to_string(), "bundle-1".to_string());
+        entries.insert("chunk-b".to_string(), "bundle-1".to_string());
+        entries.insert("chunk-c".to_string(), "bundle-2".to_string());
+        let index = manifest::ChunkIndex {
+            format_version: 1,
+            updated_at: "2026-05-14T00:00:00Z".to_string(),
+            entries,
+        };
+        write_chunk_index(&paths, &index).unwrap();
+        assert!(paths.chunk_index_path.exists());
+
+        let loaded = load_chunk_index(&paths).unwrap();
+        assert_eq!(loaded.format_version, 1);
+        assert_eq!(loaded.entries.len(), 3);
+        assert_eq!(loaded.entries.get("chunk-a").map(String::as_str), Some("bundle-1"));
+        assert_eq!(loaded.entries.get("chunk-c").map(String::as_str), Some("bundle-2"));
+        assert!(loaded.entries.get("nonexistent").is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn chunk_index_load_empty_when_file_missing() {
+        let root = std::env::temp_dir().join("gutch_chunk_index_empty_test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = ContentRepoPaths::from_repo_root(&root);
+
+        let loaded = load_chunk_index(&paths).unwrap();
+        assert!(loaded.entries.is_empty());
+        assert_eq!(loaded.format_version, 1);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn inspect_repo_shows_target_tags() {
+        let root = std::env::temp_dir().join("gutch_inspect_tags_test");
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = ContentRepoPaths::from_repo_root(&root);
+        ensure_content_repo_layout(&paths, "product-tags", "base").unwrap();
+
+        let target_root = paths.targets_root.join("hash123");
+        std::fs::create_dir_all(&target_root).unwrap();
+        let mut manifest = manifest::TargetManifest::new(
+            "product-tags".to_string(),
+            "base".to_string(),
+            "hash123".to_string(),
+            BTreeMap::from([
+                ("version".to_string(), "2.0.0".to_string()),
+                ("platform".to_string(), "linux".to_string()),
+                ("arch".to_string(), "x86_64".to_string()),
+                ("tier".to_string(), "premium".to_string()),
+            ]),
+        );
+        manifest.files.push(manifest::FileManifest {
+            path: "game.bin".to_string(),
+            size: 100,
+            mode: 0o755,
+            executable: true,
+            symlink_target: None,
+            full_file_hash: "abc".to_string(),
+            chunks: vec![],
+        });
+        std::fs::write(
+            target_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        ).unwrap();
+
+        let status = inspect_content_repo(&root).unwrap();
+        assert_eq!(status.targets.len(), 1);
+        assert_eq!(status.targets[0].target_id, "hash123");
+        assert_eq!(
+            status.targets[0].target_tags.get("version").map(String::as_str),
+            Some("2.0.0")
+        );
+        assert_eq!(
+            status.targets[0].target_tags.get("platform").map(String::as_str),
+            Some("linux")
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+
