@@ -5,10 +5,6 @@ use serde::Serialize;
 use tempfile::TempDir;
 
 use crate::RepoInitSpec;
-use g::cli_identity::{
-    apply_resolved_target_identity, parse_cli_tags,
-    resolve_target_identity,
-};
 use crate::cli_path_compare::compare_paths;
 use crate::cli_reporting::{
     BuildTimingsSummary, OptionalOutputPaths, ReconstructTimingsSummary, VerifyTimingsSummary,
@@ -21,6 +17,7 @@ use crate::{
     BundleCommands, Cli, Commands, PathCommands, RepoCommands, RepoInitMode, TargetCommands,
     TargetInstallCommands,
 };
+use g::cli_identity::{apply_resolved_target_identity, parse_cli_tags, resolve_target_identity};
 use gutch as g;
 
 struct InputSizingStats {
@@ -348,10 +345,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             let mut repo_manifest =
                 g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
             repo_manifest.target_schema = load_optional_rules(&schema)?;
-            std::fs::write(
-                &repo_paths.repo_manifest_path,
-                serde_json::to_string_pretty(&repo_manifest)?,
-            )?;
+            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
 
             println!(
                 "created content repo {} for product {} at {}",
@@ -381,10 +375,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             } else {
                 load_optional_rules(&schema)?
             };
-            std::fs::write(
-                &repo_paths.repo_manifest_path,
-                serde_json::to_string_pretty(&repo_manifest)?,
-            )?;
+            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
 
             println!(
                 "updated repo schema at {}",
@@ -414,20 +405,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             }
 
             let rules = spec.target_schema.clone().unwrap_or_default();
-            
-
-            let target_inputs: Vec<g::RepoInitTargetInput> = spec
-                .targets
-                .iter()
-                .map(|target| {
-                let context = format!("repo init target '{}'", target.dir.display());
-                let resolved = resolve_target_identity(&target.dir, &target.tags, &rules, &context)?;
-                Ok(g::RepoInitTargetInput {
-                    dir: target.dir.clone(),
-                    target_tags: resolved.target_tags,
-                })
-            })
-                .collect::<g::Result<Vec<_>>>()?;
 
             let repo_paths = g::ContentRepoPaths::from_repo_root(&repo);
 
@@ -443,10 +420,28 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             let mut repo_manifest =
                 g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
             repo_manifest.target_schema = Some(rules.clone());
-            std::fs::write(
-                &repo_paths.repo_manifest_path,
-                serde_json::to_string_pretty(&repo_manifest)?,
-            )?;
+
+            let mut target_inputs: Vec<g::RepoInitTargetInput> = spec
+                .targets
+                .iter()
+                .map(|target| {
+                    let context = format!("repo init target '{}'", target.dir.display());
+                    let resolved =
+                        resolve_target_identity(&target.dir, &target.tags, &rules, &context)?;
+                    Ok(g::RepoInitTargetInput {
+                        dir: target.dir.clone(),
+                        target_id: String::new(),
+                        target_tags: resolved.target_tags,
+                    })
+                })
+                .collect::<g::Result<Vec<_>>>()?;
+
+            for target_input in &mut target_inputs {
+                target_input.target_id =
+                    g::reserve_next_target_id(&repo_paths, &mut repo_manifest)?;
+            }
+
+            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
 
             let mut all_file_sizes = Vec::new();
             let mut all_target_logical_size = 0u64;
@@ -487,16 +482,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     let mut target_manifest_sizes = HashMap::new();
                     let mut bundle_sizes = HashMap::new();
 
-                    for (manifest, target_input) in
-                        result.target_manifests.iter_mut().zip(target_inputs.iter())
-                    {
-                        let resolved_identity = resolve_target_identity(
-                            &target_input.dir,
-                            &target_input.target_tags,
-                            &rules,
-                            "repo init target",
-                        )?;
-                        apply_resolved_target_identity(manifest, &resolved_identity);
+                    for manifest in &mut result.target_manifests {
                         let target_root = repo_paths.targets_root.join(&manifest.target_id);
                         std::fs::create_dir_all(&target_root)?;
                         let manifest_path = target_root.join("manifest.json");
@@ -552,6 +538,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                                 &target.dir,
                                 &product,
                                 &content_repo,
+                                &target.target_id,
                                 &target.target_tags,
                                 &existing_chunk_locations,
                                 &existing_bundle_ids,
@@ -561,14 +548,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                                 &compression_profile,
                             )?;
 
-                        let resolved_identity = resolve_target_identity(
-                            &target.dir,
-                            &target.target_tags,
-                            &rules,
-                            "repo init target",
-                        )?;
-                        let mut target_manifest = result.target_manifest.clone();
-                        apply_resolved_target_identity(&mut target_manifest, &resolved_identity);
+                        let target_manifest = result.target_manifest.clone();
                         let target_root = repo_paths.targets_root.join(&target_manifest.target_id);
                         std::fs::create_dir_all(&target_root)?;
                         let manifest_path = target_root.join("manifest.json");
@@ -739,9 +719,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     for entry in std::fs::read_dir(&repo_paths.targets_root)? {
                         let entry = entry?;
                         if entry.path().is_dir() {
-                            ids.insert(
-                                entry.file_name().to_string_lossy().to_string(),
-                            );
+                            ids.insert(entry.file_name().to_string_lossy().to_string());
                         }
                     }
                 }
@@ -760,14 +738,24 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     }
                     if let Some(bundle_id) = entry.path().file_stem().and_then(|s| s.to_str()) {
                         let bundle_still_needed = remaining_targets.iter().any(|target_id| {
-                            let manifest_path = repo_paths.targets_root.join(target_id).join("manifest.json");
+                            let manifest_path = repo_paths
+                                .targets_root
+                                .join(target_id)
+                                .join("manifest.json");
                             if !manifest_path.exists() {
                                 return false;
                             }
                             if let Ok(content) = std::fs::read_to_string(&manifest_path) {
-                                if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) {
-                                    if let Some(bundle_set) = manifest.get("required_bundle_set").and_then(|v| v.as_array()) {
-                                        return bundle_set.iter().any(|b| b.as_str() == Some(bundle_id));
+                                if let Ok(manifest) =
+                                    serde_json::from_str::<serde_json::Value>(&content)
+                                {
+                                    if let Some(bundle_set) = manifest
+                                        .get("required_bundle_set")
+                                        .and_then(|v| v.as_array())
+                                    {
+                                        return bundle_set
+                                            .iter()
+                                            .any(|b| b.as_str() == Some(bundle_id));
                                     }
                                 }
                             }
@@ -810,7 +798,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 },
         } => {
             let prepared_input = prepare_input_path(&dir)?;
-            let (repo_paths, repo_manifest) = g::load_content_repo_manifest(&repo)?;
+            let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
             let mut explicit_tags = parse_cli_tags(&tags)?;
             if let Some(version) = version {
@@ -829,9 +817,9 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             let resolved_identity =
                 resolve_target_identity(&dir, &explicit_tags, &rules, &context)?;
             let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
-            let product = repo_manifest.product_id;
-            let content_repo = repo_manifest.content_repo_id;
-            let target_id = resolved_identity.target_id.clone();
+            let product = repo_manifest.product_id.clone();
+            let content_repo = repo_manifest.content_repo_id.clone();
+            let target_id = g::reserve_next_target_id(&repo_paths, &mut repo_manifest)?;
 
             let target_root = repo_paths.targets_root.join(&target_id);
             let bundles_root = repo_paths.bundles_root.clone();
@@ -903,6 +891,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 &prepared_input.dir,
                 &product,
                 &content_repo,
+                &target_id,
                 &resolved_identity.target_tags,
                 &existing_chunk_locations,
                 &existing_bundle_ids,
@@ -945,8 +934,21 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             print_build_timings(&timings);
 
-            let required_chunk_count = result.target_manifest.files.iter().flat_map(|f| &f.chunks).map(|c| &c.chunk_hash).collect::<std::collections::HashSet<_>>().len();
-            let required_bundle_count = result.target_manifest.files.iter().flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str())).collect::<std::collections::HashSet<_>>().len();
+            let required_chunk_count = result
+                .target_manifest
+                .files
+                .iter()
+                .flat_map(|f| &f.chunks)
+                .map(|c| &c.chunk_hash)
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            let required_bundle_count = result
+                .target_manifest
+                .files
+                .iter()
+                .flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str()))
+                .collect::<std::collections::HashSet<_>>()
+                .len();
             let generated_bundle_count = result.bundles.len();
             let generated_bundle_bytes: u64 = result
                 .bundles
@@ -977,10 +979,26 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 manifest_path: manifest_path.display().to_string(),
                 product_id: product,
                 content_repo_id: content_repo,
-                version_id: resolved_identity.target_tags.get_exclusive("version").unwrap_or_default().to_string(),
-                platform: resolved_identity.target_tags.get_exclusive("os").unwrap_or_default().to_string(),
-                architecture: resolved_identity.target_tags.get_exclusive("arch").unwrap_or_default().to_string(),
-                tier_id: resolved_identity.target_tags.get_exclusive("tier").unwrap_or_default().to_string(),
+                version_id: resolved_identity
+                    .target_tags
+                    .get_exclusive("version")
+                    .unwrap_or_default()
+                    .to_string(),
+                platform: resolved_identity
+                    .target_tags
+                    .get_exclusive("os")
+                    .unwrap_or_default()
+                    .to_string(),
+                architecture: resolved_identity
+                    .target_tags
+                    .get_exclusive("arch")
+                    .unwrap_or_default()
+                    .to_string(),
+                tier_id: resolved_identity
+                    .target_tags
+                    .get_exclusive("tier")
+                    .unwrap_or_default()
+                    .to_string(),
                 file_count: result.target_manifest.files.len(),
                 total_logical_size: result.target_manifest.total_logical_size,
                 total_compressed_size_estimate: result
@@ -1066,8 +1084,19 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 target_id: tm.target_id.clone(),
                 output_dir: output.display().to_string(),
                 file_count: tm.files.len(),
-                required_chunk_count: tm.files.iter().flat_map(|f| &f.chunks).map(|c| &c.chunk_hash).collect::<std::collections::HashSet<_>>().len(),
-                required_bundle_count: tm.files.iter().flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str())).collect::<std::collections::HashSet<_>>().len(),
+                required_chunk_count: tm
+                    .files
+                    .iter()
+                    .flat_map(|f| &f.chunks)
+                    .map(|c| &c.chunk_hash)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len(),
+                required_bundle_count: tm
+                    .files
+                    .iter()
+                    .flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str()))
+                    .collect::<std::collections::HashSet<_>>()
+                    .len(),
                 resolved_bundle_file_count: bundle_paths.len(),
                 total_logical_size: tm.total_logical_size,
                 total_compressed_size_estimate: tm.total_compressed_size_estimate,
@@ -1469,7 +1498,12 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             // Resolve bundle IDs from target manifest
             let mut bundles = Vec::new();
-            for bundle_id in &tm.files.iter().flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str())).collect::<std::collections::HashSet<_>>() {
+            for bundle_id in &tm
+                .files
+                .iter()
+                .flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str()))
+                .collect::<std::collections::HashSet<_>>()
+            {
                 let bundle_path = bundles_root.join(format!("{}.bundle", bundle_id));
                 let bundle_data = std::fs::read(&bundle_path)?;
                 bundles.push(((*bundle_id).to_string(), bundle_data));
@@ -1496,7 +1530,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     "architecture": architecture.trim(),
                     "isFullBuild": true
                 }));
-                if let Some(sid) = session_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                if let Some(sid) = session_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
                     req = req.header("Authorization", format!("Bearer {}", sid));
                 }
                 let resp = req.send().map_err(|err| {
@@ -1516,9 +1554,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     .get("id")
                     .or_else(|| payload.get("targetId"))
                     .and_then(|v| v.as_i64())
-                    .ok_or_else(|| {
-                        g::Error::bundle("remote target response missing target id")
-                    })?
+                    .ok_or_else(|| g::Error::bundle("remote target response missing target id"))?
             };
 
             // Upload content via multipart
@@ -1532,15 +1568,19 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             let manifest_part = reqwest::blocking::multipart::Part::bytes(manifest_bytes)
                 .file_name(manifest_name)
                 .mime_str("application/json")
-                .map_err(|err| g::Error::bundle(format!("failed to prepare manifest part: {}", err)))?;
-            let mut form = reqwest::blocking::multipart::Form::new()
-                .part("manifest", manifest_part);
+                .map_err(|err| {
+                    g::Error::bundle(format!("failed to prepare manifest part: {}", err))
+                })?;
+            let mut form =
+                reqwest::blocking::multipart::Form::new().part("manifest", manifest_part);
 
             if let Some(sig_bytes) = manifest_signature_bytes {
                 let sig_part = reqwest::blocking::multipart::Part::bytes(sig_bytes)
                     .file_name(manifest_signature_name)
                     .mime_str("application/octet-stream")
-                    .map_err(|err| g::Error::bundle(format!("failed to prepare signature part: {}", err)))?;
+                    .map_err(|err| {
+                        g::Error::bundle(format!("failed to prepare signature part: {}", err))
+                    })?;
                 form = form.part("manifest_sig", sig_part);
             }
 
@@ -1548,12 +1588,18 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 let bundle_part = reqwest::blocking::multipart::Part::bytes(bundle_data.clone())
                     .file_name(format!("{}.bundle", bundle_id))
                     .mime_str("application/octet-stream")
-                    .map_err(|err| g::Error::bundle(format!("failed to prepare bundle part: {}", err)))?;
+                    .map_err(|err| {
+                        g::Error::bundle(format!("failed to prepare bundle part: {}", err))
+                    })?;
                 form = form.part(format!("bundle_{}", bundle_id), bundle_part);
             }
 
             let mut upload_req = client.post(&upload_url).multipart(form);
-            if let Some(sid) = session_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            if let Some(sid) = session_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
                 upload_req = upload_req.header("Authorization", format!("Bearer {}", sid));
             }
             let upload_resp = upload_req.send().map_err(|err| {
@@ -1596,12 +1642,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 build_tags.upsert_exclusive("os", "windows");
                 build_tags.upsert_exclusive("arch", "x86_64");
                 build_tags.upsert_exclusive("tier", "base");
-                g::build_from_directory(
-                    &prepared_input.dir,
-                    &product,
-                    "base",
-                    &build_tags,
-                )?
+                g::build_from_directory(&prepared_input.dir, &product, "base", "1", &build_tags)?
             };
 
             let est = g::estimate_build(
@@ -1632,23 +1673,3 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
     Ok(())
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

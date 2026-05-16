@@ -11,7 +11,6 @@ use crate::build_types::{
     RepoInitTargetInput,
 };
 use crate::bundle::{self, BundleBuilder};
-use crate::cli_identity::compute_target_id;
 use crate::compress::{compress_chunk, compress_with_level};
 use crate::manifest::{self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetManifest, TargetTagSet};
 
@@ -19,6 +18,7 @@ const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const MIN_PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
 
 struct ScannedTarget {
+    target_id: String,
     target_tags: TargetTagSet,
     files: Vec<FileManifest>,
     unique_chunks: HashMap<String, Vec<u8>>,
@@ -185,12 +185,14 @@ pub fn build_from_directory(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
+    target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<BuildResult> {
     let (result, _) = build_from_directory_with_timings_against_existing_bundles(
         dir,
         product_id,
         content_repo_id,
+        target_id,
         target_tags,
         &HashSet::new(),
     )?;
@@ -201,12 +203,14 @@ pub fn build_from_directory_with_timings(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
+    target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_bundles(
         dir,
         product_id,
         content_repo_id,
+        target_id,
         target_tags,
         &HashSet::new(),
     )
@@ -216,6 +220,7 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
+    target_id: &str,
     target_tags: &TargetTagSet,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
@@ -223,6 +228,7 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
         dir,
         product_id,
         content_repo_id,
+        target_id,
         target_tags,
         &HashMap::new(),
         existing_bundle_ids,
@@ -233,6 +239,7 @@ pub fn build_from_directory_with_timings_against_existing_store(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
+    target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
@@ -241,6 +248,7 @@ pub fn build_from_directory_with_timings_against_existing_store(
         dir,
         product_id,
         content_repo_id,
+        target_id,
         target_tags,
         existing_chunk_locations,
         existing_bundle_ids,
@@ -254,6 +262,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
+    target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
@@ -263,6 +272,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
         dir,
         product_id,
         content_repo_id,
+        target_id,
         target_tags,
         existing_chunk_locations,
         existing_bundle_ids,
@@ -276,6 +286,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
+    target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
@@ -287,6 +298,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
         dir,
         product_id,
         content_repo_id,
+        target_id,
         target_tags,
         existing_chunk_locations,
         existing_bundle_ids,
@@ -302,6 +314,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
+    target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
@@ -522,11 +535,10 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 
     let t = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
-    let target_id = compute_target_id(target_tags);
     let mut vm = TargetManifest::new(
         product_id.to_string(),
         content_repo_id.to_string(),
-        target_id,
+        target_id.to_string(),
         target_tags.clone(),
     );
     vm.total_logical_size = total_logical_size;
@@ -591,6 +603,7 @@ pub fn build_repo_init_batch_with_timings(
         }
 
         scanned_targets.push(ScannedTarget {
+            target_id: target.target_id.clone(),
             target_tags: target.target_tags.clone(),
             files: file_manifests,
             unique_chunks,
@@ -755,11 +768,10 @@ pub fn build_repo_init_batch_with_timings(
     let mut target_manifests = Vec::with_capacity(scanned_targets.len());
     for mut target in scanned_targets {
         target.files.sort_by(|a, b| a.path.cmp(&b.path));
-        let target_id = compute_target_id(&target.target_tags);
         let mut manifest = TargetManifest::new(
             product_id.to_string(),
             content_repo_id.to_string(),
-            target_id,
+            target.target_id,
             target.target_tags,
         );
         manifest.chunk_sizing_profile = chunk_profile.clone();

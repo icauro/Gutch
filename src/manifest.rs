@@ -13,6 +13,10 @@ pub const BUNDLE_FORMAT: &str = "gutch-bundle-v1";
 pub const CONTENT_REPO_FORMAT: &str = "gutch-content-repo-v1";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 
+fn default_next_target_id() -> u64 {
+    1
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArtifactSizingPreset {
@@ -424,6 +428,8 @@ pub struct ContentRepoManifest {
     pub created_at: String,
     pub targets_dir: String,
     pub bundles_dir: String,
+    #[serde(default = "default_next_target_id")]
+    pub next_target_id: u64,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -460,7 +466,9 @@ pub struct TargetTagSchema {
 
 impl TargetTagSchema {
     pub fn find_definition(&self, name: &str) -> Option<&TargetTagDefinition> {
-        self.target_tags.iter().find(|definition| definition.name == name)
+        self.target_tags
+            .iter()
+            .find(|definition| definition.name == name)
     }
 }
 
@@ -590,6 +598,7 @@ impl ContentRepoManifest {
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             targets_dir: "targets".to_string(),
             bundles_dir: "bundles".to_string(),
+            next_target_id: default_next_target_id(),
             target_schema: None,
             plugin: None,
         }
@@ -734,5 +743,6 @@ mod tests {
         assert_eq!(repo.content_repo_id, "base");
         assert_eq!(repo.targets_dir, "targets");
         assert_eq!(repo.bundles_dir, "bundles");
+        assert_eq!(repo.next_target_id, 1);
     }
 }

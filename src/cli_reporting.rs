@@ -468,10 +468,3 @@ pub fn accumulate_build_timings(total: &mut g::BuildTimings, add: &g::BuildTimin
     total.target_manifest_finalize += add.target_manifest_finalize;
     total.total += add.total;
 }
-
-
-
-
-
-
-

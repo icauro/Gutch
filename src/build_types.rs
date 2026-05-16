@@ -6,6 +6,7 @@ use crate::manifest::{TargetManifest, TargetTagSet};
 #[derive(Debug, Clone)]
 pub struct RepoInitTargetInput {
     pub dir: PathBuf,
+    pub target_id: String,
     pub target_tags: TargetTagSet,
 }
 

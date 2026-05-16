@@ -264,7 +264,12 @@ mod tests {
     use crate::manifest::{TargetManifest, TargetTagSet};
 
     fn empty_manifest() -> TargetManifest {
-        TargetManifest::new("p1".into(), "r1".into(), "t1".into(), TargetTagSet::default())
+        TargetManifest::new(
+            "p1".into(),
+            "r1".into(),
+            "t1".into(),
+            TargetTagSet::default(),
+        )
     }
 
     #[test]
@@ -289,10 +294,12 @@ mod tests {
             full_file_hash: "hash1".into(),
             chunks: vec![
                 crate::manifest::ChunkRef {
-                    chunk_hash: "a".into(), raw_size: 500,
+                    chunk_hash: "a".into(),
+                    raw_size: 500,
                 },
                 crate::manifest::ChunkRef {
-                    chunk_hash: "b".into(), raw_size: 500,
+                    chunk_hash: "b".into(),
+                    raw_size: 500,
                 },
             ],
         });
@@ -314,10 +321,12 @@ mod tests {
             full_file_hash: "hash2".into(),
             chunks: vec![
                 crate::manifest::ChunkRef {
-                    chunk_hash: "x".into(), raw_size: 100,
+                    chunk_hash: "x".into(),
+                    raw_size: 100,
                 },
                 crate::manifest::ChunkRef {
-                    chunk_hash: "y".into(), raw_size: 100,
+                    chunk_hash: "y".into(),
+                    raw_size: 100,
                 },
             ],
         });
@@ -401,12 +410,10 @@ mod tests {
             executable: false,
             symlink_target: None,
             full_file_hash: file_hash,
-            chunks: vec![
-                crate::manifest::ChunkRef {
-                    chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
-                    raw_size: data.len() as u64,
-                },
-            ],
+            chunks: vec![crate::manifest::ChunkRef {
+                chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
+                raw_size: data.len() as u64,
+            }],
         });
         let errors = verify_directory(&manifest, &dir).unwrap();
         assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
@@ -423,5 +430,3 @@ mod tests {
         assert_eq!(result.required_bundle_count, 0);
     }
 }
-
-

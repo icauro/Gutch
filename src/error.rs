@@ -142,10 +142,7 @@ mod tests {
     #[test]
     fn error_display_chunk_not_found() {
         let e = Error::ChunkNotFound("abc123".into());
-        assert_eq!(
-            e.to_string(),
-            "Chunk not found in any bundle: abc123"
-        );
+        assert_eq!(e.to_string(), "Chunk not found in any bundle: abc123");
     }
 
     #[test]

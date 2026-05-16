@@ -20,11 +20,18 @@ pub fn resolve_plugin_dependencies(
     base_target: &ResolvedTarget,
     enabled_plugins: &[(&str, &str)],
     plugin_manifests: &HashMap<(String, String), manifest::ContentRepoManifest>,
-    target_resolver: &dyn Fn(&str, &str, &BTreeMap<String, TagConstraint>) -> Result<Option<ResolvedTarget>>,
+    target_resolver: &dyn Fn(
+        &str,
+        &str,
+        &BTreeMap<String, TagConstraint>,
+    ) -> Result<Option<ResolvedTarget>>,
 ) -> Result<DependencyGraph> {
     let mut install_order = vec![base_target.clone()];
     let mut in_order: HashSet<String> = HashSet::new();
-    in_order.insert(format!("{}:{}", base_target.product_id, base_target.content_repo_id));
+    in_order.insert(format!(
+        "{}:{}",
+        base_target.product_id, base_target.content_repo_id
+    ));
 
     let mut queue: VecDeque<(String, String)> = VecDeque::new();
     for (product_id, repo_id) in enabled_plugins {
@@ -38,7 +45,8 @@ pub fn resolve_plugin_dependencies(
             continue;
         }
 
-        let Some(plugin_manifest) = plugin_manifests.get(&(product_id.clone(), repo_id.clone())) else {
+        let Some(plugin_manifest) = plugin_manifests.get(&(product_id.clone(), repo_id.clone()))
+        else {
             return Err(Error::manifest(format!(
                 "plugin '{}' (repo '{}') not found",
                 product_id, repo_id
@@ -53,7 +61,10 @@ pub fn resolve_plugin_dependencies(
         };
 
         for incompatible in &plugin_info.incompatible_with {
-            let inc_key = format!("{}:{}", incompatible.product_id, incompatible.content_repo_id);
+            let inc_key = format!(
+                "{}:{}",
+                incompatible.product_id, incompatible.content_repo_id
+            );
             if in_order.contains(&inc_key) {
                 return Err(Error::manifest(format!(
                     "plugin '{}' is incompatible with already-installed '{}'",
@@ -69,7 +80,8 @@ pub fn resolve_plugin_dependencies(
             }
         }
 
-        let plugin_target = resolve_plugin_target(&product_id, &repo_id, plugin_info, target_resolver)?;
+        let plugin_target =
+            resolve_plugin_target(&product_id, &repo_id, plugin_info, target_resolver)?;
         in_order.insert(key);
         install_order.push(plugin_target);
     }
@@ -78,23 +90,26 @@ pub fn resolve_plugin_dependencies(
     reorder_by_dependencies(&mut install_order, plugin_manifests);
     apply_override_ordering(&mut install_order, plugin_manifests, enabled_plugins)?;
 
-    Ok(DependencyGraph {
-        install_order,
-    })
+    Ok(DependencyGraph { install_order })
 }
 
 fn resolve_plugin_target(
     product_id: &str,
     content_repo_id: &str,
     _plugin_info: &PluginInfo,
-    target_resolver: &dyn Fn(&str, &str, &BTreeMap<String, TagConstraint>) -> Result<Option<ResolvedTarget>>,
+    target_resolver: &dyn Fn(
+        &str,
+        &str,
+        &BTreeMap<String, TagConstraint>,
+    ) -> Result<Option<ResolvedTarget>>,
 ) -> Result<ResolvedTarget> {
     let empty_constraints = BTreeMap::new();
-    target_resolver(product_id, content_repo_id, &empty_constraints)?
-        .ok_or_else(|| Error::manifest(format!(
+    target_resolver(product_id, content_repo_id, &empty_constraints)?.ok_or_else(|| {
+        Error::manifest(format!(
             "no suitable target found for plugin '{}' (repo '{}')",
             product_id, content_repo_id
-        )))
+        ))
+    })
 }
 
 fn detect_cycles(
@@ -112,7 +127,9 @@ fn detect_cycles(
 
     for target in install_order {
         let tkey = format!("{}:{}", target.product_id, target.content_repo_id);
-        if let Some(manifest) = plugin_manifests.get(&(target.product_id.clone(), target.content_repo_id.clone())) {
+        if let Some(manifest) =
+            plugin_manifests.get(&(target.product_id.clone(), target.content_repo_id.clone()))
+        {
             if let Some(ref info) = manifest.plugin {
                 for dep in &info.dependencies {
                     let dkey = format!("{}:{}", dep.product_id, dep.content_repo_id);
@@ -148,7 +165,9 @@ fn detect_cycles(
     }
 
     if sorted_count != in_degree.len() {
-        return Err(Error::manifest("circular dependency detected among plugins"));
+        return Err(Error::manifest(
+            "circular dependency detected among plugins",
+        ));
     }
 
     Ok(())
@@ -161,7 +180,8 @@ fn reorder_by_dependencies(
     let mut i = 1;
     while i < install_order.len() {
         let _target_key = format!(
-            "{}:{}", install_order[i].product_id, install_order[i].content_repo_id
+            "{}:{}",
+            install_order[i].product_id, install_order[i].content_repo_id
         );
         if let Some(manifest) = plugin_manifests.get(&(
             install_order[i].product_id.clone(),
@@ -170,9 +190,10 @@ fn reorder_by_dependencies(
             if let Some(ref info) = manifest.plugin {
                 for dep in &info.dependencies {
                     let dep_key = format!("{}:{}", dep.product_id, dep.content_repo_id);
-                    if let Some(dep_pos) = install_order[i + 1..].iter().position(|t| {
-                        format!("{}:{}", t.product_id, t.content_repo_id) == dep_key
-                    }) {
+                    if let Some(dep_pos) = install_order[i + 1..]
+                        .iter()
+                        .position(|t| format!("{}:{}", t.product_id, t.content_repo_id) == dep_key)
+                    {
                         let actual_pos = i + 1 + dep_pos;
                         let target = install_order.remove(actual_pos);
                         install_order.insert(i, target);
@@ -201,7 +222,9 @@ fn apply_override_ordering(
             continue;
         };
 
-        let Some(plugin_manifest) = plugin_manifests.get(&(product_id.to_string(), repo_id.to_string())) else {
+        let Some(plugin_manifest) =
+            plugin_manifests.get(&(product_id.to_string(), repo_id.to_string()))
+        else {
             continue;
         };
         let Some(ref plugin_info) = plugin_manifest.plugin else {
@@ -209,12 +232,23 @@ fn apply_override_ordering(
         };
 
         for override_target in &plugin_info.overrides {
-            let override_key = format!("{}:{}", override_target.product_id, override_target.content_repo_id);
+            let override_key = format!(
+                "{}:{}",
+                override_target.product_id, override_target.content_repo_id
+            );
             if let Some(&override_idx) = order_map.get(&override_key) {
                 if plugin_idx <= override_idx {
                     install_order.swap(plugin_idx, override_idx);
-                    let k1 = format!("{}:{}", install_order[plugin_idx].product_id, install_order[plugin_idx].content_repo_id);
-                    let k2 = format!("{}:{}", install_order[override_idx].product_id, install_order[override_idx].content_repo_id);
+                    let k1 = format!(
+                        "{}:{}",
+                        install_order[plugin_idx].product_id,
+                        install_order[plugin_idx].content_repo_id
+                    );
+                    let k2 = format!(
+                        "{}:{}",
+                        install_order[override_idx].product_id,
+                        install_order[override_idx].content_repo_id
+                    );
                     order_map.insert(k1, plugin_idx);
                     order_map.insert(k2, override_idx);
                 }
@@ -228,6 +262,7 @@ fn apply_override_ordering(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::PluginDependency;
 
     fn mock_target_resolver(
         _product_id: &str,
@@ -250,10 +285,7 @@ mod tests {
         overrides: Vec<manifest::PluginOverride>,
         incompatible_with: Vec<manifest::PluginOverride>,
     ) -> ((String, String), manifest::ContentRepoManifest) {
-        let mut m = manifest::ContentRepoManifest::new(
-            product_id.to_string(),
-            repo_id.to_string(),
-        );
+        let mut m = manifest::ContentRepoManifest::new(product_id.to_string(), repo_id.to_string());
         m.plugin = Some(manifest::PluginInfo {
             plugin_type,
             display_name: None,
@@ -274,7 +306,12 @@ mod tests {
         };
 
         let (key, pm) = make_plugin_manifest(
-            "mod-ae2", "base", manifest::PluginType::Mod, vec![], vec![], vec![],
+            "mod-ae2",
+            "base",
+            manifest::PluginType::Mod,
+            vec![],
+            vec![],
+            vec![],
         );
         let mut manifests = HashMap::new();
         manifests.insert(key, pm);
@@ -284,7 +321,8 @@ mod tests {
             &[("mod-ae2", "base")],
             &manifests,
             &mock_target_resolver,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(result.install_order.len(), 2);
         assert_eq!(result.install_order[0].product_id, "game");
@@ -303,18 +341,26 @@ mod tests {
         let mut manifests = HashMap::new();
 
         let (k1, dep_m) = make_plugin_manifest(
-            "fabric-api", "base", manifest::PluginType::Mod, vec![], vec![], vec![],
+            "fabric-api",
+            "base",
+            manifest::PluginType::Mod,
+            vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k1, dep_m);
 
         let (k2, plug_m) = make_plugin_manifest(
-            "mod-ae2", "base", manifest::PluginType::Mod,
+            "mod-ae2",
+            "base",
+            manifest::PluginType::Mod,
             vec![PluginDependency {
                 product_id: "fabric-api".to_string(),
                 content_repo_id: "base".to_string(),
                 tag_constraints: BTreeMap::new(),
             }],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k2, plug_m);
 
@@ -323,7 +369,8 @@ mod tests {
             &[("mod-ae2", "base")],
             &manifests,
             &mock_target_resolver,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(result.install_order.len(), 3);
         assert_eq!(result.install_order[0].product_id, "game");
@@ -340,9 +387,8 @@ mod tests {
             target_tags: TargetTagSet::default(),
         };
         let manifests = HashMap::new();
-        let result = resolve_plugin_dependencies(
-            &base, &[], &manifests, &mock_target_resolver,
-        ).unwrap();
+        let result =
+            resolve_plugin_dependencies(&base, &[], &manifests, &mock_target_resolver).unwrap();
         assert_eq!(result.install_order.len(), 1);
         assert_eq!(result.install_order[0].product_id, "game");
     }
@@ -357,23 +403,29 @@ mod tests {
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
-            "mod-a", "base", manifest::PluginType::Mod,
+            "mod-a",
+            "base",
+            manifest::PluginType::Mod,
             vec![PluginDependency {
                 product_id: "mod-b".to_string(),
                 content_repo_id: "base".to_string(),
                 tag_constraints: BTreeMap::new(),
             }],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k1, m1);
         let (k2, m2) = make_plugin_manifest(
-            "mod-b", "base", manifest::PluginType::Mod,
+            "mod-b",
+            "base",
+            manifest::PluginType::Mod,
             vec![PluginDependency {
                 product_id: "mod-a".to_string(),
                 content_repo_id: "base".to_string(),
                 tag_constraints: BTreeMap::new(),
             }],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k2, m2);
         let result = resolve_plugin_dependencies(
@@ -395,13 +447,16 @@ mod tests {
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
-            "mod-ae2", "base", manifest::PluginType::Mod,
+            "mod-ae2",
+            "base",
+            manifest::PluginType::Mod,
             vec![PluginDependency {
                 product_id: "nonexistent-dep".to_string(),
                 content_repo_id: "base".to_string(),
                 tag_constraints: BTreeMap::new(),
             }],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k1, m1);
         let result = resolve_plugin_dependencies(
@@ -424,12 +479,18 @@ mod tests {
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
-            "base-enhancer", "base", manifest::PluginType::Mod,
-            vec![], vec![], vec![],
+            "base-enhancer",
+            "base",
+            manifest::PluginType::Mod,
+            vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k1, m1);
         let (k2, m2) = make_plugin_manifest(
-            "mod-ae2", "base", manifest::PluginType::Mod,
+            "mod-ae2",
+            "base",
+            manifest::PluginType::Mod,
             vec![],
             vec![manifest::PluginOverride {
                 product_id: "base-enhancer".to_string(),
@@ -443,7 +504,8 @@ mod tests {
             &[("mod-ae2", "base"), ("base-enhancer", "base")],
             &manifests,
             &mock_target_resolver,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result.install_order.len(), 3);
         assert_eq!(result.install_order[1].product_id, "base-enhancer");
         assert_eq!(result.install_order[2].product_id, "mod-ae2");
@@ -459,13 +521,16 @@ mod tests {
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
-            "mod-self", "base", manifest::PluginType::Mod,
+            "mod-self",
+            "base",
+            manifest::PluginType::Mod,
             vec![PluginDependency {
                 product_id: "mod-self".to_string(),
                 content_repo_id: "base".to_string(),
                 tag_constraints: BTreeMap::new(),
             }],
-            vec![], vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k1, m1);
         let result = resolve_plugin_dependencies(
@@ -490,12 +555,21 @@ mod tests {
         let mut manifests = HashMap::new();
 
         let (k1, m1) = make_plugin_manifest(
-            "mod-old", "base", manifest::PluginType::Mod, vec![], vec![], vec![],
+            "mod-old",
+            "base",
+            manifest::PluginType::Mod,
+            vec![],
+            vec![],
+            vec![],
         );
         manifests.insert(k1, m1);
 
         let (k2, m2) = make_plugin_manifest(
-            "mod-ae2", "base", manifest::PluginType::Mod, vec![], vec![],
+            "mod-ae2",
+            "base",
+            manifest::PluginType::Mod,
+            vec![],
+            vec![],
             vec![manifest::PluginOverride {
                 product_id: "mod-old".to_string(),
                 content_repo_id: "base".to_string(),

@@ -424,14 +424,16 @@ mod tests {
         let chunk_index = manifest::ChunkIndex {
             format_version: 1,
             updated_at: String::new(),
-            entries: std::collections::BTreeMap::from([
-                ("chunk-a".to_string(), "bundle-a".to_string()),
-            ]),
+            entries: std::collections::BTreeMap::from([(
+                "chunk-a".to_string(),
+                "bundle-a".to_string(),
+            )]),
         };
         std::fs::write(
             repo_path.join("chunk_index.json"),
             serde_json::to_string_pretty(&chunk_index).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -530,7 +532,9 @@ mod tests {
         assert_eq!(result.required_bundle_count, 1);
         assert_eq!(result.downloaded_bundle_count, 1);
         assert!(result.wrote_manifest_signature);
-        assert!(repo_path.join("repo_manifest.json").exists() || repo_path.join("repo.json").exists());
+        assert!(
+            repo_path.join("repo_manifest.json").exists() || repo_path.join("repo.json").exists()
+        );
         assert!(
             repo_path
                 .join("targets")
@@ -551,11 +555,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
-
-
-
-
-
-
-
-

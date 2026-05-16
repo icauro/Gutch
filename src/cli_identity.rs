@@ -5,7 +5,6 @@ use crate::manifest::{
 
 #[derive(Debug, Clone)]
 pub struct ResolvedTargetIdentity {
-    pub target_id: String,
     pub target_tags: TargetTagSet,
 }
 
@@ -39,7 +38,9 @@ pub fn resolve_target_identity(
         if let Some(missing_name) = rules
             .target_tags
             .iter()
-            .find(|definition| definition.required && !has_definition_value(&target_tags, definition))
+            .find(|definition| {
+                definition.required && !has_definition_value(&target_tags, definition)
+            })
             .map(|definition| definition.name.as_str())
         {
             return Err(Error::manifest(format!(
@@ -49,12 +50,7 @@ pub fn resolve_target_identity(
         }
     }
 
-    let target_id = compute_target_id(&target_tags);
-
-    Ok(ResolvedTargetIdentity {
-        target_id,
-        target_tags,
-    })
+    Ok(ResolvedTargetIdentity { target_tags })
 }
 
 pub fn resolve_target_identity_from_rules(
@@ -71,16 +67,14 @@ pub fn apply_resolved_target_identity(
     target_manifest: &mut TargetManifest,
     resolved_identity: &ResolvedTargetIdentity,
 ) {
-    target_manifest.target_id = resolved_identity.target_id.clone();
     target_manifest.target_tags = resolved_identity.target_tags.clone();
 }
 
-pub fn compute_target_id(target_tags: &TargetTagSet) -> String {
-    let canonical = target_tags.to_canonical_strings().join("+");
-    blake3::hash(canonical.as_bytes()).to_hex().to_string()
-}
-
-fn apply_raw_tag(target_tags: &mut TargetTagSet, raw_tag: &str, strict_exclusive: bool) -> Result<()> {
+fn apply_raw_tag(
+    target_tags: &mut TargetTagSet,
+    raw_tag: &str,
+    strict_exclusive: bool,
+) -> Result<()> {
     let trimmed = raw_tag.trim();
     if trimmed.is_empty() {
         return Err(Error::manifest("invalid empty --tag value".to_string()));
@@ -199,7 +193,10 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
                         tags.insert_scoped(definition.name.clone(), canonical.clone());
                     }
                     TargetTagKind::Exclusive => {
-                        tags.insert_exclusive_if_missing(definition.name.clone(), canonical.clone());
+                        tags.insert_exclusive_if_missing(
+                            definition.name.clone(),
+                            canonical.clone(),
+                        );
                     }
                 }
                 break;
@@ -265,10 +262,12 @@ mod tests {
         .unwrap();
 
         assert!(parsed.plain.contains("alpha"));
-        assert!(parsed
-            .scoped
-            .get("loader")
-            .is_some_and(|values| values.contains("fabric")));
+        assert!(
+            parsed
+                .scoped
+                .get("loader")
+                .is_some_and(|values| values.contains("fabric"))
+        );
         assert_eq!(parsed.get_exclusive("os"), Some("windows"));
     }
 
@@ -310,23 +309,14 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_target_id_is_deterministic() {
-        let mut tags_a = TargetTagSet::default();
-        tags_a.upsert_exclusive("version".to_string(), "1.0.0".to_string());
-        tags_a.upsert_exclusive("os".to_string(), "windows".to_string());
-
-        let mut tags_b = TargetTagSet::default();
-        tags_b.upsert_exclusive("os".to_string(), "windows".to_string());
-        tags_b.upsert_exclusive("version".to_string(), "1.0.0".to_string());
-
-        assert_eq!(compute_target_id(&tags_a), compute_target_id(&tags_b));
-    }
-
-    #[test]
     fn test_resolve_missing_version_errors() {
         let rules = test_rules();
-        let result =
-            resolve_target_identity(std::path::Path::new("game-win-x64"), &TargetTagSet::default(), &rules, "test");
+        let result = resolve_target_identity(
+            std::path::Path::new("game-win-x64"),
+            &TargetTagSet::default(),
+            &rules,
+            "test",
+        );
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing"));
@@ -336,17 +326,19 @@ mod tests {
     fn test_resolve_custom_scoped_tags() {
         let mut rules = test_rules();
         rules.on_incomplete = IncompleteInferenceBehavior::Warn;
-        rules.target_tags.push(crate::manifest::TargetTagDefinition {
-            name: "loader".to_string(),
-            kind: TargetTagKind::Scoped,
-            required: false,
-            values: Vec::new(),
-            aliases: std::collections::BTreeMap::from([
-                ("fabric".to_string(), "fabric".to_string()),
-                ("forge".to_string(), "forge".to_string()),
-            ]),
-            default_value: None,
-        });
+        rules
+            .target_tags
+            .push(crate::manifest::TargetTagDefinition {
+                name: "loader".to_string(),
+                kind: TargetTagKind::Scoped,
+                required: false,
+                values: Vec::new(),
+                aliases: std::collections::BTreeMap::from([
+                    ("fabric".to_string(), "fabric".to_string()),
+                    ("forge".to_string(), "forge".to_string()),
+                ]),
+                default_value: None,
+            });
 
         let resolved = resolve_target_identity(
             std::path::Path::new("mod-v1.0.0-fabric"),
@@ -357,11 +349,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(resolved.target_tags.get_exclusive("version"), Some("1.0.0"));
-        assert!(resolved
-            .target_tags
-            .scoped
-            .get("loader")
-            .is_some_and(|values| values.contains("fabric")));
+        assert!(
+            resolved
+                .target_tags
+                .scoped
+                .get("loader")
+                .is_some_and(|values| values.contains("fabric"))
+        );
     }
 
     #[test]

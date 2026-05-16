@@ -29,14 +29,17 @@ pub use build_types::{
     BuildResult, BuildTimings, BuiltBundle, ExistingChunkLocation, RepoInitResult,
     RepoInitTargetInput,
 };
-pub use cli_identity::{ResolvedTargetIdentity, compute_target_id, parse_cli_tags, resolve_target_identity, resolve_target_identity_from_rules};
-pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
+pub use cli_identity::{
+    ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
+    resolve_target_identity_from_rules,
+};
 pub use error::{Error, Result};
 pub use install::{
     GutchBundleDownload, TargetInstallApplyResult, TargetInstallApplySource,
     TargetInstallFetchRequest, TargetInstallFetchResult, apply_target_install_with_timings,
     fetch_target_install_content,
 };
+pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use reconstruct::{
     ReconstructTimings, VerifiedSourceInstall,
     reconstruct_from_bundle_paths_and_verified_source_with_timings,
@@ -46,7 +49,8 @@ pub use reconstruct::{
 pub use repo::{
     ContentRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
     discover_source_target_installs, ensure_content_repo_layout, inspect_content_repo,
-    load_chunk_index, load_content_repo_manifest, target_manifest_path, write_chunk_index,
+    load_chunk_index, load_content_repo_manifest, reserve_next_target_id, target_manifest_path,
+    write_chunk_index, write_content_repo_manifest,
 };
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyTimings, classify_directory,
@@ -93,7 +97,7 @@ mod tests {
         std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
+        let result = build_from_directory(&dir, "test-product", "base", "1", &tags).unwrap();
 
         assert!(!result.target_manifest.files.is_empty());
 
@@ -134,9 +138,9 @@ mod tests {
         std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let v1 = build_from_directory(&v1_dir, "test-product", "base", &tags).unwrap();
+        let v1 = build_from_directory(&v1_dir, "test-product", "base", "1", &tags).unwrap();
         let tags_v2 = exclusive_tags("2.0.0", "windows", "x86_64", "base");
-        let v2 = build_from_directory(&v2_dir, "test-product", "base", &tags_v2).unwrap();
+        let v2 = build_from_directory(&v2_dir, "test-product", "base", "2", &tags_v2).unwrap();
 
         let v1_bundle_data: Vec<Vec<u8>> = v1
             .bundles
@@ -208,10 +212,12 @@ mod tests {
         let inputs = vec![
             RepoInitTargetInput {
                 dir: dir_a.clone(),
+                target_id: "1".to_string(),
                 target_tags: exclusive_tags("1.0.0", "windows", "x86_64", "base"),
             },
             RepoInitTargetInput {
                 dir: dir_b.clone(),
+                target_id: "2".to_string(),
                 target_tags: exclusive_tags("1.0.0", "windows", "x86_64", "tr"),
             },
         ];
@@ -246,7 +252,10 @@ mod tests {
                 .join("repos")
                 .join("base")
         );
-        assert_eq!(paths.repo_manifest_path, paths.repo_root.join("repo_manifest.json"));
+        assert_eq!(
+            paths.repo_manifest_path,
+            paths.repo_root.join("repo_manifest.json")
+        );
         assert_eq!(paths.targets_root, paths.repo_root.join("targets"));
         assert_eq!(paths.bundles_root, paths.repo_root.join("bundles"));
     }
@@ -284,7 +293,7 @@ mod tests {
         };
 
         let tags = exclusive_tags("v", "win", "x64", "base");
-        let mut vm = TargetManifest::new("p".into(), "base".into(), compute_target_id(&tags), tags);
+        let mut vm = TargetManifest::new("p".into(), "base".into(), "1".into(), tags);
         vm.files.push(fm);
         let errors = verify_directory(&vm, &dir).unwrap();
         assert!(!errors.is_empty());
@@ -303,7 +312,7 @@ mod tests {
         std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
+        let result = build_from_directory(&dir, "test-product", "base", "1", &tags).unwrap();
 
         let mut manifest = result.target_manifest.clone();
         manifest.files.retain(|file| file.path == "expected.txt");
@@ -329,7 +338,7 @@ mod tests {
         std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
+        let result = build_from_directory(&dir, "test-product", "base", "1", &tags).unwrap();
 
         std::fs::remove_file(dir.join("healthy.txt")).unwrap();
         std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
@@ -415,7 +424,7 @@ mod tests {
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let t1 = Instant::now();
-        let result = build_from_directory(&root, "mock-game", "base", &tags).unwrap();
+        let result = build_from_directory(&root, "mock-game", "base", "1", &tags).unwrap();
         let build_ms = t1.elapsed().as_millis();
 
         let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
@@ -475,7 +484,12 @@ mod tests {
         );
         println!(
             "  unique chunks:   {}",
-            result.target_manifest.files.iter().flat_map(|f| f.chunks.iter()).count()
+            result
+                .target_manifest
+                .files
+                .iter()
+                .flat_map(|f| f.chunks.iter())
+                .count()
         );
         println!("  bundles:         {}", result.bundles.len());
         println!();

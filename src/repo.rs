@@ -166,6 +166,25 @@ pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex)
     Ok(())
 }
 
+pub fn write_content_repo_manifest(
+    paths: &ContentRepoPaths,
+    repo_manifest: &manifest::ContentRepoManifest,
+) -> Result<()> {
+    let json = serde_json::to_string_pretty(repo_manifest)?;
+    std::fs::write(&paths.repo_manifest_path, json)?;
+    Ok(())
+}
+
+pub fn reserve_next_target_id(
+    paths: &ContentRepoPaths,
+    repo_manifest: &mut manifest::ContentRepoManifest,
+) -> Result<String> {
+    let next_target_id = repo_manifest.next_target_id.max(1);
+    repo_manifest.next_target_id = next_target_id + 1;
+    write_content_repo_manifest(paths, repo_manifest)?;
+    Ok(next_target_id.to_string())
+}
+
 pub fn target_manifest_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
     paths.targets_root.join(target_id).join("manifest.json")
 }
@@ -250,11 +269,7 @@ pub fn discover_source_target_installs(
         candidates.push(candidate);
     }
 
-    candidates.sort_by(|left, right| {
-        left.target_id
-            .cmp(&right.target_id)
-            .then(left.path.cmp(&right.path))
-    });
+    candidates.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(candidates)
 }
 
@@ -350,7 +365,11 @@ fn inspect_target_manifests(
         });
     }
 
-    targets.sort_by(|left, right| left.target_id.cmp(&right.target_id));
+    targets.sort_by(|left, right| {
+        numeric_target_id(left.target_id.as_str())
+            .cmp(&numeric_target_id(right.target_id.as_str()))
+            .then(left.target_id.cmp(&right.target_id))
+    });
     Ok(targets)
 }
 
@@ -361,14 +380,15 @@ fn infer_source_target_candidate(
     use crate::cli_identity::resolve_target_identity;
 
     let context = format!("source target '{}'", path.display());
-    let resolved = resolve_target_identity(path, &manifest::TargetTagSet::default(), rules, &context).ok()?;
+    let resolved =
+        resolve_target_identity(path, &manifest::TargetTagSet::default(), rules, &context).ok()?;
 
     let folder_name = path.file_name()?.to_str()?.to_string();
 
     Some(SourceTargetInstallCandidate {
         path: path.display().to_string(),
         folder_name,
-        target_id: resolved.target_id,
+        target_id: preview_target_identity(&resolved.target_tags),
         version_id: exclusive_tag_or_empty(&resolved.target_tags, "version"),
         platform: exclusive_tag_or_empty(&resolved.target_tags, "os"),
         architecture: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
@@ -378,7 +398,27 @@ fn infer_source_target_candidate(
 }
 
 fn exclusive_tag_or_empty(target_tags: &manifest::TargetTagSet, prefix: &str) -> String {
-    target_tags.get_exclusive(prefix).unwrap_or_default().to_string()
+    target_tags
+        .get_exclusive(prefix)
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn numeric_target_id(target_id: &str) -> u64 {
+    target_id.parse::<u64>().unwrap_or_default()
+}
+
+fn preview_target_identity(target_tags: &manifest::TargetTagSet) -> String {
+    let mut parts = Vec::new();
+    for prefix in ["version", "os", "arch", "tier"] {
+        if let Some(value) = target_tags.get_exclusive(prefix) {
+            parts.push(value.to_string());
+        }
+    }
+    if parts.is_empty() {
+        return target_tags.to_canonical_strings().join(" ");
+    }
+    parts.join(" ")
 }
 
 fn required_bundle_ids(target_manifest: &manifest::TargetManifest) -> Vec<String> {
@@ -420,7 +460,12 @@ mod tests {
         let root = PathBuf::from("/test/store");
         let paths = ContentRepoPaths::from_store_root(&root, "p1", "my-repo");
         assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
-        assert!(paths.repo_manifest_path.to_string_lossy().contains("my-repo"));
+        assert!(
+            paths
+                .repo_manifest_path
+                .to_string_lossy()
+                .contains("my-repo")
+        );
     }
 
     #[test]
@@ -435,12 +480,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
 
         ensure_content_repo_layout(&repo_paths, "product-1", "base").unwrap();
-        let target_root = repo_paths.targets_root.join("abc123def");
+        let target_root = repo_paths.targets_root.join("1");
         std::fs::create_dir_all(&target_root).unwrap();
         let mut manifest = manifest::TargetManifest::new(
             "product-1".to_string(),
             "base".to_string(),
-            "abc123def".to_string(),
+            "1".to_string(),
             exclusive_tags("1.0.0", "windows", "x86_64", "base"),
         );
         manifest.files.push(manifest::FileManifest {
@@ -469,7 +514,7 @@ mod tests {
         assert_eq!(status.content_repo_id, "base");
         assert_eq!(status.bundle_count, 1);
         assert_eq!(status.targets.len(), 1);
-        assert_eq!(status.targets[0].target_id, "abc123def");
+        assert_eq!(status.targets[0].target_id, "1");
         assert!(status.targets[0].has_signature_file);
 
         let _ = std::fs::remove_dir_all(&root);
@@ -524,7 +569,11 @@ mod tests {
                         default_value: None,
                     },
                 ],
-                target_id_order: vec!["version".to_string(), "loader".to_string(), "mc".to_string()],
+                target_id_order: vec![
+                    "version".to_string(),
+                    "loader".to_string(),
+                    "mc".to_string(),
+                ],
                 on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
             }),
             plugin: None,
@@ -579,8 +628,14 @@ mod tests {
         let loaded = load_chunk_index(&paths).unwrap();
         assert_eq!(loaded.format_version, 1);
         assert_eq!(loaded.entries.len(), 3);
-        assert_eq!(loaded.entries.get("chunk-a").map(String::as_str), Some("bundle-1"));
-        assert_eq!(loaded.entries.get("chunk-c").map(String::as_str), Some("bundle-2"));
+        assert_eq!(
+            loaded.entries.get("chunk-a").map(String::as_str),
+            Some("bundle-1")
+        );
+        assert_eq!(
+            loaded.entries.get("chunk-c").map(String::as_str),
+            Some("bundle-2")
+        );
         assert!(loaded.entries.get("nonexistent").is_none());
 
         let _ = std::fs::remove_dir_all(&root);
@@ -607,12 +662,12 @@ mod tests {
         let paths = ContentRepoPaths::from_repo_root(&root);
         ensure_content_repo_layout(&paths, "product-tags", "base").unwrap();
 
-        let target_root = paths.targets_root.join("hash123");
+        let target_root = paths.targets_root.join("2");
         std::fs::create_dir_all(&target_root).unwrap();
         let mut manifest = manifest::TargetManifest::new(
             "product-tags".to_string(),
             "base".to_string(),
-            "hash123".to_string(),
+            "2".to_string(),
             exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
         );
         manifest.files.push(manifest::FileManifest {
@@ -627,16 +682,15 @@ mod tests {
         std::fs::write(
             target_root.join("manifest.json"),
             serde_json::to_string_pretty(&manifest).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let status = inspect_content_repo(&root).unwrap();
         assert_eq!(status.targets.len(), 1);
-        assert_eq!(status.targets[0].target_id, "hash123");
+        assert_eq!(status.targets[0].target_id, "2");
         assert_eq!(status.targets[0].version_id, "2.0.0");
         assert_eq!(status.targets[0].platform, "linux");
 
         let _ = std::fs::remove_dir_all(&root);
     }
 }
-
-
