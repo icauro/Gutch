@@ -261,14 +261,10 @@ pub fn estimate_build(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::TargetManifest;
-    use std::collections::BTreeMap;
+    use crate::manifest::{TargetManifest, TargetTagSet};
 
     fn empty_manifest() -> TargetManifest {
-        TargetManifest::new(
-            "p1".into(), "r1".into(), "t1".into(),
-            BTreeMap::new(),
-        )
+        TargetManifest::new("p1".into(), "r1".into(), "t1".into(), TargetTagSet::default())
     }
 
     #[test]

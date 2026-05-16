@@ -2,7 +2,6 @@ mod cli_commands;
 mod cli_path_compare;
 mod cli_reporting;
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -19,15 +18,15 @@ struct Cli {
 #[derive(Debug, Deserialize)]
 struct RepoInitSpec {
     targets: Vec<RepoInitTargetSpec>,
-    #[serde(default)]
-    auto_tagging_rules: Option<g::manifest::AutoTaggingRules>,
+    #[serde(default, alias = "auto_tagging_rules")]
+    target_schema: Option<g::manifest::TargetTagSchema>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RepoInitTargetSpec {
     dir: PathBuf,
     #[serde(default)]
-    tags: BTreeMap<String, String>,
+    tags: g::manifest::TargetTagSet,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

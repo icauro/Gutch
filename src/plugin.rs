@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use crate::manifest::{self, PluginDependency, PluginInfo, TagConstraint};
+use crate::manifest::{self, PluginInfo, TagConstraint, TargetTagSet};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
@@ -8,7 +8,7 @@ pub struct ResolvedTarget {
     pub product_id: String,
     pub content_repo_id: String,
     pub target_id: String,
-    pub target_tags: BTreeMap<String, String>,
+    pub target_tags: TargetTagSet,
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +160,7 @@ fn reorder_by_dependencies(
 ) {
     let mut i = 1;
     while i < install_order.len() {
-        let target_key = format!(
+        let _target_key = format!(
             "{}:{}", install_order[i].product_id, install_order[i].content_repo_id
         );
         if let Some(manifest) = plugin_manifests.get(&(
@@ -238,7 +238,7 @@ mod tests {
             product_id: _product_id.to_string(),
             content_repo_id: _repo_id.to_string(),
             target_id: "mock-target-id".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         }))
     }
 
@@ -270,7 +270,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
 
         let (key, pm) = make_plugin_manifest(
@@ -297,7 +297,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
 
         let mut manifests = HashMap::new();
@@ -337,7 +337,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
         let manifests = HashMap::new();
         let result = resolve_plugin_dependencies(
@@ -353,7 +353,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
@@ -391,7 +391,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
@@ -420,7 +420,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
@@ -455,7 +455,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
         let mut manifests = HashMap::new();
         let (k1, m1) = make_plugin_manifest(
@@ -484,7 +484,7 @@ mod tests {
             product_id: "game".to_string(),
             content_repo_id: "base".to_string(),
             target_id: "base-target".to_string(),
-            target_tags: BTreeMap::new(),
+            target_tags: TargetTagSet::default(),
         };
 
         let mut manifests = HashMap::new();

@@ -120,7 +120,6 @@ struct TargetInstallApplyStats {
 mod tests {
     use super::*;
     use crate::cli_reporting::collect_repo_init_target_added_bytes;
-    use std::collections::BTreeMap;
 
     #[test]
     fn collect_repo_init_target_added_bytes_counts_only_new_bundles_once() {
@@ -128,14 +127,14 @@ mod tests {
             "prod".into(),
             "base".into(),
             "1.0.0-windows-x86_64-base".into(),
-            BTreeMap::new(),
+            g::manifest::TargetTagSet::default(),
         );
         target_a.total_logical_size = 1000;
         let mut target_b = g::manifest::TargetManifest::new(
             "prod".into(),
             "base".into(),
             "1.1.0-windows-x86_64-base".into(),
-            BTreeMap::new(),
+            g::manifest::TargetTagSet::default(),
         );
         target_b.total_logical_size = 2000;
 
@@ -348,7 +347,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             let repo_paths = g::ContentRepoPaths::from_repo_root(&repo);
             let mut repo_manifest =
                 g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
-            repo_manifest.auto_tagging_rules = load_optional_rules(&schema)?;
+            repo_manifest.target_schema = load_optional_rules(&schema)?;
             std::fs::write(
                 &repo_paths.repo_manifest_path,
                 serde_json::to_string_pretty(&repo_manifest)?,
@@ -377,7 +376,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             }
 
             let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&repo)?;
-            repo_manifest.auto_tagging_rules = if clear {
+            repo_manifest.target_schema = if clear {
                 None
             } else {
                 load_optional_rules(&schema)?
@@ -414,7 +413,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 ));
             }
 
-            let rules = spec.auto_tagging_rules.clone().unwrap_or_default();
+            let rules = spec.target_schema.clone().unwrap_or_default();
             
 
             let target_inputs: Vec<g::RepoInitTargetInput> = spec
@@ -443,7 +442,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             let mut repo_manifest =
                 g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
-            repo_manifest.auto_tagging_rules = Some(rules.clone());
+            repo_manifest.target_schema = Some(rules.clone());
             std::fs::write(
                 &repo_paths.repo_manifest_path,
                 serde_json::to_string_pretty(&repo_manifest)?,
@@ -812,19 +811,19 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         } => {
             let prepared_input = prepare_input_path(&dir)?;
             let (repo_paths, repo_manifest) = g::load_content_repo_manifest(&repo)?;
-            let rules = repo_manifest.auto_tagging_rules.clone().unwrap_or_default();
+            let rules = repo_manifest.target_schema.clone().unwrap_or_default();
             let mut explicit_tags = parse_cli_tags(&tags)?;
             if let Some(version) = version {
-                explicit_tags.insert("version".to_string(), version);
+                explicit_tags.upsert_exclusive("version", version);
             }
             if let Some(platform) = platform {
-                explicit_tags.insert("platform".to_string(), platform);
+                explicit_tags.upsert_exclusive("os", platform);
             }
             if let Some(architecture) = architecture {
-                explicit_tags.insert("arch".to_string(), architecture);
+                explicit_tags.upsert_exclusive("arch", architecture);
             }
             if let Some(tier) = tier {
-                explicit_tags.insert("tier".to_string(), tier);
+                explicit_tags.upsert_exclusive("tier", tier);
             }
             let context = format!("target insert input '{}'", dir.display());
             let resolved_identity =
@@ -978,10 +977,10 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 manifest_path: manifest_path.display().to_string(),
                 product_id: product,
                 content_repo_id: content_repo,
-                version_id: resolved_identity.target_tags.get("version").cloned().unwrap_or_default(),
-                platform: resolved_identity.target_tags.get("platform").cloned().unwrap_or_default(),
-                architecture: resolved_identity.target_tags.get("arch").cloned().unwrap_or_default(),
-                tier_id: resolved_identity.target_tags.get("tier").cloned().unwrap_or_default(),
+                version_id: resolved_identity.target_tags.get_exclusive("version").unwrap_or_default().to_string(),
+                platform: resolved_identity.target_tags.get_exclusive("os").unwrap_or_default().to_string(),
+                architecture: resolved_identity.target_tags.get_exclusive("arch").unwrap_or_default().to_string(),
+                tier_id: resolved_identity.target_tags.get_exclusive("tier").unwrap_or_default().to_string(),
                 file_count: result.target_manifest.files.len(),
                 total_logical_size: result.target_manifest.total_logical_size,
                 total_compressed_size_estimate: result
@@ -1473,7 +1472,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             for bundle_id in &tm.files.iter().flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str())).collect::<std::collections::HashSet<_>>() {
                 let bundle_path = bundles_root.join(format!("{}.bundle", bundle_id));
                 let bundle_data = std::fs::read(&bundle_path)?;
-                bundles.push((bundle_id.clone(), bundle_data));
+                bundles.push(((*bundle_id).to_string(), bundle_data));
             }
 
             // Create or update remote target
@@ -1592,11 +1591,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         } => {
             let prepared_input = prepare_input_path(&dir)?;
             let result = {
-                let mut build_tags = std::collections::BTreeMap::new();
-                build_tags.insert("version".to_string(), version.clone());
-                build_tags.insert("platform".to_string(), "windows".to_string());
-                build_tags.insert("arch".to_string(), "x86_64".to_string());
-                build_tags.insert("tier".to_string(), "base".to_string());
+                let mut build_tags = g::manifest::TargetTagSet::default();
+                build_tags.upsert_exclusive("version", version.clone());
+                build_tags.upsert_exclusive("os", "windows");
+                build_tags.upsert_exclusive("arch", "x86_64");
+                build_tags.upsert_exclusive("tier", "base");
                 g::build_from_directory(
                     &prepared_input.dir,
                     &product,

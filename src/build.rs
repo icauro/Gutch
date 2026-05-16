@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 
@@ -13,13 +13,13 @@ use crate::build_types::{
 use crate::bundle::{self, BundleBuilder};
 use crate::cli_identity::compute_target_id;
 use crate::compress::{compress_chunk, compress_with_level};
-use crate::manifest::{self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetManifest};
+use crate::manifest::{self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetManifest, TargetTagSet};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const MIN_PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
 
 struct ScannedTarget {
-    target_tags: BTreeMap<String, String>,
+    target_tags: TargetTagSet,
     files: Vec<FileManifest>,
     unique_chunks: HashMap<String, Vec<u8>>,
     total_logical_size: u64,
@@ -185,7 +185,7 @@ pub fn build_from_directory(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    target_tags: &BTreeMap<String, String>,
+    target_tags: &TargetTagSet,
 ) -> Result<BuildResult> {
     let (result, _) = build_from_directory_with_timings_against_existing_bundles(
         dir,
@@ -201,7 +201,7 @@ pub fn build_from_directory_with_timings(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    target_tags: &BTreeMap<String, String>,
+    target_tags: &TargetTagSet,
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_bundles(
         dir,
@@ -216,7 +216,7 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    target_tags: &BTreeMap<String, String>,
+    target_tags: &TargetTagSet,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_store(
@@ -233,7 +233,7 @@ pub fn build_from_directory_with_timings_against_existing_store(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    target_tags: &BTreeMap<String, String>,
+    target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
@@ -254,7 +254,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    target_tags: &BTreeMap<String, String>,
+    target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
@@ -276,7 +276,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    target_tags: &BTreeMap<String, String>,
+    target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
@@ -302,7 +302,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     dir: &Path,
     product_id: &str,
     content_repo_id: &str,
-    target_tags: &BTreeMap<String, String>,
+    target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,

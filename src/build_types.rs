@@ -1,13 +1,12 @@
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::manifest::TargetManifest;
+use crate::manifest::{TargetManifest, TargetTagSet};
 
 #[derive(Debug, Clone)]
 pub struct RepoInitTargetInput {
     pub dir: PathBuf,
-    pub target_tags: BTreeMap<String, String>,
+    pub target_tags: TargetTagSet,
 }
 
 #[derive(Debug, Clone)]

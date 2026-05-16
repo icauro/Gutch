@@ -23,6 +23,8 @@ pub struct RepoInspectStatus {
     pub repo_path: String,
     pub product_id: String,
     pub content_repo_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_schema: Option<manifest::TargetTagSchema>,
     pub targets: Vec<RepoInspectTargetStatus>,
     pub bundle_count: usize,
     pub bundle_bytes: u64,
@@ -33,11 +35,17 @@ pub struct RepoInspectStatus {
 #[serde(rename_all = "camelCase")]
 pub struct RepoInspectTargetStatus {
     pub target_id: String,
+    pub version_id: String,
+    pub platform: String,
+    pub architecture: String,
+    pub tier_id: String,
     pub file_count: usize,
+    pub required_bundle_count: usize,
     pub total_logical_size: u64,
     pub manifest_path: String,
     pub has_signature_file: bool,
-    pub target_tags: BTreeMap<String, String>,
+    pub missing_bundle_count: usize,
+    pub target_tags: manifest::TargetTagSet,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +54,11 @@ pub struct SourceTargetInstallCandidate {
     pub path: String,
     pub folder_name: String,
     pub target_id: String,
-    pub target_tags: BTreeMap<String, String>,
+    pub version_id: String,
+    pub platform: String,
+    pub architecture: String,
+    pub tier_id: String,
+    pub target_tags: manifest::TargetTagSet,
 }
 
 impl ContentRepoPaths {
@@ -188,7 +200,7 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
     let (repo_paths, repo_manifest) = load_content_repo_manifest(&repo_path)?;
     let (_bundle_ids, bundle_count, bundle_bytes) =
         inspect_bundle_inventory(&repo_paths.bundles_root)?;
-    let targets = inspect_target_manifests(&repo_paths.targets_root)?;
+    let targets = inspect_target_manifests(&repo_paths.targets_root, &repo_paths.bundles_root)?;
 
     Ok(RepoInspectStatus {
         exists: true,
@@ -196,6 +208,7 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         repo_path: repo_path_display,
         product_id: repo_manifest.product_id,
         content_repo_id: repo_manifest.content_repo_id,
+        target_schema: repo_manifest.target_schema,
         targets,
         bundle_count,
         bundle_bytes,
@@ -221,7 +234,7 @@ pub fn discover_source_target_installs(
     }
 
     let (_repo_paths, repo_manifest) = load_content_repo_manifest(repo_root)?;
-    let rules = repo_manifest.auto_tagging_rules.unwrap_or_default();
+    let rules = repo_manifest.target_schema.unwrap_or_default();
     let mut candidates = Vec::new();
 
     for entry in std::fs::read_dir(source_targets_root)? {
@@ -256,6 +269,7 @@ fn empty_repo_inspect_status(
         repo_path,
         product_id: String::new(),
         content_repo_id: String::new(),
+        target_schema: None,
         targets: Vec::new(),
         bundle_count: 0,
         bundle_bytes: 0,
@@ -292,11 +306,13 @@ fn inspect_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usi
 
 fn inspect_target_manifests(
     targets_root: &Path,
+    bundles_root: &Path,
 ) -> Result<Vec<RepoInspectTargetStatus>> {
     if !targets_root.exists() {
         return Ok(Vec::new());
     }
 
+    let (available_bundle_ids, _, _) = inspect_bundle_inventory(bundles_root)?;
     let mut targets = Vec::new();
     for entry in std::fs::read_dir(targets_root)? {
         let entry = entry?;
@@ -312,13 +328,24 @@ fn inspect_target_manifests(
 
         let manifest_json = std::fs::read_to_string(&manifest_path)?;
         let manifest: manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
+        let required_bundle_ids = required_bundle_ids(&manifest);
+        let missing_bundle_count = required_bundle_ids
+            .iter()
+            .filter(|bundle_id| !available_bundle_ids.contains(*bundle_id))
+            .count();
 
         targets.push(RepoInspectTargetStatus {
             target_id: manifest.target_id.clone(),
+            version_id: exclusive_tag_or_empty(&manifest.target_tags, "version"),
+            platform: exclusive_tag_or_empty(&manifest.target_tags, "os"),
+            architecture: exclusive_tag_or_empty(&manifest.target_tags, "arch"),
+            tier_id: exclusive_tag_or_empty(&manifest.target_tags, "tier"),
             file_count: manifest.files.len(),
+            required_bundle_count: required_bundle_ids.len(),
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),
             has_signature_file: path.join("manifest.sig").exists(),
+            missing_bundle_count,
             target_tags: manifest.target_tags,
         });
     }
@@ -329,12 +356,12 @@ fn inspect_target_manifests(
 
 fn infer_source_target_candidate(
     path: &Path,
-    rules: &manifest::AutoTaggingRules,
+    rules: &manifest::TargetTagSchema,
 ) -> Option<SourceTargetInstallCandidate> {
     use crate::cli_identity::resolve_target_identity;
 
     let context = format!("source target '{}'", path.display());
-    let resolved = resolve_target_identity(path, &BTreeMap::new(), rules, &context).ok()?;
+    let resolved = resolve_target_identity(path, &manifest::TargetTagSet::default(), rules, &context).ok()?;
 
     let folder_name = path.file_name()?.to_str()?.to_string();
 
@@ -342,13 +369,40 @@ fn infer_source_target_candidate(
         path: path.display().to_string(),
         folder_name,
         target_id: resolved.target_id,
+        version_id: exclusive_tag_or_empty(&resolved.target_tags, "version"),
+        platform: exclusive_tag_or_empty(&resolved.target_tags, "os"),
+        architecture: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
+        tier_id: exclusive_tag_or_empty(&resolved.target_tags, "tier"),
         target_tags: resolved.target_tags,
     })
+}
+
+fn exclusive_tag_or_empty(target_tags: &manifest::TargetTagSet, prefix: &str) -> String {
+    target_tags.get_exclusive(prefix).unwrap_or_default().to_string()
+}
+
+fn required_bundle_ids(target_manifest: &manifest::TargetManifest) -> Vec<String> {
+    target_manifest
+        .files
+        .iter()
+        .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.clone()))
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::TargetTagSet {
+        let mut tags = manifest::TargetTagSet::default();
+        tags.upsert_exclusive("version", version);
+        tags.upsert_exclusive("os", os);
+        tags.upsert_exclusive("arch", arch);
+        tags.upsert_exclusive("tier", tier);
+        tags
+    }
 
     #[test]
     fn content_repo_paths_from_repo_root() {
@@ -387,12 +441,7 @@ mod tests {
             "product-1".to_string(),
             "base".to_string(),
             "abc123def".to_string(),
-            BTreeMap::from([
-                ("version".to_string(), "1.0.0".to_string()),
-                ("platform".to_string(), "windows".to_string()),
-                ("arch".to_string(), "x86_64".to_string()),
-                ("tier".to_string(), "base".to_string()),
-            ]),
+            exclusive_tags("1.0.0", "windows", "x86_64", "base"),
         );
         manifest.files.push(manifest::FileManifest {
             path: "game.exe".to_string(),
@@ -441,24 +490,41 @@ mod tests {
         ensure_content_repo_layout(&repo_paths, "", "mods").unwrap();
 
         let repo_manifest = manifest::ContentRepoManifest {
-            auto_tagging_rules: Some(manifest::AutoTaggingRules {
-                aliases: BTreeMap::from([
-                    (
-                        "loader".to_string(),
-                        BTreeMap::from([
+            target_schema: Some(manifest::TargetTagSchema {
+                target_tags: vec![
+                    manifest::TargetTagDefinition {
+                        name: "version".to_string(),
+                        kind: manifest::TargetTagKind::Exclusive,
+                        required: true,
+                        values: Vec::new(),
+                        aliases: BTreeMap::new(),
+                        default_value: None,
+                    },
+                    manifest::TargetTagDefinition {
+                        name: "loader".to_string(),
+                        kind: manifest::TargetTagKind::Scoped,
+                        required: false,
+                        values: Vec::new(),
+                        aliases: BTreeMap::from([
                             ("fabric".to_string(), "fabric".to_string()),
                             ("forge".to_string(), "forge".to_string()),
                             ("neoforge".to_string(), "neoforge".to_string()),
                         ]),
-                    ),
-                    (
-                        "mc".to_string(),
-                        BTreeMap::from([
+                        default_value: None,
+                    },
+                    manifest::TargetTagDefinition {
+                        name: "mc".to_string(),
+                        kind: manifest::TargetTagKind::Scoped,
+                        required: false,
+                        values: Vec::new(),
+                        aliases: BTreeMap::from([
                             ("1.20.1".to_string(), "1.20.1".to_string()),
                             ("1.21".to_string(), "1.21".to_string()),
                         ]),
-                    ),
-                ]),
+                        default_value: None,
+                    },
+                ],
+                target_id_order: vec!["version".to_string(), "loader".to_string(), "mc".to_string()],
                 on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
             }),
             plugin: None,
@@ -477,12 +543,14 @@ mod tests {
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].folder_name, "ae2-v15.4.10-fabric-1.21");
+        assert_eq!(candidates[0].version_id, "15.4.10");
         assert_eq!(
-            candidates[0].target_tags.get("version").map(String::as_str),
-            Some("15.4.10")
-        );
-        assert_eq!(
-            candidates[0].target_tags.get("loader").map(String::as_str),
+            candidates[0]
+                .target_tags
+                .scoped
+                .get("loader")
+                .and_then(|values| values.iter().next())
+                .map(String::as_str),
             Some("fabric")
         );
 
@@ -545,12 +613,7 @@ mod tests {
             "product-tags".to_string(),
             "base".to_string(),
             "hash123".to_string(),
-            BTreeMap::from([
-                ("version".to_string(), "2.0.0".to_string()),
-                ("platform".to_string(), "linux".to_string()),
-                ("arch".to_string(), "x86_64".to_string()),
-                ("tier".to_string(), "premium".to_string()),
-            ]),
+            exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
         );
         manifest.files.push(manifest::FileManifest {
             path: "game.bin".to_string(),
@@ -569,14 +632,8 @@ mod tests {
         let status = inspect_content_repo(&root).unwrap();
         assert_eq!(status.targets.len(), 1);
         assert_eq!(status.targets[0].target_id, "hash123");
-        assert_eq!(
-            status.targets[0].target_tags.get("version").map(String::as_str),
-            Some("2.0.0")
-        );
-        assert_eq!(
-            status.targets[0].target_tags.get("platform").map(String::as_str),
-            Some("linux")
-        );
+        assert_eq!(status.targets[0].version_id, "2.0.0");
+        assert_eq!(status.targets[0].platform, "linux");
 
         let _ = std::fs::remove_dir_all(&root);
     }

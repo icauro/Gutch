@@ -56,12 +56,20 @@ pub use verify::{
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use super::*;
-    use crate::manifest::{FileManifest, TargetManifest};
+    use crate::manifest::{FileManifest, TargetManifest, TargetTagSet};
     use crate::test_util;
     use std::path::{Path, PathBuf};
     use std::time::Instant;
+
+    fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> TargetTagSet {
+        let mut tags = TargetTagSet::default();
+        tags.upsert_exclusive("version", version);
+        tags.upsert_exclusive("os", os);
+        tags.upsert_exclusive("arch", arch);
+        tags.upsert_exclusive("tier", tier);
+        tags
+    }
 
     #[test]
     fn test_build_and_reconstruct_roundtrip() {
@@ -84,12 +92,7 @@ mod tests {
         .unwrap();
         std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
 
-        let tags = BTreeMap::from([
-            ("version".to_string(), "1.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
 
         assert!(!result.target_manifest.files.is_empty());
@@ -130,19 +133,9 @@ mod tests {
         std::fs::write(v2_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
         std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
-        let tags = BTreeMap::from([
-            ("version".to_string(), "1.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let v1 = build_from_directory(&v1_dir, "test-product", "base", &tags).unwrap();
-        let tags_v2 = BTreeMap::from([
-            ("version".to_string(), "2.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let tags_v2 = exclusive_tags("2.0.0", "windows", "x86_64", "base");
         let v2 = build_from_directory(&v2_dir, "test-product", "base", &tags_v2).unwrap();
 
         let v1_bundle_data: Vec<Vec<u8>> = v1
@@ -215,21 +208,11 @@ mod tests {
         let inputs = vec![
             RepoInitTargetInput {
                 dir: dir_a.clone(),
-                target_tags: BTreeMap::from([
-                    ("version".to_string(), "1.0.0".to_string()),
-                    ("platform".to_string(), "windows".to_string()),
-                    ("arch".to_string(), "x86_64".to_string()),
-                    ("tier".to_string(), "base".to_string()),
-                ]),
+                target_tags: exclusive_tags("1.0.0", "windows", "x86_64", "base"),
             },
             RepoInitTargetInput {
                 dir: dir_b.clone(),
-                target_tags: BTreeMap::from([
-                    ("version".to_string(), "1.0.0".to_string()),
-                    ("platform".to_string(), "windows".to_string()),
-                    ("arch".to_string(), "x86_64".to_string()),
-                    ("tier".to_string(), "tr".to_string()),
-                ]),
+                target_tags: exclusive_tags("1.0.0", "windows", "x86_64", "tr"),
             },
         ];
 
@@ -300,12 +283,7 @@ mod tests {
             chunks: vec![],
         };
 
-        let tags = BTreeMap::from([
-            ("version".to_string(), "v".to_string()),
-            ("platform".to_string(), "win".to_string()),
-            ("arch".to_string(), "x64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let tags = exclusive_tags("v", "win", "x64", "base");
         let mut vm = TargetManifest::new("p".into(), "base".into(), compute_target_id(&tags), tags);
         vm.files.push(fm);
         let errors = verify_directory(&vm, &dir).unwrap();
@@ -324,12 +302,7 @@ mod tests {
         std::fs::write(dir.join("expected.txt"), b"hello world").unwrap();
         std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
-        let tags = BTreeMap::from([
-            ("version".to_string(), "1.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
 
         let mut manifest = result.target_manifest.clone();
@@ -355,12 +328,7 @@ mod tests {
         std::fs::write(dir.join("healthy.txt"), b"healthy file").unwrap();
         std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
-        let tags = BTreeMap::from([
-            ("version".to_string(), "1.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let result = build_from_directory(&dir, "test-product", "base", &tags).unwrap();
 
         std::fs::remove_file(dir.join("healthy.txt")).unwrap();
@@ -445,12 +413,7 @@ mod tests {
             total_original / (1024 * 1024)
         );
 
-        let tags = BTreeMap::from([
-            ("version".to_string(), "1.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let t1 = Instant::now();
         let result = build_from_directory(&root, "mock-game", "base", &tags).unwrap();
         let build_ms = t1.elapsed().as_millis();

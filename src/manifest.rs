@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
@@ -217,6 +217,119 @@ impl Default for CompressionProfile {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct TargetTagSet {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub plain: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub scoped: BTreeMap<String, BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exclusive: BTreeMap<String, String>,
+}
+
+impl TargetTagSet {
+    pub fn insert_plain(&mut self, value: impl Into<String>) {
+        let value = value.into();
+        if !value.is_empty() {
+            self.plain.insert(value);
+        }
+    }
+
+    pub fn insert_scoped(&mut self, prefix: impl Into<String>, value: impl Into<String>) {
+        let prefix = prefix.into();
+        let value = value.into();
+        if prefix.is_empty() || value.is_empty() {
+            return;
+        }
+        self.scoped.entry(prefix).or_default().insert(value);
+    }
+
+    pub fn insert_exclusive_if_missing(
+        &mut self,
+        prefix: impl Into<String>,
+        value: impl Into<String>,
+    ) {
+        let prefix = prefix.into();
+        let value = value.into();
+        if prefix.is_empty() || value.is_empty() {
+            return;
+        }
+        self.exclusive.entry(prefix).or_insert(value);
+    }
+
+    pub fn upsert_exclusive(&mut self, prefix: impl Into<String>, value: impl Into<String>) {
+        let prefix = prefix.into();
+        let value = value.into();
+        if prefix.is_empty() || value.is_empty() {
+            return;
+        }
+        self.exclusive.insert(prefix, value);
+    }
+
+    pub fn has_exclusive(&self, prefix: &str) -> bool {
+        self.exclusive.contains_key(prefix)
+    }
+
+    pub fn get_exclusive(&self, prefix: &str) -> Option<&str> {
+        self.exclusive.get(prefix).map(String::as_str)
+    }
+
+    pub fn extend_missing_from(&mut self, other: &Self) {
+        for value in &other.plain {
+            self.plain.insert(value.clone());
+        }
+        for (prefix, values) in &other.scoped {
+            self.scoped
+                .entry(prefix.clone())
+                .or_default()
+                .extend(values.iter().cloned());
+        }
+        for (prefix, value) in &other.exclusive {
+            self.exclusive
+                .entry(prefix.clone())
+                .or_insert_with(|| value.clone());
+        }
+    }
+
+    pub fn to_canonical_strings(&self) -> Vec<String> {
+        let mut rendered = Vec::new();
+        rendered.extend(self.plain.iter().cloned());
+        for (prefix, values) in &self.scoped {
+            for value in values {
+                rendered.push(format!("{}:{}", prefix, value));
+            }
+        }
+        for (prefix, value) in &self.exclusive {
+            rendered.push(format!("{}::{}", prefix, value));
+        }
+        rendered.sort();
+        rendered
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetTagKind {
+    Plain,
+    Scoped,
+    Exclusive,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetTagDefinition {
+    pub name: String,
+    pub kind: TargetTagKind,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub values: Vec<String>,
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetManifest {
     pub manifest_version: u32,
@@ -224,7 +337,7 @@ pub struct TargetManifest {
     pub content_repo_id: String,
     pub target_id: String,
     #[serde(default)]
-    pub target_tags: BTreeMap<String, String>,
+    pub target_tags: TargetTagSet,
     pub created_at: String,
     #[serde(default, alias = "chunking_profile")]
     pub chunk_sizing_profile: ChunkSizingProfile,
@@ -311,8 +424,12 @@ pub struct ContentRepoManifest {
     pub created_at: String,
     pub targets_dir: String,
     pub bundles_dir: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto_tagging_rules: Option<AutoTaggingRules>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "auto_tagging_rules"
+    )]
+    pub target_schema: Option<TargetTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin: Option<PluginInfo>,
 }
@@ -331,20 +448,40 @@ impl Default for IncompleteInferenceBehavior {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AutoTaggingRules {
+#[serde(rename_all = "camelCase")]
+pub struct TargetTagSchema {
     #[serde(default)]
-    pub aliases: BTreeMap<String, BTreeMap<String, String>>,
+    pub target_tags: Vec<TargetTagDefinition>,
+    #[serde(default)]
+    pub target_id_order: Vec<String>,
     #[serde(default)]
     pub on_incomplete: IncompleteInferenceBehavior,
 }
 
-impl Default for AutoTaggingRules {
+impl TargetTagSchema {
+    pub fn find_definition(&self, name: &str) -> Option<&TargetTagDefinition> {
+        self.target_tags.iter().find(|definition| definition.name == name)
+    }
+}
+
+impl Default for TargetTagSchema {
     fn default() -> Self {
         Self {
-            aliases: BTreeMap::from([
-                (
-                    "platform".to_string(),
-                    BTreeMap::from([
+            target_tags: vec![
+                TargetTagDefinition {
+                    name: "version".to_string(),
+                    kind: TargetTagKind::Exclusive,
+                    required: true,
+                    values: Vec::new(),
+                    aliases: BTreeMap::new(),
+                    default_value: None,
+                },
+                TargetTagDefinition {
+                    name: "os".to_string(),
+                    kind: TargetTagKind::Exclusive,
+                    required: false,
+                    values: Vec::new(),
+                    aliases: BTreeMap::from([
                         ("win".to_string(), "windows".to_string()),
                         ("win32".to_string(), "windows".to_string()),
                         ("win64".to_string(), "windows".to_string()),
@@ -352,22 +489,43 @@ impl Default for AutoTaggingRules {
                         ("osx".to_string(), "macos".to_string()),
                         ("darwin".to_string(), "macos".to_string()),
                     ]),
-                ),
-                (
-                    "arch".to_string(),
-                    BTreeMap::from([
+                    default_value: None,
+                },
+                TargetTagDefinition {
+                    name: "arch".to_string(),
+                    kind: TargetTagKind::Exclusive,
+                    required: false,
+                    values: Vec::new(),
+                    aliases: BTreeMap::from([
                         ("x64".to_string(), "x86_64".to_string()),
                         ("amd64".to_string(), "x86_64".to_string()),
                         ("win64".to_string(), "x86_64".to_string()),
                         ("x86".to_string(), "x86_32".to_string()),
                         ("win32".to_string(), "x86_32".to_string()),
                     ]),
-                ),
-            ]),
+                    default_value: None,
+                },
+                TargetTagDefinition {
+                    name: "tier".to_string(),
+                    kind: TargetTagKind::Exclusive,
+                    required: false,
+                    values: Vec::new(),
+                    aliases: BTreeMap::new(),
+                    default_value: None,
+                },
+            ],
+            target_id_order: vec![
+                "version".to_string(),
+                "os".to_string(),
+                "arch".to_string(),
+                "tier".to_string(),
+            ],
             on_incomplete: IncompleteInferenceBehavior::Error,
         }
     }
 }
+
+pub type AutoTaggingRules = TargetTagSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkIndex {
@@ -432,7 +590,7 @@ impl ContentRepoManifest {
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             targets_dir: "targets".to_string(),
             bundles_dir: "bundles".to_string(),
-            auto_tagging_rules: None,
+            target_schema: None,
             plugin: None,
         }
     }
@@ -443,7 +601,7 @@ impl TargetManifest {
         product_id: String,
         content_repo_id: String,
         target_id: String,
-        target_tags: BTreeMap<String, String>,
+        target_tags: TargetTagSet,
     ) -> Self {
         TargetManifest {
             manifest_version: FORMAT_VERSION,
@@ -501,12 +659,11 @@ mod tests {
 
     #[test]
     fn test_target_manifest_new() {
-        let tags = BTreeMap::from([
-            ("version".to_string(), "1.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let mut tags = TargetTagSet::default();
+        tags.upsert_exclusive("version", "1.0.0");
+        tags.upsert_exclusive("os", "windows");
+        tags.upsert_exclusive("arch", "x86_64");
+        tags.upsert_exclusive("tier", "base");
         let m = TargetManifest::new(
             "prod-1".into(),
             "base".into(),
@@ -516,10 +673,7 @@ mod tests {
         assert_eq!(m.product_id, "prod-1");
         assert_eq!(m.content_repo_id, "base");
         assert_eq!(m.target_id, "abc123def");
-        assert_eq!(
-            m.target_tags.get("platform").map(String::as_str),
-            Some("windows")
-        );
+        assert_eq!(m.target_tags.get_exclusive("os"), Some("windows"));
         assert_eq!(m.manifest_version, 1);
         assert!(m.signature_metadata.is_none());
         assert!(m.created_at.len() > 0);
@@ -527,12 +681,11 @@ mod tests {
 
     #[test]
     fn test_manifest_serialization_roundtrip() {
-        let tags = BTreeMap::from([
-            ("version".to_string(), "1.0.0".to_string()),
-            ("platform".to_string(), "windows".to_string()),
-            ("arch".to_string(), "x86_64".to_string()),
-            ("tier".to_string(), "base".to_string()),
-        ]);
+        let mut tags = TargetTagSet::default();
+        tags.upsert_exclusive("version", "1.0.0");
+        tags.upsert_exclusive("os", "windows");
+        tags.upsert_exclusive("arch", "x86_64");
+        tags.upsert_exclusive("tier", "base");
         let m = TargetManifest::new(
             "prod-1".into(),
             "base".into(),
