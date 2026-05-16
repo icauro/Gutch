@@ -102,7 +102,7 @@ enum RepoCommands {
         #[arg(short, long)]
         spec: PathBuf,
 
-        #[arg(long = "init-mode", value_enum, default_value_t = RepoInitMode::Batch)]
+        #[arg(long = "init-mode", value_enum, default_value_t = RepoInitMode::Sequential)]
         init_mode: RepoInitMode,
 
         #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Balanced)]

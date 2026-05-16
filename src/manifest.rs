@@ -20,12 +20,9 @@ fn default_next_target_id() -> u64 {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArtifactSizingPreset {
-    Auto,
-    Tiny,
     Small,
     Balanced,
     Large,
-    Huge,
 }
 
 impl Default for ArtifactSizingPreset {
@@ -76,11 +73,9 @@ impl Default for ChunkSizingProfile {
 impl ChunkSizingProfile {
     pub fn for_preset(preset: ArtifactSizingPreset) -> Self {
         let (min_chunk_kib, avg_chunk_kib, max_chunk_kib) = match preset {
-            ArtifactSizingPreset::Auto | ArtifactSizingPreset::Balanced => (16, 64, 256),
-            ArtifactSizingPreset::Tiny => (8, 32, 128),
-            ArtifactSizingPreset::Small => (16, 64, 256),
-            ArtifactSizingPreset::Large => (32, 128, 512),
-            ArtifactSizingPreset::Huge => (64, 256, 1024),
+            ArtifactSizingPreset::Small => (1, 4, 16),
+            ArtifactSizingPreset::Balanced => (4, 16, 64),
+            ArtifactSizingPreset::Large => (16, 64, 256),
         };
 
         ChunkSizingProfile {
@@ -110,27 +105,17 @@ impl ChunkSizingProfile {
     pub fn auto_preset_for_median_file_size_bytes(
         median_file_size_bytes: u64,
     ) -> ArtifactSizingPreset {
-        if median_file_size_bytes <= 32 * 1024 {
-            ArtifactSizingPreset::Tiny
-        } else if median_file_size_bytes <= 256 * 1024 {
+        if median_file_size_bytes <= 256 * 1024 {
             ArtifactSizingPreset::Small
-        } else if median_file_size_bytes <= 2 * 1024 * 1024 {
-            ArtifactSizingPreset::Balanced
         } else if median_file_size_bytes <= 8 * 1024 * 1024 {
-            ArtifactSizingPreset::Large
+            ArtifactSizingPreset::Balanced
         } else {
-            ArtifactSizingPreset::Huge
+            ArtifactSizingPreset::Large
         }
     }
 
-    pub fn for_selection(preset: ArtifactSizingPreset, median_file_size_bytes: u64) -> Self {
-        let resolved = match preset {
-            ArtifactSizingPreset::Auto => {
-                Self::auto_preset_for_median_file_size_bytes(median_file_size_bytes)
-            }
-            other => other,
-        };
-        Self::for_preset(resolved)
+    pub fn for_selection(preset: ArtifactSizingPreset, _median_file_size_bytes: u64) -> Self {
+        Self::for_preset(preset)
     }
 }
 
@@ -639,12 +624,12 @@ mod tests {
     fn test_chunking_profile_defaults() {
         let p = ChunkSizingProfile::default();
         assert_eq!(p.preset, ArtifactSizingPreset::Balanced);
-        assert_eq!(p.min_chunk_kib, 16);
-        assert_eq!(p.avg_chunk_kib, 64);
-        assert_eq!(p.max_chunk_kib, 256);
-        assert_eq!(p.min_chunk_size_bytes(), 16 * 1024);
-        assert_eq!(p.avg_chunk_size_bytes(), 64 * 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 256 * 1024);
+        assert_eq!(p.min_chunk_kib, 4);
+        assert_eq!(p.avg_chunk_kib, 16);
+        assert_eq!(p.max_chunk_kib, 64);
+        assert_eq!(p.min_chunk_size_bytes(), 4 * 1024);
+        assert_eq!(p.avg_chunk_size_bytes(), 16 * 1024);
+        assert_eq!(p.max_chunk_size_bytes(), 64 * 1024);
         assert_eq!(p.chunk_hash_algorithm, "blake3");
     }
 
