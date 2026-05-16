@@ -20,6 +20,6 @@ if ($buildEntries.Count -eq 0) {
     exit 1
 }
 
-$releaseExe = Join-Path $PSScriptRoot "..\target\release\gutch.exe"
+$releaseExe = Join-Path $PSScriptRoot "..\..\.artifacts\obj\rust\release\gutch.exe"
 Build-GutchReleaseBinary -RepoRoot (Join-Path $PSScriptRoot "..") -ReleaseExe $releaseExe
 Invoke-GutchRunFixture -FixtureDir $fixtureDir -BuildEntries $buildEntries -ReleaseExe $releaseExe -SkipBuild:$SkipBuild
