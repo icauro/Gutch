@@ -53,12 +53,9 @@ impl Default for BundleSizingPreset {
 pub struct ChunkSizingProfile {
     pub preset: ArtifactSizingPreset,
     pub chunker: String,
-    #[serde(alias = "min_chunk_kibibytes")]
-    pub min_chunk_kib: u32,
-    #[serde(alias = "avg_chunk_kibibytes")]
-    pub avg_chunk_kib: u32,
-    #[serde(alias = "max_chunk_kibibytes")]
-    pub max_chunk_kib: u32,
+    pub min_chunk_bytes: u32,
+    pub avg_chunk_bytes: u32,
+    pub max_chunk_bytes: u32,
     pub gear_table_id: u32,
     pub chunk_hash_algorithm: String,
     pub format_version: u32,
@@ -72,18 +69,18 @@ impl Default for ChunkSizingProfile {
 
 impl ChunkSizingProfile {
     pub fn for_preset(preset: ArtifactSizingPreset) -> Self {
-        let (min_chunk_kib, avg_chunk_kib, max_chunk_kib) = match preset {
-            ArtifactSizingPreset::Small => (1, 4, 16),
-            ArtifactSizingPreset::Balanced => (4, 16, 64),
-            ArtifactSizingPreset::Large => (16, 64, 256),
+        let (min_chunk_bytes, avg_chunk_bytes, max_chunk_bytes) = match preset {
+            ArtifactSizingPreset::Small => (256, 1024, 4 * 1024),
+            ArtifactSizingPreset::Balanced => (4 * 1024, 16 * 1024, 64 * 1024),
+            ArtifactSizingPreset::Large => (16 * 1024, 64 * 1024, 256 * 1024),
         };
 
         ChunkSizingProfile {
             preset,
             chunker: CHUNKER_FASTCDC.to_string(),
-            min_chunk_kib,
-            avg_chunk_kib,
-            max_chunk_kib,
+            min_chunk_bytes,
+            avg_chunk_bytes,
+            max_chunk_bytes,
             gear_table_id: 3,
             chunk_hash_algorithm: CHUNK_HASH_BLAKE3.to_string(),
             format_version: FORMAT_VERSION,
@@ -91,27 +88,21 @@ impl ChunkSizingProfile {
     }
 
     pub fn min_chunk_size_bytes(&self) -> u32 {
-        self.min_chunk_kib * 1024
+        self.min_chunk_bytes
     }
 
     pub fn avg_chunk_size_bytes(&self) -> u32 {
-        self.avg_chunk_kib * 1024
+        self.avg_chunk_bytes
     }
 
     pub fn max_chunk_size_bytes(&self) -> u32 {
-        self.max_chunk_kib * 1024
+        self.max_chunk_bytes
     }
 
     pub fn auto_preset_for_median_file_size_bytes(
-        median_file_size_bytes: u64,
+        _median_file_size_bytes: u64,
     ) -> ArtifactSizingPreset {
-        if median_file_size_bytes <= 256 * 1024 {
-            ArtifactSizingPreset::Small
-        } else if median_file_size_bytes <= 8 * 1024 * 1024 {
-            ArtifactSizingPreset::Balanced
-        } else {
-            ArtifactSizingPreset::Large
-        }
+        ArtifactSizingPreset::Balanced
     }
 
     pub fn for_selection(preset: ArtifactSizingPreset, _median_file_size_bytes: u64) -> Self {
@@ -155,21 +146,9 @@ impl BundleSizingProfile {
     }
 
     pub fn auto_preset_for_target_logical_size_bytes(
-        target_logical_size_bytes: u64,
+        _target_logical_size_bytes: u64,
     ) -> BundleSizingPreset {
-        if target_logical_size_bytes <= 64 * 1024 * 1024 {
-            BundleSizingPreset::Tiny
-        } else if target_logical_size_bytes <= 256 * 1024 * 1024 {
-            BundleSizingPreset::Small
-        } else if target_logical_size_bytes <= 1024 * 1024 * 1024 {
-            BundleSizingPreset::Balanced
-        } else if target_logical_size_bytes <= 4 * 1024 * 1024 * 1024 {
-            BundleSizingPreset::Large
-        } else if target_logical_size_bytes <= 16 * 1024 * 1024 * 1024 {
-            BundleSizingPreset::Huge
-        } else {
-            BundleSizingPreset::Massive
-        }
+        BundleSizingPreset::Balanced
     }
 
     pub fn for_selection(preset: BundleSizingPreset, target_logical_size_bytes: u64) -> Self {
@@ -624,13 +603,34 @@ mod tests {
     fn test_chunking_profile_defaults() {
         let p = ChunkSizingProfile::default();
         assert_eq!(p.preset, ArtifactSizingPreset::Balanced);
-        assert_eq!(p.min_chunk_kib, 4);
-        assert_eq!(p.avg_chunk_kib, 16);
-        assert_eq!(p.max_chunk_kib, 64);
+        assert_eq!(p.min_chunk_bytes, 4 * 1024);
+        assert_eq!(p.avg_chunk_bytes, 16 * 1024);
+        assert_eq!(p.max_chunk_bytes, 64 * 1024);
         assert_eq!(p.min_chunk_size_bytes(), 4 * 1024);
         assert_eq!(p.avg_chunk_size_bytes(), 16 * 1024);
         assert_eq!(p.max_chunk_size_bytes(), 64 * 1024);
         assert_eq!(p.chunk_hash_algorithm, "blake3");
+    }
+
+    #[test]
+    fn test_small_chunk_profile_uses_sub_kib_range() {
+        let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Small);
+        assert_eq!(p.preset, ArtifactSizingPreset::Small);
+        assert_eq!(p.min_chunk_size_bytes(), 256);
+        assert_eq!(p.avg_chunk_size_bytes(), 1024);
+        assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
+    }
+
+    #[test]
+    fn test_chunk_auto_selection_always_resolves_balanced() {
+        assert_eq!(
+            ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1),
+            ArtifactSizingPreset::Balanced
+        );
+        assert_eq!(
+            ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1024 * 1024 * 1024),
+            ArtifactSizingPreset::Balanced
+        );
     }
 
     #[test]
@@ -641,6 +641,18 @@ mod tests {
         assert_eq!(p.bundle_preferred_mib, 16);
         assert_eq!(p.bundle_max_size_bytes(), 32 * 1024 * 1024);
         assert_eq!(p.bundle_preferred_size_bytes(), 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_bundle_auto_selection_always_resolves_balanced() {
+        assert_eq!(
+            BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1),
+            BundleSizingPreset::Balanced
+        );
+        assert_eq!(
+            BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1024 * 1024 * 1024 * 1024),
+            BundleSizingPreset::Balanced
+        );
     }
 
     #[test]
