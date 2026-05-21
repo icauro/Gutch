@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tempfile::TempDir;
 
+use crate::AuthCommands;
 use crate::RepoInitSpec;
 use crate::cli_path_compare::compare_paths;
 use crate::cli_reporting::{
@@ -111,6 +112,68 @@ struct TargetInstallApplyStats {
     reconstruct_timings: ReconstructTimingsSummary,
     verify_timings: VerifyTimingsSummary,
     outputs: OptionalOutputPaths,
+}
+
+#[derive(Debug, Serialize)]
+struct RepoSyncUpStats {
+    command: &'static str,
+    repo_root: String,
+    product_id: i64,
+    content_repo_id: i64,
+    repo_manifest_uploaded: bool,
+    chunk_index_uploaded: bool,
+    target_manifest_uploaded_count: usize,
+    bundle_uploaded_count: usize,
+    bundle_skipped_count: usize,
+    target_count: usize,
+    bundle_count: usize,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreatorRepoTargetsResponse {
+    tiers: Vec<CreatorTierResponse>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreatorTierResponse {
+    id: i64,
+    slug: String,
+    tier_name: String,
+    targets: Vec<CreatorTargetResponse>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreatorTargetResponse {
+    id: i64,
+    target_id: String,
+    repo_id: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedRepoManifestResponse {
+    manifest_url: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedChunkIndexResponse {
+    chunk_index_url: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedTargetManifestResponse {
+    manifest_url: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpsertTargetResponse {
+    id: i64,
 }
 
 #[cfg(test)]
@@ -330,8 +393,467 @@ fn parse_bundle_downloads(bundle_args: &[String]) -> g::Result<Vec<g::GutchBundl
         .collect()
 }
 
+fn session_id_for_cli(session_override: Option<String>) -> g::Result<String> {
+    session_override
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or(crate::auth::shared_session_id().map_err(g::Error::manifest)?)
+        .ok_or_else(|| {
+            g::Error::manifest(
+                "authentication required. Run `gutch auth login` or pass --session-id.",
+            )
+        })
+}
+
+fn parse_version_parts(version: &str) -> g::Result<(i32, i32, i32)> {
+    let normalized = version
+        .trim()
+        .trim_start_matches('v')
+        .trim_start_matches('V');
+    let parts = normalized.split('.').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(g::Error::manifest(format!(
+            "expected semantic version like 1.2.3, got '{}'",
+            version
+        )));
+    }
+
+    let major = parts[0]
+        .parse::<i32>()
+        .map_err(|_| g::Error::manifest(format!("invalid version '{}'", version)))?;
+    let minor = parts[1]
+        .parse::<i32>()
+        .map_err(|_| g::Error::manifest(format!("invalid version '{}'", version)))?;
+    let patch = parts[2]
+        .parse::<i32>()
+        .map_err(|_| g::Error::manifest(format!("invalid version '{}'", version)))?;
+    Ok((major, minor, patch))
+}
+
+fn request_json_from_backend<T: for<'de> serde::Deserialize<'de>>(
+    request: reqwest::blocking::RequestBuilder,
+) -> g::Result<T> {
+    let response = request
+        .send()
+        .map_err(|err| g::Error::manifest(format!("backend request failed: {}", err)))?;
+    if !response.status().is_success() {
+        return Err(g::Error::manifest(parse_backend_error_response(response)));
+    }
+    response
+        .json::<T>()
+        .map_err(|err| g::Error::manifest(format!("failed to decode backend response: {}", err)))
+}
+
+fn request_optional_bytes_from_signed_url(
+    client: &reqwest::blocking::Client,
+    url: &str,
+) -> g::Result<Option<Vec<u8>>> {
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|err| g::Error::manifest(format!("signed url request failed: {}", err)))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !response.status().is_success() {
+        return Err(g::Error::manifest(parse_backend_error_response(response)));
+    }
+    response
+        .bytes()
+        .map(|bytes| Some(bytes.to_vec()))
+        .map_err(|err| g::Error::manifest(format!("failed to read signed url response: {}", err)))
+}
+
+fn parse_backend_error_response(response: reqwest::blocking::Response) -> String {
+    let status = response.status();
+    let text = response.text().unwrap_or_default();
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+        if let Some(message) = value
+            .get("message")
+            .and_then(|value| value.as_str())
+            .or_else(|| value.get("error").and_then(|value| value.as_str()))
+        {
+            let trimmed = message.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    if text.trim().is_empty() {
+        return format!("request failed with status {}", status);
+    }
+    format!("request failed with status {}", status)
+}
+
+fn slugify_like_backend(value: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    let mut slug = String::new();
+    let mut last_hyphen = false;
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_hyphen = false;
+        } else if !last_hyphen {
+            slug.push('-');
+            last_hyphen = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+fn upload_raw_file(
+    client: &reqwest::blocking::Client,
+    endpoint: &str,
+    path: &str,
+    session_id: &str,
+    bytes: Vec<u8>,
+    content_type: &str,
+) -> g::Result<()> {
+    let response = client
+        .put(format!("{}{}", endpoint.trim_end_matches('/'), path))
+        .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {}", session_id))
+        .header("Content-Type", content_type)
+        .body(bytes)
+        .send()
+        .map_err(|err| g::Error::manifest(format!("upload request failed: {}", err)))?;
+    if !response.status().is_success() {
+        return Err(g::Error::manifest(parse_backend_error_response(response)));
+    }
+    Ok(())
+}
+
+fn run_repo_sync_up(
+    repo: PathBuf,
+    endpoint: String,
+    product_id: i64,
+    content_repo_id: i64,
+    session_override: Option<String>,
+) -> g::Result<RepoSyncUpStats> {
+    let session_id = session_id_for_cli(session_override)?;
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Gutch CLI")
+        .build()
+        .map_err(|err| g::Error::manifest(format!("failed to create sync client: {}", err)))?;
+
+    let status = g::inspect_content_repo(&repo)?;
+    if !status.is_repo {
+        return Err(g::Error::manifest(format!(
+            "no content repo found at {}",
+            repo.display()
+        )));
+    }
+    let (repo_paths, _) = g::load_content_repo_manifest(&repo)?;
+
+    let creator_targets: CreatorRepoTargetsResponse = request_json_from_backend(
+        client
+            .get(format!(
+                "{}/v1/users/me/creator/products/{}/repos/{}/targets",
+                endpoint.trim_end_matches('/'),
+                product_id,
+                content_repo_id
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id)),
+    )?;
+
+    let mut tiers_by_slug = HashMap::new();
+    let mut remote_target_ids = HashMap::new();
+    for tier in &creator_targets.tiers {
+        tiers_by_slug.insert(tier.slug.clone(), tier.id);
+        tiers_by_slug.insert(slugify_like_backend(&tier.tier_name), tier.id);
+        for target in &tier.targets {
+            remote_target_ids.insert(target.target_id.clone(), target.id);
+        }
+    }
+
+    let repo_manifest_bytes = std::fs::read(&repo_paths.repo_manifest_path)?;
+    let signed_repo_manifest: SignedRepoManifestResponse = request_json_from_backend(
+        client
+            .get(format!(
+                "{}/v1/users/me/creator/products/{}/repos/{}/manifest",
+                endpoint.trim_end_matches('/'),
+                product_id,
+                content_repo_id
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id)),
+    )?;
+    let remote_repo_manifest_bytes =
+        request_optional_bytes_from_signed_url(&client, &signed_repo_manifest.manifest_url)?;
+    let repo_manifest_uploaded = remote_repo_manifest_bytes
+        .as_deref()
+        .map(|bytes| bytes != repo_manifest_bytes.as_slice())
+        .unwrap_or(true);
+    if repo_manifest_uploaded {
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/manifest",
+                product_id, content_repo_id
+            ),
+            &session_id,
+            repo_manifest_bytes,
+            "application/json",
+        )?;
+    }
+
+    let mut chunk_index_uploaded = false;
+    if repo_paths.chunk_index_path.exists() {
+        let chunk_index_bytes = std::fs::read(&repo_paths.chunk_index_path)?;
+        let signed_chunk_index: SignedChunkIndexResponse = request_json_from_backend(
+            client
+                .get(format!(
+                    "{}/v1/users/me/creator/products/{}/repos/{}/chunks",
+                    endpoint.trim_end_matches('/'),
+                    product_id,
+                    content_repo_id
+                ))
+                .header("Accept", "application/json")
+                .header("Authorization", format!("Bearer {}", session_id)),
+        )?;
+        let remote_chunk_index_bytes =
+            request_optional_bytes_from_signed_url(&client, &signed_chunk_index.chunk_index_url)?;
+        chunk_index_uploaded = remote_chunk_index_bytes
+            .as_deref()
+            .map(|bytes| bytes != chunk_index_bytes.as_slice())
+            .unwrap_or(true);
+        if chunk_index_uploaded {
+            upload_raw_file(
+                &client,
+                &endpoint,
+                &format!(
+                    "/v1/users/me/creator/products/{}/repos/{}/chunks",
+                    product_id, content_repo_id
+                ),
+                &session_id,
+                chunk_index_bytes,
+                "application/json",
+            )?;
+        }
+    }
+
+    let mut target_manifest_uploaded_count = 0usize;
+    for target in &status.targets {
+        let manifest_bytes = std::fs::read(&target.manifest_path)?;
+        let manifest: g::manifest::TargetManifest = serde_json::from_slice(&manifest_bytes)?;
+        let target_id = manifest.target_id.parse::<i64>().map_err(|_| {
+            g::Error::manifest(format!(
+                "target '{}' has a non-numeric local target id; repo sync-up expects numeric target ids",
+                manifest.target_id
+            ))
+        })?;
+        let tier_key = manifest
+            .target_tags
+            .get_exclusive("tier")
+            .unwrap_or_default()
+            .to_string();
+        let backend_tier_id = if !tier_key.is_empty() {
+            tiers_by_slug.get(&tier_key).copied().ok_or_else(|| {
+                g::Error::manifest(format!(
+                    "could not match local tier tag '{}' to a backend tier slug for product {}",
+                    tier_key, product_id
+                ))
+            })?
+        } else if creator_targets.tiers.len() == 1 {
+            creator_targets.tiers[0].id
+        } else {
+            return Err(g::Error::manifest(format!(
+                "target '{}' does not declare a tier tag and product {} has multiple tiers",
+                manifest.target_id, product_id
+            )));
+        };
+        let version_tag = manifest
+            .target_tags
+            .get_exclusive("version")
+            .ok_or_else(|| {
+                g::Error::manifest(format!(
+                    "target '{}' is missing required version tag",
+                    manifest.target_id
+                ))
+            })?;
+        let (version_major, version_minor, version_patch) = parse_version_parts(version_tag)?;
+        let platform = manifest
+            .target_tags
+            .get_exclusive("os")
+            .unwrap_or("any")
+            .to_string();
+        let architecture = manifest
+            .target_tags
+            .get_exclusive("arch")
+            .unwrap_or("any")
+            .to_string();
+        let existing_target_id = remote_target_ids
+            .get(&manifest.target_id)
+            .copied()
+            .unwrap_or(0);
+        let upsert_target: UpsertTargetResponse = request_json_from_backend(
+            client
+                .put(format!(
+                    "{}/v1/users/me/creator/products/{}/repos/{}/targets/{}",
+                    endpoint.trim_end_matches('/'),
+                    product_id,
+                    content_repo_id,
+                    existing_target_id
+                ))
+                .header("Accept", "application/json")
+                .header("Authorization", format!("Bearer {}", session_id))
+                .json(&serde_json::json!({
+                    "targetId": target_id,
+                    "targetTags": manifest.target_tags.clone(),
+                    "tierId": backend_tier_id,
+                    "versionMajor": version_major,
+                    "versionMinor": version_minor,
+                    "versionPatch": version_patch,
+                    "platform": platform,
+                    "architecture": architecture,
+                    "isFullBuild": true
+                })),
+        )?;
+        remote_target_ids.insert(manifest.target_id.clone(), upsert_target.id);
+
+        let signed_target_manifest: SignedTargetManifestResponse = request_json_from_backend(
+            client
+                .get(format!(
+                    "{}/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
+                    endpoint.trim_end_matches('/'),
+                    product_id,
+                    content_repo_id,
+                    upsert_target.id
+                ))
+                .header("Accept", "application/json")
+                .header("Authorization", format!("Bearer {}", session_id)),
+        )?;
+        let remote_manifest_bytes =
+            request_optional_bytes_from_signed_url(&client, &signed_target_manifest.manifest_url)?;
+        let should_upload_manifest = remote_manifest_bytes
+            .as_deref()
+            .map(|bytes| bytes != manifest_bytes.as_slice())
+            .unwrap_or(true);
+        if should_upload_manifest {
+            upload_raw_file(
+                &client,
+                &endpoint,
+                &format!(
+                    "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
+                    product_id, content_repo_id, upsert_target.id
+                ),
+                &session_id,
+                manifest_bytes,
+                "application/json",
+            )?;
+            target_manifest_uploaded_count += 1;
+        }
+    }
+
+    let mut bundle_uploaded_count = 0usize;
+    let mut bundle_skipped_count = 0usize;
+    for entry in walkdir::WalkDir::new(&repo_paths.bundles_root).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() {
+            continue;
+        }
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("bundle") {
+            continue;
+        }
+        let Some(bundle_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+
+        let exists_response = client
+            .get(format!(
+                "{}/v1/users/me/creator/products/{}/repos/{}/bundles/{}",
+                endpoint.trim_end_matches('/'),
+                product_id,
+                content_repo_id,
+                bundle_id
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id))
+            .send()
+            .map_err(|err| g::Error::manifest(format!("bundle lookup failed: {}", err)))?;
+        if exists_response.status().is_success() {
+            bundle_skipped_count += 1;
+            continue;
+        }
+        if exists_response.status() != reqwest::StatusCode::NOT_FOUND {
+            return Err(g::Error::manifest(parse_backend_error_response(
+                exists_response,
+            )));
+        }
+
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/bundles/{}/content",
+                product_id, content_repo_id, bundle_id
+            ),
+            &session_id,
+            std::fs::read(entry.path())?,
+            "application/octet-stream",
+        )?;
+        bundle_uploaded_count += 1;
+    }
+
+    Ok(RepoSyncUpStats {
+        command: "repo sync-up",
+        repo_root: repo.display().to_string(),
+        product_id,
+        content_repo_id,
+        repo_manifest_uploaded,
+        chunk_index_uploaded,
+        target_manifest_uploaded_count,
+        bundle_uploaded_count,
+        bundle_skipped_count,
+        target_count: status.targets.len(),
+        bundle_count: status.bundle_count,
+    })
+}
+
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
+        Commands::Auth {
+            command: AuthCommands::Login { endpoint, no_open },
+        } => {
+            let result = crate::auth::login(&endpoint, !no_open).map_err(g::Error::manifest)?;
+            if let Some(username) = result.username.as_deref() {
+                println!("authenticated as {}", username);
+            } else if let Some(email) = result.email.as_deref() {
+                println!("authenticated as {}", email);
+            } else {
+                println!("authentication complete");
+            }
+        }
+
+        Commands::Auth {
+            command:
+                AuthCommands::Logout {
+                    endpoint,
+                    session_id,
+                },
+        } => {
+            crate::auth::logout(&endpoint, session_id.as_deref()).map_err(g::Error::manifest)?;
+            println!("logged out");
+        }
+
+        Commands::Auth {
+            command:
+                AuthCommands::Status {
+                    endpoint,
+                    session_id,
+                },
+        } => match crate::auth::session_status(&endpoint, session_id.as_deref())
+            .map_err(g::Error::manifest)?
+        {
+            Some(status) => println!(
+                "authenticated user {} via {} (expires {})",
+                status.user_id, status.login_provider, status.expires_at
+            ),
+            None => println!("not authenticated"),
+        },
+
         Commands::Repo {
             command:
                 RepoCommands::Create {
@@ -777,6 +1299,33 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 "deleted target '{}': removed dir, {} orphaned bundles cleaned up",
                 target,
                 orphan_bundles.len()
+            );
+        }
+
+        Commands::Repo {
+            command:
+                RepoCommands::SyncUp {
+                    repo,
+                    endpoint,
+                    product_id,
+                    content_repo_id,
+                    session_id,
+                },
+        } => {
+            let stats = run_repo_sync_up(repo, endpoint, product_id, content_repo_id, session_id)?;
+            println!(
+                "synced repo {} to product {} repo {}",
+                stats.repo_root, stats.product_id, stats.content_repo_id
+            );
+            println!(
+                "repo manifest uploaded: {}, chunk index uploaded: {}",
+                stats.repo_manifest_uploaded, stats.chunk_index_uploaded
+            );
+            println!(
+                "target manifests uploaded: {}, bundles uploaded: {}, bundles skipped: {}",
+                stats.target_manifest_uploaded_count,
+                stats.bundle_uploaded_count,
+                stats.bundle_skipped_count
             );
         }
 
@@ -1453,178 +2002,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 }
                 std::process::exit(1);
             }
-        }
-
-        Commands::Target {
-            command:
-                TargetCommands::Publish {
-                    repo,
-                    target,
-                    endpoint,
-                    session_id,
-                    product_id,
-                    tier_id,
-                    content_repo_id,
-                    version_major,
-                    version_minor,
-                    version_patch,
-                    target_id,
-                    platform,
-                    architecture,
-                },
-        } => {
-            let (repo_paths, _repo_manifest, _manifest_path, tm) =
-                load_target_manifest_from_repo(&repo, &target)?;
-            let bundles_root = repo_paths.bundles_root.clone();
-            let target_root = repo_paths.targets_root.join(target.trim());
-
-            let manifest_path = target_root.join("manifest.json");
-            if !manifest_path.exists() {
-                return Err(g::Error::manifest(format!(
-                    "manifest.json not found at {}",
-                    manifest_path.display()
-                )));
-            }
-            let manifest_bytes = std::fs::read(&manifest_path)?;
-            let manifest_name = String::from("manifest.json");
-
-            let manifest_signature_path = target_root.join("manifest.sig");
-            let manifest_signature_bytes = if manifest_signature_path.exists() {
-                Some(std::fs::read(&manifest_signature_path)?)
-            } else {
-                None
-            };
-            let manifest_signature_name = String::from("manifest.sig");
-
-            // Resolve bundle IDs from target manifest
-            let mut bundles = Vec::new();
-            for bundle_id in &tm
-                .files
-                .iter()
-                .flat_map(|f| f.chunks.iter().map(|c| c.chunk_hash.as_str()))
-                .collect::<std::collections::HashSet<_>>()
-            {
-                let bundle_path = bundles_root.join(format!("{}.bundle", bundle_id));
-                let bundle_data = std::fs::read(&bundle_path)?;
-                bundles.push(((*bundle_id).to_string(), bundle_data));
-            }
-
-            // Create or update remote target
-            let existing_target_id = target_id.filter(|id| *id > 0);
-            let remote_target_id: i64 = if let Some(tid) = existing_target_id {
-                tid
-            } else {
-                let create_url = format!(
-                    "{}/v1/products/{}/targets/0",
-                    endpoint.trim_end_matches('/'),
-                    product_id
-                );
-                let client = reqwest::blocking::Client::new();
-                let mut req = client.put(&create_url).json(&serde_json::json!({
-                    "tierId": tier_id,
-                    "contentRepoId": content_repo_id,
-                    "versionMajor": version_major,
-                    "versionMinor": version_minor,
-                    "versionPatch": version_patch,
-                    "platform": platform.trim(),
-                    "architecture": architecture.trim(),
-                    "isFullBuild": true
-                }));
-                if let Some(sid) = session_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                {
-                    req = req.header("Authorization", format!("Bearer {}", sid));
-                }
-                let resp = req.send().map_err(|err| {
-                    g::Error::bundle(format!("failed to create remote target: {}", err))
-                })?;
-                let status = resp.status();
-                if !status.is_success() {
-                    return Err(g::Error::bundle(format!(
-                        "remote target creation failed with status {}",
-                        status
-                    )));
-                }
-                let payload: serde_json::Value = resp.json().map_err(|err| {
-                    g::Error::bundle(format!("failed to parse remote target response: {}", err))
-                })?;
-                payload
-                    .get("id")
-                    .or_else(|| payload.get("targetId"))
-                    .and_then(|v| v.as_i64())
-                    .ok_or_else(|| g::Error::bundle("remote target response missing target id"))?
-            };
-
-            // Upload content via multipart
-            let upload_url = format!(
-                "{}/v1/products/{}/targets/{}/content",
-                endpoint.trim_end_matches('/'),
-                product_id,
-                remote_target_id
-            );
-            let client = reqwest::blocking::Client::new();
-            let manifest_part = reqwest::blocking::multipart::Part::bytes(manifest_bytes)
-                .file_name(manifest_name)
-                .mime_str("application/json")
-                .map_err(|err| {
-                    g::Error::bundle(format!("failed to prepare manifest part: {}", err))
-                })?;
-            let mut form =
-                reqwest::blocking::multipart::Form::new().part("manifest", manifest_part);
-
-            if let Some(sig_bytes) = manifest_signature_bytes {
-                let sig_part = reqwest::blocking::multipart::Part::bytes(sig_bytes)
-                    .file_name(manifest_signature_name)
-                    .mime_str("application/octet-stream")
-                    .map_err(|err| {
-                        g::Error::bundle(format!("failed to prepare signature part: {}", err))
-                    })?;
-                form = form.part("manifest_sig", sig_part);
-            }
-
-            for (bundle_id, bundle_data) in &bundles {
-                let bundle_part = reqwest::blocking::multipart::Part::bytes(bundle_data.clone())
-                    .file_name(format!("{}.bundle", bundle_id))
-                    .mime_str("application/octet-stream")
-                    .map_err(|err| {
-                        g::Error::bundle(format!("failed to prepare bundle part: {}", err))
-                    })?;
-                form = form.part(format!("bundle_{}", bundle_id), bundle_part);
-            }
-
-            let mut upload_req = client.post(&upload_url).multipart(form);
-            if let Some(sid) = session_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-            {
-                upload_req = upload_req.header("Authorization", format!("Bearer {}", sid));
-            }
-            let upload_resp = upload_req.send().map_err(|err| {
-                g::Error::bundle(format!("failed to upload target content: {}", err))
-            })?;
-            let upload_status = upload_resp.status();
-            if !upload_status.is_success() {
-                return Err(g::Error::bundle(format!(
-                    "target content upload failed with status {}",
-                    upload_status
-                )));
-            }
-            let result: serde_json::Value = upload_resp.json().map_err(|err| {
-                g::Error::bundle(format!("failed to parse upload response: {}", err))
-            })?;
-
-            let bundles_written = result
-                .get("bundlesWritten")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(bundles.len() as i64);
-
-            println!(
-                "published target {} (remote id {}) with {} bundles",
-                target, remote_target_id, bundles_written
-            );
         }
 
         Commands::Target {

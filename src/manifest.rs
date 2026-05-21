@@ -650,7 +650,9 @@ mod tests {
             BundleSizingPreset::Balanced
         );
         assert_eq!(
-            BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1024 * 1024 * 1024 * 1024),
+            BundleSizingProfile::auto_preset_for_target_logical_size_bytes(
+                1024 * 1024 * 1024 * 1024
+            ),
             BundleSizingPreset::Balanced
         );
     }

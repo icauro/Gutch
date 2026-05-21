@@ -1,3 +1,4 @@
+mod auth;
 mod cli_commands;
 mod cli_path_compare;
 mod cli_reporting;
@@ -37,6 +38,11 @@ enum RepoInitMode {
 
 #[derive(Subcommand)]
 enum Commands {
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommands,
+    },
+
     Repo {
         #[command(subcommand)]
         command: RepoCommands,
@@ -61,6 +67,33 @@ enum Commands {
     Path {
         #[command(subcommand)]
         command: PathCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuthCommands {
+    Login {
+        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        endpoint: String,
+
+        #[arg(long = "no-open")]
+        no_open: bool,
+    },
+
+    Logout {
+        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        endpoint: String,
+
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+    },
+
+    Status {
+        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        endpoint: String,
+
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
     },
 }
 
@@ -158,51 +191,28 @@ enum RepoCommands {
         #[arg(long = "yes")]
         yes: bool,
     },
-}
 
-#[derive(Subcommand)]
-enum TargetCommands {
-    Publish {
+    #[command(name = "sync-up")]
+    SyncUp {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
 
-        #[arg(long = "target")]
-        target: String,
-
-        #[arg(long = "endpoint")]
+        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
         endpoint: String,
-
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
 
         #[arg(long = "product-id")]
         product_id: i64,
 
-        #[arg(long = "tier-id")]
-        tier_id: i64,
-
         #[arg(long = "content-repo-id")]
-        content_repo_id: Option<i64>,
+        content_repo_id: i64,
 
-        #[arg(long = "version-major", default_value_t = 1)]
-        version_major: i32,
-
-        #[arg(long = "version-minor", default_value_t = 0)]
-        version_minor: i32,
-
-        #[arg(long = "version-patch", default_value_t = 0)]
-        version_patch: i32,
-
-        #[arg(long = "target-id")]
-        target_id: Option<i64>,
-
-        #[arg(long = "platform", default_value = "any")]
-        platform: String,
-
-        #[arg(long = "architecture", default_value = "any")]
-        architecture: String,
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
     },
+}
 
+#[derive(Subcommand)]
+enum TargetCommands {
     Insert {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
