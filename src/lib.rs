@@ -1,3 +1,6 @@
+#![warn(clippy::all)]
+#![warn(rust_2024_compatibility)]
+
 pub mod build;
 pub mod build_scan;
 pub mod build_types;

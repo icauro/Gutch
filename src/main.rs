@@ -1,3 +1,6 @@
+#![warn(clippy::all)]
+#![warn(rust_2024_compatibility)]
+
 mod auth;
 mod cli_commands;
 mod cli_path_compare;
