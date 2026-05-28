@@ -1,5 +1,5 @@
-pub mod target;
 pub mod content_repo;
+pub mod target;
 
 use std::collections::{BTreeMap, BTreeSet};
 

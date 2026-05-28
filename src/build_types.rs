@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::manifest::{target::TargetManifest, TargetTagSet};
+use crate::manifest::{TargetTagSet, target::TargetManifest};
 
 #[derive(Debug, Clone)]
 pub struct RepoInitTargetInput {

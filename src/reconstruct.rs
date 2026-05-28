@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::bundle;
 use crate::hash::hash_hex;
 use crate::manifest::target::TargetManifest;
+use crate::path_guard::resolve_manifest_relative_path;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Default)]
@@ -188,7 +189,7 @@ fn read_reusable_source_chunks(
             continue;
         }
 
-        let file_path = source.install_dir.join(&fm.path);
+        let file_path = resolve_manifest_relative_path(source.install_dir, &fm.path)?;
         let file_data = std::fs::read(&file_path)?;
 
         let mut current_offset = 0usize;
@@ -236,7 +237,7 @@ fn reconstruct_files_from_locations_and_chunks(
     let mut readers: HashMap<PathBuf, bundle::BundleReader<std::fs::File>> = HashMap::new();
 
     for fm in &target_manifest.files {
-        let output_path = output_dir.join(&fm.path);
+        let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -340,7 +341,7 @@ fn rebuild_files_from_chunks(
             });
         }
 
-        let output_path = output_dir.join(&fm.path);
+        let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent)?;
         }

@@ -2,9 +2,14 @@
 #![warn(rust_2024_compatibility)]
 
 mod auth;
+mod cli_backend;
 mod cli_commands;
+mod cli_common;
 mod cli_path_compare;
+mod cli_repo;
 mod cli_reporting;
+mod cli_target;
+mod cli_target_install;
 
 use std::path::PathBuf;
 

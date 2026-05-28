@@ -14,13 +14,7 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 
 fn derive_chunk_count(manifest: &TargetManifest) -> usize {
-    let mut seen = HashSet::new();
-    for file in &manifest.files {
-        for chunk in &file.chunks {
-            seen.insert(&chunk.chunk_hash);
-        }
-    }
-    seen.len()
+    crate::repo::required_chunk_hashes(manifest).len()
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +85,7 @@ pub fn apply_target_install_with_timings(
         });
     }
 
+    let source_manifest = source.as_ref().map(|value| value.target_manifest);
     let verified_source = match source {
         Some(source) => {
             let (source_classification, _) =
@@ -148,6 +143,8 @@ pub fn apply_target_install_with_timings(
     }
 
     let backup_dir = promote_staging_install(install_dir, staging_dir, target_manifest)?;
+    let required_bundle_count =
+        count_required_bundle_paths(target_manifest, bundle_paths, source_manifest)?;
 
     Ok(TargetInstallApplyResult {
         target_id: target_manifest.target_id.clone(),
@@ -156,7 +153,7 @@ pub fn apply_target_install_with_timings(
         backup_dir,
         reused_source_chunk_count,
         required_chunk_count: derive_chunk_count(target_manifest),
-        required_bundle_count: 0,
+        required_bundle_count,
         reconstruct_timings,
         verify_timings,
     })
@@ -272,6 +269,48 @@ fn count_reusable_source_chunks(
         .iter()
         .filter(|chunk_hash| target_chunks.contains(chunk_hash.as_str()))
         .count()
+}
+
+fn count_required_bundle_paths(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    source_manifest: Option<&TargetManifest>,
+) -> Result<usize> {
+    let mut needed_chunks = collect_chunk_hashes(target_manifest);
+    if let Some(source_manifest) = source_manifest {
+        for chunk_hash in collect_chunk_hashes(source_manifest) {
+            needed_chunks.remove(&chunk_hash);
+        }
+    }
+    if needed_chunks.is_empty() {
+        return Ok(0);
+    }
+
+    let mut covered_chunks = HashSet::new();
+    let mut required_bundle_count = 0usize;
+
+    for bundle_path in bundle_paths {
+        let file = std::fs::File::open(bundle_path)?;
+        let reader = crate::bundle::BundleReader::open(file)?;
+        let mut matched_bundle = false;
+
+        for entry in reader.entries() {
+            if needed_chunks.contains(&entry.chunk_hash)
+                && covered_chunks.insert(entry.chunk_hash.clone())
+            {
+                matched_bundle = true;
+            }
+        }
+
+        if matched_bundle {
+            required_bundle_count += 1;
+            if covered_chunks.len() == needed_chunks.len() {
+                break;
+            }
+        }
+    }
+
+    Ok(required_bundle_count)
 }
 
 fn promote_staging_install(
@@ -402,147 +441,5 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-
-    #[test]
-    fn fetch_target_install_content_downloads_manifest_and_bundles() {
-        let root = std::env::temp_dir().join(format!(
-            "gutch_fetch_install_test_{}_{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-        ));
-        let repo_path = root.join("repo");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&repo_path).unwrap();
-        let chunk_index = manifest::ChunkIndex {
-            format_version: "1.0.0".to_string(),
-            updated_at: String::new(),
-            entries: std::collections::BTreeMap::from([(
-                "chunk-a".to_string(),
-                "bundle-a".to_string(),
-            )]),
-        };
-        std::fs::write(
-            repo_path.join("chunk_index.json"),
-            serde_json::to_string_pretty(&chunk_index).unwrap(),
-        )
-        .unwrap();
-
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            for _ in 0..4 {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut buffer = [0u8; 4096];
-                let bytes_read = stream.read(&mut buffer).unwrap();
-                let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-                let path = request
-                    .lines()
-                    .next()
-                    .and_then(|line| line.split_whitespace().nth(1))
-                    .unwrap_or("/");
-
-                let (status, body, content_type) = match path {
-                    "/manifest" => (
-                        "200 OK",
-                        serde_json::to_vec(&serde_json::json!({
-                            "content_repo_id": "base",
-                            "target_id": "1.0.0-windows-x86_64-base",
-                            "version_id": "1.0.0",
-                            "platform": "windows",
-                            "architecture": "x86_64",
-                            "tier_id": "base",
-                            "created_at": "2026-05-11T00:00:00Z",
-                            "files": [
-                                {
-                                    "path": "game.exe",
-                                    "size": 100,
-                                                                        "executable": true,
-                                                                        "full_file_hash": "abc",
-                                    "chunks": [
-                                        { "chunk_hash": "chunk-a", "raw_size": 100 }
-                                    ]
-                                }
-                            ],
-                            "target_tags": {"version": "1.0.0"},
-                            "manifest_version": "1.0.0",
-                            "chunk_sizing_profile": manifest::ChunkSizingProfile::default(),
-                            "compression_profile": manifest::CompressionProfile::default(),
-                            "bundle_sizing_profile": manifest::BundleSizingProfile::default(),
-                            "total_logical_size": 0,
-                            "total_compressed_size_estimate": 0,
-                                                    }))
-                        .unwrap(),
-                        "application/json",
-                    ),
-                    "/manifest.sig" => ("200 OK", b"sig".to_vec(), "application/octet-stream"),
-                    "/bundle-a" => (
-                        "200 OK",
-                        b"bundle-a-bytes".to_vec(),
-                        "application/octet-stream",
-                    ),
-                    _ if path.starts_with("/bundles?ids=bundle-a") => (
-                        "200 OK",
-                        serde_json::to_vec(&serde_json::json!({
-                            "bundles": [{
-                                "bundleId": "bundle-a",
-                                "url": format!("http://{}/bundle-a", address)
-                            }]
-                        }))
-                        .unwrap(),
-                        "application/json",
-                    ),
-                    _ => ("404 Not Found", b"not found".to_vec(), "text/plain"),
-                };
-
-                let response = format!(
-                    "HTTP/1.1 {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n\r\n",
-                    status,
-                    body.len(),
-                    content_type
-                );
-                stream.write_all(response.as_bytes()).unwrap();
-                stream.write_all(&body).unwrap();
-            }
-        });
-
-        let result = fetch_target_install_content(&TargetInstallFetchRequest {
-            repo_path: repo_path.clone(),
-            target_id: "1.0.0-windows-x86_64-base".to_string(),
-            manifest_url: format!("http://{}/manifest", address),
-            manifest_sig_url: Some(format!("http://{}/manifest.sig", address)),
-            bundle_urls_endpoint: Some(format!("http://{}/bundles", address)),
-            session_id: Some("session-1".to_string()),
-            bundles: Vec::new(),
-        })
-        .unwrap();
-
-        assert_eq!(result.required_bundle_count, 1);
-        assert_eq!(result.downloaded_bundle_count, 1);
-        assert!(result.wrote_manifest_signature);
-        assert!(
-            repo_path.join("repo_manifest.json").exists() || repo_path.join("repo.json").exists()
-        );
-        assert!(
-            repo_path
-                .join("targets")
-                .join("1.0.0-windows-x86_64-base")
-                .join("manifest.json")
-                .exists()
-        );
-        assert!(
-            repo_path
-                .join("targets")
-                .join("1.0.0-windows-x86_64-base")
-                .join("manifest.sig")
-                .exists()
-        );
-        assert!(repo_path.join("bundles").join("bundle-a.bundle").exists());
-
-        server.join().unwrap();
-        let _ = std::fs::remove_dir_all(&root);
-    }
-}
+#[path = "install_tests.rs"]
+mod tests;

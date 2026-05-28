@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::manifest::{self, target::TargetManifest, content_repo::ContentRepoManifest};
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
+use crate::manifest::{self, content_repo::ContentRepoManifest, target::TargetManifest};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 
@@ -62,10 +62,7 @@ pub struct SourceTargetInstallCandidate {
 
 impl ContentRepoPaths {
     pub fn from_store_root(store_root: &Path, content_repo_id: &str) -> Self {
-        let repo_root = store_root
-            .join("v1")
-            .join("repos")
-            .join(content_repo_id);
+        let repo_root = store_root.join("v1").join("repos").join(content_repo_id);
         Self::from_repo_root(&repo_root)
     }
 
@@ -89,8 +86,7 @@ pub fn ensure_content_repo_layout(
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-        let repo_manifest: ContentRepoManifest =
-            serde_json::from_str(&repo_manifest_json)?;
+        let repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
         if repo_manifest.content_repo_id != content_repo_id {
             return Err(Error::manifest(format!(
                 "content repo at {} has repo id '{}' not '{}'",
@@ -101,8 +97,7 @@ pub fn ensure_content_repo_layout(
         }
         repo_manifest
     } else {
-        let repo_manifest =
-            ContentRepoManifest::new(content_repo_id.to_string());
+        let repo_manifest = ContentRepoManifest::new(content_repo_id.to_string());
         let repo_manifest_json = serde_json::to_string_pretty(&repo_manifest)?;
         std::fs::write(&paths.repo_manifest_path, repo_manifest_json)?;
         repo_manifest
@@ -146,6 +141,24 @@ pub fn load_chunk_index(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex
     let json = std::fs::read_to_string(&paths.chunk_index_path)?;
     let index: manifest::ChunkIndex = serde_json::from_str(&json)?;
     Ok(index)
+}
+
+pub fn required_chunk_hashes(target_manifest: &TargetManifest) -> HashSet<String> {
+    target_manifest
+        .files
+        .iter()
+        .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.clone()))
+        .collect()
+}
+
+pub fn required_bundle_ids(
+    target_manifest: &TargetManifest,
+    chunk_index: &manifest::ChunkIndex,
+) -> HashSet<String> {
+    required_chunk_hashes(target_manifest)
+        .into_iter()
+        .filter_map(|chunk_hash| chunk_index.entries.get(&chunk_hash).cloned())
+        .collect()
 }
 
 pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
@@ -317,6 +330,20 @@ fn inspect_target_manifests(
     }
 
     let (available_bundle_ids, _, _) = inspect_bundle_inventory(bundles_root)?;
+    let chunk_index_path = bundles_root
+        .parent()
+        .map(|parent| parent.join("chunk_index.json"))
+        .unwrap_or_else(|| PathBuf::from("chunk_index.json"));
+    let chunk_index = if chunk_index_path.exists() {
+        let chunk_index_json = std::fs::read_to_string(&chunk_index_path)?;
+        serde_json::from_str(&chunk_index_json)?
+    } else {
+        manifest::ChunkIndex {
+            format_version: "1.0.0".to_string(),
+            updated_at: String::new(),
+            entries: BTreeMap::new(),
+        }
+    };
     let mut targets = Vec::new();
     for entry in std::fs::read_dir(targets_root)? {
         let entry = entry?;
@@ -332,7 +359,7 @@ fn inspect_target_manifests(
 
         let manifest_json = std::fs::read_to_string(&manifest_path)?;
         let manifest: TargetManifest = serde_json::from_str(&manifest_json)?;
-        let required_bundle_ids = required_bundle_ids(&manifest);
+        let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()
             .filter(|bundle_id| !available_bundle_ids.contains(*bundle_id))
@@ -410,269 +437,6 @@ fn preview_target_identity(target_tags: &manifest::TargetTagSet) -> String {
     parts.join(" ")
 }
 
-fn required_bundle_ids(target_manifest: &TargetManifest) -> Vec<String> {
-    target_manifest
-        .files
-        .iter()
-        .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.clone()))
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect()
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::TargetTagSet {
-        let mut tags = manifest::TargetTagSet::default();
-        tags.upsert_exclusive("version", version);
-        tags.upsert_exclusive("os", os);
-        tags.upsert_exclusive("arch", arch);
-        tags.upsert_exclusive("tier", tier);
-        tags
-    }
-
-    #[test]
-    fn content_repo_paths_from_repo_root() {
-        let root = PathBuf::from("/test/repo");
-        let paths = ContentRepoPaths::from_repo_root(&root);
-        assert_eq!(paths.repo_root, root);
-        assert_eq!(paths.repo_manifest_path, root.join("repo_manifest.json"));
-        assert_eq!(paths.chunk_index_path, root.join("chunk_index.json"));
-        assert_eq!(paths.targets_root, root.join("targets"));
-        assert_eq!(paths.bundles_root, root.join("bundles"));
-    }
-
-    #[test]
-    fn content_repo_paths_from_store_root() {
-        let root = PathBuf::from("/test/store");
-        let paths = ContentRepoPaths::from_store_root(&root, "my-repo");
-        assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
-        assert!(
-            paths
-                .repo_manifest_path
-                .to_string_lossy()
-                .contains("my-repo")
-        );
-    }
-
-    #[test]
-    fn inspect_content_repo_reports_targets() {
-        let root = std::env::temp_dir().join(format!(
-            "gutch_repo_inspect_test_{}_{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-        ));
-        let repo_root = root.join("repo");
-        let repo_paths = ContentRepoPaths::from_repo_root(&repo_root);
-        let _ = std::fs::remove_dir_all(&root);
-
-        ensure_content_repo_layout(&repo_paths, "base").unwrap();
-        let target_root = repo_paths.targets_root.join("1");
-        std::fs::create_dir_all(&target_root).unwrap();
-        let mut manifest = TargetManifest::new(
-            "base".to_string(),
-            "1".to_string(),
-            exclusive_tags("1.0.0", "windows", "x86_64", "base"),
-        );
-        manifest.files.push(manifest::FileManifest {
-            path: "game.exe".to_string(),
-            size: 42,
-            executable: true,
-            full_file_hash: "abc123".to_string(),
-            chunks: Vec::new(),
-        });
-
-        std::fs::write(
-            target_root.join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-        std::fs::write(target_root.join("manifest.sig"), b"sig").unwrap();
-        std::fs::write(repo_paths.bundles_root.join("bundle-a.bundle"), b"bundle-a").unwrap();
-
-        let status = inspect_content_repo(&repo_root).unwrap();
-
-        assert!(status.exists);
-        assert!(status.is_repo);
-        assert_eq!(status.content_repo_id, "base");
-        assert_eq!(status.bundle_count, 1);
-        assert_eq!(status.targets.len(), 1);
-        assert_eq!(status.targets[0].target_id, "1");
-        assert!(status.targets[0].has_signature_file);
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn discover_source_target_installs_returns_matching_subfolders_only() {
-        let root = std::env::temp_dir().join(format!(
-            "gutch_source_discover_test_{}_{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-        ));
-        let repo_root = root.join("repo");
-        let source_root = root.join("source-targets");
-        let repo_paths = ContentRepoPaths::from_repo_root(&repo_root);
-        let _ = std::fs::remove_dir_all(&root);
-
-        ensure_content_repo_layout(&repo_paths, "mods").unwrap();
-
-        let repo_manifest = ContentRepoManifest {
-            target_schema: Some(manifest::TargetTagSchema {
-                target_tags: vec![
-                    manifest::TargetTagDefinition {
-                        name: "version".to_string(),
-                        kind: manifest::TargetTagKind::Exclusive,
-                        required: true,
-                        values: Vec::new(),
-                        aliases: BTreeMap::new(),
-                        default_value: None,
-                    },
-                    manifest::TargetTagDefinition {
-                        name: "loader".to_string(),
-                        kind: manifest::TargetTagKind::Scoped,
-                        required: false,
-                        values: Vec::new(),
-                        aliases: BTreeMap::from([
-                            ("fabric".to_string(), "fabric".to_string()),
-                            ("forge".to_string(), "forge".to_string()),
-                            ("neoforge".to_string(), "neoforge".to_string()),
-                        ]),
-                        default_value: None,
-                    },
-                    manifest::TargetTagDefinition {
-                        name: "mc".to_string(),
-                        kind: manifest::TargetTagKind::Scoped,
-                        required: false,
-                        values: Vec::new(),
-                        aliases: BTreeMap::from([
-                            ("1.20.1".to_string(), "1.20.1".to_string()),
-                            ("1.21".to_string(), "1.21".to_string()),
-                        ]),
-                        default_value: None,
-                    },
-                ],
-                target_id_order: vec![
-                    "version".to_string(),
-                    "loader".to_string(),
-                    "mc".to_string(),
-                ],
-                on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
-            }),
-            plugin: None,
-            ..ContentRepoManifest::new("mods".to_string())
-        };
-        std::fs::write(
-            &repo_paths.repo_manifest_path,
-            serde_json::to_string_pretty(&repo_manifest).unwrap(),
-        )
-        .unwrap();
-
-        std::fs::create_dir_all(source_root.join("ae2-v15.4.10-fabric-1.21")).unwrap();
-        std::fs::create_dir_all(source_root.join("not-a-target-folder")).unwrap();
-
-        let candidates = discover_source_target_installs(&repo_root, &source_root).unwrap();
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].folder_name, "ae2-v15.4.10-fabric-1.21");
-        assert_eq!(candidates[0].version_id, "15.4.10");
-        assert_eq!(
-            candidates[0]
-                .target_tags
-                .scoped
-                .get("loader")
-                .and_then(|values| values.iter().next())
-                .map(String::as_str),
-            Some("fabric")
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn chunk_index_write_and_load_roundtrip() {
-        let root = std::env::temp_dir().join("gutch_chunk_index_test");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        let paths = ContentRepoPaths::from_repo_root(&root);
-
-        let mut entries = BTreeMap::new();
-        entries.insert("chunk-a".to_string(), "bundle-1".to_string());
-        entries.insert("chunk-b".to_string(), "bundle-1".to_string());
-        entries.insert("chunk-c".to_string(), "bundle-2".to_string());
-        let index = manifest::ChunkIndex {
-            format_version: "1.0.0".to_string(),
-            updated_at: "2026-05-14T00:00:00Z".to_string(),
-            entries,
-        };
-        write_chunk_index(&paths, &index).unwrap();
-        assert!(paths.chunk_index_path.exists());
-
-        let loaded = load_chunk_index(&paths).unwrap();
-        assert_eq!(loaded.format_version, "1.0.0");
-        assert_eq!(loaded.entries.len(), 3);
-        assert_eq!(
-            loaded.entries.get("chunk-a").map(String::as_str),
-            Some("bundle-1")
-        );
-        assert_eq!(
-            loaded.entries.get("chunk-c").map(String::as_str),
-            Some("bundle-2")
-        );
-        assert!(loaded.entries.get("nonexistent").is_none());
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn chunk_index_load_empty_when_file_missing() {
-        let root = std::env::temp_dir().join("gutch_chunk_index_empty_test");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        let paths = ContentRepoPaths::from_repo_root(&root);
-
-        let loaded = load_chunk_index(&paths).unwrap();
-        assert!(loaded.entries.is_empty());
-        assert_eq!(loaded.format_version, "1.0.0");
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn inspect_repo_shows_target_tags() {
-        let root = std::env::temp_dir().join("gutch_inspect_tags_test");
-        let _ = std::fs::remove_dir_all(&root);
-        let paths = ContentRepoPaths::from_repo_root(&root);
-        ensure_content_repo_layout(&paths, "base").unwrap();
-
-        let target_root = paths.targets_root.join("2");
-        std::fs::create_dir_all(&target_root).unwrap();
-        let mut manifest = TargetManifest::new(
-            "base".to_string(),
-            "2".to_string(),
-            exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
-        );
-        manifest.files.push(manifest::FileManifest {
-            path: "game.bin".to_string(),
-            size: 100,
-            executable: true,
-            full_file_hash: "abc".to_string(),
-            chunks: vec![],
-        });
-        std::fs::write(
-            target_root.join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-
-        let status = inspect_content_repo(&root).unwrap();
-        assert_eq!(status.targets.len(), 1);
-        assert_eq!(status.targets[0].target_id, "2");
-        assert_eq!(status.targets[0].version_id, "2.0.0");
-        assert_eq!(status.targets[0].platform, "linux");
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-}
+#[path = "repo_tests.rs"]
+mod tests;

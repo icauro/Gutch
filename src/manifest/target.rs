@@ -26,11 +26,7 @@ pub struct TierOverlayManifest {
 }
 
 impl TargetManifest {
-    pub fn new(
-        content_repo_id: String,
-        target_id: String,
-        target_tags: TargetTagSet,
-    ) -> Self {
+    pub fn new(content_repo_id: String, target_id: String, target_tags: TargetTagSet) -> Self {
         TargetManifest {
             manifest_version: FORMAT_VERSION.to_string(),
             content_repo_id,
