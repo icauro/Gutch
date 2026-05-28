@@ -52,6 +52,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         }
 
         Commands::Repo { command } => crate::cli::repo::run(command),
+        Commands::Interactive => crate::cli::interactive::run(),
         Commands::Target { command } => crate::cli::target::run(command),
         Commands::TargetInstall { command } => crate::cli::target_install::run(command),
 

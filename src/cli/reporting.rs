@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use gutch as g;
@@ -406,89 +405,6 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn directory_size_bytes(root_path: &std::path::Path) -> g::Result<u64> {
-    if !root_path.exists() {
-        return Ok(0);
-    }
-
-    let mut total_bytes = 0u64;
-    for entry in walkdir::WalkDir::new(root_path).sort_by_file_name() {
-        let entry = entry?;
-        if entry.path().is_file() {
-            total_bytes += entry.metadata()?.len();
-        }
-    }
-
-    Ok(total_bytes)
-}
-
-pub fn collect_repo_init_target_added_bytes<'a>(
-    ordered_target_manifests: &[&'a g::manifest::target::TargetManifest],
-    target_manifest_sizes: &HashMap<String, u64>,
-    _bundle_sizes: &HashMap<String, u64>,
-) -> Vec<(&'a g::manifest::target::TargetManifest, u64)> {
-    let mut _seen_bundle_ids: HashSet<String> = HashSet::new();
-    let mut added_bytes_by_target = Vec::with_capacity(ordered_target_manifests.len());
-
-    for target_manifest in ordered_target_manifests {
-        let manifest_bytes = target_manifest_sizes
-            .get(&target_manifest.target_id)
-            .copied()
-            .unwrap_or(0);
-        let new_bundle_bytes: u64 = 0; // bundle size tracking requires chunk_index.json
-        added_bytes_by_target.push((*target_manifest, manifest_bytes + new_bundle_bytes));
-    }
-
-    added_bytes_by_target
-}
-
-pub fn print_repo_init_storage_summary(
-    ordered_target_manifests: &[&g::manifest::target::TargetManifest],
-    repo_root: &std::path::Path,
-    target_manifest_sizes: &HashMap<String, u64>,
-    bundle_sizes: &HashMap<String, u64>,
-) -> g::Result<()> {
-    let total_install_bytes: u64 = ordered_target_manifests
-        .iter()
-        .map(|target_manifest| target_manifest.total_logical_size)
-        .sum();
-    let repo_size_bytes = directory_size_bytes(repo_root)?;
-    let repo_percent_of_installs = ratio_pct(repo_size_bytes, total_install_bytes);
-    let saved_percent_vs_full_installs = if total_install_bytes == 0 {
-        0.0
-    } else {
-        100.0 - repo_percent_of_installs
-    };
-    let added_bytes_by_target = collect_repo_init_target_added_bytes(
-        ordered_target_manifests,
-        target_manifest_sizes,
-        bundle_sizes,
-    );
-
-    println!("storage summary:");
-    println!(
-        "  total install size: {}",
-        format_bytes(total_install_bytes)
-    );
-    println!("  repo size:          {}", format_bytes(repo_size_bytes));
-    println!("  repo vs installs:   {:.2}%", repo_percent_of_installs);
-    println!(
-        "  saved vs full copy: {:.2}%",
-        saved_percent_vs_full_installs
-    );
-    println!("  per-target added repo bytes:");
-    for (target_manifest, added_bytes) in added_bytes_by_target {
-        println!(
-            "    {}: added {} for install {}",
-            target_manifest.target_id,
-            format_bytes(added_bytes),
-            format_bytes(target_manifest.total_logical_size)
-        );
-    }
-
-    Ok(())
-}
-
 pub fn print_build_timings(t: &g::BuildTimings) {
     print_section_title("Build Timing Summary");
     if let Some(plan) = &t.runtime_plan {
@@ -721,24 +637,3 @@ pub fn print_verify_timings(t: &g::VerifyTimings) {
 #[path = "reporting_tests.rs"]
 mod tests;
 
-pub fn accumulate_build_timings(total: &mut g::BuildTimings, add: &g::BuildTimings) {
-    total.scan_read += add.scan_read;
-    total.scan_read_bytes += add.scan_read_bytes;
-    total.file_hash += add.file_hash;
-    total.file_hash_bytes += add.file_hash_bytes;
-    total.chunking += add.chunking;
-    total.chunking_bytes += add.chunking_bytes;
-    total.chunk_hash_judgment += add.chunk_hash_judgment;
-    total.chunk_hash_judgment_bytes += add.chunk_hash_judgment_bytes;
-    total.metadata += add.metadata;
-    total.dedupe_lookup += add.dedupe_lookup;
-    total.dedupe_lookup_bytes += add.dedupe_lookup_bytes;
-    total.compression += add.compression;
-    total.compression_input_bytes += add.compression_input_bytes;
-    total.compression_output_bytes += add.compression_output_bytes;
-    total.total_compressed_bytes += add.total_compressed_bytes;
-    total.bundle_build += add.bundle_build;
-    total.bundle_build_bytes += add.bundle_build_bytes;
-    total.target_manifest_finalize += add.target_manifest_finalize;
-    total.total += add.total;
-}

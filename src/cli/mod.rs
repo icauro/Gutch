@@ -2,6 +2,7 @@ pub(crate) mod backend;
 pub(crate) mod commands;
 pub(crate) mod common;
 pub(crate) mod path_compare;
+pub(crate) mod interactive;
 pub(crate) mod repo;
 pub(crate) mod reporting;
 pub(crate) mod target;

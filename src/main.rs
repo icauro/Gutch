@@ -6,35 +6,14 @@ mod cli;
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use gutch as g;
-use serde::Deserialize;
 
 #[derive(Parser)]
 #[command(name = "gutch", version, about = "Launcher artifact engine")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-}
-
-#[derive(Debug, Deserialize)]
-struct RepoInitSpec {
-    targets: Vec<RepoInitTargetSpec>,
-    #[serde(default, alias = "auto_tagging_rules")]
-    target_schema: Option<g::manifest::TargetTagSchema>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RepoInitTargetSpec {
-    dir: PathBuf,
-    #[serde(default)]
-    tags: g::manifest::TargetTagSet,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum RepoInitMode {
-    Batch,
-    Sequential,
 }
 
 #[derive(Subcommand)]
@@ -48,6 +27,8 @@ enum Commands {
         #[command(subcommand)]
         command: RepoCommands,
     },
+
+    Interactive,
 
     Target {
         #[command(subcommand)]
@@ -121,38 +102,6 @@ enum RepoCommands {
 
         #[arg(long = "clear")]
         clear: bool,
-    },
-
-    Init {
-        #[arg(long = "content-repo")]
-        content_repo: String,
-
-        #[arg(short, long)]
-        spec: PathBuf,
-
-        #[arg(long = "init-mode", value_enum, default_value_t = RepoInitMode::Sequential)]
-        init_mode: RepoInitMode,
-
-        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Balanced)]
-        chunk_profile: g::manifest::ArtifactSizingPreset,
-
-        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
-        bundle_profile: g::manifest::BundleSizingPreset,
-
-        #[arg(long = "compression-unit", value_parser = ["chunk", "bundle"], default_value = "chunk")]
-        compression_unit: String,
-
-        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
-        memory_mode: g::MemoryMode,
-
-        #[arg(long = "max-memory-mib")]
-        max_memory_mib: Option<u64>,
-
-        #[arg(long = "jobs")]
-        jobs: Option<usize>,
-
-        #[arg(long = "repo", default_value = ".")]
-        repo: PathBuf,
     },
 
     Inspect {

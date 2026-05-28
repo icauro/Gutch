@@ -464,14 +464,6 @@ pub(crate) fn prepare_input_path(path: &PathBuf) -> g::Result<PreparedInputPath>
     )))
 }
 
-pub(crate) fn directory_has_any_entries(path: &std::path::Path) -> g::Result<bool> {
-    if !path.exists() {
-        return Ok(false);
-    }
-
-    Ok(std::fs::read_dir(path)?.next().is_some())
-}
-
 pub(crate) fn load_optional_rules(
     rules_path: &Option<PathBuf>,
 ) -> g::Result<Option<g::manifest::AutoTaggingRules>> {

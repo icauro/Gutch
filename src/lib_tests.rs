@@ -189,49 +189,6 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
 }
 
 #[test]
-fn test_repo_init_batch_builds_multiple_targets() {
-    let root = test_util::temp_path("gutch_test_repo_init_batch");
-    let dir_a = root.join("a");
-    let dir_b = root.join("b");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&dir_a).unwrap();
-    std::fs::create_dir_all(&dir_b).unwrap();
-
-    std::fs::write(dir_a.join("shared.bin"), b"shared bytes".repeat(100)).unwrap();
-    std::fs::write(dir_a.join("only-a.txt"), b"alpha").unwrap();
-    std::fs::write(dir_b.join("shared.bin"), b"shared bytes".repeat(100)).unwrap();
-    std::fs::write(dir_b.join("only-b.txt"), b"beta").unwrap();
-
-    let inputs = vec![
-        RepoInitTargetInput {
-            dir: dir_a.clone(),
-            target_id: "1".to_string(),
-            target_tags: exclusive_tags("1.0.0", "windows", "x86_64", "base"),
-        },
-        RepoInitTargetInput {
-            dir: dir_b.clone(),
-            target_id: "2".to_string(),
-            target_tags: exclusive_tags("1.0.0", "windows", "x86_64", "tr"),
-        },
-    ];
-
-    let (result, _) = build_repo_init_batch_with_timings(
-        "base",
-        &inputs,
-        &manifest::ChunkSizingProfile::default(),
-        &manifest::BundleSizingProfile::default(),
-        &manifest::CompressionProfile::default(),
-    )
-    .unwrap();
-
-    assert_eq!(result.target_manifests.len(), 2);
-    assert!(!result.bundles.is_empty());
-    assert_eq!(result.target_manifests[0].content_repo_id, "base");
-
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
 fn test_content_repo_paths_from_store_root() {
     let paths = ContentRepoPaths::from_store_root(Path::new("D:\\store"), "base");
 

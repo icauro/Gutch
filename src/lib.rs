@@ -31,12 +31,10 @@ pub use build::{
     build_from_directory_with_timings_against_existing_store_and_manifests,
     build_from_directory_with_timings_against_existing_store_and_manifests_and_profile,
     build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles,
-    build_repo_init_batch_with_timings, build_repo_init_batch_with_timings_and_hints,
     build_with_config,
 };
 pub use build_types::{
     BuildConfig, BuildResult, BuildTimings, BuiltBundle, ChunkPayload, ExistingChunkLocation,
-    RepoInitResult, RepoInitTargetInput,
 };
 pub use cli_identity::{
     ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,

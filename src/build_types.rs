@@ -45,19 +45,6 @@ impl BuildConfig {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RepoInitTargetInput {
-    pub dir: PathBuf,
-    pub target_id: String,
-    pub target_tags: TargetTagSet,
-}
-
-#[derive(Debug, Clone)]
-pub struct RepoInitResult {
-    pub target_manifests: Vec<TargetManifest>,
-    pub bundles: Vec<BuiltBundle>,
-}
-
 pub struct BuildResult {
     pub target_manifest: TargetManifest,
     pub bundles: Vec<BuiltBundle>,
