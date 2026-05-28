@@ -388,7 +388,7 @@ pub fn print_verify_timings(t: &g::VerifyTimings) {
 }
 
 #[cfg(test)]
-#[path = "cli_reporting_tests.rs"]
+#[path = "reporting_tests.rs"]
 mod tests;
 
 pub fn accumulate_build_timings(total: &mut g::BuildTimings, add: &g::BuildTimings) {

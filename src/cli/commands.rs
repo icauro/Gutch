@@ -1,7 +1,7 @@
-use crate::cli_path_compare::compare_paths;
-use crate::cli_reporting::optional_output_paths;
+use crate::cli::common::write_report;
+use crate::cli::path_compare::compare_paths;
+use crate::cli::reporting::optional_output_paths;
 use crate::{AuthCommands, BundleCommands, Cli, Commands, PathCommands};
-use crate::{cli_common::write_report, cli_repo, cli_target, cli_target_install};
 use gutch as g;
 
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
@@ -51,9 +51,9 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             Ok(())
         }
 
-        Commands::Repo { command } => cli_repo::run(command),
-        Commands::Target { command } => cli_target::run(command),
-        Commands::TargetInstall { command } => cli_target_install::run(command),
+        Commands::Repo { command } => crate::cli::repo::run(command),
+        Commands::Target { command } => crate::cli::target::run(command),
+        Commands::TargetInstall { command } => crate::cli::target_install::run(command),
 
         Commands::Bundle {
             command: BundleCommands::Inspect { bundle },

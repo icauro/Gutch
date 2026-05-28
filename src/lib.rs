@@ -1,11 +1,14 @@
 #![warn(clippy::all)]
 #![warn(rust_2024_compatibility)]
 
+extern crate self as gutch;
+
 pub mod build;
 pub mod build_scan;
 pub mod build_types;
 pub mod bundle;
 pub mod chunk;
+#[path = "cli/identity.rs"]
 pub mod cli_identity;
 pub mod compress;
 pub mod error;

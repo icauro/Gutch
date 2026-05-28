@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use gutch as g;
 use serde::Serialize;
 
-use crate::cli_reporting::OptionalOutputPaths;
+use crate::cli::reporting::OptionalOutputPaths;
 
 #[derive(Debug, Serialize)]
 pub struct PathCompareStats {
@@ -139,7 +139,7 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, PathBuf)
 }
 
 #[cfg(test)]
-#[path = "cli_path_compare_tests.rs"]
+#[path = "path_compare_tests.rs"]
 mod tests;
 
 fn resolve_actual_file_path(

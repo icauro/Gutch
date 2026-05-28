@@ -2,14 +2,7 @@
 #![warn(rust_2024_compatibility)]
 
 mod auth;
-mod cli_backend;
-mod cli_commands;
-mod cli_common;
-mod cli_path_compare;
-mod cli_repo;
-mod cli_reporting;
-mod cli_target;
-mod cli_target_install;
+mod cli;
 
 use std::path::PathBuf;
 
@@ -376,7 +369,7 @@ enum PathCommands {
 fn main() {
     let cli = Cli::parse();
 
-    if let Err(e) = cli_commands::run(cli) {
+    if let Err(e) = cli::commands::run(cli) {
         eprintln!("error: {}", e);
         std::process::exit(1);
     }

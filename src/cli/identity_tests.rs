@@ -80,7 +80,7 @@ fn test_resolve_custom_scoped_tags() {
     rules.on_incomplete = IncompleteInferenceBehavior::Warn;
     rules
         .target_tags
-        .push(crate::manifest::TargetTagDefinition {
+        .push(gutch::manifest::TargetTagDefinition {
             name: "loader".to_string(),
             kind: TargetTagKind::Scoped,
             required: false,

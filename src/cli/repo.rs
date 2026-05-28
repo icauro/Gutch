@@ -3,17 +3,17 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::cli_backend::{
+use crate::cli::backend::{
     CreatorRepoTargetsResponse, SignedChunkIndexResponse, SignedRepoManifestResponse,
     SignedTargetManifestResponse, UpsertTargetResponse, request_json_from_backend,
     request_optional_bytes_from_signed_url, slugify_like_backend, upload_raw_file,
 };
-use crate::cli_common::{
+use crate::cli::common::{
     collect_input_sizing_stats, directory_has_any_entries, load_optional_rules,
     load_target_manifest_from_repo, median_u64, parse_version_parts, session_id_for_cli,
     write_bundles, write_target_manifest,
 };
-use crate::cli_reporting::{
+use crate::cli::reporting::{
     accumulate_build_timings, ensure_parent_directory, print_build_timings,
     print_repo_init_storage_summary,
 };
@@ -273,7 +273,7 @@ fn run_repo_sync_up(
         }
         if exists_response.status() != reqwest::StatusCode::NOT_FOUND {
             return Err(g::Error::manifest(
-                crate::cli_backend::parse_backend_error_response(exists_response),
+                crate::cli::backend::parse_backend_error_response(exists_response),
             ));
         }
 

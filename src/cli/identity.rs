@@ -1,5 +1,5 @@
-use crate::error::{Error, Result};
-use crate::manifest::{
+use gutch::error::{Error, Result};
+use gutch::manifest::{
     IncompleteInferenceBehavior, TargetTagKind, TargetTagSchema, TargetTagSet,
     target::TargetManifest,
 };
@@ -233,7 +233,7 @@ fn apply_schema_defaults(target_tags: &mut TargetTagSet, rules: &TargetTagSchema
 
 fn has_definition_value(
     target_tags: &TargetTagSet,
-    definition: &crate::manifest::TargetTagDefinition,
+    definition: &gutch::manifest::TargetTagDefinition,
 ) -> bool {
     match definition.kind {
         TargetTagKind::Plain => target_tags.plain.contains(&definition.name),
@@ -246,5 +246,5 @@ fn has_definition_value(
 }
 
 #[cfg(test)]
-#[path = "cli_identity_tests.rs"]
+#[path = "identity_tests.rs"]
 mod tests;

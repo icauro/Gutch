@@ -1,11 +1,11 @@
 use crate::TargetCommands;
-use crate::cli_common::{
+use crate::cli::common::{
     TargetExportStats, TargetInsertStats, collect_input_sizing_stats,
     count_required_bundles_for_build, count_required_bundles_from_chunk_index,
     count_required_chunks, load_target_manifest_from_repo, prepare_input_path, write_bundles,
     write_report, write_target_manifest,
 };
-use crate::cli_reporting::{
+use crate::cli::reporting::{
     build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
     ratio_pct, reconstruct_timings_summary,
 };
@@ -198,7 +198,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             let (repo_paths, _repo_manifest, _manifest_path, tm) =
                 load_target_manifest_from_repo(&repo, &target)?;
             let bundle_paths =
-                crate::cli_common::resolve_required_bundle_paths(&repo_paths.bundles_root)?;
+                crate::cli::common::resolve_required_bundle_paths(&repo_paths.bundles_root)?;
             let chunk_index = g::load_chunk_index(&repo_paths)?;
 
             let (_, timings) =

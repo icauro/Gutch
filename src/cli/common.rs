@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tempfile::TempDir;
 
-use crate::cli_path_compare::PathCompareStats;
-use crate::cli_reporting::{
+use crate::cli::path_compare::PathCompareStats;
+use crate::cli::reporting::{
     BuildTimingsSummary, OptionalOutputPaths, ReconstructTimingsSummary, VerifyTimingsSummary,
     ensure_parent_directory, format_bytes, write_stats_json_output,
 };
