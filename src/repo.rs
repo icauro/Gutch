@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::manifest;
+use crate::manifest::{self, target::TargetManifest, content_repo::ContentRepoManifest};
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -83,13 +83,13 @@ impl ContentRepoPaths {
 pub fn ensure_content_repo_layout(
     paths: &ContentRepoPaths,
     content_repo_id: &str,
-) -> Result<manifest::ContentRepoManifest> {
+) -> Result<ContentRepoManifest> {
     std::fs::create_dir_all(&paths.targets_root)?;
     std::fs::create_dir_all(&paths.bundles_root)?;
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-        let repo_manifest: manifest::ContentRepoManifest =
+        let repo_manifest: ContentRepoManifest =
             serde_json::from_str(&repo_manifest_json)?;
         if repo_manifest.content_repo_id != content_repo_id {
             return Err(Error::manifest(format!(
@@ -102,7 +102,7 @@ pub fn ensure_content_repo_layout(
         repo_manifest
     } else {
         let repo_manifest =
-            manifest::ContentRepoManifest::new(content_repo_id.to_string());
+            ContentRepoManifest::new(content_repo_id.to_string());
         let repo_manifest_json = serde_json::to_string_pretty(&repo_manifest)?;
         std::fs::write(&paths.repo_manifest_path, repo_manifest_json)?;
         repo_manifest
@@ -113,7 +113,7 @@ pub fn ensure_content_repo_layout(
 
 pub fn load_content_repo_manifest(
     repo_root: &Path,
-) -> Result<(ContentRepoPaths, manifest::ContentRepoManifest)> {
+) -> Result<(ContentRepoPaths, ContentRepoManifest)> {
     let paths = ContentRepoPaths::from_repo_root(repo_root);
     if !paths.repo_manifest_path.exists() {
         return Err(Error::manifest(format!(
@@ -123,7 +123,7 @@ pub fn load_content_repo_manifest(
     }
 
     let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-    let repo_manifest: manifest::ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+    let repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
 
     if repo_manifest.targets_dir != "targets" || repo_manifest.bundles_dir != "bundles" {
         return Err(Error::manifest(format!(
@@ -138,7 +138,7 @@ pub fn load_content_repo_manifest(
 pub fn load_chunk_index(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex> {
     if !paths.chunk_index_path.exists() {
         return Ok(manifest::ChunkIndex {
-            format_version: 1,
+            format_version: "1.0.0".to_string(),
             updated_at: String::new(),
             entries: BTreeMap::new(),
         });
@@ -156,21 +156,24 @@ pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex)
 
 pub fn write_content_repo_manifest(
     paths: &ContentRepoPaths,
-    repo_manifest: &manifest::ContentRepoManifest,
+    repo_manifest: &ContentRepoManifest,
 ) -> Result<()> {
     let json = serde_json::to_string_pretty(repo_manifest)?;
     std::fs::write(&paths.repo_manifest_path, json)?;
     Ok(())
 }
 
-pub fn reserve_next_target_id(
-    paths: &ContentRepoPaths,
-    repo_manifest: &mut manifest::ContentRepoManifest,
-) -> Result<String> {
-    let next_target_id = repo_manifest.next_target_id.max(1);
-    repo_manifest.next_target_id = next_target_id + 1;
-    write_content_repo_manifest(paths, repo_manifest)?;
-    Ok(next_target_id.to_string())
+pub fn generate_target_id() -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::process::id().hash(&mut hasher);
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .hash(&mut hasher);
+    let hash = hasher.finish();
+    format!("{:08x}", (hash & 0xFFFF_FFFF) as u32)
 }
 
 pub fn target_manifest_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
@@ -328,7 +331,7 @@ fn inspect_target_manifests(
         }
 
         let manifest_json = std::fs::read_to_string(&manifest_path)?;
-        let manifest: manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
+        let manifest: TargetManifest = serde_json::from_str(&manifest_json)?;
         let required_bundle_ids = required_bundle_ids(&manifest);
         let missing_bundle_count = required_bundle_ids
             .iter()
@@ -407,7 +410,7 @@ fn preview_target_identity(target_tags: &manifest::TargetTagSet) -> String {
     parts.join(" ")
 }
 
-fn required_bundle_ids(target_manifest: &manifest::TargetManifest) -> Vec<String> {
+fn required_bundle_ids(target_manifest: &TargetManifest) -> Vec<String> {
     target_manifest
         .files
         .iter()
@@ -468,7 +471,7 @@ mod tests {
         ensure_content_repo_layout(&repo_paths, "base").unwrap();
         let target_root = repo_paths.targets_root.join("1");
         std::fs::create_dir_all(&target_root).unwrap();
-        let mut manifest = manifest::TargetManifest::new(
+        let mut manifest = TargetManifest::new(
             "base".to_string(),
             "1".to_string(),
             exclusive_tags("1.0.0", "windows", "x86_64", "base"),
@@ -476,9 +479,7 @@ mod tests {
         manifest.files.push(manifest::FileManifest {
             path: "game.exe".to_string(),
             size: 42,
-            mode: 0o644,
             executable: true,
-            symlink_target: None,
             full_file_hash: "abc123".to_string(),
             chunks: Vec::new(),
         });
@@ -518,7 +519,7 @@ mod tests {
 
         ensure_content_repo_layout(&repo_paths, "mods").unwrap();
 
-        let repo_manifest = manifest::ContentRepoManifest {
+        let repo_manifest = ContentRepoManifest {
             target_schema: Some(manifest::TargetTagSchema {
                 target_tags: vec![
                     manifest::TargetTagDefinition {
@@ -561,7 +562,7 @@ mod tests {
                 on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
             }),
             plugin: None,
-            ..manifest::ContentRepoManifest::new("mods".to_string())
+            ..ContentRepoManifest::new("mods".to_string())
         };
         std::fs::write(
             &repo_paths.repo_manifest_path,
@@ -602,7 +603,7 @@ mod tests {
         entries.insert("chunk-b".to_string(), "bundle-1".to_string());
         entries.insert("chunk-c".to_string(), "bundle-2".to_string());
         let index = manifest::ChunkIndex {
-            format_version: 1,
+            format_version: "1.0.0".to_string(),
             updated_at: "2026-05-14T00:00:00Z".to_string(),
             entries,
         };
@@ -610,7 +611,7 @@ mod tests {
         assert!(paths.chunk_index_path.exists());
 
         let loaded = load_chunk_index(&paths).unwrap();
-        assert_eq!(loaded.format_version, 1);
+        assert_eq!(loaded.format_version, "1.0.0");
         assert_eq!(loaded.entries.len(), 3);
         assert_eq!(
             loaded.entries.get("chunk-a").map(String::as_str),
@@ -634,7 +635,7 @@ mod tests {
 
         let loaded = load_chunk_index(&paths).unwrap();
         assert!(loaded.entries.is_empty());
-        assert_eq!(loaded.format_version, 1);
+        assert_eq!(loaded.format_version, "1.0.0");
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -648,7 +649,7 @@ mod tests {
 
         let target_root = paths.targets_root.join("2");
         std::fs::create_dir_all(&target_root).unwrap();
-        let mut manifest = manifest::TargetManifest::new(
+        let mut manifest = TargetManifest::new(
             "base".to_string(),
             "2".to_string(),
             exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
@@ -656,9 +657,7 @@ mod tests {
         manifest.files.push(manifest::FileManifest {
             path: "game.bin".to_string(),
             size: 100,
-            mode: 0o755,
             executable: true,
-            symlink_target: None,
             full_file_hash: "abc".to_string(),
             chunks: vec![],
         });

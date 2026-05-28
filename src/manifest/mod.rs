@@ -1,21 +1,19 @@
+pub mod target;
+pub mod content_repo;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: &str = "1.0.0";
 pub const CHUNKER_FASTCDC: &str = "fastcdc-v2020";
 pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const COMPRESSION_ZSTD: &str = "zstd";
 pub const COMPRESSION_UNIT_CHUNK: &str = "chunk";
 pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
-pub const BUNDLE_FORMAT: &str = "gutch-bundle-v1";
 pub const CONTENT_REPO_FORMAT: &str = "gutch-content-repo-v1";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
-
-fn default_next_target_id() -> u64 {
-    1
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -58,7 +56,7 @@ pub struct ChunkSizingProfile {
     pub max_chunk_bytes: u32,
     pub gear_table_id: u32,
     pub chunk_hash_algorithm: String,
-    pub format_version: u32,
+    pub format_version: String,
 }
 
 impl Default for ChunkSizingProfile {
@@ -83,7 +81,7 @@ impl ChunkSizingProfile {
             max_chunk_bytes,
             gear_table_id: 3,
             chunk_hash_algorithm: CHUNK_HASH_BLAKE3.to_string(),
-            format_version: FORMAT_VERSION,
+            format_version: FORMAT_VERSION.to_string(),
         }
     }
 
@@ -299,33 +297,10 @@ pub struct TargetTagDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TargetManifest {
-    pub manifest_version: u32,
-    pub content_repo_id: String,
-    pub target_id: String,
-    #[serde(default)]
-    pub target_tags: TargetTagSet,
-    pub created_at: String,
-    pub files: Vec<FileManifest>,
-    pub total_logical_size: u64,
-    pub total_compressed_size_estimate: u64,
-    pub signature_metadata: Option<SignatureMetadata>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignatureMetadata {
-    pub algorithm: String,
-    pub key_id: String,
-    pub signature: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileManifest {
     pub path: String,
     pub size: u64,
-    pub mode: u32,
     pub executable: bool,
-    pub symlink_target: Option<String>,
     pub full_file_hash: String,
     pub chunks: Vec<ChunkRef>,
 }
@@ -334,16 +309,6 @@ pub struct FileManifest {
 pub struct ChunkRef {
     pub chunk_hash: String,
     pub raw_size: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TierOverlayManifest {
-    pub format_version: u32,
-    pub version_id: String,
-    pub base_tier_id: String,
-    pub target_tier_id: String,
-    pub add_files: Vec<FileManifest>,
-    pub replace_files: Vec<FileManifest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -373,38 +338,6 @@ pub struct Estimate {
     pub local_cache_hits: u64,
     pub available_disk_space: u64,
     pub fragmentation_score: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContentRepoManifest {
-    pub format: String,
-    pub format_version: u32,
-    pub content_repo_id: String,
-    pub created_at: String,
-    pub targets_dir: String,
-    pub bundles_dir: String,
-    #[serde(default = "default_next_target_id")]
-    pub next_target_id: u64,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        alias = "auto_tagging_rules"
-    )]
-    pub target_schema: Option<TargetTagSchema>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plugin: Option<PluginInfo>,
-    #[serde(default)]
-    pub chunk_sizing_profile: ChunkSizingProfile,
-    #[serde(default)]
-    pub compression_profile: CompressionProfile,
-    #[serde(default)]
-    pub bundle_sizing_profile: BundleSizingProfile,
-    #[serde(default = "default_bundle_format")]
-    pub bundle_format_version: String,
-}
-
-fn default_bundle_format() -> String {
-    BUNDLE_FORMAT.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -504,7 +437,7 @@ pub type AutoTaggingRules = TargetTagSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkIndex {
-    pub format_version: u32,
+    pub format_version: String,
     pub updated_at: String,
     pub entries: BTreeMap<String, String>,
 }
@@ -555,188 +488,6 @@ pub struct PluginInfo {
     pub incompatible_with: Vec<PluginOverride>,
 }
 
-impl ContentRepoManifest {
-    pub fn new(content_repo_id: String) -> Self {
-        Self {
-            format: CONTENT_REPO_FORMAT.to_string(),
-            format_version: FORMAT_VERSION,
-            content_repo_id,
-            created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            targets_dir: "targets".to_string(),
-            bundles_dir: "bundles".to_string(),
-            next_target_id: default_next_target_id(),
-            target_schema: None,
-            plugin: None,
-            chunk_sizing_profile: ChunkSizingProfile::default(),
-            compression_profile: CompressionProfile::default(),
-            bundle_sizing_profile: BundleSizingProfile::default(),
-            bundle_format_version: BUNDLE_FORMAT.to_string(),
-        }
-    }
-}
-
-impl TargetManifest {
-    pub fn new(
-        content_repo_id: String,
-        target_id: String,
-        target_tags: TargetTagSet,
-    ) -> Self {
-        TargetManifest {
-            manifest_version: FORMAT_VERSION,
-            content_repo_id,
-            target_id,
-            target_tags,
-            created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            files: Vec::new(),
-            total_logical_size: 0,
-            total_compressed_size_estimate: 0,
-            signature_metadata: None,
-        }
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_chunking_profile_defaults() {
-        let p = ChunkSizingProfile::default();
-        assert_eq!(p.preset, ArtifactSizingPreset::Balanced);
-        assert_eq!(p.min_chunk_bytes, 4 * 1024);
-        assert_eq!(p.avg_chunk_bytes, 16 * 1024);
-        assert_eq!(p.max_chunk_bytes, 64 * 1024);
-        assert_eq!(p.min_chunk_size_bytes(), 4 * 1024);
-        assert_eq!(p.avg_chunk_size_bytes(), 16 * 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 64 * 1024);
-        assert_eq!(p.chunk_hash_algorithm, "blake3");
-    }
-
-    #[test]
-    fn test_small_chunk_profile_uses_sub_kib_range() {
-        let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Small);
-        assert_eq!(p.preset, ArtifactSizingPreset::Small);
-        assert_eq!(p.min_chunk_size_bytes(), 256);
-        assert_eq!(p.avg_chunk_size_bytes(), 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
-    }
-
-    #[test]
-    fn test_chunk_auto_selection_always_resolves_balanced() {
-        assert_eq!(
-            ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1),
-            ArtifactSizingPreset::Balanced
-        );
-        assert_eq!(
-            ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1024 * 1024 * 1024),
-            ArtifactSizingPreset::Balanced
-        );
-    }
-
-    #[test]
-    fn test_bundle_sizing_profile_defaults() {
-        let p = BundleSizingProfile::default();
-        assert_eq!(p.preset, BundleSizingPreset::Balanced);
-        assert_eq!(p.bundle_max_mib, 32);
-        assert_eq!(p.bundle_preferred_mib, 16);
-        assert_eq!(p.bundle_max_size_bytes(), 32 * 1024 * 1024);
-        assert_eq!(p.bundle_preferred_size_bytes(), 16 * 1024 * 1024);
-    }
-
-    #[test]
-    fn test_bundle_auto_selection_always_resolves_balanced() {
-        assert_eq!(
-            BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1),
-            BundleSizingPreset::Balanced
-        );
-        assert_eq!(
-            BundleSizingProfile::auto_preset_for_target_logical_size_bytes(
-                1024 * 1024 * 1024 * 1024
-            ),
-            BundleSizingPreset::Balanced
-        );
-    }
-
-    #[test]
-    fn test_compression_profile_defaults() {
-        let p = CompressionProfile::default();
-        assert_eq!(p.zstd_level, 3);
-        assert_eq!(p.compression, "zstd");
-        assert_eq!(p.compression_unit, "chunk");
-    }
-
-    #[test]
-    fn test_target_manifest_new() {
-        let mut tags = TargetTagSet::default();
-        tags.upsert_exclusive("version", "1.0.0");
-        tags.upsert_exclusive("os", "windows");
-        tags.upsert_exclusive("arch", "x86_64");
-        tags.upsert_exclusive("tier", "base");
-        let m = TargetManifest::new(
-            "base".into(),
-            "abc123def".into(),
-            tags.clone(),
-        );
-        assert_eq!(m.content_repo_id, "base");
-        assert_eq!(m.target_id, "abc123def");
-        assert_eq!(m.target_tags.get_exclusive("os"), Some("windows"));
-        assert_eq!(m.manifest_version, 1);
-        assert!(m.signature_metadata.is_none());
-        assert!(m.created_at.len() > 0);
-    }
-
-    #[test]
-    fn test_manifest_serialization_roundtrip() {
-        let mut tags = TargetTagSet::default();
-        tags.upsert_exclusive("version", "1.0.0");
-        tags.upsert_exclusive("os", "windows");
-        tags.upsert_exclusive("arch", "x86_64");
-        tags.upsert_exclusive("tier", "base");
-        let m = TargetManifest::new(
-            "base".into(),
-            "abc123def".into(),
-            tags.clone(),
-        );
-        let json = serde_json::to_string_pretty(&m).unwrap();
-        let m2: TargetManifest = serde_json::from_str(&json).unwrap();
-        assert_eq!(m.content_repo_id, m2.content_repo_id);
-        assert_eq!(m.target_id, m2.target_id);
-        assert_eq!(m.target_tags, m2.target_tags);
-    }
-
-    #[test]
-    fn test_file_manifest_serialization() {
-        let fm = FileManifest {
-            path: "game.exe".to_string(),
-            size: 12345,
-            mode: 0o644,
-            executable: true,
-            symlink_target: None,
-            full_file_hash: "abc123".to_string(),
-            chunks: vec![
-                ChunkRef {
-                    chunk_hash: "def456".to_string(),
-                    raw_size: 8192,
-                },
-                ChunkRef {
-                    chunk_hash: "ghi789".to_string(),
-                    raw_size: 4153,
-                },
-            ],
-        };
-        let json = serde_json::to_string(&fm).unwrap();
-        let fm2: FileManifest = serde_json::from_str(&json).unwrap();
-        assert_eq!(fm.path, fm2.path);
-        assert_eq!(fm.chunks.len(), 2);
-    }
-
-    #[test]
-    fn test_content_repo_manifest_new() {
-        let repo = ContentRepoManifest::new("base".into());
-        assert_eq!(repo.format, CONTENT_REPO_FORMAT);
-        assert_eq!(repo.content_repo_id, "base");
-        assert_eq!(repo.targets_dir, "targets");
-        assert_eq!(repo.bundles_dir, "bundles");
-        assert_eq!(repo.next_target_id, 1);
-    }
-}
+#[path = "mod_tests.rs"]
+mod tests;

@@ -19,7 +19,7 @@ pub struct DependencyGraph {
 pub fn resolve_plugin_dependencies(
     base_target: &ResolvedTarget,
     enabled_plugins: &[(&str, &str)],
-    plugin_manifests: &HashMap<(String, String), manifest::ContentRepoManifest>,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::content_repo::ContentRepoManifest>,
     target_resolver: &dyn Fn(
         &str,
         &str,
@@ -114,7 +114,7 @@ fn resolve_plugin_target(
 
 fn detect_cycles(
     install_order: &[ResolvedTarget],
-    plugin_manifests: &HashMap<(String, String), manifest::ContentRepoManifest>,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::content_repo::ContentRepoManifest>,
 ) -> Result<()> {
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     let mut in_degree: HashMap<String, usize> = HashMap::new();
@@ -175,7 +175,7 @@ fn detect_cycles(
 
 fn reorder_by_dependencies(
     install_order: &mut Vec<ResolvedTarget>,
-    plugin_manifests: &HashMap<(String, String), manifest::ContentRepoManifest>,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::content_repo::ContentRepoManifest>,
 ) {
     let mut i = 1;
     while i < install_order.len() {
@@ -207,7 +207,7 @@ fn reorder_by_dependencies(
 
 fn apply_override_ordering(
     install_order: &mut Vec<ResolvedTarget>,
-    plugin_manifests: &HashMap<(String, String), manifest::ContentRepoManifest>,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::content_repo::ContentRepoManifest>,
     enabled_plugins: &[(&str, &str)],
 ) -> Result<()> {
     let mut order_map: HashMap<String, usize> = HashMap::new();
@@ -284,8 +284,8 @@ mod tests {
         dependencies: Vec<PluginDependency>,
         overrides: Vec<manifest::PluginOverride>,
         incompatible_with: Vec<manifest::PluginOverride>,
-    ) -> ((String, String), manifest::ContentRepoManifest) {
-        let mut m = manifest::ContentRepoManifest::new(repo_id.to_string());
+    ) -> ((String, String), crate::manifest::content_repo::ContentRepoManifest) {
+        let mut m = crate::manifest::content_repo::ContentRepoManifest::new(repo_id.to_string());
         m.plugin = Some(manifest::PluginInfo {
             plugin_type,
             display_name: None,

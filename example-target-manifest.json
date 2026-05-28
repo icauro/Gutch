@@ -1,7 +1,10 @@
 {
-  "manifest_version": 1,
+  "manifest_version": "1.0.0",
   "content_repo_id": "main",
-  "target_id": "1",
+  "target_id": "a3f8c012",
+  "created_at": "2026-05-28T12:00:00Z",
+  "total_logical_size": 178259968,
+  "total_compressed_size_estimate": 85423456,
   "target_tags": {
     "plain": ["beta"],
     "scoped": { "loader": ["fabric"] },
@@ -12,14 +15,11 @@
       "tier": "base"
     }
   },
-  "created_at": "2026-05-28T12:00:00Z",
   "files": [
     {
       "path": "bin/game.exe",
       "size": 44040192,
-      "mode": 33188,
       "executable": true,
-      "symlink_target": null,
       "full_file_hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
       "chunks": [
         { "chunk_hash": "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8", "raw_size": 65536 },
@@ -30,9 +30,7 @@
     {
       "path": "bin/config.ini",
       "size": 2048,
-      "mode": 33188,
       "executable": false,
-      "symlink_target": null,
       "full_file_hash": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9",
       "chunks": [
         { "chunk_hash": "a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6", "raw_size": 2048 }
@@ -41,17 +39,12 @@
     {
       "path": "data/assets.pak",
       "size": 134217728,
-      "mode": 33188,
       "executable": false,
-      "symlink_target": null,
       "full_file_hash": "b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9",
       "chunks": [
         { "chunk_hash": "c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9", "raw_size": 65536 },
         { "chunk_hash": "d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a0", "raw_size": 65536 }
       ]
     }
-  ],
-  "total_logical_size": 178259968,
-  "total_compressed_size_estimate": 85423456,
-  "signature_metadata": null
+  ]
 }

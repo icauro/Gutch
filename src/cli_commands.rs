@@ -183,13 +183,13 @@ mod tests {
 
     #[test]
     fn collect_repo_init_target_added_bytes_counts_only_new_bundles_once() {
-        let mut target_a = g::manifest::TargetManifest::new(
+        let mut target_a = g::manifest::target::TargetManifest::new(
             "base".into(),
             "1.0.0-windows-x86_64-base".into(),
             g::manifest::TargetTagSet::default(),
         );
         target_a.total_logical_size = 1000;
-        let mut target_b = g::manifest::TargetManifest::new(
+        let mut target_b = g::manifest::target::TargetManifest::new(
             "base".into(),
             "1.1.0-windows-x86_64-base".into(),
             g::manifest::TargetTagSet::default(),
@@ -311,9 +311,9 @@ fn load_target_manifest_from_repo(
     target_id: &str,
 ) -> g::Result<(
     g::ContentRepoPaths,
-    g::manifest::ContentRepoManifest,
+    g::manifest::content_repo::ContentRepoManifest,
     PathBuf,
-    g::manifest::TargetManifest,
+    g::manifest::target::TargetManifest,
 )> {
     let (repo_paths, repo_manifest) = g::load_content_repo_manifest(repo_root)?;
     let manifest_path = g::target_manifest_path(&repo_paths, target_id);
@@ -325,13 +325,13 @@ fn load_target_manifest_from_repo(
     }
 
     let manifest_json = std::fs::read_to_string(&manifest_path)?;
-    let target_manifest: g::manifest::TargetManifest = serde_json::from_str(&manifest_json)?;
+    let target_manifest: g::manifest::target::TargetManifest = serde_json::from_str(&manifest_json)?;
     Ok((repo_paths, repo_manifest, manifest_path, target_manifest))
 }
 
 fn resolve_required_bundle_paths(
     bundles_root: &std::path::Path,
-    _target_manifest: &g::manifest::TargetManifest,
+    _target_manifest: &g::manifest::target::TargetManifest,
 ) -> g::Result<Vec<PathBuf>> {
     if bundles_root.is_file() {
         return Ok(vec![bundles_root.to_path_buf()]);
@@ -635,7 +635,7 @@ fn run_repo_sync_up(
     let mut target_manifest_uploaded_count = 0usize;
     for target in &status.targets {
         let manifest_bytes = std::fs::read(&target.manifest_path)?;
-        let manifest: g::manifest::TargetManifest = serde_json::from_slice(&manifest_bytes)?;
+        let manifest: g::manifest::target::TargetManifest = serde_json::from_slice(&manifest_bytes)?;
         let target_id = manifest.target_id.parse::<i64>().map_err(|_| {
             g::Error::manifest(format!(
                 "target '{}' has a non-numeric local target id; repo sync-up expects numeric target ids",
@@ -955,7 +955,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             for target_input in &mut target_inputs {
                 target_input.target_id =
-                    g::reserve_next_target_id(&repo_paths, &mut repo_manifest)?;
+                    g::generate_target_id();
             }
 
             g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
@@ -1029,7 +1029,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                         content_repo,
                         result.target_manifests.len()
                     );
-                    let ordered_target_manifests: Vec<&g::manifest::TargetManifest> =
+                    let ordered_target_manifests: Vec<&g::manifest::target::TargetManifest> =
                         result.target_manifests.iter().collect();
                     print_repo_init_storage_summary(
                         &ordered_target_manifests,
@@ -1115,7 +1115,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                         content_repo,
                         target_inputs.len()
                     );
-                    let ordered_target_manifest_refs: Vec<&g::manifest::TargetManifest> =
+                    let ordered_target_manifest_refs: Vec<&g::manifest::target::TargetManifest> =
                         ordered_target_manifests.iter().collect();
                     print_repo_init_storage_summary(
                         &ordered_target_manifest_refs,
@@ -1365,7 +1365,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 resolve_target_identity(&dir, &explicit_tags, &rules, &context)?;
             let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
             let content_repo = repo_manifest.content_repo_id.clone();
-            let target_id = g::reserve_next_target_id(&repo_paths, &mut repo_manifest)?;
+            let target_id = g::generate_target_id();
 
             let target_root = repo_paths.targets_root.join(&target_id);
             let bundles_root = repo_paths.bundles_root.clone();
@@ -1409,7 +1409,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     }
 
                     let manifest_json = std::fs::read_to_string(entry.path())?;
-                    let manifest: g::manifest::TargetManifest =
+                    let manifest: g::manifest::target::TargetManifest =
                         serde_json::from_str(&manifest_json)?;
                     for file in manifest.files {
                         previous_file_manifests

@@ -210,10 +210,10 @@ fn directory_size_bytes(root_path: &std::path::Path) -> g::Result<u64> {
 }
 
 pub fn collect_repo_init_target_added_bytes<'a>(
-    ordered_target_manifests: &[&'a g::manifest::TargetManifest],
+    ordered_target_manifests: &[&'a g::manifest::target::TargetManifest],
     target_manifest_sizes: &HashMap<String, u64>,
     _bundle_sizes: &HashMap<String, u64>,
-) -> Vec<(&'a g::manifest::TargetManifest, u64)> {
+) -> Vec<(&'a g::manifest::target::TargetManifest, u64)> {
     let mut _seen_bundle_ids: HashSet<String> = HashSet::new();
     let mut added_bytes_by_target = Vec::with_capacity(ordered_target_manifests.len());
 
@@ -230,7 +230,7 @@ pub fn collect_repo_init_target_added_bytes<'a>(
 }
 
 pub fn print_repo_init_storage_summary(
-    ordered_target_manifests: &[&g::manifest::TargetManifest],
+    ordered_target_manifests: &[&g::manifest::target::TargetManifest],
     repo_root: &std::path::Path,
     target_manifest_sizes: &HashMap<String, u64>,
     bundle_sizes: &HashMap<String, u64>,

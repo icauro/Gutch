@@ -52,7 +52,7 @@ pub use reconstruct::{
 pub use repo::{
     ContentRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
     discover_source_target_installs, ensure_content_repo_layout, inspect_content_repo,
-    load_chunk_index, load_content_repo_manifest, reserve_next_target_id, target_manifest_path,
+    load_chunk_index, load_content_repo_manifest, generate_target_id, target_manifest_path,
     write_chunk_index, write_content_repo_manifest,
 };
 pub use verify::{
@@ -64,7 +64,7 @@ pub use verify::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{FileManifest, TargetManifest, TargetTagSet};
+    use crate::manifest::{FileManifest, target::TargetManifest, TargetTagSet};
     use crate::test_util;
     use std::path::{Path, PathBuf};
     use std::time::Instant;
@@ -285,9 +285,7 @@ mod tests {
         let fm = FileManifest {
             path: "nonexistent.txt".to_string(),
             size: 10,
-            mode: 0o644,
             executable: false,
-            symlink_target: None,
             full_file_hash: "abc".to_string(),
             chunks: vec![],
         };

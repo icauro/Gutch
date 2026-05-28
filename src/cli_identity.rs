@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::manifest::{
-    IncompleteInferenceBehavior, TargetManifest, TargetTagKind, TargetTagSchema, TargetTagSet,
+    IncompleteInferenceBehavior, target::TargetManifest, TargetTagKind, TargetTagSchema, TargetTagSet,
 };
 
 #[derive(Debug, Clone)]

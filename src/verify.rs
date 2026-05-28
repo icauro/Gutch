@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::Result;
 use crate::hash::hash_hex;
-use crate::manifest::{self, TargetManifest};
+use crate::manifest::{self, target::TargetManifest};
 
 #[derive(Debug, Clone, Default)]
 pub struct VerifyTimings {
@@ -261,7 +261,7 @@ pub fn estimate_build(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{TargetManifest, TargetTagSet};
+    use crate::manifest::{target::TargetManifest, TargetTagSet};
 
     fn empty_manifest() -> TargetManifest {
         TargetManifest::new(
@@ -287,9 +287,7 @@ mod tests {
         manifest.files.push(crate::manifest::FileManifest {
             path: "game.exe".into(),
             size: 1000,
-            mode: 0o755,
             executable: true,
-            symlink_target: None,
             full_file_hash: "hash1".into(),
             chunks: vec![
                 crate::manifest::ChunkRef {
@@ -314,9 +312,7 @@ mod tests {
         manifest.files.push(crate::manifest::FileManifest {
             path: "data.bin".into(),
             size: 200,
-            mode: 0o644,
             executable: false,
-            symlink_target: None,
             full_file_hash: "hash2".into(),
             chunks: vec![
                 crate::manifest::ChunkRef {
@@ -362,9 +358,7 @@ mod tests {
         manifest.files.push(crate::manifest::FileManifest {
             path: "data.bin".into(),
             size: full_file.len() as u64,
-            mode: 0o644,
             executable: false,
-            symlink_target: None,
             full_file_hash: file_hash,
             chunks: vec![
                 crate::manifest::ChunkRef {
@@ -405,9 +399,7 @@ mod tests {
         manifest.files.push(crate::manifest::FileManifest {
             path: "single.bin".into(),
             size: data.len() as u64,
-            mode: 0o644,
             executable: false,
-            symlink_target: None,
             full_file_hash: file_hash,
             chunks: vec![crate::manifest::ChunkRef {
                 chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),

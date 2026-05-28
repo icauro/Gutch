@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::bundle;
 use crate::hash::hash_hex;
-use crate::manifest::TargetManifest;
+use crate::manifest::target::TargetManifest;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Default)]

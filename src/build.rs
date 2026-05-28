@@ -12,7 +12,7 @@ use crate::build_types::{
 };
 use crate::bundle::{self, BundleBuilder};
 use crate::compress::{compress_chunk, compress_with_level};
-use crate::manifest::{self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetManifest, TargetTagSet};
+use crate::manifest::{self, COMPRESSION_UNIT_BUNDLE, FileManifest, target::TargetManifest, TargetTagSet};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const MIN_PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;

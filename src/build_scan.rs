@@ -22,22 +22,6 @@ pub(crate) struct FileBuildEntry {
     pub(crate) metadata: Duration,
 }
 
-fn file_mode(metadata: &std::fs::Metadata) -> u32 {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        return metadata.permissions().mode();
-    }
-    #[cfg(not(unix))]
-    {
-        if metadata.permissions().readonly() {
-            0o444
-        } else {
-            0o644
-        }
-    }
-}
-
 pub(crate) fn scan_directory_into_file_entries(
     dir: &Path,
     previous_file_manifests: &HashMap<String, FileManifest>,
@@ -106,18 +90,15 @@ pub(crate) fn scan_directory_into_file_entries(
                 }
             }
 
-            let t = Instant::now();
-            let metadata = std::fs::metadata(path)?;
-            let mode = file_mode(&metadata);
-            let metadata = t.elapsed();
+            let t = std::time::Instant::now();
+            let _fs_meta = std::fs::metadata(path)?;
+            let metadata_dur = t.elapsed();
 
             Ok(FileBuildEntry {
                 manifest: FileManifest {
                     path: relative.to_string_lossy().replace('\\', "/"),
                     size: file_size,
-                    mode,
                     executable: false,
-                    symlink_target: None,
                     full_file_hash,
                     chunks: chunk_refs,
                 },
@@ -129,7 +110,7 @@ pub(crate) fn scan_directory_into_file_entries(
                 chunking_bytes: chunk_timings.boundary_scan_bytes,
                 chunk_hash_judgment: chunk_timings.hash_judgment,
                 chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
-                metadata,
+                metadata: metadata_dur,
             })
         })
         .collect::<Result<Vec<_>>>()

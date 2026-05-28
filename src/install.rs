@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::manifest::{self, TargetManifest};
+use crate::manifest::{self, target::TargetManifest};
 use crate::reconstruct::{
     ReconstructTimings, VerifiedSourceInstall,
     reconstruct_from_bundle_paths_and_verified_source_with_timings,
@@ -199,7 +199,7 @@ pub fn fetch_target_install_content(
         };
 
         if let Some(index) = chunk_index {
-            let target: manifest::TargetManifest = serde_json::from_slice(&manifest_bytes)
+            let target: TargetManifest = serde_json::from_slice(&manifest_bytes)
                 .map_err(|err| Error::manifest(format!("invalid target manifest: {}", err)))?;
             let mut bundle_set = HashSet::new();
             for file in &target.files {
@@ -385,7 +385,7 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
         .and_then(serde_json::Value::as_str)
         .unwrap_or("base");
     let mut repo_manifest =
-        manifest::ContentRepoManifest::new(content_repo_id.to_string());
+        crate::manifest::content_repo::ContentRepoManifest::new(content_repo_id.to_string());
     if let Some(created_at) = target_manifest
         .get("created_at")
         .and_then(serde_json::Value::as_str)
@@ -418,7 +418,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&repo_path).unwrap();
         let chunk_index = manifest::ChunkIndex {
-            format_version: 1,
+            format_version: "1.0.0".to_string(),
             updated_at: String::new(),
             entries: std::collections::BTreeMap::from([(
                 "chunk-a".to_string(),
@@ -460,25 +460,21 @@ mod tests {
                                 {
                                     "path": "game.exe",
                                     "size": 100,
-                                    "mode": 33204,
-                                    "executable": true,
-                                    "symlink_target": null,
-                                    "full_file_hash": "abc",
+                                                                        "executable": true,
+                                                                        "full_file_hash": "abc",
                                     "chunks": [
                                         { "chunk_hash": "chunk-a", "raw_size": 100 }
                                     ]
                                 }
                             ],
                             "target_tags": {"version": "1.0.0"},
-                            "manifest_version": 1,
+                            "manifest_version": "1.0.0",
                             "chunk_sizing_profile": manifest::ChunkSizingProfile::default(),
                             "compression_profile": manifest::CompressionProfile::default(),
                             "bundle_sizing_profile": manifest::BundleSizingProfile::default(),
-                            "bundle_format_version": manifest::BUNDLE_FORMAT,
                             "total_logical_size": 0,
                             "total_compressed_size_estimate": 0,
-                            "signature_metadata": serde_json::Value::Null
-                        }))
+                                                    }))
                         .unwrap(),
                         "application/json",
                     ),
