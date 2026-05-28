@@ -51,6 +51,9 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             staging_dir,
             source_target,
             source_dir,
+            memory_mode,
+            max_memory_mib,
+            jobs,
             summary_out,
             stats_json_out,
         } => {
@@ -81,12 +84,18 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                     },
                 );
 
-            let result = g::apply_target_install_with_timings(
+            let runtime_hints = g::RuntimeResourceHints {
+                memory_mode,
+                max_memory_mib,
+                jobs,
+            };
+            let result = g::apply_target_install_with_timings_and_hints(
                 &tm,
                 &bundle_paths,
                 &dir,
                 &staging_dir,
                 source,
+                &runtime_hints,
             )?;
             let reused_source_chunk_percent = ratio_pct(
                 result.reused_source_chunk_count as u64,
@@ -134,13 +143,22 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             repo,
             target,
             dir,
+            memory_mode,
+            max_memory_mib,
+            jobs,
             summary_out,
             stats_json_out,
         } => {
             let (repo_paths, _repo_manifest, _manifest_path, tm) =
                 load_target_manifest_from_repo(&repo, &target)?;
 
-            let (classification, timings) = g::classify_directory_with_timings(&tm, &dir)?;
+            let runtime_hints = g::RuntimeResourceHints {
+                memory_mode,
+                max_memory_mib,
+                jobs,
+            };
+            let (classification, timings) =
+                g::classify_directory_with_timings_and_hints(&tm, &dir, &runtime_hints)?;
             let missing_file_count = classification.missing_files.len();
             let corrupt_file_count = classification.corrupt_files.len();
             let extra_file_count = classification.extra_files.len();

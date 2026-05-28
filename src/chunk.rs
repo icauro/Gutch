@@ -1,4 +1,5 @@
-use fastcdc::v2020::{Chunk, FastCDC, Normalization};
+use fastcdc::v2020::{Chunk, FastCDC, Normalization, StreamCDC};
+use std::io::BufReader;
 use std::time::{Duration, Instant};
 
 use crate::error::Result;
@@ -84,6 +85,58 @@ pub fn chunk_file(
 ) -> Result<Vec<ChunkResult>> {
     let data = std::fs::read(path)?;
     Ok(chunk_bytes(&data, profile))
+}
+
+pub fn chunk_file_streaming(
+    path: &std::path::Path,
+    profile: &ChunkSizingProfile,
+) -> Result<(Vec<ChunkResult>, ChunkScanTimings)> {
+    let min = profile.min_chunk_size_bytes() as usize;
+    let avg = profile.avg_chunk_size_bytes() as usize;
+    let max = profile.max_chunk_size_bytes() as usize;
+
+    let file = std::fs::File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut chunker = StreamCDC::with_level(reader, min, avg, max, Normalization::Level1);
+
+    let mut chunk_results = Vec::new();
+    let mut boundary_scan = Duration::ZERO;
+    let mut boundary_scan_bytes = 0u64;
+    let mut hash_judgment = Duration::ZERO;
+    let mut hash_judgment_bytes = 0u64;
+
+    loop {
+        let t = Instant::now();
+        let next_chunk = chunker.next();
+        boundary_scan += t.elapsed();
+
+        let Some(chunk_result) = next_chunk else {
+            break;
+        };
+        let chunk = chunk_result.map_err(|e| crate::error::Error::Chunk(e.to_string()))?;
+
+        let t = Instant::now();
+        let hash = blake3::hash(&chunk.data);
+        hash_judgment += t.elapsed();
+
+        boundary_scan_bytes += chunk.length as u64;
+        hash_judgment_bytes += chunk.length as u64;
+        chunk_results.push(ChunkResult {
+            data: chunk.data,
+            offset: chunk.offset,
+            hash,
+        });
+    }
+
+    Ok((
+        chunk_results,
+        ChunkScanTimings {
+            boundary_scan,
+            boundary_scan_bytes,
+            hash_judgment,
+            hash_judgment_bytes,
+        },
+    ))
 }
 
 pub fn hash_hex(hash: &blake3::Hash) -> String {

@@ -4,11 +4,13 @@ use std::path::{Path, PathBuf};
 use crate::manifest::{self, target::TargetManifest};
 use crate::reconstruct::{
     ReconstructTimings, VerifiedSourceInstall,
-    reconstruct_from_bundle_paths_and_verified_source_with_timings,
+    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints,
 };
+use crate::runtime::RuntimeResourceHints;
 
 use crate::verify::{
-    VerifyTimings, classify_directory_with_timings, verify_directory_with_timings,
+    VerifyTimings, classify_directory_with_timings,
+    verify_directory_with_timings_and_hints,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -78,6 +80,24 @@ pub fn apply_target_install_with_timings(
     staging_dir: &Path,
     source: Option<TargetInstallApplySource<'_>>,
 ) -> Result<TargetInstallApplyResult> {
+    apply_target_install_with_timings_and_hints(
+        target_manifest,
+        bundle_paths,
+        install_dir,
+        staging_dir,
+        source,
+        &RuntimeResourceHints::default(),
+    )
+}
+
+pub fn apply_target_install_with_timings_and_hints(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    install_dir: &Path,
+    staging_dir: &Path,
+    source: Option<TargetInstallApplySource<'_>>,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<TargetInstallApplyResult> {
     if install_dir == staging_dir {
         return Err(Error::PathError {
             path: install_dir.to_path_buf(),
@@ -126,15 +146,17 @@ pub fn apply_target_install_with_timings(
         .map(|source| count_reusable_source_chunks(target_manifest, source.target_manifest))
         .unwrap_or(0);
 
-    let (_, reconstruct_timings) = reconstruct_from_bundle_paths_and_verified_source_with_timings(
-        target_manifest,
-        bundle_paths,
-        verified_source,
-        staging_dir,
-    )?;
+    let (_, reconstruct_timings) =
+        reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
+            target_manifest,
+            bundle_paths,
+            verified_source,
+            staging_dir,
+            runtime_hints,
+        )?;
 
     let (verify_errors, verify_timings) =
-        verify_directory_with_timings(target_manifest, staging_dir)?;
+        verify_directory_with_timings_and_hints(target_manifest, staging_dir, runtime_hints)?;
     if !verify_errors.is_empty() {
         return Err(Error::verify(format!(
             "staged install did not verify: {}",

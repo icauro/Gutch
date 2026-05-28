@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use crate::compress;
 use crate::error::Result;
@@ -311,6 +311,28 @@ impl<R: Read + Seek> BundleReader<R> {
             .enumerate()
             .map(|(i, e)| (e.chunk_hash.clone(), i))
             .collect()
+    }
+
+    pub fn compression_unit(&self) -> &str {
+        &self.compression_unit
+    }
+
+    pub fn payload_size(&self) -> u64 {
+        self.payload_size
+    }
+
+    pub fn stage_bundle_payload_to<W: Write>(&mut self, writer: &mut W) -> Result<u64> {
+        if self.compression_unit != COMPRESSION_UNIT_BUNDLE {
+            return Err(crate::error::Error::InvalidBundle(
+                "bundle payload staging only applies to bundle-compressed bundles".into(),
+            ));
+        }
+
+        self.reader.seek(SeekFrom::Start(self.data_start))?;
+        let mut compressed = vec![0u8; self.payload_size as usize];
+        self.reader.read_exact(&mut compressed)?;
+        let written = compress::decompress_chunk_to_writer(&compressed, writer)?;
+        Ok(written)
     }
 
     pub fn read_chunk(&mut self, index: usize) -> Result<Vec<u8>> {

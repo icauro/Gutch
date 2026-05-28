@@ -131,17 +131,28 @@ pub(crate) fn write_report<T: Serialize + SummaryReport>(
     write_stats_json_output(stats_json_out, stats)
 }
 
-fn format_file_summary(
-    file_count: usize,
-    total_logical_size: u64,
-    total_compressed_size_estimate: u64,
-) -> String {
-    format!(
-        "files: count={}, logical_size={}, compressed_estimate={}",
-        file_count,
-        format_bytes(total_logical_size),
-        format_bytes(total_compressed_size_estimate)
-    )
+fn summary_title(title: &str) -> String {
+    format!("== {} ==", title)
+}
+
+fn summary_kv(label: &str, value: impl Into<String>) -> String {
+    format!("{label:<20} {}", value.into())
+}
+
+fn summary_blank_line(lines: &mut Vec<String>) {
+    if lines.last().is_some_and(|line| !line.is_empty()) {
+        lines.push(String::new());
+    }
+}
+
+fn push_summary_section(
+    lines: &mut Vec<String>,
+    title: &str,
+    entries: impl IntoIterator<Item = String>,
+) {
+    summary_blank_line(lines);
+    lines.push(summary_title(title));
+    lines.extend(entries);
 }
 
 fn status_label(passed: bool, success: &'static str, failure: &'static str) -> &'static str {
@@ -153,154 +164,242 @@ fn extend_summary_section(summary_lines: &mut Vec<String>, header: &str, values:
         return;
     }
 
+    summary_blank_line(summary_lines);
     summary_lines.push(header.to_string());
-    summary_lines.extend(values.iter().cloned());
+    summary_lines.extend(values.iter().map(|value| format!("  {value}")));
 }
 
 impl SummaryReport for TargetInsertStats {
     fn summary_lines(&self) -> Vec<String> {
-        vec![
-            format!("command: {}", self.command),
-            format!("repo_root: {}", self.repo_root),
-            format!("input_path: {}", self.input_path),
-            format!("target_id: {}", self.target_id),
-            format!("manifest_path: {}", self.manifest_path),
-            format!(
-                "identity: content_repo={}, version={}, platform={}, architecture={}, tier={}",
-                self.content_repo_id,
-                self.version_id,
-                self.platform,
-                self.architecture,
-                self.tier_id
-            ),
-            format_file_summary(
-                self.file_count,
-                self.total_logical_size,
-                self.total_compressed_size_estimate,
-            ),
-            format!(
-                "chunks: required={}, new={}, reused={}, reuse={:.2}%",
-                self.required_chunk_count,
-                self.new_chunk_count,
-                self.reused_chunk_count,
-                self.reused_chunk_percent
-            ),
-            format!(
-                "bundles: required={}, generated={}, reused={}, generated_size={}, reuse={:.2}%",
-                self.required_bundle_count,
-                self.generated_bundle_count,
-                self.reused_bundle_count,
-                format_bytes(self.generated_bundle_bytes),
-                self.reused_bundle_percent
-            ),
-            format!("timings_total_seconds: {:.2}", self.timings.total_seconds),
-        ]
+        let mut lines = Vec::new();
+        push_summary_section(
+            &mut lines,
+            "Command",
+            [
+                summary_kv("command", self.command),
+                summary_kv("repo_root", &self.repo_root),
+                summary_kv("input_path", &self.input_path),
+                summary_kv("target_id", &self.target_id),
+                summary_kv("manifest_path", &self.manifest_path),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Identity",
+            [
+                summary_kv("content_repo", &self.content_repo_id),
+                summary_kv("version", &self.version_id),
+                summary_kv("platform", &self.platform),
+                summary_kv("architecture", &self.architecture),
+                summary_kv("tier", &self.tier_id),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Content",
+            [
+                summary_kv("files", self.file_count.to_string()),
+                summary_kv("logical_size", format_bytes(self.total_logical_size)),
+                summary_kv(
+                    "compressed_est",
+                    format_bytes(self.total_compressed_size_estimate),
+                ),
+                summary_kv("required_chunks", self.required_chunk_count.to_string()),
+                summary_kv("new_chunks", self.new_chunk_count.to_string()),
+                summary_kv("reused_chunks", self.reused_chunk_count.to_string()),
+                summary_kv("chunk_reuse", format!("{:.2}%", self.reused_chunk_percent)),
+                summary_kv("required_bundles", self.required_bundle_count.to_string()),
+                summary_kv("generated_bundles", self.generated_bundle_count.to_string()),
+                summary_kv("reused_bundles", self.reused_bundle_count.to_string()),
+                summary_kv("generated_size", format_bytes(self.generated_bundle_bytes)),
+                summary_kv("bundle_reuse", format!("{:.2}%", self.reused_bundle_percent)),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Timing",
+            [summary_kv(
+                "total_seconds",
+                format!("{:.2}", self.timings.total_seconds),
+            )],
+        );
+        lines
     }
 }
 
 impl SummaryReport for TargetExportStats {
     fn summary_lines(&self) -> Vec<String> {
-        vec![
-            format!("command: {}", self.command),
-            format!("repo_root: {}", self.repo_root),
-            format!("target_id: {}", self.target_id),
-            format!("output_dir: {}", self.output_dir),
-            format_file_summary(
-                self.file_count,
-                self.total_logical_size,
-                self.total_compressed_size_estimate,
-            ),
-            format!(
-                "bundles: required={}, resolved={}",
-                self.required_bundle_count, self.resolved_bundle_file_count
-            ),
-            format!("chunks: required={}", self.required_chunk_count),
-            format!("timings_total_seconds: {:.2}", self.timings.total_seconds),
-        ]
+        let mut lines = Vec::new();
+        push_summary_section(
+            &mut lines,
+            "Command",
+            [
+                summary_kv("command", self.command),
+                summary_kv("repo_root", &self.repo_root),
+                summary_kv("target_id", &self.target_id),
+                summary_kv("output_dir", &self.output_dir),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Content",
+            [
+                summary_kv("files", self.file_count.to_string()),
+                summary_kv("logical_size", format_bytes(self.total_logical_size)),
+                summary_kv(
+                    "compressed_est",
+                    format_bytes(self.total_compressed_size_estimate),
+                ),
+                summary_kv("required_chunks", self.required_chunk_count.to_string()),
+                summary_kv("required_bundles", self.required_bundle_count.to_string()),
+                summary_kv("resolved_bundles", self.resolved_bundle_file_count.to_string()),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Timing",
+            [summary_kv(
+                "total_seconds",
+                format!("{:.2}", self.timings.total_seconds),
+            )],
+        );
+        lines
     }
 }
 
 impl SummaryReport for TargetInstallApplyStats {
     fn summary_lines(&self) -> Vec<String> {
-        vec![
-            format!("command: {}", self.command),
-            format!("repo_root: {}", self.repo_root),
-            format!("target_id: {}", self.target_id),
-            format!("install_dir: {}", self.install_dir),
-            format!("staging_dir: {}", self.staging_dir),
-            format!(
-                "source: target={}, dir={}",
-                self.source_target_id.as_deref().unwrap_or("none"),
-                self.source_install_dir.as_deref().unwrap_or("none")
-            ),
-            format_file_summary(
-                self.file_count,
-                self.total_logical_size,
-                self.total_compressed_size_estimate,
-            ),
-            format!(
-                "chunks: required={}, reused_from_source={}, source_reuse={:.2}%",
-                self.required_chunk_count,
-                self.reused_source_chunk_count,
-                self.reused_source_chunk_percent
-            ),
-            format!(
-                "bundles: required={}, resolved={}",
-                self.required_bundle_count, self.resolved_bundle_file_count
-            ),
-            format!(
-                "timings_reconstruct_seconds: {:.2}",
-                self.reconstruct_timings.total_seconds
-            ),
-            format!(
-                "timings_verify_seconds: {:.2}",
-                self.verify_timings.total_seconds
-            ),
-        ]
+        let mut lines = Vec::new();
+        push_summary_section(
+            &mut lines,
+            "Command",
+            [
+                summary_kv("command", self.command),
+                summary_kv("repo_root", &self.repo_root),
+                summary_kv("target_id", &self.target_id),
+                summary_kv("install_dir", &self.install_dir),
+                summary_kv("staging_dir", &self.staging_dir),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Source Reuse",
+            [
+                summary_kv(
+                    "source_target",
+                    self.source_target_id.as_deref().unwrap_or("none"),
+                ),
+                summary_kv(
+                    "source_dir",
+                    self.source_install_dir.as_deref().unwrap_or("none"),
+                ),
+                summary_kv("reused_chunks", self.reused_source_chunk_count.to_string()),
+                summary_kv(
+                    "reuse_percent",
+                    format!("{:.2}%", self.reused_source_chunk_percent),
+                ),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Content",
+            [
+                summary_kv("files", self.file_count.to_string()),
+                summary_kv("logical_size", format_bytes(self.total_logical_size)),
+                summary_kv(
+                    "compressed_est",
+                    format_bytes(self.total_compressed_size_estimate),
+                ),
+                summary_kv("required_chunks", self.required_chunk_count.to_string()),
+                summary_kv("required_bundles", self.required_bundle_count.to_string()),
+                summary_kv("resolved_bundles", self.resolved_bundle_file_count.to_string()),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Timing",
+            [
+                summary_kv(
+                    "reconstruct_sec",
+                    format!("{:.2}", self.reconstruct_timings.total_seconds),
+                ),
+                summary_kv(
+                    "verify_sec",
+                    format!("{:.2}", self.verify_timings.total_seconds),
+                ),
+            ],
+        );
+        lines
     }
 }
 
 impl SummaryReport for TargetInstallVerifyStats {
     fn summary_lines(&self) -> Vec<String> {
-        vec![
-            format!("command: {}", self.command),
-            format!("repo_root: {}", self.repo_root),
-            format!("target_id: {}", self.target_id),
-            format!("install_dir: {}", self.install_dir),
-            format!(
-                "status: {}",
-                status_label(self.verification_passed, "passed", "failed")
-            ),
-            format!("expected_file_count: {}", self.expected_file_count),
-            format!(
-                "issues: missing={}, corrupt={}, extra={}",
-                self.missing_file_count, self.corrupt_file_count, self.extra_file_count
-            ),
-            format!("timings_total_seconds: {:.2}", self.timings.total_seconds),
-        ]
+        let mut lines = Vec::new();
+        push_summary_section(
+            &mut lines,
+            "Command",
+            [
+                summary_kv("command", self.command),
+                summary_kv("repo_root", &self.repo_root),
+                summary_kv("target_id", &self.target_id),
+                summary_kv("install_dir", &self.install_dir),
+                summary_kv(
+                    "status",
+                    status_label(self.verification_passed, "passed", "failed"),
+                ),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Results",
+            [
+                summary_kv("expected_files", self.expected_file_count.to_string()),
+                summary_kv("missing", self.missing_file_count.to_string()),
+                summary_kv("corrupt", self.corrupt_file_count.to_string()),
+                summary_kv("extra", self.extra_file_count.to_string()),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Timing",
+            [summary_kv(
+                "total_seconds",
+                format!("{:.2}", self.timings.total_seconds),
+            )],
+        );
+        lines
     }
 }
 
 impl SummaryReport for PathCompareStats {
     fn summary_lines(&self) -> Vec<String> {
-        let mut summary_lines = vec![
-            format!("command: {}", self.command),
-            format!("expected_path: {}", self.expected_path),
-            format!("actual_path: {}", self.actual_path),
-            format!(
-                "status: {}",
-                status_label(self.compare_passed, "match", "failed")
-            ),
-            format!(
-                "files: expected={}, actual={}, matched={}, mismatched={}, missing={}, extra={}",
-                self.expected_file_count,
-                self.actual_file_count,
-                self.matched_file_count,
-                self.mismatched_file_count,
-                self.missing_file_count,
-                self.extra_file_count
-            ),
-        ];
+        let mut summary_lines = Vec::new();
+        push_summary_section(
+            &mut summary_lines,
+            "Command",
+            [
+                summary_kv("command", self.command),
+                summary_kv("expected_path", &self.expected_path),
+                summary_kv("actual_path", &self.actual_path),
+                summary_kv(
+                    "status",
+                    status_label(self.compare_passed, "match", "failed"),
+                ),
+            ],
+        );
+        push_summary_section(
+            &mut summary_lines,
+            "Results",
+            [
+                summary_kv("expected_files", self.expected_file_count.to_string()),
+                summary_kv("actual_files", self.actual_file_count.to_string()),
+                summary_kv("matched", self.matched_file_count.to_string()),
+                summary_kv("mismatched", self.mismatched_file_count.to_string()),
+                summary_kv("missing", self.missing_file_count.to_string()),
+                summary_kv("extra", self.extra_file_count.to_string()),
+            ],
+        );
         extend_summary_section(&mut summary_lines, "[mismatched]", &self.mismatched_files);
         extend_summary_section(&mut summary_lines, "[missing]", &self.missing_files);
         extend_summary_section(&mut summary_lines, "[extra]", &self.extra_files);

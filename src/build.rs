@@ -3,18 +3,20 @@ use std::path::Path;
 use std::time::Instant;
 
 use rayon::prelude::*;
+use tempfile::TempDir;
 
 use crate::Result;
 use crate::build_scan::collect_scanned_chunks;
 use crate::build_types::{
-    BuildConfig, BuildResult, BuildTimings, BuiltBundle, ExistingChunkLocation, RepoInitResult,
-    RepoInitTargetInput,
+    BuildConfig, BuildResult, BuildTimings, BuiltBundle, ChunkPayload, ExistingChunkLocation,
+    RepoInitResult, RepoInitTargetInput,
 };
 use crate::bundle::{self, BundleBuilder};
 use crate::compress::{compress_chunk, compress_with_level};
 use crate::manifest::{
     self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetTagSet, target::TargetManifest,
 };
+use crate::runtime::{ChunkStorageMode, RuntimeResourceHints, install_in_thread_pool, plan_build_runtime};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const MIN_PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
@@ -23,7 +25,7 @@ struct ScannedTarget {
     target_id: String,
     target_tags: TargetTagSet,
     files: Vec<FileManifest>,
-    unique_chunks: HashMap<String, Vec<u8>>,
+    unique_chunks: HashMap<String, ChunkPayload>,
     total_logical_size: u64,
 }
 
@@ -78,7 +80,7 @@ impl Default for BundleSizingPolicy {
 }
 
 fn estimate_bundle_compression_ratio_from_probe(
-    chunks: &[(String, Vec<u8>)],
+    chunks: &[(String, ChunkPayload)],
     compression_profile: &manifest::CompressionProfile,
     probe_raw_target_size: u64,
 ) -> Result<f64> {
@@ -88,8 +90,9 @@ fn estimate_bundle_compression_ratio_from_probe(
 
     let mut raw_probe_size: u64 = 0;
     let mut probe_payload = Vec::new();
-    for (_, data) in chunks {
-        probe_payload.extend_from_slice(data);
+    for (_, payload) in chunks {
+        let data = payload.load_bytes()?;
+        probe_payload.extend_from_slice(&data);
         raw_probe_size += data.len() as u64;
         if raw_probe_size >= probe_raw_target_size {
             break;
@@ -237,12 +240,18 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings::default();
+    let runtime_plan = plan_build_runtime(&config.runtime_hints, &compression_profile.compression_unit);
+    timings.runtime_plan = Some(runtime_plan.clone());
+    let chunk_spool_dir = prepare_chunk_spool_dir(runtime_plan.chunk_storage_mode)?;
 
     let (mut file_manifests, unique_chunks, total_logical_size) = collect_scanned_chunks(
         dir,
         &config.previous_file_manifests,
         &config.chunk_profile,
         &config.existing_chunk_locations,
+        runtime_plan.chunk_storage_mode,
+        chunk_spool_dir.as_ref().map(|dir| dir.path()),
+        runtime_plan.worker_count,
         &mut timings,
     )?;
 
@@ -265,8 +274,8 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     let mut chunks_to_compress = Vec::new();
 
     let t = Instant::now();
-    for (hash, data) in unique_chunks {
-        let raw_size = data.len() as u64;
+    for (hash, payload) in unique_chunks {
+        let raw_size = payload.raw_size();
         timings.dedupe_lookup_bytes += raw_size;
 
         if let Some(existing) = config.existing_chunk_locations.get(&hash) {
@@ -274,13 +283,13 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
                 total_compressed += existing.compressed_size;
             }
         } else {
-            chunks_to_compress.push((hash, data));
+            chunks_to_compress.push((hash, payload));
         }
     }
     timings.dedupe_lookup += t.elapsed();
 
-    for (_, data) in &chunks_to_compress {
-        timings.compression_input_bytes += data.len() as u64;
+    for (_, payload) in &chunks_to_compress {
+        timings.compression_input_bytes += payload.raw_size();
     }
 
     let t = Instant::now();
@@ -296,7 +305,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
         sorted_chunks.sort_by(|a, b| a.0.cmp(&b.0));
         let new_raw_bytes: u64 = sorted_chunks
             .iter()
-            .map(|(_, data)| data.len() as u64)
+            .map(|(_, payload)| payload.raw_size())
             .sum();
         let mut bundle_compression_ratio = estimate_bundle_compression_ratio_from_probe(
             &sorted_chunks,
@@ -314,7 +323,8 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
             bundle_target_size_policy,
         );
 
-        for (hash, data) in sorted_chunks {
+        for (hash, payload) in sorted_chunks {
+            let data = payload.load_bytes()?;
             let raw_size = data.len() as u64;
             if !builder.is_empty()
                 && current_bundle_raw_size + raw_size > current_bundle_raw_target_size
@@ -350,18 +360,23 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     } else {
         let t = Instant::now();
         let mut current_bundle_size: u64 = 0;
-        let compressed_chunks: Vec<CompressedChunk> = chunks_to_compress
-            .into_par_iter()
-            .map(|(hash, data)| -> Result<CompressedChunk> {
-                let raw_size = data.len() as u64;
-                let compressed = compress_chunk(&data, &compression_profile)?;
-                Ok(CompressedChunk {
-                    hash,
-                    raw_size,
-                    compressed,
+        let compress_work = || {
+            chunks_to_compress
+                .into_par_iter()
+                .map(|(hash, payload)| -> Result<CompressedChunk> {
+                    let data = payload.load_bytes()?;
+                    let raw_size = data.len() as u64;
+                    let compressed = compress_chunk(&data, &compression_profile)?;
+                    Ok(CompressedChunk {
+                        hash,
+                        raw_size,
+                        compressed,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>()
+        };
+        let compressed_chunks: Vec<CompressedChunk> =
+            install_in_thread_pool(runtime_plan.worker_count, compress_work)??;
         timings.compression += t.elapsed();
 
         for chunk in &compressed_chunks {
@@ -452,8 +467,29 @@ pub fn build_repo_init_batch_with_timings(
     bundle_profile: &manifest::BundleSizingProfile,
     compression_profile: &manifest::CompressionProfile,
 ) -> Result<(RepoInitResult, BuildTimings)> {
+    build_repo_init_batch_with_timings_and_hints(
+        content_repo_id,
+        targets,
+        chunk_profile,
+        bundle_profile,
+        compression_profile,
+        &RuntimeResourceHints::default(),
+    )
+}
+
+pub fn build_repo_init_batch_with_timings_and_hints(
+    content_repo_id: &str,
+    targets: &[RepoInitTargetInput],
+    chunk_profile: &manifest::ChunkSizingProfile,
+    bundle_profile: &manifest::BundleSizingProfile,
+    compression_profile: &manifest::CompressionProfile,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<(RepoInitResult, BuildTimings)> {
     let total_start = Instant::now();
     let mut timings = BuildTimings::default();
+    let runtime_plan = plan_build_runtime(runtime_hints, &compression_profile.compression_unit);
+    timings.runtime_plan = Some(runtime_plan.clone());
+    let chunk_spool_dir = prepare_chunk_spool_dir(runtime_plan.chunk_storage_mode)?;
     let previous_file_manifests: HashMap<String, FileManifest> = HashMap::new();
     let existing_chunk_locations: HashMap<String, ExistingChunkLocation> = HashMap::new();
     let mut scanned_targets = Vec::with_capacity(targets.len());
@@ -464,6 +500,9 @@ pub fn build_repo_init_batch_with_timings(
             &previous_file_manifests,
             chunk_profile,
             &existing_chunk_locations,
+            runtime_plan.chunk_storage_mode,
+            chunk_spool_dir.as_ref().map(|dir| dir.path()),
+            runtime_plan.worker_count,
             &mut timings,
         )?;
 
@@ -476,19 +515,19 @@ pub fn build_repo_init_batch_with_timings(
         });
     }
 
-    let mut repo_unique_chunks: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut repo_unique_chunks: HashMap<String, ChunkPayload> = HashMap::new();
     for target in &scanned_targets {
-        for (hash, data) in &target.unique_chunks {
+        for (hash, payload) in &target.unique_chunks {
             repo_unique_chunks
                 .entry(hash.clone())
-                .or_insert_with(|| data.clone());
+                .or_insert_with(|| payload.clone());
         }
     }
 
-    let mut chunks_to_compress: Vec<(String, Vec<u8>)> = repo_unique_chunks.into_iter().collect();
-    for (_, data) in &chunks_to_compress {
-        timings.dedupe_lookup_bytes += data.len() as u64;
-        timings.compression_input_bytes += data.len() as u64;
+    let mut chunks_to_compress: Vec<(String, ChunkPayload)> = repo_unique_chunks.into_iter().collect();
+    for (_, payload) in &chunks_to_compress {
+        timings.dedupe_lookup_bytes += payload.raw_size();
+        timings.compression_input_bytes += payload.raw_size();
     }
 
     let t = Instant::now();
@@ -503,7 +542,7 @@ pub fn build_repo_init_batch_with_timings(
         chunks_to_compress.sort_by(|a, b| a.0.cmp(&b.0));
         let new_raw_bytes: u64 = chunks_to_compress
             .iter()
-            .map(|(_, data)| data.len() as u64)
+            .map(|(_, payload)| payload.raw_size())
             .sum();
         let mut bundle_compression_ratio = estimate_bundle_compression_ratio_from_probe(
             &chunks_to_compress,
@@ -521,7 +560,8 @@ pub fn build_repo_init_batch_with_timings(
             bundle_target_size_policy,
         );
 
-        for (hash, data) in chunks_to_compress {
+        for (hash, payload) in chunks_to_compress {
+            let data = payload.load_bytes()?;
             let raw_size = data.len() as u64;
             if !builder.is_empty()
                 && current_bundle_raw_size + raw_size > current_bundle_raw_target_size
@@ -552,18 +592,23 @@ pub fn build_repo_init_batch_with_timings(
             current_bundle_raw_size += raw_size;
         }
     } else {
-        let compressed_chunks: Vec<CompressedChunk> = chunks_to_compress
-            .into_par_iter()
-            .map(|(hash, data)| -> Result<CompressedChunk> {
-                let raw_size = data.len() as u64;
-                let compressed = compress_chunk(&data, compression_profile)?;
-                Ok(CompressedChunk {
-                    hash,
-                    raw_size,
-                    compressed,
+        let compress_work = || {
+            chunks_to_compress
+                .into_par_iter()
+                .map(|(hash, payload)| -> Result<CompressedChunk> {
+                    let data = payload.load_bytes()?;
+                    let raw_size = data.len() as u64;
+                    let compressed = compress_chunk(&data, compression_profile)?;
+                    Ok(CompressedChunk {
+                        hash,
+                        raw_size,
+                        compressed,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>()
+        };
+        let compressed_chunks: Vec<CompressedChunk> =
+            install_in_thread_pool(runtime_plan.worker_count, compress_work)??;
 
         for chunk in &compressed_chunks {
             timings.compression_output_bytes += chunk.compressed.len() as u64;
@@ -668,4 +713,14 @@ pub fn build_repo_init_batch_with_timings(
         },
         timings,
     ))
+}
+
+fn prepare_chunk_spool_dir(chunk_storage_mode: ChunkStorageMode) -> Result<Option<TempDir>> {
+    match chunk_storage_mode {
+        ChunkStorageMode::Memory => Ok(None),
+        ChunkStorageMode::TempSpill => Ok(Some(
+            tempfile::tempdir()
+                .map_err(|err| crate::Error::manifest(format!("failed to create chunk spool directory: {}", err)))?,
+        )),
+    }
 }

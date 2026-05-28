@@ -1,14 +1,21 @@
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::Path;
 use std::time::{Duration, Instant};
+
+use rayon::prelude::*;
 
 use crate::Result;
 use crate::hash::hash_hex;
 use crate::manifest::{self, target::TargetManifest};
 use crate::path_guard::resolve_manifest_relative_path;
+use crate::runtime::{
+    RuntimePlan, RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct VerifyTimings {
+    pub runtime_plan: Option<RuntimePlan>,
     pub stat: Duration,
     pub file_read: Duration,
     pub file_read_bytes: u64,
@@ -69,7 +76,8 @@ pub fn verify_directory_with_timings(
     target_manifest: &TargetManifest,
     dir: &Path,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    let (classification, timings) = classify_directory_with_timings(target_manifest, dir)?;
+    let (classification, timings) =
+        classify_directory_with_timings_and_hints(target_manifest, dir, &RuntimeResourceHints::default())?;
     Ok((classification.into_messages(), timings))
 }
 
@@ -85,117 +93,50 @@ pub fn classify_directory_with_timings(
     target_manifest: &TargetManifest,
     dir: &Path,
 ) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_directory_with_timings_and_hints(target_manifest, dir, &RuntimeResourceHints::default())
+}
+
+pub fn verify_directory_with_timings_and_hints(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<(Vec<String>, VerifyTimings)> {
+    let (classification, timings) =
+        classify_directory_with_timings_and_hints(target_manifest, dir, runtime_hints)?;
+    Ok((classification.into_messages(), timings))
+}
+
+pub fn classify_directory_with_timings_and_hints(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     let mut classification = RepairClassification::default();
-    let mut timings = VerifyTimings::default();
+    let runtime_plan = plan_verify_runtime(runtime_hints);
+    let mut timings = VerifyTimings {
+        runtime_plan: Some(runtime_plan.clone()),
+        ..VerifyTimings::default()
+    };
     let manifest_paths: HashSet<&str> = target_manifest
         .files
         .iter()
         .map(|fm| fm.path.as_str())
         .collect();
 
-    for fm in &target_manifest.files {
-        let file_path = resolve_manifest_relative_path(dir, &fm.path)?;
+    let per_file_results = install_in_thread_pool(runtime_plan.worker_count, || {
+        target_manifest
+            .files
+            .par_iter()
+            .map(|fm| verify_manifest_file(target_manifest, dir, fm))
+            .collect::<Vec<_>>()
+    })?;
 
-        if !file_path.exists() {
-            classification.push(RepairIssue {
-                kind: RepairIssueKind::Missing,
-                path: fm.path.clone(),
-                detail: format!("missing file: {}", fm.path),
-            });
-            continue;
-        }
-
-        let t = Instant::now();
-        let metadata = match std::fs::metadata(&file_path) {
-            Ok(m) => m,
-            Err(e) => {
-                classification.push(RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: fm.path.clone(),
-                    detail: format!("cannot stat {}: {}", fm.path, e),
-                });
-                continue;
-            }
-        };
-        timings.stat += t.elapsed();
-
-        if metadata.len() != fm.size {
-            classification.push(RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
-                detail: format!(
-                    "size mismatch for {}: expected {}, got {}",
-                    fm.path,
-                    fm.size,
-                    metadata.len()
-                ),
-            });
-            continue;
-        }
-
-        let t = Instant::now();
-        let file_data = match std::fs::read(&file_path) {
-            Ok(d) => d,
-            Err(e) => {
-                classification.push(RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: fm.path.clone(),
-                    detail: format!("cannot read {}: {}", fm.path, e),
-                });
-                continue;
-            }
-        };
-        timings.file_read += t.elapsed();
-        timings.file_read_bytes += file_data.len() as u64;
-
-        let t = Instant::now();
-        let actual_hash = hash_hex(&crate::hash::hash_chunk(&file_data));
-        timings.file_hash += t.elapsed();
-        timings.file_hash_bytes += file_data.len() as u64;
-        if actual_hash != fm.full_file_hash {
-            classification.push(RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
-                detail: format!(
-                    "hash mismatch for {}: expected {}, got {}",
-                    fm.path, fm.full_file_hash, actual_hash
-                ),
-            });
-        }
-
-        let mut chunk_offset = 0usize;
-        for chunk_ref in &fm.chunks {
-            let start = chunk_offset;
-            let end = start + chunk_ref.raw_size as usize;
-            chunk_offset = end;
-            if end > file_data.len() {
-                classification.push(RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: fm.path.clone(),
-                    detail: format!(
-                        "chunk reference out of bounds in {}: offset {}, size {}",
-                        fm.path, start, chunk_ref.raw_size
-                    ),
-                });
-                continue;
-            }
-
-            let chunk_actual = &file_data[start..end];
-            let t = Instant::now();
-            let chunk_hash_actual = hash_hex(&crate::hash::hash_chunk(chunk_actual));
-            timings.chunk_hash += t.elapsed();
-            timings.chunk_hash_bytes += chunk_actual.len() as u64;
-            if chunk_hash_actual != chunk_ref.chunk_hash {
-                classification.push(RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: fm.path.clone(),
-                    detail: format!(
-                        "chunk hash mismatch in {} at offset {}: expected {}, got {}",
-                        fm.path, start, chunk_ref.chunk_hash, chunk_hash_actual
-                    ),
-                });
-            }
+    for result in per_file_results {
+        let (issues, file_timings) = result?;
+        accumulate_verify_timings(&mut timings, &file_timings);
+        for issue in issues {
+            classification.push(issue);
         }
     }
 
@@ -222,6 +163,156 @@ pub fn classify_directory_with_timings(
 
     timings.total = total_start.elapsed();
     Ok((classification, timings))
+}
+
+fn verify_manifest_file(
+    _target_manifest: &TargetManifest,
+    dir: &Path,
+    fm: &crate::manifest::FileManifest,
+) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
+    let mut timings = VerifyTimings::default();
+    let file_path = resolve_manifest_relative_path(dir, &fm.path)?;
+
+    if !file_path.exists() {
+        return Ok((
+            vec![RepairIssue {
+                kind: RepairIssueKind::Missing,
+                path: fm.path.clone(),
+                detail: format!("missing file: {}", fm.path),
+            }],
+            timings,
+        ));
+    }
+
+    let t = Instant::now();
+    let metadata = match std::fs::metadata(&file_path) {
+        Ok(m) => m,
+        Err(e) => {
+            return Ok((
+                vec![RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: fm.path.clone(),
+                    detail: format!("cannot stat {}: {}", fm.path, e),
+                }],
+                timings,
+            ));
+        }
+    };
+    timings.stat += t.elapsed();
+
+    if metadata.len() != fm.size {
+        return Ok((
+            vec![RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!(
+                    "size mismatch for {}: expected {}, got {}",
+                    fm.path,
+                    fm.size,
+                    metadata.len()
+                ),
+            }],
+            timings,
+        ));
+    }
+
+    match verify_file_streaming(fm, &file_path, &mut timings) {
+        Ok(issues) => Ok((issues, timings)),
+        Err(e) => Ok((
+            vec![RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!("cannot read {}: {}", fm.path, e),
+            }],
+            timings,
+        )),
+    }
+}
+
+fn verify_file_streaming(
+    fm: &crate::manifest::FileManifest,
+    file_path: &Path,
+    timings: &mut VerifyTimings,
+) -> std::io::Result<Vec<RepairIssue>> {
+    let file = std::fs::File::open(file_path)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut issues = Vec::new();
+    let mut full_file_hasher = blake3::Hasher::new();
+    let mut chunk_buffer = Vec::new();
+    let mut chunk_offset = 0u64;
+
+    for chunk_ref in &fm.chunks {
+        let chunk_size = chunk_ref.raw_size as usize;
+        let start = chunk_offset;
+        let end = start + chunk_ref.raw_size;
+        chunk_offset = end;
+
+        if end > fm.size {
+            issues.push(RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!(
+                    "chunk reference out of bounds in {}: offset {}, size {}",
+                    fm.path, start, chunk_ref.raw_size
+                ),
+            });
+            break;
+        }
+
+        chunk_buffer.resize(chunk_size, 0);
+
+        let t = Instant::now();
+        reader.read_exact(&mut chunk_buffer)?;
+        timings.file_read += t.elapsed();
+        timings.file_read_bytes += chunk_ref.raw_size;
+
+        let t = Instant::now();
+        full_file_hasher.update(&chunk_buffer);
+        timings.file_hash += t.elapsed();
+        timings.file_hash_bytes += chunk_ref.raw_size;
+
+        let t = Instant::now();
+        let chunk_hash_actual = hash_hex(&crate::hash::hash_chunk(&chunk_buffer));
+        timings.chunk_hash += t.elapsed();
+        timings.chunk_hash_bytes += chunk_ref.raw_size;
+        if chunk_hash_actual != chunk_ref.chunk_hash {
+            issues.push(RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!(
+                    "chunk hash mismatch in {} at offset {}: expected {}, got {}",
+                    fm.path, start, chunk_ref.chunk_hash, chunk_hash_actual
+                ),
+            });
+        }
+    }
+
+    if chunk_offset != fm.size {
+        issues.push(RepairIssue {
+            kind: RepairIssueKind::Corrupt,
+            path: fm.path.clone(),
+            detail: format!(
+                "chunk coverage mismatch for {}: expected {} bytes, got {}",
+                fm.path, fm.size, chunk_offset
+            ),
+        });
+    }
+
+    let t = Instant::now();
+    let actual_hash = hash_hex(&full_file_hasher.finalize());
+    timings.file_hash += t.elapsed();
+    if actual_hash != fm.full_file_hash {
+        issues.push(RepairIssue {
+            kind: RepairIssueKind::Corrupt,
+            path: fm.path.clone(),
+            detail: format!(
+                "hash mismatch for {}: expected {}, got {}",
+                fm.path, fm.full_file_hash, actual_hash
+            ),
+        });
+    }
+
+    Ok(issues)
 }
 
 pub fn estimate_build(
@@ -260,6 +351,16 @@ pub fn estimate_build(
         available_disk_space,
         fragmentation_score: bundle_estimate as f64,
     })
+}
+
+fn accumulate_verify_timings(total: &mut VerifyTimings, add: &VerifyTimings) {
+    total.stat += add.stat;
+    total.file_read += add.file_read;
+    total.file_read_bytes += add.file_read_bytes;
+    total.file_hash += add.file_hash;
+    total.file_hash_bytes += add.file_hash_bytes;
+    total.chunk_hash += add.chunk_hash;
+    total.chunk_hash_bytes += add.chunk_hash_bytes;
 }
 
 #[cfg(test)]

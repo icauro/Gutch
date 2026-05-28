@@ -21,6 +21,30 @@ fn mib_per_s(bytes: u64, d: std::time::Duration) -> f64 {
     }
 }
 
+fn secs_f64_sum(values: &[f64]) -> f64 {
+    values.iter().copied().sum()
+}
+
+fn pct_of_total(part: f64, total: f64) -> f64 {
+    if total <= f64::EPSILON {
+        0.0
+    } else {
+        (part * 100.0) / total
+    }
+}
+
+fn print_section_title(title: &str) {
+    println!("== {} ==", title);
+}
+
+fn print_metric_line(label: &str, value: impl std::fmt::Display) {
+    println!("  {label:<22} {value}");
+}
+
+fn print_blank_line() {
+    println!();
+}
+
 pub fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
     if denominator == 0 {
         0.0
@@ -39,102 +63,291 @@ pub struct OptionalOutputPaths {
 
 #[derive(Debug, Serialize)]
 pub struct BuildTimingsSummary {
+    pub requested_memory_mode: Option<String>,
+    pub effective_memory_mode: Option<String>,
+    pub chunk_storage_mode: Option<String>,
+    pub worker_count: Option<usize>,
+    pub available_memory_mib: Option<u64>,
+    pub memory_budget_mib: Option<u64>,
     pub scan_read_seconds: f64,
     pub scan_read_bytes: u64,
+    pub scan_read_mib_per_second: f64,
     pub file_hash_seconds: f64,
     pub file_hash_bytes: u64,
+    pub file_hash_mib_per_second: f64,
     pub chunking_seconds: f64,
     pub chunking_bytes: u64,
+    pub chunking_mib_per_second: f64,
     pub chunk_hash_judgment_seconds: f64,
     pub chunk_hash_judgment_bytes: u64,
+    pub chunk_hash_judgment_mib_per_second: f64,
     pub metadata_seconds: f64,
     pub dedupe_lookup_seconds: f64,
     pub dedupe_lookup_bytes: u64,
+    pub dedupe_lookup_mib_per_second: f64,
     pub compression_seconds: f64,
     pub compression_input_bytes: u64,
     pub compression_output_bytes: u64,
+    pub compression_input_mib_per_second: f64,
+    pub compression_ratio_percent: f64,
     pub total_compressed_bytes: u64,
     pub bundle_build_seconds: f64,
     pub bundle_build_bytes: u64,
+    pub bundle_build_mib_per_second: f64,
     pub target_manifest_finalize_seconds: f64,
+    pub accounted_seconds: f64,
+    pub unaccounted_seconds: f64,
+    pub accounted_percent_of_total: f64,
     pub total_seconds: f64,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ReconstructTimingsSummary {
+    pub requested_memory_mode: Option<String>,
+    pub effective_memory_mode: Option<String>,
+    pub worker_count: Option<usize>,
+    pub available_memory_mib: Option<u64>,
+    pub memory_budget_mib: Option<u64>,
     pub bundle_read_seconds: f64,
     pub bundle_read_compressed_bytes: u64,
     pub bundle_read_decompressed_bytes: u64,
+    pub bundle_read_decompressed_mib_per_second: f64,
     pub file_rebuild_seconds: f64,
     pub file_rebuild_bytes: u64,
+    pub file_rebuild_mib_per_second: f64,
     pub file_verify_seconds: f64,
     pub file_verify_bytes: u64,
+    pub file_verify_mib_per_second: f64,
     pub file_write_seconds: f64,
     pub file_write_bytes: u64,
+    pub file_write_mib_per_second: f64,
+    pub accounted_seconds: f64,
+    pub unaccounted_seconds: f64,
+    pub accounted_percent_of_total: f64,
     pub total_seconds: f64,
 }
 
 #[derive(Debug, Serialize)]
 pub struct VerifyTimingsSummary {
+    pub requested_memory_mode: Option<String>,
+    pub effective_memory_mode: Option<String>,
+    pub worker_count: Option<usize>,
+    pub available_memory_mib: Option<u64>,
+    pub memory_budget_mib: Option<u64>,
     pub stat_seconds: f64,
     pub file_read_seconds: f64,
     pub file_read_bytes: u64,
+    pub file_read_mib_per_second: f64,
     pub file_hash_seconds: f64,
     pub file_hash_bytes: u64,
+    pub file_hash_mib_per_second: f64,
     pub chunk_hash_seconds: f64,
     pub chunk_hash_bytes: u64,
+    pub chunk_hash_mib_per_second: f64,
+    pub accounted_seconds: f64,
+    pub unaccounted_seconds: f64,
+    pub accounted_percent_of_total: f64,
     pub total_seconds: f64,
 }
 
 pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
+    let scan_read_seconds = secs(timings.scan_read);
+    let file_hash_seconds = secs(timings.file_hash);
+    let chunking_seconds = secs(timings.chunking);
+    let chunk_hash_judgment_seconds = secs(timings.chunk_hash_judgment);
+    let metadata_seconds = secs(timings.metadata);
+    let dedupe_lookup_seconds = secs(timings.dedupe_lookup);
+    let compression_seconds = secs(timings.compression);
+    let bundle_build_seconds = secs(timings.bundle_build);
+    let target_manifest_finalize_seconds = secs(timings.target_manifest_finalize);
+    let total_seconds = secs(timings.total);
+    let accounted_seconds = secs_f64_sum(&[
+        scan_read_seconds,
+        file_hash_seconds,
+        chunking_seconds,
+        chunk_hash_judgment_seconds,
+        metadata_seconds,
+        dedupe_lookup_seconds,
+        compression_seconds,
+        bundle_build_seconds,
+        target_manifest_finalize_seconds,
+    ]);
+    let requested_memory_mode = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.requested_memory_mode.as_str().to_string());
+    let effective_memory_mode = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.effective_memory_mode.as_str().to_string());
+    let chunk_storage_mode = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.chunk_storage_mode.as_str().to_string());
+    let worker_count = timings.runtime_plan.as_ref().map(|plan| plan.worker_count);
+    let available_memory_mib = timings
+        .runtime_plan
+        .as_ref()
+        .and_then(|plan| plan.available_memory_mib);
+    let memory_budget_mib = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.memory_budget_mib);
+
     BuildTimingsSummary {
-        scan_read_seconds: secs(timings.scan_read),
+        requested_memory_mode,
+        effective_memory_mode,
+        chunk_storage_mode,
+        worker_count,
+        available_memory_mib,
+        memory_budget_mib,
+        scan_read_seconds,
         scan_read_bytes: timings.scan_read_bytes,
-        file_hash_seconds: secs(timings.file_hash),
+        scan_read_mib_per_second: mib_per_s(timings.scan_read_bytes, timings.scan_read),
+        file_hash_seconds,
         file_hash_bytes: timings.file_hash_bytes,
-        chunking_seconds: secs(timings.chunking),
+        file_hash_mib_per_second: mib_per_s(timings.file_hash_bytes, timings.file_hash),
+        chunking_seconds,
         chunking_bytes: timings.chunking_bytes,
-        chunk_hash_judgment_seconds: secs(timings.chunk_hash_judgment),
+        chunking_mib_per_second: mib_per_s(timings.chunking_bytes, timings.chunking),
+        chunk_hash_judgment_seconds,
         chunk_hash_judgment_bytes: timings.chunk_hash_judgment_bytes,
-        metadata_seconds: secs(timings.metadata),
-        dedupe_lookup_seconds: secs(timings.dedupe_lookup),
+        chunk_hash_judgment_mib_per_second: mib_per_s(
+            timings.chunk_hash_judgment_bytes,
+            timings.chunk_hash_judgment,
+        ),
+        metadata_seconds,
+        dedupe_lookup_seconds,
         dedupe_lookup_bytes: timings.dedupe_lookup_bytes,
-        compression_seconds: secs(timings.compression),
+        dedupe_lookup_mib_per_second: mib_per_s(timings.dedupe_lookup_bytes, timings.dedupe_lookup),
+        compression_seconds,
         compression_input_bytes: timings.compression_input_bytes,
         compression_output_bytes: timings.compression_output_bytes,
+        compression_input_mib_per_second: mib_per_s(
+            timings.compression_input_bytes,
+            timings.compression,
+        ),
+        compression_ratio_percent: ratio_pct(
+            timings.compression_output_bytes,
+            timings.compression_input_bytes,
+        ),
         total_compressed_bytes: timings.total_compressed_bytes,
-        bundle_build_seconds: secs(timings.bundle_build),
+        bundle_build_seconds,
         bundle_build_bytes: timings.bundle_build_bytes,
-        target_manifest_finalize_seconds: secs(timings.target_manifest_finalize),
-        total_seconds: secs(timings.total),
+        bundle_build_mib_per_second: mib_per_s(timings.bundle_build_bytes, timings.bundle_build),
+        target_manifest_finalize_seconds,
+        accounted_seconds,
+        unaccounted_seconds: (total_seconds - accounted_seconds).max(0.0),
+        accounted_percent_of_total: pct_of_total(accounted_seconds, total_seconds),
+        total_seconds,
     }
 }
 
 pub fn reconstruct_timings_summary(timings: &g::ReconstructTimings) -> ReconstructTimingsSummary {
+    let bundle_read_seconds = secs(timings.bundle_read);
+    let file_rebuild_seconds = secs(timings.file_rebuild);
+    let file_verify_seconds = secs(timings.file_verify);
+    let file_write_seconds = secs(timings.file_write);
+    let total_seconds = secs(timings.total);
+    let accounted_seconds = secs_f64_sum(&[
+        bundle_read_seconds,
+        file_rebuild_seconds,
+        file_verify_seconds,
+        file_write_seconds,
+    ]);
+    let requested_memory_mode = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.requested_memory_mode.as_str().to_string());
+    let effective_memory_mode = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.effective_memory_mode.as_str().to_string());
+    let worker_count = timings.runtime_plan.as_ref().map(|plan| plan.worker_count);
+    let available_memory_mib = timings
+        .runtime_plan
+        .as_ref()
+        .and_then(|plan| plan.available_memory_mib);
+    let memory_budget_mib = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.memory_budget_mib);
+
     ReconstructTimingsSummary {
-        bundle_read_seconds: secs(timings.bundle_read),
+        requested_memory_mode,
+        effective_memory_mode,
+        worker_count,
+        available_memory_mib,
+        memory_budget_mib,
+        bundle_read_seconds,
         bundle_read_compressed_bytes: timings.bundle_read_compressed_bytes,
         bundle_read_decompressed_bytes: timings.bundle_read_decompressed_bytes,
-        file_rebuild_seconds: secs(timings.file_rebuild),
+        bundle_read_decompressed_mib_per_second: mib_per_s(
+            timings.bundle_read_decompressed_bytes,
+            timings.bundle_read,
+        ),
+        file_rebuild_seconds,
         file_rebuild_bytes: timings.file_rebuild_bytes,
-        file_verify_seconds: secs(timings.file_verify),
+        file_rebuild_mib_per_second: mib_per_s(timings.file_rebuild_bytes, timings.file_rebuild),
+        file_verify_seconds,
         file_verify_bytes: timings.file_verify_bytes,
-        file_write_seconds: secs(timings.file_write),
+        file_verify_mib_per_second: mib_per_s(timings.file_verify_bytes, timings.file_verify),
+        file_write_seconds,
         file_write_bytes: timings.file_write_bytes,
-        total_seconds: secs(timings.total),
+        file_write_mib_per_second: mib_per_s(timings.file_write_bytes, timings.file_write),
+        accounted_seconds,
+        unaccounted_seconds: (total_seconds - accounted_seconds).max(0.0),
+        accounted_percent_of_total: pct_of_total(accounted_seconds, total_seconds),
+        total_seconds,
     }
 }
 
 pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummary {
+    let stat_seconds = secs(timings.stat);
+    let file_read_seconds = secs(timings.file_read);
+    let file_hash_seconds = secs(timings.file_hash);
+    let chunk_hash_seconds = secs(timings.chunk_hash);
+    let total_seconds = secs(timings.total);
+    let accounted_seconds =
+        secs_f64_sum(&[stat_seconds, file_read_seconds, file_hash_seconds, chunk_hash_seconds]);
+    let requested_memory_mode = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.requested_memory_mode.as_str().to_string());
+    let effective_memory_mode = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.effective_memory_mode.as_str().to_string());
+    let worker_count = timings.runtime_plan.as_ref().map(|plan| plan.worker_count);
+    let available_memory_mib = timings
+        .runtime_plan
+        .as_ref()
+        .and_then(|plan| plan.available_memory_mib);
+    let memory_budget_mib = timings
+        .runtime_plan
+        .as_ref()
+        .map(|plan| plan.memory_budget_mib);
+
     VerifyTimingsSummary {
-        stat_seconds: secs(timings.stat),
-        file_read_seconds: secs(timings.file_read),
+        requested_memory_mode,
+        effective_memory_mode,
+        worker_count,
+        available_memory_mib,
+        memory_budget_mib,
+        stat_seconds,
+        file_read_seconds,
         file_read_bytes: timings.file_read_bytes,
-        file_hash_seconds: secs(timings.file_hash),
+        file_read_mib_per_second: mib_per_s(timings.file_read_bytes, timings.file_read),
+        file_hash_seconds,
         file_hash_bytes: timings.file_hash_bytes,
-        chunk_hash_seconds: secs(timings.chunk_hash),
+        file_hash_mib_per_second: mib_per_s(timings.file_hash_bytes, timings.file_hash),
+        chunk_hash_seconds,
         chunk_hash_bytes: timings.chunk_hash_bytes,
-        total_seconds: secs(timings.total),
+        chunk_hash_mib_per_second: mib_per_s(timings.chunk_hash_bytes, timings.chunk_hash),
+        accounted_seconds,
+        unaccounted_seconds: (total_seconds - accounted_seconds).max(0.0),
+        accounted_percent_of_total: pct_of_total(accounted_seconds, total_seconds),
+        total_seconds,
     }
 }
 
@@ -277,114 +490,231 @@ pub fn print_repo_init_storage_summary(
 }
 
 pub fn print_build_timings(t: &g::BuildTimings) {
-    println!("timings:");
-    println!(
-        "  read files:        {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.scan_read),
-        mib(t.scan_read_bytes),
-        mib_per_s(t.scan_read_bytes, t.scan_read)
+    print_section_title("Build Timing Summary");
+    if let Some(plan) = &t.runtime_plan {
+        print_metric_line(
+            "runtime plan",
+            format!(
+                "requested={} effective={} storage={} workers={} budget={} MiB{}",
+                plan.requested_memory_mode.as_str(),
+                plan.effective_memory_mode.as_str(),
+                plan.chunk_storage_mode.as_str(),
+                plan.worker_count,
+                plan.memory_budget_mib,
+                plan.available_memory_mib
+                    .map(|mib| format!(" available={} MiB", mib))
+                    .unwrap_or_default()
+            ),
+        );
+    }
+    print_metric_line(
+        "read files",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.scan_read),
+            mib(t.scan_read_bytes),
+            mib_per_s(t.scan_read_bytes, t.scan_read)
+        ),
     );
-    println!(
-        "  file hashing:      {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.file_hash),
-        mib(t.file_hash_bytes),
-        mib_per_s(t.file_hash_bytes, t.file_hash)
+    print_metric_line(
+        "file hashing",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.file_hash),
+            mib(t.file_hash_bytes),
+            mib_per_s(t.file_hash_bytes, t.file_hash)
+        ),
     );
-    println!(
-        "  chunking:          {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.chunking),
-        mib(t.chunking_bytes),
-        mib_per_s(t.chunking_bytes, t.chunking)
+    print_metric_line(
+        "chunking",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.chunking),
+            mib(t.chunking_bytes),
+            mib_per_s(t.chunking_bytes, t.chunking)
+        ),
     );
-    println!(
-        "  hash judgment:     {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.chunk_hash_judgment),
-        mib(t.chunk_hash_judgment_bytes),
-        mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment)
+    print_metric_line(
+        "chunk hash",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.chunk_hash_judgment),
+            mib(t.chunk_hash_judgment_bytes),
+            mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment)
+        ),
     );
-    println!("  metadata:          {:.2} s", secs(t.metadata));
-    println!(
-        "  dedupe lookup:     {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.dedupe_lookup),
-        mib(t.dedupe_lookup_bytes),
-        mib_per_s(t.dedupe_lookup_bytes, t.dedupe_lookup)
+    print_metric_line("metadata", format!("{:.2} s", secs(t.metadata)));
+    print_metric_line(
+        "dedupe lookup",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.dedupe_lookup),
+            mib(t.dedupe_lookup_bytes),
+            mib_per_s(t.dedupe_lookup_bytes, t.dedupe_lookup)
+        ),
     );
-    println!(
-        "  compression:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
-        secs(t.compression),
-        mib(t.compression_input_bytes),
-        mib(t.compression_output_bytes),
-        mib_per_s(t.compression_input_bytes, t.compression)
+    print_metric_line(
+        "compression",
+        format!(
+            "{:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
+            secs(t.compression),
+            mib(t.compression_input_bytes),
+            mib(t.compression_output_bytes),
+            mib_per_s(t.compression_input_bytes, t.compression)
+        ),
     );
-    println!(
-        "  total dedupe ratio: {:.2}%  (out / in)",
-        ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)
+    print_metric_line(
+        "compression ratio",
+        format!("{:.2}%  (out / in)", ratio_pct(t.compression_output_bytes, t.compression_input_bytes)),
     );
-    println!(
-        "  bundle build:      {:.2} s  out {:.2} MiB  {:.2} MiB/s",
-        secs(t.bundle_build),
-        mib(t.bundle_build_bytes),
-        mib_per_s(t.bundle_build_bytes, t.bundle_build)
+    print_metric_line(
+        "total dedupe ratio",
+        format!("{:.2}%  (out / logical)", ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)),
     );
-    println!(
-        "  target manifest finalize: {:.2} s",
-        secs(t.target_manifest_finalize)
+    print_metric_line(
+        "bundle build",
+        format!(
+            "{:.2} s  out {:.2} MiB  {:.2} MiB/s",
+            secs(t.bundle_build),
+            mib(t.bundle_build_bytes),
+            mib_per_s(t.bundle_build_bytes, t.bundle_build)
+        ),
     );
-    println!("  total:             {:.2} s", secs(t.total));
+    print_metric_line(
+        "manifest finalize",
+        format!("{:.2} s", secs(t.target_manifest_finalize)),
+    );
+    let accounted = secs(t.scan_read)
+        + secs(t.file_hash)
+        + secs(t.chunking)
+        + secs(t.chunk_hash_judgment)
+        + secs(t.metadata)
+        + secs(t.dedupe_lookup)
+        + secs(t.compression)
+        + secs(t.bundle_build)
+        + secs(t.target_manifest_finalize);
+    print_blank_line();
+    print_section_title("Build Benchmark Snapshot");
+    print_metric_line("total", format!("{:.2} s", secs(t.total)));
+    print_metric_line("accounted", format!("{:.2}%", pct_of_total(accounted, secs(t.total))));
+    print_metric_line("unaccounted", format!("{:.2} s", (secs(t.total) - accounted).max(0.0)));
 }
 
 pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
-    println!("timings:");
-    println!(
-        "  bundle read:       {:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
-        secs(t.bundle_read),
-        mib(t.bundle_read_compressed_bytes),
-        mib(t.bundle_read_decompressed_bytes),
-        mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read)
+    print_section_title("Reconstruct Timing Summary");
+    if let Some(plan) = &t.runtime_plan {
+        print_metric_line(
+            "runtime plan",
+            format!(
+                "requested={} effective={} workers={} budget={} MiB{}",
+                plan.requested_memory_mode.as_str(),
+                plan.effective_memory_mode.as_str(),
+                plan.worker_count,
+                plan.memory_budget_mib,
+                plan.available_memory_mib
+                    .map(|mib| format!(" available={} MiB", mib))
+                    .unwrap_or_default()
+            ),
+        );
+    }
+    print_metric_line(
+        "bundle read",
+        format!(
+            "{:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
+            secs(t.bundle_read),
+            mib(t.bundle_read_compressed_bytes),
+            mib(t.bundle_read_decompressed_bytes),
+            mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read)
+        ),
     );
-    println!(
-        "  file rebuild:      {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.file_rebuild),
-        mib(t.file_rebuild_bytes),
-        mib_per_s(t.file_rebuild_bytes, t.file_rebuild)
+    print_metric_line(
+        "file rebuild",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.file_rebuild),
+            mib(t.file_rebuild_bytes),
+            mib_per_s(t.file_rebuild_bytes, t.file_rebuild)
+        ),
     );
-    println!(
-        "  file verify:       {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.file_verify),
-        mib(t.file_verify_bytes),
-        mib_per_s(t.file_verify_bytes, t.file_verify)
+    print_metric_line(
+        "file verify",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.file_verify),
+            mib(t.file_verify_bytes),
+            mib_per_s(t.file_verify_bytes, t.file_verify)
+        ),
     );
-    println!(
-        "  file write:        {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.file_write),
-        mib(t.file_write_bytes),
-        mib_per_s(t.file_write_bytes, t.file_write)
+    print_metric_line(
+        "file write",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.file_write),
+            mib(t.file_write_bytes),
+            mib_per_s(t.file_write_bytes, t.file_write)
+        ),
     );
-    println!("  total:             {:.2} s", secs(t.total));
+    let accounted =
+        secs(t.bundle_read) + secs(t.file_rebuild) + secs(t.file_verify) + secs(t.file_write);
+    print_blank_line();
+    print_section_title("Reconstruct Benchmark Snapshot");
+    print_metric_line("total", format!("{:.2} s", secs(t.total)));
+    print_metric_line("accounted", format!("{:.2}%", pct_of_total(accounted, secs(t.total))));
+    print_metric_line("unaccounted", format!("{:.2} s", (secs(t.total) - accounted).max(0.0)));
 }
 
 pub fn print_verify_timings(t: &g::VerifyTimings) {
-    println!("timings:");
-    println!("  stat:              {:.2} s", secs(t.stat));
-    println!(
-        "  file read:         {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.file_read),
-        mib(t.file_read_bytes),
-        mib_per_s(t.file_read_bytes, t.file_read)
+    print_section_title("Verify Timing Summary");
+    if let Some(plan) = &t.runtime_plan {
+        print_metric_line(
+            "runtime plan",
+            format!(
+                "requested={} effective={} workers={} budget={} MiB{}",
+                plan.requested_memory_mode.as_str(),
+                plan.effective_memory_mode.as_str(),
+                plan.worker_count,
+                plan.memory_budget_mib,
+                plan.available_memory_mib
+                    .map(|mib| format!(" available={} MiB", mib))
+                    .unwrap_or_default()
+            ),
+        );
+    }
+    print_metric_line("stat", format!("{:.2} s", secs(t.stat)));
+    print_metric_line(
+        "file read",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.file_read),
+            mib(t.file_read_bytes),
+            mib_per_s(t.file_read_bytes, t.file_read)
+        ),
     );
-    println!(
-        "  file hash:         {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.file_hash),
-        mib(t.file_hash_bytes),
-        mib_per_s(t.file_hash_bytes, t.file_hash)
+    print_metric_line(
+        "file hash",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.file_hash),
+            mib(t.file_hash_bytes),
+            mib_per_s(t.file_hash_bytes, t.file_hash)
+        ),
     );
-    println!(
-        "  chunk hash:        {:.2} s  {:.2} MiB  {:.2} MiB/s",
-        secs(t.chunk_hash),
-        mib(t.chunk_hash_bytes),
-        mib_per_s(t.chunk_hash_bytes, t.chunk_hash)
+    print_metric_line(
+        "chunk hash",
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(t.chunk_hash),
+            mib(t.chunk_hash_bytes),
+            mib_per_s(t.chunk_hash_bytes, t.chunk_hash)
+        ),
     );
-    println!("  total:             {:.2} s", secs(t.total));
+    let accounted =
+        secs(t.stat) + secs(t.file_read) + secs(t.file_hash) + secs(t.chunk_hash);
+    print_blank_line();
+    print_section_title("Verify Benchmark Snapshot");
+    print_metric_line("total", format!("{:.2} s", secs(t.total)));
+    print_metric_line("accounted", format!("{:.2}%", pct_of_total(accounted, secs(t.total))));
+    print_metric_line("unaccounted", format!("{:.2} s", (secs(t.total) - accounted).max(0.0)));
 }
 
 #[cfg(test)]

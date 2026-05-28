@@ -173,3 +173,43 @@ fn verify_rejects_manifest_path_traversal() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn verify_with_hints_records_runtime_plan() {
+    let dir = test_util::temp_path("gutch_verify_runtime_plan");
+    test_util::recreate_dir(&dir);
+
+    let data = b"runtime plan content";
+    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(data));
+    std::fs::write(dir.join("runtime.bin"), data).unwrap();
+
+    let mut manifest = empty_manifest();
+    manifest.files.push(crate::manifest::FileManifest {
+        path: "runtime.bin".into(),
+        size: data.len() as u64,
+        executable: false,
+        full_file_hash: file_hash,
+        chunks: vec![crate::manifest::ChunkRef {
+            chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
+            raw_size: data.len() as u64,
+        }],
+    });
+
+    let (_, timings) = verify_directory_with_timings_and_hints(
+        &manifest,
+        &dir,
+        &crate::runtime::RuntimeResourceHints {
+            memory_mode: crate::runtime::MemoryMode::Low,
+            max_memory_mib: Some(1024),
+            jobs: Some(1),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        timings.runtime_plan.as_ref().map(|plan| plan.worker_count),
+        Some(1)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

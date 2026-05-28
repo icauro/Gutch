@@ -2,10 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use crate::manifest::{
     BundleSizingProfile, ChunkSizingProfile, CompressionProfile, FileManifest, TargetTagSet,
     target::TargetManifest,
 };
+use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
@@ -18,6 +21,7 @@ pub struct BuildConfig {
     pub chunk_profile: ChunkSizingProfile,
     pub bundle_profile: BundleSizingProfile,
     pub compression_profile: CompressionProfile,
+    pub runtime_hints: RuntimeResourceHints,
 }
 
 impl BuildConfig {
@@ -36,6 +40,7 @@ impl BuildConfig {
             chunk_profile: ChunkSizingProfile::default(),
             bundle_profile: BundleSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
+            runtime_hints: RuntimeResourceHints::default(),
         }
     }
 }
@@ -71,6 +76,34 @@ pub struct ExistingChunkLocation {
     pub compressed_size: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "storage")]
+pub enum ChunkPayload {
+    InMemory {
+        bytes: Vec<u8>,
+    },
+    TempFile {
+        path: PathBuf,
+        raw_size: u64,
+    },
+}
+
+impl ChunkPayload {
+    pub fn raw_size(&self) -> u64 {
+        match self {
+            ChunkPayload::InMemory { bytes } => bytes.len() as u64,
+            ChunkPayload::TempFile { raw_size, .. } => *raw_size,
+        }
+    }
+
+    pub fn load_bytes(&self) -> crate::Result<Vec<u8>> {
+        match self {
+            ChunkPayload::InMemory { bytes } => Ok(bytes.clone()),
+            ChunkPayload::TempFile { path, .. } => Ok(std::fs::read(path)?),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BuildTimings {
     pub scan_read: Duration,
@@ -92,4 +125,5 @@ pub struct BuildTimings {
     pub bundle_build_bytes: u64,
     pub target_manifest_finalize: Duration,
     pub total: Duration,
+    pub runtime_plan: Option<RuntimePlan>,
 }

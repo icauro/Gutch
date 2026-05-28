@@ -26,6 +26,9 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             chunk_profile,
             bundle_profile,
             compression_unit,
+            memory_mode,
+            max_memory_mib,
+            jobs,
             summary_out,
             stats_json_out,
         } => {
@@ -78,18 +81,22 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 zstd_level: 3,
             };
 
-            let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
-                &prepared_input.dir,
-                &content_repo,
-                &target_id,
-                &resolved_identity.target_tags,
-                &existing_store_state.chunk_locations,
-                &existing_store_state.bundle_ids,
-                &existing_store_state.previous_file_manifests,
-                &chunk_sizing_profile,
-                &bundle_sizing_profile,
-                &compression_profile,
-            )?;
+            let mut build_config =
+                g::BuildConfig::with_ids(&content_repo, &target_id, &resolved_identity.target_tags);
+            build_config.existing_chunk_locations = existing_store_state.chunk_locations.clone();
+            build_config.existing_bundle_ids = existing_store_state.bundle_ids.clone();
+            build_config.previous_file_manifests =
+                existing_store_state.previous_file_manifests.clone();
+            build_config.chunk_profile = chunk_sizing_profile.clone();
+            build_config.bundle_profile = bundle_sizing_profile.clone();
+            build_config.compression_profile = compression_profile.clone();
+            build_config.runtime_hints = g::RuntimeResourceHints {
+                memory_mode,
+                max_memory_mib,
+                jobs,
+            };
+
+            let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
             let mut result = result;
             apply_resolved_target_identity(&mut result.target_manifest, &resolved_identity);
 
@@ -192,6 +199,9 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             repo,
             target,
             output,
+            memory_mode,
+            max_memory_mib,
+            jobs,
             summary_out,
             stats_json_out,
         } => {
@@ -201,8 +211,17 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 crate::cli::common::resolve_required_bundle_paths(&repo_paths.bundles_root)?;
             let chunk_index = g::load_chunk_index(&repo_paths)?;
 
-            let (_, timings) =
-                g::reconstruct_from_bundle_paths_with_timings(&tm, &bundle_paths, &output)?;
+            let runtime_hints = g::RuntimeResourceHints {
+                memory_mode,
+                max_memory_mib,
+                jobs,
+            };
+            let (_, timings) = g::reconstruct_from_bundle_paths_with_timings_and_hints(
+                &tm,
+                &bundle_paths,
+                &output,
+                &runtime_hints,
+            )?;
             println!("reconstructed to: {}", output.display());
             print_reconstruct_timings(&timings);
 

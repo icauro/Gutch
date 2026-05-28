@@ -356,6 +356,9 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             chunk_profile,
             bundle_profile,
             compression_unit,
+            memory_mode,
+            max_memory_mib,
+            jobs,
             repo,
         } => {
             let spec_json = std::fs::read_to_string(&spec)?;
@@ -427,15 +430,21 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 compression_unit,
                 zstd_level: 3,
             };
+            let runtime_hints = g::RuntimeResourceHints {
+                memory_mode,
+                max_memory_mib,
+                jobs,
+            };
 
             match init_mode {
                 RepoInitMode::Batch => {
-                    let (mut result, timings) = g::build_repo_init_batch_with_timings(
+                    let (mut result, timings) = g::build_repo_init_batch_with_timings_and_hints(
                         &content_repo,
                         &target_inputs,
                         &chunk_sizing_profile,
                         &bundle_sizing_profile,
                         &compression_profile,
+                        &runtime_hints,
                     )?;
                     let mut target_manifest_sizes = HashMap::new();
 
@@ -472,18 +481,18 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                     let mut bundle_sizes = HashMap::new();
 
                     for target in &target_inputs {
-                        let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
-                            &target.dir,
-                            &content_repo,
-                            &target.target_id,
-                            &target.target_tags,
-                            &existing_chunk_locations,
-                            &existing_bundle_ids,
-                            &previous_file_manifests,
-                            &chunk_sizing_profile,
-                            &bundle_sizing_profile,
-                            &compression_profile,
-                        )?;
+                        let mut build_config =
+                            g::BuildConfig::with_ids(&content_repo, &target.target_id, &target.target_tags);
+                        build_config.existing_chunk_locations = existing_chunk_locations.clone();
+                        build_config.existing_bundle_ids = existing_bundle_ids.clone();
+                        build_config.previous_file_manifests = previous_file_manifests.clone();
+                        build_config.chunk_profile = chunk_sizing_profile.clone();
+                        build_config.bundle_profile = bundle_sizing_profile.clone();
+                        build_config.compression_profile = compression_profile.clone();
+                        build_config.runtime_hints = runtime_hints.clone();
+
+                        let (result, timings) =
+                            g::build_with_config(&target.dir, &build_config)?;
 
                         let target_manifest = result.target_manifest.clone();
                         let target_root = repo_paths.targets_root.join(&target_manifest.target_id);

@@ -132,6 +132,63 @@ fn test_apply_target_install_reuses_verified_source_install() {
 }
 
 #[test]
+fn test_reconstruct_bundle_compressed_with_runtime_hints() {
+    let root = test_util::temp_path("gutch_test_bundle_compressed_reconstruct");
+    let input_dir = root.join("input");
+    let bundles_dir = root.join("bundles");
+    let out_dir = root.join("out");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&input_dir).unwrap();
+    std::fs::create_dir_all(&bundles_dir).unwrap();
+
+    std::fs::write(input_dir.join("shared.bin"), b"bundle compressed".repeat(512)).unwrap();
+    std::fs::write(input_dir.join("config.json"), br#"{"mode":"bundle"}"#).unwrap();
+
+    let tags = exclusive_tags("3.0.0", "windows", "x86_64", "base");
+    let mut config = BuildConfig::with_ids("base", "300", &tags);
+    config.compression_profile = manifest::CompressionProfile {
+        compression: manifest::COMPRESSION_ZSTD.to_string(),
+        compression_unit: manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+        zstd_level: 3,
+    };
+    let result = build_with_config(&input_dir, &config).unwrap().0;
+
+    for bundle in &result.bundles {
+        std::fs::write(
+            bundles_dir.join(format!("{}.bundle", bundle.bundle_id)),
+            &bundle.data,
+        )
+        .unwrap();
+    }
+    let bundle_paths: Vec<PathBuf> = result
+        .bundles
+        .iter()
+        .map(|bundle| bundles_dir.join(format!("{}.bundle", bundle.bundle_id)))
+        .collect();
+
+    let (_, timings) = reconstruct_from_bundle_paths_with_timings_and_hints(
+        &result.target_manifest,
+        &bundle_paths,
+        &out_dir,
+        &crate::runtime::RuntimeResourceHints {
+            memory_mode: crate::runtime::MemoryMode::Low,
+            max_memory_mib: Some(1024),
+            jobs: Some(1),
+        },
+    )
+    .unwrap();
+
+    let verify_errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
+    assert!(verify_errors.is_empty(), "verification errors: {:?}", verify_errors);
+    assert_eq!(
+        timings.runtime_plan.as_ref().map(|plan| plan.worker_count),
+        Some(1)
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn test_repo_init_batch_builds_multiple_targets() {
     let root = test_util::temp_path("gutch_test_repo_init_batch");
     let dir_a = root.join("a");

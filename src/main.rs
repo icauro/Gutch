@@ -142,6 +142,15 @@ enum RepoCommands {
         #[arg(long = "compression-unit", value_parser = ["chunk", "bundle"], default_value = "chunk")]
         compression_unit: String,
 
+        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
+        memory_mode: g::MemoryMode,
+
+        #[arg(long = "max-memory-mib")]
+        max_memory_mib: Option<u64>,
+
+        #[arg(long = "jobs")]
+        jobs: Option<usize>,
+
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
     },
@@ -239,6 +248,15 @@ enum TargetCommands {
         #[arg(long = "compression-unit", value_parser = ["chunk", "bundle"], default_value = "chunk")]
         compression_unit: String,
 
+        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
+        memory_mode: g::MemoryMode,
+
+        #[arg(long = "max-memory-mib")]
+        max_memory_mib: Option<u64>,
+
+        #[arg(long = "jobs")]
+        jobs: Option<usize>,
+
         #[arg(long = "summary-out")]
         summary_out: Option<PathBuf>,
 
@@ -255,6 +273,15 @@ enum TargetCommands {
 
         #[arg(short, long)]
         output: PathBuf,
+
+        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
+        memory_mode: g::MemoryMode,
+
+        #[arg(long = "max-memory-mib")]
+        max_memory_mib: Option<u64>,
+
+        #[arg(long = "jobs")]
+        jobs: Option<usize>,
 
         #[arg(long = "summary-out")]
         summary_out: Option<PathBuf>,
@@ -316,6 +343,15 @@ enum TargetInstallCommands {
         #[arg(long = "source-dir")]
         source_dir: Option<PathBuf>,
 
+        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
+        memory_mode: g::MemoryMode,
+
+        #[arg(long = "max-memory-mib")]
+        max_memory_mib: Option<u64>,
+
+        #[arg(long = "jobs")]
+        jobs: Option<usize>,
+
         #[arg(long = "summary-out")]
         summary_out: Option<PathBuf>,
 
@@ -332,6 +368,15 @@ enum TargetInstallCommands {
 
         #[arg(short, long)]
         dir: PathBuf,
+
+        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
+        memory_mode: g::MemoryMode,
+
+        #[arg(long = "max-memory-mib")]
+        max_memory_mib: Option<u64>,
+
+        #[arg(long = "jobs")]
+        jobs: Option<usize>,
 
         #[arg(long = "summary-out")]
         summary_out: Option<PathBuf>,

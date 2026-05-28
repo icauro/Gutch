@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 
-use crate::build_types::{BuildTimings, ExistingChunkLocation};
+use crate::build_types::{BuildTimings, ChunkPayload, ExistingChunkLocation};
 use crate::hash::hash_hex;
 use crate::manifest::{self, ChunkRef, FileManifest};
+use crate::runtime::{ChunkStorageMode, install_in_thread_pool};
 use crate::{Error, Result};
 
 pub struct FileBuildEntry {
     pub manifest: FileManifest,
-    pub chunks: Vec<(String, Vec<u8>)>,
+    pub chunks: Vec<(String, ChunkPayload)>,
     pub size: u64,
     pub scan_read: Duration,
     pub file_hash: Duration,
@@ -39,13 +42,19 @@ pub(crate) fn collect_scanned_chunks(
     previous_file_manifests: &HashMap<String, FileManifest>,
     chunking_profile: &manifest::ChunkSizingProfile,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    chunk_storage_mode: ChunkStorageMode,
+    chunk_spool_root: Option<&Path>,
+    worker_count: usize,
     timings: &mut BuildTimings,
-) -> Result<(Vec<FileManifest>, HashMap<String, Vec<u8>>, u64)> {
+) -> Result<(Vec<FileManifest>, HashMap<String, ChunkPayload>, u64)> {
     let file_entries = scan_directory_into_file_entries(
         dir,
         previous_file_manifests,
         chunking_profile,
         existing_chunk_locations,
+        chunk_storage_mode,
+        chunk_spool_root,
+        worker_count,
     )?;
 
     let mut file_manifests = Vec::with_capacity(file_entries.len());
@@ -69,6 +78,9 @@ pub(crate) fn scan_directory_into_file_entries(
     previous_file_manifests: &HashMap<String, FileManifest>,
     chunking_profile: &manifest::ChunkSizingProfile,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    chunk_storage_mode: ChunkStorageMode,
+    chunk_spool_root: Option<&Path>,
+    worker_count: usize,
 ) -> Result<Vec<FileBuildEntry>> {
     let mut file_paths: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
@@ -78,21 +90,25 @@ pub(crate) fn scan_directory_into_file_entries(
         }
     }
 
-    file_paths
-        .par_iter()
-        .map(|path| -> Result<FileBuildEntry> {
+    let spool_root = chunk_spool_root.map(PathBuf::from);
+    let spill_counter = Arc::new(AtomicU64::new(0));
+    let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
             let relative = path.strip_prefix(dir).map_err(|e| Error::PathError {
                 path: path.to_path_buf(),
                 reason: e.to_string(),
             })?;
 
-            let t = Instant::now();
-            let file_data = std::fs::read(path)?;
-            let scan_read = t.elapsed();
-            let file_size = file_data.len() as u64;
+            let scan_read = Duration::ZERO;
+            let (chunk_results, chunk_timings) =
+                crate::chunk::chunk_file_streaming(path, chunking_profile)?;
+            let file_size: u64 = chunk_results.iter().map(|chunk| chunk.data.len() as u64).sum();
 
             let t = Instant::now();
-            let full_file_hash = hash_hex(&crate::hash::hash_chunk(&file_data));
+            let mut full_file_hasher = blake3::Hasher::new();
+            for chunk in &chunk_results {
+                full_file_hasher.update(&chunk.data);
+            }
+            let full_file_hash = hash_hex(&full_file_hasher.finalize());
             let file_hash = t.elapsed();
 
             if let Some(previous) =
@@ -114,21 +130,35 @@ pub(crate) fn scan_directory_into_file_entries(
                 }
             }
 
-            let (chunk_results, chunk_timings) =
-                crate::chunk::chunk_slices(&file_data, chunking_profile);
             let chunking = chunk_timings.boundary_scan;
 
             let mut chunk_refs = Vec::with_capacity(chunk_results.len());
             let mut chunks = Vec::with_capacity(chunk_results.len());
-            for cr in &chunk_results {
+            for cr in chunk_results {
                 let ch = hash_hex(&cr.hash);
                 chunk_refs.push(ChunkRef {
                     chunk_hash: ch.clone(),
-                    raw_size: cr.len as u64,
+                    raw_size: cr.data.len() as u64,
                 });
                 if !existing_chunk_locations.contains_key(&ch) {
-                    let start = cr.offset as usize;
-                    chunks.push((ch, file_data[start..start + cr.len].to_vec()));
+                    let payload = match chunk_storage_mode {
+                        ChunkStorageMode::Memory => ChunkPayload::InMemory { bytes: cr.data },
+                        ChunkStorageMode::TempSpill => {
+                            let spool_root = spool_root.as_ref().ok_or_else(|| {
+                                Error::manifest(
+                                    "temp spill mode requires a chunk spool directory",
+                                )
+                            })?;
+                            let chunk_id = spill_counter.fetch_add(1, Ordering::Relaxed);
+                            let chunk_path = spool_root.join(format!("chunk-{chunk_id:016x}.bin"));
+                            std::fs::write(&chunk_path, &cr.data)?;
+                            ChunkPayload::TempFile {
+                                path: chunk_path,
+                                raw_size: cr.data.len() as u64,
+                            }
+                        }
+                    };
+                    chunks.push((ch, payload));
                 }
             }
 
@@ -154,6 +184,16 @@ pub(crate) fn scan_directory_into_file_entries(
                 chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
                 metadata: metadata_dur,
             })
-        })
-        .collect::<Result<Vec<_>>>()
+        };
+
+    if worker_count <= 1 {
+        file_paths.iter().map(scan_one).collect::<Result<Vec<_>>>()
+    } else {
+        install_in_thread_pool(worker_count, || {
+            file_paths
+                .par_iter()
+                .map(scan_one)
+                .collect::<Result<Vec<_>>>()
+        })?
+    }
 }
