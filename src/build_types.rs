@@ -1,7 +1,44 @@
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::manifest::{TargetTagSet, target::TargetManifest};
+use crate::manifest::{
+    BundleSizingProfile, ChunkSizingProfile, CompressionProfile, FileManifest, TargetTagSet,
+    target::TargetManifest,
+};
+
+#[derive(Debug, Clone)]
+pub struct BuildConfig {
+    pub content_repo_id: String,
+    pub target_id: String,
+    pub target_tags: TargetTagSet,
+    pub existing_chunk_locations: HashMap<String, ExistingChunkLocation>,
+    pub existing_bundle_ids: HashSet<String>,
+    pub previous_file_manifests: HashMap<String, FileManifest>,
+    pub chunk_profile: ChunkSizingProfile,
+    pub bundle_profile: BundleSizingProfile,
+    pub compression_profile: CompressionProfile,
+}
+
+impl BuildConfig {
+    pub fn with_ids(
+        content_repo_id: &str,
+        target_id: &str,
+        target_tags: &TargetTagSet,
+    ) -> Self {
+        Self {
+            content_repo_id: content_repo_id.to_string(),
+            target_id: target_id.to_string(),
+            target_tags: target_tags.clone(),
+            existing_chunk_locations: HashMap::new(),
+            existing_bundle_ids: HashSet::new(),
+            previous_file_manifests: HashMap::new(),
+            chunk_profile: ChunkSizingProfile::default(),
+            bundle_profile: BundleSizingProfile::default(),
+            compression_profile: CompressionProfile::default(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct RepoInitTargetInput {

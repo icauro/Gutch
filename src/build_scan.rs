@@ -4,22 +4,64 @@ use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 
-use crate::build_types::ExistingChunkLocation;
+use crate::build_types::{BuildTimings, ExistingChunkLocation};
 use crate::hash::hash_hex;
 use crate::manifest::{self, ChunkRef, FileManifest};
 use crate::{Error, Result};
 
-pub(crate) struct FileBuildEntry {
-    pub(crate) manifest: FileManifest,
-    pub(crate) chunks: Vec<(String, Vec<u8>)>,
-    pub(crate) size: u64,
-    pub(crate) scan_read: Duration,
-    pub(crate) file_hash: Duration,
-    pub(crate) chunking: Duration,
-    pub(crate) chunking_bytes: u64,
-    pub(crate) chunk_hash_judgment: Duration,
-    pub(crate) chunk_hash_judgment_bytes: u64,
-    pub(crate) metadata: Duration,
+pub struct FileBuildEntry {
+    pub manifest: FileManifest,
+    pub chunks: Vec<(String, Vec<u8>)>,
+    pub size: u64,
+    pub scan_read: Duration,
+    pub file_hash: Duration,
+    pub chunking: Duration,
+    pub chunking_bytes: u64,
+    pub chunk_hash_judgment: Duration,
+    pub chunk_hash_judgment_bytes: u64,
+    pub metadata: Duration,
+}
+
+pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileBuildEntry) {
+    timings.scan_read += entry.scan_read;
+    timings.scan_read_bytes += entry.size;
+    timings.file_hash += entry.file_hash;
+    timings.file_hash_bytes += entry.size;
+    timings.chunking += entry.chunking;
+    timings.chunking_bytes += entry.chunking_bytes;
+    timings.chunk_hash_judgment += entry.chunk_hash_judgment;
+    timings.chunk_hash_judgment_bytes += entry.chunk_hash_judgment_bytes;
+    timings.metadata += entry.metadata;
+}
+
+pub(crate) fn collect_scanned_chunks(
+    dir: &Path,
+    previous_file_manifests: &HashMap<String, FileManifest>,
+    chunking_profile: &manifest::ChunkSizingProfile,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    timings: &mut BuildTimings,
+) -> Result<(Vec<FileManifest>, HashMap<String, Vec<u8>>, u64)> {
+    let file_entries = scan_directory_into_file_entries(
+        dir,
+        previous_file_manifests,
+        chunking_profile,
+        existing_chunk_locations,
+    )?;
+
+    let mut file_manifests = Vec::with_capacity(file_entries.len());
+    let mut unique_chunks = HashMap::new();
+    let mut total_logical_size: u64 = 0;
+
+    for entry in file_entries {
+        accumulate_entry_timings(timings, &entry);
+        total_logical_size += entry.size;
+        file_manifests.push(entry.manifest);
+        for (hash, data) in entry.chunks {
+            unique_chunks.entry(hash).or_insert(data);
+        }
+    }
+
+    Ok((file_manifests, unique_chunks, total_logical_size))
 }
 
 pub(crate) fn scan_directory_into_file_entries(

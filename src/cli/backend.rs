@@ -80,7 +80,7 @@ pub(crate) fn request_optional_bytes_from_signed_url(
         .map_err(|err| g::Error::manifest(format!("failed to read signed url response: {}", err)))
 }
 
-pub(crate) fn parse_backend_error_response(response: reqwest::blocking::Response) -> String {
+pub fn parse_backend_error_response(response: reqwest::blocking::Response) -> String {
     let status = response.status();
     let text = response.text().unwrap_or_default();
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {

@@ -33,7 +33,7 @@ pub use build::{
     build_repo_init_batch_with_timings,
 };
 pub use build_types::{
-    BuildResult, BuildTimings, BuiltBundle, ExistingChunkLocation, RepoInitResult,
+    BuildConfig, BuildResult, BuildTimings, BuiltBundle, ExistingChunkLocation, RepoInitResult,
     RepoInitTargetInput,
 };
 pub use cli_identity::{

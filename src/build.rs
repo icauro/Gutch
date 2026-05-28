@@ -5,9 +5,9 @@ use std::time::Instant;
 use rayon::prelude::*;
 
 use crate::Result;
-use crate::build_scan::scan_directory_into_file_entries;
+use crate::build_scan::collect_scanned_chunks;
 use crate::build_types::{
-    BuildResult, BuildTimings, BuiltBundle, ExistingChunkLocation, RepoInitResult,
+    BuildConfig, BuildResult, BuildTimings, BuiltBundle, ExistingChunkLocation, RepoInitResult,
     RepoInitTargetInput,
 };
 use crate::bundle::{self, BundleBuilder};
@@ -134,13 +134,7 @@ pub fn build_from_directory(
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<BuildResult> {
-    let (result, _) = build_from_directory_with_timings_against_existing_bundles(
-        dir,
-        content_repo_id,
-        target_id,
-        target_tags,
-        &HashSet::new(),
-    )?;
+    let (result, _) = build_from_directory_with_timings(dir, content_repo_id, target_id, target_tags)?;
     Ok(result)
 }
 
@@ -150,13 +144,8 @@ pub fn build_from_directory_with_timings(
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_bundles(
-        dir,
-        content_repo_id,
-        target_id,
-        target_tags,
-        &HashSet::new(),
-    )
+    let config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    build_with_config(dir, &config)
 }
 
 pub fn build_from_directory_with_timings_against_existing_bundles(
@@ -166,14 +155,9 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
     target_tags: &TargetTagSet,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store(
-        dir,
-        content_repo_id,
-        target_id,
-        target_tags,
-        &HashMap::new(),
-        existing_bundle_ids,
-    )
+    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    config.existing_bundle_ids = existing_bundle_ids.clone();
+    build_with_config(dir, &config)
 }
 
 pub fn build_from_directory_with_timings_against_existing_store(
@@ -184,17 +168,10 @@ pub fn build_from_directory_with_timings_against_existing_store(
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
-        dir,
-        content_repo_id,
-        target_id,
-        target_tags,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        &HashMap::new(),
-        &manifest::ChunkSizingProfile::default(),
-        &manifest::BundleSizingProfile::default(),
-    )
+    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    config.existing_chunk_locations = existing_chunk_locations.clone();
+    config.existing_bundle_ids = existing_bundle_ids.clone();
+    build_with_config(dir, &config)
 }
 
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
@@ -206,17 +183,11 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
-        dir,
-        content_repo_id,
-        target_id,
-        target_tags,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        previous_file_manifests,
-        &manifest::ChunkSizingProfile::default(),
-        &manifest::BundleSizingProfile::default(),
-    )
+    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    config.existing_chunk_locations = existing_chunk_locations.clone();
+    config.existing_bundle_ids = existing_bundle_ids.clone();
+    config.previous_file_manifests = previous_file_manifests.clone();
+    build_with_config(dir, &config)
 }
 
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
@@ -230,21 +201,15 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     chunk_profile: &manifest::ChunkSizingProfile,
     bundle_profile: &manifest::BundleSizingProfile,
 ) -> Result<(BuildResult, BuildTimings)> {
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
-        dir,
-        content_repo_id,
-        target_id,
-        target_tags,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        previous_file_manifests,
-        chunk_profile,
-        bundle_profile,
-        &manifest::CompressionProfile::default(),
-    )
+    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    config.existing_chunk_locations = existing_chunk_locations.clone();
+    config.existing_bundle_ids = existing_bundle_ids.clone();
+    config.previous_file_manifests = previous_file_manifests.clone();
+    config.chunk_profile = chunk_profile.clone();
+    config.bundle_profile = bundle_profile.clone();
+    build_with_config(dir, &config)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
     dir: &Path,
     content_repo_id: &str,
@@ -257,38 +222,29 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     bundle_profile: &manifest::BundleSizingProfile,
     compression_profile: &manifest::CompressionProfile,
 ) -> Result<(BuildResult, BuildTimings)> {
+    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    config.existing_chunk_locations = existing_chunk_locations.clone();
+    config.existing_bundle_ids = existing_bundle_ids.clone();
+    config.previous_file_manifests = previous_file_manifests.clone();
+    config.chunk_profile = chunk_profile.clone();
+    config.bundle_profile = bundle_profile.clone();
+    config.compression_profile = compression_profile.clone();
+    build_with_config(dir, &config)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResult, BuildTimings)> {
     let total_start = Instant::now();
-    let chunking_profile = chunk_profile;
-    let compression_profile = compression_profile.clone();
+    let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings::default();
 
-    let file_entries = scan_directory_into_file_entries(
+    let (mut file_manifests, unique_chunks, total_logical_size) = collect_scanned_chunks(
         dir,
-        previous_file_manifests,
-        chunking_profile,
-        existing_chunk_locations,
+        &config.previous_file_manifests,
+        &config.chunk_profile,
+        &config.existing_chunk_locations,
+        &mut timings,
     )?;
-
-    let mut file_manifests: Vec<FileManifest> = Vec::with_capacity(file_entries.len());
-    let mut unique_chunks: HashMap<String, Vec<u8>> = HashMap::new();
-    let mut total_logical_size: u64 = 0;
-
-    for entry in file_entries {
-        timings.scan_read += entry.scan_read;
-        timings.scan_read_bytes += entry.size;
-        timings.file_hash += entry.file_hash;
-        timings.file_hash_bytes += entry.size;
-        timings.chunking += entry.chunking;
-        timings.chunking_bytes += entry.chunking_bytes;
-        timings.chunk_hash_judgment += entry.chunk_hash_judgment;
-        timings.chunk_hash_judgment_bytes += entry.chunk_hash_judgment_bytes;
-        timings.metadata += entry.metadata;
-        total_logical_size += entry.size;
-        file_manifests.push(entry.manifest);
-        for (hash, data) in entry.chunks {
-            unique_chunks.entry(hash).or_insert(data);
-        }
-    }
 
     let mut all_chunk_hashes: HashSet<String> = HashSet::new();
     let mut required_bundle_set = Vec::new();
@@ -297,7 +253,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     for fm in &file_manifests {
         for chunk_ref in &fm.chunks {
             all_chunk_hashes.insert(chunk_ref.chunk_hash.clone());
-            if let Some(existing) = existing_chunk_locations.get(&chunk_ref.chunk_hash) {
+            if let Some(existing) = config.existing_chunk_locations.get(&chunk_ref.chunk_hash) {
                 required_bundle_set.push(existing.bundle_id.clone());
                 if compressed_estimate_seen.insert(chunk_ref.chunk_hash.clone()) {
                     total_compressed += existing.compressed_size;
@@ -313,7 +269,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
         let raw_size = data.len() as u64;
         timings.dedupe_lookup_bytes += raw_size;
 
-        if let Some(existing) = existing_chunk_locations.get(&hash) {
+        if let Some(existing) = config.existing_chunk_locations.get(&hash) {
             if compressed_estimate_seen.insert(hash.clone()) {
                 total_compressed += existing.compressed_size;
             }
@@ -331,8 +287,8 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     let mut bundles = Vec::new();
     let mut builder = BundleBuilder::new(compression_profile.clone());
     let bundle_target_size_policy = BundleSizingPolicy::new(
-        bundle_profile.bundle_max_size_bytes(),
-        bundle_profile.bundle_preferred_size_bytes(),
+        config.bundle_profile.bundle_max_size_bytes(),
+        config.bundle_profile.bundle_preferred_size_bytes(),
     );
 
     if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
@@ -345,7 +301,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
         let mut bundle_compression_ratio = estimate_bundle_compression_ratio_from_probe(
             &sorted_chunks,
             &compression_profile,
-            bundle_profile.bundle_preferred_size_bytes(),
+            config.bundle_profile.bundle_preferred_size_bytes(),
         )?;
         let estimated_total_compressed_bytes =
             ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
@@ -365,7 +321,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
             {
                 let bundle_id = builder.compute_bundle_id();
                 required_bundle_set.push(bundle_id.clone());
-                if !existing_bundle_ids.contains(&bundle_id) {
+                if !config.existing_bundle_ids.contains(&bundle_id) {
                     let bundle_data = builder.build()?;
                     timings.compression_output_bytes += bundle_data.len() as u64;
                     total_compressed += bundle_data.len() as u64;
@@ -428,7 +384,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
             if !builder.is_empty() && current_bundle_size + compressed_size > bundle_target_size {
                 let bundle_id = builder.compute_bundle_id();
                 required_bundle_set.push(bundle_id.clone());
-                if !existing_bundle_ids.contains(&bundle_id) {
+                if !config.existing_bundle_ids.contains(&bundle_id) {
                     let bundle_data = builder.build()?;
                     bundles.push(BuiltBundle {
                         bundle_id,
@@ -447,7 +403,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     if !builder.is_empty() {
         let bundle_id = builder.compute_bundle_id();
         required_bundle_set.push(bundle_id.clone());
-        if !existing_bundle_ids.contains(&bundle_id) {
+        if !config.existing_bundle_ids.contains(&bundle_id) {
             let bundle_data = builder.build()?;
             if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
                 timings.compression_output_bytes += bundle_data.len() as u64;
@@ -470,9 +426,9 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     let t = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
     let mut vm = TargetManifest::new(
-        content_repo_id.to_string(),
-        target_id.to_string(),
-        target_tags.clone(),
+        config.content_repo_id.clone(),
+        config.target_id.clone(),
+        config.target_tags.clone(),
     );
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
@@ -503,38 +459,18 @@ pub fn build_repo_init_batch_with_timings(
     let mut scanned_targets = Vec::with_capacity(targets.len());
 
     for target in targets {
-        let file_entries = scan_directory_into_file_entries(
+        let (files, unique_chunks, total_logical_size) = collect_scanned_chunks(
             &target.dir,
             &previous_file_manifests,
             chunk_profile,
             &existing_chunk_locations,
+            &mut timings,
         )?;
-
-        let mut file_manifests = Vec::with_capacity(file_entries.len());
-        let mut unique_chunks: HashMap<String, Vec<u8>> = HashMap::new();
-        let mut total_logical_size: u64 = 0;
-
-        for entry in file_entries {
-            timings.scan_read += entry.scan_read;
-            timings.scan_read_bytes += entry.size;
-            timings.file_hash += entry.file_hash;
-            timings.file_hash_bytes += entry.size;
-            timings.chunking += entry.chunking;
-            timings.chunking_bytes += entry.chunking_bytes;
-            timings.chunk_hash_judgment += entry.chunk_hash_judgment;
-            timings.chunk_hash_judgment_bytes += entry.chunk_hash_judgment_bytes;
-            timings.metadata += entry.metadata;
-            total_logical_size += entry.size;
-            file_manifests.push(entry.manifest);
-            for (hash, data) in entry.chunks {
-                unique_chunks.entry(hash).or_insert(data);
-            }
-        }
 
         scanned_targets.push(ScannedTarget {
             target_id: target.target_id.clone(),
             target_tags: target.target_tags.clone(),
-            files: file_manifests,
+            files,
             unique_chunks,
             total_logical_size,
         });
