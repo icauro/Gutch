@@ -21,7 +21,6 @@ pub struct RepoInspectStatus {
     pub exists: bool,
     pub is_repo: bool,
     pub repo_path: String,
-    pub product_id: String,
     pub content_repo_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_schema: Option<manifest::TargetTagSchema>,
@@ -62,11 +61,9 @@ pub struct SourceTargetInstallCandidate {
 }
 
 impl ContentRepoPaths {
-    pub fn from_store_root(store_root: &Path, product_id: &str, content_repo_id: &str) -> Self {
+    pub fn from_store_root(store_root: &Path, content_repo_id: &str) -> Self {
         let repo_root = store_root
             .join("v1")
-            .join("products")
-            .join(product_id)
             .join("repos")
             .join(content_repo_id);
         Self::from_repo_root(&repo_root)
@@ -85,7 +82,6 @@ impl ContentRepoPaths {
 
 pub fn ensure_content_repo_layout(
     paths: &ContentRepoPaths,
-    product_id: &str,
     content_repo_id: &str,
 ) -> Result<manifest::ContentRepoManifest> {
     std::fs::create_dir_all(&paths.targets_root)?;
@@ -95,14 +91,6 @@ pub fn ensure_content_repo_layout(
         let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
         let repo_manifest: manifest::ContentRepoManifest =
             serde_json::from_str(&repo_manifest_json)?;
-        if repo_manifest.product_id != product_id {
-            return Err(Error::manifest(format!(
-                "content repo at {} belongs to product '{}' not '{}'",
-                paths.repo_root.display(),
-                repo_manifest.product_id,
-                product_id
-            )));
-        }
         if repo_manifest.content_repo_id != content_repo_id {
             return Err(Error::manifest(format!(
                 "content repo at {} has repo id '{}' not '{}'",
@@ -114,7 +102,7 @@ pub fn ensure_content_repo_layout(
         repo_manifest
     } else {
         let repo_manifest =
-            manifest::ContentRepoManifest::new(product_id.to_string(), content_repo_id.to_string());
+            manifest::ContentRepoManifest::new(content_repo_id.to_string());
         let repo_manifest_json = serde_json::to_string_pretty(&repo_manifest)?;
         std::fs::write(&paths.repo_manifest_path, repo_manifest_json)?;
         repo_manifest
@@ -225,7 +213,6 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         exists: true,
         is_repo: true,
         repo_path: repo_path_display,
-        product_id: repo_manifest.product_id,
         content_repo_id: repo_manifest.content_repo_id,
         target_schema: repo_manifest.target_schema,
         targets,
@@ -282,7 +269,6 @@ fn empty_repo_inspect_status(
         exists,
         is_repo: false,
         repo_path,
-        product_id: String::new(),
         content_repo_id: String::new(),
         target_schema: None,
         targets: Vec::new(),
@@ -458,7 +444,7 @@ mod tests {
     #[test]
     fn content_repo_paths_from_store_root() {
         let root = PathBuf::from("/test/store");
-        let paths = ContentRepoPaths::from_store_root(&root, "p1", "my-repo");
+        let paths = ContentRepoPaths::from_store_root(&root, "my-repo");
         assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
         assert!(
             paths
@@ -479,11 +465,10 @@ mod tests {
         let repo_paths = ContentRepoPaths::from_repo_root(&repo_root);
         let _ = std::fs::remove_dir_all(&root);
 
-        ensure_content_repo_layout(&repo_paths, "product-1", "base").unwrap();
+        ensure_content_repo_layout(&repo_paths, "base").unwrap();
         let target_root = repo_paths.targets_root.join("1");
         std::fs::create_dir_all(&target_root).unwrap();
         let mut manifest = manifest::TargetManifest::new(
-            "product-1".to_string(),
             "base".to_string(),
             "1".to_string(),
             exclusive_tags("1.0.0", "windows", "x86_64", "base"),
@@ -510,7 +495,6 @@ mod tests {
 
         assert!(status.exists);
         assert!(status.is_repo);
-        assert_eq!(status.product_id, "product-1");
         assert_eq!(status.content_repo_id, "base");
         assert_eq!(status.bundle_count, 1);
         assert_eq!(status.targets.len(), 1);
@@ -532,7 +516,7 @@ mod tests {
         let repo_paths = ContentRepoPaths::from_repo_root(&repo_root);
         let _ = std::fs::remove_dir_all(&root);
 
-        ensure_content_repo_layout(&repo_paths, "", "mods").unwrap();
+        ensure_content_repo_layout(&repo_paths, "mods").unwrap();
 
         let repo_manifest = manifest::ContentRepoManifest {
             target_schema: Some(manifest::TargetTagSchema {
@@ -577,7 +561,7 @@ mod tests {
                 on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
             }),
             plugin: None,
-            ..manifest::ContentRepoManifest::new("".to_string(), "mods".to_string())
+            ..manifest::ContentRepoManifest::new("mods".to_string())
         };
         std::fs::write(
             &repo_paths.repo_manifest_path,
@@ -660,12 +644,11 @@ mod tests {
         let root = std::env::temp_dir().join("gutch_inspect_tags_test");
         let _ = std::fs::remove_dir_all(&root);
         let paths = ContentRepoPaths::from_repo_root(&root);
-        ensure_content_repo_layout(&paths, "product-tags", "base").unwrap();
+        ensure_content_repo_layout(&paths, "base").unwrap();
 
         let target_root = paths.targets_root.join("2");
         std::fs::create_dir_all(&target_root).unwrap();
         let mut manifest = manifest::TargetManifest::new(
-            "product-tags".to_string(),
             "base".to_string(),
             "2".to_string(),
             exclusive_tags("2.0.0", "linux", "x86_64", "premium"),

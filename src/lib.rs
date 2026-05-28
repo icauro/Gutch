@@ -100,7 +100,7 @@ mod tests {
         std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let result = build_from_directory(&dir, "test-product", "base", "1", &tags).unwrap();
+        let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
 
         assert!(!result.target_manifest.files.is_empty());
 
@@ -141,9 +141,9 @@ mod tests {
         std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let v1 = build_from_directory(&v1_dir, "test-product", "base", "1", &tags).unwrap();
+        let v1 = build_from_directory(&v1_dir, "base", "1", &tags).unwrap();
         let tags_v2 = exclusive_tags("2.0.0", "windows", "x86_64", "base");
-        let v2 = build_from_directory(&v2_dir, "test-product", "base", "2", &tags_v2).unwrap();
+        let v2 = build_from_directory(&v2_dir, "base", "2", &tags_v2).unwrap();
 
         let v1_bundle_data: Vec<Vec<u8>> = v1
             .bundles
@@ -226,7 +226,6 @@ mod tests {
         ];
 
         let (result, _) = build_repo_init_batch_with_timings(
-            "test-product",
             "base",
             &inputs,
             &manifest::ChunkSizingProfile::default(),
@@ -244,14 +243,12 @@ mod tests {
 
     #[test]
     fn test_content_repo_paths_from_store_root() {
-        let paths = ContentRepoPaths::from_store_root(Path::new("D:\\store"), "prod-1", "base");
+        let paths = ContentRepoPaths::from_store_root(Path::new("D:\\store"), "base");
 
         assert_eq!(
             paths.repo_root,
             PathBuf::from("D:\\store")
                 .join("v1")
-                .join("products")
-                .join("prod-1")
                 .join("repos")
                 .join("base")
         );
@@ -269,9 +266,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&repo_root);
         let paths = ContentRepoPaths::from_repo_root(&repo_root);
 
-        let repo_manifest = ensure_content_repo_layout(&paths, "prod-1", "base").unwrap();
+        let repo_manifest = ensure_content_repo_layout(&paths, "base").unwrap();
 
-        assert_eq!(repo_manifest.product_id, "prod-1");
+        assert_eq!(repo_manifest.content_repo_id, "base");
         assert!(paths.repo_manifest_path.exists());
         assert!(paths.targets_root.exists());
         assert!(paths.bundles_root.exists());
@@ -296,7 +293,7 @@ mod tests {
         };
 
         let tags = exclusive_tags("v", "win", "x64", "base");
-        let mut vm = TargetManifest::new("p".into(), "base".into(), "1".into(), tags);
+        let mut vm = TargetManifest::new("base".into(), "1".into(), tags);
         vm.files.push(fm);
         let errors = verify_directory(&vm, &dir).unwrap();
         assert!(!errors.is_empty());
@@ -315,7 +312,7 @@ mod tests {
         std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let result = build_from_directory(&dir, "test-product", "base", "1", &tags).unwrap();
+        let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
 
         let mut manifest = result.target_manifest.clone();
         manifest.files.retain(|file| file.path == "expected.txt");
@@ -341,7 +338,7 @@ mod tests {
         std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let result = build_from_directory(&dir, "test-product", "base", "1", &tags).unwrap();
+        let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
 
         std::fs::remove_file(dir.join("healthy.txt")).unwrap();
         std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
@@ -427,7 +424,7 @@ mod tests {
 
         let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let t1 = Instant::now();
-        let result = build_from_directory(&root, "mock-game", "base", "1", &tags).unwrap();
+        let result = build_from_directory(&root, "base", "1", &tags).unwrap();
         let build_ms = t1.elapsed().as_millis();
 
         let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();

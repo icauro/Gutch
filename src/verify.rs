@@ -265,7 +265,6 @@ mod tests {
 
     fn empty_manifest() -> TargetManifest {
         TargetManifest::new(
-            "p1".into(),
             "r1".into(),
             "t1".into(),
             TargetTagSet::default(),

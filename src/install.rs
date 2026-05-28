@@ -380,16 +380,12 @@ fn fetch_bundle_urls(
 }
 
 fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) -> Result<()> {
-    let product_id = target_manifest
-        .get("product_id")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("unknown-product");
     let content_repo_id = target_manifest
         .get("content_repo_id")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("base");
     let mut repo_manifest =
-        manifest::ContentRepoManifest::new(product_id.to_string(), content_repo_id.to_string());
+        manifest::ContentRepoManifest::new(content_repo_id.to_string());
     if let Some(created_at) = target_manifest
         .get("created_at")
         .and_then(serde_json::Value::as_str)
@@ -453,7 +449,6 @@ mod tests {
                     "/manifest" => (
                         "200 OK",
                         serde_json::to_vec(&serde_json::json!({
-                            "product_id": "product-1",
                             "content_repo_id": "base",
                             "target_id": "1.0.0-windows-x86_64-base",
                             "version_id": "1.0.0",

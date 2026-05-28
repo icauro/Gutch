@@ -183,14 +183,12 @@ fn update_bundle_compression_ratio(
 
 pub fn build_from_directory(
     dir: &Path,
-    product_id: &str,
     content_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<BuildResult> {
     let (result, _) = build_from_directory_with_timings_against_existing_bundles(
         dir,
-        product_id,
         content_repo_id,
         target_id,
         target_tags,
@@ -201,14 +199,12 @@ pub fn build_from_directory(
 
 pub fn build_from_directory_with_timings(
     dir: &Path,
-    product_id: &str,
     content_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_bundles(
         dir,
-        product_id,
         content_repo_id,
         target_id,
         target_tags,
@@ -218,7 +214,6 @@ pub fn build_from_directory_with_timings(
 
 pub fn build_from_directory_with_timings_against_existing_bundles(
     dir: &Path,
-    product_id: &str,
     content_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
@@ -226,7 +221,6 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_store(
         dir,
-        product_id,
         content_repo_id,
         target_id,
         target_tags,
@@ -237,7 +231,6 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
 
 pub fn build_from_directory_with_timings_against_existing_store(
     dir: &Path,
-    product_id: &str,
     content_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
@@ -246,7 +239,6 @@ pub fn build_from_directory_with_timings_against_existing_store(
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
         dir,
-        product_id,
         content_repo_id,
         target_id,
         target_tags,
@@ -260,7 +252,6 @@ pub fn build_from_directory_with_timings_against_existing_store(
 
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     dir: &Path,
-    product_id: &str,
     content_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
@@ -270,7 +261,6 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
         dir,
-        product_id,
         content_repo_id,
         target_id,
         target_tags,
@@ -284,7 +274,6 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
 
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
     dir: &Path,
-    product_id: &str,
     content_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
@@ -296,7 +285,6 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 ) -> Result<(BuildResult, BuildTimings)> {
     build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
         dir,
-        product_id,
         content_repo_id,
         target_id,
         target_tags,
@@ -312,7 +300,6 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 #[allow(clippy::too_many_arguments)]
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
     dir: &Path,
-    product_id: &str,
     content_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
@@ -536,16 +523,12 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     let t = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
     let mut vm = TargetManifest::new(
-        product_id.to_string(),
         content_repo_id.to_string(),
         target_id.to_string(),
         target_tags.clone(),
     );
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
-    vm.chunk_sizing_profile = chunk_profile.clone();
-    vm.compression_profile = compression_profile.clone();
-    vm.bundle_sizing_profile = bundle_profile.clone();
     vm.files = file_manifests;
     timings.target_manifest_finalize += t.elapsed();
     timings.total = total_start.elapsed();
@@ -560,7 +543,6 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 }
 
 pub fn build_repo_init_batch_with_timings(
-    product_id: &str,
     content_repo_id: &str,
     targets: &[RepoInitTargetInput],
     chunk_profile: &manifest::ChunkSizingProfile,
@@ -769,14 +751,10 @@ pub fn build_repo_init_batch_with_timings(
     for mut target in scanned_targets {
         target.files.sort_by(|a, b| a.path.cmp(&b.path));
         let mut manifest = TargetManifest::new(
-            product_id.to_string(),
             content_repo_id.to_string(),
             target.target_id,
             target.target_tags,
         );
-        manifest.chunk_sizing_profile = chunk_profile.clone();
-        manifest.compression_profile = compression_profile.clone();
-        manifest.bundle_sizing_profile = bundle_profile.clone();
         manifest.total_logical_size = target.total_logical_size;
         manifest.files = target.files;
 

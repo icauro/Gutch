@@ -285,7 +285,7 @@ mod tests {
         overrides: Vec<manifest::PluginOverride>,
         incompatible_with: Vec<manifest::PluginOverride>,
     ) -> ((String, String), manifest::ContentRepoManifest) {
-        let mut m = manifest::ContentRepoManifest::new(product_id.to_string(), repo_id.to_string());
+        let mut m = manifest::ContentRepoManifest::new(repo_id.to_string());
         m.plugin = Some(manifest::PluginInfo {
             plugin_type,
             display_name: None,

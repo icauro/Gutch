@@ -103,9 +103,6 @@ enum AuthCommands {
 #[derive(Subcommand)]
 enum RepoCommands {
     Create {
-        #[arg(short, long, default_value = "")]
-        product: String,
-
         #[arg(long = "content-repo")]
         content_repo: String,
 
@@ -129,9 +126,6 @@ enum RepoCommands {
     },
 
     Init {
-        #[arg(short, long, default_value = "")]
-        product: String,
-
         #[arg(long = "content-repo")]
         content_repo: String,
 
@@ -274,9 +268,6 @@ enum TargetCommands {
     Estimate {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
-
-        #[arg(short, long)]
-        product: String,
 
         #[arg(short, long)]
         version: String,

@@ -184,14 +184,12 @@ mod tests {
     #[test]
     fn collect_repo_init_target_added_bytes_counts_only_new_bundles_once() {
         let mut target_a = g::manifest::TargetManifest::new(
-            "prod".into(),
             "base".into(),
             "1.0.0-windows-x86_64-base".into(),
             g::manifest::TargetTagSet::default(),
         );
         target_a.total_logical_size = 1000;
         let mut target_b = g::manifest::TargetManifest::new(
-            "prod".into(),
             "base".into(),
             "1.1.0-windows-x86_64-base".into(),
             g::manifest::TargetTagSet::default(),
@@ -857,7 +855,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         Commands::Repo {
             command:
                 RepoCommands::Create {
-                    product,
                     content_repo,
                     schema,
                     repo,
@@ -865,14 +862,13 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         } => {
             let repo_paths = g::ContentRepoPaths::from_repo_root(&repo);
             let mut repo_manifest =
-                g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
+                g::ensure_content_repo_layout(&repo_paths, &content_repo)?;
             repo_manifest.target_schema = load_optional_rules(&schema)?;
             g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
 
             println!(
-                "created content repo {} for product {} at {}",
+                "created content repo {} at {}",
                 content_repo,
-                product,
                 repo_paths.repo_root.display()
             );
         }
@@ -908,7 +904,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         Commands::Repo {
             command:
                 RepoCommands::Init {
-                    product,
                     content_repo,
                     spec,
                     init_mode,
@@ -940,7 +935,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             }
 
             let mut repo_manifest =
-                g::ensure_content_repo_layout(&repo_paths, &product, &content_repo)?;
+                g::ensure_content_repo_layout(&repo_paths, &content_repo)?;
             repo_manifest.target_schema = Some(rules.clone());
 
             let mut target_inputs: Vec<g::RepoInitTargetInput> = spec
@@ -994,7 +989,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             match init_mode {
                 RepoInitMode::Batch => {
                     let (mut result, timings) = g::build_repo_init_batch_with_timings(
-                        &product,
                         &content_repo,
                         &target_inputs,
                         &chunk_sizing_profile,
@@ -1058,7 +1052,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                         let (result, timings) =
                             g::build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
                                 &target.dir,
-                                &product,
                                 &content_repo,
                                 &target.target_id,
                                 &target.target_tags,
@@ -1133,6 +1126,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     print_build_timings(&combined_timings);
                 }
             }
+
+            repo_manifest.chunk_sizing_profile = chunk_sizing_profile;
+            repo_manifest.bundle_sizing_profile = bundle_sizing_profile;
+            repo_manifest.compression_profile = compression_profile;
+            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
         }
 
         Commands::Repo {
@@ -1146,8 +1144,8 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             if status.is_repo {
                 println!(
-                    "inspected content repo {} for product {} at {}",
-                    status.content_repo_id, status.product_id, status.repo_path
+                    "inspected content repo {} at {}",
+                    status.content_repo_id, status.repo_path
                 );
                 println!(
                     "targets: {}, bundles: {} ({} bytes)",
@@ -1366,7 +1364,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             let resolved_identity =
                 resolve_target_identity(&dir, &explicit_tags, &rules, &context)?;
             let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
-            let product = repo_manifest.product_id.clone();
             let content_repo = repo_manifest.content_repo_id.clone();
             let target_id = g::reserve_next_target_id(&repo_paths, &mut repo_manifest)?;
 
@@ -1438,7 +1435,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
 
             let (result, timings) = g::build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
                 &prepared_input.dir,
-                &product,
                 &content_repo,
                 &target_id,
                 &resolved_identity.target_tags,
@@ -1526,7 +1522,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 input_path: dir.display().to_string(),
                 target_id: result.target_manifest.target_id.clone(),
                 manifest_path: manifest_path.display().to_string(),
-                product_id: product,
+                product_id: content_repo.clone(),
                 content_repo_id: content_repo,
                 version_id: resolved_identity
                     .target_tags
@@ -1573,8 +1569,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 format!("target_id: {}", stats.target_id),
                 format!("manifest_path: {}", stats.manifest_path),
                 format!(
-                    "identity: product={}, content_repo={}, version={}, platform={}, architecture={}, tier={}",
-                    stats.product_id,
+                    "identity: content_repo={}, version={}, platform={}, architecture={}, tier={}",
                     stats.content_repo_id,
                     stats.version_id,
                     stats.platform,
@@ -1606,6 +1601,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             ];
             write_optional_summary(&summary_out, &summary_lines)?;
             write_stats_json_output(&stats_json_out, &stats)?;
+
+            repo_manifest.chunk_sizing_profile = chunk_sizing_profile;
+            repo_manifest.bundle_sizing_profile = bundle_sizing_profile;
+            repo_manifest.compression_profile = compression_profile;
+            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
         }
 
         Commands::Target {
@@ -2008,7 +2008,6 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
             command:
                 TargetCommands::Estimate {
                     dir,
-                    product,
                     version,
                 },
         } => {
@@ -2019,7 +2018,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 build_tags.upsert_exclusive("os", "windows");
                 build_tags.upsert_exclusive("arch", "x86_64");
                 build_tags.upsert_exclusive("tier", "base");
-                g::build_from_directory(&prepared_input.dir, &product, "base", "1", &build_tags)?
+                g::build_from_directory(&prepared_input.dir, "base", "1", &build_tags)?
             };
 
             let est = g::estimate_build(

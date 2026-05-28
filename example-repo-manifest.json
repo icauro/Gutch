@@ -1,0 +1,42 @@
+{
+  "format": "gutch-content-repo-v1",
+  "format_version": 1,
+  "content_repo_id": "main",
+  "created_at": "2026-05-28T12:00:00Z",
+  "targets_dir": "targets",
+  "bundles_dir": "bundles",
+  "next_target_id": 3,
+  "target_schema": {
+    "target_tags": [
+      { "name": "version", "kind": "exclusive", "required": true },
+      { "name": "os",     "kind": "exclusive" },
+      { "name": "arch",   "kind": "exclusive" },
+      { "name": "tier",   "kind": "exclusive" },
+      { "name": "loader", "kind": "scoped" }
+    ],
+    "target_id_order": ["version", "os", "arch", "tier"],
+    "on_incomplete": "warn"
+  },
+  "chunk_sizing_profile": {
+    "preset": "Balanced",
+    "chunker": "fastcdc-v2020",
+    "min_chunk_bytes": 4096,
+    "avg_chunk_bytes": 16384,
+    "max_chunk_bytes": 65536,
+    "gear_table_id": 3,
+    "chunk_hash_algorithm": "blake3",
+    "format_version": 1
+  },
+  "compression_profile": {
+    "compression": "zstd",
+    "compression_unit": "chunk",
+    "zstd_level": 3
+  },
+  "bundle_sizing_profile": {
+    "preset": "Balanced",
+    "bundle_max_mib": 32,
+    "bundle_preferred_mib": 16
+  },
+  "bundle_format_version": "gutch-bundle-v1",
+  "plugin": null
+}
