@@ -11,6 +11,7 @@ use crate::cli_backend::{
 use crate::cli_common::{
     collect_input_sizing_stats, directory_has_any_entries, load_optional_rules,
     load_target_manifest_from_repo, median_u64, parse_version_parts, session_id_for_cli,
+    write_bundles, write_target_manifest,
 };
 use crate::cli_reporting::{
     accumulate_build_timings, ensure_parent_directory, print_build_timings,
@@ -437,33 +438,14 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                         &compression_profile,
                     )?;
                     let mut target_manifest_sizes = HashMap::new();
-                    let mut bundle_sizes = HashMap::new();
 
                     for manifest in &mut result.target_manifests {
                         let target_root = repo_paths.targets_root.join(&manifest.target_id);
-                        std::fs::create_dir_all(&target_root)?;
-                        let manifest_path = target_root.join("manifest.json");
-                        let manifest_json = serde_json::to_string_pretty(&*manifest)?;
-                        std::fs::write(&manifest_path, &manifest_json)?;
-                        target_manifest_sizes.insert(
-                            manifest.target_id.clone(),
-                            std::fs::metadata(&manifest_path)?.len(),
-                        );
-                        println!("wrote target manifest: {}", manifest_path.display());
+                        let (_, manifest_size) = write_target_manifest(&target_root, &*manifest)?;
+                        target_manifest_sizes.insert(manifest.target_id.clone(), manifest_size);
                     }
 
-                    for bundle in &result.bundles {
-                        let bundle_path = repo_paths
-                            .bundles_root
-                            .join(format!("{}.bundle", bundle.bundle_id));
-                        std::fs::write(&bundle_path, &bundle.data)?;
-                        bundle_sizes.insert(bundle.bundle_id.clone(), bundle.data.len() as u64);
-                        println!(
-                            "wrote bundle: {} ({} bytes)",
-                            bundle_path.display(),
-                            bundle.data.len()
-                        );
-                    }
+                    let bundle_sizes = write_bundles(&repo_paths.bundles_root, &result.bundles)?;
 
                     println!(
                         "initialized content repo {} with {} targets using batch mode",
@@ -505,15 +487,10 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
 
                         let target_manifest = result.target_manifest.clone();
                         let target_root = repo_paths.targets_root.join(&target_manifest.target_id);
-                        std::fs::create_dir_all(&target_root)?;
-                        let manifest_path = target_root.join("manifest.json");
-                        let manifest_json = serde_json::to_string_pretty(&target_manifest)?;
-                        std::fs::write(&manifest_path, &manifest_json)?;
-                        target_manifest_sizes.insert(
-                            target_manifest.target_id.clone(),
-                            std::fs::metadata(&manifest_path)?.len(),
-                        );
-                        println!("wrote target manifest: {}", manifest_path.display());
+                        let (_, manifest_size) =
+                            write_target_manifest(&target_root, &target_manifest)?;
+                        target_manifest_sizes
+                            .insert(target_manifest.target_id.clone(), manifest_size);
                         ordered_target_manifests.push(target_manifest.clone());
 
                         for file in &target_manifest.files {
@@ -522,17 +499,12 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                                 .or_insert_with(|| file.clone());
                         }
 
+                        let written_bundle_sizes =
+                            write_bundles(&repo_paths.bundles_root, &result.bundles)?;
                         for bundle in &result.bundles {
-                            let bundle_path = repo_paths
-                                .bundles_root
-                                .join(format!("{}.bundle", bundle.bundle_id));
-                            std::fs::write(&bundle_path, &bundle.data)?;
-                            bundle_sizes.insert(bundle.bundle_id.clone(), bundle.data.len() as u64);
-                            println!(
-                                "wrote bundle: {} ({} bytes)",
-                                bundle_path.display(),
-                                bundle.data.len()
-                            );
+                            if let Some(bundle_size) = written_bundle_sizes.get(&bundle.bundle_id) {
+                                bundle_sizes.insert(bundle.bundle_id.clone(), *bundle_size);
+                            }
                             existing_bundle_ids.insert(bundle.bundle_id.clone());
 
                             let reader = g::bundle::read_bundle(&bundle.data)?;

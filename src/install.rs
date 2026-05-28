@@ -198,15 +198,9 @@ pub fn fetch_target_install_content(
         if let Some(index) = chunk_index {
             let target: TargetManifest = serde_json::from_slice(&manifest_bytes)
                 .map_err(|err| Error::manifest(format!("invalid target manifest: {}", err)))?;
-            let mut bundle_set = HashSet::new();
-            for file in &target.files {
-                for chunk in &file.chunks {
-                    if let Some(bundle_id) = index.entries.get(&chunk.chunk_hash) {
-                        bundle_set.insert(bundle_id.clone());
-                    }
-                }
-            }
-            bundle_set.into_iter().collect()
+            crate::repo::required_bundle_ids(&target, &index)
+                .into_iter()
+                .collect()
         } else {
             Vec::new()
         }
@@ -249,22 +243,12 @@ pub fn fetch_target_install_content(
     })
 }
 
-fn collect_chunk_hashes(manifest: &TargetManifest) -> HashSet<String> {
-    let mut hashes = HashSet::new();
-    for file in &manifest.files {
-        for chunk in &file.chunks {
-            hashes.insert(chunk.chunk_hash.clone());
-        }
-    }
-    hashes
-}
-
 fn count_reusable_source_chunks(
     target_manifest: &TargetManifest,
     source_manifest: &TargetManifest,
 ) -> usize {
-    let target_chunks = collect_chunk_hashes(target_manifest);
-    let source_chunks = collect_chunk_hashes(source_manifest);
+    let target_chunks = crate::repo::required_chunk_hashes(target_manifest);
+    let source_chunks = crate::repo::required_chunk_hashes(source_manifest);
     source_chunks
         .iter()
         .filter(|chunk_hash| target_chunks.contains(chunk_hash.as_str()))
@@ -276,9 +260,9 @@ fn count_required_bundle_paths(
     bundle_paths: &[PathBuf],
     source_manifest: Option<&TargetManifest>,
 ) -> Result<usize> {
-    let mut needed_chunks = collect_chunk_hashes(target_manifest);
+    let mut needed_chunks = crate::repo::required_chunk_hashes(target_manifest);
     if let Some(source_manifest) = source_manifest {
-        for chunk_hash in collect_chunk_hashes(source_manifest) {
+        for chunk_hash in crate::repo::required_chunk_hashes(source_manifest) {
             needed_chunks.remove(&chunk_hash);
         }
     }

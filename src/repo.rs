@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
-use crate::manifest::{self, content_repo::ContentRepoManifest, target::TargetManifest};
+use crate::manifest::{
+    self, FileManifest, content_repo::ContentRepoManifest, target::TargetManifest,
+};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +60,13 @@ pub struct SourceTargetInstallCandidate {
     pub architecture: String,
     pub tier_id: String,
     pub target_tags: manifest::TargetTagSet,
+}
+
+#[derive(Debug, Default)]
+pub struct ExistingStoreState {
+    pub bundle_ids: HashSet<String>,
+    pub chunk_locations: std::collections::HashMap<String, crate::ExistingChunkLocation>,
+    pub previous_file_manifests: std::collections::HashMap<String, FileManifest>,
 }
 
 impl ContentRepoPaths {
@@ -159,6 +168,54 @@ pub fn required_bundle_ids(
         .into_iter()
         .filter_map(|chunk_hash| chunk_index.entries.get(&chunk_hash).cloned())
         .collect()
+}
+
+pub fn scan_existing_store_state(paths: &ContentRepoPaths) -> Result<ExistingStoreState> {
+    let mut state = ExistingStoreState::default();
+
+    for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() || !entry.path().extension().is_some_and(|ext| ext == "bundle") {
+            continue;
+        }
+
+        let Some(bundle_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let bundle_id = bundle_id.to_string();
+        state.bundle_ids.insert(bundle_id.clone());
+
+        let file = std::fs::File::open(entry.path())?;
+        let reader = crate::bundle::BundleReader::open(file)?;
+        for chunk in reader.entries() {
+            state
+                .chunk_locations
+                .entry(chunk.chunk_hash.clone())
+                .or_insert_with(|| crate::ExistingChunkLocation {
+                    bundle_id: bundle_id.clone(),
+                    raw_size: chunk.raw_size,
+                    compressed_size: chunk.compressed_size,
+                });
+        }
+    }
+
+    for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() || entry.file_name() != "manifest.json" {
+            continue;
+        }
+
+        let manifest_json = std::fs::read_to_string(entry.path())?;
+        let manifest: TargetManifest = serde_json::from_str(&manifest_json)?;
+        for file in manifest.files {
+            state
+                .previous_file_manifests
+                .entry(file.path.clone())
+                .or_insert(file);
+        }
+    }
+
+    Ok(state)
 }
 
 pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {

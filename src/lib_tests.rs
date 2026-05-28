@@ -15,9 +15,8 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> TargetTagS
 
 #[test]
 fn test_build_and_reconstruct_roundtrip() {
-    let dir = std::env::temp_dir().join("gutch_test_roundtrip");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_util::temp_path("gutch_test_roundtrip");
+    test_util::recreate_dir(&dir);
 
     let sub = dir.join("subdir");
     std::fs::create_dir_all(&sub).unwrap();
@@ -39,7 +38,7 @@ fn test_build_and_reconstruct_roundtrip() {
 
     assert!(!result.target_manifest.files.is_empty());
 
-    let out_dir = std::env::temp_dir().join("gutch_test_output");
+    let out_dir = test_util::temp_path("gutch_test_output");
     let _ = std::fs::remove_dir_all(&out_dir);
 
     let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
@@ -59,7 +58,7 @@ fn test_build_and_reconstruct_roundtrip() {
 
 #[test]
 fn test_apply_target_install_reuses_verified_source_install() {
-    let root = std::env::temp_dir().join("gutch_test_apply_target_install");
+    let root = test_util::temp_path("gutch_test_apply_target_install");
     let v1_dir = root.join("v1");
     let v2_dir = root.join("v2");
     let bundles_dir = root.join("bundles");
@@ -134,7 +133,7 @@ fn test_apply_target_install_reuses_verified_source_install() {
 
 #[test]
 fn test_repo_init_batch_builds_multiple_targets() {
-    let root = std::env::temp_dir().join("gutch_test_repo_init_batch");
+    let root = test_util::temp_path("gutch_test_repo_init_batch");
     let dir_a = root.join("a");
     let dir_b = root.join("b");
     let _ = std::fs::remove_dir_all(&root);
@@ -196,7 +195,7 @@ fn test_content_repo_paths_from_store_root() {
 
 #[test]
 fn test_ensure_content_repo_layout_writes_repo_manifest() {
-    let repo_root = std::env::temp_dir().join("gutch_test_content_repo_layout");
+    let repo_root = test_util::temp_path("gutch_test_content_repo_layout");
     let _ = std::fs::remove_dir_all(&repo_root);
     let paths = ContentRepoPaths::from_repo_root(&repo_root);
 
@@ -212,9 +211,8 @@ fn test_ensure_content_repo_layout_writes_repo_manifest() {
 
 #[test]
 fn test_verify_directory_missing_file() {
-    let dir = std::env::temp_dir().join("gutch_test_verify");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_util::temp_path("gutch_test_verify");
+    test_util::recreate_dir(&dir);
 
     let fm = FileManifest {
         path: "nonexistent.txt".to_string(),
@@ -236,9 +234,8 @@ fn test_verify_directory_missing_file() {
 
 #[test]
 fn test_verify_directory_reports_extra_file() {
-    let dir = std::env::temp_dir().join("gutch_test_verify_extra");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_util::temp_path("gutch_test_verify_extra");
+    test_util::recreate_dir(&dir);
 
     std::fs::write(dir.join("expected.txt"), b"hello world").unwrap();
     std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
@@ -262,9 +259,8 @@ fn test_verify_directory_reports_extra_file() {
 
 #[test]
 fn test_classify_directory_separates_missing_corrupt_and_extra() {
-    let dir = std::env::temp_dir().join("gutch_test_classify_directory");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_util::temp_path("gutch_test_classify_directory");
+    test_util::recreate_dir(&dir);
 
     std::fs::write(dir.join("healthy.txt"), b"healthy file").unwrap();
     std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
@@ -295,12 +291,10 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
 
 #[test]
 fn test_large_game_build_200mb() {
-    let root = std::env::temp_dir().join("gutch_test_200mb");
-    let artifacts_dir = std::env::temp_dir().join("gutch_test_200mb_artifacts");
-    let _ = std::fs::remove_dir_all(&root);
-    let _ = std::fs::remove_dir_all(&artifacts_dir);
-    std::fs::create_dir_all(&root).unwrap();
-    std::fs::create_dir_all(&artifacts_dir).unwrap();
+    let root = test_util::temp_path("gutch_test_200mb");
+    let artifacts_dir = test_util::temp_path("gutch_test_200mb_artifacts");
+    test_util::recreate_dir(&root);
+    test_util::recreate_dir(&artifacts_dir);
 
     for sub in &["audio", "textures", "data"] {
         std::fs::create_dir_all(root.join(sub)).unwrap();
@@ -378,7 +372,7 @@ fn test_large_game_build_200mb() {
     let artifacts_total = test_util::dir_size(&artifacts_dir);
 
     let t2 = Instant::now();
-    let out_dir = std::env::temp_dir().join("gutch_test_200mb_reconstructed");
+    let out_dir = test_util::temp_path("gutch_test_200mb_reconstructed");
     let _ = std::fs::remove_dir_all(&out_dir);
     let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
     reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir).unwrap();

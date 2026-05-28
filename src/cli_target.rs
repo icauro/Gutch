@@ -1,17 +1,16 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::TargetCommands;
 use crate::cli_common::{
     TargetExportStats, TargetInsertStats, collect_input_sizing_stats,
     count_required_bundles_for_build, count_required_bundles_from_chunk_index,
-    count_required_chunks, load_target_manifest_from_repo, prepare_input_path, write_report,
+    count_required_chunks, load_target_manifest_from_repo, prepare_input_path, write_bundles,
+    write_report, write_target_manifest,
 };
 use crate::cli_reporting::{
     build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
     ratio_pct, reconstruct_timings_summary,
 };
 use g::cli_identity::{apply_resolved_target_identity, parse_cli_tags, resolve_target_identity};
-use g::repo::required_chunk_hashes;
+use g::repo::{required_chunk_hashes, scan_existing_store_state};
 use gutch as g;
 
 pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
@@ -58,52 +57,12 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
 
             std::fs::create_dir_all(&target_root)?;
 
-            let mut existing_bundle_ids = HashSet::new();
-            let mut existing_chunk_locations = HashMap::new();
-            let mut previous_file_manifests = HashMap::new();
-            for entry in walkdir::WalkDir::new(&bundles_root).sort_by_file_name() {
-                let entry = entry?;
-                if !entry.path().is_file() {
-                    continue;
-                }
-                if entry.path().extension().is_some_and(|e| e == "bundle") {
-                    if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
-                        let bundle_id = stem.to_string();
-                        existing_bundle_ids.insert(bundle_id.clone());
-
-                        let file = std::fs::File::open(entry.path())?;
-                        let reader = g::bundle::BundleReader::open(file)?;
-                        for chunk in reader.entries() {
-                            existing_chunk_locations
-                                .entry(chunk.chunk_hash.clone())
-                                .or_insert_with(|| g::ExistingChunkLocation {
-                                    bundle_id: bundle_id.clone(),
-                                    raw_size: chunk.raw_size,
-                                    compressed_size: chunk.compressed_size,
-                                });
-                        }
-                    }
-                }
-            }
-            let existing_chunk_ids: HashSet<String> =
-                existing_chunk_locations.keys().cloned().collect();
-            if repo_paths.targets_root.exists() {
-                for entry in walkdir::WalkDir::new(&repo_paths.targets_root).sort_by_file_name() {
-                    let entry = entry?;
-                    if !entry.path().is_file() || entry.file_name() != "manifest.json" {
-                        continue;
-                    }
-
-                    let manifest_json = std::fs::read_to_string(entry.path())?;
-                    let manifest: g::manifest::target::TargetManifest =
-                        serde_json::from_str(&manifest_json)?;
-                    for file in manifest.files {
-                        previous_file_manifests
-                            .entry(file.path.clone())
-                            .or_insert(file);
-                    }
-                }
-            }
+            let existing_store_state = scan_existing_store_state(&repo_paths)?;
+            let existing_chunk_ids = existing_store_state
+                .chunk_locations
+                .keys()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>();
 
             let chunk_sizing_profile = g::manifest::ChunkSizingProfile::for_selection(
                 chunk_profile,
@@ -124,9 +83,9 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 &content_repo,
                 &target_id,
                 &resolved_identity.target_tags,
-                &existing_chunk_locations,
-                &existing_bundle_ids,
-                &previous_file_manifests,
+                &existing_store_state.chunk_locations,
+                &existing_store_state.bundle_ids,
+                &existing_store_state.previous_file_manifests,
                 &chunk_sizing_profile,
                 &bundle_sizing_profile,
                 &compression_profile,
@@ -134,20 +93,8 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             let mut result = result;
             apply_resolved_target_identity(&mut result.target_manifest, &resolved_identity);
 
-            let manifest_path = target_root.join("manifest.json");
-            let manifest_json = serde_json::to_string_pretty(&result.target_manifest)?;
-            std::fs::write(&manifest_path, &manifest_json)?;
-            println!("wrote target manifest: {}", manifest_path.display());
-
-            for bundle in &result.bundles {
-                let bundle_path = bundles_root.join(format!("{}.bundle", bundle.bundle_id));
-                std::fs::write(&bundle_path, &bundle.data)?;
-                println!(
-                    "wrote bundle: {} ({} bytes)",
-                    bundle_path.display(),
-                    bundle.data.len()
-                );
-            }
+            let (manifest_path, _) = write_target_manifest(&target_root, &result.target_manifest)?;
+            write_bundles(&bundles_root, &result.bundles)?;
 
             println!(
                 "done. {} files in manifest, total logical: {} bytes",
@@ -168,7 +115,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             let required_chunk_count = count_required_chunks(&result.target_manifest);
             let required_bundle_count = count_required_bundles_for_build(
                 &result.target_manifest,
-                &existing_chunk_locations,
+                &existing_store_state.chunk_locations,
                 &result.bundles,
             );
             let generated_bundle_count = result.bundles.len();

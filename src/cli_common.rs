@@ -536,3 +536,35 @@ pub(crate) fn parse_version_parts(version: &str) -> g::Result<(i32, i32, i32)> {
         .map_err(|_| g::Error::manifest(format!("invalid version '{}'", version)))?;
     Ok((major, minor, patch))
 }
+
+pub(crate) fn write_target_manifest(
+    target_root: &std::path::Path,
+    target_manifest: &g::manifest::target::TargetManifest,
+) -> g::Result<(PathBuf, u64)> {
+    std::fs::create_dir_all(target_root)?;
+    let manifest_path = target_root.join("manifest.json");
+    let manifest_json = serde_json::to_string_pretty(target_manifest)?;
+    std::fs::write(&manifest_path, &manifest_json)?;
+    println!("wrote target manifest: {}", manifest_path.display());
+    let manifest_size = std::fs::metadata(&manifest_path)?.len();
+    Ok((manifest_path, manifest_size))
+}
+
+pub(crate) fn write_bundles(
+    bundles_root: &std::path::Path,
+    bundles: &[g::BuiltBundle],
+) -> g::Result<std::collections::HashMap<String, u64>> {
+    let mut bundle_sizes = std::collections::HashMap::with_capacity(bundles.len());
+    for bundle in bundles {
+        let bundle_path = bundles_root.join(format!("{}.bundle", bundle.bundle_id));
+        std::fs::write(&bundle_path, &bundle.data)?;
+        let bundle_size = bundle.data.len() as u64;
+        bundle_sizes.insert(bundle.bundle_id.clone(), bundle_size);
+        println!(
+            "wrote bundle: {} ({} bytes)",
+            bundle_path.display(),
+            bundle.data.len()
+        );
+    }
+    Ok(bundle_sizes)
+}

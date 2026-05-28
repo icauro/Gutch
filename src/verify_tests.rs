@@ -1,5 +1,6 @@
 use super::*;
 use crate::manifest::{TargetTagSet, target::TargetManifest};
+use crate::test_util;
 
 fn empty_manifest() -> TargetManifest {
     TargetManifest::new("r1".into(), "t1".into(), TargetTagSet::default())
@@ -75,9 +76,8 @@ fn estimate_build_available_disk_space_passed_through() {
 
 #[test]
 fn verify_contiguous_chunks_detects_corruption() {
-    let dir = std::env::temp_dir().join("gutch_verify_contiguous_test");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_util::temp_path("gutch_verify_contiguous_test");
+    test_util::recreate_dir(&dir);
 
     let chunk_a_data = b"AAAAA";
     let chunk_b_data = b"BBBBB";
@@ -121,9 +121,8 @@ fn verify_contiguous_chunks_detects_corruption() {
 
 #[test]
 fn verify_contiguous_chunks_single_chunk() {
-    let dir = std::env::temp_dir().join("gutch_verify_single_chunk");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_util::temp_path("gutch_verify_single_chunk");
+    test_util::recreate_dir(&dir);
 
     let data = b"single chunk content here";
     let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(data));
@@ -157,9 +156,8 @@ fn estimate_build_empty_files_no_chunks() {
 
 #[test]
 fn verify_rejects_manifest_path_traversal() {
-    let dir = std::env::temp_dir().join("gutch_verify_path_traversal");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_util::temp_path("gutch_verify_path_traversal");
+    test_util::recreate_dir(&dir);
 
     let mut manifest = empty_manifest();
     manifest.files.push(crate::manifest::FileManifest {

@@ -131,3 +131,12 @@ pub fn dir_size(dir: &std::path::Path) -> u64 {
         .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
         .sum()
 }
+
+pub fn temp_path(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(name)
+}
+
+pub fn recreate_dir(path: &std::path::Path) {
+    let _ = std::fs::remove_dir_all(path);
+    std::fs::create_dir_all(path).unwrap();
+}

@@ -8,6 +8,7 @@ use crate::bundle;
 use crate::hash::hash_hex;
 use crate::manifest::target::TargetManifest;
 use crate::path_guard::resolve_manifest_relative_path;
+use crate::repo::required_chunk_hashes;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Default)]
@@ -55,11 +56,7 @@ pub fn reconstruct_from_target_manifest_with_timings(
     let mut timings = ReconstructTimings::default();
     std::fs::create_dir_all(output_dir)?;
 
-    let needed_chunks: HashSet<String> = target_manifest
-        .files
-        .iter()
-        .flat_map(|fm| fm.chunks.iter().map(|cr| cr.chunk_hash.clone()))
-        .collect();
+    let needed_chunks = required_chunk_hashes(target_manifest);
 
     let mut chunk_map: HashMap<String, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
 
@@ -126,11 +123,7 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings(
     let mut timings = ReconstructTimings::default();
     std::fs::create_dir_all(output_dir)?;
 
-    let needed_chunks: HashSet<String> = target_manifest
-        .files
-        .iter()
-        .flat_map(|fm| fm.chunks.iter().map(|cr| cr.chunk_hash.clone()))
-        .collect();
+    let needed_chunks = required_chunk_hashes(target_manifest);
 
     let local_chunks = match verified_source {
         Some(source) => read_reusable_source_chunks(source, &needed_chunks)?,
