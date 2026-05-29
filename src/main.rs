@@ -63,6 +63,9 @@ enum AuthCommands {
 
         #[arg(long = "no-open")]
         no_open: bool,
+
+        #[arg(long = "start")]
+        start: bool,
     },
 
     Logout {
@@ -74,6 +77,22 @@ enum AuthCommands {
     },
 
     Status {
+        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        endpoint: String,
+
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+    },
+
+    Profile {
+        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        endpoint: String,
+
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+    },
+
+    Refresh {
         #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
         endpoint: String,
 

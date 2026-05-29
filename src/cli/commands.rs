@@ -7,15 +7,20 @@ use gutch as g;
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
         Commands::Auth {
-            command: AuthCommands::Login { endpoint, no_open },
+            command: AuthCommands::Login { endpoint, no_open, start },
         } => {
-            let result = crate::auth::login(&endpoint, !no_open).map_err(g::Error::manifest)?;
-            if let Some(username) = result.username.as_deref() {
-                println!("authenticated as {}", username);
-            } else if let Some(email) = result.email.as_deref() {
-                println!("authenticated as {}", email);
+            if start {
+                let url = crate::auth::login_start(&endpoint).map_err(g::Error::manifest)?;
+                println!("{}", url);
             } else {
-                println!("authentication complete");
+                let result = crate::auth::login(&endpoint, !no_open).map_err(g::Error::manifest)?;
+                if let Some(username) = result.username.as_deref() {
+                    println!("authenticated as {}", username);
+                } else if let Some(email) = result.email.as_deref() {
+                    println!("authenticated as {}", email);
+                } else {
+                    println!("authentication complete");
+                }
             }
             Ok(())
         }
@@ -39,15 +44,35 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     session_id,
                 },
         } => {
-            match crate::auth::session_status(&endpoint, session_id.as_deref())
-                .map_err(g::Error::manifest)?
-            {
-                Some(status) => println!(
-                    "authenticated user {} via {} (expires {})",
-                    status.user_id, status.login_provider, status.expires_at
-                ),
-                None => println!("not authenticated"),
-            }
+            let status = crate::auth::session_status_json(&endpoint, session_id.as_deref())
+                .map_err(g::Error::manifest)?;
+            println!("{}", serde_json::to_string_pretty(&status).map_err(|e| g::Error::manifest(e.to_string()))?);
+            Ok(())
+        }
+
+        Commands::Auth {
+            command:
+                AuthCommands::Profile {
+                    endpoint,
+                    session_id,
+                },
+        } => {
+            let profile = crate::auth::profile(&endpoint, session_id.as_deref())
+                .map_err(g::Error::manifest)?;
+            println!("{}", serde_json::to_string_pretty(&profile).map_err(|e| g::Error::manifest(e.to_string()))?);
+            Ok(())
+        }
+
+        Commands::Auth {
+            command:
+                AuthCommands::Refresh {
+                    endpoint,
+                    session_id,
+                },
+        } => {
+            let refresh = crate::auth::refresh(&endpoint, session_id.as_deref())
+                .map_err(g::Error::manifest)?;
+            println!("{}", serde_json::to_string_pretty(&refresh).map_err(|e| g::Error::manifest(e.to_string()))?);
             Ok(())
         }
 
