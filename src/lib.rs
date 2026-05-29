@@ -11,6 +11,7 @@ pub mod chunk;
 #[path = "cli/identity.rs"]
 pub mod cli_identity;
 pub mod compress;
+pub mod config;
 pub mod error;
 pub mod hash;
 pub mod install;

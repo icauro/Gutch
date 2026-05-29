@@ -51,7 +51,7 @@ pub(crate) fn run() -> g::Result<()> {
                     }
                 }
                 RepoSelectionAction::SelectRepo => {
-                    let repo = path_input(&theme, "Repo path", ".")?;
+                    let repo = prompt_select_tracked_repo(&theme)?;
                     if let Err(err) = g::load_content_repo_manifest(&repo) {
                         println!(
                             "not a valid content repo at {}: {}",
@@ -105,6 +105,34 @@ fn prompt_repo_selection(theme: &ColorfulTheme) -> g::Result<RepoSelectionAction
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     Ok(actions[selection].1.clone())
+}
+
+fn prompt_select_tracked_repo(theme: &ColorfulTheme) -> g::Result<std::path::PathBuf> {
+    let config = g::config::load_config()?;
+
+    if config.repos.is_empty() {
+        return path_input(theme, "Repo path", ".");
+    }
+
+    let mut labels: Vec<String> = config
+        .repos
+        .iter()
+        .map(|repo| format!("{}  ({})", repo.path, repo.content_repo_id))
+        .collect();
+    labels.push("Enter a custom path...".to_string());
+
+    let selection = Select::with_theme(theme)
+        .with_prompt("Select a tracked repo")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+
+    if selection < config.repos.len() {
+        return Ok(std::path::PathBuf::from(&config.repos[selection].path));
+    }
+
+    path_input(theme, "Repo path", ".")
 }
 
 fn prompt_repo_work_action(

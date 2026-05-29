@@ -317,6 +317,18 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 repo_name,
                 repo_paths.repo_root.display()
             );
+
+            let mut config = g::config::load_config()?;
+            config.upsert_repo(g::config::TrackedRepo {
+                path: repo_paths.repo_root.display().to_string(),
+                content_repo_id: repo_name.to_string(),
+                product_id: None,
+                creator_user_id: None,
+                remote_repo_id: None,
+                remote_repo_slug: None,
+                source_targets_path: None,
+            });
+            g::config::save_config(&config)?;
         }
 
         RepoCommands::SchemaSet {
