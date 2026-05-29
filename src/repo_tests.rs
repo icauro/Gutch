@@ -116,7 +116,7 @@ fn inspect_content_repo_reports_targets() {
 
     assert!(status.exists);
     assert!(status.is_repo);
-    assert_eq!(status.content_repo_id, "base");
+    assert_eq!(status.content_repo_id, "repo");
     assert_eq!(status.bundle_count, 1);
     assert_eq!(status.targets.len(), 1);
     assert_eq!(status.targets[0].target_id, "1");

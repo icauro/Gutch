@@ -88,6 +88,15 @@ impl ContentRepoPaths {
     }
 }
 
+fn derive_content_repo_id_from_repo_root(repo_root: &Path) -> String {
+    repo_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("base")
+        .to_string()
+}
+
 pub fn ensure_content_repo_layout(
     paths: &ContentRepoPaths,
     content_repo_id: &str,
@@ -97,7 +106,8 @@ pub fn ensure_content_repo_layout(
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-        let repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+        let mut repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+        repo_manifest.content_repo_id = derive_content_repo_id_from_repo_root(&paths.repo_root);
         if repo_manifest.content_repo_id != content_repo_id {
             return Err(Error::manifest(format!(
                 "content repo at {} has repo id '{}' not '{}'",
@@ -129,14 +139,8 @@ pub fn load_content_repo_manifest(
     }
 
     let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-    let repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
-
-    if repo_manifest.targets_dir != "targets" || repo_manifest.bundles_dir != "bundles" {
-        return Err(Error::manifest(format!(
-            "unsupported content repo layout in {}",
-            paths.repo_manifest_path.display()
-        )));
-    }
+    let mut repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+    repo_manifest.content_repo_id = derive_content_repo_id_from_repo_root(repo_root);
 
     Ok((paths, repo_manifest))
 }

@@ -59,10 +59,13 @@ fn print_table_header() {
 
 fn print_table_row(
     phase: &str,
+    level: usize,
     seconds: Option<f64>,
     bytes: Option<String>,
     throughput: Option<String>,
 ) {
+    let indent = "  ".repeat(level);
+    let phase = format!("{indent}{phase}");
     println!(
         "  | {:<22} | {:>10} | {:<24} | {:>18} |",
         phase,
@@ -527,24 +530,28 @@ pub fn print_build_timings(t: &g::BuildTimings) {
     print_table_header();
     print_table_row(
         "read files",
+        0,
         Some(secs(t.scan_read)),
         Some(format!("{:.2} MiB", mib(t.scan_read_bytes))),
         Some(format!("{:.2} MiB/s", mib_per_s(t.scan_read_bytes, t.scan_read))),
     );
     print_table_row(
         "file hashing",
+        0,
         Some(secs(t.file_hash)),
         Some(format!("{:.2} MiB", mib(t.file_hash_bytes))),
         Some(format!("{:.2} MiB/s", mib_per_s(t.file_hash_bytes, t.file_hash))),
     );
     print_table_row(
         "chunking",
+        0,
         Some(secs(t.chunking)),
         Some(format!("{:.2} MiB", mib(t.chunking_bytes))),
         Some(format!("{:.2} MiB/s", mib_per_s(t.chunking_bytes, t.chunking))),
     );
     print_table_row(
         "chunk hash",
+        0,
         Some(secs(t.chunk_hash_judgment)),
         Some(format!("{:.2} MiB", mib(t.chunk_hash_judgment_bytes))),
         Some(format!(
@@ -552,9 +559,10 @@ pub fn print_build_timings(t: &g::BuildTimings) {
             mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment)
         )),
     );
-    print_table_row("metadata", Some(secs(t.metadata)), None, None);
+    print_table_row("metadata", 0, Some(secs(t.metadata)), None, None);
     print_table_row(
         "dedupe lookup",
+        0,
         Some(secs(t.dedupe_lookup)),
         Some(format!("{:.2} MiB", mib(t.dedupe_lookup_bytes))),
         Some(format!(
@@ -564,6 +572,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
     );
     print_table_row(
         "compression",
+        0,
         Some(secs(t.compression)),
         Some(format!(
             "{:.2} / {:.2} MiB",
@@ -578,6 +587,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
     if t.bundle_compressed_sort_bytes > 0 {
         print_table_row(
             "bundle sort",
+            1,
             Some(secs(t.bundle_compressed_sort)),
             Some(format!("{:.2} MiB", mib(t.bundle_compressed_sort_bytes))),
             Some(format!(
@@ -589,6 +599,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
     if t.bundle_compressed_ratio_probe_bytes > 0 {
         print_table_row(
             "bundle ratio probe",
+            1,
             Some(secs(t.bundle_compressed_ratio_probe)),
             Some(format!(
                 "{:.2} MiB",
@@ -603,9 +614,20 @@ pub fn print_build_timings(t: &g::BuildTimings) {
             )),
         );
     }
+    print_table_row(
+        "bundle build",
+        1,
+        Some(secs(t.bundle_build)),
+        Some(format!("out {:.2} MiB", mib(t.bundle_build_bytes))),
+        Some(format!(
+            "{:.2} MiB/s",
+            mib_per_s(t.bundle_build_bytes, t.bundle_build)
+        )),
+    );
     if t.bundle_compressed_stream_input_bytes > 0 {
         print_table_row(
             "bundle payload load",
+            2,
             Some(secs(t.bundle_compressed_payload_load)),
             Some(format!(
                 "{:.2} MiB",
@@ -621,6 +643,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         );
         print_table_row(
             "bundle payload asm",
+            2,
             Some(secs(t.bundle_compressed_payload_assembly)),
             Some(format!(
                 "{:.2} MiB",
@@ -636,6 +659,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         );
         print_table_row(
             "bundle stream zstd",
+            2,
             Some(secs(t.bundle_compressed_stream_compression)),
             Some(format!(
                 "{:.2} / {:.2} MiB",
@@ -652,6 +676,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         );
         print_table_row(
             "bundle serialize",
+            2,
             Some(secs(t.bundle_compressed_serialization)),
             Some(format!(
                 "{:.2} MiB",
@@ -667,16 +692,8 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         );
     }
     print_table_row(
-        "bundle build",
-        Some(secs(t.bundle_build)),
-        Some(format!("out {:.2} MiB", mib(t.bundle_build_bytes))),
-        Some(format!(
-            "{:.2} MiB/s",
-            mib_per_s(t.bundle_build_bytes, t.bundle_build)
-        )),
-    );
-    print_table_row(
         "manifest finalize",
+        0,
         Some(secs(t.target_manifest_finalize)),
         None,
         None,

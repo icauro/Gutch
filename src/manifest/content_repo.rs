@@ -6,10 +6,9 @@ use super::*;
 pub struct ContentRepoManifest {
     pub format: String,
     pub format_version: String,
+    #[serde(default, skip_serializing)]
     pub content_repo_id: String,
     pub created_at: String,
-    pub targets_dir: String,
-    pub bundles_dir: String,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -33,8 +32,6 @@ impl ContentRepoManifest {
             format_version: FORMAT_VERSION.to_string(),
             content_repo_id,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            targets_dir: "targets".to_string(),
-            bundles_dir: "bundles".to_string(),
             target_schema: None,
             plugin: None,
             chunk_sizing_profile: ChunkSizingProfile::default(),

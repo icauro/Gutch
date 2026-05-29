@@ -8,9 +8,9 @@ use crate::manifest::{self, FileManifest, target::TargetManifest};
 use crate::{Error, Result};
 
 const CHUNK_INDEX_BINARY_MAGIC: &[u8; 8] = b"GTCIDX1\0";
-const CHUNK_INDEX_BINARY_VERSION: u16 = 1;
+const CHUNK_INDEX_BINARY_VERSION: u16 = 2;
 const TARGET_FILES_BINARY_MAGIC: &[u8; 8] = b"GTCTGT1\0";
-const TARGET_FILES_BINARY_VERSION: u16 = 1;
+const TARGET_FILES_BINARY_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TargetManifestShell {
@@ -72,6 +72,66 @@ fn read_len_prefixed_string(reader: &mut impl Read) -> Result<String> {
     String::from_utf8(bytes).map_err(|err| Error::manifest(format!("invalid UTF-8: {}", err)))
 }
 
+fn write_len_prefixed_string_array(writer: &mut impl Write, values: &[String]) -> Result<()> {
+    for value in values {
+        write_len_prefixed_string(writer, value)?;
+    }
+    Ok(())
+}
+
+fn read_len_prefixed_string_array(reader: &mut impl Read, count: usize) -> Result<Vec<String>> {
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_len_prefixed_string(reader)?);
+    }
+    Ok(values)
+}
+
+fn write_u32_array(writer: &mut impl Write, values: &[u32]) -> Result<()> {
+    for value in values {
+        write_u32(writer, *value)?;
+    }
+    Ok(())
+}
+
+fn read_u32_array(reader: &mut impl Read, count: usize) -> Result<Vec<u32>> {
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_u32(reader)?);
+    }
+    Ok(values)
+}
+
+fn write_u64_array(writer: &mut impl Write, values: &[u64]) -> Result<()> {
+    for value in values {
+        write_u64(writer, *value)?;
+    }
+    Ok(())
+}
+
+fn read_u64_array(reader: &mut impl Read, count: usize) -> Result<Vec<u64>> {
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_u64(reader)?);
+    }
+    Ok(values)
+}
+
+fn read_bool_array(reader: &mut impl Read, count: usize) -> Result<Vec<bool>> {
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_exact_array::<1>(reader)?[0] != 0);
+    }
+    Ok(values)
+}
+
+fn write_bool_array(writer: &mut impl Write, values: &[bool]) -> Result<()> {
+    for value in values {
+        writer.write_all(&[u8::from(*value)])?;
+    }
+    Ok(())
+}
+
 pub(crate) fn target_manifest_shell_from_manifest(
     target_manifest: &TargetManifest,
 ) -> TargetManifestShell {
@@ -112,31 +172,78 @@ pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkInde
     }
 
     let version = read_u16(&mut reader)?;
-    if version != CHUNK_INDEX_BINARY_VERSION {
-        return Err(Error::manifest(format!(
+    return match version {
+        1 => load_chunk_index_binary_v1(path, reader),
+        CHUNK_INDEX_BINARY_VERSION => load_chunk_index_binary_v2(path, reader),
+        _ => Err(Error::manifest(format!(
             "unsupported chunk index binary version {} in {}",
             version,
             path.display()
-        )));
-    }
+        ))),
+    };
+}
 
+fn load_chunk_index_binary_v1(
+    path: &Path,
+    mut reader: BufReader<std::fs::File>,
+) -> Result<manifest::ChunkIndex> {
     let _reserved = read_u16(&mut reader)?;
     let bundle_count = read_u32(&mut reader)? as usize;
     let chunk_count = read_u64(&mut reader)? as usize;
     let format_version = read_len_prefixed_string(&mut reader)?;
     let updated_at = read_len_prefixed_string(&mut reader)?;
 
-    let mut bundles = Vec::with_capacity(bundle_count);
-    for _ in 0..bundle_count {
-        bundles.push(read_len_prefixed_string(&mut reader)?);
-    }
-
+    let bundles = read_len_prefixed_string_array(&mut reader, bundle_count)?;
     let mut entries = BTreeMap::new();
     for _ in 0..chunk_count {
         let chunk_hash = read_len_prefixed_string(&mut reader)?;
         let bundle_index = read_u32(&mut reader)? as usize;
         let raw_size = read_u64(&mut reader)?;
         let compressed_size = read_u64(&mut reader)?;
+        let bundle_id = bundles.get(bundle_index).cloned().ok_or_else(|| {
+            Error::manifest(format!(
+                "chunk index bundle reference out of range in {}",
+                path.display()
+            ))
+        })?;
+        entries.insert(
+            chunk_hash,
+            manifest::ChunkIndexEntry {
+                bundle_id,
+                raw_size,
+                compressed_size,
+            },
+        );
+    }
+
+    Ok(manifest::ChunkIndex {
+        format_version,
+        updated_at,
+        entries,
+    })
+}
+
+fn load_chunk_index_binary_v2(
+    path: &Path,
+    mut reader: BufReader<std::fs::File>,
+) -> Result<manifest::ChunkIndex> {
+    let _reserved = read_u16(&mut reader)?;
+    let bundle_count = read_u32(&mut reader)? as usize;
+    let chunk_count = read_u64(&mut reader)? as usize;
+    let format_version = read_len_prefixed_string(&mut reader)?;
+    let updated_at = read_len_prefixed_string(&mut reader)?;
+
+    let bundles = read_len_prefixed_string_array(&mut reader, bundle_count)?;
+    let chunk_hashes = read_len_prefixed_string_array(&mut reader, chunk_count)?;
+    let bundle_indexes = read_u32_array(&mut reader, chunk_count)?;
+    let raw_sizes = read_u64_array(&mut reader, chunk_count)?;
+    let compressed_sizes = read_u64_array(&mut reader, chunk_count)?;
+    let mut entries = BTreeMap::new();
+    for index in 0..chunk_count {
+        let chunk_hash = chunk_hashes[index].clone();
+        let bundle_index = bundle_indexes[index] as usize;
+        let raw_size = raw_sizes[index];
+        let compressed_size = compressed_sizes[index];
         let bundle_id = bundles.get(bundle_index).cloned().ok_or_else(|| {
             Error::manifest(format!(
                 "chunk index bundle reference out of range in {}",
@@ -184,20 +291,27 @@ pub(crate) fn write_chunk_index_binary(
     write_u64(&mut writer, index.entries.len() as u64)?;
     write_len_prefixed_string(&mut writer, &index.format_version)?;
     write_len_prefixed_string(&mut writer, &index.updated_at)?;
-    for bundle_id in &bundle_ids {
-        write_len_prefixed_string(&mut writer, bundle_id)?;
-    }
+    write_len_prefixed_string_array(&mut writer, &bundle_ids)?;
 
+    let mut chunk_hashes = Vec::with_capacity(index.entries.len());
+    let mut bundle_index_column = Vec::with_capacity(index.entries.len());
+    let mut raw_sizes = Vec::with_capacity(index.entries.len());
+    let mut compressed_sizes = Vec::with_capacity(index.entries.len());
     for (chunk_hash, entry) in &index.entries {
-        write_len_prefixed_string(&mut writer, chunk_hash)?;
-        let bundle_index = bundle_indexes
+        chunk_hashes.push(chunk_hash.clone());
+        bundle_index_column.push(
+            bundle_indexes
             .get(&entry.bundle_id)
             .copied()
-            .ok_or_else(|| Error::manifest("chunk index bundle table missing entry"))?;
-        write_u32(&mut writer, bundle_index)?;
-        write_u64(&mut writer, entry.raw_size)?;
-        write_u64(&mut writer, entry.compressed_size)?;
+            .ok_or_else(|| Error::manifest("chunk index bundle table missing entry"))?,
+        );
+        raw_sizes.push(entry.raw_size);
+        compressed_sizes.push(entry.compressed_size);
     }
+    write_len_prefixed_string_array(&mut writer, &chunk_hashes)?;
+    write_u32_array(&mut writer, &bundle_index_column)?;
+    write_u64_array(&mut writer, &raw_sizes)?;
+    write_u64_array(&mut writer, &compressed_sizes)?;
     writer.flush()?;
     Ok(())
 }
@@ -212,18 +326,40 @@ pub(crate) fn write_target_manifest_files_binary(
     write_u16(&mut writer, TARGET_FILES_BINARY_VERSION)?;
     write_u16(&mut writer, 0)?;
     write_u32(&mut writer, target_manifest.files.len() as u32)?;
+    let chunk_ref_count = target_manifest
+        .files
+        .iter()
+        .map(|file_manifest| file_manifest.chunks.len() as u64)
+        .sum::<u64>();
+    write_u64(&mut writer, chunk_ref_count)?;
+
+    let mut paths = Vec::with_capacity(target_manifest.files.len());
+    let mut sizes = Vec::with_capacity(target_manifest.files.len());
+    let mut executables = Vec::with_capacity(target_manifest.files.len());
+    let mut full_file_hashes = Vec::with_capacity(target_manifest.files.len());
+    let mut chunk_counts = Vec::with_capacity(target_manifest.files.len());
+    let mut chunk_hashes = Vec::with_capacity(chunk_ref_count as usize);
+    let mut chunk_raw_sizes = Vec::with_capacity(chunk_ref_count as usize);
+
     for file_manifest in &target_manifest.files {
-        write_len_prefixed_string(&mut writer, &file_manifest.path)?;
-        write_u64(&mut writer, file_manifest.size)?;
-        writer.write_all(&[u8::from(file_manifest.executable)])?;
-        writer.write_all(&[0u8; 7])?;
-        write_len_prefixed_string(&mut writer, &file_manifest.full_file_hash)?;
-        write_u32(&mut writer, file_manifest.chunks.len() as u32)?;
+        paths.push(file_manifest.path.clone());
+        sizes.push(file_manifest.size);
+        executables.push(file_manifest.executable);
+        full_file_hashes.push(file_manifest.full_file_hash.clone());
+        chunk_counts.push(file_manifest.chunks.len() as u32);
         for chunk_ref in &file_manifest.chunks {
-            write_len_prefixed_string(&mut writer, &chunk_ref.chunk_hash)?;
-            write_u64(&mut writer, chunk_ref.raw_size)?;
+            chunk_hashes.push(chunk_ref.chunk_hash.clone());
+            chunk_raw_sizes.push(chunk_ref.raw_size);
         }
     }
+
+    write_len_prefixed_string_array(&mut writer, &paths)?;
+    write_u64_array(&mut writer, &sizes)?;
+    write_bool_array(&mut writer, &executables)?;
+    write_len_prefixed_string_array(&mut writer, &full_file_hashes)?;
+    write_u32_array(&mut writer, &chunk_counts)?;
+    write_len_prefixed_string_array(&mut writer, &chunk_hashes)?;
+    write_u64_array(&mut writer, &chunk_raw_sizes)?;
     writer.flush()?;
     Ok(())
 }
@@ -240,14 +376,21 @@ pub(crate) fn load_target_manifest_files_binary(path: &Path) -> Result<Vec<FileM
     }
 
     let version = read_u16(&mut reader)?;
-    if version != TARGET_FILES_BINARY_VERSION {
-        return Err(Error::manifest(format!(
+    return match version {
+        1 => load_target_manifest_files_binary_v1(path, reader),
+        TARGET_FILES_BINARY_VERSION => load_target_manifest_files_binary_v2(path, reader),
+        _ => Err(Error::manifest(format!(
             "unsupported target files binary version {} in {}",
             version,
             path.display()
-        )));
-    }
+        ))),
+    };
+}
 
+fn load_target_manifest_files_binary_v1(
+    _path: &Path,
+    mut reader: BufReader<std::fs::File>,
+) -> Result<Vec<FileManifest>> {
     let _reserved = read_u16(&mut reader)?;
     let file_count = read_u32(&mut reader)? as usize;
     let mut files = Vec::with_capacity(file_count);
@@ -273,5 +416,58 @@ pub(crate) fn load_target_manifest_files_binary(path: &Path) -> Result<Vec<FileM
             chunks,
         });
     }
+
+    Ok(files)
+}
+
+fn load_target_manifest_files_binary_v2(
+    path: &Path,
+    mut reader: BufReader<std::fs::File>,
+) -> Result<Vec<FileManifest>> {
+    let _reserved = read_u16(&mut reader)?;
+    let file_count = read_u32(&mut reader)? as usize;
+    let chunk_ref_count = read_u64(&mut reader)? as usize;
+    let paths = read_len_prefixed_string_array(&mut reader, file_count)?;
+    let sizes = read_u64_array(&mut reader, file_count)?;
+    let executables = read_bool_array(&mut reader, file_count)?;
+    let full_file_hashes = read_len_prefixed_string_array(&mut reader, file_count)?;
+    let chunk_counts = read_u32_array(&mut reader, file_count)?;
+    let chunk_hashes = read_len_prefixed_string_array(&mut reader, chunk_ref_count)?;
+    let chunk_raw_sizes = read_u64_array(&mut reader, chunk_ref_count)?;
+
+    let mut files = Vec::with_capacity(file_count);
+    let mut chunk_start = 0usize;
+    for file_index in 0..file_count {
+        let chunk_count = chunk_counts[file_index] as usize;
+        let chunk_end = chunk_start + chunk_count;
+        if chunk_end > chunk_ref_count {
+            return Err(Error::manifest(format!(
+                "target files chunk range out of bounds in {}",
+                path.display()
+            )));
+        }
+        let mut chunks = Vec::with_capacity(chunk_count);
+        for chunk_index in chunk_start..chunk_end {
+            chunks.push(manifest::ChunkRef {
+                chunk_hash: chunk_hashes[chunk_index].clone(),
+                raw_size: chunk_raw_sizes[chunk_index],
+            });
+        }
+        files.push(FileManifest {
+            path: paths[file_index].clone(),
+            size: sizes[file_index],
+            executable: executables[file_index],
+            full_file_hash: full_file_hashes[file_index].clone(),
+            chunks,
+        });
+        chunk_start = chunk_end;
+    }
+    if chunk_start != chunk_ref_count {
+        return Err(Error::manifest(format!(
+            "target files chunk count mismatch in {}",
+            path.display()
+        )));
+    }
+
     Ok(files)
 }

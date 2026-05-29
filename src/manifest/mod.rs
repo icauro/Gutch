@@ -12,7 +12,7 @@ pub const CHUNKER_FASTCDC: &str = "fastcdc-v2020";
 pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const COMPRESSION_ZSTD: &str = "zstd";
 pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
-pub const CONTENT_REPO_FORMAT: &str = "gutch-content-repo-v1";
+pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
