@@ -58,7 +58,7 @@ enum Commands {
 #[derive(Subcommand)]
 enum AuthCommands {
     Login {
-        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        #[arg(long = "endpoint", default_value_t = auth::default_backend_url())]
         endpoint: String,
 
         #[arg(long = "no-open")]
@@ -69,7 +69,7 @@ enum AuthCommands {
     },
 
     Logout {
-        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        #[arg(long = "endpoint", default_value_t = auth::default_backend_url())]
         endpoint: String,
 
         #[arg(long = "session-id")]
@@ -77,7 +77,7 @@ enum AuthCommands {
     },
 
     Status {
-        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        #[arg(long = "endpoint", default_value_t = auth::default_backend_url())]
         endpoint: String,
 
         #[arg(long = "session-id")]
@@ -85,7 +85,7 @@ enum AuthCommands {
     },
 
     Profile {
-        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        #[arg(long = "endpoint", default_value_t = auth::default_backend_url())]
         endpoint: String,
 
         #[arg(long = "session-id")]
@@ -93,7 +93,7 @@ enum AuthCommands {
     },
 
     Refresh {
-        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        #[arg(long = "endpoint", default_value_t = auth::default_backend_url())]
         endpoint: String,
 
         #[arg(long = "session-id")]
@@ -157,7 +157,7 @@ enum RepoCommands {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
 
-        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        #[arg(long = "endpoint", default_value_t = auth::default_backend_url())]
         endpoint: String,
 
         #[arg(long = "product-id")]
@@ -174,7 +174,7 @@ enum RepoCommands {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
 
-        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        #[arg(long = "endpoint", default_value_t = auth::default_backend_url())]
         endpoint: String,
 
         #[arg(long = "session-id")]

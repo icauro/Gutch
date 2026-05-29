@@ -1199,7 +1199,7 @@ fn run_repo_inspect(repo: &std::path::Path) -> g::Result<()> {
 }
 
 fn run_interactive_repo_link(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let endpoint = crate::auth::DEFAULT_BACKEND_URL.to_string();
+    let endpoint = crate::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
     crate::cli::repo::run(RepoCommands::Link {
         repo: repo.to_path_buf(),
@@ -1226,7 +1226,7 @@ fn run_interactive_repo_unlink(theme: &ColorfulTheme, repo: &std::path::Path) ->
 }
 
 fn run_interactive_repo_sync_up(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let endpoint = crate::auth::DEFAULT_BACKEND_URL.to_string();
+    let endpoint = crate::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
     crate::cli::repo::run(RepoCommands::SyncUp {
         repo: repo.to_path_buf(),
