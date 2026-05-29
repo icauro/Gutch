@@ -618,24 +618,6 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         );
     }
     print_table_row(
-        "compression ratio",
-        None,
-        Some(format!(
-            "{:.2}% (out / in)",
-            ratio_pct(t.compression_output_bytes, t.compression_input_bytes)
-        )),
-        None,
-    );
-    print_table_row(
-        "total dedupe ratio",
-        None,
-        Some(format!(
-            "{:.2}% (out / logical)",
-            ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)
-        )),
-        None,
-    );
-    print_table_row(
         "bundle build",
         Some(secs(t.bundle_build)),
         Some(format!("out {:.2} MiB", mib(t.bundle_build_bytes))),
@@ -651,20 +633,24 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         None,
     );
     print_table_border();
-    let accounted = secs(t.scan_read)
-        + secs(t.file_hash)
-        + secs(t.chunking)
-        + secs(t.chunk_hash_judgment)
-        + secs(t.metadata)
-        + secs(t.dedupe_lookup)
-        + secs(t.compression)
-        + secs(t.bundle_build)
-        + secs(t.target_manifest_finalize);
+    print_metric_line(
+        "compression ratio",
+        format!(
+            "{:.2}%  (out / in)",
+            ratio_pct(t.compression_output_bytes, t.compression_input_bytes)
+        ),
+    );
+    print_metric_line(
+        "total dedupe ratio",
+        format!(
+            "{:.2}%  (out / logical)",
+            ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)
+        ),
+    );
     print_blank_line();
     print_section_title("Build Benchmark Snapshot");
     print_metric_line("total", format!("{:.2} s", secs(t.total)));
-    print_metric_line("accounted", format!("{:.2}%", pct_of_total(accounted, secs(t.total))));
-    print_metric_line("unaccounted", format!("{:.2} s", (secs(t.total) - accounted).max(0.0)));
+    print_metric_line("note", "phase timers overlap and are not additive");
 }
 
 pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {

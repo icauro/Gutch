@@ -109,17 +109,107 @@ fn raw_target_size_for_bundle_compression(
         .min(u64::MAX)
 }
 
-fn update_bundle_compression_ratio(
-    previous_ratio: f64,
-    raw_size: u64,
-    compressed_size: u64,
-) -> f64 {
-    if raw_size == 0 {
-        return previous_ratio;
+fn plan_bundle_compressed_groups(
+    mut chunks: Vec<(String, ChunkPayload)>,
+    compression_profile: &manifest::CompressionProfile,
+    bundle_profile: &manifest::BundleSizingProfile,
+    bundle_policy: BundleSizingPolicy,
+) -> Result<Vec<Vec<(String, ChunkPayload)>>> {
+    if chunks.is_empty() {
+        return Ok(Vec::new());
     }
 
-    let actual_ratio = (compressed_size as f64 / raw_size as f64).max(0.01);
-    previous_ratio * 0.7 + actual_ratio * 0.3
+    chunks.sort_by(|a, b| a.0.cmp(&b.0));
+    let new_raw_bytes: u64 = chunks.iter().map(|(_, payload)| payload.raw_size()).sum();
+    let bundle_compression_ratio = estimate_bundle_compression_ratio_from_probe(
+        &chunks,
+        compression_profile,
+        bundle_profile.bundle_preferred_size_bytes(),
+    )?;
+    let estimated_total_compressed_bytes =
+        ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
+    let bundle_target_compressed_size =
+        bundle_policy.target_size_for(estimated_total_compressed_bytes);
+    let bundle_raw_target_size = raw_target_size_for_bundle_compression(
+        bundle_target_compressed_size,
+        bundle_compression_ratio,
+        bundle_policy,
+    );
+
+    let mut planned_groups = Vec::new();
+    let mut current_group = Vec::new();
+    let mut current_group_raw_size: u64 = 0;
+
+    for (hash, payload) in chunks {
+        let raw_size = payload.raw_size();
+        if !current_group.is_empty()
+            && current_group_raw_size + raw_size > bundle_raw_target_size
+        {
+            planned_groups.push(current_group);
+            current_group = Vec::new();
+            current_group_raw_size = 0;
+        }
+
+        current_group.push((hash, payload));
+        current_group_raw_size += raw_size;
+    }
+
+    if !current_group.is_empty() {
+        planned_groups.push(current_group);
+    }
+
+    Ok(planned_groups)
+}
+
+fn record_bundle_compressed_bundle_metrics(
+    timings: &mut BuildTimings,
+    total_compressed: &mut u64,
+    bundle_data_len: u64,
+    bundle_metrics: crate::bundle::BundleBuildMetrics,
+) {
+    timings.compression_output_bytes += bundle_data_len;
+    *total_compressed += bundle_data_len;
+    timings.bundle_compressed_payload_assembly += bundle_metrics.payload_assembly;
+    timings.bundle_compressed_payload_assembly_bytes += bundle_metrics.payload_assembly_bytes;
+    timings.bundle_compressed_stream_compression += bundle_metrics.stream_compression;
+    timings.bundle_compressed_stream_input_bytes += bundle_metrics.stream_input_bytes;
+    timings.bundle_compressed_stream_output_bytes += bundle_metrics.stream_output_bytes;
+    timings.bundle_compressed_serialization += bundle_metrics.serialization;
+    timings.bundle_compressed_serialization_bytes += bundle_metrics.serialization_bytes;
+}
+
+struct BuiltBundleCompressedGroup {
+    bundle_id: String,
+    bundle_data: Vec<u8>,
+    bundle_metrics: crate::bundle::BundleBuildMetrics,
+    payload_load: std::time::Duration,
+    payload_load_bytes: u64,
+}
+
+fn build_bundle_compressed_group(
+    planned_bundle: Vec<(String, ChunkPayload)>,
+    compression_profile: &manifest::CompressionProfile,
+) -> Result<BuiltBundleCompressedGroup> {
+    let mut builder = BundleBuilder::new(compression_profile.clone());
+    let mut payload_load = std::time::Duration::ZERO;
+    let mut payload_load_bytes: u64 = 0;
+
+    for (hash, payload) in planned_bundle {
+        let load_start = Instant::now();
+        let data = payload.load_bytes()?;
+        payload_load += load_start.elapsed();
+        payload_load_bytes += data.len() as u64;
+        builder.add_chunk(hash, data);
+    }
+
+    let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
+    Ok(BuiltBundleCompressedGroup {
+        bundle_id,
+        bundle_data,
+        bundle_metrics,
+        payload_load,
+        payload_load_bytes,
+    })
 }
 
 pub fn build_from_directory(
@@ -285,84 +375,49 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
 
     let t = Instant::now();
     let mut bundles = Vec::new();
-    let mut builder = BundleBuilder::new(compression_profile.clone());
     let bundle_target_size_policy = BundleSizingPolicy::new(
         config.bundle_profile.bundle_max_size_bytes(),
         config.bundle_profile.bundle_preferred_size_bytes(),
     );
 
     if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
-        let mut sorted_chunks = chunks_to_compress;
-        sorted_chunks.sort_by(|a, b| a.0.cmp(&b.0));
-        let new_raw_bytes: u64 = sorted_chunks
-            .iter()
-            .map(|(_, payload)| payload.raw_size())
-            .sum();
-        let mut bundle_compression_ratio = estimate_bundle_compression_ratio_from_probe(
-            &sorted_chunks,
+        let planned_bundles = plan_bundle_compressed_groups(
+            chunks_to_compress,
             &compression_profile,
-            config.bundle_profile.bundle_preferred_size_bytes(),
-        )?;
-        let estimated_total_compressed_bytes =
-            ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
-        let bundle_target_compressed_size =
-            bundle_target_size_policy.target_size_for(estimated_total_compressed_bytes);
-        let mut current_bundle_raw_size: u64 = 0;
-        let mut current_bundle_raw_target_size = raw_target_size_for_bundle_compression(
-            bundle_target_compressed_size,
-            bundle_compression_ratio,
+            &config.bundle_profile,
             bundle_target_size_policy,
-        );
+        )?;
+        let compression_profile_for_work = compression_profile.clone();
+        let build_bundle_work = || {
+            planned_bundles
+                .into_par_iter()
+                .map(|planned_bundle| {
+                    build_bundle_compressed_group(planned_bundle, &compression_profile_for_work)
+                })
+                .collect::<Result<Vec<_>>>()
+        };
+        let built_bundle_groups: Vec<BuiltBundleCompressedGroup> =
+            install_in_thread_pool(runtime_plan.worker_count, build_bundle_work)??;
 
-        for (hash, payload) in sorted_chunks {
-            let t = Instant::now();
-            let data = payload.load_bytes()?;
-            timings.bundle_compressed_payload_load += t.elapsed();
-            timings.bundle_compressed_payload_load_bytes += data.len() as u64;
-            let raw_size = data.len() as u64;
-            if !builder.is_empty()
-                && current_bundle_raw_size + raw_size > current_bundle_raw_target_size
-            {
-                let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
-                required_bundle_set.push(bundle_id.clone());
-                if !config.existing_bundle_ids.contains(&bundle_id) {
-                    timings.compression_output_bytes += bundle_data.len() as u64;
-                    total_compressed += bundle_data.len() as u64;
-                    timings.bundle_compressed_payload_assembly += bundle_metrics.payload_assembly;
-                    timings.bundle_compressed_payload_assembly_bytes +=
-                        bundle_metrics.payload_assembly_bytes;
-                    timings.bundle_compressed_stream_compression +=
-                        bundle_metrics.stream_compression;
-                    timings.bundle_compressed_stream_input_bytes +=
-                        bundle_metrics.stream_input_bytes;
-                    timings.bundle_compressed_stream_output_bytes +=
-                        bundle_metrics.stream_output_bytes;
-                    timings.bundle_compressed_serialization += bundle_metrics.serialization;
-                    timings.bundle_compressed_serialization_bytes +=
-                        bundle_metrics.serialization_bytes;
-                    bundle_compression_ratio = update_bundle_compression_ratio(
-                        bundle_compression_ratio,
-                        current_bundle_raw_size,
-                        bundle_data.len() as u64,
-                    );
-                    bundles.push(BuiltBundle {
-                        bundle_id,
-                        data: bundle_data,
-                    });
-                }
-                builder = BundleBuilder::new(compression_profile.clone());
-                current_bundle_raw_size = 0;
-                current_bundle_raw_target_size = raw_target_size_for_bundle_compression(
-                    bundle_target_compressed_size,
-                    bundle_compression_ratio,
-                    bundle_target_size_policy,
+        for built_bundle in built_bundle_groups {
+            timings.bundle_compressed_payload_load += built_bundle.payload_load;
+            timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
+            required_bundle_set.push(built_bundle.bundle_id.clone());
+            if !config.existing_bundle_ids.contains(&built_bundle.bundle_id) {
+                record_bundle_compressed_bundle_metrics(
+                    &mut timings,
+                    &mut total_compressed,
+                    built_bundle.bundle_data.len() as u64,
+                    built_bundle.bundle_metrics,
                 );
+                bundles.push(BuiltBundle {
+                    bundle_id: built_bundle.bundle_id,
+                    data: built_bundle.bundle_data,
+                });
             }
-
-            builder.add_chunk(hash, data);
-            current_bundle_raw_size += raw_size;
         }
     } else {
+        let mut builder = BundleBuilder::new(compression_profile.clone());
         let t = Instant::now();
         let mut current_bundle_size: u64 = 0;
         let compress_work = || {
@@ -417,32 +472,15 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
             builder.add_precompressed_chunk(chunk.hash, chunk.raw_size, chunk.compressed);
             current_bundle_size += compressed_size;
         }
-    }
-
-    if !builder.is_empty() {
-        let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
-        required_bundle_set.push(bundle_id.clone());
-        if !config.existing_bundle_ids.contains(&bundle_id) {
-            if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
-                timings.compression_output_bytes += bundle_data.len() as u64;
-                total_compressed += bundle_data.len() as u64;
-                timings.bundle_compressed_payload_assembly += bundle_metrics.payload_assembly;
-                timings.bundle_compressed_payload_assembly_bytes +=
-                    bundle_metrics.payload_assembly_bytes;
-                timings.bundle_compressed_stream_compression +=
-                    bundle_metrics.stream_compression;
-                timings.bundle_compressed_stream_input_bytes +=
-                    bundle_metrics.stream_input_bytes;
-                timings.bundle_compressed_stream_output_bytes +=
-                    bundle_metrics.stream_output_bytes;
-                timings.bundle_compressed_serialization += bundle_metrics.serialization;
-                timings.bundle_compressed_serialization_bytes +=
-                    bundle_metrics.serialization_bytes;
+        if !builder.is_empty() {
+            let (bundle_id, bundle_data) = builder.build_with_id()?;
+            required_bundle_set.push(bundle_id.clone());
+            if !config.existing_bundle_ids.contains(&bundle_id) {
+                bundles.push(BuiltBundle {
+                    bundle_id,
+                    data: bundle_data,
+                });
             }
-            bundles.push(BuiltBundle {
-                bundle_id,
-                data: bundle_data,
-            });
         }
     }
 

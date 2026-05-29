@@ -184,11 +184,10 @@ impl BundleBuilder {
     fn build_bundle_compressed(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
         let mut entries: Vec<BundleTableEntry> = Vec::with_capacity(self.chunks.len());
         let payload_assembly_start = Instant::now();
-        let mut payload = Vec::new();
         let mut current_raw_offset: u64 = 0;
 
         for chunk in &self.chunks {
-            let raw = chunk.raw.as_ref().ok_or_else(|| {
+            chunk.raw.as_ref().ok_or_else(|| {
                 crate::error::Error::InvalidBundle(
                     "bundle-compressed chunks must retain raw bytes until bundle build".into(),
                 )
@@ -204,12 +203,25 @@ impl BundleBuilder {
                 raw_offset: current_raw_offset,
             });
             current_raw_offset += chunk.raw_size;
-            payload.extend_from_slice(raw);
         }
         let payload_assembly = payload_assembly_start.elapsed();
 
         let compression_start = Instant::now();
-        let compressed_payload = compress::compress_with_level(&payload, self.profile.zstd_level)?;
+        let mut encoder = zstd::stream::Encoder::new(Vec::new(), self.profile.zstd_level)
+            .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
+        for chunk in &self.chunks {
+            let raw = chunk.raw.as_ref().ok_or_else(|| {
+                crate::error::Error::InvalidBundle(
+                    "bundle-compressed chunks must retain raw bytes until bundle build".into(),
+                )
+            })?;
+            encoder
+                .write_all(raw)
+                .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
+        }
+        let compressed_payload = encoder
+            .finish()
+            .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
         let stream_compression = compression_start.elapsed();
         if !entries.is_empty() {
             let total_raw = current_raw_offset.max(1);
