@@ -176,7 +176,7 @@ enum TargetCommands {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
 
-        #[arg(short, long)]
+        #[arg(long)]
         version: Option<String>,
 
         #[arg(short = 'P', long, visible_alias = "os")]
@@ -243,7 +243,7 @@ enum TargetCommands {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
 
-        #[arg(short, long)]
+        #[arg(long)]
         version: String,
     },
 }
