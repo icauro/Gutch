@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::hash::hash_hex;
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
@@ -167,12 +168,18 @@ pub fn required_bundle_ids(
 ) -> HashSet<String> {
     required_chunk_hashes(target_manifest)
         .into_iter()
-        .filter_map(|chunk_hash| chunk_index.entries.get(&chunk_hash).cloned())
+        .filter_map(|chunk_hash| {
+            chunk_index
+                .entries
+                .get(&chunk_hash)
+                .map(|entry| entry.bundle_id.clone())
+        })
         .collect()
 }
 
 pub fn scan_existing_store_state(paths: &ContentRepoPaths) -> Result<ExistingStoreState> {
     let mut state = ExistingStoreState::default();
+    let chunk_index = load_chunk_index(paths)?;
 
     for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
         let entry = entry?;
@@ -185,19 +192,14 @@ pub fn scan_existing_store_state(paths: &ContentRepoPaths) -> Result<ExistingSto
         };
         let bundle_id = bundle_id.to_string();
         state.bundle_ids.insert(bundle_id.clone());
+    }
 
-        let file = std::fs::File::open(entry.path())?;
-        let reader = crate::bundle::BundleReader::open(file)?;
-        for chunk in reader.entries() {
-            state
-                .chunk_locations
-                .entry(chunk.chunk_hash.clone())
-                .or_insert_with(|| crate::ExistingChunkLocation {
-                    bundle_id: bundle_id.clone(),
-                    raw_size: chunk.raw_size,
-                    compressed_size: chunk.compressed_size,
-                });
-        }
+    if chunk_index.entries.is_empty() {
+        let rebuilt_chunk_index = rebuild_chunk_index_from_bundles(paths)?;
+        state.chunk_locations =
+            existing_chunk_locations_from_index(&rebuilt_chunk_index, &state.bundle_ids);
+    } else {
+        state.chunk_locations = existing_chunk_locations_from_index(&chunk_index, &state.bundle_ids);
     }
 
     for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
@@ -217,6 +219,60 @@ pub fn scan_existing_store_state(paths: &ContentRepoPaths) -> Result<ExistingSto
     }
 
     Ok(state)
+}
+
+pub fn existing_chunk_locations_from_index(
+    chunk_index: &manifest::ChunkIndex,
+    existing_bundle_ids: &HashSet<String>,
+) -> std::collections::HashMap<String, crate::ExistingChunkLocation> {
+    chunk_index
+        .entries
+        .iter()
+        .filter(|(_, entry)| existing_bundle_ids.contains(&entry.bundle_id))
+        .map(|(chunk_hash, entry)| {
+            (
+                chunk_hash.clone(),
+                crate::ExistingChunkLocation {
+                    bundle_id: entry.bundle_id.clone(),
+                    raw_size: entry.raw_size,
+                    compressed_size: entry.compressed_size,
+                },
+            )
+        })
+        .collect()
+}
+
+pub fn rebuild_chunk_index_from_bundles(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex> {
+    let mut entries = BTreeMap::new();
+    for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() || !entry.path().extension().is_some_and(|ext| ext == "bundle") {
+            continue;
+        }
+
+        let Some(bundle_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let bundle_id = bundle_id.to_string();
+        let file = std::fs::File::open(entry.path())?;
+        let reader = crate::bundle::BundleReader::open(file)?;
+        for chunk in reader.entries() {
+            entries.insert(
+                chunk.chunk_hash.clone(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: bundle_id.clone(),
+                    raw_size: chunk.raw_size,
+                    compressed_size: chunk.compressed_size,
+                },
+            );
+        }
+    }
+
+    Ok(manifest::ChunkIndex {
+        format_version: manifest::FORMAT_VERSION.to_string(),
+        updated_at: chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339(),
+        entries,
+    })
 }
 
 pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {

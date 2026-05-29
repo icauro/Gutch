@@ -1,14 +1,21 @@
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
 
 use crate::manifest::{
     BundleSizingProfile, ChunkSizingProfile, CompressionProfile, FileManifest, TargetTagSet,
     target::TargetManifest,
 };
 use crate::runtime::{RuntimePlan, RuntimeResourceHints};
+
+pub trait BuildProgressSink: Send + Sync + std::fmt::Debug {
+    fn on_file_scan_started(&self, total_files: usize);
+    fn on_file_scanned(&self);
+    fn on_bundle_build_started(&self, total_bundles: usize);
+    fn on_bundle_built(&self);
+}
 
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
@@ -22,6 +29,7 @@ pub struct BuildConfig {
     pub bundle_profile: BundleSizingProfile,
     pub compression_profile: CompressionProfile,
     pub runtime_hints: RuntimeResourceHints,
+    pub progress: Option<Arc<dyn BuildProgressSink>>,
 }
 
 impl BuildConfig {
@@ -41,6 +49,7 @@ impl BuildConfig {
             bundle_profile: BundleSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
             runtime_hints: RuntimeResourceHints::default(),
+            progress: None,
         }
     }
 }
@@ -63,14 +72,14 @@ pub struct ExistingChunkLocation {
     pub compressed_size: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "storage")]
+#[derive(Debug, Clone)]
 pub enum ChunkPayload {
     InMemory {
-        bytes: Vec<u8>,
+        bytes: Arc<[u8]>,
     },
     TempFile {
         path: PathBuf,
+        offset: u64,
         raw_size: u64,
     },
 }
@@ -85,8 +94,35 @@ impl ChunkPayload {
 
     pub fn load_bytes(&self) -> crate::Result<Vec<u8>> {
         match self {
-            ChunkPayload::InMemory { bytes } => Ok(bytes.clone()),
-            ChunkPayload::TempFile { path, .. } => Ok(std::fs::read(path)?),
+            ChunkPayload::InMemory { bytes } => Ok(bytes.as_ref().to_vec()),
+            ChunkPayload::TempFile {
+                path,
+                offset,
+                raw_size,
+            } => {
+                let mut file = std::fs::File::open(path)?;
+                file.seek(SeekFrom::Start(*offset))?;
+                let mut bytes = vec![0u8; *raw_size as usize];
+                file.read_exact(&mut bytes)?;
+                Ok(bytes)
+            }
+        }
+    }
+
+    pub fn with_bytes<T>(&self, f: impl FnOnce(&[u8]) -> T) -> crate::Result<T> {
+        match self {
+            ChunkPayload::InMemory { bytes } => Ok(f(bytes.as_ref())),
+            ChunkPayload::TempFile {
+                path,
+                offset,
+                raw_size,
+            } => {
+                let mut file = std::fs::File::open(path)?;
+                file.seek(SeekFrom::Start(*offset))?;
+                let mut bytes = vec![0u8; *raw_size as usize];
+                file.read_exact(&mut bytes)?;
+                Ok(f(&bytes))
+            }
         }
     }
 }
@@ -108,6 +144,10 @@ pub struct BuildTimings {
     pub compression_input_bytes: u64,
     pub compression_output_bytes: u64,
     pub total_compressed_bytes: u64,
+    pub bundle_compressed_sort: Duration,
+    pub bundle_compressed_sort_bytes: u64,
+    pub bundle_compressed_ratio_probe: Duration,
+    pub bundle_compressed_ratio_probe_bytes: u64,
     pub bundle_compressed_payload_load: Duration,
     pub bundle_compressed_payload_load_bytes: u64,
     pub bundle_compressed_payload_assembly: Duration,

@@ -197,9 +197,6 @@ enum TargetCommands {
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
         bundle_profile: g::manifest::BundleSizingPreset,
 
-        #[arg(long = "compression-unit", value_parser = ["chunk", "bundle"], default_value = "chunk")]
-        compression_unit: String,
-
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,
 

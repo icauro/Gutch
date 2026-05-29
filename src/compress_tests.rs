@@ -1,10 +1,11 @@
 use super::*;
+use crate::manifest::CompressionProfile;
 
 #[test]
 fn test_compress_decompress_roundtrip() {
     let original = b"hello world, this is some test data for compression ".repeat(100);
     let profile = CompressionProfile::default();
-    let compressed = compress_chunk(&original, &profile).unwrap();
+    let compressed = compress_with_level(&original, profile.zstd_level).unwrap();
     assert!(
         compressed.len() < original.len(),
         "zstd should compress repetitive data"
@@ -18,7 +19,7 @@ fn test_compress_decompress_roundtrip() {
 fn test_compress_small_data() {
     let original = b"hi";
     let profile = CompressionProfile::default();
-    let compressed = compress_chunk(original, &profile).unwrap();
+    let compressed = compress_with_level(original, profile.zstd_level).unwrap();
     let decompressed = decompress_chunk(&compressed).unwrap();
     assert_eq!(original.as_slice(), decompressed.as_slice());
 }

@@ -10,7 +10,6 @@ pub const FORMAT_VERSION: &str = "1.0.0";
 pub const CHUNKER_FASTCDC: &str = "fastcdc-v2020";
 pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const COMPRESSION_ZSTD: &str = "zstd";
-pub const COMPRESSION_UNIT_CHUNK: &str = "chunk";
 pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
 pub const CONTENT_REPO_FORMAT: &str = "gutch-content-repo-v1";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
@@ -177,8 +176,8 @@ impl Default for CompressionProfile {
     fn default() -> Self {
         CompressionProfile {
             compression: COMPRESSION_ZSTD.to_string(),
-            compression_unit: COMPRESSION_UNIT_CHUNK.to_string(),
-            zstd_level: 3,
+            compression_unit: COMPRESSION_UNIT_BUNDLE.to_string(),
+            zstd_level: 1,
         }
     }
 }
@@ -325,7 +324,7 @@ pub struct BundleTableEntry {
 }
 
 fn default_compression_unit() -> String {
-    COMPRESSION_UNIT_CHUNK.to_string()
+    COMPRESSION_UNIT_BUNDLE.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -439,7 +438,15 @@ pub type AutoTaggingRules = TargetTagSchema;
 pub struct ChunkIndex {
     pub format_version: String,
     pub updated_at: String,
-    pub entries: BTreeMap<String, String>,
+    pub entries: BTreeMap<String, ChunkIndexEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkIndexEntry {
+    pub bundle_id: String,
+    pub raw_size: u64,
+    pub compressed_size: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

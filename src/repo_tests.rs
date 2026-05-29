@@ -61,8 +61,22 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
         format_version: "1.0.0".into(),
         updated_at: String::new(),
         entries: BTreeMap::from([
-            ("chunk-a".into(), "bundle-1".into()),
-            ("chunk-b".into(), "bundle-1".into()),
+            (
+                "chunk-a".into(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: "bundle-1".into(),
+                    raw_size: 100,
+                    compressed_size: 50,
+                },
+            ),
+            (
+                "chunk-b".into(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: "bundle-1".into(),
+                    raw_size: 100,
+                    compressed_size: 50,
+                },
+            ),
         ]),
     };
 
@@ -213,9 +227,30 @@ fn chunk_index_write_and_load_roundtrip() {
     let paths = ContentRepoPaths::from_repo_root(&root);
 
     let mut entries = BTreeMap::new();
-    entries.insert("chunk-a".to_string(), "bundle-1".to_string());
-    entries.insert("chunk-b".to_string(), "bundle-1".to_string());
-    entries.insert("chunk-c".to_string(), "bundle-2".to_string());
+    entries.insert(
+        "chunk-a".to_string(),
+        manifest::ChunkIndexEntry {
+            bundle_id: "bundle-1".to_string(),
+            raw_size: 100,
+            compressed_size: 40,
+        },
+    );
+    entries.insert(
+        "chunk-b".to_string(),
+        manifest::ChunkIndexEntry {
+            bundle_id: "bundle-1".to_string(),
+            raw_size: 100,
+            compressed_size: 40,
+        },
+    );
+    entries.insert(
+        "chunk-c".to_string(),
+        manifest::ChunkIndexEntry {
+            bundle_id: "bundle-2".to_string(),
+            raw_size: 100,
+            compressed_size: 40,
+        },
+    );
     let index = manifest::ChunkIndex {
         format_version: "1.0.0".to_string(),
         updated_at: "2026-05-14T00:00:00Z".to_string(),
@@ -228,11 +263,17 @@ fn chunk_index_write_and_load_roundtrip() {
     assert_eq!(loaded.format_version, "1.0.0");
     assert_eq!(loaded.entries.len(), 3);
     assert_eq!(
-        loaded.entries.get("chunk-a").map(String::as_str),
+        loaded
+            .entries
+            .get("chunk-a")
+            .map(|entry| entry.bundle_id.as_str()),
         Some("bundle-1")
     );
     assert_eq!(
-        loaded.entries.get("chunk-c").map(String::as_str),
+        loaded
+            .entries
+            .get("chunk-c")
+            .map(|entry| entry.bundle_id.as_str()),
         Some("bundle-2")
     );
     assert!(loaded.entries.get("nonexistent").is_none());

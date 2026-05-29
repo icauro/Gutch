@@ -1,12 +1,12 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 
-use crate::build_types::{BuildTimings, ChunkPayload, ExistingChunkLocation};
+use crate::build_types::{BuildProgressSink, BuildTimings, ChunkPayload, ExistingChunkLocation};
 use crate::hash::hash_hex;
 use crate::manifest::{self, ChunkRef, FileManifest};
 use crate::runtime::{ChunkStorageMode, install_in_thread_pool};
@@ -45,6 +45,7 @@ pub(crate) fn collect_scanned_chunks(
     chunk_storage_mode: ChunkStorageMode,
     chunk_spool_root: Option<&Path>,
     worker_count: usize,
+    progress: Option<Arc<dyn BuildProgressSink>>,
     timings: &mut BuildTimings,
 ) -> Result<(Vec<FileManifest>, HashMap<String, ChunkPayload>, u64)> {
     let file_entries = scan_directory_into_file_entries(
@@ -55,6 +56,7 @@ pub(crate) fn collect_scanned_chunks(
         chunk_storage_mode,
         chunk_spool_root,
         worker_count,
+        progress,
     )?;
 
     let mut file_manifests = Vec::with_capacity(file_entries.len());
@@ -81,6 +83,7 @@ pub(crate) fn scan_directory_into_file_entries(
     chunk_storage_mode: ChunkStorageMode,
     chunk_spool_root: Option<&Path>,
     worker_count: usize,
+    progress: Option<Arc<dyn BuildProgressSink>>,
 ) -> Result<Vec<FileBuildEntry>> {
     let mut file_paths: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
@@ -90,9 +93,14 @@ pub(crate) fn scan_directory_into_file_entries(
         }
     }
 
+    if let Some(progress) = &progress {
+        progress.on_file_scan_started(file_paths.len());
+    }
+
     let spool_root = chunk_spool_root.map(PathBuf::from);
-    let spill_counter = Arc::new(AtomicU64::new(0));
+    let progress_for_scan = progress.clone();
     let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
+            let result = (|| -> Result<FileBuildEntry> {
             let relative = path.strip_prefix(dir).map_err(|e| Error::PathError {
                 path: path.to_path_buf(),
                 reason: e.to_string(),
@@ -134,6 +142,9 @@ pub(crate) fn scan_directory_into_file_entries(
 
             let mut chunk_refs = Vec::with_capacity(chunk_results.len());
             let mut chunks = Vec::with_capacity(chunk_results.len());
+            let mut spill_file = None;
+            let mut spill_path = None;
+            let mut spill_offset: u64 = 0;
             for cr in chunk_results {
                 let ch = hash_hex(&cr.hash);
                 chunk_refs.push(ChunkRef {
@@ -142,18 +153,38 @@ pub(crate) fn scan_directory_into_file_entries(
                 });
                 if !existing_chunk_locations.contains_key(&ch) {
                     let payload = match chunk_storage_mode {
-                        ChunkStorageMode::Memory => ChunkPayload::InMemory { bytes: cr.data },
+                        ChunkStorageMode::Memory => ChunkPayload::InMemory {
+                            bytes: std::sync::Arc::<[u8]>::from(cr.data),
+                        },
                         ChunkStorageMode::TempSpill => {
                             let spool_root = spool_root.as_ref().ok_or_else(|| {
                                 Error::manifest(
                                     "temp spill mode requires a chunk spool directory",
                                 )
                             })?;
-                            let chunk_id = spill_counter.fetch_add(1, Ordering::Relaxed);
-                            let chunk_path = spool_root.join(format!("chunk-{chunk_id:016x}.bin"));
-                            std::fs::write(&chunk_path, &cr.data)?;
+                            if spill_path.is_none() {
+                                let relative_name =
+                                    relative.to_string_lossy().replace(['\\', '/'], "__");
+                                spill_path = Some(spool_root.join(format!("{relative_name}.spill")));
+                            }
+                            if spill_file.is_none() {
+                                let path = spill_path.as_ref().ok_or_else(|| {
+                                    Error::manifest("temp spill path missing after initialization")
+                                })?;
+                                spill_file = Some(std::fs::File::create(path)?);
+                            }
+                            let local_spill_path = spill_path.as_ref().ok_or_else(|| {
+                                Error::manifest("temp spill path missing after file creation")
+                            })?;
+                            let file = spill_file.as_mut().ok_or_else(|| {
+                                Error::manifest("temp spill file missing after creation")
+                            })?;
+                            let chunk_offset = spill_offset;
+                            file.write_all(&cr.data)?;
+                            spill_offset += cr.data.len() as u64;
                             ChunkPayload::TempFile {
-                                path: chunk_path,
+                                path: local_spill_path.clone(),
+                                offset: chunk_offset,
                                 raw_size: cr.data.len() as u64,
                             }
                         }
@@ -184,6 +215,15 @@ pub(crate) fn scan_directory_into_file_entries(
                 chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
                 metadata: metadata_dur,
             })
+            })();
+
+            if result.is_ok() {
+                if let Some(progress) = &progress_for_scan {
+                    progress.on_file_scanned();
+                }
+            }
+
+            result
         };
 
     if worker_count <= 1 {

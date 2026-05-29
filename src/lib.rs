@@ -34,7 +34,8 @@ pub use build::{
     build_with_config,
 };
 pub use build_types::{
-    BuildConfig, BuildResult, BuildTimings, BuiltBundle, ChunkPayload, ExistingChunkLocation,
+    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, ChunkPayload,
+    ExistingChunkLocation,
 };
 pub use cli_identity::{
     ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,

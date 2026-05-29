@@ -17,7 +17,11 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         updated_at: String::new(),
         entries: std::collections::BTreeMap::from([(
             "chunk-a".to_string(),
-            "bundle-a".to_string(),
+            manifest::ChunkIndexEntry {
+                bundle_id: "bundle-a".to_string(),
+                raw_size: 100,
+                compressed_size: 64,
+            },
         )]),
     };
     std::fs::write(

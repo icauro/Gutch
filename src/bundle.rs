@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::sync::Arc;
 
 use crate::compress;
 use crate::error::Result;
 use crate::hash;
-use crate::manifest::{
-    BundleTableEntry, COMPRESSION_UNIT_BUNDLE, COMPRESSION_UNIT_CHUNK, CompressionProfile,
-};
+use crate::manifest::{BundleTableEntry, COMPRESSION_UNIT_BUNDLE, CompressionProfile};
 use std::time::{Duration, Instant};
 
 const MAGIC: &[u8; 4] = b"GCHB";
@@ -31,8 +30,22 @@ pub struct BundleBuilder {
 struct ChunkData {
     hash: String,
     raw_size: u64,
-    raw: Option<Vec<u8>>,
+    raw: Option<ChunkRawData>,
     compressed: Option<Vec<u8>>,
+}
+
+enum ChunkRawData {
+    Owned(Vec<u8>),
+    Shared(Arc<[u8]>),
+}
+
+impl ChunkRawData {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            ChunkRawData::Owned(bytes) => bytes.as_slice(),
+            ChunkRawData::Shared(bytes) => bytes.as_ref(),
+        }
+    }
 }
 
 impl BundleBuilder {
@@ -48,7 +61,17 @@ impl BundleBuilder {
         self.chunks.push(ChunkData {
             hash: chunk_hash,
             raw_size,
-            raw: Some(raw_data),
+            raw: Some(ChunkRawData::Owned(raw_data)),
+            compressed: None,
+        });
+    }
+
+    pub fn add_shared_chunk(&mut self, chunk_hash: String, raw_data: Arc<[u8]>) {
+        let raw_size = raw_data.len() as u64;
+        self.chunks.push(ChunkData {
+            hash: chunk_hash,
+            raw_size,
+            raw: Some(ChunkRawData::Shared(raw_data)),
             compressed: None,
         });
     }
@@ -83,7 +106,7 @@ impl BundleBuilder {
                     compressed.len() as u64
                 } else if let Some(raw) = &c.raw {
                     let compressed: std::result::Result<Vec<u8>, _> =
-                        compress::compress_with_level(raw, self.profile.zstd_level);
+                        compress::compress_with_level(raw.as_slice(), self.profile.zstd_level);
                     compressed
                         .map(|v: Vec<u8>| v.len() as u64)
                         .unwrap_or(u64::MAX)
@@ -110,75 +133,12 @@ impl BundleBuilder {
     }
 
     pub fn build_with_id_and_metrics(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
-        if self.profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
-            return self.build_bundle_compressed();
+        if self.profile.compression_unit != COMPRESSION_UNIT_BUNDLE {
+            return Err(crate::error::Error::InvalidBundle(
+                "gutch only supports bundle-compressed bundles".into(),
+            ));
         }
-
-        self.build_chunk_compressed()
-    }
-
-    fn build_chunk_compressed(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
-        let mut compressed_entries: Vec<(BundleTableEntry, Vec<u8>)> = Vec::new();
-        let mut current_offset: u64 = 0;
-
-        for chunk in &self.chunks {
-            let compressed_data = if let Some(compressed) = &chunk.compressed {
-                compressed.clone()
-            } else {
-                let raw = chunk.raw.as_ref().ok_or_else(|| {
-                    crate::error::Error::InvalidBundle(
-                        "chunk is missing raw and compressed bytes".into(),
-                    )
-                })?;
-                compress::compress_with_level(raw, self.profile.zstd_level)?
-            };
-            let compressed_size = compressed_data.len() as u64;
-            let entry = BundleTableEntry {
-                chunk_hash: chunk.hash.clone(),
-                raw_size: chunk.raw_size,
-                compressed_size,
-                compressed_offset: current_offset,
-                compression: "zstd".to_string(),
-                compression_unit: COMPRESSION_UNIT_CHUNK.to_string(),
-                raw_offset: 0,
-            };
-            compressed_entries.push((entry, compressed_data));
-            current_offset += compressed_size;
-        }
-
-        let chunk_count = compressed_entries.len() as u32;
-        let mut header = Vec::new();
-        header.extend_from_slice(MAGIC);
-        header.push(FORMAT_VERSION);
-        header.extend_from_slice(&chunk_count.to_le_bytes());
-        header.extend_from_slice(&0u32.to_le_bytes());
-
-        let table_json = serde_json::to_string(
-            &compressed_entries
-                .iter()
-                .map(|(e, _)| e)
-                .collect::<Vec<_>>(),
-        )?;
-        header.extend_from_slice(&(table_json.len() as u32).to_le_bytes());
-        header.extend_from_slice(table_json.as_bytes());
-
-        let serialization_start = Instant::now();
-        let mut bundle = header;
-        for (_, data) in &compressed_entries {
-            bundle.extend_from_slice(data);
-        }
-        let bundle_len = bundle.len() as u64;
-
-        let (bundle_id, bundle) = finalize_bundle_bytes(bundle);
-        Ok((
-            bundle_id,
-            bundle,
-            BundleBuildMetrics {
-                serialization: serialization_start.elapsed(),
-                serialization_bytes: bundle_len,
-                ..BundleBuildMetrics::default()
-            },
-        ))
+        self.build_bundle_compressed()
     }
 
     fn build_bundle_compressed(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
@@ -216,7 +176,7 @@ impl BundleBuilder {
                 )
             })?;
             encoder
-                .write_all(raw)
+                .write_all(raw.as_slice())
                 .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
         }
         let compressed_payload = encoder
@@ -328,7 +288,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let compression_unit = entries
             .first()
             .map(|entry| entry.compression_unit.clone())
-            .unwrap_or_else(|| COMPRESSION_UNIT_CHUNK.to_string());
+            .unwrap_or_else(|| COMPRESSION_UNIT_BUNDLE.to_string());
 
         Ok(BundleReader {
             entries,
@@ -365,12 +325,6 @@ impl<R: Read + Seek> BundleReader<R> {
     }
 
     pub fn stage_bundle_payload_to<W: Write>(&mut self, writer: &mut W) -> Result<u64> {
-        if self.compression_unit != COMPRESSION_UNIT_BUNDLE {
-            return Err(crate::error::Error::InvalidBundle(
-                "bundle payload staging only applies to bundle-compressed bundles".into(),
-            ));
-        }
-
         self.reader.seek(SeekFrom::Start(self.data_start))?;
         let mut compressed = vec![0u8; self.payload_size as usize];
         self.reader.read_exact(&mut compressed)?;
@@ -387,32 +341,6 @@ impl<R: Read + Seek> BundleReader<R> {
             )));
         }
 
-        if self.compression_unit == COMPRESSION_UNIT_BUNDLE {
-            return self.read_chunk_from_bundle_stream(index);
-        }
-
-        let entry = &self.entries[index];
-        self.reader
-            .seek(SeekFrom::Start(self.data_start + entry.compressed_offset))?;
-
-        let mut compressed = vec![0u8; entry.compressed_size as usize];
-        self.reader.read_exact(&mut compressed)?;
-
-        let decompressed = compress::decompress_chunk(&compressed)?;
-
-        let actual_hash = hash::hash_chunk(&decompressed);
-        let actual_hex = hash::hash_hex(&actual_hash);
-        if actual_hex != entry.chunk_hash {
-            return Err(crate::error::Error::HashMismatch {
-                expected: entry.chunk_hash.clone(),
-                actual: actual_hex,
-            });
-        }
-
-        Ok(decompressed)
-    }
-
-    fn read_chunk_from_bundle_stream(&mut self, index: usize) -> Result<Vec<u8>> {
         if self.bundle_raw_cache.is_none() {
             self.reader.seek(SeekFrom::Start(self.data_start))?;
             let mut compressed = vec![0u8; self.payload_size as usize];

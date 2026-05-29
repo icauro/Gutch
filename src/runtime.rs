@@ -86,30 +86,19 @@ pub struct RuntimePlan {
 }
 
 pub fn plan_build_runtime(hints: &RuntimeResourceHints, compression_unit: &str) -> RuntimePlan {
-    plan_runtime(hints, RuntimeWorkload::Build, compression_unit)
+    let _ = compression_unit;
+    plan_runtime(hints, RuntimeWorkload::Build)
 }
 
 pub fn plan_verify_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    plan_runtime(
-        hints,
-        RuntimeWorkload::Verify,
-        crate::manifest::COMPRESSION_UNIT_CHUNK,
-    )
+    plan_runtime(hints, RuntimeWorkload::Verify)
 }
 
 pub fn plan_reconstruct_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    plan_runtime(
-        hints,
-        RuntimeWorkload::Reconstruct,
-        crate::manifest::COMPRESSION_UNIT_CHUNK,
-    )
+    plan_runtime(hints, RuntimeWorkload::Reconstruct)
 }
 
-fn plan_runtime(
-    hints: &RuntimeResourceHints,
-    workload: RuntimeWorkload,
-    compression_unit: &str,
-) -> RuntimePlan {
+fn plan_runtime(hints: &RuntimeResourceHints, workload: RuntimeWorkload) -> RuntimePlan {
     let available_memory_mib = hints.max_memory_mib.or_else(detect_available_memory_mib);
     let effective_memory_mode =
         resolve_effective_memory_mode(hints.memory_mode, available_memory_mib);
@@ -148,9 +137,7 @@ fn plan_runtime(
     });
 
     let chunk_storage_mode = match effective_memory_mode {
-        EffectiveMemoryMode::High if compression_unit != crate::manifest::COMPRESSION_UNIT_BUNDLE => {
-            ChunkStorageMode::Memory
-        }
+        EffectiveMemoryMode::High => ChunkStorageMode::Memory,
         _ => ChunkStorageMode::TempSpill,
     };
 
@@ -283,7 +270,7 @@ mod tests {
                 max_memory_mib: Some(2048),
                 jobs: None,
             },
-            crate::manifest::COMPRESSION_UNIT_CHUNK,
+            crate::manifest::COMPRESSION_UNIT_BUNDLE,
         );
         assert_eq!(plan.effective_memory_mode, EffectiveMemoryMode::Low);
         assert_eq!(plan.chunk_storage_mode, ChunkStorageMode::TempSpill);
@@ -297,7 +284,7 @@ mod tests {
                 max_memory_mib: Some(32768),
                 jobs: Some(8),
             },
-            crate::manifest::COMPRESSION_UNIT_CHUNK,
+            crate::manifest::COMPRESSION_UNIT_BUNDLE,
         );
         assert_eq!(plan.effective_memory_mode, EffectiveMemoryMode::High);
         assert_eq!(plan.chunk_storage_mode, ChunkStorageMode::Memory);

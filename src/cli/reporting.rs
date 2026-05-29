@@ -45,13 +45,13 @@ fn print_blank_line() {
 }
 
 fn print_table_border() {
-    println!("  +------------------------+------------+--------------------------+--------------+");
+    println!("  +------------------------+------------+--------------------------+--------------------+");
 }
 
 fn print_table_header() {
     print_table_border();
     println!(
-        "  | {:<22} | {:>10} | {:<24} | {:>12} |",
+        "  | {:<22} | {:>10} | {:<24} | {:>18} |",
         "phase", "seconds", "bytes", "throughput"
     );
     print_table_border();
@@ -64,7 +64,7 @@ fn print_table_row(
     throughput: Option<String>,
 ) {
     println!(
-        "  | {:<22} | {:>10} | {:<24} | {:>12} |",
+        "  | {:<22} | {:>10} | {:<24} | {:>18} |",
         phase,
         seconds
             .map(|value| format!("{value:.2} s"))
@@ -72,6 +72,7 @@ fn print_table_row(
         bytes.unwrap_or_else(|| "-".to_string()),
         throughput.unwrap_or_else(|| "-".to_string()),
     );
+    print_table_border();
 }
 
 pub fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
@@ -120,6 +121,12 @@ pub struct BuildTimingsSummary {
     pub compression_input_mib_per_second: f64,
     pub compression_ratio_percent: f64,
     pub total_compressed_bytes: u64,
+    pub bundle_compressed_sort_seconds: f64,
+    pub bundle_compressed_sort_bytes: u64,
+    pub bundle_compressed_sort_mib_per_second: f64,
+    pub bundle_compressed_ratio_probe_seconds: f64,
+    pub bundle_compressed_ratio_probe_bytes: u64,
+    pub bundle_compressed_ratio_probe_mib_per_second: f64,
     pub bundle_compressed_payload_load_seconds: f64,
     pub bundle_compressed_payload_load_bytes: u64,
     pub bundle_compressed_payload_load_mib_per_second: f64,
@@ -202,6 +209,8 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
     let dedupe_lookup_seconds = secs(timings.dedupe_lookup);
     let compression_seconds = secs(timings.compression);
     let bundle_build_seconds = secs(timings.bundle_build);
+    let bundle_compressed_sort_seconds = secs(timings.bundle_compressed_sort);
+    let bundle_compressed_ratio_probe_seconds = secs(timings.bundle_compressed_ratio_probe);
     let bundle_compressed_payload_load_seconds = secs(timings.bundle_compressed_payload_load);
     let bundle_compressed_payload_assembly_seconds =
         secs(timings.bundle_compressed_payload_assembly);
@@ -282,6 +291,18 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
             timings.compression_input_bytes,
         ),
         total_compressed_bytes: timings.total_compressed_bytes,
+        bundle_compressed_sort_seconds,
+        bundle_compressed_sort_bytes: timings.bundle_compressed_sort_bytes,
+        bundle_compressed_sort_mib_per_second: mib_per_s(
+            timings.bundle_compressed_sort_bytes,
+            timings.bundle_compressed_sort,
+        ),
+        bundle_compressed_ratio_probe_seconds,
+        bundle_compressed_ratio_probe_bytes: timings.bundle_compressed_ratio_probe_bytes,
+        bundle_compressed_ratio_probe_mib_per_second: mib_per_s(
+            timings.bundle_compressed_ratio_probe_bytes,
+            timings.bundle_compressed_ratio_probe,
+        ),
         bundle_compressed_payload_load_seconds,
         bundle_compressed_payload_load_bytes: timings.bundle_compressed_payload_load_bytes,
         bundle_compressed_payload_load_mib_per_second: mib_per_s(
@@ -545,7 +566,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         "compression",
         Some(secs(t.compression)),
         Some(format!(
-            "in {:.2} / out {:.2} MiB",
+            "{:.2} / {:.2} MiB",
             mib(t.compression_input_bytes),
             mib(t.compression_output_bytes)
         )),
@@ -554,6 +575,34 @@ pub fn print_build_timings(t: &g::BuildTimings) {
             mib_per_s(t.compression_input_bytes, t.compression)
         )),
     );
+    if t.bundle_compressed_sort_bytes > 0 {
+        print_table_row(
+            "bundle sort",
+            Some(secs(t.bundle_compressed_sort)),
+            Some(format!("{:.2} MiB", mib(t.bundle_compressed_sort_bytes))),
+            Some(format!(
+                "{:.2} MiB/s",
+                mib_per_s(t.bundle_compressed_sort_bytes, t.bundle_compressed_sort)
+            )),
+        );
+    }
+    if t.bundle_compressed_ratio_probe_bytes > 0 {
+        print_table_row(
+            "bundle ratio probe",
+            Some(secs(t.bundle_compressed_ratio_probe)),
+            Some(format!(
+                "{:.2} MiB",
+                mib(t.bundle_compressed_ratio_probe_bytes)
+            )),
+            Some(format!(
+                "{:.2} MiB/s",
+                mib_per_s(
+                    t.bundle_compressed_ratio_probe_bytes,
+                    t.bundle_compressed_ratio_probe
+                )
+            )),
+        );
+    }
     if t.bundle_compressed_stream_input_bytes > 0 {
         print_table_row(
             "bundle payload load",
@@ -589,7 +638,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
             "bundle stream zstd",
             Some(secs(t.bundle_compressed_stream_compression)),
             Some(format!(
-                "in {:.2} / out {:.2} MiB",
+                "{:.2} / {:.2} MiB",
                 mib(t.bundle_compressed_stream_input_bytes),
                 mib(t.bundle_compressed_stream_output_bytes)
             )),
@@ -632,7 +681,6 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         None,
         None,
     );
-    print_table_border();
     print_metric_line(
         "compression ratio",
         format!(
@@ -644,7 +692,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         "total dedupe ratio",
         format!(
             "{:.2}%  (out / logical)",
-            ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)
+            ratio_pct(t.total_compressed_bytes, t.scan_read_bytes)
         ),
     );
     print_blank_line();

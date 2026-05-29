@@ -59,9 +59,9 @@ fn test_bundle_auto_selection_always_resolves_balanced() {
 #[test]
 fn test_compression_profile_defaults() {
     let p = CompressionProfile::default();
-    assert_eq!(p.zstd_level, 3);
+    assert_eq!(p.zstd_level, 1);
     assert_eq!(p.compression, "zstd");
-    assert_eq!(p.compression_unit, "chunk");
+    assert_eq!(p.compression_unit, "bundle");
 }
 
 #[test]

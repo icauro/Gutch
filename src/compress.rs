@@ -1,13 +1,6 @@
 use std::io::{Cursor, Write};
 
 use crate::error::Result;
-use crate::manifest::CompressionProfile;
-
-pub fn compress_chunk(data: &[u8], profile: &CompressionProfile) -> Result<Vec<u8>> {
-    let level = profile.zstd_level;
-    zstd::encode_all(data, level)
-        .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))
-}
 
 pub fn decompress_chunk(data: &[u8]) -> Result<Vec<u8>> {
     zstd::decode_all(data)

@@ -5,13 +5,14 @@ use crate::cli::common::{
     count_required_chunks, load_target_manifest_from_repo, prepare_input_path, write_bundles,
     write_report, write_target_manifest,
 };
+use crate::cli::progress::TargetInsertProgress;
 use crate::cli::verbose_output_enabled;
 use crate::cli::reporting::{
     build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
     ratio_pct, reconstruct_timings_summary,
 };
 use g::cli_identity::{apply_resolved_target_identity, parse_cli_tags, resolve_target_identity};
-use g::repo::{required_chunk_hashes, scan_existing_store_state};
+use g::repo::{rebuild_chunk_index_from_bundles, required_chunk_hashes, scan_existing_store_state};
 use gutch as g;
 
 pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
@@ -26,7 +27,6 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             tags,
             chunk_profile,
             bundle_profile,
-            compression_unit,
             memory_mode,
             max_memory_mib,
             jobs,
@@ -73,8 +73,8 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             );
             let compression_profile = g::manifest::CompressionProfile {
                 compression: g::manifest::COMPRESSION_ZSTD.to_string(),
-                compression_unit,
-                zstd_level: 3,
+                compression_unit: g::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                zstd_level: 1,
             };
 
             let mut build_config =
@@ -91,12 +91,15 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 max_memory_mib,
                 jobs,
             };
+            let build_progress = TargetInsertProgress::new();
+            build_config.progress = Some(build_progress.as_sink());
 
             let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
             let mut result = result;
             let target_id = g::compute_target_id_from_files(&result.target_manifest.files);
             result.target_manifest.target_id = target_id.clone();
             apply_resolved_target_identity(&mut result.target_manifest, &resolved_identity);
+            build_progress.set_message("write repo outputs");
 
             let target_root = repo_paths.targets_root.join(&target_id);
             if target_root.exists() {
@@ -117,6 +120,8 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
 
             let (manifest_path, _) = write_target_manifest(&target_root, &result.target_manifest)?;
             write_bundles(&bundles_root, &result.bundles)?;
+            let chunk_index = rebuild_chunk_index_from_bundles(&repo_paths)?;
+            g::write_chunk_index(&repo_paths, &chunk_index)?;
 
             if verbose_output_enabled() {
                 println!(
@@ -211,6 +216,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             repo_manifest.bundle_sizing_profile = bundle_sizing_profile;
             repo_manifest.compression_profile = compression_profile;
             g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
+            build_progress.finish_and_clear();
         }
 
         TargetCommands::Export {

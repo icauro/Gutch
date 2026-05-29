@@ -172,10 +172,9 @@ fn run_target_insert(theme: &ColorfulTheme) -> g::Result<()> {
     let tags = optional_tag_list(theme)?;
     let chunk_profile = prompt_chunk_profile(theme)?;
     let bundle_profile = prompt_bundle_profile(theme)?;
-    let compression_unit = prompt_compression_unit(theme)?;
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
-        "gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {} --compression-unit {}{}{}",
+        "gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {}{}{}",
         shell_arg_path(&dir),
         shell_arg_path(&repo),
         shell_arg(&version),
@@ -184,7 +183,6 @@ fn run_target_insert(theme: &ColorfulTheme) -> g::Result<()> {
         shell_arg(&tier),
         artifact_sizing_str(chunk_profile),
         bundle_sizing_str(bundle_profile),
-        shell_arg(&compression_unit),
         tags_preview_suffix(&tags),
         runtime_preview_suffix(&runtime),
     );
@@ -200,7 +198,6 @@ fn run_target_insert(theme: &ColorfulTheme) -> g::Result<()> {
         tags,
         chunk_profile,
         bundle_profile,
-        compression_unit,
         memory_mode: runtime.memory_mode,
         max_memory_mib: runtime.max_memory_mib,
         jobs: runtime.jobs,
@@ -537,7 +534,8 @@ fn edit_repo_profiles(
         g::manifest::ChunkSizingProfile::for_preset(prompt_chunk_profile(theme)?);
     repo_manifest.bundle_sizing_profile =
         g::manifest::BundleSizingProfile::for_preset(prompt_bundle_profile(theme)?);
-    repo_manifest.compression_profile.compression_unit = prompt_compression_unit(theme)?;
+    repo_manifest.compression_profile.compression_unit =
+        g::manifest::COMPRESSION_UNIT_BUNDLE.to_string();
     repo_manifest.compression_profile.zstd_level = prompt_i32_input(
         theme,
         "Zstd compression level",
@@ -621,17 +619,6 @@ fn prompt_bundle_profile(theme: &ColorfulTheme) -> g::Result<g::manifest::Bundle
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     Ok(options[selection].1.clone())
-}
-
-fn prompt_compression_unit(theme: &ColorfulTheme) -> g::Result<String> {
-    let options = ["chunk", "bundle"];
-    let selection = Select::with_theme(theme)
-        .with_prompt("Compression unit")
-        .items(&options)
-        .default(0)
-        .interact()
-        .map_err(dialoguer_to_manifest_error)?;
-    Ok(options[selection].to_string())
 }
 
 fn prompt_target_tag_kind(
