@@ -185,9 +185,7 @@ pub fn fetch_target_install_content(
     request: &TargetInstallFetchRequest,
 ) -> Result<TargetInstallFetchResult> {
     let repo_paths = crate::ContentRepoPaths::from_repo_root(&request.repo_path);
-    let target_root = repo_paths.targets_root.join(request.target_id.trim());
-
-    std::fs::create_dir_all(&target_root)?;
+    std::fs::create_dir_all(&repo_paths.targets_root)?;
     std::fs::create_dir_all(&repo_paths.bundles_root)?;
 
     let manifest_bytes = download_url(request.manifest_url.trim())?;
@@ -203,23 +201,23 @@ pub fn fetch_target_install_content(
     if let Some(sig_url) = request.manifest_sig_url.as_deref().map(str::trim) {
         if !sig_url.is_empty() {
             let sig_bytes = download_url(sig_url)?;
-            std::fs::write(target_root.join("manifest.sig"), sig_bytes)?;
+            std::fs::write(
+                crate::target_manifest_sig_path(&repo_paths, request.target_id.trim()),
+                sig_bytes,
+            )?;
             wrote_manifest_signature = true;
         }
     }
 
     let bundle_ids_from_chunk_index: Vec<String> = {
-        let chunk_index_path = repo_paths.chunk_index_path.clone();
-        let chunk_index = if chunk_index_path.exists() {
-            let json = std::fs::read_to_string(&chunk_index_path).ok();
-            json.and_then(|data| serde_json::from_str::<manifest::ChunkIndex>(&data).ok())
-        } else {
-            None
-        };
+        let chunk_index = crate::load_chunk_index(&repo_paths).ok();
 
         if let Some(index) = chunk_index {
-            let target: TargetManifest = serde_json::from_slice(&manifest_bytes)
+            let mut target: TargetManifest = serde_json::from_slice(&manifest_bytes)
                 .map_err(|err| Error::manifest(format!("invalid target manifest: {}", err)))?;
+            if target.target_id.trim().is_empty() {
+                target.target_id = request.target_id.clone();
+            }
             crate::repo::required_bundle_ids(&target, &index)
                 .into_iter()
                 .collect()
@@ -227,7 +225,12 @@ pub fn fetch_target_install_content(
             Vec::new()
         }
     };
-    std::fs::write(target_root.join("manifest.json"), &manifest_bytes)?;
+    let mut target_manifest: TargetManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|err| Error::manifest(format!("invalid target manifest: {}", err)))?;
+    if target_manifest.target_id.trim().is_empty() {
+        target_manifest.target_id = request.target_id.clone();
+    }
+    crate::write_target_manifest_artifacts(&repo_paths, &target_manifest)?;
     let bundles = if request.bundles.is_empty() && !bundle_ids_from_chunk_index.is_empty() {
         fetch_bundle_urls(request, &bundle_ids_from_chunk_index)?
     } else {
@@ -425,17 +428,28 @@ fn fetch_bundle_urls(
 }
 
 fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) -> Result<()> {
-    let content_repo_id = target_manifest
-        .get("content_repo_id")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("base");
+    let existing_manifest_path = repo_path.join(manifest::CONTENT_REPO_MANIFEST_FILE);
+    let content_repo_id = if existing_manifest_path.exists() {
+        let json = std::fs::read_to_string(&existing_manifest_path)?;
+        let existing_manifest: crate::manifest::content_repo::ContentRepoManifest =
+            serde_json::from_str(&json)?;
+        existing_manifest.content_repo_id
+    } else {
+        repo_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("base")
+            .to_string()
+    };
     let mut repo_manifest =
-        crate::manifest::content_repo::ContentRepoManifest::new(content_repo_id.to_string());
-    if let Some(created_at) = target_manifest
-        .get("created_at")
+        crate::manifest::content_repo::ContentRepoManifest::new(content_repo_id);
+    if let Some(inserted_at) = target_manifest
+        .get("inserted_at")
+        .or_else(|| target_manifest.get("created_at"))
         .and_then(serde_json::Value::as_str)
     {
-        repo_manifest.created_at = created_at.to_string();
+        repo_manifest.created_at = inserted_at.to_string();
     }
 
     let repo_json = serde_json::to_vec_pretty(&repo_manifest)?;

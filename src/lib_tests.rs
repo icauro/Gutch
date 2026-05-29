@@ -237,7 +237,7 @@ fn test_verify_directory_missing_file() {
     };
 
     let tags = exclusive_tags("v", "win", "x64", "base");
-    let mut vm = TargetManifest::new("base".into(), "1".into(), tags);
+    let mut vm = TargetManifest::new("1".into(), tags);
     vm.files.push(fm);
     let errors = verify_directory(&vm, &dir).unwrap();
     assert!(!errors.is_empty());

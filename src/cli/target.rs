@@ -101,24 +101,18 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             apply_resolved_target_identity(&mut result.target_manifest, &resolved_identity);
             build_progress.set_message("write repo outputs");
 
-            let target_root = repo_paths.targets_root.join(&target_id);
-            if target_root.exists() {
-                let existing_manifest_path = target_root.join("manifest.json");
-                if existing_manifest_path.exists() {
-                    let existing_manifest_json = std::fs::read_to_string(&existing_manifest_path)?;
-                    let existing_manifest: g::manifest::target::TargetManifest =
-                        serde_json::from_str(&existing_manifest_json)?;
+            let existing_manifest_path = g::target_manifest_path(&repo_paths, &target_id);
+            if existing_manifest_path.exists() {
+                let existing_manifest = g::load_target_manifest(&repo_paths, &target_id)?;
                     if existing_manifest.target_tags != result.target_manifest.target_tags {
                         return Err(g::Error::manifest(format!(
                             "target content id '{}' already exists with different target tags",
                             target_id
                         )));
                     }
-                }
             }
-            std::fs::create_dir_all(&target_root)?;
 
-            let (manifest_path, _) = write_target_manifest(&target_root, &result.target_manifest)?;
+            let (manifest_path, _) = write_target_manifest(&repo_paths, &result.target_manifest)?;
             write_bundles(&bundles_root, &result.bundles)?;
             let chunk_index = rebuild_chunk_index_from_bundles(&repo_paths)?;
             g::write_chunk_index(&repo_paths, &chunk_index)?;

@@ -1,3 +1,4 @@
+pub mod binary;
 pub mod content_repo;
 pub mod target;
 

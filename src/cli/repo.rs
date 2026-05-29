@@ -146,9 +146,8 @@ fn run_repo_sync_up(
 
     let mut target_manifest_uploaded_count = 0usize;
     for target in &status.targets {
-        let manifest_bytes = std::fs::read(&target.manifest_path)?;
-        let manifest: g::manifest::target::TargetManifest =
-            serde_json::from_slice(&manifest_bytes)?;
+        let manifest = g::load_target_manifest(&repo_paths, &target.target_id)?;
+        let manifest_bytes = g::serialize_target_manifest_for_remote(&manifest)?;
         let version = manifest
             .target_tags
             .get_exclusive("version")
@@ -438,20 +437,28 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
         RepoCommands::DeleteTarget { repo, target, yes } => {
             let (repo_paths, _repo_manifest, _, _tm) =
                 load_target_manifest_from_repo(&repo, &target)?;
-            let target_root = repo_paths.targets_root.join(&target);
+            let manifest_path = g::target_manifest_path(&repo_paths, &target);
+            let manifest_bin_path = g::target_manifest_bin_path(&repo_paths, &target);
+            let manifest_sig_path = g::target_manifest_sig_path(&repo_paths, &target);
             if !yes {
                 eprintln!(
-                    "WARNING: this will remove '{}' and may orphan bundles. Use --yes to confirm.",
-                    target_root.display()
+                    "WARNING: this will remove '{}' and related target artifacts, and may orphan bundles. Use --yes to confirm.",
+                    manifest_path.display()
                 );
                 return Err(g::Error::manifest("deletion requires --yes flag"));
             }
 
-            if target_root.exists() {
-                std::fs::remove_dir_all(&target_root)?;
-                if verbose_output_enabled() {
-                    println!("removed target: {}", target);
+            for path in [&manifest_path, &manifest_bin_path, &manifest_sig_path] {
+                if path.exists() {
+                    if path.is_dir() {
+                        std::fs::remove_dir_all(path)?;
+                    } else {
+                        std::fs::remove_file(path)?;
+                    }
                 }
+            }
+            if verbose_output_enabled() {
+                println!("removed target: {}", target);
             }
 
             let remaining_targets: HashSet<String> = {
@@ -459,13 +466,26 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 if repo_paths.targets_root.exists() {
                     for entry in std::fs::read_dir(&repo_paths.targets_root)? {
                         let entry = entry?;
-                        if entry.path().is_dir() {
-                            ids.insert(entry.file_name().to_string_lossy().to_string());
+                        if entry.path().is_file()
+                            && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+                        {
+                            if let Some(target_id) =
+                                entry.path().file_stem().and_then(|value| value.to_str())
+                            {
+                                ids.insert(target_id.to_string());
+                            }
                         }
                     }
                 }
                 ids
             };
+
+            let chunk_index = g::load_chunk_index(&repo_paths)?;
+            let mut required_bundle_ids = HashSet::new();
+            for target_id in &remaining_targets {
+                let manifest = g::load_target_manifest(&repo_paths, target_id)?;
+                required_bundle_ids.extend(g::repo::required_bundle_ids(&manifest, &chunk_index));
+            }
 
             let mut orphan_bundles = Vec::new();
             if repo_paths.bundles_root.exists() {
@@ -478,30 +498,7 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                         continue;
                     }
                     if let Some(bundle_id) = entry.path().file_stem().and_then(|s| s.to_str()) {
-                        let bundle_still_needed = remaining_targets.iter().any(|target_id| {
-                            let manifest_path = repo_paths
-                                .targets_root
-                                .join(target_id)
-                                .join("manifest.json");
-                            if !manifest_path.exists() {
-                                return false;
-                            }
-                            if let Ok(content) = std::fs::read_to_string(&manifest_path) {
-                                if let Ok(manifest) =
-                                    serde_json::from_str::<serde_json::Value>(&content)
-                                {
-                                    if let Some(bundle_set) = manifest
-                                        .get("required_bundle_set")
-                                        .and_then(|v| v.as_array())
-                                    {
-                                        return bundle_set
-                                            .iter()
-                                            .any(|b| b.as_str() == Some(bundle_id));
-                                    }
-                                }
-                            }
-                            false
-                        });
+                        let bundle_still_needed = required_bundle_ids.contains(bundle_id);
                         if !bundle_still_needed {
                             orphan_bundles.push(entry.path().to_path_buf());
                         }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::{ContentRepoPaths, write_chunk_index};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
@@ -24,11 +25,8 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
             },
         )]),
     };
-    std::fs::write(
-        repo_path.join("chunk_index.json"),
-        serde_json::to_string_pretty(&chunk_index).unwrap(),
-    )
-    .unwrap();
+    let paths = ContentRepoPaths::from_repo_root(&repo_path);
+    write_chunk_index(&paths, &chunk_index).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -48,13 +46,11 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                 "/manifest" => (
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
-                    "content_repo_id": "base",
-                    "target_id": "1.0.0-windows-x86_64-base",
                     "version_id": "1.0.0",
                     "platform": "windows",
                     "architecture": "x86_64",
                     "tier_id": "base",
-                    "created_at": "2026-05-11T00:00:00Z",
+                    "inserted_at": "2026-05-11T00:00:00Z",
                     "files": [
                         {
                             "path": "game.exe",
@@ -126,15 +122,19 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     assert!(
         repo_path
             .join("targets")
-            .join("1.0.0-windows-x86_64-base")
-            .join("manifest.json")
+            .join("1.0.0-windows-x86_64-base.json")
             .exists()
     );
     assert!(
         repo_path
             .join("targets")
-            .join("1.0.0-windows-x86_64-base")
-            .join("manifest.sig")
+            .join("1.0.0-windows-x86_64-base.bin")
+            .exists()
+    );
+    assert!(
+        repo_path
+            .join("targets")
+            .join("1.0.0-windows-x86_64-base.sig")
             .exists()
     );
     assert!(repo_path.join("bundles").join("bundle-a.bundle").exists());

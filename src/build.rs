@@ -470,11 +470,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
 
     let t = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut vm = TargetManifest::new(
-        config.content_repo_id.clone(),
-        config.target_id.clone(),
-        config.target_tags.clone(),
-    );
+    let mut vm = TargetManifest::new(config.target_id.clone(), config.target_tags.clone());
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
     vm.files = file_manifests;

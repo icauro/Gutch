@@ -15,7 +15,7 @@ fn content_repo_paths_from_repo_root() {
     let paths = ContentRepoPaths::from_repo_root(&root);
     assert_eq!(paths.repo_root, root);
     assert_eq!(paths.repo_manifest_path, root.join("repo_manifest.json"));
-    assert_eq!(paths.chunk_index_path, root.join("chunk_index.json"));
+    assert_eq!(paths.chunk_index_path, root.join("chunk_index.bin"));
     assert_eq!(paths.targets_root, root.join("targets"));
     assert_eq!(paths.bundles_root, root.join("bundles"));
 }
@@ -36,7 +36,6 @@ fn content_repo_paths_from_store_root() {
 #[test]
 fn required_bundle_ids_uses_chunk_index_mapping() {
     let mut manifest = TargetManifest::new(
-        "base".into(),
         "1.0.0-windows-x86_64-base".into(),
         manifest::TargetTagSet::default(),
     );
@@ -97,10 +96,7 @@ fn inspect_content_repo_reports_targets() {
     let _ = std::fs::remove_dir_all(&root);
 
     ensure_content_repo_layout(&repo_paths, "base").unwrap();
-    let target_root = repo_paths.targets_root.join("1");
-    std::fs::create_dir_all(&target_root).unwrap();
     let mut manifest = TargetManifest::new(
-        "base".to_string(),
         "1".to_string(),
         exclusive_tags("1.0.0", "windows", "x86_64", "base"),
     );
@@ -112,12 +108,8 @@ fn inspect_content_repo_reports_targets() {
         chunks: Vec::new(),
     });
 
-    std::fs::write(
-        target_root.join("manifest.json"),
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-    std::fs::write(target_root.join("manifest.sig"), b"sig").unwrap();
+    write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
+    std::fs::write(target_manifest_sig_path(&repo_paths, "1"), b"sig").unwrap();
     std::fs::write(repo_paths.bundles_root.join("bundle-a.bundle"), b"bundle-a").unwrap();
 
     let status = inspect_content_repo(&repo_root).unwrap();
@@ -302,10 +294,7 @@ fn inspect_repo_shows_target_tags() {
     let paths = ContentRepoPaths::from_repo_root(&root);
     ensure_content_repo_layout(&paths, "base").unwrap();
 
-    let target_root = paths.targets_root.join("2");
-    std::fs::create_dir_all(&target_root).unwrap();
     let mut manifest = TargetManifest::new(
-        "base".to_string(),
         "2".to_string(),
         exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
     );
@@ -316,11 +305,7 @@ fn inspect_repo_shows_target_tags() {
         full_file_hash: "abc".to_string(),
         chunks: vec![],
     });
-    std::fs::write(
-        target_root.join("manifest.json"),
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
+    write_target_manifest_artifacts(&paths, &manifest).unwrap();
 
     let status = inspect_content_repo(&root).unwrap();
     assert_eq!(status.targets.len(), 1);

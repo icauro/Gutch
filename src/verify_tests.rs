@@ -3,7 +3,7 @@ use crate::manifest::{TargetTagSet, target::TargetManifest};
 use crate::test_util;
 
 fn empty_manifest() -> TargetManifest {
-    TargetManifest::new("r1".into(), "t1".into(), TargetTagSet::default())
+    TargetManifest::new("t1".into(), TargetTagSet::default())
 }
 
 #[test]

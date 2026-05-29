@@ -5,7 +5,7 @@ use std::time::SystemTime;
 use crate::hash::hash_hex;
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::manifest::{
-    self, FileManifest, content_repo::ContentRepoManifest, target::TargetManifest,
+    self, FileManifest, binary, content_repo::ContentRepoManifest, target::TargetManifest,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,7 @@ impl ContentRepoPaths {
         Self {
             repo_root: repo_root.to_path_buf(),
             repo_manifest_path: repo_root.join(CONTENT_REPO_MANIFEST_FILE),
-            chunk_index_path: repo_root.join("chunk_index.json"),
+            chunk_index_path: repo_root.join("chunk_index.bin"),
             targets_root: repo_root.join("targets"),
             bundles_root: repo_root.join("bundles"),
         }
@@ -141,17 +141,31 @@ pub fn load_content_repo_manifest(
     Ok((paths, repo_manifest))
 }
 
-pub fn load_chunk_index(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex> {
-    if !paths.chunk_index_path.exists() {
-        return Ok(manifest::ChunkIndex {
-            format_version: "1.0.0".to_string(),
-            updated_at: String::new(),
-            entries: BTreeMap::new(),
-        });
+fn empty_chunk_index() -> manifest::ChunkIndex {
+    manifest::ChunkIndex {
+        format_version: manifest::FORMAT_VERSION.to_string(),
+        updated_at: String::new(),
+        entries: BTreeMap::new(),
     }
-    let json = std::fs::read_to_string(&paths.chunk_index_path)?;
-    let index: manifest::ChunkIndex = serde_json::from_str(&json)?;
-    Ok(index)
+}
+
+fn legacy_chunk_index_path(paths: &ContentRepoPaths) -> PathBuf {
+    paths.repo_root.join("chunk_index.json")
+}
+
+pub fn load_chunk_index(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex> {
+    if paths.chunk_index_path.exists() {
+        return binary::load_chunk_index_binary(&paths.chunk_index_path);
+    }
+
+    let legacy_path = legacy_chunk_index_path(paths);
+    if legacy_path.exists() {
+        let json = std::fs::read_to_string(&legacy_path)?;
+        let index: manifest::ChunkIndex = serde_json::from_str(&json)?;
+        return Ok(index);
+    }
+
+    Ok(empty_chunk_index())
 }
 
 pub fn required_chunk_hashes(target_manifest: &TargetManifest) -> HashSet<String> {
@@ -204,12 +218,16 @@ pub fn scan_existing_store_state(paths: &ContentRepoPaths) -> Result<ExistingSto
 
     for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
         let entry = entry?;
-        if !entry.path().is_file() || entry.file_name() != "manifest.json" {
+        if !entry.path().is_file()
+            || entry.path().extension().and_then(|value| value.to_str()) != Some("json")
+        {
             continue;
         }
 
-        let manifest_json = std::fs::read_to_string(entry.path())?;
-        let manifest: TargetManifest = serde_json::from_str(&manifest_json)?;
+        let Some(target_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let manifest = load_target_manifest(paths, target_id)?;
         for file in manifest.files {
             state
                 .previous_file_manifests
@@ -276,9 +294,7 @@ pub fn rebuild_chunk_index_from_bundles(paths: &ContentRepoPaths) -> Result<mani
 }
 
 pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
-    let json = serde_json::to_string_pretty(index)?;
-    std::fs::write(&paths.chunk_index_path, json)?;
-    Ok(())
+    binary::write_chunk_index_binary(&paths.chunk_index_path, index)
 }
 
 pub fn write_content_repo_manifest(
@@ -310,7 +326,67 @@ pub fn compute_target_id_from_files(files: &[FileManifest]) -> String {
 }
 
 pub fn target_manifest_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
-    paths.targets_root.join(target_id).join("manifest.json")
+    paths.targets_root.join(format!("{target_id}.json"))
+}
+
+pub fn target_manifest_bin_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
+    paths.targets_root.join(format!("{target_id}.bin"))
+}
+
+pub fn target_manifest_sig_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
+    paths.targets_root.join(format!("{target_id}.sig"))
+}
+
+pub fn load_target_manifest(paths: &ContentRepoPaths, target_id: &str) -> Result<TargetManifest> {
+    let manifest_path = target_manifest_path(paths, target_id);
+    let manifest_json = std::fs::read_to_string(&manifest_path)?;
+    load_target_manifest_from_json_text(paths, target_id, &manifest_json)
+}
+
+pub fn serialize_target_manifest_for_remote(target_manifest: &TargetManifest) -> Result<Vec<u8>> {
+    serde_json::to_vec_pretty(target_manifest).map_err(Into::into)
+}
+
+pub fn write_target_manifest_artifacts(
+    paths: &ContentRepoPaths,
+    target_manifest: &TargetManifest,
+) -> Result<(PathBuf, u64)> {
+    std::fs::create_dir_all(&paths.targets_root)?;
+
+    let manifest_path = target_manifest_path(paths, &target_manifest.target_id);
+    let bin_path = target_manifest_bin_path(paths, &target_manifest.target_id);
+
+    let shell = binary::target_manifest_shell_from_manifest(target_manifest);
+    let manifest_json = serde_json::to_vec_pretty(&shell)?;
+    std::fs::write(&manifest_path, &manifest_json)?;
+    binary::write_target_manifest_files_binary(&bin_path, target_manifest)?;
+
+    let manifest_size = std::fs::metadata(&manifest_path)?.len();
+    Ok((manifest_path, manifest_size))
+}
+
+fn load_target_manifest_from_json_text(
+    paths: &ContentRepoPaths,
+    target_id: &str,
+    manifest_json: &str,
+) -> Result<TargetManifest> {
+    let value: serde_json::Value = serde_json::from_str(manifest_json)?;
+    if value.get("files").is_some() {
+        let mut manifest: TargetManifest = serde_json::from_value(value)?;
+        if manifest.target_id.trim().is_empty() {
+            manifest.target_id = target_id.to_string();
+        }
+        return Ok(manifest);
+    }
+
+    let shell: binary::TargetManifestShell = serde_json::from_value(value)?;
+    let bin_path = target_manifest_bin_path(paths, target_id);
+    let files = binary::load_target_manifest_files_binary(&bin_path)?;
+    Ok(binary::target_manifest_from_shell(
+        shell,
+        target_id.to_string(),
+        files,
+    ))
 }
 
 pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
@@ -343,7 +419,7 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
     let (repo_paths, repo_manifest) = load_content_repo_manifest(&repo_path)?;
     let (_bundle_ids, bundle_count, bundle_bytes) =
         inspect_bundle_inventory(&repo_paths.bundles_root)?;
-    let targets = inspect_target_manifests(&repo_paths.targets_root, &repo_paths.bundles_root)?;
+    let targets = inspect_target_manifests(&repo_paths, &repo_paths.targets_root, &repo_paths.bundles_root)?;
 
     Ok(RepoInspectStatus {
         exists: true,
@@ -442,6 +518,7 @@ fn inspect_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usi
 }
 
 fn inspect_target_manifests(
+    repo_paths: &ContentRepoPaths,
     targets_root: &Path,
     bundles_root: &Path,
 ) -> Result<Vec<RepoInspectTargetStatus>> {
@@ -450,35 +527,20 @@ fn inspect_target_manifests(
     }
 
     let (available_bundle_ids, _, _) = inspect_bundle_inventory(bundles_root)?;
-    let chunk_index_path = bundles_root
-        .parent()
-        .map(|parent| parent.join("chunk_index.json"))
-        .unwrap_or_else(|| PathBuf::from("chunk_index.json"));
-    let chunk_index = if chunk_index_path.exists() {
-        let chunk_index_json = std::fs::read_to_string(&chunk_index_path)?;
-        serde_json::from_str(&chunk_index_json)?
-    } else {
-        manifest::ChunkIndex {
-            format_version: "1.0.0".to_string(),
-            updated_at: String::new(),
-            entries: BTreeMap::new(),
-        }
-    };
+    let chunk_index = load_chunk_index(repo_paths)?;
     let mut targets = Vec::new();
     for entry in std::fs::read_dir(targets_root)? {
         let entry = entry?;
         let path = entry.path();
-        if !path.is_dir() {
+        if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
         }
 
-        let manifest_path = path.join("manifest.json");
-        if !manifest_path.exists() {
+        let Some(target_id) = path.file_stem().and_then(|value| value.to_str()) else {
             continue;
-        }
-
-        let manifest_json = std::fs::read_to_string(&manifest_path)?;
-        let manifest: TargetManifest = serde_json::from_str(&manifest_json)?;
+        };
+        let manifest_path = path.clone();
+        let manifest = load_target_manifest(repo_paths, target_id)?;
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()
@@ -495,7 +557,7 @@ fn inspect_target_manifests(
             required_bundle_count: required_bundle_ids.len(),
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),
-            has_signature_file: path.join("manifest.sig").exists(),
+            has_signature_file: target_manifest_sig_path(repo_paths, &manifest.target_id).exists(),
             missing_bundle_count,
             target_tags: manifest.target_tags,
         });

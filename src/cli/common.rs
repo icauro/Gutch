@@ -495,9 +495,7 @@ pub(crate) fn load_target_manifest_from_repo(
         )));
     }
 
-    let manifest_json = std::fs::read_to_string(&manifest_path)?;
-    let target_manifest: g::manifest::target::TargetManifest =
-        serde_json::from_str(&manifest_json)?;
+    let target_manifest = g::load_target_manifest(&repo_paths, target_id)?;
     Ok((repo_paths, repo_manifest, manifest_path, target_manifest))
 }
 
@@ -630,17 +628,14 @@ pub(crate) fn parse_version_parts(version: &str) -> g::Result<(i32, i32, i32)> {
 }
 
 pub(crate) fn write_target_manifest(
-    target_root: &std::path::Path,
+    repo_paths: &g::ContentRepoPaths,
     target_manifest: &g::manifest::target::TargetManifest,
 ) -> g::Result<(PathBuf, u64)> {
-    std::fs::create_dir_all(target_root)?;
-    let manifest_path = target_root.join("manifest.json");
-    let manifest_json = serde_json::to_string_pretty(target_manifest)?;
-    std::fs::write(&manifest_path, &manifest_json)?;
+    let (manifest_path, manifest_size) =
+        g::write_target_manifest_artifacts(repo_paths, target_manifest)?;
     if verbose_output_enabled() {
         println!("wrote target manifest: {}", manifest_path.display());
     }
-    let manifest_size = std::fs::metadata(&manifest_path)?.len();
     Ok((manifest_path, manifest_size))
 }
 
