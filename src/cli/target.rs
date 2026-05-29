@@ -5,6 +5,7 @@ use crate::cli::common::{
     count_required_chunks, load_target_manifest_from_repo, prepare_input_path, write_bundles,
     write_report, write_target_manifest,
 };
+use crate::cli::verbose_output_enabled;
 use crate::cli::reporting::{
     build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
     ratio_pct, reconstruct_timings_summary,
@@ -53,12 +54,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 resolve_target_identity(&dir, &explicit_tags, &rules, &context)?;
             let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
             let content_repo = repo_manifest.content_repo_id.clone();
-            let target_id = g::generate_target_id();
-
-            let target_root = repo_paths.targets_root.join(&target_id);
             let bundles_root = repo_paths.bundles_root.clone();
-
-            std::fs::create_dir_all(&target_root)?;
 
             let existing_store_state = scan_existing_store_state(&repo_paths)?;
             let existing_chunk_ids = existing_store_state
@@ -82,7 +78,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             };
 
             let mut build_config =
-                g::BuildConfig::with_ids(&content_repo, &target_id, &resolved_identity.target_tags);
+                g::BuildConfig::with_ids(&content_repo, "", &resolved_identity.target_tags);
             build_config.existing_chunk_locations = existing_store_state.chunk_locations.clone();
             build_config.existing_bundle_ids = existing_store_state.bundle_ids.clone();
             build_config.previous_file_manifests =
@@ -98,23 +94,45 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
 
             let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
             let mut result = result;
+            let target_id = g::compute_target_id_from_files(&result.target_manifest.files);
+            result.target_manifest.target_id = target_id.clone();
             apply_resolved_target_identity(&mut result.target_manifest, &resolved_identity);
+
+            let target_root = repo_paths.targets_root.join(&target_id);
+            if target_root.exists() {
+                let existing_manifest_path = target_root.join("manifest.json");
+                if existing_manifest_path.exists() {
+                    let existing_manifest_json = std::fs::read_to_string(&existing_manifest_path)?;
+                    let existing_manifest: g::manifest::target::TargetManifest =
+                        serde_json::from_str(&existing_manifest_json)?;
+                    if existing_manifest.target_tags != result.target_manifest.target_tags {
+                        return Err(g::Error::manifest(format!(
+                            "target content id '{}' already exists with different target tags",
+                            target_id
+                        )));
+                    }
+                }
+            }
+            std::fs::create_dir_all(&target_root)?;
 
             let (manifest_path, _) = write_target_manifest(&target_root, &result.target_manifest)?;
             write_bundles(&bundles_root, &result.bundles)?;
 
-            println!(
-                "done. {} files in manifest, total logical: {} bytes",
-                result.target_manifest.files.len(),
-                result.target_manifest.total_logical_size
-            );
-
-            if let Ok(est) = g::estimate_build(&result.target_manifest, &Default::default(), 0) {
+            if verbose_output_enabled() {
                 println!(
-                    "estimate: {} chunks missing, {:.1} MiB logical",
-                    est.missing_chunk_count,
-                    est.missing_logical_bytes as f64 / (1024.0 * 1024.0)
+                    "done. {} files in manifest, total logical: {} bytes",
+                    result.target_manifest.files.len(),
+                    result.target_manifest.total_logical_size
                 );
+
+                if let Ok(est) = g::estimate_build(&result.target_manifest, &Default::default(), 0)
+                {
+                    println!(
+                        "estimate: {} chunks missing, {:.1} MiB logical",
+                        est.missing_chunk_count,
+                        est.missing_logical_bytes as f64 / (1024.0 * 1024.0)
+                    );
+                }
             }
 
             print_build_timings(&timings);
@@ -222,7 +240,9 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 &output,
                 &runtime_hints,
             )?;
-            println!("reconstructed to: {}", output.display());
+            if verbose_output_enabled() {
+                println!("reconstructed to: {}", output.display());
+            }
             print_reconstruct_timings(&timings);
 
             let stats = TargetExportStats {

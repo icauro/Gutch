@@ -57,7 +57,7 @@ pub use reconstruct::{
 };
 pub use repo::{
     ContentRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
-    discover_source_target_installs, ensure_content_repo_layout, generate_target_id,
+    compute_target_id_from_files, discover_source_target_installs, ensure_content_repo_layout,
     inspect_content_repo, load_chunk_index, load_content_repo_manifest, target_manifest_path,
     write_chunk_index, write_content_repo_manifest,
 };

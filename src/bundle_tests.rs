@@ -13,8 +13,7 @@ fn test_build_and_read_bundle() {
     builder.add_chunk(hash1.clone(), chunk1_data.to_vec());
     builder.add_chunk(hash2.clone(), chunk2_data.to_vec());
 
-    let _bundle_id = builder.compute_bundle_id();
-    let bundle_data = builder.build().unwrap();
+    let (_bundle_id, bundle_data) = builder.build_with_id().unwrap();
 
     let mut reader = read_bundle(&bundle_data).unwrap();
     assert_eq!(reader.chunk_count(), 2);
@@ -92,17 +91,17 @@ fn test_bundle_id_deterministic() {
 
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
     b1.add_chunk(hash1.clone(), data1.to_vec());
-    let id1 = b1.compute_bundle_id();
+    let (id1, _) = b1.build_with_id().unwrap();
 
     let mut b2 = BundleBuilder::new(CompressionProfile::default());
     b2.add_chunk(hash1, data1.to_vec());
-    let id2 = b2.compute_bundle_id();
+    let (id2, _) = b2.build_with_id().unwrap();
 
     assert_eq!(id1, id2);
 }
 
 #[test]
-fn test_bundle_id_different_order() {
+fn test_bundle_id_depends_on_final_bundle_bytes() {
     let d1 = b"chunk a ".repeat(10);
     let d2 = b"chunk b ".repeat(10);
     let h1 = hash::hash_hex(&hash::hash_chunk(&d1));
@@ -111,17 +110,14 @@ fn test_bundle_id_different_order() {
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
     b1.add_chunk(h1.clone(), d1.to_vec());
     b1.add_chunk(h2.clone(), d2.to_vec());
-    let id1 = b1.compute_bundle_id();
+    let (id1, _) = b1.build_with_id().unwrap();
 
     let mut b2 = BundleBuilder::new(CompressionProfile::default());
     b2.add_chunk(h2, d2.to_vec());
     b2.add_chunk(h1, d1.to_vec());
-    let id2 = b2.compute_bundle_id();
+    let (id2, _) = b2.build_with_id().unwrap();
 
-    assert_eq!(
-        id1, id2,
-        "bundle ID should be independent of chunk insertion order"
-    );
+    assert_ne!(id1, id2, "bundle ID should reflect final bundle bytes");
 }
 
 #[test]

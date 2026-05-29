@@ -75,6 +75,15 @@ fn build_timings_summary_reports_accounted_and_ratio_fields() {
         compression_input_bytes: 20 * 1024 * 1024,
         compression_output_bytes: 5 * 1024 * 1024,
         total_compressed_bytes: 5 * 1024 * 1024,
+        bundle_compressed_payload_load: Duration::from_millis(500),
+        bundle_compressed_payload_load_bytes: 10 * 1024 * 1024,
+        bundle_compressed_payload_assembly: Duration::from_millis(250),
+        bundle_compressed_payload_assembly_bytes: 10 * 1024 * 1024,
+        bundle_compressed_stream_compression: Duration::from_secs(2),
+        bundle_compressed_stream_input_bytes: 20 * 1024 * 1024,
+        bundle_compressed_stream_output_bytes: 5 * 1024 * 1024,
+        bundle_compressed_serialization: Duration::from_millis(200),
+        bundle_compressed_serialization_bytes: 6 * 1024 * 1024,
         bundle_build: Duration::from_secs(1),
         bundle_build_bytes: 5 * 1024 * 1024,
         target_manifest_finalize: Duration::from_secs(1),
@@ -88,6 +97,8 @@ fn build_timings_summary_reports_accounted_and_ratio_fields() {
     assert!((summary.unaccounted_seconds - 1.0).abs() < f64::EPSILON);
     assert!((summary.accounted_percent_of_total - (11.0 / 12.0 * 100.0)).abs() < 1e-9);
     assert!((summary.scan_read_mib_per_second - 10.0).abs() < f64::EPSILON);
+    assert!((summary.bundle_compressed_payload_load_mib_per_second - 20.0).abs() < f64::EPSILON);
+    assert!((summary.bundle_compressed_stream_ratio_percent - 25.0).abs() < f64::EPSILON);
 }
 
 #[test]

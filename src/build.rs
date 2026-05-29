@@ -315,17 +315,31 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
         );
 
         for (hash, payload) in sorted_chunks {
+            let t = Instant::now();
             let data = payload.load_bytes()?;
+            timings.bundle_compressed_payload_load += t.elapsed();
+            timings.bundle_compressed_payload_load_bytes += data.len() as u64;
             let raw_size = data.len() as u64;
             if !builder.is_empty()
                 && current_bundle_raw_size + raw_size > current_bundle_raw_target_size
             {
-                let bundle_id = builder.compute_bundle_id();
+                let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
                 required_bundle_set.push(bundle_id.clone());
                 if !config.existing_bundle_ids.contains(&bundle_id) {
-                    let bundle_data = builder.build()?;
                     timings.compression_output_bytes += bundle_data.len() as u64;
                     total_compressed += bundle_data.len() as u64;
+                    timings.bundle_compressed_payload_assembly += bundle_metrics.payload_assembly;
+                    timings.bundle_compressed_payload_assembly_bytes +=
+                        bundle_metrics.payload_assembly_bytes;
+                    timings.bundle_compressed_stream_compression +=
+                        bundle_metrics.stream_compression;
+                    timings.bundle_compressed_stream_input_bytes +=
+                        bundle_metrics.stream_input_bytes;
+                    timings.bundle_compressed_stream_output_bytes +=
+                        bundle_metrics.stream_output_bytes;
+                    timings.bundle_compressed_serialization += bundle_metrics.serialization;
+                    timings.bundle_compressed_serialization_bytes +=
+                        bundle_metrics.serialization_bytes;
                     bundle_compression_ratio = update_bundle_compression_ratio(
                         bundle_compression_ratio,
                         current_bundle_raw_size,
@@ -388,10 +402,9 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
         for chunk in sorted_chunks {
             let compressed_size = chunk.compressed.len() as u64;
             if !builder.is_empty() && current_bundle_size + compressed_size > bundle_target_size {
-                let bundle_id = builder.compute_bundle_id();
+                let (bundle_id, bundle_data) = builder.build_with_id()?;
                 required_bundle_set.push(bundle_id.clone());
                 if !config.existing_bundle_ids.contains(&bundle_id) {
-                    let bundle_data = builder.build()?;
                     bundles.push(BuiltBundle {
                         bundle_id,
                         data: bundle_data,
@@ -407,13 +420,24 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     }
 
     if !builder.is_empty() {
-        let bundle_id = builder.compute_bundle_id();
+        let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
         required_bundle_set.push(bundle_id.clone());
         if !config.existing_bundle_ids.contains(&bundle_id) {
-            let bundle_data = builder.build()?;
             if compression_profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
                 timings.compression_output_bytes += bundle_data.len() as u64;
                 total_compressed += bundle_data.len() as u64;
+                timings.bundle_compressed_payload_assembly += bundle_metrics.payload_assembly;
+                timings.bundle_compressed_payload_assembly_bytes +=
+                    bundle_metrics.payload_assembly_bytes;
+                timings.bundle_compressed_stream_compression +=
+                    bundle_metrics.stream_compression;
+                timings.bundle_compressed_stream_input_bytes +=
+                    bundle_metrics.stream_input_bytes;
+                timings.bundle_compressed_stream_output_bytes +=
+                    bundle_metrics.stream_output_bytes;
+                timings.bundle_compressed_serialization += bundle_metrics.serialization;
+                timings.bundle_compressed_serialization_bytes +=
+                    bundle_metrics.serialization_bytes;
             }
             bundles.push(BuiltBundle {
                 bundle_id,

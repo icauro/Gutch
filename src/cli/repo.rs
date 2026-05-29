@@ -11,6 +11,7 @@ use crate::cli::backend::{
 use crate::cli::common::{
     load_optional_rules, load_target_manifest_from_repo, parse_version_parts, session_id_for_cli,
 };
+use crate::cli::{SECTION_SEPARATOR, verbose_output_enabled};
 use crate::cli::reporting::{
     ensure_parent_directory,
 };
@@ -148,12 +149,6 @@ fn run_repo_sync_up(
         let manifest_bytes = std::fs::read(&target.manifest_path)?;
         let manifest: g::manifest::target::TargetManifest =
             serde_json::from_slice(&manifest_bytes)?;
-        let target_id = manifest.target_id.parse::<i64>().map_err(|_| {
-            g::Error::manifest(format!(
-                "target '{}' has a non-numeric local target id; repo sync-up expects numeric target ids",
-                manifest.target_id
-            ))
-        })?;
         let version = manifest
             .target_tags
             .get_exclusive("version")
@@ -191,7 +186,7 @@ fn run_repo_sync_up(
                         .header("Accept", "application/json")
                         .header("Authorization", format!("Bearer {}", session_id))
                         .json(&serde_json::json!({
-                            "targetId": target_id,
+                            "targetId": manifest.target_id,
                             "versionMajor": version_major,
                             "versionMinor": version_minor,
                             "versionPatch": version_patch,
@@ -353,16 +348,27 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             }
 
             if status.is_repo {
-                println!(
-                    "inspected content repo {} at {}",
-                    status.content_repo_id, status.repo_path
-                );
-                println!(
-                    "targets: {}, bundles: {} ({} bytes)",
-                    status.targets.len(),
-                    status.bundle_count,
-                    status.bundle_bytes
-                );
+                println!("{SECTION_SEPARATOR}");
+                println!("Targets");
+                for target in &status.targets {
+                    println!(
+                        "{} | version={} | os={} | arch={} | tier={} | files={} | missing_bundles={}",
+                        target.target_id,
+                        target.version_id,
+                        target.platform,
+                        target.architecture,
+                        target.tier_id,
+                        target.file_count,
+                        target.missing_bundle_count
+                    );
+                }
+                println!("{SECTION_SEPARATOR}");
+                println!("Total");
+                println!("content_repo_id: {}", status.content_repo_id);
+                println!("repo_path: {}", status.repo_path);
+                println!("targets: {}", status.targets.len());
+                println!("bundles: {}", status.bundle_count);
+                println!("bundle_bytes: {}", status.bundle_bytes);
             } else if let Some(error) = status.error.as_deref() {
                 println!("inspect status: {}", error);
             } else {
@@ -384,11 +390,23 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 std::fs::write(json_out, serde_json::to_vec_pretty(&candidates)?)?;
             }
 
-            println!(
-                "discovered {} matching source target folders in {}",
-                candidates.len(),
-                source_targets_root.display()
-            );
+            println!("{SECTION_SEPARATOR}");
+            println!("Targets");
+            for candidate in &candidates {
+                println!(
+                    "{} | path={} | version={} | os={} | arch={} | tier={}",
+                    candidate.target_id,
+                    candidate.path,
+                    candidate.version_id,
+                    candidate.platform,
+                    candidate.architecture,
+                    candidate.tier_id
+                );
+            }
+            println!("{SECTION_SEPARATOR}");
+            println!("Total");
+            println!("count: {}", candidates.len());
+            println!("source_targets_root: {}", source_targets_root.display());
         }
 
         RepoCommands::List { repo, json_out } => {
@@ -405,15 +423,16 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 std::fs::write(json_out, serde_json::to_vec_pretty(&status.targets)?)?;
             }
 
-            println!(
-                "repo {} has {} targets, {} bundles",
-                status.content_repo_id,
-                status.targets.len(),
-                status.bundle_count
-            );
+            println!("{SECTION_SEPARATOR}");
+            println!("Targets");
             for target in &status.targets {
-                println!("  - {}", target.target_id);
+                println!("{}", target.target_id);
             }
+            println!("{SECTION_SEPARATOR}");
+            println!("Total");
+            println!("content_repo_id: {}", status.content_repo_id);
+            println!("targets: {}", status.targets.len());
+            println!("bundles: {}", status.bundle_count);
         }
 
         RepoCommands::DeleteTarget { repo, target, yes } => {
@@ -430,7 +449,9 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
 
             if target_root.exists() {
                 std::fs::remove_dir_all(&target_root)?;
-                println!("removed target: {}", target);
+                if verbose_output_enabled() {
+                    println!("removed target: {}", target);
+                }
             }
 
             let remaining_targets: HashSet<String> = {
@@ -490,7 +511,9 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
 
             for orphan_path in &orphan_bundles {
                 std::fs::remove_file(orphan_path)?;
-                println!("removed orphaned bundle: {}", orphan_path.display());
+                if verbose_output_enabled() {
+                    println!("removed orphaned bundle: {}", orphan_path.display());
+                }
             }
 
             println!(

@@ -44,6 +44,36 @@ fn print_blank_line() {
     println!();
 }
 
+fn print_table_border() {
+    println!("  +------------------------+------------+--------------------------+--------------+");
+}
+
+fn print_table_header() {
+    print_table_border();
+    println!(
+        "  | {:<22} | {:>10} | {:<24} | {:>12} |",
+        "phase", "seconds", "bytes", "throughput"
+    );
+    print_table_border();
+}
+
+fn print_table_row(
+    phase: &str,
+    seconds: Option<f64>,
+    bytes: Option<String>,
+    throughput: Option<String>,
+) {
+    println!(
+        "  | {:<22} | {:>10} | {:<24} | {:>12} |",
+        phase,
+        seconds
+            .map(|value| format!("{value:.2} s"))
+            .unwrap_or_else(|| "-".to_string()),
+        bytes.unwrap_or_else(|| "-".to_string()),
+        throughput.unwrap_or_else(|| "-".to_string()),
+    );
+}
+
 pub fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
     if denominator == 0 {
         0.0
@@ -90,6 +120,20 @@ pub struct BuildTimingsSummary {
     pub compression_input_mib_per_second: f64,
     pub compression_ratio_percent: f64,
     pub total_compressed_bytes: u64,
+    pub bundle_compressed_payload_load_seconds: f64,
+    pub bundle_compressed_payload_load_bytes: u64,
+    pub bundle_compressed_payload_load_mib_per_second: f64,
+    pub bundle_compressed_payload_assembly_seconds: f64,
+    pub bundle_compressed_payload_assembly_bytes: u64,
+    pub bundle_compressed_payload_assembly_mib_per_second: f64,
+    pub bundle_compressed_stream_compression_seconds: f64,
+    pub bundle_compressed_stream_input_bytes: u64,
+    pub bundle_compressed_stream_output_bytes: u64,
+    pub bundle_compressed_stream_input_mib_per_second: f64,
+    pub bundle_compressed_stream_ratio_percent: f64,
+    pub bundle_compressed_serialization_seconds: f64,
+    pub bundle_compressed_serialization_bytes: u64,
+    pub bundle_compressed_serialization_mib_per_second: f64,
     pub bundle_build_seconds: f64,
     pub bundle_build_bytes: u64,
     pub bundle_build_mib_per_second: f64,
@@ -158,6 +202,13 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
     let dedupe_lookup_seconds = secs(timings.dedupe_lookup);
     let compression_seconds = secs(timings.compression);
     let bundle_build_seconds = secs(timings.bundle_build);
+    let bundle_compressed_payload_load_seconds = secs(timings.bundle_compressed_payload_load);
+    let bundle_compressed_payload_assembly_seconds =
+        secs(timings.bundle_compressed_payload_assembly);
+    let bundle_compressed_stream_compression_seconds =
+        secs(timings.bundle_compressed_stream_compression);
+    let bundle_compressed_serialization_seconds =
+        secs(timings.bundle_compressed_serialization);
     let target_manifest_finalize_seconds = secs(timings.target_manifest_finalize);
     let total_seconds = secs(timings.total);
     let accounted_seconds = secs_f64_sum(&[
@@ -231,6 +282,35 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
             timings.compression_input_bytes,
         ),
         total_compressed_bytes: timings.total_compressed_bytes,
+        bundle_compressed_payload_load_seconds,
+        bundle_compressed_payload_load_bytes: timings.bundle_compressed_payload_load_bytes,
+        bundle_compressed_payload_load_mib_per_second: mib_per_s(
+            timings.bundle_compressed_payload_load_bytes,
+            timings.bundle_compressed_payload_load,
+        ),
+        bundle_compressed_payload_assembly_seconds,
+        bundle_compressed_payload_assembly_bytes: timings.bundle_compressed_payload_assembly_bytes,
+        bundle_compressed_payload_assembly_mib_per_second: mib_per_s(
+            timings.bundle_compressed_payload_assembly_bytes,
+            timings.bundle_compressed_payload_assembly,
+        ),
+        bundle_compressed_stream_compression_seconds,
+        bundle_compressed_stream_input_bytes: timings.bundle_compressed_stream_input_bytes,
+        bundle_compressed_stream_output_bytes: timings.bundle_compressed_stream_output_bytes,
+        bundle_compressed_stream_input_mib_per_second: mib_per_s(
+            timings.bundle_compressed_stream_input_bytes,
+            timings.bundle_compressed_stream_compression,
+        ),
+        bundle_compressed_stream_ratio_percent: ratio_pct(
+            timings.bundle_compressed_stream_output_bytes,
+            timings.bundle_compressed_stream_input_bytes,
+        ),
+        bundle_compressed_serialization_seconds,
+        bundle_compressed_serialization_bytes: timings.bundle_compressed_serialization_bytes,
+        bundle_compressed_serialization_mib_per_second: mib_per_s(
+            timings.bundle_compressed_serialization_bytes,
+            timings.bundle_compressed_serialization,
+        ),
         bundle_build_seconds,
         bundle_build_bytes: timings.bundle_build_bytes,
         bundle_build_mib_per_second: mib_per_s(timings.bundle_build_bytes, timings.bundle_build),
@@ -423,83 +503,154 @@ pub fn print_build_timings(t: &g::BuildTimings) {
             ),
         );
     }
-    print_metric_line(
+    print_table_header();
+    print_table_row(
         "read files",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.scan_read),
-            mib(t.scan_read_bytes),
-            mib_per_s(t.scan_read_bytes, t.scan_read)
-        ),
+        Some(secs(t.scan_read)),
+        Some(format!("{:.2} MiB", mib(t.scan_read_bytes))),
+        Some(format!("{:.2} MiB/s", mib_per_s(t.scan_read_bytes, t.scan_read))),
     );
-    print_metric_line(
+    print_table_row(
         "file hashing",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.file_hash),
-            mib(t.file_hash_bytes),
-            mib_per_s(t.file_hash_bytes, t.file_hash)
-        ),
+        Some(secs(t.file_hash)),
+        Some(format!("{:.2} MiB", mib(t.file_hash_bytes))),
+        Some(format!("{:.2} MiB/s", mib_per_s(t.file_hash_bytes, t.file_hash))),
     );
-    print_metric_line(
+    print_table_row(
         "chunking",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.chunking),
-            mib(t.chunking_bytes),
-            mib_per_s(t.chunking_bytes, t.chunking)
-        ),
+        Some(secs(t.chunking)),
+        Some(format!("{:.2} MiB", mib(t.chunking_bytes))),
+        Some(format!("{:.2} MiB/s", mib_per_s(t.chunking_bytes, t.chunking))),
     );
-    print_metric_line(
+    print_table_row(
         "chunk hash",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.chunk_hash_judgment),
-            mib(t.chunk_hash_judgment_bytes),
+        Some(secs(t.chunk_hash_judgment)),
+        Some(format!("{:.2} MiB", mib(t.chunk_hash_judgment_bytes))),
+        Some(format!(
+            "{:.2} MiB/s",
             mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment)
-        ),
+        )),
     );
-    print_metric_line("metadata", format!("{:.2} s", secs(t.metadata)));
-    print_metric_line(
+    print_table_row("metadata", Some(secs(t.metadata)), None, None);
+    print_table_row(
         "dedupe lookup",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.dedupe_lookup),
-            mib(t.dedupe_lookup_bytes),
+        Some(secs(t.dedupe_lookup)),
+        Some(format!("{:.2} MiB", mib(t.dedupe_lookup_bytes))),
+        Some(format!(
+            "{:.2} MiB/s",
             mib_per_s(t.dedupe_lookup_bytes, t.dedupe_lookup)
-        ),
+        )),
     );
-    print_metric_line(
+    print_table_row(
         "compression",
-        format!(
-            "{:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
-            secs(t.compression),
+        Some(secs(t.compression)),
+        Some(format!(
+            "in {:.2} / out {:.2} MiB",
             mib(t.compression_input_bytes),
-            mib(t.compression_output_bytes),
+            mib(t.compression_output_bytes)
+        )),
+        Some(format!(
+            "{:.2} MiB/s",
             mib_per_s(t.compression_input_bytes, t.compression)
-        ),
+        )),
     );
-    print_metric_line(
+    if t.bundle_compressed_stream_input_bytes > 0 {
+        print_table_row(
+            "bundle payload load",
+            Some(secs(t.bundle_compressed_payload_load)),
+            Some(format!(
+                "{:.2} MiB",
+                mib(t.bundle_compressed_payload_load_bytes)
+            )),
+            Some(format!(
+                "{:.2} MiB/s",
+                mib_per_s(
+                    t.bundle_compressed_payload_load_bytes,
+                    t.bundle_compressed_payload_load
+                )
+            )),
+        );
+        print_table_row(
+            "bundle payload asm",
+            Some(secs(t.bundle_compressed_payload_assembly)),
+            Some(format!(
+                "{:.2} MiB",
+                mib(t.bundle_compressed_payload_assembly_bytes)
+            )),
+            Some(format!(
+                "{:.2} MiB/s",
+                mib_per_s(
+                    t.bundle_compressed_payload_assembly_bytes,
+                    t.bundle_compressed_payload_assembly
+                )
+            )),
+        );
+        print_table_row(
+            "bundle stream zstd",
+            Some(secs(t.bundle_compressed_stream_compression)),
+            Some(format!(
+                "in {:.2} / out {:.2} MiB",
+                mib(t.bundle_compressed_stream_input_bytes),
+                mib(t.bundle_compressed_stream_output_bytes)
+            )),
+            Some(format!(
+                "{:.2} MiB/s",
+                mib_per_s(
+                    t.bundle_compressed_stream_input_bytes,
+                    t.bundle_compressed_stream_compression
+                )
+            )),
+        );
+        print_table_row(
+            "bundle serialize",
+            Some(secs(t.bundle_compressed_serialization)),
+            Some(format!(
+                "{:.2} MiB",
+                mib(t.bundle_compressed_serialization_bytes)
+            )),
+            Some(format!(
+                "{:.2} MiB/s",
+                mib_per_s(
+                    t.bundle_compressed_serialization_bytes,
+                    t.bundle_compressed_serialization
+                )
+            )),
+        );
+    }
+    print_table_row(
         "compression ratio",
-        format!("{:.2}%  (out / in)", ratio_pct(t.compression_output_bytes, t.compression_input_bytes)),
+        None,
+        Some(format!(
+            "{:.2}% (out / in)",
+            ratio_pct(t.compression_output_bytes, t.compression_input_bytes)
+        )),
+        None,
     );
-    print_metric_line(
+    print_table_row(
         "total dedupe ratio",
-        format!("{:.2}%  (out / logical)", ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)),
+        None,
+        Some(format!(
+            "{:.2}% (out / logical)",
+            ratio_pct(t.total_compressed_bytes, t.dedupe_lookup_bytes)
+        )),
+        None,
     );
-    print_metric_line(
+    print_table_row(
         "bundle build",
-        format!(
-            "{:.2} s  out {:.2} MiB  {:.2} MiB/s",
-            secs(t.bundle_build),
-            mib(t.bundle_build_bytes),
+        Some(secs(t.bundle_build)),
+        Some(format!("out {:.2} MiB", mib(t.bundle_build_bytes))),
+        Some(format!(
+            "{:.2} MiB/s",
             mib_per_s(t.bundle_build_bytes, t.bundle_build)
-        ),
+        )),
     );
-    print_metric_line(
+    print_table_row(
         "manifest finalize",
-        format!("{:.2} s", secs(t.target_manifest_finalize)),
+        Some(secs(t.target_manifest_finalize)),
+        None,
+        None,
     );
+    print_table_border();
     let accounted = secs(t.scan_read)
         + secs(t.file_hash)
         + secs(t.chunking)

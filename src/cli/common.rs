@@ -9,6 +9,7 @@ use crate::cli::reporting::{
     BuildTimingsSummary, OptionalOutputPaths, ReconstructTimingsSummary, VerifyTimingsSummary,
     ensure_parent_directory, format_bytes, write_stats_json_output,
 };
+use crate::cli::verbose_output_enabled;
 use g::repo::{required_bundle_ids as resolve_required_bundle_ids, required_chunk_hashes};
 use gutch as g;
 
@@ -636,7 +637,9 @@ pub(crate) fn write_target_manifest(
     let manifest_path = target_root.join("manifest.json");
     let manifest_json = serde_json::to_string_pretty(target_manifest)?;
     std::fs::write(&manifest_path, &manifest_json)?;
-    println!("wrote target manifest: {}", manifest_path.display());
+    if verbose_output_enabled() {
+        println!("wrote target manifest: {}", manifest_path.display());
+    }
     let manifest_size = std::fs::metadata(&manifest_path)?.len();
     Ok((manifest_path, manifest_size))
 }
@@ -651,11 +654,13 @@ pub(crate) fn write_bundles(
         std::fs::write(&bundle_path, &bundle.data)?;
         let bundle_size = bundle.data.len() as u64;
         bundle_sizes.insert(bundle.bundle_id.clone(), bundle_size);
-        println!(
-            "wrote bundle: {} ({} bytes)",
-            bundle_path.display(),
-            bundle.data.len()
-        );
+        if verbose_output_enabled() {
+            println!(
+                "wrote bundle: {} ({} bytes)",
+                bundle_path.display(),
+                bundle.data.len()
+            );
+        }
     }
     Ok(bundle_sizes)
 }

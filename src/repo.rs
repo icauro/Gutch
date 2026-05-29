@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::hash::hash_hex;
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::manifest::{
     self, FileManifest, content_repo::ContentRepoManifest, target::TargetManifest,
@@ -233,17 +234,23 @@ pub fn write_content_repo_manifest(
     Ok(())
 }
 
-pub fn generate_target_id() -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    std::process::id().hash(&mut hasher);
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .hash(&mut hasher);
-    let hash = hasher.finish();
-    format!("{:08x}", (hash & 0xFFFF_FFFF) as u32)
+pub fn compute_target_id_from_files(files: &[FileManifest]) -> String {
+    let mut sorted_files = files.to_vec();
+    sorted_files.sort_by(|left, right| left.path.cmp(&right.path));
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"gutch-target-content-id-v1");
+    for file in &sorted_files {
+        hasher.update(file.path.as_bytes());
+        hasher.update(b"\x00");
+        hasher.update(&file.size.to_le_bytes());
+        hasher.update(b"\x00");
+        hasher.update(&[u8::from(file.executable)]);
+        hasher.update(b"\x00");
+        hasher.update(file.full_file_hash.as_bytes());
+        hasher.update(b"\x00");
+    }
+    hash_hex(&hasher.finalize())
 }
 
 pub fn target_manifest_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
@@ -438,11 +445,7 @@ fn inspect_target_manifests(
         });
     }
 
-    targets.sort_by(|left, right| {
-        numeric_target_id(left.target_id.as_str())
-            .cmp(&numeric_target_id(right.target_id.as_str()))
-            .then(left.target_id.cmp(&right.target_id))
-    });
+    targets.sort_by(|left, right| left.target_id.cmp(&right.target_id));
     Ok(targets)
 }
 
@@ -475,10 +478,6 @@ fn exclusive_tag_or_empty(target_tags: &manifest::TargetTagSet, prefix: &str) ->
         .get_exclusive(prefix)
         .unwrap_or_default()
         .to_string()
-}
-
-fn numeric_target_id(target_id: &str) -> u64 {
-    target_id.parse::<u64>().unwrap_or_default()
 }
 
 fn preview_target_identity(target_tags: &manifest::TargetTagSet) -> String {

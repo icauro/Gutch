@@ -4,6 +4,7 @@ use crate::cli::common::{
     load_target_manifest_from_repo, parse_bundle_downloads, resolve_required_bundle_paths,
     write_report,
 };
+use crate::cli::verbose_output_enabled;
 use crate::cli::reporting::{
     optional_output_paths, print_reconstruct_timings, print_verify_timings, ratio_pct,
     reconstruct_timings_summary, verify_timings_summary,
@@ -31,17 +32,19 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                 bundles: parse_bundle_downloads(&bundles)?,
             })?;
 
-            println!(
-                "fetched target install content for {} into {}",
-                result.target_id,
-                result.repo_path.display()
-            );
-            println!(
-                "bundles: required={}, downloaded={}, existing={}",
-                result.required_bundle_count,
-                result.downloaded_bundle_count,
-                result.skipped_existing_bundle_count
-            );
+            if verbose_output_enabled() {
+                println!(
+                    "fetched target install content for {} into {}",
+                    result.target_id,
+                    result.repo_path.display()
+                );
+                println!(
+                    "bundles: required={}, downloaded={}, existing={}",
+                    result.required_bundle_count,
+                    result.downloaded_bundle_count,
+                    result.skipped_existing_bundle_count
+                );
+            }
         }
 
         TargetInstallCommands::Apply {
@@ -125,16 +128,18 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             };
             write_report(&summary_out, &stats_json_out, &stats)?;
 
-            println!(
-                "applied target {} to {}",
-                stats.target_id, stats.install_dir
-            );
-            println!(
-                "reused {} of {} chunks from source ({:.2}%)",
-                stats.reused_source_chunk_count,
-                stats.required_chunk_count,
-                stats.reused_source_chunk_percent
-            );
+            if verbose_output_enabled() {
+                println!(
+                    "applied target {} to {}",
+                    stats.target_id, stats.install_dir
+                );
+                println!(
+                    "reused {} of {} chunks from source ({:.2}%)",
+                    stats.reused_source_chunk_count,
+                    stats.required_chunk_count,
+                    stats.reused_source_chunk_percent
+                );
+            }
             print_reconstruct_timings(&result.reconstruct_timings);
             print_verify_timings(&result.verify_timings);
         }
@@ -180,7 +185,9 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             write_report(&summary_out, &stats_json_out, &stats)?;
 
             if errors.is_empty() {
-                println!("verification passed for {}", dir.display());
+                if verbose_output_enabled() {
+                    println!("verification passed for {}", dir.display());
+                }
                 print_verify_timings(&timings);
             } else {
                 eprintln!("{} verification errors:", errors.len());

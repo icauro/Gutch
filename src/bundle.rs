@@ -7,9 +7,21 @@ use crate::hash;
 use crate::manifest::{
     BundleTableEntry, COMPRESSION_UNIT_BUNDLE, COMPRESSION_UNIT_CHUNK, CompressionProfile,
 };
+use std::time::{Duration, Instant};
 
 const MAGIC: &[u8; 4] = b"GCHB";
 const FORMAT_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, Default)]
+pub struct BundleBuildMetrics {
+    pub payload_assembly: Duration,
+    pub payload_assembly_bytes: u64,
+    pub stream_compression: Duration,
+    pub stream_input_bytes: u64,
+    pub stream_output_bytes: u64,
+    pub serialization: Duration,
+    pub serialization_bytes: u64,
+}
 
 pub struct BundleBuilder {
     chunks: Vec<ChunkData>,
@@ -63,27 +75,6 @@ impl BundleBuilder {
         self.chunks.len()
     }
 
-    pub fn compute_bundle_id(&self) -> String {
-        let mut chunks: Vec<(&str, u64)> = self
-            .chunks
-            .iter()
-            .map(|c| (c.hash.as_str(), c.raw_size))
-            .collect();
-        chunks.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
-
-        let mut hasher = blake3::Hasher::new();
-        for (h, size) in &chunks {
-            hasher.update(h.as_bytes());
-            hasher.update(b"\x00");
-            hasher.update(&size.to_le_bytes());
-        }
-        hasher.update(self.profile.compression_unit.as_bytes());
-        hasher.update(b"\x00");
-        hasher.update(&self.profile.zstd_level.to_le_bytes());
-        hasher.update(&FORMAT_VERSION.to_le_bytes());
-        hash::hash_hex(&hasher.finalize())
-    }
-
     pub fn estimated_compressed_size(&self) -> u64 {
         self.chunks
             .iter()
@@ -109,6 +100,16 @@ impl BundleBuilder {
     }
 
     pub fn build(&self) -> Result<Vec<u8>> {
+        let (_, bundle) = self.build_with_id()?;
+        Ok(bundle)
+    }
+
+    pub fn build_with_id(&self) -> Result<(String, Vec<u8>)> {
+        let (bundle_id, bundle, _) = self.build_with_id_and_metrics()?;
+        Ok((bundle_id, bundle))
+    }
+
+    pub fn build_with_id_and_metrics(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
         if self.profile.compression_unit == COMPRESSION_UNIT_BUNDLE {
             return self.build_bundle_compressed();
         }
@@ -116,7 +117,7 @@ impl BundleBuilder {
         self.build_chunk_compressed()
     }
 
-    fn build_chunk_compressed(&self) -> Result<Vec<u8>> {
+    fn build_chunk_compressed(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
         let mut compressed_entries: Vec<(BundleTableEntry, Vec<u8>)> = Vec::new();
         let mut current_offset: u64 = 0;
 
@@ -161,19 +162,28 @@ impl BundleBuilder {
         header.extend_from_slice(&(table_json.len() as u32).to_le_bytes());
         header.extend_from_slice(table_json.as_bytes());
 
+        let serialization_start = Instant::now();
         let mut bundle = header;
         for (_, data) in &compressed_entries {
             bundle.extend_from_slice(data);
         }
+        let bundle_len = bundle.len() as u64;
 
-        let bundle_hash = self.compute_bundle_id();
-        bundle.extend_from_slice(bundle_hash.as_bytes());
-
-        Ok(bundle)
+        let (bundle_id, bundle) = finalize_bundle_bytes(bundle);
+        Ok((
+            bundle_id,
+            bundle,
+            BundleBuildMetrics {
+                serialization: serialization_start.elapsed(),
+                serialization_bytes: bundle_len,
+                ..BundleBuildMetrics::default()
+            },
+        ))
     }
 
-    fn build_bundle_compressed(&self) -> Result<Vec<u8>> {
+    fn build_bundle_compressed(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
         let mut entries: Vec<BundleTableEntry> = Vec::with_capacity(self.chunks.len());
+        let payload_assembly_start = Instant::now();
         let mut payload = Vec::new();
         let mut current_raw_offset: u64 = 0;
 
@@ -196,8 +206,11 @@ impl BundleBuilder {
             current_raw_offset += chunk.raw_size;
             payload.extend_from_slice(raw);
         }
+        let payload_assembly = payload_assembly_start.elapsed();
 
+        let compression_start = Instant::now();
         let compressed_payload = compress::compress_with_level(&payload, self.profile.zstd_level)?;
+        let stream_compression = compression_start.elapsed();
         if !entries.is_empty() {
             let total_raw = current_raw_offset.max(1);
             let total_compressed = compressed_payload.len() as u64;
@@ -227,14 +240,32 @@ impl BundleBuilder {
         header.extend_from_slice(&(table_json.len() as u32).to_le_bytes());
         header.extend_from_slice(table_json.as_bytes());
 
+        let serialization_start = Instant::now();
         let mut bundle = header;
         bundle.extend_from_slice(&compressed_payload);
+        let bundle_len = bundle.len() as u64;
 
-        let bundle_hash = self.compute_bundle_id();
-        bundle.extend_from_slice(bundle_hash.as_bytes());
-
-        Ok(bundle)
+        let (bundle_id, bundle) = finalize_bundle_bytes(bundle);
+        Ok((
+            bundle_id,
+            bundle,
+            BundleBuildMetrics {
+                payload_assembly,
+                payload_assembly_bytes: current_raw_offset,
+                stream_compression,
+                stream_input_bytes: current_raw_offset,
+                stream_output_bytes: compressed_payload.len() as u64,
+                serialization: serialization_start.elapsed(),
+                serialization_bytes: bundle_len,
+            },
+        ))
     }
+}
+
+fn finalize_bundle_bytes(mut bundle_without_id: Vec<u8>) -> (String, Vec<u8>) {
+    let bundle_id = hash::hash_hex(&blake3::hash(&bundle_without_id));
+    bundle_without_id.extend_from_slice(bundle_id.as_bytes());
+    (bundle_id, bundle_without_id)
 }
 
 pub struct BundleReader<R: Read + Seek> {

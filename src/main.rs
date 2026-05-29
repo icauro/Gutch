@@ -12,6 +12,9 @@ use gutch as g;
 #[derive(Parser)]
 #[command(name = "gutch", version, about = "Launcher artifact engine")]
 struct Cli {
+    #[arg(long, short = 'v', global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -362,6 +365,7 @@ enum PathCommands {
 
 fn main() {
     let cli = Cli::parse();
+    crate::cli::set_verbose_output_enabled(cli.verbose);
 
     if let Err(e) = cli::commands::run(cli) {
         eprintln!("error: {}", e);
