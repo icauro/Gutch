@@ -298,19 +298,23 @@ fn run_repo_sync_up(
 
 pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
     match command {
-        RepoCommands::Create {
-            content_repo,
+        RepoCommands::Init {
+            path,
             schema,
-            repo,
         } => {
-            let repo_paths = g::ContentRepoPaths::from_repo_root(&repo);
-            let mut repo_manifest = g::ensure_content_repo_layout(&repo_paths, &content_repo)?;
+            let repo_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or("base");
+            let repo_paths = g::ContentRepoPaths::from_repo_root(&path);
+            let mut repo_manifest = g::ensure_content_repo_layout(&repo_paths, repo_name)?;
             repo_manifest.target_schema = load_optional_rules(&schema)?;
             g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
 
             println!(
                 "created content repo {} at {}",
-                content_repo,
+                repo_name,
                 repo_paths.repo_root.display()
             );
         }

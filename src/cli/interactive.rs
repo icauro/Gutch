@@ -6,17 +6,6 @@ use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use crate::{RepoCommands, TargetCommands, TargetInstallCommands};
 use gutch as g;
 
-#[derive(Clone, Copy)]
-enum InteractiveAction {
-    RepoCreate,
-    RepoConfigEdit,
-    TargetInsert,
-    TargetExport,
-    TargetInstallApply,
-    TargetInstallVerify,
-    Exit,
-}
-
 #[derive(Clone)]
 struct InteractiveRuntimeOptions {
     memory_mode: g::MemoryMode,
@@ -24,80 +13,200 @@ struct InteractiveRuntimeOptions {
     jobs: Option<usize>,
 }
 
+#[derive(Clone)]
+enum RepoSelectionAction {
+    CreateRepo,
+    SelectRepo,
+    Exit,
+}
+
+#[derive(Clone)]
+enum RepoWorkAction {
+    TargetInsert,
+    TargetExport,
+    TargetInstallApply,
+    TargetInstallVerify,
+    RepoConfigEdit,
+    SwitchRepo,
+    Exit,
+}
+
 pub(crate) fn run() -> g::Result<()> {
     let theme = ColorfulTheme::default();
+    let mut active_repo: Option<PathBuf> = None;
 
     loop {
-        let action = prompt_action(&theme)?;
-        match action {
-            InteractiveAction::RepoCreate => run_repo_create(&theme)?,
-            InteractiveAction::RepoConfigEdit => run_repo_config_edit(&theme)?,
-            InteractiveAction::TargetInsert => run_target_insert(&theme)?,
-            InteractiveAction::TargetExport => run_target_export(&theme)?,
-            InteractiveAction::TargetInstallApply => run_target_install_apply(&theme)?,
-            InteractiveAction::TargetInstallVerify => run_target_install_verify(&theme)?,
-            InteractiveAction::Exit => return Ok(()),
-        }
-
-        if !Confirm::with_theme(&theme)
-            .with_prompt("Run another interactive task?")
-            .default(false)
-            .interact()
-            .map_err(dialoguer_to_manifest_error)?
-        {
-            return Ok(());
+        if active_repo.is_none() {
+            match prompt_repo_selection(&theme)? {
+                RepoSelectionAction::Exit => return Ok(()),
+                RepoSelectionAction::CreateRepo => {
+                    let path = run_repo_create(&theme)?;
+                    if Confirm::with_theme(&theme)
+                        .with_prompt("Work on this repo?")
+                        .default(true)
+                        .interact()
+                        .map_err(dialoguer_to_manifest_error)?
+                    {
+                        active_repo = Some(path);
+                    }
+                }
+                RepoSelectionAction::SelectRepo => {
+                    let repo = path_input(&theme, "Repo path", ".")?;
+                    if let Err(err) = g::load_content_repo_manifest(&repo) {
+                        println!(
+                            "not a valid content repo at {}: {}",
+                            repo.display(),
+                            err
+                        );
+                    } else {
+                        println!("selected repo at {}", repo.display());
+                        active_repo = Some(repo);
+                    }
+                }
+            }
+        } else {
+            let repo = active_repo.as_ref().unwrap();
+            match prompt_repo_work_action(&theme, repo)? {
+                RepoWorkAction::Exit => return Ok(()),
+                RepoWorkAction::SwitchRepo => {
+                    active_repo = None;
+                }
+                RepoWorkAction::TargetInsert => {
+                    run_target_insert(&theme, repo)?;
+                }
+                RepoWorkAction::TargetExport => {
+                    run_target_export(&theme, repo)?;
+                }
+                RepoWorkAction::TargetInstallApply => {
+                    run_target_install_apply(&theme, repo)?;
+                }
+                RepoWorkAction::TargetInstallVerify => {
+                    run_target_install_verify(&theme, repo)?;
+                }
+                RepoWorkAction::RepoConfigEdit => {
+                    run_repo_config_edit(&theme, repo)?;
+                }
+            }
         }
     }
 }
 
-fn prompt_action(theme: &ColorfulTheme) -> g::Result<InteractiveAction> {
+fn prompt_repo_selection(theme: &ColorfulTheme) -> g::Result<RepoSelectionAction> {
     let actions = [
-        ("Create content repo", InteractiveAction::RepoCreate),
-        ("Edit repo config and tag heuristics", InteractiveAction::RepoConfigEdit),
-        ("Insert target from local files", InteractiveAction::TargetInsert),
-        ("Export target to directory", InteractiveAction::TargetExport),
-        (
-            "Apply target install from local repo",
-            InteractiveAction::TargetInstallApply,
-        ),
-        ("Verify installed target", InteractiveAction::TargetInstallVerify),
-        ("Exit", InteractiveAction::Exit),
+        ("Create a content repo", RepoSelectionAction::CreateRepo),
+        ("Select an existing repo", RepoSelectionAction::SelectRepo),
+        ("Exit", RepoSelectionAction::Exit),
     ];
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
-        .with_prompt("Choose a Gutch workflow")
+        .with_prompt("Gutch interactive — no repo selected")
         .items(&labels)
         .default(0)
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
-    Ok(actions[selection].1)
+    Ok(actions[selection].1.clone())
 }
 
-fn run_repo_create(theme: &ColorfulTheme) -> g::Result<()> {
-    let content_repo = required_string(theme, "Content repo id", "base")?;
-    let repo = path_input(theme, "Repo path", ".")?;
-    let schema = optional_path_input(theme, "Schema JSON path", "")?;
-    let preview = format!(
-        "gutch repo create --content-repo {}{} --repo {}",
-        shell_arg(&content_repo),
-        schema
-            .as_ref()
-            .map(|path| format!(" --schema {}", shell_arg_path(path)))
-            .unwrap_or_default(),
-        shell_arg_path(&repo),
-    );
+fn prompt_repo_work_action(
+    theme: &ColorfulTheme,
+    repo: &std::path::Path,
+) -> g::Result<RepoWorkAction> {
+    let actions = [
+        ("Insert target from local files", RepoWorkAction::TargetInsert),
+        ("Export target to directory", RepoWorkAction::TargetExport),
+        (
+            "Apply target install from local repo",
+            RepoWorkAction::TargetInstallApply,
+        ),
+        ("Verify installed target", RepoWorkAction::TargetInstallVerify),
+        ("Edit repo config and tag heuristics", RepoWorkAction::RepoConfigEdit),
+        ("Switch to a different repo", RepoWorkAction::SwitchRepo),
+        ("Exit", RepoWorkAction::Exit),
+    ];
+    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt(format!("Working on repo: {}", repo.display()))
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+    Ok(actions[selection].1.clone())
+}
+
+#[derive(Clone)]
+enum TaggingTemplate {
+    Standard,
+    Minimal,
+}
+
+fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
+    let path = path_input(theme, "Repo path", ".")?;
+
+    let template = prompt_tagging_template(theme)?;
+
+    let preview = format!("gutch repo init --path {}", shell_arg_path(&path));
     confirm_preview(theme, &preview)?;
 
-    crate::cli::repo::run(RepoCommands::Create {
-        content_repo,
-        schema,
-        repo,
-    })
+    crate::cli::repo::run(RepoCommands::Init {
+        path: path.clone(),
+        schema: None,
+    })?;
+
+    let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&path)?;
+    repo_manifest.target_schema = Some(match template {
+        TaggingTemplate::Standard => g::manifest::TargetTagSchema::default(),
+        TaggingTemplate::Minimal => minimal_tagging_template(),
+    });
+    g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
+
+    let template_name = match template {
+        TaggingTemplate::Standard => "standard (version, os, arch, tier)",
+        TaggingTemplate::Minimal => "minimal (version only)",
+    };
+    println!("Applied tagging template: {}", template_name);
+    println!("You can edit this later via 'Edit repo config'.");
+
+    Ok(path)
 }
 
-fn run_repo_config_edit(theme: &ColorfulTheme) -> g::Result<()> {
-    let repo = path_input(theme, "Repo path", ".")?;
-    let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&repo)?;
+fn prompt_tagging_template(theme: &ColorfulTheme) -> g::Result<TaggingTemplate> {
+    let descriptions = [
+        (
+            "Standard — version, os, arch, tier. Suitable for most apps.",
+            TaggingTemplate::Standard,
+        ),
+        (
+            "Minimal — version only. For non-OS, non-platform-dependent assets (Python, JAR, PNG, JPG, blend files, etc.).",
+            TaggingTemplate::Minimal,
+        ),
+    ];
+    let labels: Vec<&str> = descriptions.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt("Tagging template")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+    Ok(descriptions[selection].1.clone())
+}
+
+fn minimal_tagging_template() -> g::manifest::TargetTagSchema {
+    g::manifest::TargetTagSchema {
+        target_tags: vec![g::manifest::TargetTagDefinition {
+            name: "version".to_string(),
+            kind: g::manifest::TargetTagKind::Exclusive,
+            required: true,
+            values: Vec::new(),
+            aliases: BTreeMap::new(),
+            default_value: None,
+        }],
+        target_id_order: vec!["version".to_string()],
+        on_incomplete: g::manifest::IncompleteInferenceBehavior::Error,
+    }
+}
+
+fn run_repo_config_edit(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
+    let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(repo)?;
 
     loop {
         println!();
@@ -162,9 +271,8 @@ fn run_repo_config_edit(theme: &ColorfulTheme) -> g::Result<()> {
     }
 }
 
-fn run_target_insert(theme: &ColorfulTheme) -> g::Result<()> {
+fn run_target_insert(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let dir = path_input(theme, "Input directory or file", ".")?;
-    let repo = path_input(theme, "Repo path", ".")?;
     let version = required_string(theme, "Version", "1.0.0")?;
     let platform = required_string(theme, "Platform", "windows")?;
     let architecture = required_string(theme, "Architecture", "x86_64")?;
@@ -176,7 +284,7 @@ fn run_target_insert(theme: &ColorfulTheme) -> g::Result<()> {
     let preview = format!(
         "gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {}{}{}",
         shell_arg_path(&dir),
-        shell_arg_path(&repo),
+        shell_arg_path(repo),
         shell_arg(&version),
         shell_arg(&platform),
         shell_arg(&architecture),
@@ -190,7 +298,7 @@ fn run_target_insert(theme: &ColorfulTheme) -> g::Result<()> {
 
     crate::cli::target::run(TargetCommands::Insert {
         dir,
-        repo,
+        repo: repo.to_path_buf(),
         version: Some(version),
         platform: Some(platform),
         architecture: Some(architecture),
@@ -206,14 +314,13 @@ fn run_target_insert(theme: &ColorfulTheme) -> g::Result<()> {
     })
 }
 
-fn run_target_export(theme: &ColorfulTheme) -> g::Result<()> {
-    let repo = path_input(theme, "Repo path", ".")?;
+fn run_target_export(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let target = required_string(theme, "Target id", "")?;
     let output = path_input(theme, "Output directory", "./exported-target")?;
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
         "gutch target export --repo {} --target {} --output {}{}",
-        shell_arg_path(&repo),
+        shell_arg_path(repo),
         shell_arg(&target),
         shell_arg_path(&output),
         runtime_preview_suffix(&runtime),
@@ -221,7 +328,7 @@ fn run_target_export(theme: &ColorfulTheme) -> g::Result<()> {
     confirm_preview(theme, &preview)?;
 
     crate::cli::target::run(TargetCommands::Export {
-        repo,
+        repo: repo.to_path_buf(),
         target,
         output,
         memory_mode: runtime.memory_mode,
@@ -232,8 +339,7 @@ fn run_target_export(theme: &ColorfulTheme) -> g::Result<()> {
     })
 }
 
-fn run_target_install_apply(theme: &ColorfulTheme) -> g::Result<()> {
-    let repo = path_input(theme, "Repo path", ".")?;
+fn run_target_install_apply(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let target = required_string(theme, "Target id", "")?;
     let dir = path_input(theme, "Install directory", "./install")?;
     let staging_dir = if Confirm::with_theme(theme)
@@ -255,7 +361,7 @@ fn run_target_install_apply(theme: &ColorfulTheme) -> g::Result<()> {
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
         "gutch target_install apply --repo {} --target {} --dir {}{}{}{}",
-        shell_arg_path(&repo),
+        shell_arg_path(repo),
         shell_arg(&target),
         shell_arg_path(&dir),
         staging_dir
@@ -275,7 +381,7 @@ fn run_target_install_apply(theme: &ColorfulTheme) -> g::Result<()> {
     confirm_preview(theme, &preview)?;
 
     crate::cli::target_install::run(TargetInstallCommands::Apply {
-        repo,
+        repo: repo.to_path_buf(),
         target,
         dir,
         staging_dir,
@@ -289,14 +395,13 @@ fn run_target_install_apply(theme: &ColorfulTheme) -> g::Result<()> {
     })
 }
 
-fn run_target_install_verify(theme: &ColorfulTheme) -> g::Result<()> {
-    let repo = path_input(theme, "Repo path", ".")?;
+fn run_target_install_verify(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let target = required_string(theme, "Target id", "")?;
     let dir = path_input(theme, "Install directory", "./install")?;
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
         "gutch target_install verify --repo {} --target {} --dir {}{}",
-        shell_arg_path(&repo),
+        shell_arg_path(repo),
         shell_arg(&target),
         shell_arg_path(&dir),
         runtime_preview_suffix(&runtime),
@@ -304,7 +409,7 @@ fn run_target_install_verify(theme: &ColorfulTheme) -> g::Result<()> {
     confirm_preview(theme, &preview)?;
 
     crate::cli::target_install::run(TargetInstallCommands::Verify {
-        repo,
+        repo: repo.to_path_buf(),
         target,
         dir,
         memory_mode: runtime.memory_mode,
@@ -671,7 +776,7 @@ fn optional_string_input(
         .with_initial_text(default)
         .allow_empty(true)
         .interact_text()
-        .map(|value: String| trim_to_option(value))
+        .map(trim_to_option)
         .map_err(dialoguer_to_manifest_error)
 }
 

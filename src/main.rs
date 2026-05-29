@@ -84,15 +84,12 @@ enum AuthCommands {
 
 #[derive(Subcommand)]
 enum RepoCommands {
-    Create {
-        #[arg(long = "content-repo")]
-        content_repo: String,
+    Init {
+        #[arg(long = "path", default_value = ".")]
+        path: PathBuf,
 
         #[arg(long = "schema")]
         schema: Option<PathBuf>,
-
-        #[arg(long = "repo", default_value = ".")]
-        repo: PathBuf,
     },
 
     #[command(name = "schema-set")]
