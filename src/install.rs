@@ -50,7 +50,6 @@ pub struct TargetInstallFetchRequest {
     pub repo_path: PathBuf,
     pub target_id: String,
     pub manifest_url: String,
-    pub manifest_sig_url: Option<String>,
     pub bundle_urls_endpoint: Option<String>,
     pub session_id: Option<String>,
     pub bundles: Vec<GutchBundleDownload>,
@@ -63,7 +62,6 @@ pub struct TargetInstallFetchResult {
     pub required_bundle_count: usize,
     pub downloaded_bundle_count: usize,
     pub skipped_existing_bundle_count: usize,
-    pub wrote_manifest_signature: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,18 +195,6 @@ pub fn fetch_target_install_content(
     })?;
     write_repo_manifest(&request.repo_path, &manifest)?;
 
-    let mut wrote_manifest_signature = false;
-    if let Some(sig_url) = request.manifest_sig_url.as_deref().map(str::trim) {
-        if !sig_url.is_empty() {
-            let sig_bytes = download_url(sig_url)?;
-            std::fs::write(
-                crate::target_manifest_sig_path(&repo_paths, request.target_id.trim()),
-                sig_bytes,
-            )?;
-            wrote_manifest_signature = true;
-        }
-    }
-
     let bundle_ids_from_chunk_index: Vec<String> = {
         let chunk_index = crate::load_chunk_index(&repo_paths).ok();
 
@@ -264,7 +250,6 @@ pub fn fetch_target_install_content(
         required_bundle_count: bundle_ids_from_chunk_index.len(),
         downloaded_bundle_count,
         skipped_existing_bundle_count,
-        wrote_manifest_signature,
     })
 }
 

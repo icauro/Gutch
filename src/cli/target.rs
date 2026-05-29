@@ -218,7 +218,6 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 load_target_manifest_from_repo(&repo, &target)?;
             let manifest_path = g::target_manifest_path(&repo_paths, &target);
             let manifest_bin_path = g::target_manifest_bin_path(&repo_paths, &target);
-            let manifest_sig_path = g::target_manifest_sig_path(&repo_paths, &target);
             if !yes {
                 eprintln!(
                     "WARNING: this will remove '{}' and related target artifacts, and may orphan bundles. Use --yes to confirm.",
@@ -227,7 +226,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 return Err(g::Error::manifest("deletion requires --yes flag"));
             }
 
-            for path in [&manifest_path, &manifest_bin_path, &manifest_sig_path] {
+            for path in [&manifest_path, &manifest_bin_path] {
                 if path.exists() {
                     if path.is_dir() {
                         std::fs::remove_dir_all(path)?;

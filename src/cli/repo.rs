@@ -4,9 +4,8 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::cli::backend::{
-    CreatorRepoTargetsResponse, SignedChunkIndexResponse, SignedRepoManifestResponse,
-    SignedTargetManifestResponse, UpsertTargetResponse, request_json_from_backend,
-    request_optional_bytes_from_signed_url, slugify_like_backend, upload_raw_file,
+    CreatorRepoTargetsResponse, UpsertTargetResponse, request_json_from_backend,
+    slugify_like_backend, upload_raw_file,
 };
 use crate::cli::common::{
     load_optional_rules, parse_version_parts, session_id_for_cli,
@@ -102,70 +101,34 @@ fn run_repo_sync_up(
     }
 
     let repo_manifest_bytes = std::fs::read(&repo_paths.repo_manifest_path)?;
-    let signed_repo_manifest: SignedRepoManifestResponse = request_json_from_backend(
-        client
-            .get(format!(
-                "{}/v1/users/me/creator/products/{}/repos/{}/manifest",
-                endpoint.trim_end_matches('/'),
-                product_id,
-                content_repo_id
-            ))
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", session_id)),
+    upload_raw_file(
+        &client,
+        &endpoint,
+        &format!(
+            "/v1/users/me/creator/products/{}/repos/{}/manifest",
+            product_id, content_repo_id
+        ),
+        &session_id,
+        repo_manifest_bytes,
+        "application/json",
     )?;
-    let remote_repo_manifest_bytes =
-        request_optional_bytes_from_signed_url(&client, &signed_repo_manifest.manifest_url)?;
-    let repo_manifest_uploaded = remote_repo_manifest_bytes
-        .as_deref()
-        .map(|bytes| bytes != repo_manifest_bytes.as_slice())
-        .unwrap_or(true);
-    if repo_manifest_uploaded {
-        upload_raw_file(
-            &client,
-            &endpoint,
-            &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/manifest",
-                product_id, content_repo_id
-            ),
-            &session_id,
-            repo_manifest_bytes,
-            "application/json",
-        )?;
-    }
+    let repo_manifest_uploaded = true;
 
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {
         let chunk_index_bytes = std::fs::read(&repo_paths.chunk_index_path)?;
-        let signed_chunk_index: SignedChunkIndexResponse = request_json_from_backend(
-            client
-                .get(format!(
-                    "{}/v1/users/me/creator/products/{}/repos/{}/chunks",
-                    endpoint.trim_end_matches('/'),
-                    product_id,
-                    content_repo_id
-                ))
-                .header("Accept", "application/json")
-                .header("Authorization", format!("Bearer {}", session_id)),
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/chunks",
+                product_id, content_repo_id
+            ),
+            &session_id,
+            chunk_index_bytes,
+            "application/json",
         )?;
-        let remote_chunk_index_bytes =
-            request_optional_bytes_from_signed_url(&client, &signed_chunk_index.chunk_index_url)?;
-        chunk_index_uploaded = remote_chunk_index_bytes
-            .as_deref()
-            .map(|bytes| bytes != chunk_index_bytes.as_slice())
-            .unwrap_or(true);
-        if chunk_index_uploaded {
-            upload_raw_file(
-                &client,
-                &endpoint,
-                &format!(
-                    "/v1/users/me/creator/products/{}/repos/{}/chunks",
-                    product_id, content_repo_id
-                ),
-                &session_id,
-                chunk_index_bytes,
-                "application/json",
-            )?;
-        }
+        chunk_index_uploaded = true;
     }
 
     let mut target_manifest_uploaded_count = 0usize;
@@ -221,38 +184,18 @@ fn run_repo_sync_up(
             }
         };
 
-        let signed_target_manifest: SignedTargetManifestResponse = request_json_from_backend(
-            client
-                .get(format!(
-                    "{}/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
-                    endpoint.trim_end_matches('/'),
-                    product_id,
-                    content_repo_id,
-                    remote_target_id
-                ))
-                .header("Accept", "application/json")
-                .header("Authorization", format!("Bearer {}", session_id)),
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
+                product_id, content_repo_id, remote_target_id
+            ),
+            &session_id,
+            manifest_bytes,
+            "application/json",
         )?;
-        let remote_manifest_bytes =
-            request_optional_bytes_from_signed_url(&client, &signed_target_manifest.manifest_url)?;
-        let should_upload = remote_manifest_bytes
-            .as_deref()
-            .map(|bytes| bytes != manifest_bytes.as_slice())
-            .unwrap_or(true);
-        if should_upload {
-            upload_raw_file(
-                &client,
-                &endpoint,
-                &format!(
-                    "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
-                    product_id, content_repo_id, remote_target_id
-                ),
-                &session_id,
-                manifest_bytes,
-                "application/json",
-            )?;
-            target_manifest_uploaded_count += 1;
-        }
+        target_manifest_uploaded_count += 1;
     }
 
     let mut bundle_uploaded_count = 0usize;

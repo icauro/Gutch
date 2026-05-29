@@ -73,7 +73,6 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                     .unwrap(),
                     "application/json",
                 ),
-                "/manifest.sig" => ("200 OK", b"sig".to_vec(), "application/octet-stream"),
                 "/bundle-a" => (
                     "200 OK",
                     b"bundle-a-bytes".to_vec(),
@@ -108,7 +107,6 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         repo_path: repo_path.clone(),
         target_id: "1.0.0-windows-x86_64-base".to_string(),
         manifest_url: format!("http://{}/manifest", address),
-        manifest_sig_url: Some(format!("http://{}/manifest.sig", address)),
         bundle_urls_endpoint: Some(format!("http://{}/bundles", address)),
         session_id: Some("session-1".to_string()),
         bundles: Vec::new(),
@@ -117,7 +115,6 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
 
     assert_eq!(result.required_bundle_count, 1);
     assert_eq!(result.downloaded_bundle_count, 1);
-    assert!(result.wrote_manifest_signature);
     assert!(repo_path.join("repo_manifest.json").exists() || repo_path.join("repo.json").exists());
     assert!(
         repo_path
@@ -134,7 +131,6 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     assert!(
         repo_path
             .join("targets")
-            .join("1.0.0-windows-x86_64-base.sig")
             .exists()
     );
     assert!(repo_path.join("bundles").join("bundle-a.bundle").exists());

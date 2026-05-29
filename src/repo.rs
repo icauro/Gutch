@@ -46,7 +46,6 @@ pub struct RepoInspectTargetStatus {
     pub required_bundle_count: usize,
     pub total_logical_size: u64,
     pub manifest_path: String,
-    pub has_signature_file: bool,
     pub missing_bundle_count: usize,
     pub target_tags: manifest::TargetTagSet,
 }
@@ -337,10 +336,6 @@ pub fn target_manifest_bin_path(paths: &ContentRepoPaths, target_id: &str) -> Pa
     paths.targets_root.join(format!("{target_id}.bin"))
 }
 
-pub fn target_manifest_sig_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
-    paths.targets_root.join(format!("{target_id}.sig"))
-}
-
 pub fn load_target_manifest(paths: &ContentRepoPaths, target_id: &str) -> Result<TargetManifest> {
     let manifest_path = target_manifest_path(paths, target_id);
     let manifest_json = std::fs::read_to_string(&manifest_path)?;
@@ -561,7 +556,6 @@ fn inspect_target_manifests(
             required_bundle_count: required_bundle_ids.len(),
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),
-            has_signature_file: target_manifest_sig_path(repo_paths, &manifest.target_id).exists(),
             missing_bundle_count,
             target_tags: manifest.target_tags,
         });

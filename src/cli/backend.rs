@@ -24,24 +24,6 @@ pub(crate) struct CreatorTargetResponse {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SignedRepoManifestResponse {
-    pub(crate) manifest_url: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct SignedChunkIndexResponse {
-    pub(crate) chunk_index_url: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct SignedTargetManifestResponse {
-    pub(crate) manifest_url: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct UpsertTargetResponse {
     pub(crate) id: i64,
 }
@@ -60,25 +42,6 @@ pub(crate) fn request_json_from_backend<T: for<'de> serde::Deserialize<'de>>(
         .map_err(|err| g::Error::manifest(format!("failed to decode backend response: {}", err)))
 }
 
-pub(crate) fn request_optional_bytes_from_signed_url(
-    client: &reqwest::blocking::Client,
-    url: &str,
-) -> g::Result<Option<Vec<u8>>> {
-    let response = client
-        .get(url)
-        .send()
-        .map_err(|err| g::Error::manifest(format!("signed url request failed: {}", err)))?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    if !response.status().is_success() {
-        return Err(g::Error::manifest(parse_backend_error_response(response)));
-    }
-    response
-        .bytes()
-        .map(|bytes| Some(bytes.to_vec()))
-        .map_err(|err| g::Error::manifest(format!("failed to read signed url response: {}", err)))
-}
 
 pub fn parse_backend_error_response(response: reqwest::blocking::Response) -> String {
     let status = response.status();

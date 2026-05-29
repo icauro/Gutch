@@ -109,7 +109,6 @@ fn inspect_content_repo_reports_targets() {
     });
 
     write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
-    std::fs::write(target_manifest_sig_path(&repo_paths, "1"), b"sig").unwrap();
     std::fs::write(repo_paths.bundles_root.join("bundle-a.bundle"), b"bundle-a").unwrap();
 
     let status = inspect_content_repo(&repo_root).unwrap();
@@ -120,7 +119,6 @@ fn inspect_content_repo_reports_targets() {
     assert_eq!(status.bundle_count, 1);
     assert_eq!(status.targets.len(), 1);
     assert_eq!(status.targets[0].target_id, "1");
-    assert!(status.targets[0].has_signature_file);
 
     let _ = std::fs::remove_dir_all(&root);
 }

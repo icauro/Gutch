@@ -281,9 +281,6 @@ enum TargetInstallCommands {
         #[arg(long = "manifest-url")]
         manifest_url: String,
 
-        #[arg(long = "manifest-sig-url")]
-        manifest_sig_url: Option<String>,
-
         #[arg(long = "bundle-urls-endpoint")]
         bundle_urls_endpoint: Option<String>,
 

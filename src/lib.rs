@@ -62,7 +62,7 @@ pub use repo::{
     compute_target_id_from_files, discover_source_target_installs, ensure_content_repo_layout,
     inspect_content_repo, load_chunk_index, load_content_repo_manifest, load_target_manifest,
     serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,
-    target_manifest_sig_path, write_chunk_index, write_content_repo_manifest,
+    write_chunk_index, write_content_repo_manifest,
     write_target_manifest_artifacts,
 };
 pub use runtime::{
