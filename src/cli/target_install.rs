@@ -161,7 +161,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                 jobs,
             };
             let (classification, timings) =
-                g::classify_directory_with_timings_and_hints(&tm, &dir, &runtime_hints)?;
+                g::classify_directory_with_progress(&tm, &dir, &runtime_hints)?;
             let missing_file_count = classification.missing_files.len();
             let corrupt_file_count = classification.corrupt_files.len();
             let extra_file_count = classification.extra_files.len();

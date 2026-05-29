@@ -52,7 +52,13 @@ pub(crate) fn run() -> g::Result<()> {
             match prompt_repo_selection(&theme)? {
                 RepoSelectionAction::Exit => return Ok(()),
                 RepoSelectionAction::CreateRepo => {
-                    let path = run_repo_create(&theme)?;
+                    let path = match run_repo_create(&theme) {
+                        Ok(path) => path,
+                        Err(err) => {
+                            handle_action_error(err)?;
+                            continue;
+                        }
+                    };
                     if Confirm::with_theme(&theme)
                         .with_prompt("Work on this repo?")
                         .default(true)
@@ -63,15 +69,42 @@ pub(crate) fn run() -> g::Result<()> {
                     }
                 }
                 RepoSelectionAction::SelectRepo => {
-                    let repo = prompt_select_tracked_repo(&theme)?;
-                    if let Err(err) = g::load_content_repo_manifest(&repo) {
-                        println!(
-                            "not a valid content repo at {}: {}",
-                            repo.display(),
-                            err
-                        );
-                    } else {
-                        print_repo_summary(&repo)?;
+                    let mut valid_repo: Option<PathBuf> = None;
+                    while valid_repo.is_none() {
+                        let repo = prompt_select_tracked_repo(&theme)?;
+                        match g::load_content_repo_manifest(&repo) {
+                            Err(err) => {
+                                println!(
+                                    "Not a valid content repo at {}: {}",
+                                    repo.display(),
+                                    err
+                                );
+                                if !Confirm::with_theme(&theme)
+                                    .with_prompt("Try another path?")
+                                    .default(true)
+                                    .interact()
+                                    .map_err(dialoguer_to_manifest_error)?
+                                {
+                                    break;
+                                }
+                            }
+                            Ok(_) => {
+                                print_repo_summary(&repo)?;
+                                valid_repo = Some(repo);
+                            }
+                        }
+                    }
+                    if let Some(repo) = valid_repo {
+                        let mut config = g::config::load_config()?;
+                        let repo_path_str = repo.display().to_string();
+                        if config.find_repo(&repo_path_str).is_none() {
+                            config.upsert_repo(g::config::TrackedRepo {
+                                path: repo_path_str,
+                                target_lookup_path: None,
+                                linked: None,
+                            });
+                            g::config::save_config(&config)?;
+                        }
                         active_repo = Some(repo);
                     }
                 }
@@ -84,36 +117,77 @@ pub(crate) fn run() -> g::Result<()> {
                     active_repo = None;
                 }
                 RepoWorkAction::TargetInsert => {
-                    run_target_insert(&theme, repo)?;
+                    if let Err(err) = run_target_insert(&theme, repo) {
+                        handle_action_error(err)?;
+                    }
                 }
                 RepoWorkAction::TargetExtract => {
-                    run_target_extract(&theme, repo)?;
+                    if let Err(err) = run_target_extract(&theme, repo) {
+                        handle_action_error(err)?;
+                    }
                 }
                 RepoWorkAction::TargetInstallApply => {
-                    run_target_install_apply(&theme, repo)?;
+                    if let Err(err) = run_target_install_apply(&theme, repo) {
+                        handle_action_error(err)?;
+                    }
                 }
                 RepoWorkAction::TargetInstallVerify => {
-                    run_target_install_verify(&theme, repo)?;
+                    if let Err(err) = run_target_install_verify(&theme, repo) {
+                        handle_action_error(err)?;
+                    }
                 }
                 RepoWorkAction::RepoInspect => {
                     run_repo_inspect(repo)?;
                 }
                 RepoWorkAction::RepoSyncUp => {
-                    run_interactive_repo_sync_up(&theme, repo)?;
+                    if let Err(err) = run_interactive_repo_sync_up(&theme, repo) {
+                        handle_action_error(err)?;
+                    }
                 }
                 RepoWorkAction::Advanced => loop {
                     match prompt_advanced_action(&theme, repo)? {
                         AdvancedAction::Back => break,
-                        AdvancedAction::RepoConfigEdit => run_repo_config_edit(&theme, repo)?,
-                        AdvancedAction::RepoLink => run_interactive_repo_link(&theme, repo)?,
-                        AdvancedAction::RepoUnlink => run_interactive_repo_unlink(&theme, repo)?,
-                        AdvancedAction::SetTargetLookupPath => run_set_target_lookup_path(&theme, repo)?,
-                        AdvancedAction::DiscoverTargets => run_discover_targets(&theme, repo)?,
+                        AdvancedAction::RepoConfigEdit => {
+                            if let Err(err) = run_repo_config_edit(&theme, repo) {
+                                handle_action_error(err)?;
+                            }
+                        }
+                        AdvancedAction::RepoLink => {
+                            if let Err(err) = run_interactive_repo_link(&theme, repo) {
+                                handle_action_error(err)?;
+                            }
+                        }
+                        AdvancedAction::RepoUnlink => {
+                            if let Err(err) = run_interactive_repo_unlink(&theme, repo) {
+                                handle_action_error(err)?;
+                            }
+                        }
+                        AdvancedAction::SetTargetLookupPath => {
+                            if let Err(err) = run_set_target_lookup_path(&theme, repo) {
+                                handle_action_error(err)?;
+                            }
+                        }
+                        AdvancedAction::DiscoverTargets => {
+                            if let Err(err) = run_discover_targets(&theme, repo) {
+                                handle_action_error(err)?;
+                            }
+                        }
                     }
                 },
             }
         }
     }
+}
+
+fn handle_action_error(err: g::Error) -> g::Result<()> {
+    if is_cancelled(&err) {
+        return Ok(());
+    }
+    Err(err)
+}
+
+fn is_cancelled(err: &g::Error) -> bool {
+    matches!(err, g::Error::Manifest(msg) if msg.contains("cancelled"))
 }
 
 fn prompt_repo_selection(theme: &ColorfulTheme) -> g::Result<RepoSelectionAction> {
@@ -136,18 +210,28 @@ fn prompt_select_tracked_repo(theme: &ColorfulTheme) -> g::Result<std::path::Pat
     let config = g::config::load_config()?;
 
     if config.repos.is_empty() {
-        return path_input(theme, "Repo path", ".");
+        return custom_repo_path_input(theme);
     }
+
+    const PAGE_SIZE: usize = 10;
+    let total = config.repos.len();
+    let truncated = total > PAGE_SIZE;
+    let visible_count = if truncated { PAGE_SIZE } else { total };
 
     let mut labels: Vec<String> = config
         .repos
         .iter()
+        .take(visible_count)
         .map(|repo| {
             let linked_marker = if repo.linked.is_some() { " [linked]" } else { "" };
             let lookup_marker = if repo.target_lookup_path.is_some() { " [lookup]" } else { "" };
             format!("{}{}{}", repo.path, linked_marker, lookup_marker)
         })
         .collect();
+
+    if truncated {
+        labels.push(format!("Show all {} repos...", total));
+    }
     labels.push("Enter a custom path...".to_string());
 
     let selection = Select::with_theme(theme)
@@ -157,11 +241,133 @@ fn prompt_select_tracked_repo(theme: &ColorfulTheme) -> g::Result<std::path::Pat
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
 
-    if selection < config.repos.len() {
+    if selection < visible_count {
         return Ok(std::path::PathBuf::from(&config.repos[selection].path));
     }
 
-    path_input(theme, "Repo path", ".")
+    if truncated && selection == visible_count {
+        return prompt_all_tracked_repos(theme, &config);
+    }
+
+    custom_repo_path_input(theme)
+}
+
+fn prompt_all_tracked_repos(
+    theme: &ColorfulTheme,
+    config: &g::config::GutchConfig,
+) -> g::Result<std::path::PathBuf> {
+    let labels: Vec<String> = config
+        .repos
+        .iter()
+        .map(|repo| {
+            let linked_marker = if repo.linked.is_some() { " [linked]" } else { "" };
+            let lookup_marker = if repo.target_lookup_path.is_some() { " [lookup]" } else { "" };
+            format!("{}{}{}", repo.path, linked_marker, lookup_marker)
+        })
+        .collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt("Select a tracked repo")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+    Ok(std::path::PathBuf::from(&config.repos[selection].path))
+}
+
+fn custom_repo_path_input(theme: &ColorfulTheme) -> g::Result<std::path::PathBuf> {
+    path_or_browse_input(theme, "Repo path", ".")
+}
+
+fn path_or_browse_input(
+    theme: &ColorfulTheme,
+    prompt: &str,
+    default: &str,
+) -> g::Result<std::path::PathBuf> {
+    let prompt_text = format!("{} — how to select?", prompt);
+    let actions = [
+        ("Browse folders...", 0),
+        ("Type path manually", 1),
+        ("Cancel", 2),
+    ];
+    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt(&prompt_text)
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+
+    match actions[selection].1 {
+        0 => match rfd::FileDialog::new().pick_folder() {
+            Some(path) => Ok(path),
+            None => Err(g::Error::manifest("interactive command cancelled")),
+        },
+        1 => path_input(theme, prompt, default),
+        2 => Err(g::Error::manifest("interactive command cancelled")),
+        _ => unreachable!(),
+    }
+}
+
+fn optional_path_or_browse_input(
+    theme: &ColorfulTheme,
+    prompt: &str,
+    default: &str,
+) -> g::Result<Option<std::path::PathBuf>> {
+    let prompt_text = format!("{} — how to select?", prompt);
+    let actions = [
+        ("Browse folders...", 0),
+        ("Type path manually", 1),
+        ("Skip (leave empty)", 2),
+        ("Cancel", 3),
+    ];
+    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt(&prompt_text)
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+
+    match actions[selection].1 {
+        0 => match rfd::FileDialog::new().pick_folder() {
+            Some(path) => Ok(Some(path)),
+            None => Err(g::Error::manifest("interactive command cancelled")),
+        },
+        1 => optional_path_input(theme, prompt, default),
+        2 => Ok(None),
+        3 => Err(g::Error::manifest("interactive command cancelled")),
+        _ => unreachable!(),
+    }
+}
+
+fn path_or_browse_input_file(
+    theme: &ColorfulTheme,
+    prompt: &str,
+    default: &str,
+) -> g::Result<std::path::PathBuf> {
+    let prompt_text = format!("{} — how to select?", prompt);
+    let actions = [
+        ("Browse...", 0),
+        ("Type path manually", 1),
+        ("Cancel", 2),
+    ];
+    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt(&prompt_text)
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+
+    match actions[selection].1 {
+        0 => match rfd::FileDialog::new().pick_file() {
+            Some(path) => Ok(path),
+            None => Err(g::Error::manifest("interactive command cancelled")),
+        },
+        1 => path_input(theme, prompt, default),
+        2 => Err(g::Error::manifest("interactive command cancelled")),
+        _ => unreachable!(),
+    }
 }
 
 fn prompt_repo_work_action(
@@ -225,7 +431,7 @@ fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
         .map_err(|err| g::Error::manifest(format!("failed to get current directory: {}", err)))?;
     let cwd_with_slash = format!("{}_", cwd.display()).replace("_", std::path::MAIN_SEPARATOR_STR);
 
-    let path = path_input(theme, "Repo path", &cwd_with_slash)?;
+    let path = path_or_browse_input(theme, "Repo path", &cwd_with_slash)?;
 
     if path.exists() && path.is_dir() {
         let contents: Vec<String> = std::fs::read_dir(&path)
@@ -393,7 +599,7 @@ fn run_repo_config_edit(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
 }
 
 fn run_target_insert(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let dir = path_input(theme, "Input directory or file", ".")?;
+    let dir = path_or_browse_input_file(theme, "Input directory or file", ".")?;
     let version = required_string(theme, "Version", "1.0.0")?;
     let platform = required_string(theme, "Platform", "windows")?;
     let architecture = required_string(theme, "Architecture", "x86_64")?;
@@ -437,7 +643,7 @@ fn run_target_insert(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result
 
 fn run_target_extract(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let target = required_string(theme, "Target id", "")?;
-    let output = path_input(theme, "Output directory", "./extracted-target")?;
+    let output = path_or_browse_input(theme, "Output directory", "./extracted-target")?;
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
         "gutch target extract --repo {} --target {} --output {}{}",
@@ -462,20 +668,20 @@ fn run_target_extract(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Resul
 
 fn run_target_install_apply(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let target = required_string(theme, "Target id", "")?;
-    let dir = path_input(theme, "Install directory", "./install")?;
+    let dir = path_or_browse_input(theme, "Install directory", "./install")?;
     let staging_dir = if Confirm::with_theme(theme)
         .with_prompt("Specify a custom staging directory?")
         .default(false)
         .interact()
         .map_err(dialoguer_to_manifest_error)?
     {
-        optional_path_input(theme, "Staging directory", "")?
+        optional_path_or_browse_input(theme, "Staging directory", "")?
     } else {
         None
     };
     let source_target = optional_string_input(theme, "Source target id", "")?;
     let source_dir = if source_target.is_some() {
-        optional_path_input(theme, "Source install directory", "")?
+        optional_path_or_browse_input(theme, "Source install directory", "")?
     } else {
         None
     };
@@ -518,7 +724,7 @@ fn run_target_install_apply(theme: &ColorfulTheme, repo: &std::path::Path) -> g:
 
 fn run_target_install_verify(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let target = required_string(theme, "Target id", "")?;
-    let dir = path_input(theme, "Install directory", "./install")?;
+    let dir = path_or_browse_input(theme, "Install directory", "./install")?;
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
         "gutch target_install verify --repo {} --target {} --dir {}{}",
@@ -1243,7 +1449,7 @@ fn run_set_target_lookup_path(theme: &ColorfulTheme, repo: &std::path::Path) -> 
         .and_then(|r| r.target_lookup_path.clone())
         .unwrap_or_default();
 
-    let path = optional_path_input(theme, "Target lookup path (directory with build outputs)", &current)?;
+    let path = optional_path_or_browse_input(theme, "Target lookup path (directory with build outputs)", &current)?;
     let path_str = path.as_ref().map(|p| p.display().to_string());
 
     let mut config = g::config::load_config()?;

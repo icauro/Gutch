@@ -71,8 +71,10 @@ pub use runtime::{
 };
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyTimings, classify_directory,
-    classify_directory_with_timings, classify_directory_with_timings_and_hints, estimate_build,
-    verify_directory, verify_directory_with_timings, verify_directory_with_timings_and_hints,
+    classify_directory_with_progress, classify_directory_with_timings,
+    classify_directory_with_timings_and_hints, estimate_build, verify_directory,
+    verify_directory_with_progress, verify_directory_with_timings,
+    verify_directory_with_timings_and_hints,
 };
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 
 #[test]
+#[ignore = "integration test: requires local mock HTTP server"]
 fn fetch_target_install_content_downloads_manifest_and_bundles() {
     let root = std::env::temp_dir().join(format!(
         "gutch_fetch_install_test_{}_{}",

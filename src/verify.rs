@@ -3,6 +3,7 @@ use std::io::Read;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 
 use crate::Result;
@@ -93,7 +94,9 @@ pub fn classify_directory_with_timings(
     target_manifest: &TargetManifest,
     dir: &Path,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_directory_with_timings_and_hints(target_manifest, dir, &RuntimeResourceHints::default())
+    classify_directory_with_timings_and_hints_and_progress(
+        target_manifest, dir, &RuntimeResourceHints::default(), None,
+    )
 }
 
 pub fn verify_directory_with_timings_and_hints(
@@ -110,6 +113,49 @@ pub fn classify_directory_with_timings_and_hints(
     target_manifest: &TargetManifest,
     dir: &Path,
     runtime_hints: &RuntimeResourceHints,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_directory_with_timings_and_hints_and_progress(
+        target_manifest, dir, runtime_hints, None,
+    )
+}
+
+pub fn classify_directory_with_progress(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    let file_count = target_manifest.files.len() as u64;
+    let pb = ProgressBar::new(file_count);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} verifying [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files ({eta})",
+            )
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+    let result = classify_directory_with_timings_and_hints_and_progress(
+        target_manifest, dir, runtime_hints, Some(&pb),
+    );
+    pb.finish_and_clear();
+    result
+}
+
+pub fn verify_directory_with_progress(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<(Vec<String>, VerifyTimings)> {
+    let (classification, timings) =
+        classify_directory_with_progress(target_manifest, dir, runtime_hints)?;
+    Ok((classification.into_messages(), timings))
+}
+
+fn classify_directory_with_timings_and_hints_and_progress(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    progress: Option<&ProgressBar>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     let mut classification = RepairClassification::default();
@@ -128,7 +174,13 @@ pub fn classify_directory_with_timings_and_hints(
         target_manifest
             .files
             .par_iter()
-            .map(|fm| verify_manifest_file(target_manifest, dir, fm))
+            .map(|fm| {
+                let result = verify_manifest_file(target_manifest, dir, fm);
+                if let Some(pb) = progress {
+                    pb.inc(1);
+                }
+                result
+            })
             .collect::<Vec<_>>()
     })?;
 

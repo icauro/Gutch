@@ -9,8 +9,8 @@ use crate::reconstruct::{
 use crate::runtime::RuntimeResourceHints;
 
 use crate::verify::{
-    VerifyTimings, classify_directory_with_timings,
-    verify_directory_with_timings_and_hints,
+    VerifyTimings, classify_directory_with_progress,
+    verify_directory_with_progress,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -107,7 +107,7 @@ pub fn apply_target_install_with_timings_and_hints(
     let verified_source = match source {
         Some(source) => {
             let (source_classification, _) =
-                classify_directory_with_timings(source.target_manifest, source.install_dir)?;
+                classify_directory_with_progress(source.target_manifest, source.install_dir, &RuntimeResourceHints::default())?;
             if !source_classification.missing_files.is_empty()
                 || !source_classification.corrupt_files.is_empty()
             {
@@ -154,7 +154,7 @@ pub fn apply_target_install_with_timings_and_hints(
         )?;
 
     let (verify_errors, verify_timings) =
-        verify_directory_with_timings_and_hints(target_manifest, staging_dir, runtime_hints)?;
+        verify_directory_with_progress(target_manifest, staging_dir, runtime_hints)?;
     if !verify_errors.is_empty() {
         return Err(Error::verify(format!(
             "staged install did not verify: {}",
