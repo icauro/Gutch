@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
@@ -23,12 +23,24 @@ enum RepoSelectionAction {
 #[derive(Clone)]
 enum RepoWorkAction {
     TargetInsert,
-    TargetExport,
+    TargetExtract,
     TargetInstallApply,
     TargetInstallVerify,
-    RepoConfigEdit,
+    RepoInspect,
+    RepoSyncUp,
+    Advanced,
     SwitchRepo,
     Exit,
+}
+
+#[derive(Clone)]
+enum AdvancedAction {
+    RepoConfigEdit,
+    RepoLink,
+    RepoUnlink,
+    SetTargetLookupPath,
+    DiscoverTargets,
+    Back,
 }
 
 pub(crate) fn run() -> g::Result<()> {
@@ -59,7 +71,7 @@ pub(crate) fn run() -> g::Result<()> {
                             err
                         );
                     } else {
-                        println!("selected repo at {}", repo.display());
+                        print_repo_summary(&repo)?;
                         active_repo = Some(repo);
                     }
                 }
@@ -74,8 +86,8 @@ pub(crate) fn run() -> g::Result<()> {
                 RepoWorkAction::TargetInsert => {
                     run_target_insert(&theme, repo)?;
                 }
-                RepoWorkAction::TargetExport => {
-                    run_target_export(&theme, repo)?;
+                RepoWorkAction::TargetExtract => {
+                    run_target_extract(&theme, repo)?;
                 }
                 RepoWorkAction::TargetInstallApply => {
                     run_target_install_apply(&theme, repo)?;
@@ -83,9 +95,22 @@ pub(crate) fn run() -> g::Result<()> {
                 RepoWorkAction::TargetInstallVerify => {
                     run_target_install_verify(&theme, repo)?;
                 }
-                RepoWorkAction::RepoConfigEdit => {
-                    run_repo_config_edit(&theme, repo)?;
+                RepoWorkAction::RepoInspect => {
+                    run_repo_inspect(repo)?;
                 }
+                RepoWorkAction::RepoSyncUp => {
+                    run_interactive_repo_sync_up(&theme, repo)?;
+                }
+                RepoWorkAction::Advanced => loop {
+                    match prompt_advanced_action(&theme, repo)? {
+                        AdvancedAction::Back => break,
+                        AdvancedAction::RepoConfigEdit => run_repo_config_edit(&theme, repo)?,
+                        AdvancedAction::RepoLink => run_interactive_repo_link(&theme, repo)?,
+                        AdvancedAction::RepoUnlink => run_interactive_repo_unlink(&theme, repo)?,
+                        AdvancedAction::SetTargetLookupPath => run_set_target_lookup_path(&theme, repo)?,
+                        AdvancedAction::DiscoverTargets => run_discover_targets(&theme, repo)?,
+                    }
+                },
             }
         }
     }
@@ -117,7 +142,11 @@ fn prompt_select_tracked_repo(theme: &ColorfulTheme) -> g::Result<std::path::Pat
     let mut labels: Vec<String> = config
         .repos
         .iter()
-        .map(|repo| format!("{}  ({})", repo.path, repo.content_repo_id))
+        .map(|repo| {
+            let linked_marker = if repo.linked.is_some() { " [linked]" } else { "" };
+            let lookup_marker = if repo.target_lookup_path.is_some() { " [lookup]" } else { "" };
+            format!("{}{}{}", repo.path, linked_marker, lookup_marker)
+        })
         .collect();
     labels.push("Enter a custom path...".to_string());
 
@@ -141,19 +170,43 @@ fn prompt_repo_work_action(
 ) -> g::Result<RepoWorkAction> {
     let actions = [
         ("Insert target from local files", RepoWorkAction::TargetInsert),
-        ("Export target to directory", RepoWorkAction::TargetExport),
+        ("Extract target to directory", RepoWorkAction::TargetExtract),
         (
             "Apply target install from local repo",
             RepoWorkAction::TargetInstallApply,
         ),
         ("Verify installed target", RepoWorkAction::TargetInstallVerify),
-        ("Edit repo config and tag heuristics", RepoWorkAction::RepoConfigEdit),
+        ("Inspect repo targets and bundles", RepoWorkAction::RepoInspect),
+        ("Sync-up to remote backend", RepoWorkAction::RepoSyncUp),
+        ("Advanced...", RepoWorkAction::Advanced),
         ("Switch to a different repo", RepoWorkAction::SwitchRepo),
         ("Exit", RepoWorkAction::Exit),
     ];
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
         .with_prompt(format!("Working on repo: {}", repo.display()))
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+    Ok(actions[selection].1.clone())
+}
+
+fn prompt_advanced_action(
+    theme: &ColorfulTheme,
+    repo: &std::path::Path,
+) -> g::Result<AdvancedAction> {
+    let actions = [
+        ("Discover and insert targets from lookup path", AdvancedAction::DiscoverTargets),
+        ("Edit repo config and tag inference", AdvancedAction::RepoConfigEdit),
+        ("Link to remote product repo", AdvancedAction::RepoLink),
+        ("Unlink from remote product repo", AdvancedAction::RepoUnlink),
+        ("Set target lookup path", AdvancedAction::SetTargetLookupPath),
+        ("Back", AdvancedAction::Back),
+    ];
+    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt(format!("Advanced — repo: {}", repo.display()))
         .items(&labels)
         .default(0)
         .interact()
@@ -168,7 +221,47 @@ enum TaggingTemplate {
 }
 
 fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
-    let path = path_input(theme, "Repo path", ".")?;
+    let cwd = std::env::current_dir()
+        .map_err(|err| g::Error::manifest(format!("failed to get current directory: {}", err)))?;
+    let cwd_with_slash = format!("{}_", cwd.display()).replace("_", std::path::MAIN_SEPARATOR_STR);
+
+    let path = path_input(theme, "Repo path", &cwd_with_slash)?;
+
+    if path.exists() && path.is_dir() {
+        let contents: Vec<String> = std::fs::read_dir(&path)
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if entry.path().is_dir() {
+                            format!("{}/", name)
+                        } else {
+                            name
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !contents.is_empty() {
+            println!();
+            println!(
+                "WARNING: '{}' already exists with contents:",
+                path.display()
+            );
+            for item in &contents {
+                println!("  {}", item);
+            }
+            let proceed = Confirm::with_theme(theme)
+                .with_prompt("Existing contents may be overwritten. Continue?")
+                .default(false)
+                .interact()
+                .map_err(dialoguer_to_manifest_error)?;
+            if !proceed {
+                return Err(g::Error::manifest("repo creation cancelled"));
+            }
+        }
+    }
 
     let template = prompt_tagging_template(theme)?;
 
@@ -342,12 +435,12 @@ fn run_target_insert(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result
     })
 }
 
-fn run_target_export(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
+fn run_target_extract(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let target = required_string(theme, "Target id", "")?;
-    let output = path_input(theme, "Output directory", "./exported-target")?;
+    let output = path_input(theme, "Output directory", "./extracted-target")?;
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
-        "gutch target export --repo {} --target {} --output {}{}",
+        "gutch target extract --repo {} --target {} --output {}{}",
         shell_arg_path(repo),
         shell_arg(&target),
         shell_arg_path(&output),
@@ -355,7 +448,7 @@ fn run_target_export(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result
     );
     confirm_preview(theme, &preview)?;
 
-    crate::cli::target::run(TargetCommands::Export {
+    crate::cli::target::run(TargetCommands::Extract {
         repo: repo.to_path_buf(),
         target,
         output,
@@ -1054,4 +1147,218 @@ fn trim_to_option(value: String) -> Option<String> {
 
 fn dialoguer_to_manifest_error(err: dialoguer::Error) -> g::Error {
     g::Error::manifest(format!("interactive prompt failed: {}", err))
+}
+
+fn print_repo_summary(repo: &std::path::Path) -> g::Result<()> {
+    let status = g::inspect_content_repo(repo)?;
+    let config = g::config::load_config()?;
+    let tracked = config.find_repo(&repo.display().to_string());
+
+    println!();
+    println!("  path:     {}", status.repo_path);
+    println!("  id:       {}", status.content_repo_id);
+    println!("  targets:  {}", status.targets.len());
+    println!("  bundles:  {} ({})", status.bundle_count, format_bytes(status.bundle_bytes));
+
+    if let Some(tracked) = tracked {
+        if let Some(lookup) = &tracked.target_lookup_path {
+            println!("  lookup:   {}", lookup);
+        }
+        if let Some(linked) = &tracked.linked {
+            println!(
+                "  linked:   product {} | repo {} (id: {})",
+                linked.product_id, linked.remote_repo_slug, linked.remote_repo_id
+            );
+        }
+    }
+    println!();
+    Ok(())
+}
+
+fn run_repo_inspect(repo: &std::path::Path) -> g::Result<()> {
+    let status = g::inspect_content_repo(repo)?;
+    if !status.is_repo {
+        println!("not a content repo.");
+        return Ok(());
+    }
+
+    println!();
+    for target in &status.targets {
+        println!(
+            "{} | version={} | os={} | arch={} | tier={} | files={} | missing_bundles={}",
+            target.target_id,
+            target.version_id,
+            target.platform,
+            target.architecture,
+            target.tier_id,
+            target.file_count,
+            target.missing_bundle_count
+        );
+    }
+    Ok(())
+}
+
+fn run_interactive_repo_link(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
+    let endpoint = crate::auth::DEFAULT_BACKEND_URL.to_string();
+    let session_id = crate::cli::common::session_id_for_cli(None)?;
+    crate::cli::repo::run(RepoCommands::Link {
+        repo: repo.to_path_buf(),
+        endpoint,
+        session_id: Some(session_id),
+        product_id: None,
+        content_repo_id: None,
+        remote_repo_slug: None,
+    })
+}
+
+fn run_interactive_repo_unlink(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
+    let confirmed = Confirm::with_theme(theme)
+        .with_prompt("Unlink this repo from remote?")
+        .default(false)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+    if !confirmed {
+        return Ok(());
+    }
+    crate::cli::repo::run(RepoCommands::Unlink {
+        repo: repo.to_path_buf(),
+    })
+}
+
+fn run_interactive_repo_sync_up(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
+    let endpoint = crate::auth::DEFAULT_BACKEND_URL.to_string();
+    let session_id = crate::cli::common::session_id_for_cli(None)?;
+    crate::cli::repo::run(RepoCommands::SyncUp {
+        repo: repo.to_path_buf(),
+        endpoint,
+        product_id: None,
+        content_repo_id: None,
+        session_id: Some(session_id),
+    })
+}
+
+fn run_set_target_lookup_path(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
+    let current = g::config::load_config()?
+        .find_repo(&repo.display().to_string())
+        .and_then(|r| r.target_lookup_path.clone())
+        .unwrap_or_default();
+
+    let path = optional_path_input(theme, "Target lookup path (directory with build outputs)", &current)?;
+    let path_str = path.as_ref().map(|p| p.display().to_string());
+
+    let mut config = g::config::load_config()?;
+    config.upsert_repo(g::config::TrackedRepo {
+        path: repo.display().to_string(),
+        target_lookup_path: path_str.clone(),
+        linked: None,
+    });
+    g::config::save_config(&config)?;
+
+    match path_str {
+        Some(p) => println!("target lookup path set to '{}'", p),
+        None => println!("target lookup path cleared"),
+    }
+    Ok(())
+}
+
+fn run_discover_targets(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
+    let lookup = g::config::load_config()?
+        .find_repo(&repo.display().to_string())
+        .and_then(|r| r.target_lookup_path.clone());
+
+    let Some(lookup) = lookup else {
+        println!("no target lookup path set. Use 'Set target lookup path' first.");
+        return Ok(());
+    };
+
+    let candidates = g::discover_source_target_installs(repo, &std::path::PathBuf::from(&lookup))?;
+    if candidates.is_empty() {
+        println!("no source target installs found in '{}'", lookup);
+        return Ok(());
+    }
+
+    let status = g::inspect_content_repo(repo)?;
+    let existing_ids: HashSet<String> = status
+        .targets
+        .iter()
+        .map(|t| t.target_id.clone())
+        .collect();
+
+    let uninserted: Vec<_> = candidates
+        .iter()
+        .filter(|c| !existing_ids.contains(&c.target_id))
+        .collect();
+    let already_inserted = candidates.len() - uninserted.len();
+
+    println!();
+    if !uninserted.is_empty() {
+        println!("Uninserted:");
+        for candidate in &uninserted {
+            println!(
+                "  {} | path={} | version={} | os={} | arch={} | tier={}",
+                candidate.target_id,
+                candidate.path,
+                candidate.version_id,
+                candidate.platform,
+                candidate.architecture,
+                candidate.tier_id
+            );
+        }
+    }
+    if already_inserted > 0 {
+        println!("Already inserted: {} target(s)", already_inserted);
+    }
+
+    if uninserted.is_empty() {
+        println!("all {} candidate(s) already inserted.", candidates.len());
+        return Ok(());
+    }
+
+    let confirmed = Confirm::with_theme(theme)
+        .with_prompt(format!("Insert all {} uninserted targets?", uninserted.len()))
+        .default(true)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+
+    if !confirmed {
+        return Ok(());
+    }
+
+    for candidate in &uninserted {
+        println!("inserting {} ...", candidate.folder_name);
+        crate::cli::target::run(TargetCommands::Insert {
+            dir: std::path::PathBuf::from(&candidate.path),
+            repo: repo.to_path_buf(),
+            version: Some(candidate.version_id.clone()),
+            platform: Some(candidate.platform.clone()),
+            architecture: Some(candidate.architecture.clone()),
+            tier: Some(candidate.tier_id.clone()),
+            tags: Vec::new(),
+            chunk_profile: g::manifest::ArtifactSizingPreset::Balanced,
+            bundle_profile: g::manifest::BundleSizingPreset::Balanced,
+            memory_mode: g::MemoryMode::Auto,
+            max_memory_mib: None,
+            jobs: None,
+            summary_out: None,
+            stats_json_out: None,
+        })?;
+    }
+
+    println!("inserted {} target(s).", uninserted.len());
+    Ok(())
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = KIB * 1024;
+    const GIB: u64 = MIB * 1024;
+    if bytes >= GIB {
+        format!("{:.1} GiB", bytes as f64 / GIB as f64)
+    } else if bytes >= MIB {
+        format!("{:.1} MiB", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB", bytes as f64 / KIB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
 }

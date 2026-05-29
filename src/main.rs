@@ -112,13 +112,13 @@ enum RepoCommands {
         json_out: Option<PathBuf>,
     },
 
-    #[command(name = "discover-source-targets")]
-    DiscoverSourceTargets {
+    #[command(name = "discover-targets")]
+    DiscoverTargets {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
 
-        #[arg(long = "source-targets-root")]
-        source_targets_root: PathBuf,
+        #[arg(long = "lookup-root")]
+        lookup_root: PathBuf,
 
         #[arg(long = "json-out")]
         json_out: Option<PathBuf>,
@@ -133,18 +133,6 @@ enum RepoCommands {
         json_out: Option<PathBuf>,
     },
 
-    #[command(name = "delete-target")]
-    DeleteTarget {
-        #[arg(long = "repo", default_value = ".")]
-        repo: PathBuf,
-
-        #[arg(long = "target")]
-        target: String,
-
-        #[arg(long = "yes")]
-        yes: bool,
-    },
-
     #[command(name = "sync-up")]
     SyncUp {
         #[arg(long = "repo", default_value = ".")]
@@ -154,13 +142,38 @@ enum RepoCommands {
         endpoint: String,
 
         #[arg(long = "product-id")]
-        product_id: i64,
+        product_id: Option<i64>,
 
         #[arg(long = "content-repo-id")]
-        content_repo_id: i64,
+        content_repo_id: Option<i64>,
 
         #[arg(long = "session-id")]
         session_id: Option<String>,
+    },
+
+    Link {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "endpoint", default_value = auth::DEFAULT_BACKEND_URL)]
+        endpoint: String,
+
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+
+        #[arg(long = "product-id")]
+        product_id: Option<i64>,
+
+        #[arg(long = "content-repo-id")]
+        content_repo_id: Option<i64>,
+
+        #[arg(long = "remote-repo-slug")]
+        remote_repo_slug: Option<String>,
+    },
+
+    Unlink {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
     },
 }
 
@@ -210,7 +223,18 @@ enum TargetCommands {
         stats_json_out: Option<PathBuf>,
     },
 
-    Export {
+    Delete {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "target")]
+        target: String,
+
+        #[arg(long = "yes")]
+        yes: bool,
+    },
+
+    Extract {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
 

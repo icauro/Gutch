@@ -213,7 +213,92 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             build_progress.finish_and_clear();
         }
 
-        TargetCommands::Export {
+        TargetCommands::Delete { repo, target, yes } => {
+            let (repo_paths, _repo_manifest, _, _tm) =
+                load_target_manifest_from_repo(&repo, &target)?;
+            let manifest_path = g::target_manifest_path(&repo_paths, &target);
+            let manifest_bin_path = g::target_manifest_bin_path(&repo_paths, &target);
+            let manifest_sig_path = g::target_manifest_sig_path(&repo_paths, &target);
+            if !yes {
+                eprintln!(
+                    "WARNING: this will remove '{}' and related target artifacts, and may orphan bundles. Use --yes to confirm.",
+                    manifest_path.display()
+                );
+                return Err(g::Error::manifest("deletion requires --yes flag"));
+            }
+
+            for path in [&manifest_path, &manifest_bin_path, &manifest_sig_path] {
+                if path.exists() {
+                    if path.is_dir() {
+                        std::fs::remove_dir_all(path)?;
+                    } else {
+                        std::fs::remove_file(path)?;
+                    }
+                }
+            }
+            if crate::cli::verbose_output_enabled() {
+                println!("removed target: {}", target);
+            }
+
+            let remaining_targets: std::collections::HashSet<String> = {
+                let mut ids = std::collections::HashSet::new();
+                if repo_paths.targets_root.exists() {
+                    for entry in std::fs::read_dir(&repo_paths.targets_root)? {
+                        let entry = entry?;
+                        if entry.path().is_file()
+                            && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+                        {
+                            if let Some(target_id) =
+                                entry.path().file_stem().and_then(|value| value.to_str())
+                            {
+                                ids.insert(target_id.to_string());
+                            }
+                        }
+                    }
+                }
+                ids
+            };
+
+            let chunk_index = g::load_chunk_index(&repo_paths)?;
+            let mut required_bundle_ids = std::collections::HashSet::new();
+            for target_id in &remaining_targets {
+                let manifest = g::load_target_manifest(&repo_paths, target_id)?;
+                required_bundle_ids.extend(g::repo::required_bundle_ids(&manifest, &chunk_index));
+            }
+
+            let mut orphan_bundles = Vec::new();
+            if repo_paths.bundles_root.exists() {
+                for entry in walkdir::WalkDir::new(&repo_paths.bundles_root).sort_by_file_name() {
+                    let entry = entry?;
+                    if !entry.path().is_file() {
+                        continue;
+                    }
+                    if entry.path().extension().and_then(|e| e.to_str()) != Some("bundle") {
+                        continue;
+                    }
+                    if let Some(bundle_id) = entry.path().file_stem().and_then(|s| s.to_str()) {
+                        if !required_bundle_ids.contains(bundle_id) {
+                            orphan_bundles.push(entry.path().to_path_buf());
+                        }
+                    }
+                }
+            }
+
+            for orphan_path in &orphan_bundles {
+                std::fs::remove_file(orphan_path)?;
+                if crate::cli::verbose_output_enabled() {
+                    println!("removed orphaned bundle: {}", orphan_path.display());
+                }
+            }
+
+            println!(
+                "deleted target '{}': removed manifest, {} orphaned bundles cleaned up",
+                target,
+                orphan_bundles.len()
+            );
+        }
+
+        TargetCommands::Extract {
             repo,
             target,
             output,
@@ -246,7 +331,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             print_reconstruct_timings(&timings);
 
             let stats = TargetExportStats {
-                command: "target export",
+                command: "target extract",
                 repo_root: repo_paths.repo_root.display().to_string(),
                 target_id: tm.target_id.clone(),
                 output_dir: output.display().to_string(),

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -9,9 +9,9 @@ use crate::cli::backend::{
     request_optional_bytes_from_signed_url, slugify_like_backend, upload_raw_file,
 };
 use crate::cli::common::{
-    load_optional_rules, load_target_manifest_from_repo, parse_version_parts, session_id_for_cli,
+    load_optional_rules, parse_version_parts, session_id_for_cli,
 };
-use crate::cli::{SECTION_SEPARATOR, verbose_output_enabled};
+use crate::cli::{SECTION_SEPARATOR};
 use crate::cli::reporting::{
     ensure_parent_directory,
 };
@@ -36,10 +36,34 @@ struct RepoSyncUpStats {
 fn run_repo_sync_up(
     repo: PathBuf,
     endpoint: String,
-    product_id: i64,
-    content_repo_id: i64,
+    product_id: Option<i64>,
+    content_repo_id: Option<i64>,
     session_override: Option<String>,
 ) -> g::Result<RepoSyncUpStats> {
+    let (product_id, content_repo_id) = if let (Some(pid), Some(cid)) = (product_id, content_repo_id) {
+        (pid, cid)
+    } else {
+        let config = g::config::load_config()?;
+        let tracked = config
+            .find_repo(&repo.display().to_string())
+            .ok_or_else(|| {
+                g::Error::manifest(format!(
+                    "repo '{}' is not tracked. Use repo link first or pass --product-id and --content-repo-id.",
+                    repo.display()
+                ))
+            })?;
+        let linked = tracked.linked.as_ref().ok_or_else(|| {
+            g::Error::manifest(format!(
+                "repo '{}' has no linked remote. Use repo link first or pass --product-id and --content-repo-id.",
+                repo.display()
+            ))
+        })?;
+        let pid = linked
+            .product_id
+            .parse::<i64>()
+            .map_err(|_| g::Error::manifest(format!("invalid linked product_id: {}", linked.product_id)))?;
+        (pid, linked.remote_repo_id)
+    };
     let session_id = session_id_for_cli(session_override)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
@@ -321,12 +345,8 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             let mut config = g::config::load_config()?;
             config.upsert_repo(g::config::TrackedRepo {
                 path: repo_paths.repo_root.display().to_string(),
-                content_repo_id: repo_name.to_string(),
-                product_id: None,
-                creator_user_id: None,
-                remote_repo_id: None,
-                remote_repo_slug: None,
-                source_targets_path: None,
+                target_lookup_path: None,
+                linked: None,
             });
             g::config::save_config(&config)?;
         }
@@ -394,12 +414,12 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             }
         }
 
-        RepoCommands::DiscoverSourceTargets {
+        RepoCommands::DiscoverTargets {
             repo,
-            source_targets_root,
+            lookup_root,
             json_out,
         } => {
-            let candidates = g::discover_source_target_installs(&repo, &source_targets_root)?;
+            let candidates = g::discover_source_target_installs(&repo, &lookup_root)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
                 std::fs::write(json_out, serde_json::to_vec_pretty(&candidates)?)?;
@@ -421,7 +441,7 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             println!("{SECTION_SEPARATOR}");
             println!("Total");
             println!("count: {}", candidates.len());
-            println!("source_targets_root: {}", source_targets_root.display());
+            println!("lookup_root: {}", lookup_root.display());
         }
 
         RepoCommands::List { repo, json_out } => {
@@ -450,91 +470,6 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             println!("bundles: {}", status.bundle_count);
         }
 
-        RepoCommands::DeleteTarget { repo, target, yes } => {
-            let (repo_paths, _repo_manifest, _, _tm) =
-                load_target_manifest_from_repo(&repo, &target)?;
-            let manifest_path = g::target_manifest_path(&repo_paths, &target);
-            let manifest_bin_path = g::target_manifest_bin_path(&repo_paths, &target);
-            let manifest_sig_path = g::target_manifest_sig_path(&repo_paths, &target);
-            if !yes {
-                eprintln!(
-                    "WARNING: this will remove '{}' and related target artifacts, and may orphan bundles. Use --yes to confirm.",
-                    manifest_path.display()
-                );
-                return Err(g::Error::manifest("deletion requires --yes flag"));
-            }
-
-            for path in [&manifest_path, &manifest_bin_path, &manifest_sig_path] {
-                if path.exists() {
-                    if path.is_dir() {
-                        std::fs::remove_dir_all(path)?;
-                    } else {
-                        std::fs::remove_file(path)?;
-                    }
-                }
-            }
-            if verbose_output_enabled() {
-                println!("removed target: {}", target);
-            }
-
-            let remaining_targets: HashSet<String> = {
-                let mut ids = HashSet::new();
-                if repo_paths.targets_root.exists() {
-                    for entry in std::fs::read_dir(&repo_paths.targets_root)? {
-                        let entry = entry?;
-                        if entry.path().is_file()
-                            && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
-                        {
-                            if let Some(target_id) =
-                                entry.path().file_stem().and_then(|value| value.to_str())
-                            {
-                                ids.insert(target_id.to_string());
-                            }
-                        }
-                    }
-                }
-                ids
-            };
-
-            let chunk_index = g::load_chunk_index(&repo_paths)?;
-            let mut required_bundle_ids = HashSet::new();
-            for target_id in &remaining_targets {
-                let manifest = g::load_target_manifest(&repo_paths, target_id)?;
-                required_bundle_ids.extend(g::repo::required_bundle_ids(&manifest, &chunk_index));
-            }
-
-            let mut orphan_bundles = Vec::new();
-            if repo_paths.bundles_root.exists() {
-                for entry in walkdir::WalkDir::new(&repo_paths.bundles_root).sort_by_file_name() {
-                    let entry = entry?;
-                    if !entry.path().is_file() {
-                        continue;
-                    }
-                    if entry.path().extension().and_then(|e| e.to_str()) != Some("bundle") {
-                        continue;
-                    }
-                    if let Some(bundle_id) = entry.path().file_stem().and_then(|s| s.to_str()) {
-                        let bundle_still_needed = required_bundle_ids.contains(bundle_id);
-                        if !bundle_still_needed {
-                            orphan_bundles.push(entry.path().to_path_buf());
-                        }
-                    }
-                }
-            }
-
-            for orphan_path in &orphan_bundles {
-                std::fs::remove_file(orphan_path)?;
-                if verbose_output_enabled() {
-                    println!("removed orphaned bundle: {}", orphan_path.display());
-                }
-            }
-
-            println!(
-                "deleted target '{}': removed dir, {} orphaned bundles cleaned up",
-                target,
-                orphan_bundles.len()
-            );
-        }
 
         RepoCommands::SyncUp {
             repo,
@@ -559,7 +494,229 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 stats.bundle_skipped_count
             );
         }
+
+        RepoCommands::Link {
+            repo,
+            endpoint,
+            session_id,
+            product_id,
+            content_repo_id,
+            remote_repo_slug,
+        } => {
+            if let (Some(product_id), Some(content_repo_id), Some(remote_repo_slug)) =
+                (product_id, content_repo_id, remote_repo_slug)
+            {
+                run_repo_link_direct(
+                    repo,
+                    endpoint,
+                    session_id,
+                    product_id,
+                    content_repo_id,
+                    remote_repo_slug,
+                )?;
+            } else {
+                run_repo_link_interactive(repo, endpoint, session_id)?;
+            }
+        }
+
+        RepoCommands::Unlink { repo } => {
+            let mut config = g::config::load_config()?;
+            let repo_path = repo.display().to_string();
+            if config.find_repo(&repo_path).is_none() {
+                return Err(g::Error::manifest(format!(
+                    "repo '{}' is not tracked in config.",
+                    repo_path
+                )));
+            }
+            config.upsert_repo(g::config::TrackedRepo {
+                path: repo_path,
+                target_lookup_path: None,
+                linked: None,
+            });
+            g::config::save_config(&config)?;
+            println!("unlinked repo '{}'", repo.display());
+        }
     }
 
     Ok(())
+}
+
+fn run_repo_link_interactive(
+    repo: PathBuf,
+    endpoint: String,
+    session_override: Option<String>,
+) -> g::Result<()> {
+    let session_id = session_id_for_cli(session_override)?;
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Gutch CLI")
+        .build()
+        .map_err(|err| g::Error::manifest(format!("failed to create link client: {}", err)))?;
+
+    let repo_path = repo.display().to_string();
+    let mut config = g::config::load_config()?;
+    if let Some(existing) = config.find_repo(&repo_path) {
+        if let Some(linked) = &existing.linked {
+            eprintln!(
+                "repo '{}' is already linked to product {} repo {}.",
+                repo_path, linked.product_id, linked.remote_repo_slug
+            );
+            eprintln!("Use 'gutch repo unlink --repo {}' first.", shell_quote(&repo_path));
+            return Err(g::Error::manifest("repo already linked"));
+        }
+    }
+
+    let products: serde_json::Value = request_json_from_backend(
+        client
+            .get(format!(
+                "{}/v1/users/me/creator/products",
+                endpoint.trim_end_matches('/')
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id)),
+    )?;
+
+    let product_list = products
+        .as_array()
+        .ok_or_else(|| g::Error::manifest("invalid products response"))?;
+    if product_list.is_empty() {
+        return Err(g::Error::manifest("no creator products found"));
+    }
+
+    println!();
+    println!("Products:");
+    for (i, product) in product_list.iter().enumerate() {
+        let id = product["id"].as_i64().unwrap_or(0);
+        let name = product["name"].as_str().unwrap_or("?");
+        let slug = product["slug"].as_str().unwrap_or("?");
+        println!("  [{}] {} (slug: {}, id: {})", i + 1, name, slug, id);
+    }
+
+    let choice = prompt_index("Select product", product_list.len())?;
+    let product = &product_list[choice];
+    let product_id = product["id"]
+        .as_i64()
+        .ok_or_else(|| g::Error::manifest("product missing id"))?;
+    let product_id_str = product_id.to_string();
+
+    let repos: serde_json::Value = request_json_from_backend(
+        client
+            .get(format!(
+                "{}/v1/users/me/creator/products/{}/repos",
+                endpoint.trim_end_matches('/'),
+                product_id
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id)),
+    )?;
+
+    let repo_list = repos
+        .as_array()
+        .ok_or_else(|| g::Error::manifest("invalid repos response"))?;
+    if repo_list.is_empty() {
+        return Err(g::Error::manifest(format!(
+            "product {} has no repos",
+            product_id
+        )));
+    }
+
+    println!();
+    println!("Repos:");
+    for (i, r) in repo_list.iter().enumerate() {
+        let id = r["id"].as_i64().unwrap_or(0);
+        let slug = r["slug"].as_str().unwrap_or("?");
+        println!("  [{}] repo id: {}, slug: {}", i + 1, id, slug);
+    }
+
+    let choice = prompt_index("Select repo", repo_list.len())?;
+    let selected = &repo_list[choice];
+    let remote_repo_id = selected["id"]
+        .as_i64()
+        .ok_or_else(|| g::Error::manifest("repo missing id"))?;
+    let remote_repo_slug = selected["slug"]
+        .as_str()
+        .ok_or_else(|| g::Error::manifest("repo missing slug"))?
+        .to_string();
+
+    config.upsert_repo(g::config::TrackedRepo {
+        path: repo_path.clone(),
+        target_lookup_path: None,
+        linked: Some(g::config::LinkedRepo {
+            product_id: product_id_str,
+            creator_user_id: None,
+            remote_repo_id,
+            remote_repo_slug: remote_repo_slug.clone(),
+        }),
+    });
+    g::config::save_config(&config)?;
+
+    println!(
+        "linked repo '{}' to product {} repo {} (id: {})",
+        repo_path, product_id, remote_repo_slug, remote_repo_id
+    );
+    Ok(())
+}
+
+fn run_repo_link_direct(
+    repo: PathBuf,
+    _endpoint: String,
+    _session_override: Option<String>,
+    product_id: i64,
+    content_repo_id: i64,
+    remote_repo_slug: String,
+) -> g::Result<()> {
+    let repo_path = repo.display().to_string();
+    let mut config = g::config::load_config()?;
+    if let Some(existing) = config.find_repo(&repo_path) {
+        if let Some(linked) = &existing.linked {
+            return Err(g::Error::manifest(format!(
+                "repo '{}' is already linked to product {} repo {}.",
+                repo_path, linked.product_id, linked.remote_repo_slug
+            )));
+        }
+    }
+
+    config.upsert_repo(g::config::TrackedRepo {
+        path: repo_path.clone(),
+        target_lookup_path: None,
+        linked: Some(g::config::LinkedRepo {
+            product_id: product_id.to_string(),
+            creator_user_id: None,
+            remote_repo_id: content_repo_id,
+            remote_repo_slug: remote_repo_slug.clone(),
+        }),
+    });
+    g::config::save_config(&config)?;
+
+    println!(
+        "linked repo '{}' to product {} repo {} (id: {})",
+        repo_path, product_id, remote_repo_slug, content_repo_id
+    );
+    Ok(())
+}
+
+fn prompt_index(prompt: &str, count: usize) -> g::Result<usize> {
+    use std::io::{self, Write};
+    loop {
+        print!("{} [1-{}]: ", prompt, count);
+        io::stdout().flush().map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
+        let mut line = String::new();
+        io::stdin()
+            .read_line(&mut line)
+            .map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
+        match line.trim().parse::<usize>() {
+            Ok(n) if n >= 1 && n <= count => return Ok(n - 1),
+            _ => eprintln!("enter a number from 1 to {}", count),
+        }
+    }
+}
+
+fn shell_quote(value: &str) -> String {
+    if value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '\\'))
+    {
+        value.to_string()
+    } else {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    }
 }
