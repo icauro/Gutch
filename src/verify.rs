@@ -77,8 +77,11 @@ pub fn verify_directory_with_timings(
     target_manifest: &TargetManifest,
     dir: &Path,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    let (classification, timings) =
-        classify_directory_with_timings_and_hints(target_manifest, dir, &RuntimeResourceHints::default())?;
+    let (classification, timings) = classify_directory_with_timings_and_hints(
+        target_manifest,
+        dir,
+        &RuntimeResourceHints::default(),
+    )?;
     Ok((classification.into_messages(), timings))
 }
 
@@ -95,7 +98,10 @@ pub fn classify_directory_with_timings(
     dir: &Path,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_directory_with_timings_and_hints_and_progress(
-        target_manifest, dir, &RuntimeResourceHints::default(), None,
+        target_manifest,
+        dir,
+        &RuntimeResourceHints::default(),
+        None,
     )
 }
 
@@ -115,7 +121,10 @@ pub fn classify_directory_with_timings_and_hints(
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_directory_with_timings_and_hints_and_progress(
-        target_manifest, dir, runtime_hints, None,
+        target_manifest,
+        dir,
+        runtime_hints,
+        None,
     )
 }
 
@@ -135,7 +144,10 @@ pub fn classify_directory_with_progress(
             .progress_chars("#>-"),
     );
     let result = classify_directory_with_timings_and_hints_and_progress(
-        target_manifest, dir, runtime_hints, Some(&pb),
+        target_manifest,
+        dir,
+        runtime_hints,
+        Some(&pb),
     );
     pb.finish_and_clear();
     result

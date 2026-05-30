@@ -6,11 +6,11 @@ use crate::cli::common::{
     write_report, write_target_manifest,
 };
 use crate::cli::progress::TargetInsertProgress;
-use crate::cli::verbose_output_enabled;
 use crate::cli::reporting::{
     build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
     ratio_pct, reconstruct_timings_summary,
 };
+use crate::cli::verbose_output_enabled;
 use g::cli_identity::{apply_resolved_target_identity, parse_cli_tags, resolve_target_identity};
 use g::repo::{rebuild_chunk_index_from_bundles, required_chunk_hashes, scan_existing_store_state};
 use gutch as g;
@@ -104,12 +104,12 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             let existing_manifest_path = g::target_manifest_path(&repo_paths, &target_id);
             if existing_manifest_path.exists() {
                 let existing_manifest = g::load_target_manifest(&repo_paths, &target_id)?;
-                    if existing_manifest.target_tags != result.target_manifest.target_tags {
-                        return Err(g::Error::manifest(format!(
-                            "target content id '{}' already exists with different target tags",
-                            target_id
-                        )));
-                    }
+                if existing_manifest.target_tags != result.target_manifest.target_tags {
+                    return Err(g::Error::manifest(format!(
+                        "target content id '{}' already exists with different target tags",
+                        target_id
+                    )));
+                }
             }
 
             let (manifest_path, _) = write_target_manifest(&repo_paths, &result.target_manifest)?;
@@ -245,7 +245,8 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                     for entry in std::fs::read_dir(&repo_paths.targets_root)? {
                         let entry = entry?;
                         if entry.path().is_file()
-                            && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+                            && entry.path().extension().and_then(|value| value.to_str())
+                                == Some("json")
                         {
                             if let Some(target_id) =
                                 entry.path().file_stem().and_then(|value| value.to_str())

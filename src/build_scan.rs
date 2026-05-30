@@ -100,7 +100,7 @@ pub(crate) fn scan_directory_into_file_entries(
     let spool_root = chunk_spool_root.map(PathBuf::from);
     let progress_for_scan = progress.clone();
     let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
-            let result = (|| -> Result<FileBuildEntry> {
+        let result = (|| -> Result<FileBuildEntry> {
             let relative = path.strip_prefix(dir).map_err(|e| Error::PathError {
                 path: path.to_path_buf(),
                 reason: e.to_string(),
@@ -109,7 +109,10 @@ pub(crate) fn scan_directory_into_file_entries(
             let scan_read = Duration::ZERO;
             let (chunk_results, chunk_timings) =
                 crate::chunk::chunk_file_streaming(path, chunking_profile)?;
-            let file_size: u64 = chunk_results.iter().map(|chunk| chunk.data.len() as u64).sum();
+            let file_size: u64 = chunk_results
+                .iter()
+                .map(|chunk| chunk.data.len() as u64)
+                .sum();
 
             let t = Instant::now();
             let mut full_file_hasher = blake3::Hasher::new();
@@ -158,14 +161,13 @@ pub(crate) fn scan_directory_into_file_entries(
                         },
                         ChunkStorageMode::TempSpill => {
                             let spool_root = spool_root.as_ref().ok_or_else(|| {
-                                Error::manifest(
-                                    "temp spill mode requires a chunk spool directory",
-                                )
+                                Error::manifest("temp spill mode requires a chunk spool directory")
                             })?;
                             if spill_path.is_none() {
                                 let relative_name =
                                     relative.to_string_lossy().replace(['\\', '/'], "__");
-                                spill_path = Some(spool_root.join(format!("{relative_name}.spill")));
+                                spill_path =
+                                    Some(spool_root.join(format!("{relative_name}.spill")));
                             }
                             if spill_file.is_none() {
                                 let path = spill_path.as_ref().ok_or_else(|| {
@@ -215,16 +217,16 @@ pub(crate) fn scan_directory_into_file_entries(
                 chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
                 metadata: metadata_dur,
             })
-            })();
+        })();
 
-            if result.is_ok() {
-                if let Some(progress) = &progress_for_scan {
-                    progress.on_file_scanned();
-                }
+        if result.is_ok() {
+            if let Some(progress) = &progress_for_scan {
+                progress.on_file_scanned();
             }
+        }
 
-            result
-        };
+        result
+    };
 
     if worker_count <= 1 {
         file_paths.iter().map(scan_one).collect::<Result<Vec<_>>>()

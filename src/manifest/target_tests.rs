@@ -23,6 +23,9 @@ fn test_manifest_serialization_roundtrip() {
     tags.upsert_exclusive("tier", "base");
     let m = TargetManifest::new("abc123def".into(), tags.clone());
     let json = serde_json::to_string_pretty(&m).unwrap();
+    assert!(json.contains("\"target_tags\": ["));
+    assert!(json.contains("\"arch::x86_64\""));
+    assert!(!json.contains("\"exclusive\""));
     let m2: TargetManifest = serde_json::from_str(&json).unwrap();
     assert!(m2.target_id.is_empty());
     assert_eq!(m.inserted_at, m2.inserted_at);

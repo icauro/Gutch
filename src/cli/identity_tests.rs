@@ -27,6 +27,10 @@ fn test_parse_cli_tags_supports_all_three_kinds() {
 fn test_version_strips_v_prefix() {
     assert_eq!(normalize_version("v1.0.0").as_deref(), Some("1.0.0"));
     assert_eq!(normalize_version("1.2.3").as_deref(), Some("1.2.3"));
+    assert_eq!(
+        normalize_version("2025.05.30.1").as_deref(),
+        Some("2025.05.30.1")
+    );
     assert_eq!(normalize_version("version-1"), None);
 }
 
@@ -36,6 +40,26 @@ fn test_infer_tags_from_path_default_aliases() {
     let tags = infer_tags_from_path(std::path::Path::new("game-v1.0.0-win-x64"), &rules);
 
     assert_eq!(tags.get_exclusive("version"), Some("1.0.0"));
+    assert_eq!(tags.get_exclusive("os"), Some("windows"));
+    assert_eq!(tags.get_exclusive("arch"), Some("x86_64"));
+}
+
+#[test]
+fn test_infer_tags_from_path_requires_dash_prefix_segments() {
+    let rules = test_rules();
+    let tags = infer_tags_from_path(std::path::Path::new("game_v1.0.0_win_x64"), &rules);
+
+    assert_eq!(tags.get_exclusive("version"), None);
+    assert_eq!(tags.get_exclusive("os"), None);
+    assert_eq!(tags.get_exclusive("arch"), None);
+}
+
+#[test]
+fn test_infer_calver_from_prefixed_segment() {
+    let rules = test_rules();
+    let tags = infer_tags_from_path(std::path::Path::new("game-v2025.05.30.1-win-x64"), &rules);
+
+    assert_eq!(tags.get_exclusive("version"), Some("2025.05.30.1"));
     assert_eq!(tags.get_exclusive("os"), Some("windows"));
     assert_eq!(tags.get_exclusive("arch"), Some("x86_64"));
 }
@@ -84,11 +108,17 @@ fn test_resolve_custom_scoped_tags() {
             name: "loader".to_string(),
             kind: TargetTagKind::Scoped,
             required: false,
-            values: Vec::new(),
-            aliases: std::collections::BTreeMap::from([
-                ("fabric".to_string(), "fabric".to_string()),
-                ("forge".to_string(), "forge".to_string()),
-            ]),
+            inference_prefixes: vec!["-".to_string()],
+            values: vec![
+                gutch::manifest::TargetTagValueDefinition {
+                    value: "fabric".to_string(),
+                    aliases: Vec::new(),
+                },
+                gutch::manifest::TargetTagValueDefinition {
+                    value: "forge".to_string(),
+                    aliases: Vec::new(),
+                },
+            ],
             default_value: None,
         });
 

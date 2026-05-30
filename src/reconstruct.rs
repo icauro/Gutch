@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::{Read, Seek, SeekFrom};
 use std::io::Write;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -50,9 +50,7 @@ struct BundleScanInfo {
 #[derive(Clone)]
 enum BundleAccessStrategy {
     DirectChunkRead,
-    StagedBundleRaw {
-        staged_raw_path: PathBuf,
-    },
+    StagedBundleRaw { staged_raw_path: PathBuf },
 }
 
 struct BundleAccessPlan {
@@ -327,7 +325,9 @@ fn reconstruct_files_from_locations_and_chunks(
         target_manifest
             .files
             .par_iter()
-            .map(|fm| reconstruct_manifest_file(fm, locations, access_plan, local_chunks, output_dir))
+            .map(|fm| {
+                reconstruct_manifest_file(fm, locations, access_plan, local_chunks, output_dir)
+            })
             .collect::<Vec<_>>()
     })?;
 
@@ -441,9 +441,7 @@ fn read_chunk_for_reconstruct(
             timings.bundle_read_decompressed_bytes += chunk_data.len() as u64;
             Ok(chunk_data)
         }
-        BundleAccessStrategy::StagedBundleRaw {
-            staged_raw_path,
-        } => {
+        BundleAccessStrategy::StagedBundleRaw { staged_raw_path } => {
             let staged_file = match staged_raw_readers.entry(staged_raw_path.clone()) {
                 std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::hash_map::Entry::Vacant(entry) => {
@@ -488,7 +486,10 @@ fn stage_reconstruct_bundle_access(
     let mut bundle_compressed_paths = Vec::new();
     for bundle_path in needed_bundle_paths {
         let scan_info = bundle_scan_info.get(&bundle_path).ok_or_else(|| {
-            Error::Reconstruct(format!("missing bundle scan metadata for {}", bundle_path.display()))
+            Error::Reconstruct(format!(
+                "missing bundle scan metadata for {}",
+                bundle_path.display()
+            ))
         })?;
         if scan_info.compression_unit == crate::manifest::COMPRESSION_UNIT_BUNDLE {
             bundle_compressed_paths.push(bundle_path);
@@ -504,8 +505,9 @@ fn stage_reconstruct_bundle_access(
         });
     }
 
-    let staging_dir = tempfile::tempdir()
-        .map_err(|err| Error::Reconstruct(format!("failed to create bundle staging dir: {}", err)))?;
+    let staging_dir = tempfile::tempdir().map_err(|err| {
+        Error::Reconstruct(format!("failed to create bundle staging dir: {}", err))
+    })?;
     let staged_results = install_in_thread_pool(worker_count, || {
         bundle_compressed_paths
             .par_iter()
@@ -521,12 +523,10 @@ fn stage_reconstruct_bundle_access(
         timings.bundle_read += stage_time;
         timings.bundle_read_compressed_bytes += compressed_size;
         timings.bundle_read_decompressed_bytes += staged_raw_size;
-            strategies.insert(
-                bundle_path,
-                BundleAccessStrategy::StagedBundleRaw {
-                    staged_raw_path,
-                },
-            );
+        strategies.insert(
+            bundle_path,
+            BundleAccessStrategy::StagedBundleRaw { staged_raw_path },
+        );
     }
 
     Ok(BundleAccessPlan {

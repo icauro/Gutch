@@ -216,7 +216,8 @@ pub fn scan_existing_store_state(paths: &ContentRepoPaths) -> Result<ExistingSto
         state.chunk_locations =
             existing_chunk_locations_from_index(&rebuilt_chunk_index, &state.bundle_ids);
     } else {
-        state.chunk_locations = existing_chunk_locations_from_index(&chunk_index, &state.bundle_ids);
+        state.chunk_locations =
+            existing_chunk_locations_from_index(&chunk_index, &state.bundle_ids);
     }
 
     for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
@@ -418,7 +419,12 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
     let (repo_paths, repo_manifest) = load_content_repo_manifest(&repo_path)?;
     let (_bundle_ids, bundle_count, bundle_bytes) =
         inspect_bundle_inventory(&repo_paths.bundles_root)?;
-    let targets = inspect_target_manifests(&repo_paths, &repo_paths.targets_root, &repo_paths.bundles_root)?;
+    let targets = inspect_target_manifests(
+        &repo_paths,
+        &repo_paths.targets_root,
+        &repo_paths.bundles_root,
+        repo_manifest.target_schema.as_ref(),
+    )?;
 
     Ok(RepoInspectStatus {
         exists: true,
@@ -520,6 +526,7 @@ fn inspect_target_manifests(
     repo_paths: &ContentRepoPaths,
     targets_root: &Path,
     bundles_root: &Path,
+    _target_schema: Option<&manifest::TargetTagSchema>,
 ) -> Result<Vec<RepoInspectTargetStatus>> {
     if !targets_root.exists() {
         return Ok(Vec::new());
@@ -580,7 +587,7 @@ fn infer_source_target_candidate(
     Some(SourceTargetInstallCandidate {
         path: path.display().to_string(),
         folder_name,
-        target_id: preview_target_identity(&resolved.target_tags),
+        target_id: preview_target_identity(&resolved.target_tags, Some(rules)),
         version_id: exclusive_tag_or_empty(&resolved.target_tags, "version"),
         platform: exclusive_tag_or_empty(&resolved.target_tags, "os"),
         architecture: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
@@ -596,17 +603,11 @@ fn exclusive_tag_or_empty(target_tags: &manifest::TargetTagSet, prefix: &str) ->
         .to_string()
 }
 
-fn preview_target_identity(target_tags: &manifest::TargetTagSet) -> String {
-    let mut parts = Vec::new();
-    for prefix in ["version", "os", "arch", "tier"] {
-        if let Some(value) = target_tags.get_exclusive(prefix) {
-            parts.push(value.to_string());
-        }
-    }
-    if parts.is_empty() {
-        return target_tags.to_canonical_strings().join(" ");
-    }
-    parts.join(" ")
+fn preview_target_identity(
+    target_tags: &manifest::TargetTagSet,
+    target_schema: Option<&manifest::TargetTagSchema>,
+) -> String {
+    target_tags.to_ordered_strings(target_schema).join(" ")
 }
 
 #[cfg(test)]

@@ -1,6 +1,8 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
+use dialoguer::console::Term;
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 
 use crate::{RepoCommands, TargetCommands, TargetInstallCommands};
@@ -13,10 +15,14 @@ struct InteractiveRuntimeOptions {
     jobs: Option<usize>,
 }
 
+static LAST_RAN_COMMAND: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
 #[derive(Clone)]
 enum RepoSelectionAction {
     CreateRepo,
-    SelectRepo,
+    OpenRepo(PathBuf),
+    ShowAllTrackedRepos,
+    EnterCustomRepoPath,
     Exit,
 }
 
@@ -59,52 +65,37 @@ pub(crate) fn run() -> g::Result<()> {
                             continue;
                         }
                     };
-                    if Confirm::with_theme(&theme)
-                        .with_prompt("Work on this repo?")
-                        .default(true)
-                        .interact()
-                        .map_err(dialoguer_to_manifest_error)?
-                    {
+                    if prompt_approval_action(&theme, "Work on this repo?")? {
+                        print_repo_summary(&path)?;
                         active_repo = Some(path);
                     }
                 }
-                RepoSelectionAction::SelectRepo => {
-                    let mut valid_repo: Option<PathBuf> = None;
-                    while valid_repo.is_none() {
-                        let repo = prompt_select_tracked_repo(&theme)?;
-                        match g::load_content_repo_manifest(&repo) {
-                            Err(err) => {
-                                println!(
-                                    "Not a valid content repo at {}: {}",
-                                    repo.display(),
-                                    err
-                                );
-                                if !Confirm::with_theme(&theme)
-                                    .with_prompt("Try another path?")
-                                    .default(true)
-                                    .interact()
-                                    .map_err(dialoguer_to_manifest_error)?
-                                {
-                                    break;
-                                }
-                            }
-                            Ok(_) => {
-                                print_repo_summary(&repo)?;
-                                valid_repo = Some(repo);
-                            }
-                        }
+                RepoSelectionAction::OpenRepo(repo) => {
+                    if let Some(repo) = resolve_active_repo_from_selection(&theme, repo, false)? {
+                        active_repo = Some(repo);
                     }
-                    if let Some(repo) = valid_repo {
-                        let mut config = g::config::load_config()?;
-                        let repo_path_str = repo.display().to_string();
-                        if config.find_repo(&repo_path_str).is_none() {
-                            config.upsert_repo(g::config::TrackedRepo {
-                                path: repo_path_str,
-                                target_lookup_path: None,
-                                linked: None,
-                            });
-                            g::config::save_config(&config)?;
+                }
+                RepoSelectionAction::ShowAllTrackedRepos => {
+                    let repo = match prompt_all_tracked_repos(&theme, &g::config::load_config()?) {
+                        Ok(repo) => repo,
+                        Err(err) => {
+                            handle_action_error(err)?;
+                            continue;
                         }
+                    };
+                    if let Some(repo) = resolve_active_repo_from_selection(&theme, repo, false)? {
+                        active_repo = Some(repo);
+                    }
+                }
+                RepoSelectionAction::EnterCustomRepoPath => {
+                    let repo = match custom_repo_path_input(&theme) {
+                        Ok(repo) => repo,
+                        Err(err) => {
+                            handle_action_error(err)?;
+                            continue;
+                        }
+                    };
+                    if let Some(repo) = resolve_active_repo_from_selection(&theme, repo, true)? {
                         active_repo = Some(repo);
                     }
                 }
@@ -190,92 +181,330 @@ fn is_cancelled(err: &g::Error) -> bool {
     matches!(err, g::Error::Manifest(msg) if msg.contains("cancelled"))
 }
 
-fn prompt_repo_selection(theme: &ColorfulTheme) -> g::Result<RepoSelectionAction> {
-    let actions = [
-        ("Create a content repo", RepoSelectionAction::CreateRepo),
-        ("Select an existing repo", RepoSelectionAction::SelectRepo),
-        ("Exit", RepoSelectionAction::Exit),
-    ];
-    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
-    let selection = Select::with_theme(theme)
-        .with_prompt("Gutch interactive — no repo selected")
-        .items(&labels)
-        .default(0)
-        .interact()
-        .map_err(dialoguer_to_manifest_error)?;
-    Ok(actions[selection].1.clone())
+fn last_ran_command_store() -> &'static Mutex<Option<String>> {
+    LAST_RAN_COMMAND.get_or_init(|| Mutex::new(None))
 }
 
-fn prompt_select_tracked_repo(theme: &ColorfulTheme) -> g::Result<std::path::PathBuf> {
-    let config = g::config::load_config()?;
-
-    if config.repos.is_empty() {
-        return custom_repo_path_input(theme);
+fn set_last_ran_command(command: impl Into<String>) {
+    if let Ok(mut last_ran_command) = last_ran_command_store().lock() {
+        *last_ran_command = Some(command.into());
     }
+}
 
+fn print_last_ran_command() {
+    let Ok(last_ran_command) = last_ran_command_store().lock() else {
+        return;
+    };
+    if let Some(last_ran_command) = last_ran_command.as_deref() {
+        println!("Last ran command: {}", last_ran_command);
+        println!();
+    }
+}
+
+fn refresh_terminal() -> g::Result<()> {
+    Term::stdout()
+        .clear_screen()
+        .map_err(|err| g::Error::manifest(format!("failed to refresh terminal: {}", err)))
+}
+
+fn prompt_approval_action(theme: &ColorfulTheme, prompt: impl AsRef<str>) -> g::Result<bool> {
+    let actions = [("- Approve", true), ("- Cancel", false)];
+    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt(prompt.as_ref())
+        .items(&labels)
+        .default(1)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+    Ok(actions[selection].1)
+}
+
+fn prompt_repo_selection(theme: &ColorfulTheme) -> g::Result<RepoSelectionAction> {
+    let config = g::config::load_config()?;
     const PAGE_SIZE: usize = 10;
     let total = config.repos.len();
     let truncated = total > PAGE_SIZE;
-    let visible_count = if truncated { PAGE_SIZE } else { total };
+    let visible_repos = if truncated { PAGE_SIZE } else { total };
 
-    let mut labels: Vec<String> = config
-        .repos
-        .iter()
-        .take(visible_count)
-        .map(|repo| {
-            let linked_marker = if repo.linked.is_some() { " [linked]" } else { "" };
-            let lookup_marker = if repo.target_lookup_path.is_some() { " [lookup]" } else { "" };
-            format!("{}{}{}", repo.path, linked_marker, lookup_marker)
-        })
-        .collect();
+    loop {
+        refresh_terminal()?;
+        print_last_ran_command();
+        print_landing_info_table(&config);
 
-    if truncated {
-        labels.push(format!("Show all {} repos...", total));
+        let mut labels: Vec<String> = config
+            .repos
+            .iter()
+            .enumerate()
+            .take(visible_repos)
+            .map(|(index, repo)| render_tracked_repo_label(index, repo))
+            .collect();
+        if truncated {
+            labels.push(format!("- Show all {} tracked repos...", total));
+        }
+        labels.push("- Create a content repo".to_string());
+        labels.push("- Enter a custom repo path...".to_string());
+        labels.push("- Exit".to_string());
+
+        let selection = Select::with_theme(theme)
+            .with_prompt("Gutch interactive — no repo selected")
+            .items(&labels)
+            .default(0)
+            .interact()
+            .map_err(dialoguer_to_manifest_error)?;
+
+        if selection < visible_repos {
+            let repo = &config.repos[selection];
+            return Ok(RepoSelectionAction::OpenRepo(PathBuf::from(&repo.path)));
+        }
+        let mut next_index = visible_repos;
+        if truncated {
+            if selection == next_index {
+                return Ok(RepoSelectionAction::ShowAllTrackedRepos);
+            }
+            next_index += 1;
+        }
+        if selection == next_index {
+            return Ok(RepoSelectionAction::CreateRepo);
+        }
+        if selection == next_index + 1 {
+            return Ok(RepoSelectionAction::EnterCustomRepoPath);
+        }
+        return Ok(RepoSelectionAction::Exit);
     }
-    labels.push("Enter a custom path...".to_string());
-
-    let selection = Select::with_theme(theme)
-        .with_prompt("Select a tracked repo")
-        .items(&labels)
-        .default(0)
-        .interact()
-        .map_err(dialoguer_to_manifest_error)?;
-
-    if selection < visible_count {
-        return Ok(std::path::PathBuf::from(&config.repos[selection].path));
-    }
-
-    if truncated && selection == visible_count {
-        return prompt_all_tracked_repos(theme, &config);
-    }
-
-    custom_repo_path_input(theme)
 }
 
 fn prompt_all_tracked_repos(
     theme: &ColorfulTheme,
     config: &g::config::GutchConfig,
 ) -> g::Result<std::path::PathBuf> {
+    refresh_terminal()?;
+    print_last_ran_command();
+
     let labels: Vec<String> = config
         .repos
         .iter()
-        .map(|repo| {
-            let linked_marker = if repo.linked.is_some() { " [linked]" } else { "" };
-            let lookup_marker = if repo.target_lookup_path.is_some() { " [lookup]" } else { "" };
-            format!("{}{}{}", repo.path, linked_marker, lookup_marker)
-        })
+        .enumerate()
+        .map(|(index, repo)| render_tracked_repo_label(index, repo))
         .collect();
+    let mut labels = labels;
+    labels.push("- Back".to_string());
     let selection = Select::with_theme(theme)
         .with_prompt("Select a tracked repo")
         .items(&labels)
         .default(0)
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
+    if selection == labels.len().saturating_sub(1) {
+        return Err(g::Error::manifest("interactive command cancelled"));
+    }
     Ok(std::path::PathBuf::from(&config.repos[selection].path))
 }
 
 fn custom_repo_path_input(theme: &ColorfulTheme) -> g::Result<std::path::PathBuf> {
     path_or_browse_input(theme, "Repo path", ".")
+}
+
+fn render_tracked_repo_label(index: usize, repo: &g::config::TrackedRepo) -> String {
+    let linked_prefix = match &repo.linked {
+        Some(linked) => format!(
+            "[linked to {}/{}]",
+            linked.product_id, linked.remote_repo_slug
+        ),
+        None => "[not linked]".to_string(),
+    };
+    let lookup_marker = if repo.target_lookup_path.is_some() {
+        " [lookup]"
+    } else {
+        ""
+    };
+    format!(
+        "- [Repo-{}] {} | {}{}",
+        index, linked_prefix, repo.path, lookup_marker
+    )
+}
+
+fn print_landing_info_table(config: &g::config::GutchConfig) {
+    let tracked_repo_count = config.repos.len();
+    let linked_repo_count = config
+        .repos
+        .iter()
+        .filter(|repo| repo.linked.is_some())
+        .count();
+    let lookup_path_count = config
+        .repos
+        .iter()
+        .filter(|repo| repo.target_lookup_path.is_some())
+        .count();
+
+    let rows = vec![
+        ("tracked repos", tracked_repo_count.to_string()),
+        ("linked repos", linked_repo_count.to_string()),
+        ("lookup paths", lookup_path_count.to_string()),
+    ];
+
+    println!();
+    print_ascii_key_value_table(&rows);
+    println!();
+}
+
+fn print_active_repo_info_table(repo: &std::path::Path) -> g::Result<()> {
+    print_last_ran_command();
+
+    let repo_path = repo.display().to_string();
+    let config = g::config::load_config()?;
+    let tracked = config.find_repo(&repo_path);
+    let (_, repo_manifest) = g::load_content_repo_manifest(repo)?;
+
+    let linked_value = match tracked.and_then(|tracked_repo| tracked_repo.linked.as_ref()) {
+        Some(linked) => format!("{} / {}", linked.product_id, linked.remote_repo_slug),
+        None => "not linked".to_string(),
+    };
+    let lookup_value = tracked
+        .and_then(|tracked_repo| tracked_repo.target_lookup_path.as_deref())
+        .unwrap_or("-");
+
+    let rows = vec![
+        ("repo id", repo_manifest.content_repo_id),
+        ("path", repo.display().to_string()),
+        ("linked", linked_value),
+        ("lookup path", lookup_value.to_string()),
+    ];
+
+    println!();
+    print_ascii_key_value_table(&rows);
+    println!();
+    Ok(())
+}
+
+fn print_ascii_key_value_table(rows: &[(&str, String)]) {
+    let key_width = rows.iter().map(|(key, _)| key.len()).max().unwrap_or(0);
+    let value_width = rows.iter().map(|(_, value)| value.len()).max().unwrap_or(0);
+
+    println!(
+        "+-{}-+-{}-+",
+        "-".repeat(key_width),
+        "-".repeat(value_width)
+    );
+    for (key, value) in rows {
+        println!(
+            "| {:<key_width$} | {:<value_width$} |",
+            key,
+            value,
+            key_width = key_width,
+            value_width = value_width
+        );
+    }
+    println!(
+        "+-{}-+-{}-+",
+        "-".repeat(key_width),
+        "-".repeat(value_width)
+    );
+}
+
+fn print_ascii_table(headers: &[&str], rows: &[Vec<String>]) {
+    let mut widths: Vec<usize> = headers.iter().map(|header| header.len()).collect();
+    for row in rows {
+        for (index, value) in row.iter().enumerate() {
+            if let Some(width) = widths.get_mut(index) {
+                *width = (*width).max(value.len());
+            }
+        }
+    }
+
+    let separator = format!(
+        "+-{}-+",
+        widths
+            .iter()
+            .map(|width| "-".repeat(*width))
+            .collect::<Vec<_>>()
+            .join("-+-")
+    );
+
+    println!("{}", separator);
+    println!(
+        "| {} |",
+        headers
+            .iter()
+            .enumerate()
+            .map(|(index, header)| format!("{:<width$}", header, width = widths[index]))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    );
+    println!("{}", separator);
+    for row in rows {
+        println!(
+            "| {} |",
+            row.iter()
+                .enumerate()
+                .map(|(index, value)| format!("{:<width$}", value, width = widths[index]))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        );
+    }
+    println!("{}", separator);
+}
+
+fn display_table_value(value: &str) -> String {
+    if value.is_empty() {
+        "-".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_tag_column_name(schema: &g::manifest::TargetTagSchema, name: &str) -> String {
+    match schema
+        .find_definition(name)
+        .map(|definition| &definition.kind)
+    {
+        Some(g::manifest::TargetTagKind::Plain) => name.to_string(),
+        Some(g::manifest::TargetTagKind::Scoped) => format!("{}:", name),
+        Some(g::manifest::TargetTagKind::Exclusive) => format!("{}::", name),
+        None => name.to_string(),
+    }
+}
+
+fn relative_candidate_path(lookup_path: &std::path::Path, candidate_path: &str) -> String {
+    let candidate_path = std::path::Path::new(candidate_path);
+    candidate_path
+        .strip_prefix(lookup_path)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| candidate_path.display().to_string())
+}
+
+fn resolve_active_repo_from_selection(
+    theme: &ColorfulTheme,
+    repo: PathBuf,
+    allow_retry: bool,
+) -> g::Result<Option<PathBuf>> {
+    match g::load_content_repo_manifest(&repo) {
+        Err(err) => {
+            println!("Not a valid content repo at {}: {}", repo.display(), err);
+            if allow_retry
+                && Confirm::with_theme(theme)
+                    .with_prompt("Try another path?")
+                    .default(true)
+                    .interact()
+                    .map_err(dialoguer_to_manifest_error)?
+            {
+                return Ok(None);
+            }
+            Ok(None)
+        }
+        Ok(_) => {
+            let mut config = g::config::load_config()?;
+            let repo_path_str = repo.display().to_string();
+            if config.find_repo(&repo_path_str).is_none() {
+                config.upsert_repo(g::config::TrackedRepo {
+                    path: repo_path_str,
+                    target_lookup_path: None,
+                    linked: None,
+                });
+                g::config::save_config(&config)?;
+            }
+            Ok(Some(repo))
+        }
+    }
 }
 
 fn path_or_browse_input(
@@ -285,9 +514,9 @@ fn path_or_browse_input(
 ) -> g::Result<std::path::PathBuf> {
     let prompt_text = format!("{} — how to select?", prompt);
     let actions = [
-        ("Browse folders...", 0),
-        ("Type path manually", 1),
-        ("Cancel", 2),
+        ("- Browse folders...", 0),
+        ("- Type path manually", 1),
+        ("- Back", 2),
     ];
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -315,10 +544,10 @@ fn optional_path_or_browse_input(
 ) -> g::Result<Option<std::path::PathBuf>> {
     let prompt_text = format!("{} — how to select?", prompt);
     let actions = [
-        ("Browse folders...", 0),
-        ("Type path manually", 1),
-        ("Skip (leave empty)", 2),
-        ("Cancel", 3),
+        ("- Browse folders...", 0),
+        ("- Type path manually", 1),
+        ("- Skip (leave empty)", 2),
+        ("- Back", 3),
     ];
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -347,9 +576,10 @@ fn path_or_browse_input_file(
 ) -> g::Result<std::path::PathBuf> {
     let prompt_text = format!("{} — how to select?", prompt);
     let actions = [
-        ("Browse...", 0),
-        ("Type path manually", 1),
-        ("Cancel", 2),
+        ("- Browse folders...", 0),
+        ("- Browse files...", 1),
+        ("- Type path manually", 2),
+        ("- Back", 3),
     ];
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -360,12 +590,16 @@ fn path_or_browse_input_file(
         .map_err(dialoguer_to_manifest_error)?;
 
     match actions[selection].1 {
-        0 => match rfd::FileDialog::new().pick_file() {
+        0 => match rfd::FileDialog::new().pick_folder() {
             Some(path) => Ok(path),
             None => Err(g::Error::manifest("interactive command cancelled")),
         },
-        1 => path_input(theme, prompt, default),
-        2 => Err(g::Error::manifest("interactive command cancelled")),
+        1 => match rfd::FileDialog::new().pick_file() {
+            Some(path) => Ok(path),
+            None => Err(g::Error::manifest("interactive command cancelled")),
+        },
+        2 => path_input(theme, prompt, default),
+        3 => Err(g::Error::manifest("interactive command cancelled")),
         _ => unreachable!(),
     }
 }
@@ -374,19 +608,25 @@ fn prompt_repo_work_action(
     theme: &ColorfulTheme,
     repo: &std::path::Path,
 ) -> g::Result<RepoWorkAction> {
+    refresh_terminal()?;
+    print_active_repo_info_table(repo)?;
+
     let actions = [
-        ("Insert target from local files", RepoWorkAction::TargetInsert),
-        ("Extract target to directory", RepoWorkAction::TargetExtract),
+        ("- Insert target from path", RepoWorkAction::TargetInsert),
+        ("- Extract target to path", RepoWorkAction::TargetExtract),
         (
-            "Apply target install from local repo",
+            "- Install target to path",
             RepoWorkAction::TargetInstallApply,
         ),
-        ("Verify installed target", RepoWorkAction::TargetInstallVerify),
-        ("Inspect repo targets and bundles", RepoWorkAction::RepoInspect),
-        ("Sync-up to remote backend", RepoWorkAction::RepoSyncUp),
-        ("Advanced...", RepoWorkAction::Advanced),
-        ("Switch to a different repo", RepoWorkAction::SwitchRepo),
-        ("Exit", RepoWorkAction::Exit),
+        (
+            "- Verify target install",
+            RepoWorkAction::TargetInstallVerify,
+        ),
+        ("- Inspect repo targets", RepoWorkAction::RepoInspect),
+        ("- Sync-up to remote repo", RepoWorkAction::RepoSyncUp),
+        ("- Advanced...", RepoWorkAction::Advanced),
+        ("- Switch to a different repo", RepoWorkAction::SwitchRepo),
+        ("- Exit", RepoWorkAction::Exit),
     ];
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -402,13 +642,28 @@ fn prompt_advanced_action(
     theme: &ColorfulTheme,
     repo: &std::path::Path,
 ) -> g::Result<AdvancedAction> {
+    refresh_terminal()?;
+    print_active_repo_info_table(repo)?;
+
     let actions = [
-        ("Discover and insert targets from lookup path", AdvancedAction::DiscoverTargets),
-        ("Edit repo config and tag inference", AdvancedAction::RepoConfigEdit),
-        ("Link to remote product repo", AdvancedAction::RepoLink),
-        ("Unlink from remote product repo", AdvancedAction::RepoUnlink),
-        ("Set target lookup path", AdvancedAction::SetTargetLookupPath),
-        ("Back", AdvancedAction::Back),
+        (
+            "- Discover and insert targets from lookup path",
+            AdvancedAction::DiscoverTargets,
+        ),
+        (
+            "- Edit repo config and tag inference",
+            AdvancedAction::RepoConfigEdit,
+        ),
+        ("- Link to remote product repo", AdvancedAction::RepoLink),
+        (
+            "- Unlink from remote product repo",
+            AdvancedAction::RepoUnlink,
+        ),
+        (
+            "- Set target lookup path",
+            AdvancedAction::SetTargetLookupPath,
+        ),
+        ("- Back", AdvancedAction::Back),
     ];
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -458,11 +713,8 @@ fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
             for item in &contents {
                 println!("  {}", item);
             }
-            let proceed = Confirm::with_theme(theme)
-                .with_prompt("Existing contents may be overwritten. Continue?")
-                .default(false)
-                .interact()
-                .map_err(dialoguer_to_manifest_error)?;
+            let proceed =
+                prompt_approval_action(theme, "Existing contents may be overwritten. Continue?")?;
             if !proceed {
                 return Err(g::Error::manifest("repo creation cancelled"));
             }
@@ -487,8 +739,8 @@ fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
     g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
 
     let template_name = match template {
-        TaggingTemplate::Standard => "standard (version, os, arch, tier)",
-        TaggingTemplate::Minimal => "minimal (version only)",
+        TaggingTemplate::Standard => "standard (version::, os::, arch::, tier::)",
+        TaggingTemplate::Minimal => "minimal (version:: only)",
     };
     println!("Applied tagging template: {}", template_name);
     println!("You can edit this later via 'Edit repo config'.");
@@ -499,11 +751,11 @@ fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
 fn prompt_tagging_template(theme: &ColorfulTheme) -> g::Result<TaggingTemplate> {
     let descriptions = [
         (
-            "Standard — version, os, arch, tier. Suitable for most apps.",
+            "Standard — version::, os::, arch::, tier::. Suitable for most apps.",
             TaggingTemplate::Standard,
         ),
         (
-            "Minimal — version only. For non-OS, non-platform-dependent assets (Python, JAR, PNG, JPG, blend files, etc.).",
+            "Minimal — version:: only. For non-OS, non-platform-dependent assets (Python, JAR, PNG, JPG, blend files, etc.).",
             TaggingTemplate::Minimal,
         ),
     ];
@@ -523,11 +775,10 @@ fn minimal_tagging_template() -> g::manifest::TargetTagSchema {
             name: "version".to_string(),
             kind: g::manifest::TargetTagKind::Exclusive,
             required: true,
+            inference_prefixes: vec!["-".to_string(), "-v".to_string()],
             values: Vec::new(),
-            aliases: BTreeMap::new(),
             default_value: None,
         }],
-        target_id_order: vec!["version".to_string()],
         on_incomplete: g::manifest::IncompleteInferenceBehavior::Error,
     }
 }
@@ -536,19 +787,20 @@ fn run_repo_config_edit(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
     let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(repo)?;
 
     loop {
+        refresh_terminal()?;
+        print_active_repo_info_table(repo)?;
         println!();
         print_repo_config_summary(&repo_manifest);
         println!();
 
         let actions = [
-            "Set incomplete inference behavior",
-            "Add or update tag definition",
-            "Remove tag definition",
-            "Edit target id order",
-            "Edit sizing and compression defaults",
-            "Reset target schema to built-in defaults",
-            "Save and exit",
-            "Cancel",
+            "- Set incomplete inference behavior",
+            "- Add or update tag definition",
+            "- Remove tag definition",
+            "- Edit sizing and compression defaults",
+            "- Reset target schema to built-in defaults",
+            "- Save and exit",
+            "- Back",
         ];
         let selection = Select::with_theme(theme)
             .with_prompt("Repo config editor")
@@ -561,29 +813,18 @@ fn run_repo_config_edit(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
             0 => edit_incomplete_behavior(theme, &mut repo_manifest)?,
             1 => add_or_update_tag_definition(theme, &mut repo_manifest)?,
             2 => remove_tag_definition(theme, &mut repo_manifest)?,
-            3 => edit_target_id_order(theme, &mut repo_manifest)?,
-            4 => edit_repo_profiles(theme, &mut repo_manifest)?,
-            5 => {
-                if Confirm::with_theme(theme)
-                    .with_prompt("Reset target schema to built-in defaults?")
-                    .default(false)
-                    .interact()
-                    .map_err(dialoguer_to_manifest_error)?
-                {
+            3 => edit_repo_profiles(theme, &mut repo_manifest)?,
+            4 => {
+                if prompt_approval_action(theme, "Reset target schema to built-in defaults?")? {
                     repo_manifest.target_schema = Some(g::manifest::TargetTagSchema::default());
                 }
             }
-            6 => {
+            5 => {
                 println!();
                 println!("This will write:");
                 println!("  {}", repo_paths.repo_manifest_path.display());
                 println!();
-                if Confirm::with_theme(theme)
-                    .with_prompt("Save repo config changes?")
-                    .default(true)
-                    .interact()
-                    .map_err(dialoguer_to_manifest_error)?
-                {
+                if prompt_approval_action(theme, "Save repo config changes?")? {
                     g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
                     println!(
                         "updated repo config: {}",
@@ -592,7 +833,7 @@ fn run_repo_config_edit(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
                     return Ok(());
                 }
             }
-            7 => return Err(g::Error::manifest("interactive command cancelled")),
+            6 => return Err(g::Error::manifest("interactive command cancelled")),
             _ => unreachable!(),
         }
     }
@@ -642,8 +883,11 @@ fn run_target_insert(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result
 }
 
 fn run_target_extract(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let target = required_string(theme, "Target id", "")?;
+    let Some(target) = prompt_target_selection(theme, repo, "Select target to extract")? else {
+        return Err(g::Error::manifest("interactive command cancelled"));
+    };
     let output = path_or_browse_input(theme, "Output directory", "./extracted-target")?;
+    confirm_output_path_overwrite(theme, &output, "Extract output path")?;
     let runtime = prompt_runtime_options(theme)?;
     let preview = format!(
         "gutch target extract --repo {} --target {} --output {}{}",
@@ -747,6 +991,83 @@ fn run_target_install_verify(theme: &ColorfulTheme, repo: &std::path::Path) -> g
     })
 }
 
+fn prompt_target_selection(
+    theme: &ColorfulTheme,
+    repo: &std::path::Path,
+    prompt: &str,
+) -> g::Result<Option<String>> {
+    let status = g::inspect_content_repo(repo)?;
+    let target_schema = status.target_schema.as_ref();
+    if status.targets.is_empty() {
+        println!("No targets found in repo.");
+        return Ok(None);
+    }
+
+    let mut labels: Vec<String> = status
+        .targets
+        .iter()
+        .map(|target| {
+            format!(
+                "- {} | tags={} | files={} | missing_bundles={}",
+                target.target_id,
+                render_target_tag_summary(&target.target_tags, target_schema),
+                target.file_count,
+                target.missing_bundle_count
+            )
+        })
+        .collect();
+    labels.push("- Back".to_string());
+
+    let selection = Select::with_theme(theme)
+        .with_prompt(prompt)
+        .items(&labels)
+        .default(0)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+
+    if selection == labels.len().saturating_sub(1) {
+        return Ok(None);
+    }
+
+    Ok(Some(status.targets[selection].target_id.clone()))
+}
+
+fn confirm_output_path_overwrite(
+    theme: &ColorfulTheme,
+    path: &std::path::Path,
+    label: &str,
+) -> g::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let path_has_contents = if path.is_dir() {
+        std::fs::read_dir(path)
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false)
+    } else {
+        true
+    };
+    if !path_has_contents {
+        return Ok(());
+    }
+
+    let confirmed = prompt_approval_action(
+        theme,
+        format!(
+            "{} '{}' already exists and may be overwritten. Continue?",
+            label,
+            path.display()
+        ),
+    )?;
+
+    if confirmed {
+        Ok(())
+    } else {
+        Err(g::Error::manifest("interactive command cancelled"))
+    }
+}
+
 fn print_repo_config_summary(repo_manifest: &g::manifest::content_repo::ContentRepoManifest) {
     println!("Repo config summary");
     println!("  content repo      {}", repo_manifest.content_repo_id);
@@ -765,34 +1086,36 @@ fn print_repo_config_summary(repo_manifest: &g::manifest::content_repo::ContentR
     );
 
     let schema = repo_manifest.target_schema.clone().unwrap_or_default();
-    println!("  on incomplete     {}", incomplete_behavior_str(schema.on_incomplete));
-    println!("  target id order   {}", schema.target_id_order.join(", "));
+    println!(
+        "  on incomplete     {}",
+        incomplete_behavior_str(schema.on_incomplete)
+    );
     println!("  tag definitions   {}", schema.target_tags.len());
     for definition in &schema.target_tags {
-        let aliases = if definition.aliases.is_empty() {
-            "-".to_string()
-        } else {
-            definition
-                .aliases
-                .iter()
-                .map(|(alias, canonical)| format!("{alias}={canonical}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
         let values = if definition.values.is_empty() {
             "-".to_string()
         } else {
-            definition.values.join(", ")
+            definition
+                .values
+                .iter()
+                .map(render_tag_value_definition)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let inference_prefixes = if definition.inference_prefixes.is_empty() {
+            "-".to_string()
+        } else {
+            definition.inference_prefixes.join(", ")
         };
         let default_value = definition.default_value.as_deref().unwrap_or("-");
         println!(
-            "    - {} [{}] required={} default={} values={} aliases={}",
+            "    - {} [{}] required={} prefixes={} default={} values={}",
             definition.name,
             target_tag_kind_str(definition.kind.clone()),
             definition.required,
+            inference_prefixes,
             default_value,
-            values,
-            aliases
+            values
         );
     }
 }
@@ -863,25 +1186,32 @@ fn add_or_update_tag_definition(
     )?;
     let required = Confirm::with_theme(theme)
         .with_prompt("Required?")
-        .default(existing_definition.as_ref().is_some_and(|definition| definition.required))
+        .default(
+            existing_definition
+                .as_ref()
+                .is_some_and(|definition| definition.required),
+        )
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     let values = csv_list_input(
         theme,
-        "Allowed values (comma-separated, optional)",
+        "Allowed values (value[alias1|alias2], comma-separated, optional)",
         existing_definition
             .as_ref()
-            .map(|definition| definition.values.join(", "))
+            .map(render_tag_values)
             .unwrap_or_default()
             .as_str(),
     )?;
-    let aliases = alias_map_input(
+    let inference_prefixes = csv_list_input(
         theme,
-        "Aliases (comma-separated alias=canonical, optional)",
+        "Inference prefixes (comma-separated, optional)",
         existing_definition
             .as_ref()
-            .map(render_alias_map)
-            .unwrap_or_default()
+            .map(|definition| definition.inference_prefixes.join(", "))
+            .unwrap_or_else(|| match kind {
+                g::manifest::TargetTagKind::Exclusive if name == "version" => "-, -v".to_string(),
+                _ => "-".to_string(),
+            })
             .as_str(),
     )?;
     let default_value = optional_string_input(
@@ -898,8 +1228,8 @@ fn add_or_update_tag_definition(
         name: name.clone(),
         kind,
         required,
-        values,
-        aliases,
+        inference_prefixes,
+        values: parse_tag_value_definitions(&values)?,
         default_value,
     };
 
@@ -938,23 +1268,7 @@ fn remove_tag_definition(
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     let removed = schema.target_tags.remove(selection);
-    schema.target_id_order.retain(|name| name != &removed.name);
     println!("Removed tag definition '{}'.", removed.name);
-    Ok(())
-}
-
-fn edit_target_id_order(
-    theme: &ColorfulTheme,
-    repo_manifest: &mut g::manifest::content_repo::ContentRepoManifest,
-) -> g::Result<()> {
-    let schema = ensure_target_schema(repo_manifest);
-    let current = schema.target_id_order.join(", ");
-    let order = csv_list_input(
-        theme,
-        "Target id order (comma-separated tag names)",
-        current.as_str(),
-    )?;
-    schema.target_id_order = order;
     Ok(())
 }
 
@@ -971,7 +1285,11 @@ fn edit_repo_profiles(
     repo_manifest.compression_profile.zstd_level = prompt_i32_input(
         theme,
         "Zstd compression level",
-        repo_manifest.compression_profile.zstd_level.to_string().as_str(),
+        repo_manifest
+            .compression_profile
+            .zstd_level
+            .to_string()
+            .as_str(),
     )?;
     Ok(())
 }
@@ -1167,11 +1485,7 @@ fn prompt_i32_input(theme: &ColorfulTheme, prompt: &str, default: &str) -> g::Re
 }
 
 fn optional_tag_list(theme: &ColorfulTheme) -> g::Result<Vec<String>> {
-    let raw = optional_string_input(
-        theme,
-        "Extra tags (comma-separated, optional)",
-        "",
-    )?;
+    let raw = optional_string_input(theme, "Extra tags (comma-separated, optional)", "")?;
     Ok(raw
         .map(|value| {
             value
@@ -1198,49 +1512,14 @@ fn csv_list_input(theme: &ColorfulTheme, prompt: &str, default: &str) -> g::Resu
         .unwrap_or_default())
 }
 
-fn alias_map_input(
-    theme: &ColorfulTheme,
-    prompt: &str,
-    default: &str,
-) -> g::Result<BTreeMap<String, String>> {
-    let raw = optional_string_input(theme, prompt, default)?;
-    let mut aliases = BTreeMap::new();
-    let Some(raw) = raw else {
-        return Ok(aliases);
-    };
-
-    for entry in raw.split(',').map(str::trim).filter(|entry| !entry.is_empty()) {
-        let Some((alias, canonical)) = entry.split_once('=') else {
-            return Err(g::Error::manifest(format!(
-                "invalid alias entry '{}'. Use alias=canonical",
-                entry
-            )));
-        };
-        let alias = alias.trim();
-        let canonical = canonical.trim();
-        if alias.is_empty() || canonical.is_empty() {
-            return Err(g::Error::manifest(format!(
-                "invalid alias entry '{}'. Use alias=canonical",
-                entry
-            )));
-        }
-        aliases.insert(alias.to_string(), canonical.to_string());
-    }
-
-    Ok(aliases)
-}
-
 fn confirm_preview(theme: &ColorfulTheme, preview: &str) -> g::Result<()> {
     println!();
     println!("Equivalent command:");
     println!("  {}", preview);
     println!();
-    let confirmed = Confirm::with_theme(theme)
-        .with_prompt("Run this command now?")
-        .default(true)
-        .interact()
-        .map_err(dialoguer_to_manifest_error)?;
+    let confirmed = prompt_approval_action(theme, "Run this command now?")?;
     if confirmed {
+        set_last_ran_command(preview.to_string());
         Ok(())
     } else {
         Err(g::Error::manifest("interactive command cancelled"))
@@ -1316,13 +1595,96 @@ fn ensure_target_schema(
         .get_or_insert_with(g::manifest::TargetTagSchema::default)
 }
 
-fn render_alias_map(definition: &g::manifest::TargetTagDefinition) -> String {
+fn render_tag_values(definition: &g::manifest::TargetTagDefinition) -> String {
     definition
-        .aliases
+        .values
         .iter()
-        .map(|(alias, canonical)| format!("{alias}={canonical}"))
+        .map(render_tag_value_definition)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn render_tag_value_definition(value_definition: &g::manifest::TargetTagValueDefinition) -> String {
+    if value_definition.aliases.is_empty() {
+        value_definition.value.clone()
+    } else {
+        format!(
+            "{}[{}]",
+            value_definition.value,
+            value_definition.aliases.join("|")
+        )
+    }
+}
+
+fn parse_tag_value_definitions(
+    raw_values: &[String],
+) -> g::Result<Vec<g::manifest::TargetTagValueDefinition>> {
+    raw_values
+        .iter()
+        .map(|entry| {
+            let trimmed = entry.trim();
+            if trimmed.is_empty() {
+                return Err(g::Error::manifest("tag value entry cannot be empty"));
+            }
+
+            if let Some((value, alias_block)) = trimmed.split_once('[') {
+                let value = value.trim();
+                let alias_block = alias_block.trim();
+                if value.is_empty() || !alias_block.ends_with(']') {
+                    return Err(g::Error::manifest(format!(
+                        "invalid tag value entry '{}'. Use value or value[alias1|alias2]",
+                        entry
+                    )));
+                }
+                let aliases = alias_block[..alias_block.len() - 1]
+                    .split('|')
+                    .map(str::trim)
+                    .filter(|alias| !alias.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>();
+                return Ok(g::manifest::TargetTagValueDefinition {
+                    value: value.to_string(),
+                    aliases,
+                });
+            }
+
+            Ok(g::manifest::TargetTagValueDefinition {
+                value: trimmed.to_string(),
+                aliases: Vec::new(),
+            })
+        })
+        .collect()
+}
+
+fn render_target_tag_summary(
+    target_tags: &g::manifest::TargetTagSet,
+    target_schema: Option<&g::manifest::TargetTagSchema>,
+) -> String {
+    target_tags.to_ordered_strings(target_schema).join(", ")
+}
+
+fn tag_definition_value(
+    target_tags: &g::manifest::TargetTagSet,
+    definition: &g::manifest::TargetTagDefinition,
+) -> String {
+    match definition.kind {
+        g::manifest::TargetTagKind::Plain => {
+            if target_tags.plain.contains(&definition.name) {
+                definition.name.clone()
+            } else {
+                String::new()
+            }
+        }
+        g::manifest::TargetTagKind::Scoped => target_tags
+            .scoped
+            .get(&definition.name)
+            .map(|values| values.iter().cloned().collect::<Vec<_>>().join(", "))
+            .unwrap_or_default(),
+        g::manifest::TargetTagKind::Exclusive => target_tags
+            .get_exclusive(&definition.name)
+            .unwrap_or_default()
+            .to_string(),
+    }
 }
 
 fn shell_arg(value: &str) -> String {
@@ -1364,7 +1726,11 @@ fn print_repo_summary(repo: &std::path::Path) -> g::Result<()> {
     println!("  path:     {}", status.repo_path);
     println!("  id:       {}", status.content_repo_id);
     println!("  targets:  {}", status.targets.len());
-    println!("  bundles:  {} ({})", status.bundle_count, format_bytes(status.bundle_bytes));
+    println!(
+        "  bundles:  {} ({})",
+        status.bundle_count,
+        format_bytes(status.bundle_bytes)
+    );
 
     if let Some(tracked) = tracked {
         if let Some(lookup) = &tracked.target_lookup_path {
@@ -1391,12 +1757,9 @@ fn run_repo_inspect(repo: &std::path::Path) -> g::Result<()> {
     println!();
     for target in &status.targets {
         println!(
-            "{} | version={} | os={} | arch={} | tier={} | files={} | missing_bundles={}",
+            "{} | tags={} | files={} | missing_bundles={}",
             target.target_id,
-            target.version_id,
-            target.platform,
-            target.architecture,
-            target.tier_id,
+            render_target_tag_summary(&target.target_tags, status.target_schema.as_ref()),
             target.file_count,
             target.missing_bundle_count
         );
@@ -1407,6 +1770,12 @@ fn run_repo_inspect(repo: &std::path::Path) -> g::Result<()> {
 fn run_interactive_repo_link(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let endpoint = crate::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
+    set_last_ran_command(format!(
+        "gutch repo link --repo {} --endpoint {} --session-id {}",
+        shell_arg_path(repo),
+        shell_arg(&endpoint),
+        shell_arg(&session_id)
+    ));
     crate::cli::repo::run(RepoCommands::Link {
         repo: repo.to_path_buf(),
         endpoint,
@@ -1418,14 +1787,11 @@ fn run_interactive_repo_link(_theme: &ColorfulTheme, repo: &std::path::Path) -> 
 }
 
 fn run_interactive_repo_unlink(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let confirmed = Confirm::with_theme(theme)
-        .with_prompt("Unlink this repo from remote?")
-        .default(false)
-        .interact()
-        .map_err(dialoguer_to_manifest_error)?;
+    let confirmed = prompt_approval_action(theme, "Unlink this repo from remote?")?;
     if !confirmed {
         return Ok(());
     }
+    set_last_ran_command(format!("gutch repo unlink --repo {}", shell_arg_path(repo)));
     crate::cli::repo::run(RepoCommands::Unlink {
         repo: repo.to_path_buf(),
     })
@@ -1434,6 +1800,12 @@ fn run_interactive_repo_unlink(theme: &ColorfulTheme, repo: &std::path::Path) ->
 fn run_interactive_repo_sync_up(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
     let endpoint = crate::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
+    set_last_ran_command(format!(
+        "gutch repo sync-up --repo {} --endpoint {} --session-id {}",
+        shell_arg_path(repo),
+        shell_arg(&endpoint),
+        shell_arg(&session_id)
+    ));
     crate::cli::repo::run(RepoCommands::SyncUp {
         repo: repo.to_path_buf(),
         endpoint,
@@ -1449,15 +1821,15 @@ fn run_set_target_lookup_path(theme: &ColorfulTheme, repo: &std::path::Path) -> 
         .and_then(|r| r.target_lookup_path.clone())
         .unwrap_or_default();
 
-    let path = optional_path_or_browse_input(theme, "Target lookup path (directory with build outputs)", &current)?;
+    let path = optional_path_or_browse_input(
+        theme,
+        "Target lookup path (directory with build outputs)",
+        &current,
+    )?;
     let path_str = path.as_ref().map(|p| p.display().to_string());
 
     let mut config = g::config::load_config()?;
-    config.upsert_repo(g::config::TrackedRepo {
-        path: repo.display().to_string(),
-        target_lookup_path: path_str.clone(),
-        linked: None,
-    });
+    config.set_repo_target_lookup_path(&repo.display().to_string(), path_str.clone());
     g::config::save_config(&config)?;
 
     match path_str {
@@ -1476,19 +1848,19 @@ fn run_discover_targets(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
         println!("no target lookup path set. Use 'Set target lookup path' first.");
         return Ok(());
     };
+    let lookup_path = std::path::PathBuf::from(&lookup);
 
-    let candidates = g::discover_source_target_installs(repo, &std::path::PathBuf::from(&lookup))?;
+    let candidates = g::discover_source_target_installs(repo, &lookup_path)?;
+    let (_, repo_manifest) = g::load_content_repo_manifest(repo)?;
+    let target_schema = repo_manifest.target_schema.unwrap_or_default();
     if candidates.is_empty() {
         println!("no source target installs found in '{}'", lookup);
         return Ok(());
     }
 
     let status = g::inspect_content_repo(repo)?;
-    let existing_ids: HashSet<String> = status
-        .targets
-        .iter()
-        .map(|t| t.target_id.clone())
-        .collect();
+    let existing_ids: HashSet<String> =
+        status.targets.iter().map(|t| t.target_id.clone()).collect();
 
     let uninserted: Vec<_> = candidates
         .iter()
@@ -1499,17 +1871,31 @@ fn run_discover_targets(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
     println!();
     if !uninserted.is_empty() {
         println!("Uninserted:");
-        for candidate in &uninserted {
-            println!(
-                "  {} | path={} | version={} | os={} | arch={} | tier={}",
-                candidate.target_id,
-                candidate.path,
-                candidate.version_id,
-                candidate.platform,
-                candidate.architecture,
-                candidate.tier_id
-            );
-        }
+        let schema_headers: Vec<String> = target_schema
+            .target_tags
+            .iter()
+            .map(|definition| format_tag_column_name(&target_schema, &definition.name))
+            .collect();
+        let rows: Vec<Vec<String>> = uninserted
+            .iter()
+            .map(|candidate| {
+                let mut row: Vec<String> = target_schema
+                    .target_tags
+                    .iter()
+                    .map(|definition| {
+                        display_table_value(&tag_definition_value(
+                            &candidate.target_tags,
+                            definition,
+                        ))
+                    })
+                    .collect();
+                row.push(relative_candidate_path(&lookup_path, &candidate.path));
+                row
+            })
+            .collect();
+        let mut headers: Vec<&str> = schema_headers.iter().map(String::as_str).collect();
+        headers.push("path");
+        print_ascii_table(&headers, &rows);
     }
     if already_inserted > 0 {
         println!("Already inserted: {} target(s)", already_inserted);
@@ -1520,11 +1906,10 @@ fn run_discover_targets(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
         return Ok(());
     }
 
-    let confirmed = Confirm::with_theme(theme)
-        .with_prompt(format!("Insert all {} uninserted targets?", uninserted.len()))
-        .default(true)
-        .interact()
-        .map_err(dialoguer_to_manifest_error)?;
+    let confirmed = prompt_approval_action(
+        theme,
+        format!("Insert all {} uninserted targets?", uninserted.len()),
+    )?;
 
     if !confirmed {
         return Ok(());
@@ -1532,6 +1917,15 @@ fn run_discover_targets(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
 
     for candidate in &uninserted {
         println!("inserting {} ...", candidate.folder_name);
+        set_last_ran_command(format!(
+            "gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile balanced --bundle-profile balanced",
+            shell_arg(&candidate.path),
+            shell_arg_path(repo),
+            shell_arg(&candidate.version_id),
+            shell_arg(&candidate.platform),
+            shell_arg(&candidate.architecture),
+            shell_arg(&candidate.tier_id),
+        ));
         crate::cli::target::run(TargetCommands::Insert {
             dir: std::path::PathBuf::from(&candidate.path),
             repo: repo.to_path_buf(),

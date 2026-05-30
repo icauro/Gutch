@@ -42,7 +42,6 @@ pub(crate) fn request_json_from_backend<T: for<'de> serde::Deserialize<'de>>(
         .map_err(|err| g::Error::manifest(format!("failed to decode backend response: {}", err)))
 }
 
-
 pub fn parse_backend_error_response(response: reqwest::blocking::Response) -> String {
     let status = response.status();
     let text = response.text().unwrap_or_default();

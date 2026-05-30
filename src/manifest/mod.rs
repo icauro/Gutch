@@ -271,6 +271,128 @@ impl TargetTagSet {
         rendered.sort();
         rendered
     }
+
+    pub fn to_ordered_strings(&self, schema: Option<&TargetTagSchema>) -> Vec<String> {
+        let mut rendered = Vec::new();
+        let mut consumed_plain = BTreeSet::new();
+        let mut consumed_scoped = BTreeSet::new();
+        let mut consumed_exclusive = BTreeSet::new();
+
+        if let Some(schema) = schema {
+            for definition in &schema.target_tags {
+                match definition.kind {
+                    TargetTagKind::Plain => {
+                        if self.plain.contains(&definition.name) {
+                            rendered.push(definition.name.clone());
+                            consumed_plain.insert(definition.name.clone());
+                        }
+                    }
+                    TargetTagKind::Scoped => {
+                        if let Some(values) = self.scoped.get(&definition.name) {
+                            for value in values {
+                                rendered.push(format!("{}:{}", definition.name, value));
+                            }
+                            consumed_scoped.insert(definition.name.clone());
+                        }
+                    }
+                    TargetTagKind::Exclusive => {
+                        if let Some(value) = self.exclusive.get(&definition.name) {
+                            rendered.push(format!("{}::{}", definition.name, value));
+                            consumed_exclusive.insert(definition.name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        for value in self
+            .plain
+            .iter()
+            .filter(|value| !consumed_plain.contains(*value))
+        {
+            rendered.push(value.clone());
+        }
+        for (prefix, values) in self
+            .scoped
+            .iter()
+            .filter(|(prefix, _)| !consumed_scoped.contains(*prefix))
+        {
+            for value in values {
+                rendered.push(format!("{}:{}", prefix, value));
+            }
+        }
+        for (prefix, value) in self
+            .exclusive
+            .iter()
+            .filter(|(prefix, _)| !consumed_exclusive.contains(*prefix))
+        {
+            rendered.push(format!("{}::{}", prefix, value));
+        }
+
+        rendered
+    }
+
+    pub fn from_compact_strings(tag_values: &[String]) -> crate::Result<Self> {
+        let mut parsed_tags = Self::default();
+        for tag_value in tag_values {
+            parsed_tags.apply_compact_string(tag_value, true)?;
+        }
+        Ok(parsed_tags)
+    }
+
+    pub fn apply_compact_string(
+        &mut self,
+        raw_tag: &str,
+        strict_exclusive: bool,
+    ) -> crate::Result<()> {
+        let trimmed = raw_tag.trim();
+        if trimmed.is_empty() {
+            return Err(crate::Error::manifest(
+                "invalid empty tag value".to_string(),
+            ));
+        }
+
+        if let Some((prefix, value)) = trimmed.split_once("::") {
+            if prefix.is_empty() || value.is_empty() || value.contains("::") {
+                return Err(crate::Error::manifest(format!(
+                    "invalid tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
+                    raw_tag
+                )));
+            }
+            if strict_exclusive {
+                if let Some(existing_value) = self.exclusive.get(prefix) {
+                    if existing_value != value {
+                        return Err(crate::Error::manifest(format!(
+                            "conflicting exclusive tag '{}'. Prefix '{}' already has value '{}'",
+                            raw_tag, prefix, existing_value
+                        )));
+                    }
+                }
+            }
+            self.upsert_exclusive(prefix.to_string(), value.to_string());
+            return Ok(());
+        }
+
+        if trimmed.contains(':') {
+            let Some((prefix, value)) = trimmed.split_once(':') else {
+                return Err(crate::Error::manifest(format!(
+                    "invalid tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
+                    raw_tag
+                )));
+            };
+            if prefix.is_empty() || value.is_empty() || value.contains(':') {
+                return Err(crate::Error::manifest(format!(
+                    "invalid tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
+                    raw_tag
+                )));
+            }
+            self.insert_scoped(prefix.to_string(), value.to_string());
+            return Ok(());
+        }
+
+        self.insert_plain(trimmed.to_string());
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -281,6 +403,136 @@ pub enum TargetTagKind {
     Exclusive,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VersionScheme {
+    Semver,
+    Calver,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuredVersion {
+    pub scheme: VersionScheme,
+    pub major_or_year: u32,
+    pub minor_or_month: u32,
+    pub patch_or_day: u32,
+    pub micro: u32,
+}
+
+impl StructuredVersion {
+    pub fn parse(raw: &str) -> crate::Result<Self> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(crate::Error::manifest("version cannot be empty"));
+        }
+
+        let candidate = trimmed
+            .strip_prefix('v')
+            .or_else(|| trimmed.strip_prefix('V'))
+            .unwrap_or(trimmed);
+        let parts: Vec<&str> = candidate.split('.').collect();
+        if parts.is_empty()
+            || parts.len() > 4
+            || parts.iter().any(|part| {
+                part.is_empty() || !part.chars().all(|character| character.is_ascii_digit())
+            })
+        {
+            return Err(crate::Error::manifest(format!("invalid version '{}'", raw)));
+        }
+
+        let parsed_parts = parts
+            .iter()
+            .map(|part| {
+                part.parse::<u32>()
+                    .map_err(|_| crate::Error::manifest(format!("invalid version '{}'", raw)))
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        if parsed_parts.len() == 3 {
+            if parts[0].len() == 4
+                && parsed_parts[1] >= 1
+                && parsed_parts[1] <= 12
+                && parsed_parts[2] >= 1
+                && parsed_parts[2] <= 31
+            {
+                return Ok(Self {
+                    scheme: VersionScheme::Calver,
+                    major_or_year: parsed_parts[0],
+                    minor_or_month: parsed_parts[1],
+                    patch_or_day: parsed_parts[2],
+                    micro: 0,
+                });
+            }
+
+            return Ok(Self {
+                scheme: VersionScheme::Semver,
+                major_or_year: parsed_parts[0],
+                minor_or_month: parsed_parts[1],
+                patch_or_day: parsed_parts[2],
+                micro: 0,
+            });
+        }
+
+        if parsed_parts.len() == 4
+            && parts[0].len() == 4
+            && parsed_parts[1] >= 1
+            && parsed_parts[1] <= 12
+            && parsed_parts[2] >= 1
+            && parsed_parts[2] <= 31
+        {
+            return Ok(Self {
+                scheme: VersionScheme::Calver,
+                major_or_year: parsed_parts[0],
+                minor_or_month: parsed_parts[1],
+                patch_or_day: parsed_parts[2],
+                micro: parsed_parts[3],
+            });
+        }
+
+        Err(crate::Error::manifest(format!("invalid version '{}'", raw)))
+    }
+
+    pub fn canonical_string(&self) -> String {
+        match self.scheme {
+            VersionScheme::Semver => format!(
+                "{}.{}.{}",
+                self.major_or_year, self.minor_or_month, self.patch_or_day
+            ),
+            VersionScheme::Calver => {
+                if self.micro == 0 {
+                    format!(
+                        "{:04}.{:02}.{:02}",
+                        self.major_or_year, self.minor_or_month, self.patch_or_day
+                    )
+                } else {
+                    format!(
+                        "{:04}.{:02}.{:02}.{}",
+                        self.major_or_year, self.minor_or_month, self.patch_or_day, self.micro
+                    )
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetTagValueDefinition {
+    pub value: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
+impl TargetTagValueDefinition {
+    pub fn matches_token(&self, token: &str) -> bool {
+        self.value.eq_ignore_ascii_case(token)
+            || self
+                .aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(token))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetTagDefinition {
@@ -289,9 +541,9 @@ pub struct TargetTagDefinition {
     #[serde(default)]
     pub required: bool,
     #[serde(default)]
-    pub values: Vec<String>,
+    pub inference_prefixes: Vec<String>,
     #[serde(default)]
-    pub aliases: BTreeMap<String, String>,
+    pub values: Vec<TargetTagValueDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<String>,
 }
@@ -359,8 +611,6 @@ pub struct TargetTagSchema {
     #[serde(default)]
     pub target_tags: Vec<TargetTagDefinition>,
     #[serde(default)]
-    pub target_id_order: Vec<String>,
-    #[serde(default)]
     pub on_incomplete: IncompleteInferenceBehavior,
 }
 
@@ -369,6 +619,17 @@ impl TargetTagSchema {
         self.target_tags
             .iter()
             .find(|definition| definition.name == name)
+    }
+
+    pub fn find_value_definition<'a>(
+        &'a self,
+        definition_name: &str,
+        token: &str,
+    ) -> Option<&'a TargetTagValueDefinition> {
+        self.find_definition(definition_name)?
+            .values
+            .iter()
+            .find(|value_definition| value_definition.matches_token(token))
     }
 }
 
@@ -380,53 +641,72 @@ impl Default for TargetTagSchema {
                     name: "version".to_string(),
                     kind: TargetTagKind::Exclusive,
                     required: true,
+                    inference_prefixes: vec!["-".to_string(), "-v".to_string()],
                     values: Vec::new(),
-                    aliases: BTreeMap::new(),
                     default_value: None,
                 },
                 TargetTagDefinition {
                     name: "os".to_string(),
                     kind: TargetTagKind::Exclusive,
                     required: false,
-                    values: Vec::new(),
-                    aliases: BTreeMap::from([
-                        ("win".to_string(), "windows".to_string()),
-                        ("win32".to_string(), "windows".to_string()),
-                        ("win64".to_string(), "windows".to_string()),
-                        ("mac".to_string(), "macos".to_string()),
-                        ("osx".to_string(), "macos".to_string()),
-                        ("darwin".to_string(), "macos".to_string()),
-                    ]),
+                    inference_prefixes: vec!["-".to_string()],
+                    values: vec![
+                        TargetTagValueDefinition {
+                            value: "windows".to_string(),
+                            aliases: vec![
+                                "win".to_string(),
+                                "win32".to_string(),
+                                "win64".to_string(),
+                            ],
+                        },
+                        TargetTagValueDefinition {
+                            value: "linux".to_string(),
+                            aliases: Vec::new(),
+                        },
+                        TargetTagValueDefinition {
+                            value: "macos".to_string(),
+                            aliases: vec![
+                                "mac".to_string(),
+                                "osx".to_string(),
+                                "darwin".to_string(),
+                            ],
+                        },
+                    ],
                     default_value: None,
                 },
                 TargetTagDefinition {
                     name: "arch".to_string(),
                     kind: TargetTagKind::Exclusive,
                     required: false,
-                    values: Vec::new(),
-                    aliases: BTreeMap::from([
-                        ("x64".to_string(), "x86_64".to_string()),
-                        ("amd64".to_string(), "x86_64".to_string()),
-                        ("win64".to_string(), "x86_64".to_string()),
-                        ("x86".to_string(), "x86_32".to_string()),
-                        ("win32".to_string(), "x86_32".to_string()),
-                    ]),
+                    inference_prefixes: vec!["-".to_string()],
+                    values: vec![
+                        TargetTagValueDefinition {
+                            value: "x86_64".to_string(),
+                            aliases: vec![
+                                "x64".to_string(),
+                                "amd64".to_string(),
+                                "win64".to_string(),
+                            ],
+                        },
+                        TargetTagValueDefinition {
+                            value: "x86_32".to_string(),
+                            aliases: vec!["x86".to_string(), "win32".to_string()],
+                        },
+                        TargetTagValueDefinition {
+                            value: "arm64".to_string(),
+                            aliases: vec!["aarch64".to_string()],
+                        },
+                    ],
                     default_value: None,
                 },
                 TargetTagDefinition {
                     name: "tier".to_string(),
                     kind: TargetTagKind::Exclusive,
                     required: false,
+                    inference_prefixes: vec!["-".to_string()],
                     values: Vec::new(),
-                    aliases: BTreeMap::new(),
                     default_value: None,
                 },
-            ],
-            target_id_order: vec![
-                "version".to_string(),
-                "os".to_string(),
-                "arch".to_string(),
-                "tier".to_string(),
             ],
             on_incomplete: IncompleteInferenceBehavior::Error,
         }

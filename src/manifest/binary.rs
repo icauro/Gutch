@@ -19,7 +19,11 @@ pub(crate) struct TargetManifestShell {
     pub inserted_at: String,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,
-    #[serde(default)]
+    #[serde(
+        default,
+        serialize_with = "crate::manifest::target::serialize_target_tags_as_compact_strings",
+        deserialize_with = "crate::manifest::target::deserialize_target_tags_from_compact_strings"
+    )]
     pub target_tags: manifest::TargetTagSet,
 }
 
@@ -267,10 +271,7 @@ fn load_chunk_index_binary_v2(
     })
 }
 
-pub(crate) fn write_chunk_index_binary(
-    path: &Path,
-    index: &manifest::ChunkIndex,
-) -> Result<()> {
+pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex) -> Result<()> {
     let file = std::fs::File::create(path)?;
     let mut writer = BufWriter::new(file);
     writer.write_all(CHUNK_INDEX_BINARY_MAGIC)?;
@@ -301,9 +302,9 @@ pub(crate) fn write_chunk_index_binary(
         chunk_hashes.push(chunk_hash.clone());
         bundle_index_column.push(
             bundle_indexes
-            .get(&entry.bundle_id)
-            .copied()
-            .ok_or_else(|| Error::manifest("chunk index bundle table missing entry"))?,
+                .get(&entry.bundle_id)
+                .copied()
+                .ok_or_else(|| Error::manifest("chunk index bundle table missing entry"))?,
         );
         raw_sizes.push(entry.raw_size);
         compressed_sizes.push(entry.compressed_size);

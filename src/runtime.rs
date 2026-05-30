@@ -126,15 +126,19 @@ fn plan_runtime(hints: &RuntimeResourceHints, workload: RuntimeWorkload) -> Runt
     });
     let worker_count = worker_count.max(1).min(available_workers);
 
-    let memory_budget_mib = hints.max_memory_mib.unwrap_or_else(|| match effective_memory_mode {
-        EffectiveMemoryMode::Low => available_memory_mib.map(|mib| mib.min(2048)).unwrap_or(2048),
-        EffectiveMemoryMode::Balanced => {
-            available_memory_mib.map(|mib| mib.min(8192)).unwrap_or(8192)
-        }
-        EffectiveMemoryMode::High => {
-            available_memory_mib.map(|mib| mib.min(32768)).unwrap_or(32768)
-        }
-    });
+    let memory_budget_mib = hints
+        .max_memory_mib
+        .unwrap_or_else(|| match effective_memory_mode {
+            EffectiveMemoryMode::Low => available_memory_mib
+                .map(|mib| mib.min(2048))
+                .unwrap_or(2048),
+            EffectiveMemoryMode::Balanced => available_memory_mib
+                .map(|mib| mib.min(8192))
+                .unwrap_or(8192),
+            EffectiveMemoryMode::High => available_memory_mib
+                .map(|mib| mib.min(32768))
+                .unwrap_or(32768),
+        });
 
     let chunk_storage_mode = match effective_memory_mode {
         EffectiveMemoryMode::High => ChunkStorageMode::Memory,

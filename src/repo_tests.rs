@@ -144,38 +144,48 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
                     name: "version".to_string(),
                     kind: manifest::TargetTagKind::Exclusive,
                     required: true,
+                    inference_prefixes: vec!["-".to_string(), "-v".to_string()],
                     values: Vec::new(),
-                    aliases: BTreeMap::new(),
                     default_value: None,
                 },
                 manifest::TargetTagDefinition {
                     name: "loader".to_string(),
                     kind: manifest::TargetTagKind::Scoped,
                     required: false,
-                    values: Vec::new(),
-                    aliases: BTreeMap::from([
-                        ("fabric".to_string(), "fabric".to_string()),
-                        ("forge".to_string(), "forge".to_string()),
-                        ("neoforge".to_string(), "neoforge".to_string()),
-                    ]),
+                    inference_prefixes: vec!["-".to_string()],
+                    values: vec![
+                        manifest::TargetTagValueDefinition {
+                            value: "fabric".to_string(),
+                            aliases: Vec::new(),
+                        },
+                        manifest::TargetTagValueDefinition {
+                            value: "forge".to_string(),
+                            aliases: Vec::new(),
+                        },
+                        manifest::TargetTagValueDefinition {
+                            value: "neoforge".to_string(),
+                            aliases: Vec::new(),
+                        },
+                    ],
                     default_value: None,
                 },
                 manifest::TargetTagDefinition {
                     name: "mc".to_string(),
                     kind: manifest::TargetTagKind::Scoped,
                     required: false,
-                    values: Vec::new(),
-                    aliases: BTreeMap::from([
-                        ("1.20.1".to_string(), "1.20.1".to_string()),
-                        ("1.21".to_string(), "1.21".to_string()),
-                    ]),
+                    inference_prefixes: vec!["-".to_string()],
+                    values: vec![
+                        manifest::TargetTagValueDefinition {
+                            value: "1.20.1".to_string(),
+                            aliases: Vec::new(),
+                        },
+                        manifest::TargetTagValueDefinition {
+                            value: "1.21".to_string(),
+                            aliases: Vec::new(),
+                        },
+                    ],
                     default_value: None,
                 },
-            ],
-            target_id_order: vec![
-                "version".to_string(),
-                "loader".to_string(),
-                "mc".to_string(),
             ],
             on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
         }),

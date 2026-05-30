@@ -129,11 +129,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
             .join("1.0.0-windows-x86_64-base.bin")
             .exists()
     );
-    assert!(
-        repo_path
-            .join("targets")
-            .exists()
-    );
+    assert!(repo_path.join("targets").exists());
     assert!(repo_path.join("bundles").join("bundle-a.bundle").exists());
 
     server.join().unwrap();

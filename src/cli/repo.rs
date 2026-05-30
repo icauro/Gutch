@@ -3,18 +3,14 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::RepoCommands;
+use crate::cli::SECTION_SEPARATOR;
 use crate::cli::backend::{
     CreatorRepoTargetsResponse, UpsertTargetResponse, request_json_from_backend,
     slugify_like_backend, upload_raw_file,
 };
-use crate::cli::common::{
-    load_optional_rules, parse_version_parts, session_id_for_cli,
-};
-use crate::cli::{SECTION_SEPARATOR};
-use crate::cli::reporting::{
-    ensure_parent_directory,
-};
-use crate::RepoCommands;
+use crate::cli::common::{load_optional_rules, parse_version_parts, session_id_for_cli};
+use crate::cli::reporting::ensure_parent_directory;
 use gutch as g;
 
 #[derive(Debug, Serialize)]
@@ -39,7 +35,9 @@ fn run_repo_sync_up(
     content_repo_id: Option<i64>,
     session_override: Option<String>,
 ) -> g::Result<RepoSyncUpStats> {
-    let (product_id, content_repo_id) = if let (Some(pid), Some(cid)) = (product_id, content_repo_id) {
+    let (product_id, content_repo_id) = if let (Some(pid), Some(cid)) =
+        (product_id, content_repo_id)
+    {
         (pid, cid)
     } else {
         let config = g::config::load_config()?;
@@ -57,10 +55,9 @@ fn run_repo_sync_up(
                 repo.display()
             ))
         })?;
-        let pid = linked
-            .product_id
-            .parse::<i64>()
-            .map_err(|_| g::Error::manifest(format!("invalid linked product_id: {}", linked.product_id)))?;
+        let pid = linked.product_id.parse::<i64>().map_err(|_| {
+            g::Error::manifest(format!("invalid linked product_id: {}", linked.product_id))
+        })?;
         (pid, linked.remote_repo_id)
     };
     let session_id = session_id_for_cli(session_override)?;
@@ -265,10 +262,7 @@ fn run_repo_sync_up(
 
 pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
     match command {
-        RepoCommands::Init {
-            path,
-            schema,
-        } => {
+        RepoCommands::Init { path, schema } => {
             let repo_name = path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -413,7 +407,6 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             println!("bundles: {}", status.bundle_count);
         }
 
-
         RepoCommands::SyncUp {
             repo,
             endpoint,
@@ -465,17 +458,12 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
         RepoCommands::Unlink { repo } => {
             let mut config = g::config::load_config()?;
             let repo_path = repo.display().to_string();
-            if config.find_repo(&repo_path).is_none() {
+            if !config.clear_repo_link(&repo_path) {
                 return Err(g::Error::manifest(format!(
                     "repo '{}' is not tracked in config.",
                     repo_path
                 )));
             }
-            config.upsert_repo(g::config::TrackedRepo {
-                path: repo_path,
-                target_lookup_path: None,
-                linked: None,
-            });
             g::config::save_config(&config)?;
             println!("unlinked repo '{}'", repo.display());
         }
@@ -503,7 +491,10 @@ fn run_repo_link_interactive(
                 "repo '{}' is already linked to product {} repo {}.",
                 repo_path, linked.product_id, linked.remote_repo_slug
             );
-            eprintln!("Use 'gutch repo unlink --repo {}' first.", shell_quote(&repo_path));
+            eprintln!(
+                "Use 'gutch repo unlink --repo {}' first.",
+                shell_quote(&repo_path)
+            );
             return Err(g::Error::manifest("repo already linked"));
         }
     }
@@ -525,78 +516,84 @@ fn run_repo_link_interactive(
         return Err(g::Error::manifest("no creator products found"));
     }
 
-    println!();
-    println!("Products:");
-    for (i, product) in product_list.iter().enumerate() {
-        let id = product["id"].as_i64().unwrap_or(0);
-        let name = product["name"].as_str().unwrap_or("?");
-        let slug = product["slug"].as_str().unwrap_or("?");
-        println!("  [{}] {} (slug: {}, id: {})", i + 1, name, slug, id);
+    loop {
+        println!();
+        println!("Products:");
+        for (i, product) in product_list.iter().enumerate() {
+            let id = product["id"].as_i64().unwrap_or(0);
+            let name = product["name"].as_str().unwrap_or("?");
+            let slug = product["slug"].as_str().unwrap_or("?");
+            println!("  [{}] {} (slug: {}, id: {})", i + 1, name, slug, id);
+        }
+        println!("  [0] Back");
+
+        let Some(choice) = prompt_index_or_back("Select product", product_list.len())? else {
+            return Err(g::Error::manifest("interactive command cancelled"));
+        };
+        let product = &product_list[choice];
+        let product_id = product["id"]
+            .as_i64()
+            .ok_or_else(|| g::Error::manifest("product missing id"))?;
+        let product_id_str = product_id.to_string();
+
+        let repos: serde_json::Value = request_json_from_backend(
+            client
+                .get(format!(
+                    "{}/v1/users/me/creator/products/{}/repos",
+                    endpoint.trim_end_matches('/'),
+                    product_id
+                ))
+                .header("Accept", "application/json")
+                .header("Authorization", format!("Bearer {}", session_id)),
+        )?;
+
+        let repo_list = repos
+            .as_array()
+            .ok_or_else(|| g::Error::manifest("invalid repos response"))?;
+        if repo_list.is_empty() {
+            println!("product {} has no repos.", product_id);
+            continue;
+        }
+
+        println!();
+        println!("Repos:");
+        for (i, r) in repo_list.iter().enumerate() {
+            let id = r["id"].as_i64().unwrap_or(0);
+            let slug = r["slug"].as_str().unwrap_or("?");
+            println!("  [{}] repo id: {}, slug: {}", i + 1, id, slug);
+        }
+        println!("  [0] Back");
+
+        let Some(choice) = prompt_index_or_back("Select repo", repo_list.len())? else {
+            continue;
+        };
+        let selected = &repo_list[choice];
+        let remote_repo_id = selected["id"]
+            .as_i64()
+            .ok_or_else(|| g::Error::manifest("repo missing id"))?;
+        let remote_repo_slug = selected["slug"]
+            .as_str()
+            .ok_or_else(|| g::Error::manifest("repo missing slug"))?
+            .to_string();
+
+        config.upsert_repo(g::config::TrackedRepo {
+            path: repo_path.clone(),
+            target_lookup_path: None,
+            linked: Some(g::config::LinkedRepo {
+                product_id: product_id_str,
+                creator_user_id: None,
+                remote_repo_id,
+                remote_repo_slug: remote_repo_slug.clone(),
+            }),
+        });
+        g::config::save_config(&config)?;
+
+        println!(
+            "linked repo '{}' to product {} repo {} (id: {})",
+            repo_path, product_id, remote_repo_slug, remote_repo_id
+        );
+        return Ok(());
     }
-
-    let choice = prompt_index("Select product", product_list.len())?;
-    let product = &product_list[choice];
-    let product_id = product["id"]
-        .as_i64()
-        .ok_or_else(|| g::Error::manifest("product missing id"))?;
-    let product_id_str = product_id.to_string();
-
-    let repos: serde_json::Value = request_json_from_backend(
-        client
-            .get(format!(
-                "{}/v1/users/me/creator/products/{}/repos",
-                endpoint.trim_end_matches('/'),
-                product_id
-            ))
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", session_id)),
-    )?;
-
-    let repo_list = repos
-        .as_array()
-        .ok_or_else(|| g::Error::manifest("invalid repos response"))?;
-    if repo_list.is_empty() {
-        return Err(g::Error::manifest(format!(
-            "product {} has no repos",
-            product_id
-        )));
-    }
-
-    println!();
-    println!("Repos:");
-    for (i, r) in repo_list.iter().enumerate() {
-        let id = r["id"].as_i64().unwrap_or(0);
-        let slug = r["slug"].as_str().unwrap_or("?");
-        println!("  [{}] repo id: {}, slug: {}", i + 1, id, slug);
-    }
-
-    let choice = prompt_index("Select repo", repo_list.len())?;
-    let selected = &repo_list[choice];
-    let remote_repo_id = selected["id"]
-        .as_i64()
-        .ok_or_else(|| g::Error::manifest("repo missing id"))?;
-    let remote_repo_slug = selected["slug"]
-        .as_str()
-        .ok_or_else(|| g::Error::manifest("repo missing slug"))?
-        .to_string();
-
-    config.upsert_repo(g::config::TrackedRepo {
-        path: repo_path.clone(),
-        target_lookup_path: None,
-        linked: Some(g::config::LinkedRepo {
-            product_id: product_id_str,
-            creator_user_id: None,
-            remote_repo_id,
-            remote_repo_slug: remote_repo_slug.clone(),
-        }),
-    });
-    g::config::save_config(&config)?;
-
-    println!(
-        "linked repo '{}' to product {} repo {} (id: {})",
-        repo_path, product_id, remote_repo_slug, remote_repo_id
-    );
-    Ok(())
 }
 
 fn run_repo_link_direct(
@@ -637,18 +634,21 @@ fn run_repo_link_direct(
     Ok(())
 }
 
-fn prompt_index(prompt: &str, count: usize) -> g::Result<usize> {
+fn prompt_index_or_back(prompt: &str, count: usize) -> g::Result<Option<usize>> {
     use std::io::{self, Write};
     loop {
-        print!("{} [1-{}]: ", prompt, count);
-        io::stdout().flush().map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
+        print!("{} [0-{}]: ", prompt, count);
+        io::stdout()
+            .flush()
+            .map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
         let mut line = String::new();
         io::stdin()
             .read_line(&mut line)
             .map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
         match line.trim().parse::<usize>() {
-            Ok(n) if n >= 1 && n <= count => return Ok(n - 1),
-            _ => eprintln!("enter a number from 1 to {}", count),
+            Ok(0) => return Ok(None),
+            Ok(n) if n >= 1 && n <= count => return Ok(Some(n - 1)),
+            _ => eprintln!("enter 0 to go back, or a number from 1 to {}", count),
         }
     }
 }

@@ -33,11 +33,7 @@ pub struct BuildConfig {
 }
 
 impl BuildConfig {
-    pub fn with_ids(
-        content_repo_id: &str,
-        target_id: &str,
-        target_tags: &TargetTagSet,
-    ) -> Self {
+    pub fn with_ids(content_repo_id: &str, target_id: &str, target_tags: &TargetTagSet) -> Self {
         Self {
             content_repo_id: content_repo_id.to_string(),
             target_id: target_id.to_string(),

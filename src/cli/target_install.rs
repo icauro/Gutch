@@ -4,11 +4,11 @@ use crate::cli::common::{
     load_target_manifest_from_repo, parse_bundle_downloads, resolve_required_bundle_paths,
     write_report,
 };
-use crate::cli::verbose_output_enabled;
 use crate::cli::reporting::{
     optional_output_paths, print_reconstruct_timings, print_verify_timings, ratio_pct,
     reconstruct_timings_summary, verify_timings_summary,
 };
+use crate::cli::verbose_output_enabled;
 use gutch as g;
 
 pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {

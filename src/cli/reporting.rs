@@ -45,7 +45,9 @@ fn print_blank_line() {
 }
 
 fn print_table_border() {
-    println!("  +------------------------+------------+--------------------------+--------------------+");
+    println!(
+        "  +------------------------+------------+--------------------------+--------------------+"
+    );
 }
 
 fn print_table_header() {
@@ -219,8 +221,7 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
         secs(timings.bundle_compressed_payload_assembly);
     let bundle_compressed_stream_compression_seconds =
         secs(timings.bundle_compressed_stream_compression);
-    let bundle_compressed_serialization_seconds =
-        secs(timings.bundle_compressed_serialization);
+    let bundle_compressed_serialization_seconds = secs(timings.bundle_compressed_serialization);
     let target_manifest_finalize_seconds = secs(timings.target_manifest_finalize);
     let total_seconds = secs(timings.total);
     let accounted_seconds = secs_f64_sum(&[
@@ -411,8 +412,12 @@ pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummar
     let file_hash_seconds = secs(timings.file_hash);
     let chunk_hash_seconds = secs(timings.chunk_hash);
     let total_seconds = secs(timings.total);
-    let accounted_seconds =
-        secs_f64_sum(&[stat_seconds, file_read_seconds, file_hash_seconds, chunk_hash_seconds]);
+    let accounted_seconds = secs_f64_sum(&[
+        stat_seconds,
+        file_read_seconds,
+        file_hash_seconds,
+        chunk_hash_seconds,
+    ]);
     let requested_memory_mode = timings
         .runtime_plan
         .as_ref()
@@ -533,21 +538,30 @@ pub fn print_build_timings(t: &g::BuildTimings) {
         0,
         Some(secs(t.scan_read)),
         Some(format!("{:.2} MiB", mib(t.scan_read_bytes))),
-        Some(format!("{:.2} MiB/s", mib_per_s(t.scan_read_bytes, t.scan_read))),
+        Some(format!(
+            "{:.2} MiB/s",
+            mib_per_s(t.scan_read_bytes, t.scan_read)
+        )),
     );
     print_table_row(
         "file hashing",
         0,
         Some(secs(t.file_hash)),
         Some(format!("{:.2} MiB", mib(t.file_hash_bytes))),
-        Some(format!("{:.2} MiB/s", mib_per_s(t.file_hash_bytes, t.file_hash))),
+        Some(format!(
+            "{:.2} MiB/s",
+            mib_per_s(t.file_hash_bytes, t.file_hash)
+        )),
     );
     print_table_row(
         "chunking",
         0,
         Some(secs(t.chunking)),
         Some(format!("{:.2} MiB", mib(t.chunking_bytes))),
-        Some(format!("{:.2} MiB/s", mib_per_s(t.chunking_bytes, t.chunking))),
+        Some(format!(
+            "{:.2} MiB/s",
+            mib_per_s(t.chunking_bytes, t.chunking)
+        )),
     );
     print_table_row(
         "chunk hash",
@@ -777,8 +791,14 @@ pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_blank_line();
     print_section_title("Reconstruct Benchmark Snapshot");
     print_metric_line("total", format!("{:.2} s", secs(t.total)));
-    print_metric_line("accounted", format!("{:.2}%", pct_of_total(accounted, secs(t.total))));
-    print_metric_line("unaccounted", format!("{:.2} s", (secs(t.total) - accounted).max(0.0)));
+    print_metric_line(
+        "accounted",
+        format!("{:.2}%", pct_of_total(accounted, secs(t.total))),
+    );
+    print_metric_line(
+        "unaccounted",
+        format!("{:.2} s", (secs(t.total) - accounted).max(0.0)),
+    );
 }
 
 pub fn print_verify_timings(t: &g::VerifyTimings) {
@@ -826,16 +846,20 @@ pub fn print_verify_timings(t: &g::VerifyTimings) {
             mib_per_s(t.chunk_hash_bytes, t.chunk_hash)
         ),
     );
-    let accounted =
-        secs(t.stat) + secs(t.file_read) + secs(t.file_hash) + secs(t.chunk_hash);
+    let accounted = secs(t.stat) + secs(t.file_read) + secs(t.file_hash) + secs(t.chunk_hash);
     print_blank_line();
     print_section_title("Verify Benchmark Snapshot");
     print_metric_line("total", format!("{:.2} s", secs(t.total)));
-    print_metric_line("accounted", format!("{:.2}%", pct_of_total(accounted, secs(t.total))));
-    print_metric_line("unaccounted", format!("{:.2} s", (secs(t.total) - accounted).max(0.0)));
+    print_metric_line(
+        "accounted",
+        format!("{:.2}%", pct_of_total(accounted, secs(t.total))),
+    );
+    print_metric_line(
+        "unaccounted",
+        format!("{:.2} s", (secs(t.total) - accounted).max(0.0)),
+    );
 }
 
 #[cfg(test)]
 #[path = "reporting_tests.rs"]
 mod tests;
-

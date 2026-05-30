@@ -9,8 +9,7 @@ use crate::reconstruct::{
 use crate::runtime::RuntimeResourceHints;
 
 use crate::verify::{
-    VerifyTimings, classify_directory_with_progress,
-    verify_directory_with_progress,
+    VerifyTimings, classify_directory_with_progress, verify_directory_with_progress,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -106,8 +105,11 @@ pub fn apply_target_install_with_timings_and_hints(
     let source_manifest = source.as_ref().map(|value| value.target_manifest);
     let verified_source = match source {
         Some(source) => {
-            let (source_classification, _) =
-                classify_directory_with_progress(source.target_manifest, source.install_dir, &RuntimeResourceHints::default())?;
+            let (source_classification, _) = classify_directory_with_progress(
+                source.target_manifest,
+                source.install_dir,
+                &RuntimeResourceHints::default(),
+            )?;
             if !source_classification.missing_files.is_empty()
                 || !source_classification.corrupt_files.is_empty()
             {

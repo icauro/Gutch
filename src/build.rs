@@ -13,7 +13,9 @@ use crate::build_types::{
 };
 use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
-use crate::manifest::{self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetTagSet, target::TargetManifest};
+use crate::manifest::{
+    self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetTagSet, target::TargetManifest,
+};
 use crate::runtime::{ChunkStorageMode, install_in_thread_pool, plan_build_runtime};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
@@ -119,7 +121,13 @@ fn plan_bundle_compressed_groups(
     u64,
 )> {
     if chunks.is_empty() {
-        return Ok((Vec::new(), std::time::Duration::ZERO, 0, std::time::Duration::ZERO, 0));
+        return Ok((
+            Vec::new(),
+            std::time::Duration::ZERO,
+            0,
+            std::time::Duration::ZERO,
+            0,
+        ));
     }
 
     let sort_start = Instant::now();
@@ -150,9 +158,7 @@ fn plan_bundle_compressed_groups(
 
     for (hash, payload) in chunks {
         let raw_size = payload.raw_size();
-        if !current_group.is_empty()
-            && current_group_raw_size + raw_size > bundle_raw_target_size
-        {
+        if !current_group.is_empty() && current_group_raw_size + raw_size > bundle_raw_target_size {
             planned_groups.push(current_group);
             current_group = Vec::new();
             current_group_raw_size = 0;
@@ -245,7 +251,8 @@ pub fn build_from_directory(
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<BuildResult> {
-    let (result, _) = build_from_directory_with_timings(dir, content_repo_id, target_id, target_tags)?;
+    let (result, _) =
+        build_from_directory_with_timings(dir, content_repo_id, target_id, target_tags)?;
     Ok(result)
 }
 
@@ -348,7 +355,8 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings::default();
-    let runtime_plan = plan_build_runtime(&config.runtime_hints, &compression_profile.compression_unit);
+    let runtime_plan =
+        plan_build_runtime(&config.runtime_hints, &compression_profile.compression_unit);
     timings.runtime_plan = Some(runtime_plan.clone());
     let chunk_spool_dir = prepare_chunk_spool_dir(runtime_plan.chunk_storage_mode)?;
 
@@ -489,9 +497,8 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
 fn prepare_chunk_spool_dir(chunk_storage_mode: ChunkStorageMode) -> Result<Option<TempDir>> {
     match chunk_storage_mode {
         ChunkStorageMode::Memory => Ok(None),
-        ChunkStorageMode::TempSpill => Ok(Some(
-            tempfile::tempdir()
-                .map_err(|err| crate::Error::manifest(format!("failed to create chunk spool directory: {}", err)))?,
-        )),
+        ChunkStorageMode::TempSpill => Ok(Some(tempfile::tempdir().map_err(|err| {
+            crate::Error::manifest(format!("failed to create chunk spool directory: {}", err))
+        })?)),
     }
 }

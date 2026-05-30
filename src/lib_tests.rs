@@ -141,7 +141,11 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
     std::fs::create_dir_all(&input_dir).unwrap();
     std::fs::create_dir_all(&bundles_dir).unwrap();
 
-    std::fs::write(input_dir.join("shared.bin"), b"bundle compressed".repeat(512)).unwrap();
+    std::fs::write(
+        input_dir.join("shared.bin"),
+        b"bundle compressed".repeat(512),
+    )
+    .unwrap();
     std::fs::write(input_dir.join("config.json"), br#"{"mode":"bundle"}"#).unwrap();
 
     let tags = exclusive_tags("3.0.0", "windows", "x86_64", "base");
@@ -179,7 +183,11 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
     .unwrap();
 
     let verify_errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
-    assert!(verify_errors.is_empty(), "verification errors: {:?}", verify_errors);
+    assert!(
+        verify_errors.is_empty(),
+        "verification errors: {:?}",
+        verify_errors
+    );
     assert_eq!(
         timings.runtime_plan.as_ref().map(|plan| plan.worker_count),
         Some(1)

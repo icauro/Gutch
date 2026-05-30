@@ -1,6 +1,6 @@
 use gutch::error::{Error, Result};
 use gutch::manifest::{
-    IncompleteInferenceBehavior, TargetTagKind, TargetTagSchema, TargetTagSet,
+    IncompleteInferenceBehavior, StructuredVersion, TargetTagKind, TargetTagSchema, TargetTagSet,
     target::TargetManifest,
 };
 
@@ -10,11 +10,7 @@ pub struct ResolvedTargetIdentity {
 }
 
 pub fn parse_cli_tags(tag_values: &[String]) -> Result<TargetTagSet> {
-    let mut parsed_tags = TargetTagSet::default();
-    for tag_value in tag_values {
-        apply_raw_tag(&mut parsed_tags, tag_value, true)?;
-    }
-    Ok(parsed_tags)
+    TargetTagSet::from_compact_strings(tag_values)
 }
 
 pub fn resolve_target_identity(
@@ -71,89 +67,26 @@ pub fn apply_resolved_target_identity(
     target_manifest.target_tags = resolved_identity.target_tags.clone();
 }
 
-fn apply_raw_tag(
-    target_tags: &mut TargetTagSet,
-    raw_tag: &str,
-    strict_exclusive: bool,
-) -> Result<()> {
-    let trimmed = raw_tag.trim();
-    if trimmed.is_empty() {
-        return Err(Error::manifest("invalid empty --tag value".to_string()));
-    }
-
-    if let Some((prefix, value)) = trimmed.split_once("::") {
-        if prefix.is_empty() || value.is_empty() || value.contains("::") {
-            return Err(Error::manifest(format!(
-                "invalid --tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
-                raw_tag
-            )));
-        }
-        if strict_exclusive {
-            if let Some(existing_value) = target_tags.exclusive.get(prefix) {
-                if existing_value != value {
-                    return Err(Error::manifest(format!(
-                        "conflicting exclusive tag '{}'. Prefix '{}' already has value '{}'",
-                        raw_tag, prefix, existing_value
-                    )));
-                }
-            }
-        }
-        target_tags.upsert_exclusive(prefix.to_string(), value.to_string());
-        return Ok(());
-    }
-
-    if trimmed.contains(':') {
-        let Some((prefix, value)) = trimmed.split_once(':') else {
-            return Err(Error::manifest(format!(
-                "invalid --tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
-                raw_tag
-            )));
-        };
-        if prefix.is_empty() || value.is_empty() || value.contains(':') {
-            return Err(Error::manifest(format!(
-                "invalid --tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
-                raw_tag
-            )));
-        }
-        target_tags.insert_scoped(prefix.to_string(), value.to_string());
-        return Ok(());
-    }
-
-    target_tags.insert_plain(trimmed.to_string());
-    Ok(())
-}
-
-fn tokenize_identity_name(name: &str) -> Vec<String> {
-    name.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '.'))
-        .filter(|token| !token.is_empty())
-        .map(|token| token.to_string())
+fn identity_segments(name: &str) -> Vec<String> {
+    name.split('-')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .map(ToOwned::to_owned)
         .collect()
 }
 
 fn normalize_version(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
+    StructuredVersion::parse(raw)
+        .ok()
+        .map(|version| version.canonical_string())
+}
 
-    let candidate = trimmed
-        .strip_prefix('v')
-        .or_else(|| trimmed.strip_prefix('V'))
-        .unwrap_or(trimmed);
-    if candidate.is_empty() {
-        return None;
+fn segment_candidate_for_prefix<'a>(segment: &'a str, prefix: &str) -> Option<&'a str> {
+    if prefix == "-" {
+        return Some(segment);
     }
-
-    let parts: Vec<&str> = candidate.split('.').collect();
-    if parts.is_empty()
-        || parts
-            .iter()
-            .any(|part| part.is_empty() || !part.chars().all(|ch| ch.is_ascii_digit()))
-    {
-        return None;
-    }
-
-    Some(candidate.to_string())
+    let required_prefix = prefix.strip_prefix('-')?;
+    segment.strip_prefix(required_prefix)
 }
 
 fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> TargetTagSet {
@@ -170,16 +103,7 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
     let mut tags = TargetTagSet::default();
     let mut found_version = false;
 
-    for token in tokenize_identity_name(raw_name) {
-        if !found_version {
-            if let Some(version) = normalize_version(&token) {
-                tags.upsert_exclusive("version".to_string(), version);
-                found_version = true;
-                continue;
-            }
-        }
-
-        let lowered = token.to_ascii_lowercase();
+    for segment in identity_segments(raw_name) {
         for definition in &rules.target_tags {
             if definition.kind == TargetTagKind::Plain {
                 continue;
@@ -187,16 +111,39 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
             if definition.kind == TargetTagKind::Exclusive && tags.has_exclusive(&definition.name) {
                 continue;
             }
-            if let Some(canonical) = definition.aliases.get(&lowered) {
+
+            let candidate = definition
+                .inference_prefixes
+                .iter()
+                .find_map(|prefix| segment_candidate_for_prefix(&segment, prefix));
+            let Some(candidate) = candidate else {
+                continue;
+            };
+
+            if definition.name == "version" && !found_version {
+                if let Some(version) = normalize_version(candidate) {
+                    tags.upsert_exclusive("version".to_string(), version);
+                    found_version = true;
+                    break;
+                }
+            }
+
+            let lowered = candidate.to_ascii_lowercase();
+            if let Some(canonical) = definition
+                .values
+                .iter()
+                .find(|value_definition| value_definition.matches_token(&lowered))
+                .map(|value_definition| value_definition.value.as_str())
+            {
                 match definition.kind {
                     TargetTagKind::Plain => {}
                     TargetTagKind::Scoped => {
-                        tags.insert_scoped(definition.name.clone(), canonical.clone());
+                        tags.insert_scoped(definition.name.clone(), canonical.to_string());
                     }
                     TargetTagKind::Exclusive => {
                         tags.insert_exclusive_if_missing(
                             definition.name.clone(),
-                            canonical.clone(),
+                            canonical.to_string(),
                         );
                     }
                 }

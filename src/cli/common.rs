@@ -213,7 +213,10 @@ impl SummaryReport for TargetInsertStats {
                 summary_kv("generated_bundles", self.generated_bundle_count.to_string()),
                 summary_kv("reused_bundles", self.reused_bundle_count.to_string()),
                 summary_kv("generated_size", format_bytes(self.generated_bundle_bytes)),
-                summary_kv("bundle_reuse", format!("{:.2}%", self.reused_bundle_percent)),
+                summary_kv(
+                    "bundle_reuse",
+                    format!("{:.2}%", self.reused_bundle_percent),
+                ),
             ],
         );
         push_summary_section(
@@ -253,7 +256,10 @@ impl SummaryReport for TargetExportStats {
                 ),
                 summary_kv("required_chunks", self.required_chunk_count.to_string()),
                 summary_kv("required_bundles", self.required_bundle_count.to_string()),
-                summary_kv("resolved_bundles", self.resolved_bundle_file_count.to_string()),
+                summary_kv(
+                    "resolved_bundles",
+                    self.resolved_bundle_file_count.to_string(),
+                ),
             ],
         );
         push_summary_section(
@@ -313,7 +319,10 @@ impl SummaryReport for TargetInstallApplyStats {
                 ),
                 summary_kv("required_chunks", self.required_chunk_count.to_string()),
                 summary_kv("required_bundles", self.required_bundle_count.to_string()),
-                summary_kv("resolved_bundles", self.resolved_bundle_file_count.to_string()),
+                summary_kv(
+                    "resolved_bundles",
+                    self.resolved_bundle_file_count.to_string(),
+                ),
             ],
         );
         push_summary_section(

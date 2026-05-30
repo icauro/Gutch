@@ -7,7 +7,12 @@ use gutch as g;
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
         Commands::Auth {
-            command: AuthCommands::Login { endpoint, no_open, start },
+            command:
+                AuthCommands::Login {
+                    endpoint,
+                    no_open,
+                    start,
+                },
         } => {
             if start {
                 let url = crate::auth::login_start(&endpoint).map_err(g::Error::manifest)?;
@@ -46,7 +51,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         } => {
             let status = crate::auth::session_status_json(&endpoint, session_id.as_deref())
                 .map_err(g::Error::manifest)?;
-            println!("{}", serde_json::to_string_pretty(&status).map_err(|e| g::Error::manifest(e.to_string()))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&status)
+                    .map_err(|e| g::Error::manifest(e.to_string()))?
+            );
             Ok(())
         }
 
@@ -59,7 +68,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         } => {
             let profile = crate::auth::profile(&endpoint, session_id.as_deref())
                 .map_err(g::Error::manifest)?;
-            println!("{}", serde_json::to_string_pretty(&profile).map_err(|e| g::Error::manifest(e.to_string()))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&profile)
+                    .map_err(|e| g::Error::manifest(e.to_string()))?
+            );
             Ok(())
         }
 
@@ -72,7 +85,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         } => {
             let refresh = crate::auth::refresh(&endpoint, session_id.as_deref())
                 .map_err(g::Error::manifest)?;
-            println!("{}", serde_json::to_string_pretty(&refresh).map_err(|e| g::Error::manifest(e.to_string()))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&refresh)
+                    .map_err(|e| g::Error::manifest(e.to_string()))?
+            );
             Ok(())
         }
 
