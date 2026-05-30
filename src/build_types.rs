@@ -19,7 +19,7 @@ pub trait BuildProgressSink: Send + Sync + std::fmt::Debug {
 
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
-    pub content_repo_id: String,
+    pub gutch_repo_id: String,
     pub target_id: String,
     pub target_tags: TargetTagSet,
     pub existing_chunk_locations: HashMap<String, ExistingChunkLocation>,
@@ -33,9 +33,9 @@ pub struct BuildConfig {
 }
 
 impl BuildConfig {
-    pub fn with_ids(content_repo_id: &str, target_id: &str, target_tags: &TargetTagSet) -> Self {
+    pub fn with_ids(gutch_repo_id: &str, target_id: &str, target_tags: &TargetTagSet) -> Self {
         Self {
-            content_repo_id: content_repo_id.to_string(),
+            gutch_repo_id: gutch_repo_id.to_string(),
             target_id: target_id.to_string(),
             target_tags: target_tags.clone(),
             existing_chunk_locations: HashMap::new(),

@@ -184,7 +184,7 @@ pub fn apply_target_install_with_timings_and_hints(
 pub fn fetch_target_install_content(
     request: &TargetInstallFetchRequest,
 ) -> Result<TargetInstallFetchResult> {
-    let repo_paths = crate::ContentRepoPaths::from_repo_root(&request.repo_path);
+    let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_path);
     std::fs::create_dir_all(&repo_paths.targets_root)?;
     std::fs::create_dir_all(&repo_paths.bundles_root)?;
 
@@ -416,11 +416,11 @@ fn fetch_bundle_urls(
 
 fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) -> Result<()> {
     let existing_manifest_path = repo_path.join(manifest::CONTENT_REPO_MANIFEST_FILE);
-    let content_repo_id = if existing_manifest_path.exists() {
+    let gutch_repo_id = if existing_manifest_path.exists() {
         let json = std::fs::read_to_string(&existing_manifest_path)?;
-        let existing_manifest: crate::manifest::content_repo::ContentRepoManifest =
+        let existing_manifest: crate::manifest::gutch_repo::GutchRepoManifest =
             serde_json::from_str(&json)?;
-        existing_manifest.content_repo_id
+        existing_manifest.gutch_repo_id
     } else {
         repo_path
             .file_name()
@@ -430,7 +430,7 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
             .to_string()
     };
     let mut repo_manifest =
-        crate::manifest::content_repo::ContentRepoManifest::new(content_repo_id);
+        crate::manifest::gutch_repo::GutchRepoManifest::new(gutch_repo_id);
     if let Some(inserted_at) = target_manifest
         .get("inserted_at")
         .or_else(|| target_manifest.get("created_at"))

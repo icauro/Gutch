@@ -241,7 +241,7 @@ fn prompt_repo_selection(theme: &ColorfulTheme) -> g::Result<RepoSelectionAction
         if truncated {
             labels.push(format!("- Show all {} tracked repos...", total));
         }
-        labels.push("- Create a content repo".to_string());
+        labels.push("- Create a gutch repo".to_string());
         labels.push("- Enter a custom repo path...".to_string());
         labels.push("- Exit".to_string());
 
@@ -353,7 +353,7 @@ fn print_active_repo_info_table(repo: &std::path::Path) -> g::Result<()> {
     let repo_path = repo.display().to_string();
     let config = g::config::load_config()?;
     let tracked = config.find_repo(&repo_path);
-    let (_, repo_manifest) = g::load_content_repo_manifest(repo)?;
+    let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
 
     let linked_value = match tracked.and_then(|tracked_repo| tracked_repo.linked.as_ref()) {
         Some(linked) => format!("{} / {}", linked.product_id, linked.remote_repo_slug),
@@ -364,7 +364,7 @@ fn print_active_repo_info_table(repo: &std::path::Path) -> g::Result<()> {
         .unwrap_or("-");
 
     let rows = vec![
-        ("repo id", repo_manifest.content_repo_id),
+        ("repo id", repo_manifest.gutch_repo_id),
         ("path", repo.display().to_string()),
         ("linked", linked_value),
         ("lookup path", lookup_value.to_string()),
@@ -477,9 +477,9 @@ fn resolve_active_repo_from_selection(
     repo: PathBuf,
     allow_retry: bool,
 ) -> g::Result<Option<PathBuf>> {
-    match g::load_content_repo_manifest(&repo) {
+    match g::load_gutch_repo_manifest(&repo) {
         Err(err) => {
-            println!("Not a valid content repo at {}: {}", repo.display(), err);
+            println!("Not a valid gutch repo at {}: {}", repo.display(), err);
             if allow_retry
                 && Confirm::with_theme(theme)
                     .with_prompt("Try another path?")
@@ -731,12 +731,12 @@ fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
         schema: None,
     })?;
 
-    let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&path)?;
+    let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&path)?;
     repo_manifest.target_schema = Some(match template {
         TaggingTemplate::Standard => g::manifest::TargetTagSchema::default(),
         TaggingTemplate::Minimal => minimal_tagging_template(),
     });
-    g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
+    g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
     let template_name = match template {
         TaggingTemplate::Standard => "standard (version::, os::, arch::, tier::)",
@@ -784,7 +784,7 @@ fn minimal_tagging_template() -> g::manifest::TargetTagSchema {
 }
 
 fn run_repo_config_edit(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(repo)?;
+    let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(repo)?;
 
     loop {
         refresh_terminal()?;
@@ -825,7 +825,7 @@ fn run_repo_config_edit(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
                 println!("  {}", repo_paths.repo_manifest_path.display());
                 println!();
                 if prompt_approval_action(theme, "Save repo config changes?")? {
-                    g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
+                    g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
                     println!(
                         "updated repo config: {}",
                         repo_paths.repo_manifest_path.display()
@@ -996,7 +996,7 @@ fn prompt_target_selection(
     repo: &std::path::Path,
     prompt: &str,
 ) -> g::Result<Option<String>> {
-    let status = g::inspect_content_repo(repo)?;
+    let status = g::inspect_gutch_repo(repo)?;
     let target_schema = status.target_schema.as_ref();
     if status.targets.is_empty() {
         println!("No targets found in repo.");
@@ -1068,9 +1068,9 @@ fn confirm_output_path_overwrite(
     }
 }
 
-fn print_repo_config_summary(repo_manifest: &g::manifest::content_repo::ContentRepoManifest) {
+fn print_repo_config_summary(repo_manifest: &g::manifest::gutch_repo::GutchRepoManifest) {
     println!("Repo config summary");
-    println!("  content repo      {}", repo_manifest.content_repo_id);
+    println!("  gutch repo      {}", repo_manifest.gutch_repo_id);
     println!(
         "  chunk profile     {}",
         artifact_sizing_str(repo_manifest.chunk_sizing_profile.preset)
@@ -1122,7 +1122,7 @@ fn print_repo_config_summary(repo_manifest: &g::manifest::content_repo::ContentR
 
 fn edit_incomplete_behavior(
     theme: &ColorfulTheme,
-    repo_manifest: &mut g::manifest::content_repo::ContentRepoManifest,
+    repo_manifest: &mut g::manifest::gutch_repo::GutchRepoManifest,
 ) -> g::Result<()> {
     let schema = ensure_target_schema(repo_manifest);
     let options = [
@@ -1146,7 +1146,7 @@ fn edit_incomplete_behavior(
 
 fn add_or_update_tag_definition(
     theme: &ColorfulTheme,
-    repo_manifest: &mut g::manifest::content_repo::ContentRepoManifest,
+    repo_manifest: &mut g::manifest::gutch_repo::GutchRepoManifest,
 ) -> g::Result<()> {
     let schema = ensure_target_schema(repo_manifest);
     let existing_names: Vec<String> = schema
@@ -1248,7 +1248,7 @@ fn add_or_update_tag_definition(
 
 fn remove_tag_definition(
     theme: &ColorfulTheme,
-    repo_manifest: &mut g::manifest::content_repo::ContentRepoManifest,
+    repo_manifest: &mut g::manifest::gutch_repo::GutchRepoManifest,
 ) -> g::Result<()> {
     let schema = ensure_target_schema(repo_manifest);
     if schema.target_tags.is_empty() {
@@ -1274,7 +1274,7 @@ fn remove_tag_definition(
 
 fn edit_repo_profiles(
     theme: &ColorfulTheme,
-    repo_manifest: &mut g::manifest::content_repo::ContentRepoManifest,
+    repo_manifest: &mut g::manifest::gutch_repo::GutchRepoManifest,
 ) -> g::Result<()> {
     repo_manifest.chunk_sizing_profile =
         g::manifest::ChunkSizingProfile::for_preset(prompt_chunk_profile(theme)?);
@@ -1588,7 +1588,7 @@ fn target_tag_kind_str(kind: g::manifest::TargetTagKind) -> &'static str {
 }
 
 fn ensure_target_schema(
-    repo_manifest: &mut g::manifest::content_repo::ContentRepoManifest,
+    repo_manifest: &mut g::manifest::gutch_repo::GutchRepoManifest,
 ) -> &mut g::manifest::TargetTagSchema {
     repo_manifest
         .target_schema
@@ -1718,13 +1718,13 @@ fn dialoguer_to_manifest_error(err: dialoguer::Error) -> g::Error {
 }
 
 fn print_repo_summary(repo: &std::path::Path) -> g::Result<()> {
-    let status = g::inspect_content_repo(repo)?;
+    let status = g::inspect_gutch_repo(repo)?;
     let config = g::config::load_config()?;
     let tracked = config.find_repo(&repo.display().to_string());
 
     println!();
     println!("  path:     {}", status.repo_path);
-    println!("  id:       {}", status.content_repo_id);
+    println!("  id:       {}", status.gutch_repo_id);
     println!("  targets:  {}", status.targets.len());
     println!(
         "  bundles:  {} ({})",
@@ -1748,9 +1748,9 @@ fn print_repo_summary(repo: &std::path::Path) -> g::Result<()> {
 }
 
 fn run_repo_inspect(repo: &std::path::Path) -> g::Result<()> {
-    let status = g::inspect_content_repo(repo)?;
+    let status = g::inspect_gutch_repo(repo)?;
     if !status.is_repo {
-        println!("not a content repo.");
+        println!("not a gutch repo.");
         return Ok(());
     }
 
@@ -1781,7 +1781,7 @@ fn run_interactive_repo_link(_theme: &ColorfulTheme, repo: &std::path::Path) -> 
         endpoint,
         session_id: Some(session_id),
         product_id: None,
-        content_repo_id: None,
+        gutch_repo_id: None,
         remote_repo_slug: None,
     })
 }
@@ -1810,7 +1810,7 @@ fn run_interactive_repo_sync_up(_theme: &ColorfulTheme, repo: &std::path::Path) 
         repo: repo.to_path_buf(),
         endpoint,
         product_id: None,
-        content_repo_id: None,
+        gutch_repo_id: None,
         session_id: Some(session_id),
     })
 }
@@ -1851,14 +1851,14 @@ fn run_discover_targets(theme: &ColorfulTheme, repo: &std::path::Path) -> g::Res
     let lookup_path = std::path::PathBuf::from(&lookup);
 
     let candidates = g::discover_source_target_installs(repo, &lookup_path)?;
-    let (_, repo_manifest) = g::load_content_repo_manifest(repo)?;
+    let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
     let target_schema = repo_manifest.target_schema.unwrap_or_default();
     if candidates.is_empty() {
         println!("no source target installs found in '{}'", lookup);
         return Ok(());
     }
 
-    let status = g::inspect_content_repo(repo)?;
+    let status = g::inspect_gutch_repo(repo)?;
     let existing_ids: HashSet<String> =
         status.targets.iter().map(|t| t.target_id.clone()).collect();
 

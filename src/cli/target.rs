@@ -34,7 +34,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             stats_json_out,
         } => {
             let prepared_input = prepare_input_path(&dir)?;
-            let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&repo)?;
+            let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
             let mut explicit_tags = parse_cli_tags(&tags)?;
             if let Some(version) = version {
@@ -53,7 +53,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             let resolved_identity =
                 resolve_target_identity(&dir, &explicit_tags, &rules, &context)?;
             let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
-            let content_repo = repo_manifest.content_repo_id.clone();
+            let gutch_repo = repo_manifest.gutch_repo_id.clone();
             let bundles_root = repo_paths.bundles_root.clone();
 
             let existing_store_state = scan_existing_store_state(&repo_paths)?;
@@ -78,7 +78,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             };
 
             let mut build_config =
-                g::BuildConfig::with_ids(&content_repo, "", &resolved_identity.target_tags);
+                g::BuildConfig::with_ids(&gutch_repo, "", &resolved_identity.target_tags);
             build_config.existing_chunk_locations = existing_store_state.chunk_locations.clone();
             build_config.existing_bundle_ids = existing_store_state.bundle_ids.clone();
             build_config.previous_file_manifests =
@@ -164,8 +164,8 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
                 input_path: dir.display().to_string(),
                 target_id: result.target_manifest.target_id.clone(),
                 manifest_path: manifest_path.display().to_string(),
-                product_id: content_repo.clone(),
-                content_repo_id: content_repo,
+                product_id: gutch_repo.clone(),
+                gutch_repo_id: gutch_repo,
                 version_id: resolved_identity
                     .target_tags
                     .get_exclusive("version")
@@ -209,7 +209,7 @@ pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
             repo_manifest.chunk_sizing_profile = chunk_sizing_profile;
             repo_manifest.bundle_sizing_profile = bundle_sizing_profile;
             repo_manifest.compression_profile = compression_profile;
-            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
+            g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             build_progress.finish_and_clear();
         }
 

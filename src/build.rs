@@ -247,46 +247,46 @@ fn build_bundle_compressed_group(
 
 pub fn build_from_directory(
     dir: &Path,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<BuildResult> {
     let (result, _) =
-        build_from_directory_with_timings(dir, content_repo_id, target_id, target_tags)?;
+        build_from_directory_with_timings(dir, gutch_repo_id, target_id, target_tags)?;
     Ok(result)
 }
 
 pub fn build_from_directory_with_timings(
     dir: &Path,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    let config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags);
     build_with_config(dir, &config)
 }
 
 pub fn build_from_directory_with_timings_against_existing_bundles(
     dir: &Path,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    let mut config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags);
     config.existing_bundle_ids = existing_bundle_ids.clone();
     build_with_config(dir, &config)
 }
 
 pub fn build_from_directory_with_timings_against_existing_store(
     dir: &Path,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    let mut config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags);
     config.existing_chunk_locations = existing_chunk_locations.clone();
     config.existing_bundle_ids = existing_bundle_ids.clone();
     build_with_config(dir, &config)
@@ -294,14 +294,14 @@ pub fn build_from_directory_with_timings_against_existing_store(
 
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     dir: &Path,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    let mut config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags);
     config.existing_chunk_locations = existing_chunk_locations.clone();
     config.existing_bundle_ids = existing_bundle_ids.clone();
     config.previous_file_manifests = previous_file_manifests.clone();
@@ -310,7 +310,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
 
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
     dir: &Path,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
@@ -319,7 +319,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     chunk_profile: &manifest::ChunkSizingProfile,
     bundle_profile: &manifest::BundleSizingProfile,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    let mut config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags);
     config.existing_chunk_locations = existing_chunk_locations.clone();
     config.existing_bundle_ids = existing_bundle_ids.clone();
     config.previous_file_manifests = previous_file_manifests.clone();
@@ -330,7 +330,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 
 pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
     dir: &Path,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
@@ -340,7 +340,7 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     bundle_profile: &manifest::BundleSizingProfile,
     compression_profile: &manifest::CompressionProfile,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let mut config = BuildConfig::with_ids(content_repo_id, target_id, target_tags);
+    let mut config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags);
     config.existing_chunk_locations = existing_chunk_locations.clone();
     config.existing_bundle_ids = existing_bundle_ids.clone();
     config.previous_file_manifests = previous_file_manifests.clone();

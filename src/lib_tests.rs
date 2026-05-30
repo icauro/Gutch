@@ -197,8 +197,8 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
 }
 
 #[test]
-fn test_content_repo_paths_from_store_root() {
-    let paths = ContentRepoPaths::from_store_root(Path::new("D:\\store"), "base");
+fn test_gutch_repo_paths_from_store_root() {
+    let paths = GutchRepoPaths::from_store_root(Path::new("D:\\store"), "base");
 
     assert_eq!(
         paths.repo_root,
@@ -216,14 +216,14 @@ fn test_content_repo_paths_from_store_root() {
 }
 
 #[test]
-fn test_ensure_content_repo_layout_writes_repo_manifest() {
-    let repo_root = test_util::temp_path("gutch_test_content_repo_layout");
+fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
+    let repo_root = test_util::temp_path("gutch_test_gutch_repo_layout");
     let _ = std::fs::remove_dir_all(&repo_root);
-    let paths = ContentRepoPaths::from_repo_root(&repo_root);
+    let paths = GutchRepoPaths::from_repo_root(&repo_root);
 
-    let repo_manifest = ensure_content_repo_layout(&paths, "base").unwrap();
+    let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    assert_eq!(repo_manifest.content_repo_id, "base");
+    assert_eq!(repo_manifest.gutch_repo_id, "base");
     assert!(paths.repo_manifest_path.exists());
     assert!(paths.targets_root.exists());
     assert!(paths.bundles_root.exists());

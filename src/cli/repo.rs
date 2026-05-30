@@ -18,7 +18,7 @@ struct RepoSyncUpStats {
     command: &'static str,
     repo_root: String,
     product_id: i64,
-    content_repo_id: i64,
+    gutch_repo_id: i64,
     repo_manifest_uploaded: bool,
     chunk_index_uploaded: bool,
     target_manifest_uploaded_count: usize,
@@ -32,11 +32,11 @@ fn run_repo_sync_up(
     repo: PathBuf,
     endpoint: String,
     product_id: Option<i64>,
-    content_repo_id: Option<i64>,
+    gutch_repo_id: Option<i64>,
     session_override: Option<String>,
 ) -> g::Result<RepoSyncUpStats> {
-    let (product_id, content_repo_id) = if let (Some(pid), Some(cid)) =
-        (product_id, content_repo_id)
+    let (product_id, gutch_repo_id) = if let (Some(pid), Some(cid)) =
+        (product_id, gutch_repo_id)
     {
         (pid, cid)
     } else {
@@ -45,13 +45,13 @@ fn run_repo_sync_up(
             .find_repo(&repo.display().to_string())
             .ok_or_else(|| {
                 g::Error::manifest(format!(
-                    "repo '{}' is not tracked. Use repo link first or pass --product-id and --content-repo-id.",
+                    "repo '{}' is not tracked. Use repo link first or pass --product-id and --gutch-repo-id.",
                     repo.display()
                 ))
             })?;
         let linked = tracked.linked.as_ref().ok_or_else(|| {
             g::Error::manifest(format!(
-                "repo '{}' has no linked remote. Use repo link first or pass --product-id and --content-repo-id.",
+                "repo '{}' has no linked remote. Use repo link first or pass --product-id and --gutch-repo-id.",
                 repo.display()
             ))
         })?;
@@ -66,14 +66,14 @@ fn run_repo_sync_up(
         .build()
         .map_err(|err| g::Error::manifest(format!("failed to create sync client: {}", err)))?;
 
-    let status = g::inspect_content_repo(&repo)?;
+    let status = g::inspect_gutch_repo(&repo)?;
     if !status.is_repo {
         return Err(g::Error::manifest(format!(
-            "no content repo found at {}",
+            "no gutch repo found at {}",
             repo.display()
         )));
     }
-    let (repo_paths, _) = g::load_content_repo_manifest(&repo)?;
+    let (repo_paths, _) = g::load_gutch_repo_manifest(&repo)?;
 
     let creator_targets: CreatorRepoTargetsResponse = request_json_from_backend(
         client
@@ -81,7 +81,7 @@ fn run_repo_sync_up(
                 "{}/v1/users/me/creator/products/{}/repos/{}/targets",
                 endpoint.trim_end_matches('/'),
                 product_id,
-                content_repo_id
+                gutch_repo_id
             ))
             .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {}", session_id)),
@@ -103,7 +103,7 @@ fn run_repo_sync_up(
         &endpoint,
         &format!(
             "/v1/users/me/creator/products/{}/repos/{}/manifest",
-            product_id, content_repo_id
+            product_id, gutch_repo_id
         ),
         &session_id,
         repo_manifest_bytes,
@@ -119,7 +119,7 @@ fn run_repo_sync_up(
             &endpoint,
             &format!(
                 "/v1/users/me/creator/products/{}/repos/{}/chunks",
-                product_id, content_repo_id
+                product_id, gutch_repo_id
             ),
             &session_id,
             chunk_index_bytes,
@@ -164,7 +164,7 @@ fn run_repo_sync_up(
                             "{}/v1/users/me/creator/products/{}/repos/{}/targets",
                             endpoint.trim_end_matches('/'),
                             product_id,
-                            content_repo_id
+                            gutch_repo_id
                         ))
                         .header("Accept", "application/json")
                         .header("Authorization", format!("Bearer {}", session_id))
@@ -186,7 +186,7 @@ fn run_repo_sync_up(
             &endpoint,
             &format!(
                 "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
-                product_id, content_repo_id, remote_target_id
+                product_id, gutch_repo_id, remote_target_id
             ),
             &session_id,
             manifest_bytes,
@@ -214,7 +214,7 @@ fn run_repo_sync_up(
                 "{}/v1/users/me/creator/products/{}/repos/{}/bundles/{}",
                 endpoint.trim_end_matches('/'),
                 product_id,
-                content_repo_id,
+                gutch_repo_id,
                 bundle_id
             ))
             .header("Accept", "application/json")
@@ -236,7 +236,7 @@ fn run_repo_sync_up(
             &endpoint,
             &format!(
                 "/v1/users/me/creator/products/{}/repos/{}/bundles/{}/content",
-                product_id, content_repo_id, bundle_id
+                product_id, gutch_repo_id, bundle_id
             ),
             &session_id,
             std::fs::read(entry.path())?,
@@ -249,7 +249,7 @@ fn run_repo_sync_up(
         command: "repo sync-up",
         repo_root: repo_paths.repo_root.display().to_string(),
         product_id,
-        content_repo_id,
+        gutch_repo_id,
         repo_manifest_uploaded,
         chunk_index_uploaded,
         target_manifest_uploaded_count,
@@ -268,13 +268,13 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 .and_then(|n| n.to_str())
                 .filter(|n| !n.is_empty())
                 .unwrap_or("base");
-            let repo_paths = g::ContentRepoPaths::from_repo_root(&path);
-            let mut repo_manifest = g::ensure_content_repo_layout(&repo_paths, repo_name)?;
+            let repo_paths = g::GutchRepoPaths::from_repo_root(&path);
+            let mut repo_manifest = g::ensure_gutch_repo_layout(&repo_paths, repo_name)?;
             repo_manifest.target_schema = load_optional_rules(&schema)?;
-            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
+            g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
             println!(
-                "created content repo {} at {}",
+                "created gutch repo {} at {}",
                 repo_name,
                 repo_paths.repo_root.display()
             );
@@ -299,13 +299,13 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 ));
             }
 
-            let (repo_paths, mut repo_manifest) = g::load_content_repo_manifest(&repo)?;
+            let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             repo_manifest.target_schema = if clear {
                 None
             } else {
                 load_optional_rules(&schema)?
             };
-            g::write_content_repo_manifest(&repo_paths, &repo_manifest)?;
+            g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             println!(
                 "updated repo schema at {}",
                 repo_paths.repo_manifest_path.display()
@@ -313,7 +313,7 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
         }
 
         RepoCommands::Inspect { repo, json_out } => {
-            let status = g::inspect_content_repo(&repo)?;
+            let status = g::inspect_gutch_repo(&repo)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
                 std::fs::write(json_out, serde_json::to_vec_pretty(&status)?)?;
@@ -336,7 +336,7 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 }
                 println!("{SECTION_SEPARATOR}");
                 println!("Total");
-                println!("content_repo_id: {}", status.content_repo_id);
+                println!("gutch_repo_id: {}", status.gutch_repo_id);
                 println!("repo_path: {}", status.repo_path);
                 println!("targets: {}", status.targets.len());
                 println!("bundles: {}", status.bundle_count);
@@ -345,7 +345,7 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
                 println!("inspect status: {}", error);
             } else {
                 println!(
-                    "inspect status: no content repo found at {}",
+                    "inspect status: no gutch repo found at {}",
                     status.repo_path
                 );
             }
@@ -382,10 +382,10 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
         }
 
         RepoCommands::List { repo, json_out } => {
-            let status = g::inspect_content_repo(&repo)?;
+            let status = g::inspect_gutch_repo(&repo)?;
             if !status.is_repo {
                 return Err(g::Error::manifest(format!(
-                    "no content repo found at {}",
+                    "no gutch repo found at {}",
                     repo.display()
                 )));
             }
@@ -402,7 +402,7 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             }
             println!("{SECTION_SEPARATOR}");
             println!("Total");
-            println!("content_repo_id: {}", status.content_repo_id);
+            println!("gutch_repo_id: {}", status.gutch_repo_id);
             println!("targets: {}", status.targets.len());
             println!("bundles: {}", status.bundle_count);
         }
@@ -411,13 +411,13 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             repo,
             endpoint,
             product_id,
-            content_repo_id,
+            gutch_repo_id,
             session_id,
         } => {
-            let stats = run_repo_sync_up(repo, endpoint, product_id, content_repo_id, session_id)?;
+            let stats = run_repo_sync_up(repo, endpoint, product_id, gutch_repo_id, session_id)?;
             println!(
                 "synced repo {} to product {} repo {}",
-                stats.repo_root, stats.product_id, stats.content_repo_id
+                stats.repo_root, stats.product_id, stats.gutch_repo_id
             );
             println!(
                 "repo manifest uploaded: {}, chunk index uploaded: {}",
@@ -436,18 +436,18 @@ pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
             endpoint,
             session_id,
             product_id,
-            content_repo_id,
+            gutch_repo_id,
             remote_repo_slug,
         } => {
-            if let (Some(product_id), Some(content_repo_id), Some(remote_repo_slug)) =
-                (product_id, content_repo_id, remote_repo_slug)
+            if let (Some(product_id), Some(gutch_repo_id), Some(remote_repo_slug)) =
+                (product_id, gutch_repo_id, remote_repo_slug)
             {
                 run_repo_link_direct(
                     repo,
                     endpoint,
                     session_id,
                     product_id,
-                    content_repo_id,
+                    gutch_repo_id,
                     remote_repo_slug,
                 )?;
             } else {
@@ -601,7 +601,7 @@ fn run_repo_link_direct(
     _endpoint: String,
     _session_override: Option<String>,
     product_id: i64,
-    content_repo_id: i64,
+    gutch_repo_id: i64,
     remote_repo_slug: String,
 ) -> g::Result<()> {
     let repo_path = repo.display().to_string();
@@ -621,7 +621,7 @@ fn run_repo_link_direct(
         linked: Some(g::config::LinkedRepo {
             product_id: product_id.to_string(),
             creator_user_id: None,
-            remote_repo_id: content_repo_id,
+            remote_repo_id: gutch_repo_id,
             remote_repo_slug: remote_repo_slug.clone(),
         }),
     });
@@ -629,7 +629,7 @@ fn run_repo_link_direct(
 
     println!(
         "linked repo '{}' to product {} repo {} (id: {})",
-        repo_path, product_id, remote_repo_slug, content_repo_id
+        repo_path, product_id, remote_repo_slug, gutch_repo_id
     );
     Ok(())
 }

@@ -163,8 +163,8 @@ enum RepoCommands {
         #[arg(long = "product-id")]
         product_id: Option<i64>,
 
-        #[arg(long = "content-repo-id")]
-        content_repo_id: Option<i64>,
+        #[arg(long = "gutch-repo-id")]
+        gutch_repo_id: Option<i64>,
 
         #[arg(long = "session-id")]
         session_id: Option<String>,
@@ -183,8 +183,8 @@ enum RepoCommands {
         #[arg(long = "product-id")]
         product_id: Option<i64>,
 
-        #[arg(long = "content-repo-id")]
-        content_repo_id: Option<i64>,
+        #[arg(long = "gutch-repo-id")]
+        gutch_repo_id: Option<i64>,
 
         #[arg(long = "remote-repo-slug")]
         remote_repo_slug: Option<String>,

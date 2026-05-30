@@ -31,7 +31,7 @@ pub(crate) struct TargetInsertStats {
     pub(crate) target_id: String,
     pub(crate) manifest_path: String,
     pub(crate) product_id: String,
-    pub(crate) content_repo_id: String,
+    pub(crate) gutch_repo_id: String,
     pub(crate) version_id: String,
     pub(crate) platform: String,
     pub(crate) architecture: String,
@@ -188,7 +188,7 @@ impl SummaryReport for TargetInsertStats {
             &mut lines,
             "Identity",
             [
-                summary_kv("content_repo", &self.content_repo_id),
+                summary_kv("gutch_repo", &self.gutch_repo_id),
                 summary_kv("version", &self.version_id),
                 summary_kv("platform", &self.platform),
                 summary_kv("architecture", &self.architecture),
@@ -490,12 +490,12 @@ pub(crate) fn load_target_manifest_from_repo(
     repo_root: &std::path::Path,
     target_id: &str,
 ) -> g::Result<(
-    g::ContentRepoPaths,
-    g::manifest::content_repo::ContentRepoManifest,
+    g::GutchRepoPaths,
+    g::manifest::gutch_repo::GutchRepoManifest,
     PathBuf,
     g::manifest::target::TargetManifest,
 )> {
-    let (repo_paths, repo_manifest) = g::load_content_repo_manifest(repo_root)?;
+    let (repo_paths, repo_manifest) = g::load_gutch_repo_manifest(repo_root)?;
     let manifest_path = g::target_manifest_path(&repo_paths, target_id);
     if !manifest_path.exists() {
         return Err(g::Error::manifest(format!(
@@ -637,7 +637,7 @@ pub(crate) fn parse_version_parts(version: &str) -> g::Result<(i32, i32, i32)> {
 }
 
 pub(crate) fn write_target_manifest(
-    repo_paths: &g::ContentRepoPaths,
+    repo_paths: &g::GutchRepoPaths,
     target_manifest: &g::manifest::target::TargetManifest,
 ) -> g::Result<(PathBuf, u64)> {
     let (manifest_path, manifest_size) =

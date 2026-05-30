@@ -10,9 +10,9 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::
 }
 
 #[test]
-fn content_repo_paths_from_repo_root() {
+fn gutch_repo_paths_from_repo_root() {
     let root = PathBuf::from("/test/repo");
-    let paths = ContentRepoPaths::from_repo_root(&root);
+    let paths = GutchRepoPaths::from_repo_root(&root);
     assert_eq!(paths.repo_root, root);
     assert_eq!(paths.repo_manifest_path, root.join("repo_manifest.json"));
     assert_eq!(paths.chunk_index_path, root.join("chunk_index.bin"));
@@ -21,9 +21,9 @@ fn content_repo_paths_from_repo_root() {
 }
 
 #[test]
-fn content_repo_paths_from_store_root() {
+fn gutch_repo_paths_from_store_root() {
     let root = PathBuf::from("/test/store");
-    let paths = ContentRepoPaths::from_store_root(&root, "my-repo");
+    let paths = GutchRepoPaths::from_store_root(&root, "my-repo");
     assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
     assert!(
         paths
@@ -85,17 +85,17 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
 }
 
 #[test]
-fn inspect_content_repo_reports_targets() {
+fn inspect_gutch_repo_reports_targets() {
     let root = std::env::temp_dir().join(format!(
         "gutch_repo_inspect_test_{}_{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
     let repo_root = root.join("repo");
-    let repo_paths = ContentRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
     let _ = std::fs::remove_dir_all(&root);
 
-    ensure_content_repo_layout(&repo_paths, "base").unwrap();
+    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
     let mut manifest = TargetManifest::new(
         "1".to_string(),
         exclusive_tags("1.0.0", "windows", "x86_64", "base"),
@@ -111,11 +111,11 @@ fn inspect_content_repo_reports_targets() {
     write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
     std::fs::write(repo_paths.bundles_root.join("bundle-a.bundle"), b"bundle-a").unwrap();
 
-    let status = inspect_content_repo(&repo_root).unwrap();
+    let status = inspect_gutch_repo(&repo_root).unwrap();
 
     assert!(status.exists);
     assert!(status.is_repo);
-    assert_eq!(status.content_repo_id, "repo");
+    assert_eq!(status.gutch_repo_id, "repo");
     assert_eq!(status.bundle_count, 1);
     assert_eq!(status.targets.len(), 1);
     assert_eq!(status.targets[0].target_id, "1");
@@ -132,12 +132,12 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
     ));
     let repo_root = root.join("repo");
     let source_root = root.join("source-targets");
-    let repo_paths = ContentRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
     let _ = std::fs::remove_dir_all(&root);
 
-    ensure_content_repo_layout(&repo_paths, "mods").unwrap();
+    ensure_gutch_repo_layout(&repo_paths, "mods").unwrap();
 
-    let repo_manifest = ContentRepoManifest {
+    let repo_manifest = GutchRepoManifest {
         target_schema: Some(manifest::TargetTagSchema {
             target_tags: vec![
                 manifest::TargetTagDefinition {
@@ -190,7 +190,7 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
             on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
         }),
         plugin: None,
-        ..ContentRepoManifest::new("mods".to_string())
+        ..GutchRepoManifest::new("mods".to_string())
     };
     std::fs::write(
         &repo_paths.repo_manifest_path,
@@ -224,7 +224,7 @@ fn chunk_index_write_and_load_roundtrip() {
     let root = std::env::temp_dir().join("gutch_chunk_index_test");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let paths = ContentRepoPaths::from_repo_root(&root);
+    let paths = GutchRepoPaths::from_repo_root(&root);
 
     let mut entries = BTreeMap::new();
     entries.insert(
@@ -286,7 +286,7 @@ fn chunk_index_load_empty_when_file_missing() {
     let root = std::env::temp_dir().join("gutch_chunk_index_empty_test");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let paths = ContentRepoPaths::from_repo_root(&root);
+    let paths = GutchRepoPaths::from_repo_root(&root);
 
     let loaded = load_chunk_index(&paths).unwrap();
     assert!(loaded.entries.is_empty());
@@ -299,8 +299,8 @@ fn chunk_index_load_empty_when_file_missing() {
 fn inspect_repo_shows_target_tags() {
     let root = std::env::temp_dir().join("gutch_inspect_tags_test");
     let _ = std::fs::remove_dir_all(&root);
-    let paths = ContentRepoPaths::from_repo_root(&root);
-    ensure_content_repo_layout(&paths, "base").unwrap();
+    let paths = GutchRepoPaths::from_repo_root(&root);
+    ensure_gutch_repo_layout(&paths, "base").unwrap();
 
     let mut manifest = TargetManifest::new(
         "2".to_string(),
@@ -315,7 +315,7 @@ fn inspect_repo_shows_target_tags() {
     });
     write_target_manifest_artifacts(&paths, &manifest).unwrap();
 
-    let status = inspect_content_repo(&root).unwrap();
+    let status = inspect_gutch_repo(&root).unwrap();
     assert_eq!(status.targets.len(), 1);
     assert_eq!(status.targets[0].target_id, "2");
     assert_eq!(status.targets[0].version_id, "2.0.0");

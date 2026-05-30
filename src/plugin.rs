@@ -6,7 +6,7 @@ use crate::{Error, Result};
 #[derive(Debug, Clone)]
 pub struct ResolvedTarget {
     pub product_id: String,
-    pub content_repo_id: String,
+    pub gutch_repo_id: String,
     pub target_id: String,
     pub target_tags: TargetTagSet,
 }
@@ -21,7 +21,7 @@ pub fn resolve_plugin_dependencies(
     enabled_plugins: &[(&str, &str)],
     plugin_manifests: &HashMap<
         (String, String),
-        crate::manifest::content_repo::ContentRepoManifest,
+        crate::manifest::gutch_repo::GutchRepoManifest,
     >,
     target_resolver: &dyn Fn(
         &str,
@@ -33,7 +33,7 @@ pub fn resolve_plugin_dependencies(
     let mut in_order: HashSet<String> = HashSet::new();
     in_order.insert(format!(
         "{}:{}",
-        base_target.product_id, base_target.content_repo_id
+        base_target.product_id, base_target.gutch_repo_id
     ));
 
     let mut queue: VecDeque<(String, String)> = VecDeque::new();
@@ -66,7 +66,7 @@ pub fn resolve_plugin_dependencies(
         for incompatible in &plugin_info.incompatible_with {
             let inc_key = format!(
                 "{}:{}",
-                incompatible.product_id, incompatible.content_repo_id
+                incompatible.product_id, incompatible.gutch_repo_id
             );
             if in_order.contains(&inc_key) {
                 return Err(Error::manifest(format!(
@@ -77,9 +77,9 @@ pub fn resolve_plugin_dependencies(
         }
 
         for dep in &plugin_info.dependencies {
-            let dep_key = format!("{}:{}", dep.product_id, dep.content_repo_id);
+            let dep_key = format!("{}:{}", dep.product_id, dep.gutch_repo_id);
             if !visited.contains(&dep_key) {
-                queue.push_back((dep.product_id.clone(), dep.content_repo_id.clone()));
+                queue.push_back((dep.product_id.clone(), dep.gutch_repo_id.clone()));
             }
         }
 
@@ -98,7 +98,7 @@ pub fn resolve_plugin_dependencies(
 
 fn resolve_plugin_target(
     product_id: &str,
-    content_repo_id: &str,
+    gutch_repo_id: &str,
     _plugin_info: &PluginInfo,
     target_resolver: &dyn Fn(
         &str,
@@ -107,10 +107,10 @@ fn resolve_plugin_target(
     ) -> Result<Option<ResolvedTarget>>,
 ) -> Result<ResolvedTarget> {
     let empty_constraints = BTreeMap::new();
-    target_resolver(product_id, content_repo_id, &empty_constraints)?.ok_or_else(|| {
+    target_resolver(product_id, gutch_repo_id, &empty_constraints)?.ok_or_else(|| {
         Error::manifest(format!(
             "no suitable target found for plugin '{}' (repo '{}')",
-            product_id, content_repo_id
+            product_id, gutch_repo_id
         ))
     })
 }
@@ -119,26 +119,26 @@ fn detect_cycles(
     install_order: &[ResolvedTarget],
     plugin_manifests: &HashMap<
         (String, String),
-        crate::manifest::content_repo::ContentRepoManifest,
+        crate::manifest::gutch_repo::GutchRepoManifest,
     >,
 ) -> Result<()> {
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     let mut in_degree: HashMap<String, usize> = HashMap::new();
 
     for target in install_order {
-        let key = format!("{}:{}", target.product_id, target.content_repo_id);
+        let key = format!("{}:{}", target.product_id, target.gutch_repo_id);
         adj.entry(key.clone()).or_default();
         in_degree.entry(key.clone()).or_insert(0);
     }
 
     for target in install_order {
-        let tkey = format!("{}:{}", target.product_id, target.content_repo_id);
+        let tkey = format!("{}:{}", target.product_id, target.gutch_repo_id);
         if let Some(manifest) =
-            plugin_manifests.get(&(target.product_id.clone(), target.content_repo_id.clone()))
+            plugin_manifests.get(&(target.product_id.clone(), target.gutch_repo_id.clone()))
         {
             if let Some(ref info) = manifest.plugin {
                 for dep in &info.dependencies {
-                    let dkey = format!("{}:{}", dep.product_id, dep.content_repo_id);
+                    let dkey = format!("{}:{}", dep.product_id, dep.gutch_repo_id);
                     if in_degree.contains_key(&dkey) {
                         adj.entry(dkey.clone()).or_default().push(tkey.clone());
                         *in_degree.entry(tkey.clone()).or_insert(0) += 1;
@@ -183,25 +183,25 @@ fn reorder_by_dependencies(
     install_order: &mut Vec<ResolvedTarget>,
     plugin_manifests: &HashMap<
         (String, String),
-        crate::manifest::content_repo::ContentRepoManifest,
+        crate::manifest::gutch_repo::GutchRepoManifest,
     >,
 ) {
     let mut i = 1;
     while i < install_order.len() {
         let _target_key = format!(
             "{}:{}",
-            install_order[i].product_id, install_order[i].content_repo_id
+            install_order[i].product_id, install_order[i].gutch_repo_id
         );
         if let Some(manifest) = plugin_manifests.get(&(
             install_order[i].product_id.clone(),
-            install_order[i].content_repo_id.clone(),
+            install_order[i].gutch_repo_id.clone(),
         )) {
             if let Some(ref info) = manifest.plugin {
                 for dep in &info.dependencies {
-                    let dep_key = format!("{}:{}", dep.product_id, dep.content_repo_id);
+                    let dep_key = format!("{}:{}", dep.product_id, dep.gutch_repo_id);
                     if let Some(dep_pos) = install_order[i + 1..]
                         .iter()
-                        .position(|t| format!("{}:{}", t.product_id, t.content_repo_id) == dep_key)
+                        .position(|t| format!("{}:{}", t.product_id, t.gutch_repo_id) == dep_key)
                     {
                         let actual_pos = i + 1 + dep_pos;
                         let target = install_order.remove(actual_pos);
@@ -218,13 +218,13 @@ fn apply_override_ordering(
     install_order: &mut Vec<ResolvedTarget>,
     plugin_manifests: &HashMap<
         (String, String),
-        crate::manifest::content_repo::ContentRepoManifest,
+        crate::manifest::gutch_repo::GutchRepoManifest,
     >,
     enabled_plugins: &[(&str, &str)],
 ) -> Result<()> {
     let mut order_map: HashMap<String, usize> = HashMap::new();
     for (i, target) in install_order.iter().enumerate() {
-        let key = format!("{}:{}", target.product_id, target.content_repo_id);
+        let key = format!("{}:{}", target.product_id, target.gutch_repo_id);
         order_map.insert(key, i);
     }
 
@@ -246,7 +246,7 @@ fn apply_override_ordering(
         for override_target in &plugin_info.overrides {
             let override_key = format!(
                 "{}:{}",
-                override_target.product_id, override_target.content_repo_id
+                override_target.product_id, override_target.gutch_repo_id
             );
             if let Some(&override_idx) = order_map.get(&override_key) {
                 if plugin_idx <= override_idx {
@@ -254,12 +254,12 @@ fn apply_override_ordering(
                     let k1 = format!(
                         "{}:{}",
                         install_order[plugin_idx].product_id,
-                        install_order[plugin_idx].content_repo_id
+                        install_order[plugin_idx].gutch_repo_id
                     );
                     let k2 = format!(
                         "{}:{}",
                         install_order[override_idx].product_id,
-                        install_order[override_idx].content_repo_id
+                        install_order[override_idx].gutch_repo_id
                     );
                     order_map.insert(k1, plugin_idx);
                     order_map.insert(k2, override_idx);

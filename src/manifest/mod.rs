@@ -1,5 +1,5 @@
 pub mod binary;
-pub mod content_repo;
+pub mod gutch_repo;
 pub mod target;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -752,7 +752,7 @@ pub struct TagConstraint {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PluginDependency {
     pub product_id: String,
-    pub content_repo_id: String,
+    pub gutch_repo_id: String,
     #[serde(default)]
     pub tag_constraints: BTreeMap<String, TagConstraint>,
 }
@@ -760,7 +760,7 @@ pub struct PluginDependency {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PluginOverride {
     pub product_id: String,
-    pub content_repo_id: String,
+    pub gutch_repo_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

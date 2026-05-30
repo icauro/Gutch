@@ -8,7 +8,7 @@ fn mock_target_resolver(
 ) -> Result<Option<ResolvedTarget>> {
     Ok(Some(ResolvedTarget {
         product_id: _product_id.to_string(),
-        content_repo_id: _repo_id.to_string(),
+        gutch_repo_id: _repo_id.to_string(),
         target_id: "mock-target-id".to_string(),
         target_tags: TargetTagSet::default(),
     }))
@@ -23,9 +23,9 @@ fn make_plugin_manifest(
     incompatible_with: Vec<manifest::PluginOverride>,
 ) -> (
     (String, String),
-    crate::manifest::content_repo::ContentRepoManifest,
+    crate::manifest::gutch_repo::GutchRepoManifest,
 ) {
-    let mut m = crate::manifest::content_repo::ContentRepoManifest::new(repo_id.to_string());
+    let mut m = crate::manifest::gutch_repo::GutchRepoManifest::new(repo_id.to_string());
     m.plugin = Some(manifest::PluginInfo {
         plugin_type,
         display_name: None,
@@ -40,7 +40,7 @@ fn make_plugin_manifest(
 fn test_resolve_single_plugin() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -73,7 +73,7 @@ fn test_resolve_single_plugin() {
 fn test_resolve_transitive_dependencies() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -96,7 +96,7 @@ fn test_resolve_transitive_dependencies() {
         manifest::PluginType::Mod,
         vec![PluginDependency {
             product_id: "fabric-api".to_string(),
-            content_repo_id: "base".to_string(),
+            gutch_repo_id: "base".to_string(),
             tag_constraints: BTreeMap::new(),
         }],
         vec![],
@@ -122,7 +122,7 @@ fn test_resolve_transitive_dependencies() {
 fn test_empty_plugin_list_returns_base_only() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -137,7 +137,7 @@ fn test_empty_plugin_list_returns_base_only() {
 fn test_circular_dependency_detected() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -148,7 +148,7 @@ fn test_circular_dependency_detected() {
         manifest::PluginType::Mod,
         vec![PluginDependency {
             product_id: "mod-b".to_string(),
-            content_repo_id: "base".to_string(),
+            gutch_repo_id: "base".to_string(),
             tag_constraints: BTreeMap::new(),
         }],
         vec![],
@@ -161,7 +161,7 @@ fn test_circular_dependency_detected() {
         manifest::PluginType::Mod,
         vec![PluginDependency {
             product_id: "mod-a".to_string(),
-            content_repo_id: "base".to_string(),
+            gutch_repo_id: "base".to_string(),
             tag_constraints: BTreeMap::new(),
         }],
         vec![],
@@ -181,7 +181,7 @@ fn test_circular_dependency_detected() {
 fn test_missing_dependency_rejected() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -192,7 +192,7 @@ fn test_missing_dependency_rejected() {
         manifest::PluginType::Mod,
         vec![PluginDependency {
             product_id: "nonexistent-dep".to_string(),
-            content_repo_id: "base".to_string(),
+            gutch_repo_id: "base".to_string(),
             tag_constraints: BTreeMap::new(),
         }],
         vec![],
@@ -213,7 +213,7 @@ fn test_missing_dependency_rejected() {
 fn test_override_ensures_ordering() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -234,7 +234,7 @@ fn test_override_ensures_ordering() {
         vec![],
         vec![manifest::PluginOverride {
             product_id: "base-enhancer".to_string(),
-            content_repo_id: "base".to_string(),
+            gutch_repo_id: "base".to_string(),
         }],
         vec![],
     );
@@ -255,7 +255,7 @@ fn test_override_ensures_ordering() {
 fn test_self_dependency_detected_as_cycle() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -266,7 +266,7 @@ fn test_self_dependency_detected_as_cycle() {
         manifest::PluginType::Mod,
         vec![PluginDependency {
             product_id: "mod-self".to_string(),
-            content_repo_id: "base".to_string(),
+            gutch_repo_id: "base".to_string(),
             tag_constraints: BTreeMap::new(),
         }],
         vec![],
@@ -287,7 +287,7 @@ fn test_self_dependency_detected_as_cycle() {
 fn test_incompatible_plugin_rejected() {
     let base = ResolvedTarget {
         product_id: "game".to_string(),
-        content_repo_id: "base".to_string(),
+        gutch_repo_id: "base".to_string(),
         target_id: "base-target".to_string(),
         target_tags: TargetTagSet::default(),
     };
@@ -312,7 +312,7 @@ fn test_incompatible_plugin_rejected() {
         vec![],
         vec![manifest::PluginOverride {
             product_id: "mod-old".to_string(),
-            content_repo_id: "base".to_string(),
+            gutch_repo_id: "base".to_string(),
         }],
     );
     manifests.insert(k2, m2);

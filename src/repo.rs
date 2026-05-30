@@ -5,13 +5,13 @@ use std::time::SystemTime;
 use crate::hash::hash_hex;
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::manifest::{
-    self, FileManifest, binary, content_repo::ContentRepoManifest, target::TargetManifest,
+    self, FileManifest, binary, gutch_repo::GutchRepoManifest, target::TargetManifest,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
-pub struct ContentRepoPaths {
+pub struct GutchRepoPaths {
     pub repo_root: PathBuf,
     pub repo_manifest_path: PathBuf,
     pub chunk_index_path: PathBuf,
@@ -25,7 +25,7 @@ pub struct RepoInspectStatus {
     pub exists: bool,
     pub is_repo: bool,
     pub repo_path: String,
-    pub content_repo_id: String,
+    pub gutch_repo_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_schema: Option<manifest::TargetTagSchema>,
     pub targets: Vec<RepoInspectTargetStatus>,
@@ -70,9 +70,9 @@ pub struct ExistingStoreState {
     pub previous_file_manifests: std::collections::HashMap<String, FileManifest>,
 }
 
-impl ContentRepoPaths {
-    pub fn from_store_root(store_root: &Path, content_repo_id: &str) -> Self {
-        let repo_root = store_root.join("v1").join("repos").join(content_repo_id);
+impl GutchRepoPaths {
+    pub fn from_store_root(store_root: &Path, gutch_repo_id: &str) -> Self {
+        let repo_root = store_root.join("v1").join("repos").join(gutch_repo_id);
         Self::from_repo_root(&repo_root)
     }
 
@@ -87,7 +87,7 @@ impl ContentRepoPaths {
     }
 }
 
-fn derive_content_repo_id_from_repo_root(repo_root: &Path) -> String {
+fn derive_gutch_repo_id_from_repo_root(repo_root: &Path) -> String {
     repo_root
         .file_name()
         .and_then(|value| value.to_str())
@@ -96,28 +96,28 @@ fn derive_content_repo_id_from_repo_root(repo_root: &Path) -> String {
         .to_string()
 }
 
-pub fn ensure_content_repo_layout(
-    paths: &ContentRepoPaths,
-    content_repo_id: &str,
-) -> Result<ContentRepoManifest> {
+pub fn ensure_gutch_repo_layout(
+    paths: &GutchRepoPaths,
+    gutch_repo_id: &str,
+) -> Result<GutchRepoManifest> {
     std::fs::create_dir_all(&paths.targets_root)?;
     std::fs::create_dir_all(&paths.bundles_root)?;
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-        let mut repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
-        repo_manifest.content_repo_id = derive_content_repo_id_from_repo_root(&paths.repo_root);
-        if repo_manifest.content_repo_id != content_repo_id {
+        let mut repo_manifest: GutchRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+        repo_manifest.gutch_repo_id = derive_gutch_repo_id_from_repo_root(&paths.repo_root);
+        if repo_manifest.gutch_repo_id != gutch_repo_id {
             return Err(Error::manifest(format!(
-                "content repo at {} has repo id '{}' not '{}'",
+                "gutch repo at {} has repo id '{}' not '{}'",
                 paths.repo_root.display(),
-                repo_manifest.content_repo_id,
-                content_repo_id
+                repo_manifest.gutch_repo_id,
+                gutch_repo_id
             )));
         }
         repo_manifest
     } else {
-        let repo_manifest = ContentRepoManifest::new(content_repo_id.to_string());
+        let repo_manifest = GutchRepoManifest::new(gutch_repo_id.to_string());
         let repo_manifest_json = serde_json::to_string_pretty(&repo_manifest)?;
         std::fs::write(&paths.repo_manifest_path, repo_manifest_json)?;
         repo_manifest
@@ -126,20 +126,20 @@ pub fn ensure_content_repo_layout(
     Ok(repo_manifest)
 }
 
-pub fn load_content_repo_manifest(
+pub fn load_gutch_repo_manifest(
     repo_root: &Path,
-) -> Result<(ContentRepoPaths, ContentRepoManifest)> {
-    let paths = ContentRepoPaths::from_repo_root(repo_root);
+) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
+    let paths = GutchRepoPaths::from_repo_root(repo_root);
     if !paths.repo_manifest_path.exists() {
         return Err(Error::manifest(format!(
-            "content repo manifest not found at {}",
+            "gutch repo manifest not found at {}",
             paths.repo_manifest_path.display()
         )));
     }
 
     let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-    let mut repo_manifest: ContentRepoManifest = serde_json::from_str(&repo_manifest_json)?;
-    repo_manifest.content_repo_id = derive_content_repo_id_from_repo_root(repo_root);
+    let mut repo_manifest: GutchRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+    repo_manifest.gutch_repo_id = derive_gutch_repo_id_from_repo_root(repo_root);
 
     Ok((paths, repo_manifest))
 }
@@ -152,11 +152,11 @@ fn empty_chunk_index() -> manifest::ChunkIndex {
     }
 }
 
-fn legacy_chunk_index_path(paths: &ContentRepoPaths) -> PathBuf {
+fn legacy_chunk_index_path(paths: &GutchRepoPaths) -> PathBuf {
     paths.repo_root.join("chunk_index.json")
 }
 
-pub fn load_chunk_index(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex> {
+pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
     if paths.chunk_index_path.exists() {
         return binary::load_chunk_index_binary(&paths.chunk_index_path);
     }
@@ -194,7 +194,7 @@ pub fn required_bundle_ids(
         .collect()
 }
 
-pub fn scan_existing_store_state(paths: &ContentRepoPaths) -> Result<ExistingStoreState> {
+pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStoreState> {
     let mut state = ExistingStoreState::default();
     let chunk_index = load_chunk_index(paths)?;
 
@@ -264,7 +264,7 @@ pub fn existing_chunk_locations_from_index(
         .collect()
 }
 
-pub fn rebuild_chunk_index_from_bundles(paths: &ContentRepoPaths) -> Result<manifest::ChunkIndex> {
+pub fn rebuild_chunk_index_from_bundles(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
     let mut entries = BTreeMap::new();
     for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
         let entry = entry?;
@@ -297,13 +297,13 @@ pub fn rebuild_chunk_index_from_bundles(paths: &ContentRepoPaths) -> Result<mani
     })
 }
 
-pub fn write_chunk_index(paths: &ContentRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
+pub fn write_chunk_index(paths: &GutchRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
     binary::write_chunk_index_binary(&paths.chunk_index_path, index)
 }
 
-pub fn write_content_repo_manifest(
-    paths: &ContentRepoPaths,
-    repo_manifest: &ContentRepoManifest,
+pub fn write_gutch_repo_manifest(
+    paths: &GutchRepoPaths,
+    repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
     let json = serde_json::to_string_pretty(repo_manifest)?;
     std::fs::write(&paths.repo_manifest_path, json)?;
@@ -329,15 +329,15 @@ pub fn compute_target_id_from_files(files: &[FileManifest]) -> String {
     hash_hex(&hasher.finalize())
 }
 
-pub fn target_manifest_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
+pub fn target_manifest_path(paths: &GutchRepoPaths, target_id: &str) -> PathBuf {
     paths.targets_root.join(format!("{target_id}.json"))
 }
 
-pub fn target_manifest_bin_path(paths: &ContentRepoPaths, target_id: &str) -> PathBuf {
+pub fn target_manifest_bin_path(paths: &GutchRepoPaths, target_id: &str) -> PathBuf {
     paths.targets_root.join(format!("{target_id}.bin"))
 }
 
-pub fn load_target_manifest(paths: &ContentRepoPaths, target_id: &str) -> Result<TargetManifest> {
+pub fn load_target_manifest(paths: &GutchRepoPaths, target_id: &str) -> Result<TargetManifest> {
     let manifest_path = target_manifest_path(paths, target_id);
     let manifest_json = std::fs::read_to_string(&manifest_path)?;
     load_target_manifest_from_json_text(paths, target_id, &manifest_json)
@@ -348,7 +348,7 @@ pub fn serialize_target_manifest_for_remote(target_manifest: &TargetManifest) ->
 }
 
 pub fn write_target_manifest_artifacts(
-    paths: &ContentRepoPaths,
+    paths: &GutchRepoPaths,
     target_manifest: &TargetManifest,
 ) -> Result<(PathBuf, u64)> {
     std::fs::create_dir_all(&paths.targets_root)?;
@@ -366,7 +366,7 @@ pub fn write_target_manifest_artifacts(
 }
 
 fn load_target_manifest_from_json_text(
-    paths: &ContentRepoPaths,
+    paths: &GutchRepoPaths,
     target_id: &str,
     manifest_json: &str,
 ) -> Result<TargetManifest> {
@@ -389,7 +389,7 @@ fn load_target_manifest_from_json_text(
     ))
 }
 
-pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
+pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
     let repo_path = repo_root.to_path_buf();
     let repo_path_display = repo_path.display().to_string();
     if !repo_path.exists() {
@@ -416,7 +416,7 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         ));
     }
 
-    let (repo_paths, repo_manifest) = load_content_repo_manifest(&repo_path)?;
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo_path)?;
     let (_bundle_ids, bundle_count, bundle_bytes) =
         inspect_bundle_inventory(&repo_paths.bundles_root)?;
     let targets = inspect_target_manifests(
@@ -430,7 +430,7 @@ pub fn inspect_content_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         exists: true,
         is_repo: true,
         repo_path: repo_path_display,
-        content_repo_id: repo_manifest.content_repo_id,
+        gutch_repo_id: repo_manifest.gutch_repo_id,
         target_schema: repo_manifest.target_schema,
         targets,
         bundle_count,
@@ -456,7 +456,7 @@ pub fn discover_source_target_installs(
         )));
     }
 
-    let (_repo_paths, repo_manifest) = load_content_repo_manifest(repo_root)?;
+    let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let rules = repo_manifest.target_schema.unwrap_or_default();
     let mut candidates = Vec::new();
 
@@ -486,7 +486,7 @@ fn empty_repo_inspect_status(
         exists,
         is_repo: false,
         repo_path,
-        content_repo_id: String::new(),
+        gutch_repo_id: String::new(),
         target_schema: None,
         targets: Vec::new(),
         bundle_count: 0,
@@ -523,7 +523,7 @@ fn inspect_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usi
 }
 
 fn inspect_target_manifests(
-    repo_paths: &ContentRepoPaths,
+    repo_paths: &GutchRepoPaths,
     targets_root: &Path,
     bundles_root: &Path,
     _target_schema: Option<&manifest::TargetTagSchema>,

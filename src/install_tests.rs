@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ContentRepoPaths, write_chunk_index};
+use crate::{GutchRepoPaths, write_chunk_index};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
@@ -26,7 +26,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
             },
         )]),
     };
-    let paths = ContentRepoPaths::from_repo_root(&repo_path);
+    let paths = GutchRepoPaths::from_repo_root(&repo_path);
     write_chunk_index(&paths, &chunk_index).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
