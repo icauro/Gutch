@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -63,11 +64,23 @@ pub struct SourceTargetInstallCandidate {
     pub target_tags: manifest::TargetTagSet,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ExistingStoreState {
     pub bundle_ids: HashSet<String>,
+    pub chunk_index: manifest::ChunkIndex,
     pub chunk_locations: std::collections::HashMap<String, crate::ExistingChunkLocation>,
     pub previous_file_manifests: std::collections::HashMap<String, FileManifest>,
+}
+
+impl Default for ExistingStoreState {
+    fn default() -> Self {
+        Self {
+            bundle_ids: HashSet::new(),
+            chunk_index: empty_chunk_index(),
+            chunk_locations: std::collections::HashMap::new(),
+            previous_file_manifests: std::collections::HashMap::new(),
+        }
+    }
 }
 
 impl GutchRepoPaths {
@@ -126,9 +139,7 @@ pub fn ensure_gutch_repo_layout(
     Ok(repo_manifest)
 }
 
-pub fn load_gutch_repo_manifest(
-    repo_root: &Path,
-) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
+pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
     let paths = GutchRepoPaths::from_repo_root(repo_root);
     if !paths.repo_manifest_path.exists() {
         return Err(Error::manifest(format!(
@@ -154,6 +165,29 @@ fn empty_chunk_index() -> manifest::ChunkIndex {
 
 fn legacy_chunk_index_path(paths: &GutchRepoPaths) -> PathBuf {
     paths.repo_root.join("chunk_index.json")
+}
+
+pub fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> PathBuf {
+    bundles_root.join(bundle_id)
+}
+
+pub fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> PathBuf {
+    bundle_path_in_root(&paths.bundles_root, bundle_id)
+}
+
+pub fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
+    if path.extension().and_then(|value| value.to_str()) == Some("bundle") {
+        return path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+    }
+
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty() && !value.contains('.'))
+        .map(ToString::to_string)
 }
 
 pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
@@ -200,25 +234,23 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
 
     for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
         let entry = entry?;
-        if !entry.path().is_file() || !entry.path().extension().is_some_and(|ext| ext == "bundle") {
+        if !entry.path().is_file() {
             continue;
         }
 
-        let Some(bundle_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+        let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) else {
             continue;
         };
-        let bundle_id = bundle_id.to_string();
-        state.bundle_ids.insert(bundle_id.clone());
+        state.bundle_ids.insert(bundle_id);
     }
 
-    if chunk_index.entries.is_empty() {
-        let rebuilt_chunk_index = rebuild_chunk_index_from_bundles(paths)?;
-        state.chunk_locations =
-            existing_chunk_locations_from_index(&rebuilt_chunk_index, &state.bundle_ids);
+    state.chunk_index = if chunk_index.entries.is_empty() {
+        rebuild_chunk_index_from_bundles(paths)?
     } else {
-        state.chunk_locations =
-            existing_chunk_locations_from_index(&chunk_index, &state.bundle_ids);
-    }
+        chunk_index
+    };
+    state.chunk_locations =
+        existing_chunk_locations_from_index(&state.chunk_index, &state.bundle_ids);
 
     for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
         let entry = entry?;
@@ -268,14 +300,13 @@ pub fn rebuild_chunk_index_from_bundles(paths: &GutchRepoPaths) -> Result<manife
     let mut entries = BTreeMap::new();
     for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
         let entry = entry?;
-        if !entry.path().is_file() || !entry.path().extension().is_some_and(|ext| ext == "bundle") {
+        if !entry.path().is_file() {
             continue;
         }
 
-        let Some(bundle_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+        let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) else {
             continue;
         };
-        let bundle_id = bundle_id.to_string();
         let file = std::fs::File::open(entry.path())?;
         let reader = crate::bundle::BundleReader::open(file)?;
         for chunk in reader.entries() {
@@ -295,6 +326,27 @@ pub fn rebuild_chunk_index_from_bundles(paths: &GutchRepoPaths) -> Result<manife
         updated_at: chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339(),
         entries,
     })
+}
+
+pub fn add_built_bundles_to_chunk_index(
+    chunk_index: &mut manifest::ChunkIndex,
+    bundles: &[crate::BuiltBundle],
+) -> Result<()> {
+    for bundle in bundles {
+        let reader = crate::bundle::BundleReader::open(Cursor::new(bundle.data.as_slice()))?;
+        for chunk in reader.entries() {
+            chunk_index.entries.insert(
+                chunk.chunk_hash.clone(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: bundle.bundle_id.clone(),
+                    raw_size: chunk.raw_size,
+                    compressed_size: chunk.compressed_size,
+                },
+            );
+        }
+    }
+    chunk_index.updated_at = chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339();
+    Ok(())
 }
 
 pub fn write_chunk_index(paths: &GutchRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
@@ -508,14 +560,11 @@ fn inspect_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usi
         if !entry.path().is_file() {
             continue;
         }
-        if entry.path().extension().and_then(|value| value.to_str()) != Some("bundle") {
-            continue;
-        }
 
-        bundle_count += 1;
-        bundle_bytes += entry.metadata()?.len();
-        if let Some(bundle_id) = entry.path().file_stem().and_then(|value| value.to_str()) {
-            bundle_ids.insert(bundle_id.to_string());
+        if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
+            bundle_count += 1;
+            bundle_bytes += entry.metadata()?.len();
+            bundle_ids.insert(bundle_id);
         }
     }
 

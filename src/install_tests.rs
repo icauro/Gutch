@@ -130,7 +130,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
             .exists()
     );
     assert!(repo_path.join("targets").exists());
-    assert!(repo_path.join("bundles").join("bundle-a.bundle").exists());
+    assert!(repo_path.join("bundles").join("bundle-a").exists());
 
     server.join().unwrap();
     let _ = std::fs::remove_dir_all(&root);

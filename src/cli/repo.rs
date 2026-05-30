@@ -35,9 +35,7 @@ fn run_repo_sync_up(
     gutch_repo_id: Option<i64>,
     session_override: Option<String>,
 ) -> g::Result<RepoSyncUpStats> {
-    let (product_id, gutch_repo_id) = if let (Some(pid), Some(cid)) =
-        (product_id, gutch_repo_id)
-    {
+    let (product_id, gutch_repo_id) = if let (Some(pid), Some(cid)) = (product_id, gutch_repo_id) {
         (pid, cid)
     } else {
         let config = g::config::load_config()?;
@@ -202,10 +200,7 @@ fn run_repo_sync_up(
         if !entry.path().is_file() {
             continue;
         }
-        if entry.path().extension().and_then(|value| value.to_str()) != Some("bundle") {
-            continue;
-        }
-        let Some(bundle_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+        let Some(bundle_id) = g::bundle_id_from_bundle_path(entry.path()) else {
             continue;
         };
 

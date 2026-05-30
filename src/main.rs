@@ -242,6 +242,42 @@ enum TargetCommands {
         stats_json_out: Option<PathBuf>,
     },
 
+    #[command(name = "insert-many")]
+    InsertMany {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+
+        #[arg(long = "product-dir")]
+        product_dir: Option<PathBuf>,
+
+        #[arg(long = "dir")]
+        dirs: Vec<PathBuf>,
+
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+
+        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Balanced)]
+        chunk_profile: g::manifest::ArtifactSizingPreset,
+
+        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
+        bundle_profile: g::manifest::BundleSizingPreset,
+
+        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
+        memory_mode: g::MemoryMode,
+
+        #[arg(long = "max-memory-mib")]
+        max_memory_mib: Option<u64>,
+
+        #[arg(long = "jobs")]
+        jobs: Option<usize>,
+
+        #[arg(long = "summary-out")]
+        summary_out: Option<PathBuf>,
+
+        #[arg(long = "stats-json-out")]
+        stats_json_out: Option<PathBuf>,
+    },
+
     Delete {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,

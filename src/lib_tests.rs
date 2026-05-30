@@ -89,7 +89,7 @@ fn test_apply_target_install_reuses_verified_source_install() {
 
     for bundle in &v2.bundles {
         std::fs::write(
-            bundles_dir.join(format!("{}.bundle", bundle.bundle_id)),
+            bundle_path_in_root(&bundles_dir, &bundle.bundle_id),
             &bundle.data,
         )
         .unwrap();
@@ -97,7 +97,7 @@ fn test_apply_target_install_reuses_verified_source_install() {
     let bundle_paths: Vec<PathBuf> = v2
         .bundles
         .iter()
-        .map(|bundle| bundles_dir.join(format!("{}.bundle", bundle.bundle_id)))
+        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
         .collect();
 
     let result = apply_target_install_with_timings(
@@ -159,7 +159,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
 
     for bundle in &result.bundles {
         std::fs::write(
-            bundles_dir.join(format!("{}.bundle", bundle.bundle_id)),
+            bundle_path_in_root(&bundles_dir, &bundle.bundle_id),
             &bundle.data,
         )
         .unwrap();
@@ -167,7 +167,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
     let bundle_paths: Vec<PathBuf> = result
         .bundles
         .iter()
-        .map(|bundle| bundles_dir.join(format!("{}.bundle", bundle.bundle_id)))
+        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
         .collect();
 
     let (_, timings) = reconstruct_from_bundle_paths_with_timings_and_hints(
@@ -388,7 +388,7 @@ fn test_large_game_build_200mb() {
     for bundle in &result.bundles {
         let bundle_dir = artifacts_dir.join("bundles");
         std::fs::create_dir_all(&bundle_dir).unwrap();
-        let bundle_path = bundle_dir.join(format!("{}.bundle", bundle.bundle_id));
+        let bundle_path = bundle_path_in_root(&bundle_dir, &bundle.bundle_id);
         std::fs::write(bundle_path, &bundle.data).unwrap();
     }
     let artifacts_total = test_util::dir_size(&artifacts_dir);

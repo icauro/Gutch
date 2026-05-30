@@ -233,9 +233,7 @@ pub fn fetch_target_install_content(
             continue;
         }
 
-        let bundle_path = repo_paths
-            .bundles_root
-            .join(format!("{}.bundle", bundle_id));
+        let bundle_path = crate::bundle_path(&repo_paths, bundle_id);
         if bundle_path.exists() {
             skipped_existing_bundle_count += 1;
             continue;
@@ -429,8 +427,7 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
             .unwrap_or("base")
             .to_string()
     };
-    let mut repo_manifest =
-        crate::manifest::gutch_repo::GutchRepoManifest::new(gutch_repo_id);
+    let mut repo_manifest = crate::manifest::gutch_repo::GutchRepoManifest::new(gutch_repo_id);
     if let Some(inserted_at) = target_manifest
         .get("inserted_at")
         .or_else(|| target_manifest.get("created_at"))

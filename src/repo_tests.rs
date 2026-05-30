@@ -109,7 +109,7 @@ fn inspect_gutch_repo_reports_targets() {
     });
 
     write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
-    std::fs::write(repo_paths.bundles_root.join("bundle-a.bundle"), b"bundle-a").unwrap();
+    std::fs::write(repo_paths.bundles_root.join("bundle-a"), b"bundle-a").unwrap();
 
     let status = inspect_gutch_repo(&repo_root).unwrap();
 
@@ -291,6 +291,45 @@ fn chunk_index_load_empty_when_file_missing() {
     let loaded = load_chunk_index(&paths).unwrap();
     assert!(loaded.entries.is_empty());
     assert_eq!(loaded.format_version, "1.0.0");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn incremental_chunk_index_matches_rebuilt_bundle_index() {
+    let root = std::env::temp_dir().join("gutch_incremental_chunk_index_test");
+    let _ = std::fs::remove_dir_all(&root);
+    let paths = GutchRepoPaths::from_repo_root(&root);
+    ensure_gutch_repo_layout(&paths, "base").unwrap();
+
+    let chunk_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(b"hello"));
+    let mut builder = crate::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
+    builder.add_chunk(chunk_hash.clone(), b"hello".to_vec());
+    let (bundle_id, data) = builder.build_with_id().unwrap();
+    let built_bundle = crate::BuiltBundle {
+        bundle_id: bundle_id.clone(),
+        data,
+    };
+
+    let mut incremental = manifest::ChunkIndex {
+        format_version: manifest::FORMAT_VERSION.to_string(),
+        updated_at: String::new(),
+        entries: BTreeMap::new(),
+    };
+    add_built_bundles_to_chunk_index(&mut incremental, std::slice::from_ref(&built_bundle))
+        .unwrap();
+
+    std::fs::write(bundle_path(&paths, &bundle_id), &built_bundle.data).unwrap();
+    let rebuilt = rebuild_chunk_index_from_bundles(&paths).unwrap();
+
+    assert_eq!(incremental.entries, rebuilt.entries);
+    assert_eq!(
+        rebuilt
+            .entries
+            .get(&chunk_hash)
+            .map(|entry| entry.bundle_id.as_str()),
+        Some(bundle_id.as_str())
+    );
 
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -53,6 +53,20 @@ pub(crate) struct TargetInsertStats {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct TargetInsertManyStats {
+    pub(crate) command: &'static str,
+    pub(crate) repo_root: String,
+    pub(crate) target_count: usize,
+    pub(crate) total_logical_size: u64,
+    pub(crate) total_compressed_size_estimate: u64,
+    pub(crate) generated_bundle_count: usize,
+    pub(crate) generated_bundle_bytes: u64,
+    pub(crate) total_build_seconds: f64,
+    pub(crate) targets: Vec<TargetInsertStats>,
+    pub(crate) outputs: OptionalOutputPaths,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct TargetExportStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
@@ -226,6 +240,61 @@ impl SummaryReport for TargetInsertStats {
                 "total_seconds",
                 format!("{:.2}", self.timings.total_seconds),
             )],
+        );
+        lines
+    }
+}
+
+impl SummaryReport for TargetInsertManyStats {
+    fn summary_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        push_summary_section(
+            &mut lines,
+            "Command",
+            [
+                summary_kv("command", self.command),
+                summary_kv("repo_root", &self.repo_root),
+                summary_kv("targets", self.target_count.to_string()),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Content",
+            [
+                summary_kv("logical_size", format_bytes(self.total_logical_size)),
+                summary_kv(
+                    "compressed_est",
+                    format_bytes(self.total_compressed_size_estimate),
+                ),
+                summary_kv("generated_bundles", self.generated_bundle_count.to_string()),
+                summary_kv("generated_size", format_bytes(self.generated_bundle_bytes)),
+            ],
+        );
+        push_summary_section(
+            &mut lines,
+            "Timing",
+            [summary_kv(
+                "total_build_seconds",
+                format!("{:.2}", self.total_build_seconds),
+            )],
+        );
+        extend_summary_section(
+            &mut lines,
+            "[targets]",
+            &self
+                .targets
+                .iter()
+                .map(|target| {
+                    format!(
+                        "{} | files={} | logical={} | generated_bundles={} | total_sec={:.2}",
+                        target.target_id,
+                        target.file_count,
+                        format_bytes(target.total_logical_size),
+                        target.generated_bundle_count,
+                        target.timings.total_seconds
+                    )
+                })
+                .collect::<Vec<_>>(),
         );
         lines
     }
@@ -553,7 +622,7 @@ pub(crate) fn resolve_required_bundle_paths(
         if !entry.path().is_file() {
             continue;
         }
-        if !entry.path().extension().is_some_and(|e| e == "bundle") {
+        if g::bundle_id_from_bundle_path(entry.path()).is_none() {
             continue;
         }
         paths.push(entry.path().to_path_buf());
@@ -654,7 +723,7 @@ pub(crate) fn write_bundles(
 ) -> g::Result<std::collections::HashMap<String, u64>> {
     let mut bundle_sizes = std::collections::HashMap::with_capacity(bundles.len());
     for bundle in bundles {
-        let bundle_path = bundles_root.join(format!("{}.bundle", bundle.bundle_id));
+        let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id);
         std::fs::write(&bundle_path, &bundle.data)?;
         let bundle_size = bundle.data.len() as u64;
         bundle_sizes.insert(bundle.bundle_id.clone(), bundle_size);

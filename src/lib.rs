@@ -59,6 +59,7 @@ pub use reconstruct::{
 };
 pub use repo::{
     GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
+    add_built_bundles_to_chunk_index, bundle_id_from_bundle_path, bundle_path, bundle_path_in_root,
     compute_target_id_from_files, discover_source_target_installs, ensure_gutch_repo_layout,
     inspect_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
     serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,
