@@ -226,6 +226,9 @@ enum TargetCommands {
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
         bundle_profile: g::manifest::BundleSizingPreset,
 
+        #[arg(long = "zstd-level", default_value_t = 1)]
+        zstd_level: i32,
+
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,
 
@@ -261,6 +264,9 @@ enum TargetCommands {
 
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
         bundle_profile: g::manifest::BundleSizingPreset,
+
+        #[arg(long = "zstd-level", default_value_t = 1)]
+        zstd_level: i32,
 
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,
