@@ -15,10 +15,11 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                 },
         } => {
             if start {
-                let url = crate::auth::login_start(&endpoint).map_err(g::Error::manifest)?;
+                let url = g::remote::auth::login_start(&endpoint).map_err(g::Error::manifest)?;
                 println!("{}", url);
             } else {
-                let result = crate::auth::login(&endpoint, !no_open).map_err(g::Error::manifest)?;
+                let result =
+                    g::remote::auth::login(&endpoint, !no_open).map_err(g::Error::manifest)?;
                 if let Some(username) = result.username.as_deref() {
                     println!("authenticated as {}", username);
                 } else if let Some(email) = result.email.as_deref() {
@@ -37,7 +38,8 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     session_id,
                 },
         } => {
-            crate::auth::logout(&endpoint, session_id.as_deref()).map_err(g::Error::manifest)?;
+            g::remote::auth::logout(&endpoint, session_id.as_deref())
+                .map_err(g::Error::manifest)?;
             println!("logged out");
             Ok(())
         }
@@ -49,7 +51,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     session_id,
                 },
         } => {
-            let status = crate::auth::session_status_json(&endpoint, session_id.as_deref())
+            let status = g::remote::auth::session_status_json(&endpoint, session_id.as_deref())
                 .map_err(g::Error::manifest)?;
             println!(
                 "{}",
@@ -66,7 +68,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     session_id,
                 },
         } => {
-            let profile = crate::auth::profile(&endpoint, session_id.as_deref())
+            let profile = g::remote::auth::profile(&endpoint, session_id.as_deref())
                 .map_err(g::Error::manifest)?;
             println!(
                 "{}",
@@ -83,7 +85,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
                     session_id,
                 },
         } => {
-            let refresh = crate::auth::refresh(&endpoint, session_id.as_deref())
+            let refresh = g::remote::auth::refresh(&endpoint, session_id.as_deref())
                 .map_err(g::Error::manifest)?;
             println!(
                 "{}",

@@ -1,7 +1,7 @@
-use gutch::error::{Error, Result};
-use gutch::manifest::{
-    IncompleteInferenceBehavior, StructuredVersion, TargetTagKind, TargetTagSchema, TargetTagSet,
-    target::TargetManifest,
+use crate::error::{Error, Result};
+use crate::manifest::{
+    IncompleteInferenceBehavior, StructuredVersion, TargetTagDefinition, TargetTagKind,
+    TargetTagSchema, TargetTagSet, target::TargetManifest,
 };
 
 #[derive(Debug, Clone)]
@@ -178,10 +178,7 @@ fn apply_schema_defaults(target_tags: &mut TargetTagSet, rules: &TargetTagSchema
     }
 }
 
-fn has_definition_value(
-    target_tags: &TargetTagSet,
-    definition: &gutch::manifest::TargetTagDefinition,
-) -> bool {
+fn has_definition_value(target_tags: &TargetTagSet, definition: &TargetTagDefinition) -> bool {
     match definition.kind {
         TargetTagKind::Plain => target_tags.plain.contains(&definition.name),
         TargetTagKind::Scoped => target_tags

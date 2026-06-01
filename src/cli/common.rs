@@ -672,7 +672,7 @@ pub(crate) fn session_id_for_cli(session_override: Option<String>) -> g::Result<
     session_override
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .or(crate::auth::shared_session_id().map_err(g::Error::manifest)?)
+        .or(g::remote::auth::shared_session_id().map_err(g::Error::manifest)?)
         .ok_or_else(|| {
             g::Error::manifest(
                 "authentication required. Run `gutch auth login` or pass --session-id.",

@@ -1,4 +1,3 @@
-pub(crate) mod backend;
 pub(crate) mod commands;
 pub(crate) mod common;
 pub(crate) mod interactive;

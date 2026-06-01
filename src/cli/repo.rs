@@ -5,12 +5,12 @@ use serde::Serialize;
 
 use crate::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
-use crate::cli::backend::{
+use crate::cli::common::{load_optional_rules, parse_version_parts, session_id_for_cli};
+use crate::cli::reporting::ensure_parent_directory;
+use g::remote::backend::{
     CreatorRepoTargetsResponse, UpsertTargetResponse, request_json_from_backend,
     slugify_like_backend, upload_raw_file,
 };
-use crate::cli::common::{load_optional_rules, parse_version_parts, session_id_for_cli};
-use crate::cli::reporting::ensure_parent_directory;
 use gutch as g;
 
 #[derive(Debug, Serialize)]
@@ -222,7 +222,7 @@ fn run_repo_sync_up(
         }
         if exists_response.status() != reqwest::StatusCode::NOT_FOUND {
             return Err(g::Error::manifest(
-                crate::cli::backend::parse_backend_error_response(exists_response),
+                g::remote::backend::parse_backend_error_response(exists_response),
             ));
         }
 

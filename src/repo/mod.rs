@@ -625,7 +625,7 @@ fn infer_source_target_candidate(
     path: &Path,
     rules: &manifest::TargetTagSchema,
 ) -> Option<SourceTargetInstallCandidate> {
-    use crate::cli_identity::resolve_target_identity;
+    use crate::core::target_identity::resolve_target_identity;
 
     let context = format!("source target '{}'", path.display());
     let resolved =

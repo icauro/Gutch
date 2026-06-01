@@ -19,10 +19,7 @@ pub struct DependencyGraph {
 pub fn resolve_plugin_dependencies(
     base_target: &ResolvedTarget,
     enabled_plugins: &[(&str, &str)],
-    plugin_manifests: &HashMap<
-        (String, String),
-        crate::manifest::gutch_repo::GutchRepoManifest,
-    >,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::gutch_repo::GutchRepoManifest>,
     target_resolver: &dyn Fn(
         &str,
         &str,
@@ -64,10 +61,7 @@ pub fn resolve_plugin_dependencies(
         };
 
         for incompatible in &plugin_info.incompatible_with {
-            let inc_key = format!(
-                "{}:{}",
-                incompatible.product_id, incompatible.gutch_repo_id
-            );
+            let inc_key = format!("{}:{}", incompatible.product_id, incompatible.gutch_repo_id);
             if in_order.contains(&inc_key) {
                 return Err(Error::manifest(format!(
                     "plugin '{}' is incompatible with already-installed '{}'",
@@ -117,10 +111,7 @@ fn resolve_plugin_target(
 
 fn detect_cycles(
     install_order: &[ResolvedTarget],
-    plugin_manifests: &HashMap<
-        (String, String),
-        crate::manifest::gutch_repo::GutchRepoManifest,
-    >,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::gutch_repo::GutchRepoManifest>,
 ) -> Result<()> {
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     let mut in_degree: HashMap<String, usize> = HashMap::new();
@@ -181,10 +172,7 @@ fn detect_cycles(
 
 fn reorder_by_dependencies(
     install_order: &mut Vec<ResolvedTarget>,
-    plugin_manifests: &HashMap<
-        (String, String),
-        crate::manifest::gutch_repo::GutchRepoManifest,
-    >,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::gutch_repo::GutchRepoManifest>,
 ) {
     let mut i = 1;
     while i < install_order.len() {
@@ -216,10 +204,7 @@ fn reorder_by_dependencies(
 
 fn apply_override_ordering(
     install_order: &mut Vec<ResolvedTarget>,
-    plugin_manifests: &HashMap<
-        (String, String),
-        crate::manifest::gutch_repo::GutchRepoManifest,
-    >,
+    plugin_manifests: &HashMap<(String, String), crate::manifest::gutch_repo::GutchRepoManifest>,
     enabled_plugins: &[(&str, &str)],
 ) -> Result<()> {
     let mut order_map: HashMap<String, usize> = HashMap::new();

@@ -14,7 +14,9 @@ use crate::cli::reporting::{
     ratio_pct, reconstruct_timings_summary,
 };
 use crate::cli::verbose_output_enabled;
-use g::cli_identity::{apply_resolved_target_identity, parse_cli_tags, resolve_target_identity};
+use g::core::target_identity::{
+    apply_resolved_target_identity, parse_cli_tags, resolve_target_identity,
+};
 use g::repo::{required_chunk_hashes, scan_existing_store_state};
 use gutch as g;
 

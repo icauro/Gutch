@@ -1769,7 +1769,7 @@ fn run_repo_inspect(repo: &std::path::Path) -> g::Result<()> {
 }
 
 fn run_interactive_repo_link(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let endpoint = crate::auth::default_backend_url();
+    let endpoint = g::remote::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
     set_last_ran_command(format!(
         "gutch repo link --repo {} --endpoint {} --session-id {}",
@@ -1799,7 +1799,7 @@ fn run_interactive_repo_unlink(theme: &ColorfulTheme, repo: &std::path::Path) ->
 }
 
 fn run_interactive_repo_sync_up(_theme: &ColorfulTheme, repo: &std::path::Path) -> g::Result<()> {
-    let endpoint = crate::auth::default_backend_url();
+    let endpoint = g::remote::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
     set_last_ran_command(format!(
         "gutch repo sync-up --repo {} --endpoint {} --session-id {}",

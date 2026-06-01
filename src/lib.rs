@@ -3,27 +3,25 @@
 
 extern crate self as gutch;
 
+pub mod artifact;
 pub mod build;
 pub mod build_scan;
 pub mod build_types;
-pub mod bundle;
-pub mod chunk;
-#[path = "cli/identity.rs"]
-pub mod cli_identity;
-pub mod compress;
 pub mod config;
+pub mod core;
 pub mod error;
-pub mod hash;
 pub mod install;
 pub mod manifest;
 mod path_guard;
 pub mod plugin;
-pub mod reconstruct;
+pub mod remote;
 pub mod repo;
 pub mod runtime;
 #[cfg(test)]
 mod test_util;
 pub mod verify;
+
+pub use artifact::{bundle, chunk, compress, hash, reconstruct};
 
 pub use build::{
     build_from_directory, build_from_directory_with_timings,
@@ -38,7 +36,7 @@ pub use build_types::{
     BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, ChunkPayload,
     ExistingChunkLocation,
 };
-pub use cli_identity::{
+pub use core::target_identity::{
     ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
     resolve_target_identity_from_rules,
 };
