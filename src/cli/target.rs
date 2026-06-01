@@ -1,7 +1,7 @@
-use crate::TargetCommands;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::cli::TargetCommands;
 use crate::cli::common::{
     TargetExportStats, TargetInsertManyStats, TargetInsertStats, collect_input_sizing_stats,
     count_required_bundles_for_build, count_required_bundles_from_chunk_index,

@@ -1,4 +1,4 @@
-use crate::TargetInstallCommands;
+use crate::cli::TargetInstallCommands;
 use crate::cli::common::{
     TargetInstallApplyStats, TargetInstallVerifyStats, default_staging_dir,
     load_target_manifest_from_repo, parse_bundle_downloads, resolve_required_bundle_paths,

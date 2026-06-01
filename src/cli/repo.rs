@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::RepoCommands;
+use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::common::{load_optional_rules, parse_version_parts, session_id_for_cli};
 use crate::cli::reporting::ensure_parent_directory;

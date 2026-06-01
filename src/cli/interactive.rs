@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 use dialoguer::console::Term;
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 
-use crate::{RepoCommands, TargetCommands, TargetInstallCommands};
+use crate::cli::{RepoCommands, TargetCommands, TargetInstallCommands};
 use gutch as g;
 
 #[derive(Clone)]
