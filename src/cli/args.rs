@@ -255,6 +255,8 @@ pub(crate) enum TargetInstallCommands {
         target: String,
         #[arg(long = "manifest-url")]
         manifest_url: String,
+        #[arg(long = "chunk-index-url")]
+        chunk_index_url: Option<String>,
         #[arg(long = "bundle-urls-endpoint")]
         bundle_urls_endpoint: Option<String>,
         #[arg(long = "session-id")]

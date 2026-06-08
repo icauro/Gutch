@@ -149,7 +149,8 @@ pub(crate) fn sync_up_repo(
 
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {
-        let chunk_index_bytes = std::fs::read(&repo_paths.chunk_index_path)?;
+        let chunk_index = g::load_chunk_index(&repo_paths)?;
+        let chunk_index_bytes = serde_json::to_vec_pretty(&chunk_index)?;
         upload_raw_file(
             &client,
             &endpoint,
@@ -232,7 +233,7 @@ pub(crate) fn sync_up_repo(
     }
 
     let mut bundle_uploaded_count = 0usize;
-    let mut bundle_skipped_count = 0usize;
+    let bundle_skipped_count = 0usize;
     for entry in walkdir::WalkDir::new(&repo_paths.bundles_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file() {
@@ -241,28 +242,6 @@ pub(crate) fn sync_up_repo(
         let Some(bundle_id) = g::bundle_id_from_bundle_path(entry.path()) else {
             continue;
         };
-
-        let exists_response = client
-            .get(format!(
-                "{}/v1/users/me/creator/products/{}/repos/{}/bundles/{}",
-                endpoint.trim_end_matches('/'),
-                product_id,
-                gutch_repo_id,
-                bundle_id
-            ))
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", session_id))
-            .send()
-            .map_err(|err| g::Error::manifest(format!("bundle lookup failed: {}", err)))?;
-        if exists_response.status().is_success() {
-            bundle_skipped_count += 1;
-            continue;
-        }
-        if exists_response.status() != reqwest::StatusCode::NOT_FOUND {
-            return Err(g::Error::manifest(
-                g::remote::backend::parse_backend_error_response(exists_response),
-            ));
-        }
 
         upload_raw_file(
             &client,

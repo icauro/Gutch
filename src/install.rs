@@ -49,6 +49,7 @@ pub struct TargetInstallFetchRequest {
     pub repo_path: PathBuf,
     pub target_id: String,
     pub manifest_url: String,
+    pub chunk_index_url: Option<String>,
     pub bundle_urls_endpoint: Option<String>,
     pub session_id: Option<String>,
     pub bundles: Vec<GutchBundleDownload>,
@@ -197,6 +198,20 @@ pub fn fetch_target_install_content(
     })?;
     write_repo_manifest(&request.repo_path, &manifest)?;
 
+    if let Some(chunk_index_url) = request
+        .chunk_index_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let chunk_index_bytes = download_url(chunk_index_url)?;
+        let chunk_index: manifest::ChunkIndex =
+            serde_json::from_slice(&chunk_index_bytes).map_err(|err| {
+                Error::manifest(format!("downloaded chunk index is invalid JSON: {}", err))
+            })?;
+        crate::write_chunk_index(&repo_paths, &chunk_index)?;
+    }
+
     let bundle_ids_from_chunk_index: Vec<String> = {
         let chunk_index = crate::load_chunk_index(&repo_paths).ok();
 
@@ -225,6 +240,34 @@ pub fn fetch_target_install_content(
         request.bundles.clone()
     };
 
+    if request.bundles.is_empty() && bundle_ids_from_chunk_index.is_empty() {
+        let required_chunk_count = crate::repo::required_chunk_hashes(&target_manifest).len();
+        if required_chunk_count > 0 {
+            return Err(Error::bundle(
+                "chunk index is required to resolve Gutch bundles for this install",
+            ));
+        }
+    }
+
+    let returned_bundle_ids = bundles
+        .iter()
+        .map(|bundle| bundle.bundle_id.trim())
+        .filter(|bundle_id| !bundle_id.is_empty())
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    let missing_bundle_ids = bundle_ids_from_chunk_index
+        .iter()
+        .filter(|bundle_id| !returned_bundle_ids.contains(bundle_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing_bundle_ids.is_empty() {
+        return Err(Error::bundle(format!(
+            "bundle URL response is missing {} required bundle(s): {}",
+            missing_bundle_ids.len(),
+            missing_bundle_ids.join(", ")
+        )));
+    }
+
     let mut downloaded_bundle_count = 0usize;
     let mut skipped_existing_bundle_count = 0usize;
     for bundle in &bundles {
@@ -242,6 +285,14 @@ pub fn fetch_target_install_content(
         let bundle_bytes = download_url(bundle.url.trim())?;
         std::fs::write(&bundle_path, bundle_bytes)?;
         downloaded_bundle_count += 1;
+    }
+
+    if bundle_ids_from_chunk_index.len() > downloaded_bundle_count + skipped_existing_bundle_count {
+        return Err(Error::bundle(format!(
+            "downloaded {} of {} required bundle(s)",
+            downloaded_bundle_count + skipped_existing_bundle_count,
+            bundle_ids_from_chunk_index.len()
+        )));
     }
 
     Ok(TargetInstallFetchResult {
