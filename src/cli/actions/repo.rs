@@ -3,10 +3,11 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::cli::common::{load_optional_rules, parse_version_parts, session_id_for_cli};
+use crate::cli::common::{
+    load_optional_rules, parse_version_parts, session_id_for_cli,
+};
 use g::remote::backend::{
-    CreatorRepoTargetsResponse, UpsertTargetResponse, request_json_from_backend,
-    slugify_like_backend, upload_raw_file,
+    CreatorRepoTargetsResponse, UpsertTargetResponse, request_json_from_backend, upload_raw_file,
 };
 use gutch as g;
 
@@ -123,11 +124,8 @@ pub(crate) fn sync_up_repo(
             .header("Authorization", format!("Bearer {}", session_id)),
     )?;
 
-    let mut tiers_by_slug = HashMap::new();
     let mut remote_target_ids = HashMap::new();
-    for tier in &creator_targets.tiers {
-        tiers_by_slug.insert(tier.slug.clone(), tier.id);
-        tiers_by_slug.insert(slugify_like_backend(&tier.tier_name), tier.id);
+    for tier in &creator_targets.tier_labels {
         for target in &tier.targets {
             remote_target_ids.insert(target.target_id.clone(), target.id);
         }
@@ -179,19 +177,6 @@ pub(crate) fn sync_up_repo(
                 ))
             })?;
         let (version_major, version_minor, version_patch) = parse_version_parts(version)?;
-        let tier_slug = manifest.target_tags.get_exclusive("tier").ok_or_else(|| {
-            g::Error::manifest(format!(
-                "target '{}' is missing tier tag",
-                manifest.target_id
-            ))
-        })?;
-        let tier_id = tiers_by_slug.get(tier_slug).copied().ok_or_else(|| {
-            g::Error::manifest(format!(
-                "no remote tier found for slug '{}' while syncing target '{}'",
-                tier_slug, manifest.target_id
-            ))
-        })?;
-
         let remote_target_id = match remote_target_ids.get(&manifest.target_id).copied() {
             Some(id) => id,
             None => {
@@ -207,10 +192,10 @@ pub(crate) fn sync_up_repo(
                         .header("Authorization", format!("Bearer {}", session_id))
                         .json(&serde_json::json!({
                             "targetId": manifest.target_id,
+                            "targetTags": manifest.target_tags,
                             "versionMajor": version_major,
                             "versionMinor": version_minor,
                             "versionPatch": version_patch,
-                            "tierId": tier_id,
                         })),
                 )?;
                 remote_target_ids.insert(manifest.target_id.clone(), created.id);
