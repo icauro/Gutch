@@ -7,18 +7,18 @@ edition = "2024"
 fastcdc = "4.0.1"
 blake3 = "1.8.5"
 zstd = "0.13.3"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-clap = { version = "4", features = ["derive"] }
-walkdir = "2"
-anyhow = "1"
-chrono = "0.4"
-thiserror = "2"
-rayon = "1.10"
-tempfile = "3"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+clap = { version = "4.6.1", features = ["derive"] }
+walkdir = "2.5.0"
+anyhow = "1.0.102"
+chrono = "0.4.45"
+thiserror = "2.0.18"
+rayon = "1.12.0"
+tempfile = "3.27.0"
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "multipart", "rustls"] }
 pl-auth = { path = "../pl-auth" }
-dialoguer = "0.11"
-indicatif = "0.18"
-dirs = "5"
-rfd = "0.15"
+dialoguer = "0.12.0"
+indicatif = "0.18.4"
+dirs = "6.0.0"
+rfd = "0.17.2"
