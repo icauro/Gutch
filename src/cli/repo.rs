@@ -210,7 +210,7 @@ fn run_repo_link_interactive(
                 repo_path, linked.product_id, linked.remote_repo_slug
             );
             eprintln!(
-                "Use 'gutch repo unlink --repo {}' first.",
+                "Use 'plctl gutch repo unlink --repo {}' first.",
                 shell_quote(&repo_path)
             );
             return Err(g::Error::manifest("repo already linked"));

@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use gutch as g;
 
 #[derive(Parser)]
-#[command(name = "gutch", version, about = "Launcher artifact engine")]
+#[command(name = "plctl gutch", version, about = "Launcher artifact engine")]
 pub(crate) struct Cli {
     #[arg(long, short = 'v', global = true)]
     pub(crate) verbose: bool,

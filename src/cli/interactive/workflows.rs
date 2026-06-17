@@ -50,7 +50,7 @@ pub(super) fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
     }
 
     let template = super::prompt_tagging_template(theme)?;
-    let preview = format!("gutch repo init --path {}", super::shell_arg_path(&path));
+    let preview = format!("plctl gutch repo init --path {}", super::shell_arg_path(&path));
     super::confirm_preview(theme, &preview)?;
 
     actions::repo::init_repo(&path, None)?;
@@ -83,7 +83,7 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
     let bundle_profile = super::prompt_bundle_profile(theme)?;
     let runtime = super::prompt_runtime_options(theme)?;
     let preview = format!(
-        "gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {}{}{}",
+        "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {}{}{}",
         super::shell_arg_path(&dir),
         super::shell_arg_path(repo),
         super::shell_arg(&version),
@@ -125,7 +125,7 @@ pub(super) fn run_target_extract(theme: &ColorfulTheme, repo: &Path) -> g::Resul
     super::confirm_output_path_overwrite(theme, &output, "Extract output path")?;
     let runtime = super::prompt_runtime_options(theme)?;
     let preview = format!(
-        "gutch target extract --repo {} --target {} --output {}{}",
+        "plctl gutch target extract --repo {} --target {} --output {}{}",
         super::shell_arg_path(repo),
         super::shell_arg(&target),
         super::shell_arg_path(&output),
@@ -166,7 +166,7 @@ pub(super) fn run_target_install_apply(theme: &ColorfulTheme, repo: &Path) -> g:
     };
     let runtime = super::prompt_runtime_options(theme)?;
     let preview = format!(
-        "gutch target_install apply --repo {} --target {} --dir {}{}{}{}",
+        "plctl gutch target_install apply --repo {} --target {} --dir {}{}{}{}",
         super::shell_arg_path(repo),
         super::shell_arg(&target),
         super::shell_arg_path(&dir),
@@ -206,7 +206,7 @@ pub(super) fn run_target_install_verify(theme: &ColorfulTheme, repo: &Path) -> g
     let dir = super::path_or_browse_input(theme, "Install directory", "./install")?;
     let runtime = super::prompt_runtime_options(theme)?;
     let preview = format!(
-        "gutch target_install verify --repo {} --target {} --dir {}{}",
+        "plctl gutch target_install verify --repo {} --target {} --dir {}{}",
         super::shell_arg_path(repo),
         super::shell_arg(&target),
         super::shell_arg_path(&dir),
@@ -230,7 +230,7 @@ pub(super) fn run_interactive_repo_link(repo: &Path) -> g::Result<()> {
     let endpoint = g::remote::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
     super::set_last_ran_command(format!(
-        "gutch repo link --repo {} --endpoint {} --session-id {}",
+        "plctl gutch repo link --repo {} --endpoint {} --session-id {}",
         super::shell_arg_path(repo),
         super::shell_arg(&endpoint),
         super::shell_arg(&session_id)
@@ -251,7 +251,7 @@ pub(super) fn run_interactive_repo_unlink(theme: &ColorfulTheme, repo: &Path) ->
         return Ok(());
     }
     super::set_last_ran_command(format!(
-        "gutch repo unlink --repo {}",
+        "plctl gutch repo unlink --repo {}",
         super::shell_arg_path(repo)
     ));
     actions::repo::unlink_repo(repo)
@@ -261,7 +261,7 @@ pub(super) fn run_interactive_repo_sync_up(repo: &Path) -> g::Result<()> {
     let endpoint = g::remote::auth::default_backend_url();
     let session_id = crate::cli::common::session_id_for_cli(None)?;
     super::set_last_ran_command(format!(
-        "gutch repo sync-up --repo {} --endpoint {} --session-id {}",
+        "plctl gutch repo sync-up --repo {} --endpoint {} --session-id {}",
         super::shell_arg_path(repo),
         super::shell_arg(&endpoint),
         super::shell_arg(&session_id)
@@ -360,7 +360,7 @@ pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Res
     for candidate in &uninserted {
         println!("inserting {} ...", candidate.folder_name);
         super::set_last_ran_command(format!(
-            "gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile balanced --bundle-profile balanced",
+            "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile balanced --bundle-profile balanced",
             super::shell_arg(&candidate.path),
             super::shell_arg_path(repo),
             super::shell_arg(&candidate.version_id),

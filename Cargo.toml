@@ -3,10 +3,6 @@ name = "gutch"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "gutch"
-path = "src/main.rs"
-
 [dependencies]
 fastcdc = "4.0.1"
 blake3 = "1.8.5"
@@ -21,12 +17,8 @@ thiserror = "2"
 rayon = "1.10"
 tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
-keyring = "3.6"
-webbrowser = "1"
+pl-auth = { path = "../../crates/pl-auth" }
 dialoguer = "0.11"
 indicatif = "0.18"
 dirs = "5"
 rfd = "0.15"
-
-[build-dependencies]
-winresource = "0.1"

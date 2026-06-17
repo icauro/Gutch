@@ -7,6 +7,7 @@ pub mod artifact;
 pub mod build;
 pub mod build_scan;
 pub mod build_types;
+pub mod cli;
 pub mod config;
 pub mod core;
 pub mod error;
