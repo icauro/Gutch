@@ -22,10 +22,10 @@ use self::prompts::{
     TaggingTemplate, artifact_sizing_str, bundle_sizing_str, confirm_output_path_overwrite,
     confirm_preview, csv_list_input, dialoguer_to_manifest_error, minimal_tagging_template,
     optional_path_or_browse_input, optional_string_input, optional_tag_list, path_or_browse_input,
-    path_or_browse_input_file, prompt_bundle_profile, prompt_chunk_profile, prompt_i32_input,
-    prompt_runtime_options, prompt_tagging_template, prompt_target_selection,
-    prompt_target_tag_kind, required_string, runtime_preview_suffix, shell_arg, shell_arg_path,
-    tags_preview_suffix,
+    path_or_browse_input_file, prompt_bundle_profile, prompt_chunk_profile,
+    prompt_compression_profile, prompt_runtime_options, prompt_tagging_template,
+    prompt_target_selection, prompt_target_tag_kind, required_string, runtime_preview_suffix,
+    shell_arg, shell_arg_path, tags_preview_suffix,
 };
 use self::repo_config::run_repo_config_edit;
 use self::workflows::{

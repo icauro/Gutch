@@ -266,15 +266,18 @@ pub(super) fn prompt_chunk_profile(
     theme: &ColorfulTheme,
 ) -> g::Result<g::manifest::ArtifactSizingPreset> {
     let options = [
-        ("chunk_1kib", g::manifest::ArtifactSizingPreset::Chunk1KiB),
-        ("chunk_16kib", g::manifest::ArtifactSizingPreset::Chunk16KiB),
-        ("chunk_64kib", g::manifest::ArtifactSizingPreset::Chunk64KiB),
+        ("chunk_1KiB", g::manifest::ArtifactSizingPreset::Chunk1KiB),
+        ("chunk_16KiB", g::manifest::ArtifactSizingPreset::Chunk16KiB),
+        ("chunk_32KiB", g::manifest::ArtifactSizingPreset::Chunk32KiB),
+        ("chunk_64KiB", g::manifest::ArtifactSizingPreset::Chunk64KiB),
+        ("chunk_128KiB", g::manifest::ArtifactSizingPreset::Chunk128KiB),
+        ("chunk_256KiB", g::manifest::ArtifactSizingPreset::Chunk256KiB),
     ];
     let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
         .with_prompt("Chunk profile")
         .items(&labels)
-        .default(0)
+        .default(2)
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     Ok(options[selection].1.clone())
@@ -285,18 +288,37 @@ pub(super) fn prompt_bundle_profile(
 ) -> g::Result<g::manifest::BundleSizingPreset> {
     let options = [
         ("auto", g::manifest::BundleSizingPreset::Auto),
-        ("bundle_4mib", g::manifest::BundleSizingPreset::Bundle4MiB),
-        ("bundle_8mib", g::manifest::BundleSizingPreset::Bundle8MiB),
-        ("bundle_16mib", g::manifest::BundleSizingPreset::Bundle16MiB),
-        ("bundle_32mib", g::manifest::BundleSizingPreset::Bundle32MiB),
-        ("bundle_64mib", g::manifest::BundleSizingPreset::Bundle64MiB),
-        ("bundle_128mib", g::manifest::BundleSizingPreset::Bundle128MiB),
+        ("bundle_4MiB", g::manifest::BundleSizingPreset::Bundle4MiB),
+        ("bundle_8MiB", g::manifest::BundleSizingPreset::Bundle8MiB),
+        ("bundle_16MiB", g::manifest::BundleSizingPreset::Bundle16MiB),
+        ("bundle_32MiB", g::manifest::BundleSizingPreset::Bundle32MiB),
+        ("bundle_64MiB", g::manifest::BundleSizingPreset::Bundle64MiB),
+        ("bundle_128MiB", g::manifest::BundleSizingPreset::Bundle128MiB),
     ];
     let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
         .with_prompt("Bundle profile")
         .items(&labels)
         .default(3)
+        .interact()
+        .map_err(dialoguer_to_manifest_error)?;
+    Ok(options[selection].1.clone())
+}
+
+pub(super) fn prompt_compression_profile(
+    theme: &ColorfulTheme,
+) -> g::Result<g::manifest::CompressionPreset> {
+    let options = [
+        ("uncompressed", g::manifest::CompressionPreset::Uncompressed),
+        ("zstd_1", g::manifest::CompressionPreset::Zstd1),
+        ("zstd_3", g::manifest::CompressionPreset::Zstd3),
+        ("zstd_5", g::manifest::CompressionPreset::Zstd5),
+    ];
+    let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
+    let selection = Select::with_theme(theme)
+        .with_prompt("Compression profile")
+        .items(&labels)
+        .default(1)
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     Ok(options[selection].1.clone())
@@ -410,17 +432,6 @@ pub(super) fn optional_usize_input(
             .map_err(|_| g::Error::manifest(format!("invalid number for {}: {}", prompt, value))),
         None => Ok(None),
     }
-}
-
-pub(super) fn prompt_i32_input(
-    theme: &ColorfulTheme,
-    prompt: &str,
-    default: &str,
-) -> g::Result<i32> {
-    let value = required_string(theme, prompt, default)?;
-    value
-        .parse::<i32>()
-        .map_err(|_| g::Error::manifest(format!("invalid number for {}: {}", prompt, value)))
 }
 
 pub(super) fn optional_tag_list(theme: &ColorfulTheme) -> g::Result<Vec<String>> {

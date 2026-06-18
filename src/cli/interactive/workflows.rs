@@ -81,9 +81,10 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
     let tags = super::optional_tag_list(theme)?;
     let chunk_profile = super::prompt_chunk_profile(theme)?;
     let bundle_profile = super::prompt_bundle_profile(theme)?;
+    let compression_profile = super::prompt_compression_profile(theme)?;
     let runtime = super::prompt_runtime_options(theme)?;
     let preview = format!(
-        "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {}{}{}",
+        "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {} --compression-profile {}{}{}",
         super::shell_arg_path(&dir),
         super::shell_arg_path(repo),
         super::shell_arg(&version),
@@ -92,6 +93,7 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
         super::shell_arg(&tier),
         super::artifact_sizing_str(chunk_profile),
         super::bundle_sizing_str(bundle_profile),
+        compression_profile.cli_name(),
         super::tags_preview_suffix(&tags),
         super::runtime_preview_suffix(&runtime),
     );
@@ -107,7 +109,7 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
         tags,
         chunk_profile,
         bundle_profile,
-        zstd_level: 1,
+        compression_profile,
         memory_mode: runtime.memory_mode,
         max_memory_mib: runtime.max_memory_mib,
         jobs: runtime.jobs,
@@ -322,6 +324,7 @@ pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Res
 
     let candidates = g::discover_source_target_installs(repo, &lookup_path)?;
     let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
+    let compression_profile = repo_manifest.compression_profile.preset;
     let target_schema = repo_manifest.target_schema.unwrap_or_default();
     if candidates.is_empty() {
         println!("no source target installs found in '{}'", lookup);
@@ -360,13 +363,14 @@ pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Res
     for candidate in &uninserted {
         println!("inserting {} ...", candidate.folder_name);
         super::set_last_ran_command(format!(
-            "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile chunk_1kib --bundle-profile bundle_16mib",
+            "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile chunk_32KiB --bundle-profile bundle_16MiB --compression-profile {}",
             super::shell_arg(&candidate.path),
             super::shell_arg_path(repo),
             super::shell_arg(&candidate.version_id),
             super::shell_arg(&candidate.platform),
             super::shell_arg(&candidate.architecture),
             super::shell_arg(&candidate.tier_id),
+            compression_profile.cli_name(),
         ));
         crate::cli::target::run(TargetCommands::Insert {
             dir: PathBuf::from(&candidate.path),
@@ -376,9 +380,9 @@ pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Res
             architecture: Some(candidate.architecture.clone()),
             tier: Some(candidate.tier_id.clone()),
             tags: Vec::new(),
-            chunk_profile: g::manifest::ArtifactSizingPreset::Chunk1KiB,
+            chunk_profile: g::manifest::ArtifactSizingPreset::Chunk32KiB,
             bundle_profile: g::manifest::BundleSizingPreset::Bundle16MiB,
-            zstd_level: 1,
+            compression_profile,
             memory_mode: g::MemoryMode::Auto,
             max_memory_mib: None,
             jobs: None,

@@ -150,11 +150,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
 
     let tags = exclusive_tags("3.0.0", "windows", "x86_64", "base");
     let mut config = BuildConfig::with_ids("base", "300", &tags);
-    config.compression_profile = manifest::CompressionProfile {
-        compression: manifest::COMPRESSION_ZSTD.to_string(),
-        compression_unit: manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
-        zstd_level: 3,
-    };
+    config.compression_profile = manifest::CompressionProfile::for_preset(manifest::CompressionPreset::Zstd3);
     let result = build_with_config(&input_dir, &config).unwrap().0;
 
     for bundle in &result.bundles {

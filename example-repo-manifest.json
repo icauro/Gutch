@@ -17,7 +17,7 @@
     "on_incomplete": "warn"
   },
   "chunk_sizing_profile": {
-    "preset": "chunk_16kib",
+    "preset": "chunk_32KiB",
     "chunker": "fastcdc-v2020",
     "min_chunk_bytes": 4096,
     "avg_chunk_bytes": 16384,
@@ -27,12 +27,13 @@
     "format_version": "1.0.0"
   },
   "compression_profile": {
+    "preset": "zstd_3",
     "compression": "zstd",
-    "compression_unit": "chunk",
+    "compression_unit": "bundle",
     "zstd_level": 3
   },
   "bundle_sizing_profile": {
-    "preset": "bundle_16mib",
+    "preset": "bundle_16MiB",
     "bundle_max_mib": 32,
     "bundle_preferred_mib": 16
   },

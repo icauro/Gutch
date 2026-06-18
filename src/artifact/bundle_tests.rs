@@ -85,6 +85,24 @@ fn test_build_and_read_bundle_compressed_stream() {
 }
 
 #[test]
+fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
+    let chunk1 = vec![0x28, 0xB5, 0x2F, 0xFD, b'r', b'a', b'w', b'1'];
+    let chunk2 = b"plain uncompressed payload".to_vec();
+
+    let profile = CompressionProfile::for_preset(crate::manifest::CompressionPreset::Uncompressed);
+    let mut builder = BundleBuilder::new(profile);
+    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk1)), chunk1.clone());
+    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk2)), chunk2.clone());
+
+    let bundle_data = builder.build().unwrap();
+    let mut reader = read_bundle(&bundle_data).unwrap();
+
+    assert_eq!(reader.entries()[0].compression, "none");
+    assert_eq!(reader.read_chunk(0).unwrap(), chunk1);
+    assert_eq!(reader.read_chunk(1).unwrap(), chunk2);
+}
+
+#[test]
 fn test_bundle_id_deterministic() {
     let data1 = b"deterministic test ".repeat(15);
     let hash1 = hash::hash_hex(&hash::hash_chunk(&data1));

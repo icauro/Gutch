@@ -99,17 +99,22 @@ impl BundleBuilder {
     }
 
     pub fn estimated_compressed_size(&self) -> u64 {
+        let is_uncompressed = self.profile.compression == "none";
         self.chunks
             .iter()
             .map(|c| {
                 if let Some(compressed) = &c.compressed {
                     compressed.len() as u64
                 } else if let Some(raw) = &c.raw {
-                    let compressed: std::result::Result<Vec<u8>, _> =
-                        compress::compress_with_level(raw.as_slice(), self.profile.zstd_level);
-                    compressed
-                        .map(|v: Vec<u8>| v.len() as u64)
-                        .unwrap_or(u64::MAX)
+                    if is_uncompressed {
+                        raw.as_slice().len() as u64
+                    } else {
+                        let compressed: std::result::Result<Vec<u8>, _> =
+                            compress::compress_with_level(raw.as_slice(), self.profile.zstd_level);
+                        compressed
+                            .map(|v: Vec<u8>| v.len() as u64)
+                            .unwrap_or(u64::MAX)
+                    }
                 } else {
                     u64::MAX
                 }
@@ -142,6 +147,8 @@ impl BundleBuilder {
     }
 
     fn build_bundle_compressed(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
+        let is_uncompressed = self.profile.compression == "none";
+        let compression_label = if is_uncompressed { "none" } else { "zstd" };
         let mut entries: Vec<BundleTableEntry> = Vec::with_capacity(self.chunks.len());
         let payload_assembly_start = Instant::now();
         let mut current_raw_offset: u64 = 0;
@@ -158,7 +165,7 @@ impl BundleBuilder {
                 raw_size: chunk.raw_size,
                 compressed_size: 0,
                 compressed_offset: 0,
-                compression: "zstd".to_string(),
+                compression: compression_label.to_string(),
                 compression_unit: COMPRESSION_UNIT_BUNDLE.to_string(),
                 raw_offset: current_raw_offset,
             });
@@ -167,21 +174,34 @@ impl BundleBuilder {
         let payload_assembly = payload_assembly_start.elapsed();
 
         let compression_start = Instant::now();
-        let mut encoder = zstd::stream::Encoder::new(Vec::new(), self.profile.zstd_level)
-            .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
-        for chunk in &self.chunks {
-            let raw = chunk.raw.as_ref().ok_or_else(|| {
-                crate::error::Error::InvalidBundle(
-                    "bundle-compressed chunks must retain raw bytes until bundle build".into(),
-                )
-            })?;
-            encoder
-                .write_all(raw.as_slice())
+        let compressed_payload = if is_uncompressed {
+            let mut payload = Vec::with_capacity(current_raw_offset as usize);
+            for chunk in &self.chunks {
+                let raw = chunk.raw.as_ref().ok_or_else(|| {
+                    crate::error::Error::InvalidBundle(
+                        "bundle-compressed chunks must retain raw bytes until bundle build".into(),
+                    )
+                })?;
+                payload.extend_from_slice(raw.as_slice());
+            }
+            payload
+        } else {
+            let mut encoder = zstd::stream::Encoder::new(Vec::new(), self.profile.zstd_level)
                 .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
-        }
-        let compressed_payload = encoder
-            .finish()
-            .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
+            for chunk in &self.chunks {
+                let raw = chunk.raw.as_ref().ok_or_else(|| {
+                    crate::error::Error::InvalidBundle(
+                        "bundle-compressed chunks must retain raw bytes until bundle build".into(),
+                    )
+                })?;
+                encoder
+                    .write_all(raw.as_slice())
+                    .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
+            }
+            encoder
+                .finish()
+                .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?
+        };
         let stream_compression = compression_start.elapsed();
         if !entries.is_empty() {
             let total_raw = current_raw_offset.max(1);
@@ -244,6 +264,7 @@ pub struct BundleReader<R: Read + Seek> {
     entries: Vec<BundleTableEntry>,
     data_start: u64,
     payload_size: u64,
+    compression: String,
     compression_unit: String,
     bundle_raw_cache: Option<Vec<u8>>,
     reader: R,
@@ -289,11 +310,28 @@ impl<R: Read + Seek> BundleReader<R> {
             .first()
             .map(|entry| entry.compression_unit.clone())
             .unwrap_or_else(|| COMPRESSION_UNIT_BUNDLE.to_string());
+        let compression = entries
+            .first()
+            .map(|entry| entry.compression.clone())
+            .unwrap_or_else(|| "zstd".to_string());
+        let has_mixed_compression = entries.iter().any(|entry| entry.compression != compression);
+        if has_mixed_compression {
+            return Err(crate::error::Error::InvalidBundle(
+                "bundle entries must use the same compression".into(),
+            ));
+        }
+        if compression != "none" && compression != "zstd" {
+            return Err(crate::error::Error::InvalidBundle(format!(
+                "unsupported bundle compression '{}'",
+                compression
+            )));
+        }
 
         Ok(BundleReader {
             entries,
             data_start,
             payload_size,
+            compression,
             compression_unit,
             bundle_raw_cache: None,
             reader,
@@ -328,7 +366,7 @@ impl<R: Read + Seek> BundleReader<R> {
         self.reader.seek(SeekFrom::Start(self.data_start))?;
         let mut compressed = vec![0u8; self.payload_size as usize];
         self.reader.read_exact(&mut compressed)?;
-        let written = compress::decompress_chunk_to_writer(&compressed, writer)?;
+        let written = compress::decompress_data_to_writer(&compressed, &self.compression, writer)?;
         Ok(written)
     }
 
@@ -345,7 +383,7 @@ impl<R: Read + Seek> BundleReader<R> {
             self.reader.seek(SeekFrom::Start(self.data_start))?;
             let mut compressed = vec![0u8; self.payload_size as usize];
             self.reader.read_exact(&mut compressed)?;
-            let decompressed = compress::decompress_chunk(&compressed)?;
+            let decompressed = compress::decompress_data(&compressed, &self.compression)?;
             self.bundle_raw_cache = Some(decompressed);
         }
 

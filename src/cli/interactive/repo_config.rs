@@ -75,9 +75,8 @@ fn print_repo_config_summary(repo_manifest: &g::manifest::gutch_repo::GutchRepoM
         super::bundle_sizing_str(repo_manifest.bundle_sizing_profile.preset)
     );
     println!(
-        "  compression       {} / zstd level {}",
-        repo_manifest.compression_profile.compression_unit,
-        repo_manifest.compression_profile.zstd_level
+        "  compression       {}",
+        repo_manifest.compression_profile.preset.cli_name()
     );
 
     let schema = repo_manifest.target_schema.clone().unwrap_or_default();
@@ -275,17 +274,8 @@ fn edit_repo_profiles(
         g::manifest::ChunkSizingProfile::for_preset(super::prompt_chunk_profile(theme)?);
     repo_manifest.bundle_sizing_profile =
         g::manifest::BundleSizingProfile::for_preset(super::prompt_bundle_profile(theme)?);
-    repo_manifest.compression_profile.compression_unit =
-        g::manifest::COMPRESSION_UNIT_BUNDLE.to_string();
-    repo_manifest.compression_profile.zstd_level = super::prompt_i32_input(
-        theme,
-        "Zstd compression level",
-        repo_manifest
-            .compression_profile
-            .zstd_level
-            .to_string()
-            .as_str(),
-    )?;
+    repo_manifest.compression_profile =
+        g::manifest::CompressionProfile::for_preset(super::prompt_compression_profile(theme)?);
     Ok(())
 }
 

@@ -46,7 +46,7 @@ struct InsertOneTargetRequest<'a> {
     explicit_tags: &'a g::manifest::TargetTagSet,
     chunk_profile: g::manifest::ArtifactSizingPreset,
     bundle_profile: g::manifest::BundleSizingPreset,
-    zstd_level: i32,
+    compression_profile: g::manifest::CompressionPreset,
     memory_mode: g::MemoryMode,
     max_memory_mib: Option<u64>,
     jobs: Option<usize>,
@@ -82,11 +82,7 @@ fn run_insert_one_target(
         request.bundle_profile,
         input_stats.target_logical_size_bytes,
     );
-    let compression_profile = g::manifest::CompressionProfile {
-        compression: g::manifest::COMPRESSION_ZSTD.to_string(),
-        compression_unit: g::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
-        zstd_level: request.zstd_level,
-    };
+    let compression_profile = g::manifest::CompressionProfile::for_preset(request.compression_profile);
 
     let mut build_config =
         g::BuildConfig::with_ids(request.gutch_repo_id, "", &resolved_identity.target_tags);
@@ -225,19 +221,6 @@ fn run_insert_one_target(
     Ok(stats)
 }
 
-fn validate_zstd_level(zstd_level: i32) -> g::Result<()> {
-    let range = zstd::compression_level_range();
-    if range.contains(&zstd_level) {
-        return Ok(());
-    }
-
-    Err(g::Error::manifest(format!(
-        "zstd level must be between {} and {}",
-        range.start(),
-        range.end()
-    )))
-}
-
 fn collect_insert_many_dirs(
     product_dir: Option<PathBuf>,
     explicit_dirs: Vec<PathBuf>,
@@ -287,14 +270,13 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             tags,
             chunk_profile,
             bundle_profile,
-            zstd_level,
+            compression_profile,
             memory_mode,
             max_memory_mib,
             jobs,
             summary_out,
             stats_json_out,
         } => {
-            validate_zstd_level(zstd_level)?;
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
             let mut explicit_tags = parse_cli_tags(&tags)?;
@@ -323,7 +305,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     explicit_tags: &explicit_tags,
                     chunk_profile,
                     bundle_profile,
-                    zstd_level,
+                    compression_profile,
                     memory_mode,
                     max_memory_mib,
                     jobs,
@@ -344,11 +326,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 bundle_profile,
                 stats.total_logical_size,
             );
-            repo_manifest.compression_profile = g::manifest::CompressionProfile {
-                compression: g::manifest::COMPRESSION_ZSTD.to_string(),
-                compression_unit: g::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
-                zstd_level,
-            };
+            repo_manifest.compression_profile = g::manifest::CompressionProfile::for_preset(compression_profile);
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
         }
 
@@ -359,14 +337,13 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             tags,
             chunk_profile,
             bundle_profile,
-            zstd_level,
+            compression_profile,
             memory_mode,
             max_memory_mib,
             jobs,
             summary_out,
             stats_json_out,
         } => {
-            validate_zstd_level(zstd_level)?;
             let target_dirs = collect_insert_many_dirs(product_dir, dirs)?;
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
@@ -387,7 +364,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                         explicit_tags: &explicit_tags,
                         chunk_profile,
                         bundle_profile,
-                        zstd_level,
+                        compression_profile,
                         memory_mode,
                         max_memory_mib,
                         jobs,
@@ -438,11 +415,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 g::manifest::ChunkSizingProfile::for_selection(chunk_profile, 0);
             repo_manifest.bundle_sizing_profile =
                 g::manifest::BundleSizingProfile::for_selection(bundle_profile, total_logical_size);
-            repo_manifest.compression_profile = g::manifest::CompressionProfile {
-                compression: g::manifest::COMPRESSION_ZSTD.to_string(),
-                compression_unit: g::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
-                zstd_level,
-            };
+            repo_manifest.compression_profile = g::manifest::CompressionProfile::for_preset(compression_profile);
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             write_report(&summary_out, &stats_json_out, &aggregate_stats)?;
         }

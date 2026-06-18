@@ -90,6 +90,10 @@ fn estimate_bundle_compression_ratio_from_probe(
         return Ok((1.0, 0));
     }
 
+    if compression_profile.compression == "none" {
+        return Ok((1.0, raw_probe_size));
+    }
+
     let compressed_probe = compress_with_level(&probe_payload, compression_profile.zstd_level)?;
     Ok((
         (compressed_probe.len() as f64 / raw_probe_size as f64).max(0.01),

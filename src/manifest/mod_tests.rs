@@ -3,13 +3,13 @@ use super::*;
 #[test]
 fn test_chunking_profile_defaults() {
     let p = ChunkSizingProfile::default();
-    assert_eq!(p.preset, ArtifactSizingPreset::Chunk1KiB);
-    assert_eq!(p.min_chunk_bytes, 256);
-    assert_eq!(p.avg_chunk_bytes, 1024);
-    assert_eq!(p.max_chunk_bytes, 4 * 1024);
-    assert_eq!(p.min_chunk_size_bytes(), 256);
-    assert_eq!(p.avg_chunk_size_bytes(), 1024);
-    assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
+    assert_eq!(p.preset, ArtifactSizingPreset::Chunk32KiB);
+    assert_eq!(p.min_chunk_bytes, 8 * 1024);
+    assert_eq!(p.avg_chunk_bytes, 32 * 1024);
+    assert_eq!(p.max_chunk_bytes, 128 * 1024);
+    assert_eq!(p.min_chunk_size_bytes(), 8 * 1024);
+    assert_eq!(p.avg_chunk_size_bytes(), 32 * 1024);
+    assert_eq!(p.max_chunk_size_bytes(), 128 * 1024);
     assert_eq!(p.chunk_hash_algorithm, "blake3");
 }
 
@@ -23,14 +23,14 @@ fn test_small_chunk_profile_uses_sub_kib_range() {
 }
 
 #[test]
-fn test_chunk_auto_selection_always_resolves_small() {
+fn test_chunk_auto_selection_always_resolves_32kib() {
     assert_eq!(
         ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1),
-        ArtifactSizingPreset::Chunk1KiB
+        ArtifactSizingPreset::Chunk32KiB
     );
     assert_eq!(
         ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1024 * 1024 * 1024),
-        ArtifactSizingPreset::Chunk1KiB
+        ArtifactSizingPreset::Chunk32KiB
     );
 }
 
@@ -59,7 +59,17 @@ fn test_bundle_auto_selection_always_resolves_balanced() {
 #[test]
 fn test_compression_profile_defaults() {
     let p = CompressionProfile::default();
+    assert_eq!(p.preset, CompressionPreset::Zstd1);
     assert_eq!(p.zstd_level, 1);
+    assert_eq!(p.compression, "zstd");
+    assert_eq!(p.compression_unit, "bundle");
+}
+
+#[test]
+fn test_compression_profile_zstd5_preset() {
+    let p = CompressionProfile::for_preset(CompressionPreset::Zstd5);
+    assert_eq!(p.preset, CompressionPreset::Zstd5);
+    assert_eq!(p.zstd_level, 5);
     assert_eq!(p.compression, "zstd");
     assert_eq!(p.compression_unit, "bundle");
 }

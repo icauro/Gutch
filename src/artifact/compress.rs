@@ -2,12 +2,23 @@ use std::io::{Cursor, Write};
 
 use crate::error::Result;
 
-pub fn decompress_chunk(data: &[u8]) -> Result<Vec<u8>> {
-    zstd::decode_all(data)
-        .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e)))
+pub fn decompress_data(data: &[u8], compression: &str) -> Result<Vec<u8>> {
+    match compression {
+        "none" => Ok(data.to_vec()),
+        "zstd" => zstd::decode_all(data)
+            .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e))),
+        other => Err(crate::error::Error::InvalidBundle(format!(
+            "unsupported bundle compression '{}'",
+            other
+        ))),
+    }
 }
 
-pub fn decompress_chunk_to_writer<W: Write>(data: &[u8], mut writer: W) -> Result<u64> {
+pub fn decompress_data_to_writer<W: Write>(
+    data: &[u8],
+    compression: &str,
+    mut writer: W,
+) -> Result<u64> {
     struct CountingWriter<'a, W> {
         inner: &'a mut W,
         written: u64,
@@ -25,17 +36,31 @@ pub fn decompress_chunk_to_writer<W: Write>(data: &[u8], mut writer: W) -> Resul
         }
     }
 
-    let mut counting_writer = CountingWriter {
-        inner: &mut writer,
-        written: 0,
-    };
-    zstd::stream::copy_decode(Cursor::new(data), &mut counting_writer)
-        .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e)))?;
-    Ok(counting_writer.written)
+    match compression {
+        "none" => {
+            writer
+                .write_all(data)
+                .map_err(|e| crate::error::Error::bundle(format!("write: {}", e)))?;
+            Ok(data.len() as u64)
+        }
+        "zstd" => {
+            let mut counting_writer = CountingWriter {
+                inner: &mut writer,
+                written: 0,
+            };
+            zstd::stream::copy_decode(Cursor::new(data), &mut counting_writer)
+                .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e)))?;
+            Ok(counting_writer.written)
+        }
+        other => Err(crate::error::Error::InvalidBundle(format!(
+            "unsupported bundle compression '{}'",
+            other
+        ))),
+    }
 }
 
 pub fn decompress_chunk_at_level(data: &[u8], _level: i32) -> Result<Vec<u8>> {
-    decompress_chunk(data)
+    decompress_data(data, "zstd")
 }
 
 pub fn compress_with_level(data: &[u8], level: i32) -> Result<Vec<u8>> {
