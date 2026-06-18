@@ -168,9 +168,9 @@ pub enum TargetCommands {
         tier: Option<String>,
         #[arg(long = "tag")]
         tags: Vec<String>,
-        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Small)]
+        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk1KiB)]
         chunk_profile: g::manifest::ArtifactSizingPreset,
-        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
+        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
         bundle_profile: g::manifest::BundleSizingPreset,
         #[arg(long = "zstd-level", default_value_t = 1)]
         zstd_level: i32,
@@ -195,9 +195,9 @@ pub enum TargetCommands {
         dirs: Vec<PathBuf>,
         #[arg(long = "tag")]
         tags: Vec<String>,
-        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Small)]
+        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk1KiB)]
         chunk_profile: g::manifest::ArtifactSizingPreset,
-        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
+        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
         bundle_profile: g::manifest::BundleSizingPreset,
         #[arg(long = "zstd-level", default_value_t = 1)]
         zstd_level: i32,

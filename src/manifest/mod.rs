@@ -16,34 +16,76 @@ pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
 pub enum ArtifactSizingPreset {
-    Small,
-    Balanced,
-    Large,
+    #[serde(rename = "chunk_1kib")]
+    #[value(name = "chunk_1kib")]
+    Chunk1KiB,
+    #[serde(rename = "chunk_16kib")]
+    #[value(name = "chunk_16kib")]
+    Chunk16KiB,
+    #[serde(rename = "chunk_64kib")]
+    #[value(name = "chunk_64kib")]
+    Chunk64KiB,
 }
 
 impl Default for ArtifactSizingPreset {
     fn default() -> Self {
-        Self::Small
+        Self::Chunk1KiB
+    }
+}
+
+impl ArtifactSizingPreset {
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Chunk1KiB => "chunk_1kib",
+            Self::Chunk16KiB => "chunk_16kib",
+            Self::Chunk64KiB => "chunk_64kib",
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
 pub enum BundleSizingPreset {
+    #[serde(rename = "auto")]
+    #[value(name = "auto")]
     Auto,
-    Tiny,
-    Small,
-    Balanced,
-    Large,
-    Huge,
-    Massive,
+    #[serde(rename = "bundle_4mib")]
+    #[value(name = "bundle_4mib")]
+    Bundle4MiB,
+    #[serde(rename = "bundle_8mib")]
+    #[value(name = "bundle_8mib")]
+    Bundle8MiB,
+    #[serde(rename = "bundle_16mib")]
+    #[value(name = "bundle_16mib")]
+    Bundle16MiB,
+    #[serde(rename = "bundle_32mib")]
+    #[value(name = "bundle_32mib")]
+    Bundle32MiB,
+    #[serde(rename = "bundle_64mib")]
+    #[value(name = "bundle_64mib")]
+    Bundle64MiB,
+    #[serde(rename = "bundle_128mib")]
+    #[value(name = "bundle_128mib")]
+    Bundle128MiB,
 }
 
 impl Default for BundleSizingPreset {
     fn default() -> Self {
-        Self::Balanced
+        Self::Bundle16MiB
+    }
+}
+
+impl BundleSizingPreset {
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Bundle4MiB => "bundle_4mib",
+            Self::Bundle8MiB => "bundle_8mib",
+            Self::Bundle16MiB => "bundle_16mib",
+            Self::Bundle32MiB => "bundle_32mib",
+            Self::Bundle64MiB => "bundle_64mib",
+            Self::Bundle128MiB => "bundle_128mib",
+        }
     }
 }
 
@@ -61,16 +103,16 @@ pub struct ChunkSizingProfile {
 
 impl Default for ChunkSizingProfile {
     fn default() -> Self {
-        Self::for_preset(ArtifactSizingPreset::Small)
+        Self::for_preset(ArtifactSizingPreset::Chunk1KiB)
     }
 }
 
 impl ChunkSizingProfile {
     pub fn for_preset(preset: ArtifactSizingPreset) -> Self {
         let (min_chunk_bytes, avg_chunk_bytes, max_chunk_bytes) = match preset {
-            ArtifactSizingPreset::Small => (256, 1024, 4 * 1024),
-            ArtifactSizingPreset::Balanced => (4 * 1024, 16 * 1024, 64 * 1024),
-            ArtifactSizingPreset::Large => (16 * 1024, 64 * 1024, 256 * 1024),
+            ArtifactSizingPreset::Chunk1KiB => (256, 1024, 4 * 1024),
+            ArtifactSizingPreset::Chunk16KiB => (4 * 1024, 16 * 1024, 64 * 1024),
+            ArtifactSizingPreset::Chunk64KiB => (16 * 1024, 64 * 1024, 256 * 1024),
         };
 
         ChunkSizingProfile {
@@ -100,7 +142,7 @@ impl ChunkSizingProfile {
     pub fn auto_preset_for_median_file_size_bytes(
         _median_file_size_bytes: u64,
     ) -> ArtifactSizingPreset {
-        ArtifactSizingPreset::Small
+        ArtifactSizingPreset::Chunk1KiB
     }
 
     pub fn for_selection(preset: ArtifactSizingPreset, _median_file_size_bytes: u64) -> Self {
@@ -120,12 +162,12 @@ pub struct BundleSizingProfile {
 impl BundleSizingProfile {
     pub fn for_preset(preset: BundleSizingPreset) -> Self {
         let (bundle_max_mib, bundle_preferred_mib) = match preset {
-            BundleSizingPreset::Auto | BundleSizingPreset::Balanced => (32, 16),
-            BundleSizingPreset::Tiny => (8, 4),
-            BundleSizingPreset::Small => (16, 8),
-            BundleSizingPreset::Large => (64, 32),
-            BundleSizingPreset::Huge => (128, 64),
-            BundleSizingPreset::Massive => (256, 128),
+            BundleSizingPreset::Auto | BundleSizingPreset::Bundle16MiB => (32, 16),
+            BundleSizingPreset::Bundle4MiB => (8, 4),
+            BundleSizingPreset::Bundle8MiB => (16, 8),
+            BundleSizingPreset::Bundle32MiB => (64, 32),
+            BundleSizingPreset::Bundle64MiB => (128, 64),
+            BundleSizingPreset::Bundle128MiB => (256, 128),
         };
 
         BundleSizingProfile {
@@ -146,7 +188,7 @@ impl BundleSizingProfile {
     pub fn auto_preset_for_target_logical_size_bytes(
         _target_logical_size_bytes: u64,
     ) -> BundleSizingPreset {
-        BundleSizingPreset::Balanced
+        BundleSizingPreset::Bundle16MiB
     }
 
     pub fn for_selection(preset: BundleSizingPreset, target_logical_size_bytes: u64) -> Self {
@@ -162,7 +204,7 @@ impl BundleSizingProfile {
 
 impl Default for BundleSizingProfile {
     fn default() -> Self {
-        Self::for_preset(BundleSizingPreset::Balanced)
+        Self::for_preset(BundleSizingPreset::Bundle16MiB)
     }
 }
 

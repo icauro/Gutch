@@ -360,7 +360,7 @@ pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Res
     for candidate in &uninserted {
         println!("inserting {} ...", candidate.folder_name);
         super::set_last_ran_command(format!(
-            "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile small --bundle-profile balanced",
+            "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile chunk_1kib --bundle-profile bundle_16mib",
             super::shell_arg(&candidate.path),
             super::shell_arg_path(repo),
             super::shell_arg(&candidate.version_id),
@@ -376,8 +376,8 @@ pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Res
             architecture: Some(candidate.architecture.clone()),
             tier: Some(candidate.tier_id.clone()),
             tags: Vec::new(),
-            chunk_profile: g::manifest::ArtifactSizingPreset::Small,
-            bundle_profile: g::manifest::BundleSizingPreset::Balanced,
+            chunk_profile: g::manifest::ArtifactSizingPreset::Chunk1KiB,
+            bundle_profile: g::manifest::BundleSizingPreset::Bundle16MiB,
             zstd_level: 1,
             memory_mode: g::MemoryMode::Auto,
             max_memory_mib: None,

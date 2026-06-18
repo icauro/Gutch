@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn test_chunking_profile_defaults() {
     let p = ChunkSizingProfile::default();
-    assert_eq!(p.preset, ArtifactSizingPreset::Small);
+    assert_eq!(p.preset, ArtifactSizingPreset::Chunk1KiB);
     assert_eq!(p.min_chunk_bytes, 256);
     assert_eq!(p.avg_chunk_bytes, 1024);
     assert_eq!(p.max_chunk_bytes, 4 * 1024);
@@ -15,8 +15,8 @@ fn test_chunking_profile_defaults() {
 
 #[test]
 fn test_small_chunk_profile_uses_sub_kib_range() {
-    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Small);
-    assert_eq!(p.preset, ArtifactSizingPreset::Small);
+    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk1KiB);
+    assert_eq!(p.preset, ArtifactSizingPreset::Chunk1KiB);
     assert_eq!(p.min_chunk_size_bytes(), 256);
     assert_eq!(p.avg_chunk_size_bytes(), 1024);
     assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
@@ -26,18 +26,18 @@ fn test_small_chunk_profile_uses_sub_kib_range() {
 fn test_chunk_auto_selection_always_resolves_small() {
     assert_eq!(
         ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1),
-        ArtifactSizingPreset::Small
+        ArtifactSizingPreset::Chunk1KiB
     );
     assert_eq!(
         ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1024 * 1024 * 1024),
-        ArtifactSizingPreset::Small
+        ArtifactSizingPreset::Chunk1KiB
     );
 }
 
 #[test]
 fn test_bundle_sizing_profile_defaults() {
     let p = BundleSizingProfile::default();
-    assert_eq!(p.preset, BundleSizingPreset::Balanced);
+    assert_eq!(p.preset, BundleSizingPreset::Bundle16MiB);
     assert_eq!(p.bundle_max_mib, 32);
     assert_eq!(p.bundle_preferred_mib, 16);
     assert_eq!(p.bundle_max_size_bytes(), 32 * 1024 * 1024);
@@ -48,11 +48,11 @@ fn test_bundle_sizing_profile_defaults() {
 fn test_bundle_auto_selection_always_resolves_balanced() {
     assert_eq!(
         BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1),
-        BundleSizingPreset::Balanced
+        BundleSizingPreset::Bundle16MiB
     );
     assert_eq!(
         BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1024 * 1024 * 1024 * 1024),
-        BundleSizingPreset::Balanced
+        BundleSizingPreset::Bundle16MiB
     );
 }
 

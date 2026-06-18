@@ -266,9 +266,9 @@ pub(super) fn prompt_chunk_profile(
     theme: &ColorfulTheme,
 ) -> g::Result<g::manifest::ArtifactSizingPreset> {
     let options = [
-        ("small", g::manifest::ArtifactSizingPreset::Small),
-        ("balanced", g::manifest::ArtifactSizingPreset::Balanced),
-        ("large", g::manifest::ArtifactSizingPreset::Large),
+        ("chunk_1kib", g::manifest::ArtifactSizingPreset::Chunk1KiB),
+        ("chunk_16kib", g::manifest::ArtifactSizingPreset::Chunk16KiB),
+        ("chunk_64kib", g::manifest::ArtifactSizingPreset::Chunk64KiB),
     ];
     let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -285,12 +285,12 @@ pub(super) fn prompt_bundle_profile(
 ) -> g::Result<g::manifest::BundleSizingPreset> {
     let options = [
         ("auto", g::manifest::BundleSizingPreset::Auto),
-        ("tiny", g::manifest::BundleSizingPreset::Tiny),
-        ("small", g::manifest::BundleSizingPreset::Small),
-        ("balanced", g::manifest::BundleSizingPreset::Balanced),
-        ("large", g::manifest::BundleSizingPreset::Large),
-        ("huge", g::manifest::BundleSizingPreset::Huge),
-        ("massive", g::manifest::BundleSizingPreset::Massive),
+        ("bundle_4mib", g::manifest::BundleSizingPreset::Bundle4MiB),
+        ("bundle_8mib", g::manifest::BundleSizingPreset::Bundle8MiB),
+        ("bundle_16mib", g::manifest::BundleSizingPreset::Bundle16MiB),
+        ("bundle_32mib", g::manifest::BundleSizingPreset::Bundle32MiB),
+        ("bundle_64mib", g::manifest::BundleSizingPreset::Bundle64MiB),
+        ("bundle_128mib", g::manifest::BundleSizingPreset::Bundle128MiB),
     ];
     let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -496,23 +496,11 @@ pub(super) fn tags_preview_suffix(tags: &[String]) -> String {
 }
 
 pub(super) fn artifact_sizing_str(profile: g::manifest::ArtifactSizingPreset) -> &'static str {
-    match profile {
-        g::manifest::ArtifactSizingPreset::Small => "small",
-        g::manifest::ArtifactSizingPreset::Balanced => "balanced",
-        g::manifest::ArtifactSizingPreset::Large => "large",
-    }
+    profile.cli_name()
 }
 
 pub(super) fn bundle_sizing_str(profile: g::manifest::BundleSizingPreset) -> &'static str {
-    match profile {
-        g::manifest::BundleSizingPreset::Auto => "auto",
-        g::manifest::BundleSizingPreset::Tiny => "tiny",
-        g::manifest::BundleSizingPreset::Small => "small",
-        g::manifest::BundleSizingPreset::Balanced => "balanced",
-        g::manifest::BundleSizingPreset::Large => "large",
-        g::manifest::BundleSizingPreset::Huge => "huge",
-        g::manifest::BundleSizingPreset::Massive => "massive",
-    }
+    profile.cli_name()
 }
 
 pub(super) fn shell_arg(value: &str) -> String {
