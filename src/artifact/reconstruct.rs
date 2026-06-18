@@ -4,6 +4,7 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
@@ -47,12 +48,19 @@ struct ChunkLocation {
 #[derive(Clone)]
 struct BundleScanInfo {
     compression_unit: String,
+    raw_payload_size: u64,
 }
 
 #[derive(Clone)]
 enum BundleAccessStrategy {
     DirectChunkRead,
     StagedBundleRaw { staged_raw_path: PathBuf },
+    StagedBundleMemory { raw_payload: Arc<[u8]> },
+}
+
+enum StagedBundlePayload {
+    TempFile(PathBuf),
+    Memory(Arc<[u8]>),
 }
 
 struct BundleAccessPlan {
@@ -335,6 +343,7 @@ fn reconstruct_from_bundle_paths_and_local_chunks(
             bundle_path.clone(),
             BundleScanInfo {
                 compression_unit: reader.compression_unit().to_string(),
+                raw_payload_size: estimate_bundle_raw_payload_size(reader.entries()),
             },
         );
         for (index, entry) in reader.entries().iter().enumerate() {
@@ -358,7 +367,7 @@ fn reconstruct_from_bundle_paths_and_local_chunks(
     let access_plan = stage_reconstruct_bundle_access(
         &locations,
         &bundle_scan_info,
-        runtime_plan.worker_count,
+        &runtime_plan,
         &mut timings,
     )?;
 
@@ -586,6 +595,27 @@ fn reconstruct_manifest_file(
             .strategies
             .get(&location.bundle_path)
             .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
+        if let BundleAccessStrategy::StagedBundleMemory { raw_payload } = strategy {
+            let chunk_data = read_staged_memory_chunk_for_reconstruct(
+                raw_payload,
+                location,
+                &chunk_ref.chunk_hash,
+                &mut timings,
+                options,
+            )?;
+
+            let t = Instant::now();
+            output.write_all(chunk_data)?;
+            timings.file_write += t.elapsed();
+            timings.file_write_bytes += chunk_data.len() as u64;
+            if let Some(hasher) = &mut hasher {
+                hasher.update(chunk_data);
+            }
+            written += chunk_data.len() as u64;
+            timings.file_rebuild_bytes += chunk_data.len() as u64;
+            continue;
+        }
+
         let chunk_data = read_chunk_for_reconstruct(
             strategy,
             location,
@@ -687,13 +717,52 @@ fn read_chunk_for_reconstruct(
 
             Ok(chunk_data)
         }
+        BundleAccessStrategy::StagedBundleMemory { .. } => Err(Error::Reconstruct(
+            "in-memory bundle strategy must be handled by caller".to_string(),
+        )),
     }
+}
+
+fn read_staged_memory_chunk_for_reconstruct<'a>(
+    raw_payload: &'a [u8],
+    location: &ChunkLocation,
+    expected_chunk_hash: &str,
+    timings: &mut ReconstructTimings,
+    options: ReconstructOptions,
+) -> Result<&'a [u8]> {
+    let start = location.raw_offset as usize;
+    let end = start.saturating_add(location.raw_size as usize);
+    if end > raw_payload.len() {
+        return Err(Error::Reconstruct(format!(
+            "bundle raw span {}..{} exceeds staged payload size {}",
+            start,
+            end,
+            raw_payload.len()
+        )));
+    }
+
+    let t = Instant::now();
+    let chunk_data = &raw_payload[start..end];
+    timings.bundle_read += t.elapsed();
+    timings.bundle_read_decompressed_bytes += location.raw_size;
+
+    if options.verify_chunks {
+        let actual_hash = hash_hex(&crate::hash::hash_chunk(chunk_data));
+        if actual_hash != expected_chunk_hash {
+            return Err(Error::HashMismatch {
+                expected: expected_chunk_hash.to_string(),
+                actual: actual_hash,
+            });
+        }
+    }
+
+    Ok(chunk_data)
 }
 
 fn stage_reconstruct_bundle_access(
     locations: &HashMap<String, ChunkLocation>,
     bundle_scan_info: &HashMap<PathBuf, BundleScanInfo>,
-    worker_count: usize,
+    runtime_plan: &RuntimePlan,
     timings: &mut ReconstructTimings,
 ) -> Result<BundleAccessPlan> {
     let mut strategies = HashMap::new();
@@ -726,58 +795,115 @@ fn stage_reconstruct_bundle_access(
         });
     }
 
-    let staging_dir = tempfile::tempdir().map_err(|err| {
-        Error::Reconstruct(format!("failed to create bundle staging dir: {}", err))
-    })?;
-    let staged_results = install_in_thread_pool(worker_count, || {
+    let stage_in_memory = should_stage_bundle_payloads_in_memory(
+        &bundle_compressed_paths,
+        bundle_scan_info,
+        runtime_plan,
+    );
+    let staging_dir = if stage_in_memory {
+        None
+    } else {
+        Some(tempfile::tempdir().map_err(|err| {
+            Error::Reconstruct(format!("failed to create bundle staging dir: {}", err))
+        })?)
+    };
+    let staged_results = install_in_thread_pool(runtime_plan.worker_count, || {
         bundle_compressed_paths
             .par_iter()
             .enumerate()
             .map(|(index, bundle_path)| {
-                stage_bundle_raw_payload(bundle_path, staging_dir.path(), index)
+                stage_bundle_raw_payload(
+                    bundle_path,
+                    staging_dir.as_ref().map(|dir| dir.path()),
+                    index,
+                )
             })
             .collect::<Vec<_>>()
     })?;
 
     for staged in staged_results {
-        let (bundle_path, staged_raw_path, compressed_size, staged_raw_size, stage_time) = staged?;
+        let (bundle_path, staged_payload, compressed_size, staged_raw_size, stage_time) = staged?;
         timings.bundle_read += stage_time;
         timings.bundle_read_compressed_bytes += compressed_size;
         timings.bundle_read_decompressed_bytes += staged_raw_size;
-        strategies.insert(
-            bundle_path,
-            BundleAccessStrategy::StagedBundleRaw { staged_raw_path },
-        );
+        let strategy = match staged_payload {
+            StagedBundlePayload::TempFile(staged_raw_path) => {
+                BundleAccessStrategy::StagedBundleRaw { staged_raw_path }
+            }
+            StagedBundlePayload::Memory(raw_payload) => {
+                BundleAccessStrategy::StagedBundleMemory { raw_payload }
+            }
+        };
+        strategies.insert(bundle_path, strategy);
     }
 
     Ok(BundleAccessPlan {
         strategies,
-        _staging_dir: Some(staging_dir),
+        _staging_dir: staging_dir,
     })
 }
 
 fn stage_bundle_raw_payload(
     bundle_path: &Path,
-    staging_root: &Path,
+    staging_root: Option<&Path>,
     index: usize,
-) -> Result<(PathBuf, PathBuf, u64, u64, Duration)> {
+) -> Result<(PathBuf, StagedBundlePayload, u64, u64, Duration)> {
     let stage_start = Instant::now();
     let file = std::fs::File::open(bundle_path)?;
     let mut reader = bundle::BundleReader::open(file)?;
-    let bundle_stem = bundle_path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("bundle");
-    let staged_raw_path = staging_root.join(format!("{}-{}.raw", index, bundle_stem));
-    let mut staged_file = std::fs::File::create(&staged_raw_path)?;
-    let staged_raw_size = reader.stage_bundle_payload_to(&mut staged_file)?;
+    let payload = if let Some(staging_root) = staging_root {
+        let bundle_stem = bundle_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("bundle");
+        let staged_raw_path = staging_root.join(format!("{}-{}.raw", index, bundle_stem));
+        let mut staged_file = std::fs::File::create(&staged_raw_path)?;
+        let staged_raw_size = reader.stage_bundle_payload_to(&mut staged_file)?;
+        (
+            StagedBundlePayload::TempFile(staged_raw_path),
+            staged_raw_size,
+        )
+    } else {
+        let mut raw_payload = Vec::new();
+        let staged_raw_size = reader.stage_bundle_payload_to(&mut raw_payload)?;
+        (
+            StagedBundlePayload::Memory(Arc::from(raw_payload)),
+            staged_raw_size,
+        )
+    };
     Ok((
         bundle_path.to_path_buf(),
-        staged_raw_path,
+        payload.0,
         reader.payload_size(),
-        staged_raw_size,
+        payload.1,
         stage_start.elapsed(),
     ))
+}
+
+fn should_stage_bundle_payloads_in_memory(
+    bundle_paths: &[PathBuf],
+    bundle_scan_info: &HashMap<PathBuf, BundleScanInfo>,
+    runtime_plan: &RuntimePlan,
+) -> bool {
+    if runtime_plan.effective_memory_mode != crate::runtime::EffectiveMemoryMode::High {
+        return false;
+    }
+
+    let estimated_raw_bytes = bundle_paths
+        .iter()
+        .filter_map(|path| bundle_scan_info.get(path))
+        .map(|info| info.raw_payload_size)
+        .sum::<u64>();
+    let memory_budget_bytes = runtime_plan.memory_budget_mib.saturating_mul(1024 * 1024);
+    estimated_raw_bytes > 0 && estimated_raw_bytes <= memory_budget_bytes / 2
+}
+
+fn estimate_bundle_raw_payload_size(entries: &[crate::manifest::BundleTableEntry]) -> u64 {
+    entries
+        .iter()
+        .map(|entry| entry.raw_offset.saturating_add(entry.raw_size))
+        .max()
+        .unwrap_or(0)
 }
 
 fn accumulate_reconstruct_timings(total: &mut ReconstructTimings, add: &ReconstructTimings) {
@@ -843,4 +969,81 @@ fn rebuild_files_from_chunks(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::{ChunkStorageMode, EffectiveMemoryMode, MemoryMode};
+
+    fn runtime_plan(
+        effective_memory_mode: EffectiveMemoryMode,
+        memory_budget_mib: u64,
+    ) -> RuntimePlan {
+        RuntimePlan {
+            requested_memory_mode: MemoryMode::Auto,
+            effective_memory_mode,
+            available_memory_mib: Some(memory_budget_mib),
+            memory_budget_mib,
+            worker_count: 4,
+            chunk_storage_mode: ChunkStorageMode::Memory,
+        }
+    }
+
+    #[test]
+    fn high_memory_reconstruct_stages_small_bundle_payloads_in_memory() {
+        let bundle_path = PathBuf::from("bundle-a.bundle");
+        let bundle_paths = vec![bundle_path.clone()];
+        let bundle_scan_info = HashMap::from([(
+            bundle_path,
+            BundleScanInfo {
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                raw_payload_size: 64 * 1024 * 1024,
+            },
+        )]);
+
+        assert!(should_stage_bundle_payloads_in_memory(
+            &bundle_paths,
+            &bundle_scan_info,
+            &runtime_plan(EffectiveMemoryMode::High, 1024)
+        ));
+    }
+
+    #[test]
+    fn balanced_reconstruct_keeps_temp_staging() {
+        let bundle_path = PathBuf::from("bundle-a.bundle");
+        let bundle_paths = vec![bundle_path.clone()];
+        let bundle_scan_info = HashMap::from([(
+            bundle_path,
+            BundleScanInfo {
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                raw_payload_size: 64 * 1024 * 1024,
+            },
+        )]);
+
+        assert!(!should_stage_bundle_payloads_in_memory(
+            &bundle_paths,
+            &bundle_scan_info,
+            &runtime_plan(EffectiveMemoryMode::Balanced, 1024)
+        ));
+    }
+
+    #[test]
+    fn high_memory_reconstruct_keeps_temp_staging_when_payload_exceeds_budget() {
+        let bundle_path = PathBuf::from("bundle-a.bundle");
+        let bundle_paths = vec![bundle_path.clone()];
+        let bundle_scan_info = HashMap::from([(
+            bundle_path,
+            BundleScanInfo {
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                raw_payload_size: 700 * 1024 * 1024,
+            },
+        )]);
+
+        assert!(!should_stage_bundle_payloads_in_memory(
+            &bundle_paths,
+            &bundle_scan_info,
+            &runtime_plan(EffectiveMemoryMode::High, 1024)
+        ));
+    }
 }
