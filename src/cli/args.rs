@@ -168,7 +168,7 @@ pub(crate) enum TargetCommands {
         tier: Option<String>,
         #[arg(long = "tag")]
         tags: Vec<String>,
-        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Balanced)]
+        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Small)]
         chunk_profile: g::manifest::ArtifactSizingPreset,
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
         bundle_profile: g::manifest::BundleSizingPreset,
@@ -195,7 +195,7 @@ pub(crate) enum TargetCommands {
         dirs: Vec<PathBuf>,
         #[arg(long = "tag")]
         tags: Vec<String>,
-        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Balanced)]
+        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Small)]
         chunk_profile: g::manifest::ArtifactSizingPreset,
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Balanced)]
         bundle_profile: g::manifest::BundleSizingPreset,

@@ -3,13 +3,13 @@ use super::*;
 #[test]
 fn test_chunking_profile_defaults() {
     let p = ChunkSizingProfile::default();
-    assert_eq!(p.preset, ArtifactSizingPreset::Balanced);
-    assert_eq!(p.min_chunk_bytes, 4 * 1024);
-    assert_eq!(p.avg_chunk_bytes, 16 * 1024);
-    assert_eq!(p.max_chunk_bytes, 64 * 1024);
-    assert_eq!(p.min_chunk_size_bytes(), 4 * 1024);
-    assert_eq!(p.avg_chunk_size_bytes(), 16 * 1024);
-    assert_eq!(p.max_chunk_size_bytes(), 64 * 1024);
+    assert_eq!(p.preset, ArtifactSizingPreset::Small);
+    assert_eq!(p.min_chunk_bytes, 256);
+    assert_eq!(p.avg_chunk_bytes, 1024);
+    assert_eq!(p.max_chunk_bytes, 4 * 1024);
+    assert_eq!(p.min_chunk_size_bytes(), 256);
+    assert_eq!(p.avg_chunk_size_bytes(), 1024);
+    assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
     assert_eq!(p.chunk_hash_algorithm, "blake3");
 }
 
@@ -23,14 +23,14 @@ fn test_small_chunk_profile_uses_sub_kib_range() {
 }
 
 #[test]
-fn test_chunk_auto_selection_always_resolves_balanced() {
+fn test_chunk_auto_selection_always_resolves_small() {
     assert_eq!(
         ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1),
-        ArtifactSizingPreset::Balanced
+        ArtifactSizingPreset::Small
     );
     assert_eq!(
         ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1024 * 1024 * 1024),
-        ArtifactSizingPreset::Balanced
+        ArtifactSizingPreset::Small
     );
 }
 

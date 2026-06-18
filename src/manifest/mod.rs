@@ -25,7 +25,7 @@ pub enum ArtifactSizingPreset {
 
 impl Default for ArtifactSizingPreset {
     fn default() -> Self {
-        Self::Balanced
+        Self::Small
     }
 }
 
@@ -61,7 +61,7 @@ pub struct ChunkSizingProfile {
 
 impl Default for ChunkSizingProfile {
     fn default() -> Self {
-        Self::for_preset(ArtifactSizingPreset::Balanced)
+        Self::for_preset(ArtifactSizingPreset::Small)
     }
 }
 
@@ -100,7 +100,7 @@ impl ChunkSizingProfile {
     pub fn auto_preset_for_median_file_size_bytes(
         _median_file_size_bytes: u64,
     ) -> ArtifactSizingPreset {
-        ArtifactSizingPreset::Balanced
+        ArtifactSizingPreset::Small
     }
 
     pub fn for_selection(preset: ArtifactSizingPreset, _median_file_size_bytes: u64) -> Self {
