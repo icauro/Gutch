@@ -98,10 +98,28 @@ impl GutchConfig {
     }
 }
 
-pub fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
+fn config_root_dir() -> Result<PathBuf, crate::Error> {
+    if let Some(config_root) = dirs::config_dir() {
+        return Ok(config_root.join("Launcher"));
+    }
+
+    let home = dirs::home_dir()
+        .ok_or_else(|| crate::Error::manifest("could not determine home directory"))?;
+    Ok(home.join(".config").join("Launcher"))
+}
+
+fn legacy_gutch_config_dir() -> Result<PathBuf, crate::Error> {
     let home = dirs::home_dir()
         .ok_or_else(|| crate::Error::manifest("could not determine home directory"))?;
     Ok(home.join(".config").join("gutch"))
+}
+
+fn legacy_gutch_config_path() -> Result<PathBuf, crate::Error> {
+    Ok(legacy_gutch_config_dir()?.join("config.json"))
+}
+
+pub fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
+    Ok(config_root_dir()?.join("gutch"))
 }
 
 pub fn gutch_config_path() -> Result<PathBuf, crate::Error> {
@@ -110,12 +128,22 @@ pub fn gutch_config_path() -> Result<PathBuf, crate::Error> {
 
 pub fn load_config() -> Result<GutchConfig, crate::Error> {
     let path = gutch_config_path()?;
-    if !path.exists() {
+    if path.exists() {
+        let raw = std::fs::read_to_string(&path).map_err(|err| {
+            crate::Error::manifest(format!("failed to read gutch config: {}", err))
+        })?;
+        return serde_json::from_str(&raw)
+            .map_err(|err| crate::Error::manifest(format!("failed to parse gutch config: {}", err)));
+    }
+
+    let legacy_path = legacy_gutch_config_path()?;
+    if !legacy_path.exists() {
         return Ok(GutchConfig::default());
     }
 
-    let raw = std::fs::read_to_string(&path)
-        .map_err(|err| crate::Error::manifest(format!("failed to read gutch config: {}", err)))?;
+    let raw = std::fs::read_to_string(&legacy_path).map_err(|err| {
+        crate::Error::manifest(format!("failed to read gutch config: {}", err))
+    })?;
     serde_json::from_str(&raw)
         .map_err(|err| crate::Error::manifest(format!("failed to parse gutch config: {}", err)))
 }

@@ -1,5 +1,5 @@
-pub(crate) mod actions;
-pub(crate) mod args;
+pub mod actions;
+pub mod args;
 pub(crate) mod auth;
 pub(crate) mod bundle;
 pub(crate) mod commands;
@@ -8,12 +8,12 @@ pub(crate) mod interactive;
 pub(crate) mod path;
 pub(crate) mod path_compare;
 pub(crate) mod progress;
-pub(crate) mod repo;
+pub mod repo;
 pub(crate) mod reporting;
-pub(crate) mod target;
+pub mod target;
 pub(crate) mod target_install;
 
-pub(crate) use args::{
+pub use args::{
     AuthCommands, BundleCommands, Cli, Commands, PathCommands, RepoCommands, TargetCommands,
     TargetInstallCommands,
 };

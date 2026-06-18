@@ -275,7 +275,7 @@ fn collect_insert_many_dirs(
     Ok(target_dirs)
 }
 
-pub(crate) fn run(command: TargetCommands) -> g::Result<()> {
+pub fn run(command: TargetCommands) -> g::Result<()> {
     match command {
         TargetCommands::Insert {
             dir,

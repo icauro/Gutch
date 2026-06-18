@@ -12,21 +12,21 @@ use g::remote::backend::{
 use gutch as g;
 
 #[derive(Debug, Serialize)]
-pub(crate) struct RepoSyncUpStats {
-    pub(crate) command: &'static str,
-    pub(crate) repo_root: String,
-    pub(crate) product_id: i64,
-    pub(crate) gutch_repo_id: i64,
-    pub(crate) repo_manifest_uploaded: bool,
-    pub(crate) chunk_index_uploaded: bool,
-    pub(crate) target_manifest_uploaded_count: usize,
-    pub(crate) bundle_uploaded_count: usize,
-    pub(crate) bundle_skipped_count: usize,
-    pub(crate) target_count: usize,
-    pub(crate) bundle_count: usize,
+pub struct RepoSyncUpStats {
+    pub command: &'static str,
+    pub repo_root: String,
+    pub product_id: i64,
+    pub gutch_repo_id: i64,
+    pub repo_manifest_uploaded: bool,
+    pub chunk_index_uploaded: bool,
+    pub target_manifest_uploaded_count: usize,
+    pub bundle_uploaded_count: usize,
+    pub bundle_skipped_count: usize,
+    pub target_count: usize,
+    pub bundle_count: usize,
 }
 
-pub(crate) fn init_repo(path: &Path, schema: Option<&PathBuf>) -> g::Result<()> {
+pub fn init_repo(path: &Path, schema: Option<&PathBuf>) -> g::Result<()> {
     let repo_name = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -53,7 +53,7 @@ pub(crate) fn init_repo(path: &Path, schema: Option<&PathBuf>) -> g::Result<()> 
     Ok(())
 }
 
-pub(crate) fn unlink_repo(repo: &Path) -> g::Result<()> {
+pub fn unlink_repo(repo: &Path) -> g::Result<()> {
     let mut config = g::config::load_config()?;
     let repo_path = repo.display().to_string();
     if !config.clear_repo_link(&repo_path) {
@@ -67,7 +67,7 @@ pub(crate) fn unlink_repo(repo: &Path) -> g::Result<()> {
     Ok(())
 }
 
-pub(crate) fn sync_up_repo(
+pub fn sync_up_repo(
     repo: PathBuf,
     endpoint: String,
     product_id: Option<i64>,

@@ -5,16 +5,16 @@ use gutch as g;
 
 #[derive(Parser)]
 #[command(name = "plctl gutch", version, about = "Launcher artifact engine")]
-pub(crate) struct Cli {
+pub struct Cli {
     #[arg(long, short = 'v', global = true)]
-    pub(crate) verbose: bool,
+    pub verbose: bool,
 
     #[command(subcommand)]
-    pub(crate) command: Commands,
+    pub command: Commands,
 }
 
 #[derive(Subcommand)]
-pub(crate) enum Commands {
+pub enum Commands {
     Auth {
         #[command(subcommand)]
         command: AuthCommands,
@@ -44,7 +44,7 @@ pub(crate) enum Commands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum AuthCommands {
+pub enum AuthCommands {
     Login {
         #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
         endpoint: String,
@@ -80,7 +80,7 @@ pub(crate) enum AuthCommands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum RepoCommands {
+pub enum RepoCommands {
     Init {
         #[arg(long = "path", default_value = ".")]
         path: PathBuf,
@@ -152,7 +152,7 @@ pub(crate) enum RepoCommands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum TargetCommands {
+pub enum TargetCommands {
     Insert {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
@@ -247,7 +247,7 @@ pub(crate) enum TargetCommands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum TargetInstallCommands {
+pub enum TargetInstallCommands {
     Fetch {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
@@ -309,7 +309,7 @@ pub(crate) enum TargetInstallCommands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum BundleCommands {
+pub enum BundleCommands {
     Inspect {
         #[arg(short, long)]
         bundle: PathBuf,
@@ -317,7 +317,7 @@ pub(crate) enum BundleCommands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum PathCommands {
+pub enum PathCommands {
     Compare {
         #[arg(long = "expected")]
         expected: PathBuf,

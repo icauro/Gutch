@@ -8,7 +8,7 @@ use crate::cli::reporting::ensure_parent_directory;
 use g::remote::backend::request_json_from_backend;
 use gutch as g;
 
-pub(crate) fn run(command: RepoCommands) -> g::Result<()> {
+pub fn run(command: RepoCommands) -> g::Result<()> {
     match command {
         RepoCommands::Init { path, schema } => {
             actions::repo::init_repo(&path, schema.as_ref())?;

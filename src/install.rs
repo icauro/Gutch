@@ -64,6 +64,14 @@ pub struct TargetInstallFetchResult {
     pub skipped_existing_bundle_count: usize,
 }
 
+pub fn default_target_install_staging_dir(install_dir: &Path, target_id: &str) -> PathBuf {
+    let install_name = install_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("install");
+    install_dir.with_file_name(format!(".gutch-staging-{}-{}", install_name, target_id))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GutchBundleUrlsResponse {

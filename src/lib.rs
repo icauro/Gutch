@@ -45,7 +45,8 @@ pub use error::{Error, Result};
 pub use install::{
     GutchBundleDownload, TargetInstallApplyResult, TargetInstallApplySource,
     TargetInstallFetchRequest, TargetInstallFetchResult, apply_target_install_with_timings,
-    apply_target_install_with_timings_and_hints, fetch_target_install_content,
+    apply_target_install_with_timings_and_hints, default_target_install_staging_dir,
+    fetch_target_install_content,
 };
 pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use reconstruct::{
