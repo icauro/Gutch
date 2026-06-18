@@ -11,6 +11,13 @@ pub struct ChunkResult {
     pub hash: blake3::Hash,
 }
 
+pub struct ChunkFileScan {
+    pub chunks: Vec<ChunkResult>,
+    pub file_size: u64,
+    pub full_file_hash: String,
+    pub full_file_hash_duration: Duration,
+}
+
 pub struct ChunkSlice {
     pub offset: u64,
     pub len: usize,
@@ -91,6 +98,14 @@ pub fn chunk_file_streaming(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,
 ) -> Result<(Vec<ChunkResult>, ChunkScanTimings)> {
+    let (scan, timings) = chunk_file_streaming_with_file_hash(path, profile)?;
+    Ok((scan.chunks, timings))
+}
+
+pub fn chunk_file_streaming_with_file_hash(
+    path: &std::path::Path,
+    profile: &ChunkSizingProfile,
+) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     let min = profile.min_chunk_size_bytes() as usize;
     let avg = profile.avg_chunk_size_bytes() as usize;
     let max = profile.max_chunk_size_bytes() as usize;
@@ -104,6 +119,9 @@ pub fn chunk_file_streaming(
     let mut boundary_scan_bytes = 0u64;
     let mut hash_judgment = Duration::ZERO;
     let mut hash_judgment_bytes = 0u64;
+    let mut full_file_hash = blake3::Hasher::new();
+    let mut full_file_hash_duration = Duration::ZERO;
+    let mut file_size = 0u64;
 
     loop {
         let t = Instant::now();
@@ -119,6 +137,11 @@ pub fn chunk_file_streaming(
         let hash = blake3::hash(&chunk.data);
         hash_judgment += t.elapsed();
 
+        let t = Instant::now();
+        full_file_hash.update(&chunk.data);
+        full_file_hash_duration += t.elapsed();
+
+        file_size += chunk.length as u64;
         boundary_scan_bytes += chunk.length as u64;
         hash_judgment_bytes += chunk.length as u64;
         chunk_results.push(ChunkResult {
@@ -129,7 +152,12 @@ pub fn chunk_file_streaming(
     }
 
     Ok((
-        chunk_results,
+        ChunkFileScan {
+            chunks: chunk_results,
+            file_size,
+            full_file_hash: hash_hex(&full_file_hash.finalize()),
+            full_file_hash_duration,
+        },
         ChunkScanTimings {
             boundary_scan,
             boundary_scan_bytes,

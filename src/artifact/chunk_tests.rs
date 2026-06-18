@@ -75,3 +75,26 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
+    let dir = test_util::temp_path("gutch_chunk_streaming_file_hash");
+    test_util::recreate_dir(&dir);
+    let path = dir.join("sample.bin");
+    let data = b"streaming full file hash payload ".repeat(4000);
+    std::fs::write(&path, &data).unwrap();
+
+    let profile = ChunkSizingProfile::default();
+    let (scan, timings) = chunk_file_streaming_with_file_hash(&path, &profile).unwrap();
+
+    assert_eq!(scan.file_size, data.len() as u64);
+    assert_eq!(
+        scan.full_file_hash,
+        hash_hex(&blake3::hash(data.as_slice()))
+    );
+    assert_eq!(timings.boundary_scan_bytes, data.len() as u64);
+    assert_eq!(timings.hash_judgment_bytes, data.len() as u64);
+    assert!(!scan.chunks.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

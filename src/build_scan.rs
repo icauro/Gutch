@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rayon::prelude::*;
 
@@ -107,20 +107,11 @@ pub(crate) fn scan_directory_into_file_entries(
             })?;
 
             let scan_read = Duration::ZERO;
-            let (chunk_results, chunk_timings) =
-                crate::chunk::chunk_file_streaming(path, chunking_profile)?;
-            let file_size: u64 = chunk_results
-                .iter()
-                .map(|chunk| chunk.data.len() as u64)
-                .sum();
-
-            let t = Instant::now();
-            let mut full_file_hasher = blake3::Hasher::new();
-            for chunk in &chunk_results {
-                full_file_hasher.update(&chunk.data);
-            }
-            let full_file_hash = hash_hex(&full_file_hasher.finalize());
-            let file_hash = t.elapsed();
+            let (chunk_scan, chunk_timings) =
+                crate::chunk::chunk_file_streaming_with_file_hash(path, chunking_profile)?;
+            let file_size = chunk_scan.file_size;
+            let full_file_hash = chunk_scan.full_file_hash;
+            let file_hash = chunk_scan.full_file_hash_duration;
 
             if let Some(previous) =
                 previous_file_manifests.get(&relative.to_string_lossy().replace('\\', "/"))
@@ -143,12 +134,12 @@ pub(crate) fn scan_directory_into_file_entries(
 
             let chunking = chunk_timings.boundary_scan;
 
-            let mut chunk_refs = Vec::with_capacity(chunk_results.len());
-            let mut chunks = Vec::with_capacity(chunk_results.len());
+            let mut chunk_refs = Vec::with_capacity(chunk_scan.chunks.len());
+            let mut chunks = Vec::with_capacity(chunk_scan.chunks.len());
             let mut spill_file = None;
             let mut spill_path = None;
             let mut spill_offset: u64 = 0;
-            for cr in chunk_results {
+            for cr in chunk_scan.chunks {
                 let ch = hash_hex(&cr.hash);
                 chunk_refs.push(ChunkRef {
                     chunk_hash: ch.clone(),
