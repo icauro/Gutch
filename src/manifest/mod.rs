@@ -48,7 +48,7 @@ pub enum ArtifactSizingPreset {
 
 impl Default for ArtifactSizingPreset {
     fn default() -> Self {
-        Self::Chunk32KiB
+        Self::Chunk128KiB
     }
 }
 
@@ -127,7 +127,7 @@ pub struct ChunkSizingProfile {
 
 impl Default for ChunkSizingProfile {
     fn default() -> Self {
-        Self::for_preset(ArtifactSizingPreset::Chunk32KiB)
+        Self::for_preset(ArtifactSizingPreset::Chunk128KiB)
     }
 }
 
@@ -172,7 +172,7 @@ impl ChunkSizingProfile {
     pub fn auto_preset_for_median_file_size_bytes(
         _median_file_size_bytes: u64,
     ) -> ArtifactSizingPreset {
-        ArtifactSizingPreset::Chunk32KiB
+        ArtifactSizingPreset::Chunk128KiB
     }
 
     pub fn for_selection(preset: ArtifactSizingPreset, _median_file_size_bytes: u64) -> Self {

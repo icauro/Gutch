@@ -280,7 +280,7 @@ pub(super) fn prompt_chunk_profile(
     let selection = Select::with_theme(theme)
         .with_prompt("Chunk profile")
         .items(&labels)
-        .default(2)
+        .default(5)
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     Ok(options[selection].1.clone())

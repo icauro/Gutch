@@ -19,37 +19,37 @@ use crate::manifest::{
 use crate::runtime::{ChunkStorageMode, install_in_thread_pool, plan_build_runtime};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
-const MIN_PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
+const PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 struct BundleSizingPolicy {
     max_size: u64,
-    min_preferred_size: u64,
+    preferred_size: u64,
 }
 
 impl BundleSizingPolicy {
-    fn new(max_size: u64, min_preferred_size: u64) -> Self {
+    fn new(max_size: u64, preferred_size: u64) -> Self {
         Self {
             max_size,
-            min_preferred_size,
+            preferred_size,
         }
     }
 
     fn target_size_for(&self, compressed_bytes: u64) -> u64 {
         if compressed_bytes == 0 {
-            return self.max_size;
+            return self.preferred_size.min(self.max_size);
         }
 
-        if compressed_bytes <= self.max_size {
+        if compressed_bytes <= self.preferred_size {
             return compressed_bytes
-                .max(self.min_preferred_size)
+                .max(self.preferred_size)
                 .min(self.max_size);
         }
 
-        let bundle_count = compressed_bytes.div_ceil(self.max_size);
+        let bundle_count = compressed_bytes.div_ceil(self.preferred_size);
         compressed_bytes
             .div_ceil(bundle_count)
-            .max(self.min_preferred_size)
+            .max(self.preferred_size)
             .min(self.max_size)
     }
 }
@@ -60,7 +60,7 @@ mod tests;
 
 impl Default for BundleSizingPolicy {
     fn default() -> Self {
-        Self::new(MAX_BUNDLE_SIZE, MIN_PREFERRED_BUNDLE_SIZE)
+        Self::new(MAX_BUNDLE_SIZE, PREFERRED_BUNDLE_SIZE)
     }
 }
 
@@ -108,7 +108,7 @@ fn raw_target_size_for_bundle_compression(
 ) -> u64 {
     let normalized_ratio = compression_ratio.max(0.01);
     ((compressed_target_size as f64 / normalized_ratio).ceil() as u64)
-        .max(bundle_policy.min_preferred_size)
+        .max(bundle_policy.preferred_size)
         .min(u64::MAX)
 }
 

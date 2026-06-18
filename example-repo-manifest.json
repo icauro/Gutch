@@ -17,11 +17,11 @@
     "on_incomplete": "warn"
   },
   "chunk_sizing_profile": {
-    "preset": "chunk_32KiB",
+    "preset": "chunk_128KiB",
     "chunker": "fastcdc-v2020",
-    "min_chunk_bytes": 4096,
-    "avg_chunk_bytes": 16384,
-    "max_chunk_bytes": 65536,
+    "min_chunk_bytes": 32768,
+    "avg_chunk_bytes": 131072,
+    "max_chunk_bytes": 524288,
     "gear_table_id": 3,
     "chunk_hash_algorithm": "blake3",
     "format_version": "1.0.0"
