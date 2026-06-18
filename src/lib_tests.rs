@@ -194,6 +194,69 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
 }
 
 #[test]
+fn test_high_memory_no_verify_reconstruct_roundtrip() {
+    let root = test_util::temp_path("gutch_test_high_memory_no_verify_reconstruct");
+    let input_dir = root.join("input");
+    let bundles_dir = root.join("bundles");
+    let out_dir = root.join("out");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&input_dir).unwrap();
+    std::fs::create_dir_all(&bundles_dir).unwrap();
+
+    std::fs::write(
+        input_dir.join("a.bin"),
+        b"direct bundle restore".repeat(1024),
+    )
+    .unwrap();
+    std::fs::write(input_dir.join("b.bin"), b"second output file".repeat(512)).unwrap();
+
+    let tags = exclusive_tags("3.1.0", "windows", "x86_64", "base");
+    let mut config = BuildConfig::with_ids("base", "301", &tags);
+    config.compression_profile =
+        manifest::CompressionProfile::for_preset(manifest::CompressionPreset::Zstd3);
+    let result = build_with_config(&input_dir, &config).unwrap().0;
+
+    for bundle in &result.bundles {
+        std::fs::write(
+            bundle_path_in_root(&bundles_dir, &bundle.bundle_id),
+            &bundle.data,
+        )
+        .unwrap();
+    }
+    let bundle_paths: Vec<PathBuf> = result
+        .bundles
+        .iter()
+        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
+        .collect();
+
+    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
+        &result.target_manifest,
+        &bundle_paths,
+        None,
+        &out_dir,
+        &crate::runtime::RuntimeResourceHints {
+            memory_mode: crate::runtime::MemoryMode::High,
+            max_memory_mib: Some(1024),
+            jobs: Some(2),
+        },
+        ReconstructOptions {
+            verify_chunks: false,
+            verify_files: false,
+        },
+    )
+    .unwrap();
+
+    let verify_errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
+    assert!(
+        verify_errors.is_empty(),
+        "verification errors: {:?}",
+        verify_errors
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn test_gutch_repo_paths_from_store_root() {
     let paths = GutchRepoPaths::from_store_root(Path::new("D:\\store"), "base");
 
