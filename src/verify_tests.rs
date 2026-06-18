@@ -146,6 +146,90 @@ fn verify_contiguous_chunks_single_chunk() {
 }
 
 #[test]
+fn verify_default_fast_mode_skips_chunk_hashing() {
+    let dir = test_util::temp_path("gutch_verify_fast_mode");
+    test_util::recreate_dir(&dir);
+
+    let data = b"fast mode content";
+    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(data));
+    std::fs::write(dir.join("fast.bin"), data).unwrap();
+
+    let mut manifest = empty_manifest();
+    manifest.files.push(crate::manifest::FileManifest {
+        path: "fast.bin".into(),
+        size: data.len() as u64,
+        executable: false,
+        full_file_hash: file_hash,
+        chunks: vec![crate::manifest::ChunkRef {
+            chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
+            raw_size: data.len() as u64,
+        }],
+    });
+
+    let (errors, timings) = verify_directory_with_timings(&manifest, &dir).unwrap();
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+    assert_eq!(timings.verify_mode, VerifyMode::Fast);
+    assert_eq!(timings.chunk_hash_bytes, 0);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn verify_strict_mode_checks_chunk_hashing() {
+    let dir = test_util::temp_path("gutch_verify_strict_mode");
+    test_util::recreate_dir(&dir);
+
+    let chunk_a_data = b"AAAAA";
+    let chunk_b_data = b"BBBBB";
+    let mut full_file = Vec::new();
+    full_file.extend_from_slice(chunk_a_data);
+    full_file.extend_from_slice(chunk_b_data);
+    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&full_file));
+
+    std::fs::write(dir.join("strict.bin"), &full_file).unwrap();
+
+    let mut manifest = empty_manifest();
+    manifest.files.push(crate::manifest::FileManifest {
+        path: "strict.bin".into(),
+        size: full_file.len() as u64,
+        executable: false,
+        full_file_hash: file_hash,
+        chunks: vec![
+            crate::manifest::ChunkRef {
+                chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_b_data)),
+                raw_size: chunk_a_data.len() as u64,
+            },
+            crate::manifest::ChunkRef {
+                chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_a_data)),
+                raw_size: chunk_b_data.len() as u64,
+            },
+        ],
+    });
+
+    let (fast_errors, fast_timings) = verify_directory_with_timings(&manifest, &dir).unwrap();
+    assert!(
+        fast_errors.is_empty(),
+        "fast mode should trust the full-file hash, got: {:?}",
+        fast_errors
+    );
+    assert_eq!(fast_timings.chunk_hash_bytes, 0);
+
+    let (strict_errors, strict_timings) =
+        verify_directory_with_timings_and_mode(&manifest, &dir, VerifyMode::Strict).unwrap();
+    assert_eq!(strict_timings.verify_mode, VerifyMode::Strict);
+    assert_eq!(strict_timings.chunk_hash_bytes, full_file.len() as u64);
+    assert!(
+        strict_errors
+            .iter()
+            .any(|error| error.contains("chunk hash mismatch")),
+        "strict mode should report chunk hash mismatches, got: {:?}",
+        strict_errors
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn estimate_build_empty_files_no_chunks() {
     let manifest = empty_manifest();
     let available = HashSet::new();

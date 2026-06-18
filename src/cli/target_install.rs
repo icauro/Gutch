@@ -70,6 +70,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             repo,
             target,
             dir,
+            strict,
             memory_mode,
             max_memory_mib,
             jobs,
@@ -79,6 +80,11 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             repo,
             target,
             dir,
+            verify_mode: if strict {
+                g::VerifyMode::Strict
+            } else {
+                g::VerifyMode::Fast
+            },
             memory_mode,
             max_memory_mib,
             jobs,

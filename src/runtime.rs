@@ -3,6 +3,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
+const LOW_MEMORY_THRESHOLD_MIB: u64 = 4 * 1024;
+const HIGH_MEMORY_THRESHOLD_MIB: u64 = 8 * 1024;
+const LOW_MEMORY_BUDGET_MIB: u64 = 2 * 1024;
+const BALANCED_MEMORY_BUDGET_MIB: u64 = 8 * 1024;
+const HIGH_MEMORY_BUDGET_MIB: u64 = 32 * 1024;
+const LOW_BUILD_WORKERS: usize = 2;
+const BALANCED_BUILD_WORKERS: usize = 4;
+const LOW_VERIFY_WORKERS: usize = 1;
+const BALANCED_VERIFY_WORKERS: usize = 6;
+const HIGH_VERIFY_WORKERS: usize = 16;
+const LOW_RECONSTRUCT_WORKERS: usize = 1;
+const BALANCED_RECONSTRUCT_WORKERS: usize = 4;
+const HIGH_RECONSTRUCT_WORKERS: usize = 4;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum MemoryMode {
@@ -109,19 +123,22 @@ fn plan_runtime(hints: &RuntimeResourceHints, workload: RuntimeWorkload) -> Runt
 
     let worker_count = hints.jobs.unwrap_or_else(|| match workload {
         RuntimeWorkload::Build => match effective_memory_mode {
-            EffectiveMemoryMode::Low => available_workers.min(2),
-            EffectiveMemoryMode::Balanced => available_workers.min(4),
+            EffectiveMemoryMode::Low => available_workers.min(LOW_BUILD_WORKERS),
+            EffectiveMemoryMode::Balanced => available_workers.min(BALANCED_BUILD_WORKERS),
             EffectiveMemoryMode::High => available_workers,
         },
         RuntimeWorkload::Verify => match effective_memory_mode {
-            EffectiveMemoryMode::Low => 1,
-            EffectiveMemoryMode::Balanced => available_workers.min(3),
-            EffectiveMemoryMode::High => available_workers.min(6),
+            EffectiveMemoryMode::Low => LOW_VERIFY_WORKERS,
+            EffectiveMemoryMode::Balanced => available_workers.min(BALANCED_VERIFY_WORKERS),
+            EffectiveMemoryMode::High => available_workers.min(HIGH_VERIFY_WORKERS),
         },
         RuntimeWorkload::Reconstruct => match effective_memory_mode {
-            EffectiveMemoryMode::Low => 1,
-            EffectiveMemoryMode::Balanced => available_workers.min(2),
-            EffectiveMemoryMode::High => available_workers.min(4),
+            EffectiveMemoryMode::Low => LOW_RECONSTRUCT_WORKERS,
+            EffectiveMemoryMode::Balanced => available_workers.min(BALANCED_RECONSTRUCT_WORKERS),
+            // Phase 1 benchmark showed bundled restore regressing at 8 and 16 workers because
+            // staging/read/write contention dominated. Keep the default capped until restore has
+            // separate CPU and I/O limits.
+            EffectiveMemoryMode::High => available_workers.min(HIGH_RECONSTRUCT_WORKERS),
         },
     });
     let worker_count = worker_count.max(1).min(available_workers);
@@ -130,14 +147,14 @@ fn plan_runtime(hints: &RuntimeResourceHints, workload: RuntimeWorkload) -> Runt
         .max_memory_mib
         .unwrap_or_else(|| match effective_memory_mode {
             EffectiveMemoryMode::Low => available_memory_mib
-                .map(|mib| mib.min(2048))
-                .unwrap_or(2048),
+                .map(|mib| mib.min(LOW_MEMORY_BUDGET_MIB))
+                .unwrap_or(LOW_MEMORY_BUDGET_MIB),
             EffectiveMemoryMode::Balanced => available_memory_mib
-                .map(|mib| mib.min(8192))
-                .unwrap_or(8192),
+                .map(|mib| mib.min(BALANCED_MEMORY_BUDGET_MIB))
+                .unwrap_or(BALANCED_MEMORY_BUDGET_MIB),
             EffectiveMemoryMode::High => available_memory_mib
-                .map(|mib| mib.min(32768))
-                .unwrap_or(32768),
+                .map(|mib| mib.min(HIGH_MEMORY_BUDGET_MIB))
+                .unwrap_or(HIGH_MEMORY_BUDGET_MIB),
         });
 
     let chunk_storage_mode = match effective_memory_mode {
@@ -186,8 +203,8 @@ fn resolve_effective_memory_mode(
         MemoryMode::Balanced => EffectiveMemoryMode::Balanced,
         MemoryMode::High => EffectiveMemoryMode::High,
         MemoryMode::Auto => match available_memory_mib {
-            Some(mib) if mib <= 4 * 1024 => EffectiveMemoryMode::Low,
-            Some(mib) if mib <= 16 * 1024 => EffectiveMemoryMode::Balanced,
+            Some(mib) if mib <= LOW_MEMORY_THRESHOLD_MIB => EffectiveMemoryMode::Low,
+            Some(mib) if mib <= HIGH_MEMORY_THRESHOLD_MIB => EffectiveMemoryMode::Balanced,
             Some(_) => EffectiveMemoryMode::High,
             None => EffectiveMemoryMode::Balanced,
         },
@@ -293,5 +310,70 @@ mod tests {
         assert_eq!(plan.effective_memory_mode, EffectiveMemoryMode::High);
         assert_eq!(plan.chunk_storage_mode, ChunkStorageMode::Memory);
         assert_eq!(plan.worker_count, 8);
+    }
+
+    #[test]
+    fn auto_mode_uses_high_after_balanced_threshold() {
+        let plan = plan_build_runtime(
+            &RuntimeResourceHints {
+                memory_mode: MemoryMode::Auto,
+                max_memory_mib: Some(HIGH_MEMORY_THRESHOLD_MIB + 1),
+                jobs: None,
+            },
+            crate::manifest::COMPRESSION_UNIT_BUNDLE,
+        );
+        assert_eq!(plan.effective_memory_mode, EffectiveMemoryMode::High);
+        assert_eq!(plan.chunk_storage_mode, ChunkStorageMode::Memory);
+    }
+
+    #[test]
+    fn reconstruct_defaults_cap_high_mode_at_four_workers() {
+        let available_workers = std::thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(1)
+            .max(1);
+        let plan = plan_reconstruct_runtime(&RuntimeResourceHints {
+            memory_mode: MemoryMode::High,
+            max_memory_mib: Some(HIGH_MEMORY_BUDGET_MIB),
+            jobs: None,
+        });
+        assert_eq!(
+            plan.worker_count,
+            available_workers.min(HIGH_RECONSTRUCT_WORKERS)
+        );
+    }
+
+    #[test]
+    fn reconstruct_defaults_raise_balanced_mode_to_four_workers() {
+        let available_workers = std::thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(1)
+            .max(1);
+        let plan = plan_reconstruct_runtime(&RuntimeResourceHints {
+            memory_mode: MemoryMode::Balanced,
+            max_memory_mib: Some(BALANCED_MEMORY_BUDGET_MIB),
+            jobs: None,
+        });
+        assert_eq!(
+            plan.worker_count,
+            available_workers.min(BALANCED_RECONSTRUCT_WORKERS)
+        );
+    }
+
+    #[test]
+    fn verify_defaults_allow_more_parallel_file_work() {
+        let available_workers = std::thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(1)
+            .max(1);
+        let plan = plan_verify_runtime(&RuntimeResourceHints {
+            memory_mode: MemoryMode::High,
+            max_memory_mib: Some(HIGH_MEMORY_BUDGET_MIB),
+            jobs: None,
+        });
+        assert_eq!(
+            plan.worker_count,
+            available_workers.min(HIGH_VERIFY_WORKERS)
+        );
     }
 }

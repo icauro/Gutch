@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io::BufWriter;
 use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -62,6 +63,30 @@ struct BundleAccessPlan {
 pub struct VerifiedSourceInstall<'a> {
     pub target_manifest: &'a TargetManifest,
     pub install_dir: &'a Path,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReconstructOptions {
+    pub verify_chunks: bool,
+    pub verify_files: bool,
+}
+
+impl Default for ReconstructOptions {
+    fn default() -> Self {
+        Self {
+            verify_chunks: true,
+            verify_files: true,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LoadedChunk {
+    chunk_hash: String,
+    data: Vec<u8>,
+    read_duration: Duration,
+    compressed_bytes: u64,
+    decompressed_bytes: u64,
 }
 
 pub fn reconstruct_from_target_manifest(
@@ -177,6 +202,24 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<((), ReconstructTimings)> {
+    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
+        target_manifest,
+        bundle_paths,
+        verified_source,
+        output_dir,
+        runtime_hints,
+        ReconstructOptions::default(),
+    )
+}
+
+pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    verified_source: Option<VerifiedSourceInstall<'_>>,
+    output_dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    options: ReconstructOptions,
+) -> Result<((), ReconstructTimings)> {
     let needed_chunks = required_chunk_hashes(target_manifest);
     let total_start = Instant::now();
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
@@ -199,6 +242,7 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
         runtime_plan,
         total_start,
         timings,
+        options,
     )
 }
 
@@ -208,6 +252,24 @@ pub fn reconstruct_from_repo_paths_with_timings_and_hints(
     compression_profile: &CompressionProfile,
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
+) -> Result<((), ReconstructTimings)> {
+    reconstruct_from_repo_paths_with_timings_and_hints_with_options(
+        target_manifest,
+        repo_paths,
+        compression_profile,
+        output_dir,
+        runtime_hints,
+        ReconstructOptions::default(),
+    )
+}
+
+pub fn reconstruct_from_repo_paths_with_timings_and_hints_with_options(
+    target_manifest: &TargetManifest,
+    repo_paths: &GutchRepoPaths,
+    compression_profile: &CompressionProfile,
+    output_dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    options: ReconstructOptions,
 ) -> Result<((), ReconstructTimings)> {
     let needed_chunks = required_chunk_hashes(target_manifest);
     let total_start = Instant::now();
@@ -224,6 +286,8 @@ pub fn reconstruct_from_repo_paths_with_timings_and_hints(
         &chunk_index,
         compression_profile,
         &needed_chunks,
+        options,
+        runtime_plan.worker_count,
         &mut timings,
     )?;
     let required_bundle_ids = required_bundle_ids(target_manifest, &chunk_index);
@@ -241,6 +305,7 @@ pub fn reconstruct_from_repo_paths_with_timings_and_hints(
         runtime_plan,
         total_start,
         timings,
+        options,
     )
 }
 
@@ -253,6 +318,7 @@ fn reconstruct_from_bundle_paths_and_local_chunks(
     runtime_plan: RuntimePlan,
     total_start: Instant,
     mut timings: ReconstructTimings,
+    options: ReconstructOptions,
 ) -> Result<((), ReconstructTimings)> {
     let missing_chunks: HashSet<String> = needed_chunks
         .iter()
@@ -304,6 +370,7 @@ fn reconstruct_from_bundle_paths_and_local_chunks(
         output_dir,
         &mut timings,
         runtime_plan.worker_count,
+        options,
     )?;
     timings.total = total_start.elapsed();
     Ok(((), timings))
@@ -314,34 +381,66 @@ fn read_loose_repo_chunks(
     chunk_index: &crate::manifest::ChunkIndex,
     compression_profile: &CompressionProfile,
     needed_chunks: &HashSet<String>,
+    options: ReconstructOptions,
+    worker_count: usize,
     timings: &mut ReconstructTimings,
 ) -> Result<HashMap<String, Vec<u8>>> {
-    let mut chunk_map = HashMap::new();
-    for chunk_hash in needed_chunks {
-        let Some(index_entry) = chunk_index.entries.get(chunk_hash) else {
-            continue;
-        };
-        if index_entry.storage_mode != ArtifactStorageMode::LooseChunks {
-            continue;
-        }
-        let path = chunk_path(repo_paths, chunk_hash);
-        let read_start = Instant::now();
-        let stored = std::fs::read(&path)?;
-        timings.bundle_read += read_start.elapsed();
-        timings.bundle_read_compressed_bytes += stored.len() as u64;
+    let loaded_chunks = install_in_thread_pool(worker_count, || {
+        needed_chunks
+            .par_iter()
+            .filter_map(|chunk_hash| {
+                let index_entry = chunk_index.entries.get(chunk_hash)?;
+                if index_entry.storage_mode != ArtifactStorageMode::LooseChunks {
+                    return None;
+                }
+                Some(read_loose_repo_chunk(
+                    repo_paths,
+                    compression_profile,
+                    chunk_hash,
+                    options,
+                ))
+            })
+            .collect::<Vec<_>>()
+    })?;
 
-        let chunk_data = decompress_data(&stored, &compression_profile.compression)?;
-        timings.bundle_read_decompressed_bytes += chunk_data.len() as u64;
+    let mut chunk_map = HashMap::with_capacity(loaded_chunks.len());
+    for loaded_chunk in loaded_chunks {
+        let loaded_chunk = loaded_chunk?;
+        timings.bundle_read += loaded_chunk.read_duration;
+        timings.bundle_read_compressed_bytes += loaded_chunk.compressed_bytes;
+        timings.bundle_read_decompressed_bytes += loaded_chunk.decompressed_bytes;
+        chunk_map.insert(loaded_chunk.chunk_hash, loaded_chunk.data);
+    }
+    Ok(chunk_map)
+}
+
+fn read_loose_repo_chunk(
+    repo_paths: &GutchRepoPaths,
+    compression_profile: &CompressionProfile,
+    chunk_hash: &str,
+    options: ReconstructOptions,
+) -> Result<LoadedChunk> {
+    let path = chunk_path(repo_paths, chunk_hash);
+    let read_start = Instant::now();
+    let stored = std::fs::read(&path)?;
+    let read_duration = read_start.elapsed();
+    let chunk_data = decompress_data(&stored, &compression_profile.compression)?;
+    if options.verify_chunks {
         let actual_hash = hash_hex(&crate::hash::hash_chunk(&chunk_data));
-        if actual_hash != *chunk_hash {
+        if actual_hash != chunk_hash {
             return Err(Error::HashMismatch {
-                expected: chunk_hash.clone(),
+                expected: chunk_hash.to_string(),
                 actual: actual_hash,
             });
         }
-        chunk_map.insert(chunk_hash.clone(), chunk_data);
     }
-    Ok(chunk_map)
+    Ok(LoadedChunk {
+        chunk_hash: chunk_hash.to_string(),
+        compressed_bytes: stored.len() as u64,
+        decompressed_bytes: chunk_data.len() as u64,
+        data: chunk_data,
+        read_duration,
+    })
 }
 
 fn read_reusable_source_chunks(
@@ -419,13 +518,21 @@ fn reconstruct_files_from_locations_and_chunks(
     output_dir: &Path,
     timings: &mut ReconstructTimings,
     worker_count: usize,
+    options: ReconstructOptions,
 ) -> Result<()> {
     let per_file = install_in_thread_pool(worker_count, || {
         target_manifest
             .files
             .par_iter()
             .map(|fm| {
-                reconstruct_manifest_file(fm, locations, access_plan, local_chunks, output_dir)
+                reconstruct_manifest_file(
+                    fm,
+                    locations,
+                    access_plan,
+                    local_chunks,
+                    output_dir,
+                    options,
+                )
             })
             .collect::<Vec<_>>()
     })?;
@@ -444,6 +551,7 @@ fn reconstruct_manifest_file(
     access_plan: &BundleAccessPlan,
     local_chunks: &HashMap<String, Vec<u8>>,
     output_dir: &Path,
+    options: ReconstructOptions,
 ) -> Result<ReconstructTimings> {
     let mut timings = ReconstructTimings::default();
     let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
@@ -451,8 +559,8 @@ fn reconstruct_manifest_file(
         std::fs::create_dir_all(parent)?;
     }
 
-    let mut output = std::fs::File::create(&output_path)?;
-    let mut hasher = blake3::Hasher::new();
+    let mut output = BufWriter::new(std::fs::File::create(&output_path)?);
+    let mut hasher = options.verify_files.then(blake3::Hasher::new);
     let mut written = 0u64;
     let mut bundle_readers: HashMap<PathBuf, bundle::BundleReader<std::fs::File>> = HashMap::new();
     let mut staged_raw_readers: HashMap<PathBuf, std::fs::File> = HashMap::new();
@@ -463,7 +571,9 @@ fn reconstruct_manifest_file(
             output.write_all(local_chunk)?;
             timings.file_write += t.elapsed();
             timings.file_write_bytes += local_chunk.len() as u64;
-            hasher.update(local_chunk);
+            if let Some(hasher) = &mut hasher {
+                hasher.update(local_chunk);
+            }
             written += local_chunk.len() as u64;
             timings.file_rebuild_bytes += local_chunk.len() as u64;
             continue;
@@ -483,13 +593,16 @@ fn reconstruct_manifest_file(
             &mut bundle_readers,
             &mut staged_raw_readers,
             &mut timings,
+            options,
         )?;
 
         let t = Instant::now();
         output.write_all(&chunk_data)?;
         timings.file_write += t.elapsed();
         timings.file_write_bytes += chunk_data.len() as u64;
-        hasher.update(&chunk_data);
+        if let Some(hasher) = &mut hasher {
+            hasher.update(&chunk_data);
+        }
         written += chunk_data.len() as u64;
         timings.file_rebuild_bytes += chunk_data.len() as u64;
     }
@@ -502,14 +615,20 @@ fn reconstruct_manifest_file(
     }
 
     let t = Instant::now();
-    let actual_hash = hash_hex(&hasher.finalize());
-    timings.file_verify += t.elapsed();
-    timings.file_verify_bytes += written;
-    if actual_hash != fm.full_file_hash {
-        return Err(Error::HashMismatch {
-            expected: fm.full_file_hash.clone(),
-            actual: actual_hash,
-        });
+    output.flush()?;
+    timings.file_write += t.elapsed();
+
+    if let Some(hasher) = hasher {
+        let t = Instant::now();
+        let actual_hash = hash_hex(&hasher.finalize());
+        timings.file_verify += t.elapsed();
+        timings.file_verify_bytes += written;
+        if actual_hash != fm.full_file_hash {
+            return Err(Error::HashMismatch {
+                expected: fm.full_file_hash.clone(),
+                actual: actual_hash,
+            });
+        }
     }
 
     Ok(timings)
@@ -522,6 +641,7 @@ fn read_chunk_for_reconstruct(
     bundle_readers: &mut HashMap<PathBuf, bundle::BundleReader<std::fs::File>>,
     staged_raw_readers: &mut HashMap<PathBuf, std::fs::File>,
     timings: &mut ReconstructTimings,
+    options: ReconstructOptions,
 ) -> Result<Vec<u8>> {
     match strategy {
         BundleAccessStrategy::DirectChunkRead => {
@@ -555,12 +675,14 @@ fn read_chunk_for_reconstruct(
             timings.bundle_read += t.elapsed();
             timings.bundle_read_decompressed_bytes += location.raw_size;
 
-            let actual_hash = hash_hex(&crate::hash::hash_chunk(&chunk_data));
-            if actual_hash != expected_chunk_hash {
-                return Err(Error::HashMismatch {
-                    expected: expected_chunk_hash.to_string(),
-                    actual: actual_hash,
-                });
+            if options.verify_chunks {
+                let actual_hash = hash_hex(&crate::hash::hash_chunk(&chunk_data));
+                if actual_hash != expected_chunk_hash {
+                    return Err(Error::HashMismatch {
+                        expected: expected_chunk_hash.to_string(),
+                        actual: actual_hash,
+                    });
+                }
             }
 
             Ok(chunk_data)

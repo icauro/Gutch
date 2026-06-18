@@ -184,6 +184,7 @@ pub struct ReconstructTimingsSummary {
 
 #[derive(Debug, Serialize)]
 pub struct VerifyTimingsSummary {
+    pub verify_mode: String,
     pub requested_memory_mode: Option<String>,
     pub effective_memory_mode: Option<String>,
     pub worker_count: Option<usize>,
@@ -437,6 +438,7 @@ pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummar
         .map(|plan| plan.memory_budget_mib);
 
     VerifyTimingsSummary {
+        verify_mode: timings.verify_mode.as_str().to_string(),
         requested_memory_mode,
         effective_memory_mode,
         worker_count,
@@ -803,6 +805,7 @@ pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
 
 pub fn print_verify_timings(t: &g::VerifyTimings) {
     print_section_title("Verify Timing Summary");
+    print_metric_line("mode", t.verify_mode.as_str());
     if let Some(plan) = &t.runtime_plan {
         print_metric_line(
             "runtime plan",

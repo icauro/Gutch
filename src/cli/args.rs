@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 use gutch as g;
 
 #[derive(Parser)]
@@ -241,6 +241,8 @@ pub enum TargetCommands {
         max_memory_mib: Option<u64>,
         #[arg(long = "jobs")]
         jobs: Option<usize>,
+        #[arg(long = "no-restore-verify", action = ArgAction::SetFalse, default_value_t = true)]
+        restore_verify: bool,
         #[arg(long = "summary-out")]
         summary_out: Option<PathBuf>,
         #[arg(long = "stats-json-out")]
@@ -303,6 +305,8 @@ pub enum TargetInstallCommands {
         target: String,
         #[arg(short, long)]
         dir: PathBuf,
+        #[arg(long = "strict")]
+        strict: bool,
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,
         #[arg(long = "max-memory-mib")]

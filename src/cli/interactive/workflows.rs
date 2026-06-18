@@ -146,6 +146,7 @@ pub(super) fn run_target_extract(theme: &ColorfulTheme, repo: &Path) -> g::Resul
         memory_mode: runtime.memory_mode,
         max_memory_mib: runtime.max_memory_mib,
         jobs: runtime.jobs,
+        restore_verify: true,
         summary_out: None,
         stats_json_out: None,
     })
@@ -224,6 +225,7 @@ pub(super) fn run_target_install_verify(theme: &ColorfulTheme, repo: &Path) -> g
         repo: repo.to_path_buf(),
         target,
         dir,
+        verify_mode: g::VerifyMode::Fast,
         memory_mode: runtime.memory_mode,
         max_memory_mib: runtime.max_memory_mib,
         jobs: runtime.jobs,

@@ -110,6 +110,7 @@ fn build_timings_summary_reports_accounted_and_ratio_fields() {
 #[test]
 fn verify_timings_summary_reports_accounted_fields() {
     let timings = g::VerifyTimings {
+        verify_mode: g::VerifyMode::Strict,
         runtime_plan: None,
         stat: Duration::from_secs(1),
         file_read: Duration::from_secs(2),
@@ -122,6 +123,7 @@ fn verify_timings_summary_reports_accounted_fields() {
     };
 
     let summary = verify_timings_summary(&timings);
+    assert_eq!(summary.verify_mode, "strict");
     assert!((summary.file_read_mib_per_second - 4.0).abs() < f64::EPSILON);
     assert!((summary.accounted_seconds - 5.0).abs() < f64::EPSILON);
     assert!((summary.unaccounted_seconds - 1.0).abs() < f64::EPSILON);

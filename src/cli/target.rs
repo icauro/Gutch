@@ -540,6 +540,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             memory_mode,
             max_memory_mib,
             jobs,
+            restore_verify,
             summary_out,
             stats_json_out,
         } => {
@@ -553,12 +554,16 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 max_memory_mib,
                 jobs,
             };
-            let (_, timings) = g::reconstruct_from_repo_paths_with_timings_and_hints(
+            let (_, timings) = g::reconstruct_from_repo_paths_with_timings_and_hints_with_options(
                 &tm,
                 &repo_paths,
                 &repo_manifest.compression_profile,
                 &output,
                 &runtime_hints,
+                g::ReconstructOptions {
+                    verify_chunks: restore_verify,
+                    verify_files: restore_verify,
+                },
             )?;
             if verbose_output_enabled() {
                 println!("reconstructed to: {}", output.display());
@@ -574,6 +579,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 required_chunk_count: count_required_chunks(&tm),
                 required_bundle_count: count_required_bundles_from_chunk_index(&tm, &chunk_index),
                 resolved_bundle_file_count: required_bundle_ids.len(),
+                restore_verify,
                 total_logical_size: tm.total_logical_size,
                 total_compressed_size_estimate: tm.total_compressed_size_estimate,
                 timings: reconstruct_timings_summary(&timings),

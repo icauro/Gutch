@@ -29,6 +29,7 @@ pub(crate) struct VerifyCommand {
     pub(crate) repo: PathBuf,
     pub(crate) target: String,
     pub(crate) dir: PathBuf,
+    pub(crate) verify_mode: g::VerifyMode,
     pub(crate) memory_mode: g::MemoryMode,
     pub(crate) max_memory_mib: Option<u64>,
     pub(crate) jobs: Option<usize>,
@@ -135,8 +136,12 @@ pub(crate) fn verify_install(command: VerifyCommand) -> g::Result<()> {
         max_memory_mib: command.max_memory_mib,
         jobs: command.jobs,
     };
-    let (classification, timings) =
-        g::classify_directory_with_progress(&tm, &command.dir, &runtime_hints)?;
+    let (classification, timings) = g::classify_directory_with_progress_and_mode(
+        &tm,
+        &command.dir,
+        &runtime_hints,
+        command.verify_mode,
+    )?;
     let missing_file_count = classification.missing_files.len();
     let corrupt_file_count = classification.corrupt_files.len();
     let extra_file_count = classification.extra_files.len();
@@ -146,6 +151,7 @@ pub(crate) fn verify_install(command: VerifyCommand) -> g::Result<()> {
         repo_root: repo_paths.repo_root.display().to_string(),
         target_id: tm.target_id.clone(),
         install_dir: command.dir.display().to_string(),
+        verify_mode: command.verify_mode.as_str().to_string(),
         expected_file_count: tm.files.len(),
         missing_file_count,
         corrupt_file_count,

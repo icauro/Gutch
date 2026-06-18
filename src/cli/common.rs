@@ -81,6 +81,7 @@ pub(crate) struct TargetExportStats {
     pub(crate) required_chunk_count: usize,
     pub(crate) required_bundle_count: usize,
     pub(crate) resolved_bundle_file_count: usize,
+    pub(crate) restore_verify: bool,
     pub(crate) total_logical_size: u64,
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) timings: ReconstructTimingsSummary,
@@ -93,6 +94,7 @@ pub(crate) struct TargetInstallVerifyStats {
     pub(crate) repo_root: String,
     pub(crate) target_id: String,
     pub(crate) install_dir: String,
+    pub(crate) verify_mode: String,
     pub(crate) expected_file_count: usize,
     pub(crate) missing_file_count: usize,
     pub(crate) corrupt_file_count: usize,
@@ -232,9 +234,15 @@ impl SummaryReport for TargetInsertStats {
                 summary_kv("required_bundles", self.required_bundle_count.to_string()),
                 summary_kv("generated_bundles", self.generated_bundle_count.to_string()),
                 summary_kv("reused_bundles", self.reused_bundle_count.to_string()),
-                summary_kv("generated_bundle_size", format_bytes(self.generated_bundle_bytes)),
+                summary_kv(
+                    "generated_bundle_size",
+                    format_bytes(self.generated_bundle_bytes),
+                ),
                 summary_kv("generated_chunks", self.generated_chunk_count.to_string()),
-                summary_kv("generated_chunk_size", format_bytes(self.generated_chunk_bytes)),
+                summary_kv(
+                    "generated_chunk_size",
+                    format_bytes(self.generated_chunk_bytes),
+                ),
                 summary_kv(
                     "bundle_reuse",
                     format!("{:.2}%", self.reused_bundle_percent),
@@ -275,9 +283,15 @@ impl SummaryReport for TargetInsertManyStats {
                     format_bytes(self.total_compressed_size_estimate),
                 ),
                 summary_kv("generated_bundles", self.generated_bundle_count.to_string()),
-                summary_kv("generated_bundle_size", format_bytes(self.generated_bundle_bytes)),
+                summary_kv(
+                    "generated_bundle_size",
+                    format_bytes(self.generated_bundle_bytes),
+                ),
                 summary_kv("generated_chunks", self.generated_chunk_count.to_string()),
-                summary_kv("generated_chunk_size", format_bytes(self.generated_chunk_bytes)),
+                summary_kv(
+                    "generated_chunk_size",
+                    format_bytes(self.generated_chunk_bytes),
+                ),
             ],
         );
         push_summary_section(
@@ -340,6 +354,7 @@ impl SummaryReport for TargetExportStats {
                     "resolved_bundles",
                     self.resolved_bundle_file_count.to_string(),
                 ),
+                summary_kv("restore_verify", self.restore_verify.to_string()),
             ],
         );
         push_summary_section(
@@ -434,6 +449,7 @@ impl SummaryReport for TargetInstallVerifyStats {
                 summary_kv("repo_root", &self.repo_root),
                 summary_kv("target_id", &self.target_id),
                 summary_kv("install_dir", &self.install_dir),
+                summary_kv("verify_mode", &self.verify_mode),
                 summary_kv(
                     "status",
                     status_label(self.verification_passed, "passed", "failed"),

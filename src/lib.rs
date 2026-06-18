@@ -50,13 +50,15 @@ pub use install::{
 };
 pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use reconstruct::{
-    ReconstructTimings, VerifiedSourceInstall,
+    ReconstructOptions, ReconstructTimings, VerifiedSourceInstall,
     reconstruct_from_bundle_paths_and_verified_source_with_timings,
     reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints,
+    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options,
     reconstruct_from_bundle_paths_with_timings,
     reconstruct_from_bundle_paths_with_timings_and_hints,
-    reconstruct_from_repo_paths_with_timings_and_hints, reconstruct_from_target_manifest,
-    reconstruct_from_target_manifest_with_timings,
+    reconstruct_from_repo_paths_with_timings_and_hints,
+    reconstruct_from_repo_paths_with_timings_and_hints_with_options,
+    reconstruct_from_target_manifest, reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
     GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
@@ -72,11 +74,13 @@ pub use runtime::{
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
 pub use verify::{
-    RepairClassification, RepairIssue, RepairIssueKind, VerifyTimings, classify_directory,
-    classify_directory_with_progress, classify_directory_with_timings,
-    classify_directory_with_timings_and_hints, estimate_build, verify_directory,
-    verify_directory_with_progress, verify_directory_with_timings,
-    verify_directory_with_timings_and_hints,
+    RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,
+    classify_directory, classify_directory_with_progress,
+    classify_directory_with_progress_and_mode, classify_directory_with_timings,
+    classify_directory_with_timings_and_hints, classify_directory_with_timings_and_hints_and_mode,
+    estimate_build, verify_directory, verify_directory_strict, verify_directory_with_progress,
+    verify_directory_with_progress_and_mode, verify_directory_with_timings,
+    verify_directory_with_timings_and_hints, verify_directory_with_timings_and_hints_and_mode,
 };
 
 #[cfg(test)]

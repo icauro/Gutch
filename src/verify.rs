@@ -14,8 +14,29 @@ use crate::runtime::{
     RuntimePlan, RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerifyMode {
+    #[default]
+    Fast,
+    Strict,
+}
+
+impl VerifyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VerifyMode::Fast => "fast",
+            VerifyMode::Strict => "strict",
+        }
+    }
+
+    fn checks_chunk_hashes(self) -> bool {
+        matches!(self, VerifyMode::Strict)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct VerifyTimings {
+    pub verify_mode: VerifyMode,
     pub runtime_plan: Option<RuntimePlan>,
     pub stat: Duration,
     pub file_read: Duration,
@@ -85,6 +106,29 @@ pub fn verify_directory_with_timings(
     Ok((classification.into_messages(), timings))
 }
 
+pub fn verify_directory_with_timings_and_mode(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    verify_mode: VerifyMode,
+) -> Result<(Vec<String>, VerifyTimings)> {
+    let (classification, timings) = classify_directory_with_timings_and_hints_and_mode(
+        target_manifest,
+        dir,
+        &RuntimeResourceHints::default(),
+        verify_mode,
+    )?;
+    Ok((classification.into_messages(), timings))
+}
+
+pub fn verify_directory_strict(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+) -> Result<Vec<String>> {
+    let (errors, _) =
+        verify_directory_with_timings_and_mode(target_manifest, dir, VerifyMode::Strict)?;
+    Ok(errors)
+}
+
 pub fn classify_directory(
     target_manifest: &TargetManifest,
     dir: &Path,
@@ -101,6 +145,7 @@ pub fn classify_directory_with_timings(
         target_manifest,
         dir,
         &RuntimeResourceHints::default(),
+        VerifyMode::Fast,
         None,
     )
 }
@@ -115,6 +160,21 @@ pub fn verify_directory_with_timings_and_hints(
     Ok((classification.into_messages(), timings))
 }
 
+pub fn verify_directory_with_timings_and_hints_and_mode(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    verify_mode: VerifyMode,
+) -> Result<(Vec<String>, VerifyTimings)> {
+    let (classification, timings) = classify_directory_with_timings_and_hints_and_mode(
+        target_manifest,
+        dir,
+        runtime_hints,
+        verify_mode,
+    )?;
+    Ok((classification.into_messages(), timings))
+}
+
 pub fn classify_directory_with_timings_and_hints(
     target_manifest: &TargetManifest,
     dir: &Path,
@@ -124,6 +184,22 @@ pub fn classify_directory_with_timings_and_hints(
         target_manifest,
         dir,
         runtime_hints,
+        VerifyMode::Fast,
+        None,
+    )
+}
+
+pub fn classify_directory_with_timings_and_hints_and_mode(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    verify_mode: VerifyMode,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_directory_with_timings_and_hints_and_progress(
+        target_manifest,
+        dir,
+        runtime_hints,
+        verify_mode,
         None,
     )
 }
@@ -132,6 +208,15 @@ pub fn classify_directory_with_progress(
     target_manifest: &TargetManifest,
     dir: &Path,
     runtime_hints: &RuntimeResourceHints,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_directory_with_progress_and_mode(target_manifest, dir, runtime_hints, VerifyMode::Fast)
+}
+
+pub fn classify_directory_with_progress_and_mode(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    verify_mode: VerifyMode,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let file_count = target_manifest.files.len() as u64;
     let pb = ProgressBar::new(file_count);
@@ -147,6 +232,7 @@ pub fn classify_directory_with_progress(
         target_manifest,
         dir,
         runtime_hints,
+        verify_mode,
         Some(&pb),
     );
     pb.finish_and_clear();
@@ -158,8 +244,21 @@ pub fn verify_directory_with_progress(
     dir: &Path,
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    let (classification, timings) =
-        classify_directory_with_progress(target_manifest, dir, runtime_hints)?;
+    verify_directory_with_progress_and_mode(target_manifest, dir, runtime_hints, VerifyMode::Fast)
+}
+
+pub fn verify_directory_with_progress_and_mode(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    verify_mode: VerifyMode,
+) -> Result<(Vec<String>, VerifyTimings)> {
+    let (classification, timings) = classify_directory_with_progress_and_mode(
+        target_manifest,
+        dir,
+        runtime_hints,
+        verify_mode,
+    )?;
     Ok((classification.into_messages(), timings))
 }
 
@@ -167,12 +266,14 @@ fn classify_directory_with_timings_and_hints_and_progress(
     target_manifest: &TargetManifest,
     dir: &Path,
     runtime_hints: &RuntimeResourceHints,
+    verify_mode: VerifyMode,
     progress: Option<&ProgressBar>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     let mut classification = RepairClassification::default();
     let runtime_plan = plan_verify_runtime(runtime_hints);
     let mut timings = VerifyTimings {
+        verify_mode,
         runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };
@@ -187,7 +288,7 @@ fn classify_directory_with_timings_and_hints_and_progress(
             .files
             .par_iter()
             .map(|fm| {
-                let result = verify_manifest_file(target_manifest, dir, fm);
+                let result = verify_manifest_file(target_manifest, dir, fm, verify_mode);
                 if let Some(pb) = progress {
                     pb.inc(1);
                 }
@@ -233,8 +334,12 @@ fn verify_manifest_file(
     _target_manifest: &TargetManifest,
     dir: &Path,
     fm: &crate::manifest::FileManifest,
+    verify_mode: VerifyMode,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
-    let mut timings = VerifyTimings::default();
+    let mut timings = VerifyTimings {
+        verify_mode,
+        ..VerifyTimings::default()
+    };
     let file_path = resolve_manifest_relative_path(dir, &fm.path)?;
 
     if !file_path.exists() {
@@ -280,7 +385,7 @@ fn verify_manifest_file(
         ));
     }
 
-    match verify_file_streaming(fm, &file_path, &mut timings) {
+    match verify_file_streaming(fm, &file_path, verify_mode, &mut timings) {
         Ok(issues) => Ok((issues, timings)),
         Err(e) => Ok((
             vec![RepairIssue {
@@ -296,6 +401,7 @@ fn verify_manifest_file(
 fn verify_file_streaming(
     fm: &crate::manifest::FileManifest,
     file_path: &Path,
+    verify_mode: VerifyMode,
     timings: &mut VerifyTimings,
 ) -> std::io::Result<Vec<RepairIssue>> {
     let file = std::fs::File::open(file_path)?;
@@ -335,19 +441,21 @@ fn verify_file_streaming(
         timings.file_hash += t.elapsed();
         timings.file_hash_bytes += chunk_ref.raw_size;
 
-        let t = Instant::now();
-        let chunk_hash_actual = hash_hex(&crate::hash::hash_chunk(&chunk_buffer));
-        timings.chunk_hash += t.elapsed();
-        timings.chunk_hash_bytes += chunk_ref.raw_size;
-        if chunk_hash_actual != chunk_ref.chunk_hash {
-            issues.push(RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
-                detail: format!(
-                    "chunk hash mismatch in {} at offset {}: expected {}, got {}",
-                    fm.path, start, chunk_ref.chunk_hash, chunk_hash_actual
-                ),
-            });
+        if verify_mode.checks_chunk_hashes() {
+            let t = Instant::now();
+            let chunk_hash_actual = hash_hex(&crate::hash::hash_chunk(&chunk_buffer));
+            timings.chunk_hash += t.elapsed();
+            timings.chunk_hash_bytes += chunk_ref.raw_size;
+            if chunk_hash_actual != chunk_ref.chunk_hash {
+                issues.push(RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: fm.path.clone(),
+                    detail: format!(
+                        "chunk hash mismatch in {} at offset {}: expected {}, got {}",
+                        fm.path, start, chunk_ref.chunk_hash, chunk_hash_actual
+                    ),
+                });
+            }
         }
     }
 
@@ -418,6 +526,7 @@ pub fn estimate_build(
 }
 
 fn accumulate_verify_timings(total: &mut VerifyTimings, add: &VerifyTimings) {
+    total.verify_mode = add.verify_mode;
     total.stat += add.stat;
     total.file_read += add.file_read;
     total.file_read_bytes += add.file_read_bytes;
