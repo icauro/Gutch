@@ -59,3 +59,11 @@ fn bundle_raw_target_size_uses_compression_ratio_from_preferred_target() {
     let raw_target = raw_target_size_for_bundle_compression(compressed_target, 0.5, policy);
     assert_eq!(raw_target, 32 * 1024 * 1024);
 }
+
+#[test]
+fn bundle_compression_workers_do_not_exceed_bundle_count() {
+    assert_eq!(bundle_compression_worker_count(0, 16), 1);
+    assert_eq!(bundle_compression_worker_count(2, 16), 2);
+    assert_eq!(bundle_compression_worker_count(8, 4), 4);
+    assert_eq!(bundle_compression_worker_count(8, 0), 1);
+}

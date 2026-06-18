@@ -186,21 +186,27 @@ impl BundleBuilder {
             }
             payload
         } else {
-            let mut encoder = zstd::stream::Encoder::new(Vec::new(), self.profile.zstd_level)
-                .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
-            for chunk in &self.chunks {
-                let raw = chunk.raw.as_ref().ok_or_else(|| {
-                    crate::error::Error::InvalidBundle(
-                        "bundle-compressed chunks must retain raw bytes until bundle build".into(),
-                    )
-                })?;
-                encoder
-                    .write_all(raw.as_slice())
-                    .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?;
-            }
-            encoder
-                .finish()
-                .map_err(|e| crate::error::Error::bundle(format!("zstd compress: {}", e)))?
+            let raw_segments = self
+                .chunks
+                .iter()
+                .map(|chunk| {
+                    chunk
+                        .raw
+                        .as_ref()
+                        .map(ChunkRawData::as_slice)
+                        .ok_or_else(|| {
+                            crate::error::Error::InvalidBundle(
+                                "bundle-compressed chunks must retain raw bytes until bundle build"
+                                    .into(),
+                            )
+                        })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            compress::compress_segments_with_level(
+                raw_segments,
+                current_raw_offset,
+                self.profile.zstd_level,
+            )?
         };
         let stream_compression = compression_start.elapsed();
         if !entries.is_empty() {

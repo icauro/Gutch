@@ -200,6 +200,17 @@ fn record_bundle_compressed_bundle_metrics(
     timings.bundle_compressed_serialization_bytes += bundle_metrics.serialization_bytes;
 }
 
+fn bundle_compression_worker_count(
+    planned_bundle_count: usize,
+    runtime_worker_count: usize,
+) -> usize {
+    if planned_bundle_count == 0 {
+        1
+    } else {
+        runtime_worker_count.max(1).min(planned_bundle_count)
+    }
+}
+
 struct BuiltBundleCompressedGroup {
     bundle_id: String,
     bundle_data: Vec<u8>,
@@ -482,6 +493,8 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
             }
             let compression_profile_for_work = compression_profile.clone();
             let progress_for_work = config.progress.clone();
+            let bundle_worker_count =
+                bundle_compression_worker_count(planned_bundles.len(), runtime_plan.worker_count);
             let build_bundle_work = || {
                 planned_bundles
                     .into_par_iter()
@@ -495,7 +508,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
                     .collect::<Result<Vec<_>>>()
             };
             let built_bundle_groups: Vec<BuiltBundleCompressedGroup> =
-                install_in_thread_pool(runtime_plan.worker_count, build_bundle_work)??;
+                install_in_thread_pool(bundle_worker_count, build_bundle_work)??;
 
             for built_bundle in built_bundle_groups {
                 timings.bundle_compressed_payload_load += built_bundle.payload_load;

@@ -25,6 +25,27 @@ fn test_compress_small_data() {
 }
 
 #[test]
+fn test_compress_segments_roundtrip() {
+    let first = b"first segment repeats ".repeat(100);
+    let second = b"second segment repeats ".repeat(100);
+    let third = b"third segment repeats ".repeat(100);
+    let raw_size = (first.len() + second.len() + third.len()) as u64;
+    let compressed = compress_segments_with_level(
+        [first.as_slice(), second.as_slice(), third.as_slice()],
+        raw_size,
+        CompressionProfile::default().zstd_level,
+    )
+    .unwrap();
+
+    let decompressed = decompress_data(&compressed, "zstd").unwrap();
+    let mut expected = Vec::new();
+    expected.extend_from_slice(&first);
+    expected.extend_from_slice(&second);
+    expected.extend_from_slice(&third);
+    assert_eq!(decompressed, expected);
+}
+
+#[test]
 fn test_different_levels() {
     let original = b"some data that repeats again and again ".repeat(200);
     let c1 = compress_with_level(&original, 1).unwrap();
