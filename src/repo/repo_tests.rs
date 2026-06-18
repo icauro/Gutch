@@ -18,6 +18,7 @@ fn gutch_repo_paths_from_repo_root() {
     assert_eq!(paths.chunk_index_path, root.join("chunk_index.bin"));
     assert_eq!(paths.targets_root, root.join("targets"));
     assert_eq!(paths.bundles_root, root.join("bundles"));
+    assert_eq!(paths.chunks_root, root.join("chunks"));
 }
 
 #[test]
@@ -66,6 +67,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
                     bundle_id: "bundle-1".into(),
                     raw_size: 100,
                     compressed_size: 50,
+                    storage_mode: manifest::ArtifactStorageMode::Bundled,
                 },
             ),
             (
@@ -74,6 +76,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
                     bundle_id: "bundle-1".into(),
                     raw_size: 100,
                     compressed_size: 50,
+                    storage_mode: manifest::ArtifactStorageMode::Bundled,
                 },
             ),
         ]),
@@ -233,6 +236,7 @@ fn chunk_index_write_and_load_roundtrip() {
             bundle_id: "bundle-1".to_string(),
             raw_size: 100,
             compressed_size: 40,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
         },
     );
     entries.insert(
@@ -241,6 +245,7 @@ fn chunk_index_write_and_load_roundtrip() {
             bundle_id: "bundle-1".to_string(),
             raw_size: 100,
             compressed_size: 40,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
         },
     );
     entries.insert(
@@ -249,6 +254,7 @@ fn chunk_index_write_and_load_roundtrip() {
             bundle_id: "bundle-2".to_string(),
             raw_size: 100,
             compressed_size: 40,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
         },
     );
     let index = manifest::ChunkIndex {

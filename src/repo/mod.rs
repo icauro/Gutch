@@ -6,7 +6,8 @@ use std::time::SystemTime;
 use crate::hash::hash_hex;
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::manifest::{
-    self, FileManifest, binary, gutch_repo::GutchRepoManifest, target::TargetManifest,
+    self, ArtifactStorageMode, FileManifest, binary, gutch_repo::GutchRepoManifest,
+    target::TargetManifest,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ pub struct GutchRepoPaths {
     pub chunk_index_path: PathBuf,
     pub targets_root: PathBuf,
     pub bundles_root: PathBuf,
+    pub chunks_root: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +98,7 @@ impl GutchRepoPaths {
             chunk_index_path: repo_root.join("chunk_index.bin"),
             targets_root: repo_root.join("targets"),
             bundles_root: repo_root.join("bundles"),
+            chunks_root: repo_root.join("chunks"),
         }
     }
 }
@@ -115,6 +118,7 @@ pub fn ensure_gutch_repo_layout(
 ) -> Result<GutchRepoManifest> {
     std::fs::create_dir_all(&paths.targets_root)?;
     std::fs::create_dir_all(&paths.bundles_root)?;
+    std::fs::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
@@ -175,6 +179,15 @@ pub fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> PathBuf {
     bundle_path_in_root(&paths.bundles_root, bundle_id)
 }
 
+pub fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> PathBuf {
+    let prefix = chunk_hash.get(0..2).unwrap_or("xx");
+    chunks_root.join(prefix).join(format!("{chunk_hash}.chunk"))
+}
+
+pub fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> PathBuf {
+    chunk_path_in_root(&paths.chunks_root, chunk_hash)
+}
+
 pub fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
     if path.extension().and_then(|value| value.to_str()) == Some("bundle") {
         return path
@@ -223,7 +236,23 @@ pub fn required_bundle_ids(
             chunk_index
                 .entries
                 .get(&chunk_hash)
+                .filter(|entry| entry.storage_mode == ArtifactStorageMode::Bundled)
                 .map(|entry| entry.bundle_id.clone())
+        })
+        .collect()
+}
+
+pub fn required_loose_chunk_hashes(
+    target_manifest: &TargetManifest,
+    chunk_index: &manifest::ChunkIndex,
+) -> HashSet<String> {
+    required_chunk_hashes(target_manifest)
+        .into_iter()
+        .filter(|chunk_hash| {
+            chunk_index
+                .entries
+                .get(chunk_hash)
+                .is_some_and(|entry| entry.storage_mode == ArtifactStorageMode::LooseChunks)
         })
         .collect()
 }
@@ -249,8 +278,7 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
     } else {
         chunk_index
     };
-    state.chunk_locations =
-        existing_chunk_locations_from_index(&state.chunk_index, &state.bundle_ids);
+    state.chunk_locations = existing_chunk_locations_from_index(&state.chunk_index, paths);
 
     for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
         let entry = entry?;
@@ -277,12 +305,15 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
 
 pub fn existing_chunk_locations_from_index(
     chunk_index: &manifest::ChunkIndex,
-    existing_bundle_ids: &HashSet<String>,
+    paths: &GutchRepoPaths,
 ) -> std::collections::HashMap<String, crate::ExistingChunkLocation> {
     chunk_index
         .entries
         .iter()
-        .filter(|(_, entry)| existing_bundle_ids.contains(&entry.bundle_id))
+        .filter(|(chunk_hash, entry)| match entry.storage_mode {
+            ArtifactStorageMode::Bundled => bundle_path(paths, &entry.bundle_id).is_file(),
+            ArtifactStorageMode::LooseChunks => chunk_path(paths, chunk_hash).is_file(),
+        })
         .map(|(chunk_hash, entry)| {
             (
                 chunk_hash.clone(),
@@ -290,6 +321,7 @@ pub fn existing_chunk_locations_from_index(
                     bundle_id: entry.bundle_id.clone(),
                     raw_size: entry.raw_size,
                     compressed_size: entry.compressed_size,
+                    storage_mode: entry.storage_mode,
                 },
             )
         })
@@ -316,6 +348,7 @@ pub fn rebuild_chunk_index_from_bundles(paths: &GutchRepoPaths) -> Result<manife
                     bundle_id: bundle_id.clone(),
                     raw_size: chunk.raw_size,
                     compressed_size: chunk.compressed_size,
+                    storage_mode: ArtifactStorageMode::Bundled,
                 },
             );
         }
@@ -341,9 +374,29 @@ pub fn add_built_bundles_to_chunk_index(
                     bundle_id: bundle.bundle_id.clone(),
                     raw_size: chunk.raw_size,
                     compressed_size: chunk.compressed_size,
+                    storage_mode: ArtifactStorageMode::Bundled,
                 },
             );
         }
+    }
+    chunk_index.updated_at = chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339();
+    Ok(())
+}
+
+pub fn add_built_loose_chunks_to_chunk_index(
+    chunk_index: &mut manifest::ChunkIndex,
+    chunks: &[crate::BuiltLooseChunk],
+) -> Result<()> {
+    for chunk in chunks {
+        chunk_index.entries.insert(
+            chunk.chunk_hash.clone(),
+            manifest::ChunkIndexEntry {
+                bundle_id: chunk.chunk_hash.clone(),
+                raw_size: chunk.raw_size,
+                compressed_size: chunk.compressed_size,
+                storage_mode: ArtifactStorageMode::LooseChunks,
+            },
+        );
     }
     chunk_index.updated_at = chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339();
     Ok(())

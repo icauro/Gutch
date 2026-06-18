@@ -50,7 +50,10 @@ pub(super) fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
     }
 
     let template = super::prompt_tagging_template(theme)?;
-    let preview = format!("plctl gutch repo init --path {}", super::shell_arg_path(&path));
+    let preview = format!(
+        "plctl gutch repo init --path {}",
+        super::shell_arg_path(&path)
+    );
     super::confirm_preview(theme, &preview)?;
 
     actions::repo::init_repo(&path, None)?;
@@ -110,6 +113,7 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
         chunk_profile,
         bundle_profile,
         compression_profile,
+        storage_mode: g::manifest::ArtifactStorageMode::Bundled,
         memory_mode: runtime.memory_mode,
         max_memory_mib: runtime.max_memory_mib,
         jobs: runtime.jobs,
@@ -383,6 +387,7 @@ pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Res
             chunk_profile: g::manifest::ArtifactSizingPreset::Chunk128KiB,
             bundle_profile: g::manifest::BundleSizingPreset::Bundle16MiB,
             compression_profile,
+            storage_mode: g::manifest::ArtifactStorageMode::Bundled,
             memory_mode: g::MemoryMode::Auto,
             max_memory_mib: None,
             jobs: None,

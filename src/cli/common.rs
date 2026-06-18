@@ -36,6 +36,7 @@ pub(crate) struct TargetInsertStats {
     pub(crate) platform: String,
     pub(crate) architecture: String,
     pub(crate) tier_id: String,
+    pub(crate) storage_mode: String,
     pub(crate) file_count: usize,
     pub(crate) total_logical_size: u64,
     pub(crate) total_compressed_size_estimate: u64,
@@ -43,6 +44,8 @@ pub(crate) struct TargetInsertStats {
     pub(crate) required_bundle_count: usize,
     pub(crate) generated_bundle_count: usize,
     pub(crate) generated_bundle_bytes: u64,
+    pub(crate) generated_chunk_count: usize,
+    pub(crate) generated_chunk_bytes: u64,
     pub(crate) reused_chunk_count: usize,
     pub(crate) new_chunk_count: usize,
     pub(crate) reused_chunk_percent: f64,
@@ -61,6 +64,8 @@ pub(crate) struct TargetInsertManyStats {
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) generated_bundle_count: usize,
     pub(crate) generated_bundle_bytes: u64,
+    pub(crate) generated_chunk_count: usize,
+    pub(crate) generated_chunk_bytes: u64,
     pub(crate) total_build_seconds: f64,
     pub(crate) targets: Vec<TargetInsertStats>,
     pub(crate) outputs: OptionalOutputPaths,
@@ -207,6 +212,7 @@ impl SummaryReport for TargetInsertStats {
                 summary_kv("platform", &self.platform),
                 summary_kv("architecture", &self.architecture),
                 summary_kv("tier", &self.tier_id),
+                summary_kv("storage_mode", &self.storage_mode),
             ],
         );
         push_summary_section(
@@ -226,7 +232,9 @@ impl SummaryReport for TargetInsertStats {
                 summary_kv("required_bundles", self.required_bundle_count.to_string()),
                 summary_kv("generated_bundles", self.generated_bundle_count.to_string()),
                 summary_kv("reused_bundles", self.reused_bundle_count.to_string()),
-                summary_kv("generated_size", format_bytes(self.generated_bundle_bytes)),
+                summary_kv("generated_bundle_size", format_bytes(self.generated_bundle_bytes)),
+                summary_kv("generated_chunks", self.generated_chunk_count.to_string()),
+                summary_kv("generated_chunk_size", format_bytes(self.generated_chunk_bytes)),
                 summary_kv(
                     "bundle_reuse",
                     format!("{:.2}%", self.reused_bundle_percent),
@@ -267,7 +275,9 @@ impl SummaryReport for TargetInsertManyStats {
                     format_bytes(self.total_compressed_size_estimate),
                 ),
                 summary_kv("generated_bundles", self.generated_bundle_count.to_string()),
-                summary_kv("generated_size", format_bytes(self.generated_bundle_bytes)),
+                summary_kv("generated_bundle_size", format_bytes(self.generated_bundle_bytes)),
+                summary_kv("generated_chunks", self.generated_chunk_count.to_string()),
+                summary_kv("generated_chunk_size", format_bytes(self.generated_chunk_bytes)),
             ],
         );
         push_summary_section(
@@ -286,11 +296,12 @@ impl SummaryReport for TargetInsertManyStats {
                 .iter()
                 .map(|target| {
                     format!(
-                        "{} | files={} | logical={} | generated_bundles={} | total_sec={:.2}",
+                        "{} | files={} | logical={} | generated_bundles={} | generated_chunks={} | total_sec={:.2}",
                         target.target_id,
                         target.file_count,
                         format_bytes(target.total_logical_size),
                         target.generated_bundle_count,
+                        target.generated_chunk_count,
                         target.timings.total_seconds
                     )
                 })
@@ -594,11 +605,14 @@ pub(crate) fn count_required_bundles_for_build(
     target_manifest: &g::manifest::target::TargetManifest,
     existing_chunk_locations: &HashMap<String, g::ExistingChunkLocation>,
     generated_bundles: &[g::BuiltBundle],
+    _generated_loose_chunks: &[g::BuiltLooseChunk],
 ) -> usize {
     let mut required_bundle_ids = HashSet::new();
     for chunk_hash in required_chunk_hashes(target_manifest) {
         if let Some(existing) = existing_chunk_locations.get(&chunk_hash) {
-            required_bundle_ids.insert(existing.bundle_id.clone());
+            if existing.storage_mode == g::manifest::ArtifactStorageMode::Bundled {
+                required_bundle_ids.insert(existing.bundle_id.clone());
+            }
         }
     }
 
@@ -736,4 +750,28 @@ pub(crate) fn write_bundles(
         }
     }
     Ok(bundle_sizes)
+}
+
+pub(crate) fn write_loose_chunks(
+    chunks_root: &std::path::Path,
+    chunks: &[g::BuiltLooseChunk],
+) -> g::Result<std::collections::HashMap<String, u64>> {
+    let mut chunk_sizes = std::collections::HashMap::with_capacity(chunks.len());
+    for chunk in chunks {
+        let chunk_path = g::chunk_path_in_root(chunks_root, &chunk.chunk_hash);
+        if let Some(parent) = chunk_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&chunk_path, &chunk.data)?;
+        let chunk_size = chunk.data.len() as u64;
+        chunk_sizes.insert(chunk.chunk_hash.clone(), chunk_size);
+        if verbose_output_enabled() {
+            println!(
+                "wrote chunk: {} ({} bytes)",
+                chunk_path.display(),
+                chunk.data.len()
+            );
+        }
+    }
+    Ok(chunk_sizes)
 }

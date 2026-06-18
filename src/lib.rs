@@ -34,8 +34,8 @@ pub use build::{
     build_with_config,
 };
 pub use build_types::{
-    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, ChunkPayload,
-    ExistingChunkLocation,
+    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
+    ChunkPayload, ExistingChunkLocation,
 };
 pub use core::target_identity::{
     ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
@@ -54,12 +54,14 @@ pub use reconstruct::{
     reconstruct_from_bundle_paths_and_verified_source_with_timings,
     reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints,
     reconstruct_from_bundle_paths_with_timings,
-    reconstruct_from_bundle_paths_with_timings_and_hints, reconstruct_from_target_manifest,
+    reconstruct_from_bundle_paths_with_timings_and_hints,
+    reconstruct_from_repo_paths_with_timings_and_hints, reconstruct_from_target_manifest,
     reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
     GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
-    add_built_bundles_to_chunk_index, bundle_id_from_bundle_path, bundle_path, bundle_path_in_root,
+    add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index,
+    bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, chunk_path, chunk_path_in_root,
     compute_target_id_from_files, discover_source_target_installs, ensure_gutch_repo_layout,
     inspect_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
     serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::manifest::{
-    BundleSizingProfile, ChunkSizingProfile, CompressionProfile, FileManifest, TargetTagSet,
-    target::TargetManifest,
+    ArtifactStorageMode, BundleSizingProfile, ChunkSizingProfile, CompressionProfile, FileManifest,
+    TargetTagSet, target::TargetManifest,
 };
 use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 
@@ -28,6 +28,7 @@ pub struct BuildConfig {
     pub chunk_profile: ChunkSizingProfile,
     pub bundle_profile: BundleSizingProfile,
     pub compression_profile: CompressionProfile,
+    pub storage_mode: ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
     pub progress: Option<Arc<dyn BuildProgressSink>>,
 }
@@ -44,6 +45,7 @@ impl BuildConfig {
             chunk_profile: ChunkSizingProfile::default(),
             bundle_profile: BundleSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
+            storage_mode: ArtifactStorageMode::default(),
             runtime_hints: RuntimeResourceHints::default(),
             progress: None,
         }
@@ -53,6 +55,7 @@ impl BuildConfig {
 pub struct BuildResult {
     pub target_manifest: TargetManifest,
     pub bundles: Vec<BuiltBundle>,
+    pub loose_chunks: Vec<BuiltLooseChunk>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,10 +65,19 @@ pub struct BuiltBundle {
 }
 
 #[derive(Debug, Clone)]
+pub struct BuiltLooseChunk {
+    pub chunk_hash: String,
+    pub data: Vec<u8>,
+    pub raw_size: u64,
+    pub compressed_size: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct ExistingChunkLocation {
     pub bundle_id: String,
     pub raw_size: u64,
     pub compressed_size: u64,
+    pub storage_mode: ArtifactStorageMode,
 }
 
 #[derive(Debug, Clone)]

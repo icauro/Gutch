@@ -16,6 +16,31 @@ pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
+pub enum ArtifactStorageMode {
+    #[serde(rename = "bundled")]
+    #[value(name = "bundled")]
+    Bundled,
+    #[serde(rename = "loose_chunks")]
+    #[value(name = "loose_chunks")]
+    LooseChunks,
+}
+
+impl Default for ArtifactStorageMode {
+    fn default() -> Self {
+        Self::Bundled
+    }
+}
+
+impl ArtifactStorageMode {
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Self::Bundled => "bundled",
+            Self::LooseChunks => "loose_chunks",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
 pub enum ArtifactSizingPreset {
     #[serde(rename = "chunk_1KiB")]
     #[value(name = "chunk_1KiB")]
@@ -847,6 +872,8 @@ pub struct ChunkIndexEntry {
     pub bundle_id: String,
     pub raw_size: u64,
     pub compressed_size: u64,
+    #[serde(default)]
+    pub storage_mode: ArtifactStorageMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

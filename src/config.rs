@@ -132,8 +132,9 @@ pub fn load_config() -> Result<GutchConfig, crate::Error> {
         let raw = std::fs::read_to_string(&path).map_err(|err| {
             crate::Error::manifest(format!("failed to read gutch config: {}", err))
         })?;
-        return serde_json::from_str(&raw)
-            .map_err(|err| crate::Error::manifest(format!("failed to parse gutch config: {}", err)));
+        return serde_json::from_str(&raw).map_err(|err| {
+            crate::Error::manifest(format!("failed to parse gutch config: {}", err))
+        });
     }
 
     let legacy_path = legacy_gutch_config_path()?;
@@ -141,9 +142,8 @@ pub fn load_config() -> Result<GutchConfig, crate::Error> {
         return Ok(GutchConfig::default());
     }
 
-    let raw = std::fs::read_to_string(&legacy_path).map_err(|err| {
-        crate::Error::manifest(format!("failed to read gutch config: {}", err))
-    })?;
+    let raw = std::fs::read_to_string(&legacy_path)
+        .map_err(|err| crate::Error::manifest(format!("failed to read gutch config: {}", err)))?;
     serde_json::from_str(&raw)
         .map_err(|err| crate::Error::manifest(format!("failed to parse gutch config: {}", err)))
 }

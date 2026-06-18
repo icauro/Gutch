@@ -23,6 +23,8 @@ pub struct GutchRepoManifest {
     pub compression_profile: CompressionProfile,
     #[serde(default)]
     pub bundle_sizing_profile: BundleSizingProfile,
+    #[serde(default)]
+    pub storage_mode: ArtifactStorageMode,
 }
 
 impl GutchRepoManifest {
@@ -37,6 +39,7 @@ impl GutchRepoManifest {
             chunk_sizing_profile: ChunkSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
             bundle_sizing_profile: BundleSizingProfile::default(),
+            storage_mode: ArtifactStorageMode::default(),
         }
     }
 }

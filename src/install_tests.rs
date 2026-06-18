@@ -23,6 +23,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                 bundle_id: "bundle-a".to_string(),
                 raw_size: 100,
                 compressed_size: 64,
+                storage_mode: manifest::ArtifactStorageMode::Bundled,
             },
         )]),
     };

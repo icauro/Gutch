@@ -9,10 +9,11 @@ use rayon::prelude::*;
 use tempfile::TempDir;
 
 use crate::bundle;
+use crate::compress::decompress_data;
 use crate::hash::hash_hex;
-use crate::manifest::target::TargetManifest;
+use crate::manifest::{ArtifactStorageMode, CompressionProfile, target::TargetManifest};
 use crate::path_guard::resolve_manifest_relative_path;
-use crate::repo::required_chunk_hashes;
+use crate::repo::{GutchRepoPaths, chunk_path, required_bundle_ids, required_chunk_hashes};
 use crate::runtime::{
     RuntimePlan, RuntimeResourceHints, install_in_thread_pool, plan_reconstruct_runtime,
 };
@@ -176,6 +177,39 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<((), ReconstructTimings)> {
+    let needed_chunks = required_chunk_hashes(target_manifest);
+    let total_start = Instant::now();
+    let runtime_plan = plan_reconstruct_runtime(runtime_hints);
+    let timings = ReconstructTimings {
+        runtime_plan: Some(runtime_plan.clone()),
+        ..ReconstructTimings::default()
+    };
+    std::fs::create_dir_all(output_dir)?;
+
+    let local_chunks = match verified_source {
+        Some(source) => read_reusable_source_chunks(source, &needed_chunks)?,
+        None => HashMap::new(),
+    };
+    reconstruct_from_bundle_paths_and_local_chunks(
+        target_manifest,
+        bundle_paths,
+        &needed_chunks,
+        local_chunks,
+        output_dir,
+        runtime_plan,
+        total_start,
+        timings,
+    )
+}
+
+pub fn reconstruct_from_repo_paths_with_timings_and_hints(
+    target_manifest: &TargetManifest,
+    repo_paths: &GutchRepoPaths,
+    compression_profile: &CompressionProfile,
+    output_dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<((), ReconstructTimings)> {
+    let needed_chunks = required_chunk_hashes(target_manifest);
     let total_start = Instant::now();
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
     let mut timings = ReconstructTimings {
@@ -184,12 +218,42 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
     };
     std::fs::create_dir_all(output_dir)?;
 
-    let needed_chunks = required_chunk_hashes(target_manifest);
+    let chunk_index = crate::repo::load_chunk_index(repo_paths)?;
+    let local_chunks = read_loose_repo_chunks(
+        repo_paths,
+        &chunk_index,
+        compression_profile,
+        &needed_chunks,
+        &mut timings,
+    )?;
+    let required_bundle_ids = required_bundle_ids(target_manifest, &chunk_index);
+    let bundle_paths = required_bundle_ids
+        .iter()
+        .map(|bundle_id| crate::repo::bundle_path(repo_paths, bundle_id))
+        .collect::<Vec<_>>();
 
-    let local_chunks = match verified_source {
-        Some(source) => read_reusable_source_chunks(source, &needed_chunks)?,
-        None => HashMap::new(),
-    };
+    reconstruct_from_bundle_paths_and_local_chunks(
+        target_manifest,
+        &bundle_paths,
+        &needed_chunks,
+        local_chunks,
+        output_dir,
+        runtime_plan,
+        total_start,
+        timings,
+    )
+}
+
+fn reconstruct_from_bundle_paths_and_local_chunks(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    needed_chunks: &HashSet<String>,
+    local_chunks: HashMap<String, Vec<u8>>,
+    output_dir: &Path,
+    runtime_plan: RuntimePlan,
+    total_start: Instant,
+    mut timings: ReconstructTimings,
+) -> Result<((), ReconstructTimings)> {
     let missing_chunks: HashSet<String> = needed_chunks
         .iter()
         .filter(|chunk_hash| !local_chunks.contains_key(*chunk_hash))
@@ -243,6 +307,41 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
     )?;
     timings.total = total_start.elapsed();
     Ok(((), timings))
+}
+
+fn read_loose_repo_chunks(
+    repo_paths: &GutchRepoPaths,
+    chunk_index: &crate::manifest::ChunkIndex,
+    compression_profile: &CompressionProfile,
+    needed_chunks: &HashSet<String>,
+    timings: &mut ReconstructTimings,
+) -> Result<HashMap<String, Vec<u8>>> {
+    let mut chunk_map = HashMap::new();
+    for chunk_hash in needed_chunks {
+        let Some(index_entry) = chunk_index.entries.get(chunk_hash) else {
+            continue;
+        };
+        if index_entry.storage_mode != ArtifactStorageMode::LooseChunks {
+            continue;
+        }
+        let path = chunk_path(repo_paths, chunk_hash);
+        let read_start = Instant::now();
+        let stored = std::fs::read(&path)?;
+        timings.bundle_read += read_start.elapsed();
+        timings.bundle_read_compressed_bytes += stored.len() as u64;
+
+        let chunk_data = decompress_data(&stored, &compression_profile.compression)?;
+        timings.bundle_read_decompressed_bytes += chunk_data.len() as u64;
+        let actual_hash = hash_hex(&crate::hash::hash_chunk(&chunk_data));
+        if actual_hash != *chunk_hash {
+            return Err(Error::HashMismatch {
+                expected: chunk_hash.clone(),
+                actual: actual_hash,
+            });
+        }
+        chunk_map.insert(chunk_hash.clone(), chunk_data);
+    }
+    Ok(chunk_map)
 }
 
 fn read_reusable_source_chunks(

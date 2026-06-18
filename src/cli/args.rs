@@ -4,7 +4,11 @@ use clap::{Parser, Subcommand};
 use gutch as g;
 
 #[derive(Parser)]
-#[command(name = "plctl gutch", version, about = "Launcher artifact engine")]
+#[command(
+    name = "plctl gutch",
+    version,
+    about = "Launcher artifact engine"
+)]
 pub struct Cli {
     #[arg(long, short = 'v', global = true)]
     pub verbose: bool,
@@ -174,6 +178,8 @@ pub enum TargetCommands {
         bundle_profile: g::manifest::BundleSizingPreset,
         #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
         compression_profile: g::manifest::CompressionPreset,
+        #[arg(long = "storage-mode", value_enum, default_value_t = g::manifest::ArtifactStorageMode::Bundled)]
+        storage_mode: g::manifest::ArtifactStorageMode,
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,
         #[arg(long = "max-memory-mib")]
@@ -201,6 +207,8 @@ pub enum TargetCommands {
         bundle_profile: g::manifest::BundleSizingPreset,
         #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
         compression_profile: g::manifest::CompressionPreset,
+        #[arg(long = "storage-mode", value_enum, default_value_t = g::manifest::ArtifactStorageMode::Bundled)]
+        storage_mode: g::manifest::ArtifactStorageMode,
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,
         #[arg(long = "max-memory-mib")]

@@ -8,13 +8,13 @@ use tempfile::TempDir;
 use crate::Result;
 use crate::build_scan::collect_scanned_chunks;
 use crate::build_types::{
-    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, ChunkPayload,
-    ExistingChunkLocation,
+    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
+    ChunkPayload, ExistingChunkLocation,
 };
 use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
 use crate::manifest::{
-    self, COMPRESSION_UNIT_BUNDLE, FileManifest, TargetTagSet, target::TargetManifest,
+    self, ArtifactStorageMode, FileManifest, TargetTagSet, target::TargetManifest,
 };
 use crate::runtime::{ChunkStorageMode, install_in_thread_pool, plan_build_runtime};
 
@@ -41,9 +41,7 @@ impl BundleSizingPolicy {
         }
 
         if compressed_bytes <= self.preferred_size {
-            return compressed_bytes
-                .max(self.preferred_size)
-                .min(self.max_size);
+            return compressed_bytes.max(self.preferred_size).min(self.max_size);
         }
 
         let bundle_count = compressed_bytes.div_ceil(self.preferred_size);
@@ -208,6 +206,45 @@ struct BuiltBundleCompressedGroup {
     bundle_metrics: crate::bundle::BundleBuildMetrics,
     payload_load: std::time::Duration,
     payload_load_bytes: u64,
+}
+
+struct BuiltLooseChunkResult {
+    chunk: BuiltLooseChunk,
+    payload_load: std::time::Duration,
+    payload_load_bytes: u64,
+}
+
+fn build_loose_chunk(
+    chunk_hash: String,
+    payload: ChunkPayload,
+    compression_profile: &manifest::CompressionProfile,
+    progress: Option<&dyn BuildProgressSink>,
+) -> Result<BuiltLooseChunkResult> {
+    let load_start = Instant::now();
+    let raw_size = payload.raw_size();
+    let bytes = payload.load_bytes()?;
+    let payload_load = load_start.elapsed();
+
+    let data = if compression_profile.compression == "none" {
+        bytes
+    } else {
+        compress_with_level(&bytes, compression_profile.zstd_level)?
+    };
+    let compressed_size = data.len() as u64;
+    if let Some(progress) = progress {
+        progress.on_bundle_built();
+    }
+
+    Ok(BuiltLooseChunkResult {
+        chunk: BuiltLooseChunk {
+            chunk_hash,
+            data,
+            raw_size,
+            compressed_size,
+        },
+        payload_load,
+        payload_load_bytes: raw_size,
+    })
 }
 
 fn build_bundle_compressed_group(
@@ -415,70 +452,109 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
 
     let t = Instant::now();
     let mut bundles = Vec::new();
+    let mut loose_chunks = Vec::new();
     let bundle_target_size_policy = BundleSizingPolicy::new(
         config.bundle_profile.bundle_max_size_bytes(),
         config.bundle_profile.bundle_preferred_size_bytes(),
     );
 
-    if compression_profile.compression_unit != COMPRESSION_UNIT_BUNDLE {
-        return Err(crate::Error::manifest(
-            "gutch only supports bundle-compressed storage".to_string(),
-        ));
-    }
+    match config.storage_mode {
+        ArtifactStorageMode::Bundled => {
+            if compression_profile.compression_unit != manifest::COMPRESSION_UNIT_BUNDLE {
+                return Err(crate::Error::manifest(
+                    "gutch only supports bundle-compressed storage".to_string(),
+                ));
+            }
 
-    let (planned_bundles, sort_duration, sort_bytes, probe_duration, probe_raw_bytes) =
-        plan_bundle_compressed_groups(
-            chunks_to_compress,
-            &compression_profile,
-            &config.bundle_profile,
-            bundle_target_size_policy,
-        )?;
-    timings.bundle_compressed_sort += sort_duration;
-    timings.bundle_compressed_sort_bytes += sort_bytes;
-    timings.bundle_compressed_ratio_probe += probe_duration;
-    timings.bundle_compressed_ratio_probe_bytes += probe_raw_bytes;
-    if let Some(progress) = &config.progress {
-        progress.on_bundle_build_started(planned_bundles.len());
-    }
-    let compression_profile_for_work = compression_profile.clone();
-    let progress_for_work = config.progress.clone();
-    let build_bundle_work = || {
-        planned_bundles
-            .into_par_iter()
-            .map(|planned_bundle| {
-                build_bundle_compressed_group(
-                    planned_bundle,
-                    &compression_profile_for_work,
-                    progress_for_work.as_deref(),
-                )
-            })
-            .collect::<Result<Vec<_>>>()
-    };
-    let built_bundle_groups: Vec<BuiltBundleCompressedGroup> =
-        install_in_thread_pool(runtime_plan.worker_count, build_bundle_work)??;
+            let (planned_bundles, sort_duration, sort_bytes, probe_duration, probe_raw_bytes) =
+                plan_bundle_compressed_groups(
+                    chunks_to_compress,
+                    &compression_profile,
+                    &config.bundle_profile,
+                    bundle_target_size_policy,
+                )?;
+            timings.bundle_compressed_sort += sort_duration;
+            timings.bundle_compressed_sort_bytes += sort_bytes;
+            timings.bundle_compressed_ratio_probe += probe_duration;
+            timings.bundle_compressed_ratio_probe_bytes += probe_raw_bytes;
+            if let Some(progress) = &config.progress {
+                progress.on_bundle_build_started(planned_bundles.len());
+            }
+            let compression_profile_for_work = compression_profile.clone();
+            let progress_for_work = config.progress.clone();
+            let build_bundle_work = || {
+                planned_bundles
+                    .into_par_iter()
+                    .map(|planned_bundle| {
+                        build_bundle_compressed_group(
+                            planned_bundle,
+                            &compression_profile_for_work,
+                            progress_for_work.as_deref(),
+                        )
+                    })
+                    .collect::<Result<Vec<_>>>()
+            };
+            let built_bundle_groups: Vec<BuiltBundleCompressedGroup> =
+                install_in_thread_pool(runtime_plan.worker_count, build_bundle_work)??;
 
-    for built_bundle in built_bundle_groups {
-        timings.bundle_compressed_payload_load += built_bundle.payload_load;
-        timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
-        required_bundle_set.push(built_bundle.bundle_id.clone());
-        if !config.existing_bundle_ids.contains(&built_bundle.bundle_id) {
-            record_bundle_compressed_bundle_metrics(
-                &mut timings,
-                &mut total_compressed,
-                built_bundle.bundle_data.len() as u64,
-                built_bundle.bundle_metrics,
-            );
-            bundles.push(BuiltBundle {
-                bundle_id: built_bundle.bundle_id,
-                data: built_bundle.bundle_data,
-            });
+            for built_bundle in built_bundle_groups {
+                timings.bundle_compressed_payload_load += built_bundle.payload_load;
+                timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
+                required_bundle_set.push(built_bundle.bundle_id.clone());
+                if !config.existing_bundle_ids.contains(&built_bundle.bundle_id) {
+                    record_bundle_compressed_bundle_metrics(
+                        &mut timings,
+                        &mut total_compressed,
+                        built_bundle.bundle_data.len() as u64,
+                        built_bundle.bundle_metrics,
+                    );
+                    bundles.push(BuiltBundle {
+                        bundle_id: built_bundle.bundle_id,
+                        data: built_bundle.bundle_data,
+                    });
+                }
+            }
+        }
+        ArtifactStorageMode::LooseChunks => {
+            if let Some(progress) = &config.progress {
+                progress.on_bundle_build_started(chunks_to_compress.len());
+            }
+            let compression_profile_for_work = compression_profile.clone();
+            let progress_for_work = config.progress.clone();
+            let build_loose_work = || {
+                chunks_to_compress
+                    .into_par_iter()
+                    .map(|(chunk_hash, payload)| {
+                        build_loose_chunk(
+                            chunk_hash,
+                            payload,
+                            &compression_profile_for_work,
+                            progress_for_work.as_deref(),
+                        )
+                    })
+                    .collect::<Result<Vec<_>>>()
+            };
+            let built_chunks: Vec<BuiltLooseChunkResult> =
+                install_in_thread_pool(runtime_plan.worker_count, build_loose_work)??;
+
+            for built_chunk in built_chunks {
+                timings.bundle_compressed_payload_load += built_chunk.payload_load;
+                timings.bundle_compressed_payload_load_bytes += built_chunk.payload_load_bytes;
+                timings.compression_output_bytes += built_chunk.chunk.compressed_size;
+                total_compressed += built_chunk.chunk.compressed_size;
+                loose_chunks.push(built_chunk.chunk);
+            }
         }
     }
 
-    timings.compression = t.elapsed();
+    timings.compression += t.elapsed();
     timings.total_compressed_bytes = total_compressed;
     timings.bundle_build += t.elapsed();
-    timings.bundle_build_bytes = bundles.iter().map(|b| b.data.len() as u64).sum();
+    timings.bundle_build_bytes = bundles.iter().map(|b| b.data.len() as u64).sum::<u64>()
+        + loose_chunks
+            .iter()
+            .map(|chunk| chunk.data.len() as u64)
+            .sum::<u64>();
 
     let t = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
@@ -493,6 +569,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
         BuildResult {
             target_manifest: vm,
             bundles,
+            loose_chunks,
         },
         timings,
     ))

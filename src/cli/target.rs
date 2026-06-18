@@ -6,7 +6,7 @@ use crate::cli::common::{
     TargetExportStats, TargetInsertManyStats, TargetInsertStats, collect_input_sizing_stats,
     count_required_bundles_for_build, count_required_bundles_from_chunk_index,
     count_required_chunks, load_target_manifest_from_repo, prepare_input_path, write_bundles,
-    write_report, write_target_manifest,
+    write_loose_chunks, write_report, write_target_manifest,
 };
 use crate::cli::progress::TargetInsertProgress;
 use crate::cli::reporting::{
@@ -47,6 +47,7 @@ struct InsertOneTargetRequest<'a> {
     chunk_profile: g::manifest::ArtifactSizingPreset,
     bundle_profile: g::manifest::BundleSizingPreset,
     compression_profile: g::manifest::CompressionPreset,
+    storage_mode: g::manifest::ArtifactStorageMode,
     memory_mode: g::MemoryMode,
     max_memory_mib: Option<u64>,
     jobs: Option<usize>,
@@ -82,7 +83,8 @@ fn run_insert_one_target(
         request.bundle_profile,
         input_stats.target_logical_size_bytes,
     );
-    let compression_profile = g::manifest::CompressionProfile::for_preset(request.compression_profile);
+    let compression_profile =
+        g::manifest::CompressionProfile::for_preset(request.compression_profile);
 
     let mut build_config =
         g::BuildConfig::with_ids(request.gutch_repo_id, "", &resolved_identity.target_tags);
@@ -92,6 +94,7 @@ fn run_insert_one_target(
     build_config.chunk_profile = chunk_sizing_profile;
     build_config.bundle_profile = bundle_sizing_profile;
     build_config.compression_profile = compression_profile;
+    build_config.storage_mode = request.storage_mode;
     build_config.runtime_hints = g::RuntimeResourceHints {
         memory_mode: request.memory_mode,
         max_memory_mib: request.max_memory_mib,
@@ -120,15 +123,15 @@ fn run_insert_one_target(
 
     let (manifest_path, _) = write_target_manifest(request.repo_paths, &result.target_manifest)?;
     write_bundles(&request.repo_paths.bundles_root, &result.bundles)?;
+    write_loose_chunks(&request.repo_paths.chunks_root, &result.loose_chunks)?;
     g::add_built_bundles_to_chunk_index(&mut store_state.chunk_index, &result.bundles)?;
+    g::add_built_loose_chunks_to_chunk_index(&mut store_state.chunk_index, &result.loose_chunks)?;
 
     for bundle in &result.bundles {
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
     }
-    store_state.chunk_locations = g::repo::existing_chunk_locations_from_index(
-        &store_state.chunk_index,
-        &store_state.bundle_ids,
-    );
+    store_state.chunk_locations =
+        g::repo::existing_chunk_locations_from_index(&store_state.chunk_index, request.repo_paths);
     for file in &result.target_manifest.files {
         store_state
             .previous_file_manifests
@@ -158,13 +161,20 @@ fn run_insert_one_target(
         &result.target_manifest,
         &build_config.existing_chunk_locations,
         &result.bundles,
+        &result.loose_chunks,
     );
     let generated_bundle_count = result.bundles.len();
     let generated_bundle_bytes: u64 = result
         .bundles
         .iter()
         .map(|bundle| bundle.data.len() as u64)
-        .sum();
+        .sum::<u64>();
+    let generated_chunk_count = result.loose_chunks.len();
+    let generated_chunk_bytes = result
+        .loose_chunks
+        .iter()
+        .map(|chunk| chunk.data.len() as u64)
+        .sum::<u64>();
     let reused_chunk_count = required_chunk_hashes(&result.target_manifest)
         .into_iter()
         .filter(|chunk_id| existing_chunk_ids.contains(chunk_id))
@@ -201,6 +211,7 @@ fn run_insert_one_target(
             .get_exclusive("tier")
             .unwrap_or_default()
             .to_string(),
+        storage_mode: request.storage_mode.cli_name().to_string(),
         file_count: result.target_manifest.files.len(),
         total_logical_size: result.target_manifest.total_logical_size,
         total_compressed_size_estimate: result.target_manifest.total_compressed_size_estimate,
@@ -208,6 +219,8 @@ fn run_insert_one_target(
         required_bundle_count,
         generated_bundle_count,
         generated_bundle_bytes,
+        generated_chunk_count,
+        generated_chunk_bytes,
         reused_chunk_count,
         new_chunk_count,
         reused_chunk_percent,
@@ -271,6 +284,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             chunk_profile,
             bundle_profile,
             compression_profile,
+            storage_mode,
             memory_mode,
             max_memory_mib,
             jobs,
@@ -306,6 +320,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     chunk_profile,
                     bundle_profile,
                     compression_profile,
+                    storage_mode,
                     memory_mode,
                     max_memory_mib,
                     jobs,
@@ -326,7 +341,9 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 bundle_profile,
                 stats.total_logical_size,
             );
-            repo_manifest.compression_profile = g::manifest::CompressionProfile::for_preset(compression_profile);
+            repo_manifest.compression_profile =
+                g::manifest::CompressionProfile::for_preset(compression_profile);
+            repo_manifest.storage_mode = storage_mode;
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
         }
 
@@ -338,6 +355,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             chunk_profile,
             bundle_profile,
             compression_profile,
+            storage_mode,
             memory_mode,
             max_memory_mib,
             jobs,
@@ -365,6 +383,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                         chunk_profile,
                         bundle_profile,
                         compression_profile,
+                        storage_mode,
                         memory_mode,
                         max_memory_mib,
                         jobs,
@@ -394,6 +413,14 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 .iter()
                 .map(|stats| stats.generated_bundle_bytes)
                 .sum();
+            let generated_chunk_count = target_stats
+                .iter()
+                .map(|stats| stats.generated_chunk_count)
+                .sum();
+            let generated_chunk_bytes = target_stats
+                .iter()
+                .map(|stats| stats.generated_chunk_bytes)
+                .sum();
             let total_build_seconds = target_stats
                 .iter()
                 .map(|stats| stats.timings.total_seconds)
@@ -406,6 +433,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 total_compressed_size_estimate,
                 generated_bundle_count,
                 generated_bundle_bytes,
+                generated_chunk_count,
+                generated_chunk_bytes,
                 total_build_seconds,
                 targets: target_stats,
                 outputs: optional_output_paths(&summary_out, &stats_json_out),
@@ -415,7 +444,9 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 g::manifest::ChunkSizingProfile::for_selection(chunk_profile, 0);
             repo_manifest.bundle_sizing_profile =
                 g::manifest::BundleSizingProfile::for_selection(bundle_profile, total_logical_size);
-            repo_manifest.compression_profile = g::manifest::CompressionProfile::for_preset(compression_profile);
+            repo_manifest.compression_profile =
+                g::manifest::CompressionProfile::for_preset(compression_profile);
+            repo_manifest.storage_mode = storage_mode;
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             write_report(&summary_out, &stats_json_out, &aggregate_stats)?;
         }
@@ -512,20 +543,20 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             summary_out,
             stats_json_out,
         } => {
-            let (repo_paths, _repo_manifest, _manifest_path, tm) =
+            let (repo_paths, repo_manifest, _manifest_path, tm) =
                 load_target_manifest_from_repo(&repo, &target)?;
-            let bundle_paths =
-                crate::cli::common::resolve_required_bundle_paths(&repo_paths.bundles_root)?;
             let chunk_index = g::load_chunk_index(&repo_paths)?;
+            let required_bundle_ids = g::repo::required_bundle_ids(&tm, &chunk_index);
 
             let runtime_hints = g::RuntimeResourceHints {
                 memory_mode,
                 max_memory_mib,
                 jobs,
             };
-            let (_, timings) = g::reconstruct_from_bundle_paths_with_timings_and_hints(
+            let (_, timings) = g::reconstruct_from_repo_paths_with_timings_and_hints(
                 &tm,
-                &bundle_paths,
+                &repo_paths,
+                &repo_manifest.compression_profile,
                 &output,
                 &runtime_hints,
             )?;
@@ -542,7 +573,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 file_count: tm.files.len(),
                 required_chunk_count: count_required_chunks(&tm),
                 required_bundle_count: count_required_bundles_from_chunk_index(&tm, &chunk_index),
-                resolved_bundle_file_count: bundle_paths.len(),
+                resolved_bundle_file_count: required_bundle_ids.len(),
                 total_logical_size: tm.total_logical_size,
                 total_compressed_size_estimate: tm.total_compressed_size_estimate,
                 timings: reconstruct_timings_summary(&timings),

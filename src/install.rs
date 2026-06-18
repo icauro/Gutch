@@ -213,8 +213,8 @@ pub fn fetch_target_install_content(
         .filter(|value| !value.is_empty())
     {
         let chunk_index_bytes = download_url(chunk_index_url)?;
-        let chunk_index: manifest::ChunkIndex =
-            serde_json::from_slice(&chunk_index_bytes).map_err(|err| {
+        let chunk_index: manifest::ChunkIndex = serde_json::from_slice(&chunk_index_bytes)
+            .map_err(|err| {
                 Error::manifest(format!("downloaded chunk index is invalid JSON: {}", err))
             })?;
         crate::write_chunk_index(&repo_paths, &chunk_index)?;

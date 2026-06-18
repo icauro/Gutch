@@ -3,9 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::cli::common::{
-    load_optional_rules, parse_version_parts, session_id_for_cli,
-};
+use crate::cli::common::{load_optional_rules, parse_version_parts, session_id_for_cli};
 use g::remote::backend::{
     CreatorRepoTargetsResponse, UpsertTargetResponse, request_json_from_backend, upload_raw_file,
 };

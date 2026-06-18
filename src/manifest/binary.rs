@@ -8,7 +8,7 @@ use crate::manifest::{self, FileManifest, target::TargetManifest};
 use crate::{Error, Result};
 
 const CHUNK_INDEX_BINARY_MAGIC: &[u8; 8] = b"GTCIDX1\0";
-const CHUNK_INDEX_BINARY_VERSION: u16 = 2;
+const CHUNK_INDEX_BINARY_VERSION: u16 = 3;
 const TARGET_FILES_BINARY_MAGIC: &[u8; 8] = b"GTCTGT1\0";
 const TARGET_FILES_BINARY_VERSION: u16 = 2;
 
@@ -41,6 +41,10 @@ fn read_u32(reader: &mut impl Read) -> Result<u32> {
     Ok(u32::from_le_bytes(read_exact_array(reader)?))
 }
 
+fn read_u8(reader: &mut impl Read) -> Result<u8> {
+    Ok(read_exact_array::<1>(reader)?[0])
+}
+
 fn read_u64(reader: &mut impl Read) -> Result<u64> {
     Ok(u64::from_le_bytes(read_exact_array(reader)?))
 }
@@ -52,6 +56,11 @@ fn write_u16(writer: &mut impl Write, value: u16) -> Result<()> {
 
 fn write_u32(writer: &mut impl Write, value: u32) -> Result<()> {
     writer.write_all(&value.to_le_bytes())?;
+    Ok(())
+}
+
+fn write_u8(writer: &mut impl Write, value: u8) -> Result<()> {
+    writer.write_all(&[value])?;
     Ok(())
 }
 
@@ -102,6 +111,21 @@ fn read_u32_array(reader: &mut impl Read, count: usize) -> Result<Vec<u32>> {
     let mut values = Vec::with_capacity(count);
     for _ in 0..count {
         values.push(read_u32(reader)?);
+    }
+    Ok(values)
+}
+
+fn write_u8_array(writer: &mut impl Write, values: &[u8]) -> Result<()> {
+    for value in values {
+        write_u8(writer, *value)?;
+    }
+    Ok(())
+}
+
+fn read_u8_array(reader: &mut impl Read, count: usize) -> Result<Vec<u8>> {
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_u8(reader)?);
     }
     Ok(values)
 }
@@ -178,7 +202,8 @@ pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkInde
     let version = read_u16(&mut reader)?;
     return match version {
         1 => load_chunk_index_binary_v1(path, reader),
-        CHUNK_INDEX_BINARY_VERSION => load_chunk_index_binary_v2(path, reader),
+        2 => load_chunk_index_binary_v2(path, reader),
+        CHUNK_INDEX_BINARY_VERSION => load_chunk_index_binary_v3(path, reader),
         _ => Err(Error::manifest(format!(
             "unsupported chunk index binary version {} in {}",
             version,
@@ -216,6 +241,7 @@ fn load_chunk_index_binary_v1(
                 bundle_id,
                 raw_size,
                 compressed_size,
+                storage_mode: manifest::ArtifactStorageMode::Bundled,
             },
         );
     }
@@ -260,6 +286,52 @@ fn load_chunk_index_binary_v2(
                 bundle_id,
                 raw_size,
                 compressed_size,
+                storage_mode: manifest::ArtifactStorageMode::Bundled,
+            },
+        );
+    }
+
+    Ok(manifest::ChunkIndex {
+        format_version,
+        updated_at,
+        entries,
+    })
+}
+
+fn load_chunk_index_binary_v3(
+    path: &Path,
+    mut reader: BufReader<std::fs::File>,
+) -> Result<manifest::ChunkIndex> {
+    let _reserved = read_u16(&mut reader)?;
+    let chunk_count = read_u64(&mut reader)? as usize;
+    let format_version = read_len_prefixed_string(&mut reader)?;
+    let updated_at = read_len_prefixed_string(&mut reader)?;
+
+    let chunk_hashes = read_len_prefixed_string_array(&mut reader, chunk_count)?;
+    let storage_modes = read_u8_array(&mut reader, chunk_count)?;
+    let object_ids = read_len_prefixed_string_array(&mut reader, chunk_count)?;
+    let raw_sizes = read_u64_array(&mut reader, chunk_count)?;
+    let compressed_sizes = read_u64_array(&mut reader, chunk_count)?;
+    let mut entries = BTreeMap::new();
+    for index in 0..chunk_count {
+        let storage_mode = match storage_modes[index] {
+            0 => manifest::ArtifactStorageMode::Bundled,
+            1 => manifest::ArtifactStorageMode::LooseChunks,
+            other => {
+                return Err(Error::manifest(format!(
+                    "invalid chunk index storage mode {} in {}",
+                    other,
+                    path.display()
+                )));
+            }
+        };
+        entries.insert(
+            chunk_hashes[index].clone(),
+            manifest::ChunkIndexEntry {
+                bundle_id: object_ids[index].clone(),
+                raw_size: raw_sizes[index],
+                compressed_size: compressed_sizes[index],
+                storage_mode,
             },
         );
     }
@@ -278,39 +350,28 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex
     write_u16(&mut writer, CHUNK_INDEX_BINARY_VERSION)?;
     write_u16(&mut writer, 0)?;
 
-    let mut bundle_ids = Vec::new();
-    let mut bundle_indexes = std::collections::HashMap::new();
-    for entry in index.entries.values() {
-        if !bundle_indexes.contains_key(&entry.bundle_id) {
-            let next_index = bundle_ids.len() as u32;
-            bundle_indexes.insert(entry.bundle_id.clone(), next_index);
-            bundle_ids.push(entry.bundle_id.clone());
-        }
-    }
-
-    write_u32(&mut writer, bundle_ids.len() as u32)?;
     write_u64(&mut writer, index.entries.len() as u64)?;
     write_len_prefixed_string(&mut writer, &index.format_version)?;
     write_len_prefixed_string(&mut writer, &index.updated_at)?;
-    write_len_prefixed_string_array(&mut writer, &bundle_ids)?;
 
     let mut chunk_hashes = Vec::with_capacity(index.entries.len());
-    let mut bundle_index_column = Vec::with_capacity(index.entries.len());
+    let mut storage_modes = Vec::with_capacity(index.entries.len());
+    let mut object_ids = Vec::with_capacity(index.entries.len());
     let mut raw_sizes = Vec::with_capacity(index.entries.len());
     let mut compressed_sizes = Vec::with_capacity(index.entries.len());
     for (chunk_hash, entry) in &index.entries {
         chunk_hashes.push(chunk_hash.clone());
-        bundle_index_column.push(
-            bundle_indexes
-                .get(&entry.bundle_id)
-                .copied()
-                .ok_or_else(|| Error::manifest("chunk index bundle table missing entry"))?,
-        );
+        storage_modes.push(match entry.storage_mode {
+            manifest::ArtifactStorageMode::Bundled => 0,
+            manifest::ArtifactStorageMode::LooseChunks => 1,
+        });
+        object_ids.push(entry.bundle_id.clone());
         raw_sizes.push(entry.raw_size);
         compressed_sizes.push(entry.compressed_size);
     }
     write_len_prefixed_string_array(&mut writer, &chunk_hashes)?;
-    write_u32_array(&mut writer, &bundle_index_column)?;
+    write_u8_array(&mut writer, &storage_modes)?;
+    write_len_prefixed_string_array(&mut writer, &object_ids)?;
     write_u64_array(&mut writer, &raw_sizes)?;
     write_u64_array(&mut writer, &compressed_sizes)?;
     writer.flush()?;

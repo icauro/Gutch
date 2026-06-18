@@ -271,9 +271,18 @@ pub(super) fn prompt_chunk_profile(
         ("chunk_16KiB", g::manifest::ArtifactSizingPreset::Chunk16KiB),
         ("chunk_32KiB", g::manifest::ArtifactSizingPreset::Chunk32KiB),
         ("chunk_64KiB", g::manifest::ArtifactSizingPreset::Chunk64KiB),
-        ("chunk_128KiB", g::manifest::ArtifactSizingPreset::Chunk128KiB),
-        ("chunk_256KiB", g::manifest::ArtifactSizingPreset::Chunk256KiB),
-        ("chunk_512KiB", g::manifest::ArtifactSizingPreset::Chunk512KiB),
+        (
+            "chunk_128KiB",
+            g::manifest::ArtifactSizingPreset::Chunk128KiB,
+        ),
+        (
+            "chunk_256KiB",
+            g::manifest::ArtifactSizingPreset::Chunk256KiB,
+        ),
+        (
+            "chunk_512KiB",
+            g::manifest::ArtifactSizingPreset::Chunk512KiB,
+        ),
         ("chunk_1MiB", g::manifest::ArtifactSizingPreset::Chunk1MiB),
     ];
     let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
@@ -296,7 +305,10 @@ pub(super) fn prompt_bundle_profile(
         ("bundle_16MiB", g::manifest::BundleSizingPreset::Bundle16MiB),
         ("bundle_32MiB", g::manifest::BundleSizingPreset::Bundle32MiB),
         ("bundle_64MiB", g::manifest::BundleSizingPreset::Bundle64MiB),
-        ("bundle_128MiB", g::manifest::BundleSizingPreset::Bundle128MiB),
+        (
+            "bundle_128MiB",
+            g::manifest::BundleSizingPreset::Bundle128MiB,
+        ),
     ];
     let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
