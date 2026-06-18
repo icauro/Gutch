@@ -172,7 +172,7 @@ pub enum TargetCommands {
         chunk_profile: g::manifest::ArtifactSizingPreset,
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
         bundle_profile: g::manifest::BundleSizingPreset,
-        #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd1)]
+        #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
         compression_profile: g::manifest::CompressionPreset,
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,
@@ -199,7 +199,7 @@ pub enum TargetCommands {
         chunk_profile: g::manifest::ArtifactSizingPreset,
         #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
         bundle_profile: g::manifest::BundleSizingPreset,
-        #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd1)]
+        #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
         compression_profile: g::manifest::CompressionPreset,
         #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
         memory_mode: g::MemoryMode,

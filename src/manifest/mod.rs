@@ -20,6 +20,9 @@ pub enum ArtifactSizingPreset {
     #[serde(rename = "chunk_1KiB")]
     #[value(name = "chunk_1KiB")]
     Chunk1KiB,
+    #[serde(rename = "chunk_4KiB")]
+    #[value(name = "chunk_4KiB")]
+    Chunk4KiB,
     #[serde(rename = "chunk_16KiB")]
     #[value(name = "chunk_16KiB")]
     Chunk16KiB,
@@ -35,6 +38,12 @@ pub enum ArtifactSizingPreset {
     #[serde(rename = "chunk_256KiB")]
     #[value(name = "chunk_256KiB")]
     Chunk256KiB,
+    #[serde(rename = "chunk_512KiB")]
+    #[value(name = "chunk_512KiB")]
+    Chunk512KiB,
+    #[serde(rename = "chunk_1MiB")]
+    #[value(name = "chunk_1MiB")]
+    Chunk1MiB,
 }
 
 impl Default for ArtifactSizingPreset {
@@ -47,11 +56,14 @@ impl ArtifactSizingPreset {
     pub fn cli_name(self) -> &'static str {
         match self {
             Self::Chunk1KiB => "chunk_1KiB",
+            Self::Chunk4KiB => "chunk_4KiB",
             Self::Chunk16KiB => "chunk_16KiB",
             Self::Chunk32KiB => "chunk_32KiB",
             Self::Chunk64KiB => "chunk_64KiB",
             Self::Chunk128KiB => "chunk_128KiB",
             Self::Chunk256KiB => "chunk_256KiB",
+            Self::Chunk512KiB => "chunk_512KiB",
+            Self::Chunk1MiB => "chunk_1MiB",
         }
     }
 }
@@ -123,11 +135,14 @@ impl ChunkSizingProfile {
     pub fn for_preset(preset: ArtifactSizingPreset) -> Self {
         let (min_chunk_bytes, avg_chunk_bytes, max_chunk_bytes) = match preset {
             ArtifactSizingPreset::Chunk1KiB => (256, 1024, 4 * 1024),
+            ArtifactSizingPreset::Chunk4KiB => (1024, 4 * 1024, 16 * 1024),
             ArtifactSizingPreset::Chunk16KiB => (4 * 1024, 16 * 1024, 64 * 1024),
             ArtifactSizingPreset::Chunk32KiB => (8 * 1024, 32 * 1024, 128 * 1024),
             ArtifactSizingPreset::Chunk64KiB => (16 * 1024, 64 * 1024, 256 * 1024),
             ArtifactSizingPreset::Chunk128KiB => (32 * 1024, 128 * 1024, 512 * 1024),
             ArtifactSizingPreset::Chunk256KiB => (64 * 1024, 256 * 1024, 1024 * 1024),
+            ArtifactSizingPreset::Chunk512KiB => (128 * 1024, 512 * 1024, 2 * 1024 * 1024),
+            ArtifactSizingPreset::Chunk1MiB => (256 * 1024, 1024 * 1024, 4 * 1024 * 1024),
         };
 
         ChunkSizingProfile {
@@ -241,7 +256,7 @@ pub enum CompressionPreset {
 
 impl Default for CompressionPreset {
     fn default() -> Self {
-        Self::Zstd1
+        Self::Zstd3
     }
 }
 
@@ -283,7 +298,7 @@ impl CompressionProfile {
 
 impl Default for CompressionProfile {
     fn default() -> Self {
-        Self::for_preset(CompressionPreset::Zstd1)
+        Self::for_preset(CompressionPreset::Zstd3)
     }
 }
 

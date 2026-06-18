@@ -267,11 +267,14 @@ pub(super) fn prompt_chunk_profile(
 ) -> g::Result<g::manifest::ArtifactSizingPreset> {
     let options = [
         ("chunk_1KiB", g::manifest::ArtifactSizingPreset::Chunk1KiB),
+        ("chunk_4KiB", g::manifest::ArtifactSizingPreset::Chunk4KiB),
         ("chunk_16KiB", g::manifest::ArtifactSizingPreset::Chunk16KiB),
         ("chunk_32KiB", g::manifest::ArtifactSizingPreset::Chunk32KiB),
         ("chunk_64KiB", g::manifest::ArtifactSizingPreset::Chunk64KiB),
         ("chunk_128KiB", g::manifest::ArtifactSizingPreset::Chunk128KiB),
         ("chunk_256KiB", g::manifest::ArtifactSizingPreset::Chunk256KiB),
+        ("chunk_512KiB", g::manifest::ArtifactSizingPreset::Chunk512KiB),
+        ("chunk_1MiB", g::manifest::ArtifactSizingPreset::Chunk1MiB),
     ];
     let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
     let selection = Select::with_theme(theme)
@@ -318,7 +321,7 @@ pub(super) fn prompt_compression_profile(
     let selection = Select::with_theme(theme)
         .with_prompt("Compression profile")
         .items(&labels)
-        .default(1)
+        .default(2)
         .interact()
         .map_err(dialoguer_to_manifest_error)?;
     Ok(options[selection].1.clone())

@@ -23,6 +23,33 @@ fn test_small_chunk_profile_uses_sub_kib_range() {
 }
 
 #[test]
+fn test_chunk_profile_4kib_uses_expected_range() {
+    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk4KiB);
+    assert_eq!(p.preset, ArtifactSizingPreset::Chunk4KiB);
+    assert_eq!(p.min_chunk_size_bytes(), 1024);
+    assert_eq!(p.avg_chunk_size_bytes(), 4 * 1024);
+    assert_eq!(p.max_chunk_size_bytes(), 16 * 1024);
+}
+
+#[test]
+fn test_chunk_profile_512kib_uses_expected_range() {
+    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk512KiB);
+    assert_eq!(p.preset, ArtifactSizingPreset::Chunk512KiB);
+    assert_eq!(p.min_chunk_size_bytes(), 128 * 1024);
+    assert_eq!(p.avg_chunk_size_bytes(), 512 * 1024);
+    assert_eq!(p.max_chunk_size_bytes(), 2 * 1024 * 1024);
+}
+
+#[test]
+fn test_chunk_profile_1mib_uses_expected_range() {
+    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk1MiB);
+    assert_eq!(p.preset, ArtifactSizingPreset::Chunk1MiB);
+    assert_eq!(p.min_chunk_size_bytes(), 256 * 1024);
+    assert_eq!(p.avg_chunk_size_bytes(), 1024 * 1024);
+    assert_eq!(p.max_chunk_size_bytes(), 4 * 1024 * 1024);
+}
+
+#[test]
 fn test_chunk_auto_selection_always_resolves_32kib() {
     assert_eq!(
         ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1),
@@ -59,8 +86,8 @@ fn test_bundle_auto_selection_always_resolves_balanced() {
 #[test]
 fn test_compression_profile_defaults() {
     let p = CompressionProfile::default();
-    assert_eq!(p.preset, CompressionPreset::Zstd1);
-    assert_eq!(p.zstd_level, 1);
+    assert_eq!(p.preset, CompressionPreset::Zstd3);
+    assert_eq!(p.zstd_level, 3);
     assert_eq!(p.compression, "zstd");
     assert_eq!(p.compression_unit, "bundle");
 }
