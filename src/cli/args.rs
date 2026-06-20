@@ -134,6 +134,8 @@ pub enum RepoCommands {
         gutch_repo_id: Option<i64>,
         #[arg(long = "session-id")]
         session_id: Option<String>,
+        #[arg(long = "yes")]
+        yes: bool,
     },
     Link {
         #[arg(long = "repo", default_value = ".")]

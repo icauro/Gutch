@@ -139,12 +139,31 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             product_id,
             gutch_repo_id,
             session_id,
+            yes,
         } => {
-            let stats =
-                actions::repo::sync_up_repo(repo, endpoint, product_id, gutch_repo_id, session_id)?;
+            let plan = actions::repo::plan_sync_up_repo(
+                repo.clone(),
+                endpoint.clone(),
+                product_id,
+                gutch_repo_id,
+                session_id.clone(),
+            )?;
+            print_sync_plan(&plan);
+            if !yes && !prompt_yes_no("Proceed?", true)? {
+                println!("sync-up cancelled");
+                return Ok(());
+            }
+            let stats = actions::repo::sync_up_repo(repo, endpoint, product_id, gutch_repo_id, session_id)?;
             println!(
                 "synced repo {} to product {} repo {}",
                 stats.repo_root, stats.product_id, stats.gutch_repo_id
+            );
+            println!(
+                "targets added: {}, removed: {}, updated: {}, unchanged: {}",
+                stats.target_added_count,
+                stats.target_removed_count,
+                stats.target_updated_count,
+                stats.target_unchanged_count
             );
             println!(
                 "repo manifest uploaded: {}, chunk index uploaded: {}",
@@ -188,6 +207,49 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_sync_plan(plan: &actions::repo::RepoSyncPlan) {
+    println!("{SECTION_SEPARATOR}");
+    println!("Sync plan");
+    println!("repo: {}", plan.repo_root);
+    println!(
+        "targets: local={} remote={}",
+        plan.target_count, plan.remote_target_count
+    );
+    println!(
+        "changes: add={} remove={} update={} unchanged={}",
+        plan.to_add.len(),
+        plan.to_remove.len(),
+        plan.to_update.len(),
+        plan.unchanged.len()
+    );
+    print_sync_section("Add", &plan.to_add);
+    print_sync_section("Remove", &plan.to_remove);
+    print_sync_section("Update", &plan.to_update);
+}
+
+fn print_sync_section(label: &str, changes: &[actions::repo::RepoSyncTargetChange]) {
+    if changes.is_empty() {
+        return;
+    }
+    println!("{SECTION_SEPARATOR}");
+    println!("{}", label);
+    for change in changes {
+        println!(
+            "{} | version={} | os={} | arch={} | tier={}{}",
+            change.target_id,
+            change.version,
+            change.platform,
+            change.architecture,
+            change.tier,
+            change
+                .artifact_state
+                .as_deref()
+                .map(|value| format!(" | remote_state={}", value))
+                .unwrap_or_default()
+        );
+    }
 }
 
 fn run_repo_link_interactive(
@@ -368,6 +430,33 @@ fn prompt_index_or_back(prompt: &str, count: usize) -> g::Result<Option<usize>> 
             Ok(n) if n >= 1 && n <= count => return Ok(Some(n - 1)),
             _ => eprintln!("enter 0 to go back, or a number from 1 to {}", count),
         }
+    }
+}
+
+fn prompt_yes_no(prompt: &str, default_yes: bool) -> g::Result<bool> {
+    use std::io::{self, Write};
+
+    loop {
+        let suffix = if default_yes { "[Y/n]" } else { "[y/N]" };
+        print!("{} {}: ", prompt, suffix);
+        io::stdout()
+            .flush()
+            .map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
+        let mut line = String::new();
+        io::stdin()
+            .read_line(&mut line)
+            .map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
+        let trimmed = line.trim().to_ascii_lowercase();
+        if trimmed.is_empty() {
+            return Ok(default_yes);
+        }
+        if trimmed == "y" || trimmed == "yes" {
+            return Ok(true);
+        }
+        if trimmed == "n" || trimmed == "no" {
+            return Ok(false);
+        }
+        eprintln!("enter y or n");
     }
 }
 
