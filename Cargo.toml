@@ -5,20 +5,43 @@ edition = "2024"
 
 [dependencies]
 fastcdc = "4.0.1"
+# Fast Content-Defined Chunking (file splitting for dedup)
 blake3 = "1.8.5"
+# BLAKE3 hashing (chunk/bundle integrity)
 zstd = "0.13.3"
+# Zstandard compression (bundle compression)
 serde = { version = "1.0.228", features = ["derive"] }
+# Serialization framework
 serde_json = "1.0.150"
+# JSON parsing (manifests, configs)
 clap = { version = "4.6.1", features = ["derive"] }
+# CLI argument parsing (plctl gutch commands)
 walkdir = "2.5.0"
+# Recursive directory traversal
 anyhow = "1.0.102"
+# Ergonomic error handling with context
 chrono = "0.4.45"
+# Date/time (timestamps in manifests)
 thiserror = "2.0.18"
+# Custom error type derivation
 rayon = "1.12.0"
+# Data parallelism (parallel chunk hashing)
 tempfile = "3.27.0"
-reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "multipart", "rustls"] }
-pl-auth = { path = "../pl-auth" }
+# Temporary files/dirs (staging during reconstruct)
+reqwest = { version = "0.13.4", features = [
+    "blocking",
+    "json",
+    "multipart",
+    "rustls",
+] }
+# HTTP client (bundle downloads from signed URLs) default-features = false,
 dialoguer = "0.12.0"
+# Interactive CLI prompts (user input)
 indicatif = "0.18.4"
+# CLI progress bars (download/install progress)
 dirs = "6.0.0"
+# Platform-specific directory paths
 rfd = "0.17.2"
+# Native file dialogs (GUI file picker)
+pl-auth = { path = "../pl-auth" }
+# Shared auth utilities (session tokens)
