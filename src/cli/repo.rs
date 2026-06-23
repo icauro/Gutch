@@ -42,7 +42,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             let status = g::inspect_gutch_repo(&repo)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
-                std::fs::write(json_out, serde_json::to_vec_pretty(&status)?)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&status)?)?;
             }
 
             if status.is_repo {
@@ -85,7 +85,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             let candidates = g::discover_source_target_installs(&repo, &lookup_root)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
-                std::fs::write(json_out, serde_json::to_vec_pretty(&candidates)?)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&candidates)?)?;
             }
 
             println!("{SECTION_SEPARATOR}");
@@ -118,7 +118,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
 
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
-                std::fs::write(json_out, serde_json::to_vec_pretty(&status.targets)?)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&status.targets)?)?;
             }
 
             println!("{SECTION_SEPARATOR}");

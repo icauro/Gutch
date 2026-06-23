@@ -116,13 +116,13 @@ pub fn ensure_gutch_repo_layout(
     paths: &GutchRepoPaths,
     gutch_repo_id: &str,
 ) -> Result<GutchRepoManifest> {
-    std::fs::create_dir_all(&paths.targets_root)?;
-    std::fs::create_dir_all(&paths.bundles_root)?;
-    std::fs::create_dir_all(&paths.chunks_root)?;
+    crate::helpers::create_dir_all(&paths.targets_root)?;
+    crate::helpers::create_dir_all(&paths.bundles_root)?;
+    crate::helpers::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
-        let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-        let mut repo_manifest: GutchRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+        let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
+        let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
         repo_manifest.gutch_repo_id = derive_gutch_repo_id_from_repo_root(&paths.repo_root);
         if repo_manifest.gutch_repo_id != gutch_repo_id {
             return Err(Error::manifest(format!(
@@ -135,8 +135,7 @@ pub fn ensure_gutch_repo_layout(
         repo_manifest
     } else {
         let repo_manifest = GutchRepoManifest::new(gutch_repo_id.to_string());
-        let repo_manifest_json = serde_json::to_string_pretty(&repo_manifest)?;
-        std::fs::write(&paths.repo_manifest_path, repo_manifest_json)?;
+        crate::helpers::write_json(&paths.repo_manifest_path, &repo_manifest)?;
         repo_manifest
     };
 
@@ -152,8 +151,8 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
         )));
     }
 
-    let repo_manifest_json = std::fs::read_to_string(&paths.repo_manifest_path)?;
-    let mut repo_manifest: GutchRepoManifest = serde_json::from_str(&repo_manifest_json)?;
+    let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
+    let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
     repo_manifest.gutch_repo_id = derive_gutch_repo_id_from_repo_root(repo_root);
 
     Ok((paths, repo_manifest))
@@ -210,8 +209,8 @@ pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> 
 
     let legacy_path = legacy_chunk_index_path(paths);
     if legacy_path.exists() {
-        let json = std::fs::read_to_string(&legacy_path)?;
-        let index: manifest::ChunkIndex = serde_json::from_str(&json)?;
+        let json = crate::helpers::read_to_string(&legacy_path)?;
+        let index: manifest::ChunkIndex = crate::helpers::from_json_str(&json)?;
         return Ok(index);
     }
 
@@ -410,9 +409,7 @@ pub fn write_gutch_repo_manifest(
     paths: &GutchRepoPaths,
     repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
-    let json = serde_json::to_string_pretty(repo_manifest)?;
-    std::fs::write(&paths.repo_manifest_path, json)?;
-    Ok(())
+    crate::helpers::write_json(&paths.repo_manifest_path, repo_manifest)
 }
 
 pub fn compute_target_id_from_files(files: &[FileManifest]) -> String {
@@ -444,7 +441,7 @@ pub fn target_manifest_bin_path(paths: &GutchRepoPaths, target_id: &str) -> Path
 
 pub fn load_target_manifest(paths: &GutchRepoPaths, target_id: &str) -> Result<TargetManifest> {
     let manifest_path = target_manifest_path(paths, target_id);
-    let manifest_json = std::fs::read_to_string(&manifest_path)?;
+    let manifest_json = crate::helpers::read_to_string(&manifest_path)?;
     load_target_manifest_from_json_text(paths, target_id, &manifest_json)
 }
 
@@ -456,14 +453,14 @@ pub fn write_target_manifest_artifacts(
     paths: &GutchRepoPaths,
     target_manifest: &TargetManifest,
 ) -> Result<(PathBuf, u64)> {
-    std::fs::create_dir_all(&paths.targets_root)?;
+    crate::helpers::create_dir_all(&paths.targets_root)?;
 
     let manifest_path = target_manifest_path(paths, &target_manifest.target_id);
     let bin_path = target_manifest_bin_path(paths, &target_manifest.target_id);
 
     let shell = binary::target_manifest_shell_from_manifest(target_manifest);
     let manifest_json = serde_json::to_vec_pretty(&shell)?;
-    std::fs::write(&manifest_path, &manifest_json)?;
+    crate::helpers::write(&manifest_path, &manifest_json)?;
     binary::write_target_manifest_files_binary(&bin_path, target_manifest)?;
 
     let manifest_size = std::fs::metadata(&manifest_path)?.len();

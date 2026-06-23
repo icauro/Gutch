@@ -129,12 +129,8 @@ pub fn gutch_config_path() -> Result<PathBuf, crate::Error> {
 pub fn load_config() -> Result<GutchConfig, crate::Error> {
     let path = gutch_config_path()?;
     if path.exists() {
-        let raw = std::fs::read_to_string(&path).map_err(|err| {
-            crate::Error::manifest(format!("failed to read gutch config: {}", err))
-        })?;
-        return serde_json::from_str(&raw).map_err(|err| {
-            crate::Error::manifest(format!("failed to parse gutch config: {}", err))
-        });
+        let raw = crate::helpers::read_to_string(&path)?;
+        return crate::helpers::from_json_str(&raw);
     }
 
     let legacy_path = legacy_gutch_config_path()?;
@@ -142,25 +138,16 @@ pub fn load_config() -> Result<GutchConfig, crate::Error> {
         return Ok(GutchConfig::default());
     }
 
-    let raw = std::fs::read_to_string(&legacy_path)
-        .map_err(|err| crate::Error::manifest(format!("failed to read gutch config: {}", err)))?;
-    serde_json::from_str(&raw)
-        .map_err(|err| crate::Error::manifest(format!("failed to parse gutch config: {}", err)))
+    let raw = crate::helpers::read_to_string(&legacy_path)?;
+    crate::helpers::from_json_str(&raw)
 }
 
 pub fn save_config(config: &GutchConfig) -> Result<(), crate::Error> {
     let dir = gutch_config_dir()?;
-    std::fs::create_dir_all(&dir).map_err(|err| {
-        crate::Error::manifest(format!("failed to create gutch config dir: {}", err))
-    })?;
+    crate::helpers::create_dir_all(&dir)?;
 
     let path = gutch_config_path()?;
-    let raw = serde_json::to_string_pretty(config).map_err(|err| {
-        crate::Error::manifest(format!("failed to serialize gutch config: {}", err))
-    })?;
-    std::fs::write(&path, raw)
-        .map_err(|err| crate::Error::manifest(format!("failed to write gutch config: {}", err)))?;
-    Ok(())
+    crate::helpers::write_json(&path, config)
 }
 
 #[cfg(test)]

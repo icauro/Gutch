@@ -140,7 +140,7 @@ pub(crate) fn write_optional_summary(
     };
 
     ensure_parent_directory(summary_out)?;
-    std::fs::write(summary_out, lines.join("\n"))?;
+    crate::helpers::write(summary_out, lines.join("\n"))?;
     Ok(())
 }
 
@@ -577,7 +577,7 @@ pub(crate) fn load_optional_rules(
         return Ok(None);
     };
 
-    let rules_json = std::fs::read_to_string(rules_path)?;
+    let rules_json = crate::helpers::read_to_string(rules_path)?;
     let rules: g::manifest::AutoTaggingRules = serde_json::from_str(&rules_json)?;
     Ok(Some(rules))
 }
@@ -754,7 +754,7 @@ pub(crate) fn write_bundles(
     let mut bundle_sizes = std::collections::HashMap::with_capacity(bundles.len());
     for bundle in bundles {
         let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id);
-        std::fs::write(&bundle_path, &bundle.data)?;
+        crate::helpers::write(&bundle_path, &bundle.data)?;
         let bundle_size = bundle.data.len() as u64;
         bundle_sizes.insert(bundle.bundle_id.clone(), bundle_size);
         if verbose_output_enabled() {
@@ -776,9 +776,9 @@ pub(crate) fn write_loose_chunks(
     for chunk in chunks {
         let chunk_path = g::chunk_path_in_root(chunks_root, &chunk.chunk_hash);
         if let Some(parent) = chunk_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            crate::helpers::create_dir_all(parent)?;
         }
-        std::fs::write(&chunk_path, &chunk.data)?;
+        crate::helpers::write(&chunk_path, &chunk.data)?;
         let chunk_size = chunk.data.len() as u64;
         chunk_sizes.insert(chunk.chunk_hash.clone(), chunk_size);
         if verbose_output_enabled() {

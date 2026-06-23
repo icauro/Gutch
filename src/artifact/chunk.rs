@@ -90,7 +90,7 @@ pub fn chunk_file(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,
 ) -> Result<Vec<ChunkResult>> {
-    let data = std::fs::read(path)?;
+    let data = crate::helpers::read(path)?;
     Ok(chunk_bytes(&data, profile))
 }
 

@@ -11,6 +11,7 @@ pub mod cli;
 pub mod config;
 pub mod core;
 pub mod error;
+pub mod helpers;
 pub mod install;
 pub mod manifest;
 mod path_guard;

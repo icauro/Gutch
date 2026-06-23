@@ -122,7 +122,7 @@ pub fn reconstruct_from_target_manifest_with_timings(
 ) -> Result<((), ReconstructTimings)> {
     let total_start = Instant::now();
     let mut timings = ReconstructTimings::default();
-    std::fs::create_dir_all(output_dir)?;
+    crate::helpers::create_dir_all(output_dir)?;
 
     let needed_chunks = required_chunk_hashes(target_manifest);
 
@@ -243,7 +243,7 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_
         runtime_plan: Some(runtime_plan.clone()),
         ..ReconstructTimings::default()
     };
-    std::fs::create_dir_all(output_dir)?;
+    crate::helpers::create_dir_all(output_dir)?;
 
     let local_chunks = match verified_source {
         Some(source) => read_reusable_source_chunks(source, &needed_chunks)?,
@@ -294,7 +294,7 @@ pub fn reconstruct_from_repo_paths_with_timings_and_hints_with_options(
         runtime_plan: Some(runtime_plan.clone()),
         ..ReconstructTimings::default()
     };
-    std::fs::create_dir_all(output_dir)?;
+    crate::helpers::create_dir_all(output_dir)?;
 
     let chunk_index = crate::repo::load_chunk_index(repo_paths)?;
     let local_chunks = read_loose_repo_chunks(
@@ -458,7 +458,7 @@ fn read_loose_repo_chunk(
 ) -> Result<LoadedChunk> {
     let path = chunk_path(repo_paths, chunk_hash);
     let read_start = Instant::now();
-    let stored = std::fs::read(&path)?;
+    let stored = crate::helpers::read(&path)?;
     let read_duration = read_start.elapsed();
     let chunk_data = decompress_data(&stored, &compression_profile.compression)?;
     if options.verify_chunks {
@@ -572,7 +572,7 @@ fn prepare_direct_output_files(target_manifest: &TargetManifest, output_dir: &Pa
     for fm in &target_manifest.files {
         let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            crate::helpers::create_dir_all(parent)?;
         }
         let file = std::fs::File::create(&output_path)?;
         file.set_len(fm.size)?;
@@ -775,7 +775,7 @@ fn reconstruct_manifest_file(
     let mut timings = ReconstructTimings::default();
     let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
     if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        crate::helpers::create_dir_all(parent)?;
     }
 
     let mut output = BufWriter::new(std::fs::File::create(&output_path)?);
@@ -1170,10 +1170,10 @@ fn rebuild_files_from_chunks(
 
         let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            crate::helpers::create_dir_all(parent)?;
         }
         let t = Instant::now();
-        std::fs::write(&output_path, &file_data)?;
+        crate::helpers::write(&output_path, &file_data)?;
         timings.file_write += t.elapsed();
         timings.file_write_bytes += file_data.len() as u64;
     }

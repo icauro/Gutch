@@ -392,7 +392,7 @@ pub fn sync_up_repo(
         }
     }
 
-    let repo_manifest_bytes = std::fs::read(&repo_paths.repo_manifest_path)?;
+    let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_manifest_path)?;
     upload_raw_file(
         &client,
         &endpoint,
@@ -505,7 +505,7 @@ pub fn sync_up_repo(
                 product_id, gutch_repo_id, bundle_id
             ),
             &session_id,
-            std::fs::read(entry.path())?,
+            crate::helpers::read(entry.path())?,
             "application/octet-stream",
         )?;
         bundle_uploaded_count += 1;

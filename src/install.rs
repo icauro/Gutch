@@ -144,10 +144,10 @@ pub fn apply_target_install_with_timings_and_hints(
     };
 
     if staging_dir.exists() {
-        std::fs::remove_dir_all(staging_dir)?;
+        crate::helpers::remove_dir_all(staging_dir)?;
     }
     if let Some(parent) = staging_dir.parent() {
-        std::fs::create_dir_all(parent)?;
+        crate::helpers::create_dir_all(parent)?;
     }
 
     let reused_source_chunk_count = verified_source
@@ -194,8 +194,8 @@ pub fn fetch_target_install_content(
     request: &TargetInstallFetchRequest,
 ) -> Result<TargetInstallFetchResult> {
     let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_path);
-    std::fs::create_dir_all(&repo_paths.targets_root)?;
-    std::fs::create_dir_all(&repo_paths.bundles_root)?;
+    crate::helpers::create_dir_all(&repo_paths.targets_root)?;
+    crate::helpers::create_dir_all(&repo_paths.bundles_root)?;
 
     let manifest_bytes = download_url(request.manifest_url.trim())?;
     let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).map_err(|err| {
@@ -291,7 +291,7 @@ pub fn fetch_target_install_content(
         }
 
         let bundle_bytes = download_url(bundle.url.trim())?;
-        std::fs::write(&bundle_path, bundle_bytes)?;
+        crate::helpers::write(&bundle_path, bundle_bytes)?;
         downloaded_bundle_count += 1;
     }
 
@@ -372,13 +372,13 @@ fn promote_staging_install(
     target_manifest: &TargetManifest,
 ) -> Result<Option<PathBuf>> {
     if let Some(parent) = install_dir.parent() {
-        std::fs::create_dir_all(parent)?;
+        crate::helpers::create_dir_all(parent)?;
     }
 
     let backup_dir = if install_dir.exists() {
         let backup_dir = backup_dir_for_install(install_dir, &target_manifest.target_id);
         if backup_dir.exists() {
-            std::fs::remove_dir_all(&backup_dir)?;
+            crate::helpers::remove_dir_all(&backup_dir)?;
         }
         std::fs::rename(install_dir, &backup_dir)?;
         Some(backup_dir)
@@ -394,7 +394,7 @@ fn promote_staging_install(
     }
 
     if let Some(backup_dir) = &backup_dir {
-        std::fs::remove_dir_all(backup_dir)?;
+        crate::helpers::remove_dir_all(backup_dir)?;
     }
 
     Ok(backup_dir)
@@ -496,8 +496,8 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
     }
 
     let repo_json = serde_json::to_vec_pretty(&repo_manifest)?;
-    std::fs::write(
-        repo_path.join(manifest::CONTENT_REPO_MANIFEST_FILE),
+    crate::helpers::write(
+        &repo_path.join(manifest::CONTENT_REPO_MANIFEST_FILE),
         repo_json,
     )?;
     Ok(())
