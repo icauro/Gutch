@@ -14,7 +14,7 @@ pub fn hash_hex(hash: &blake3::Hash) -> String {
 }
 
 pub fn hex_decode(hex: &str) -> Result<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err(crate::error::Error::verify("hex string has odd length"));
     }
     (0..hex.len())

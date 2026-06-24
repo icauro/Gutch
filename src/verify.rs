@@ -104,14 +104,28 @@ struct VerifyOptions<'a> {
 
 impl<'a> Default for VerifyOptions<'a> {
     fn default() -> Self {
-        // We leak a default instance to get a &'static reference.
-        // This is acceptable since RuntimeResourceHints is small and immutable.
-        static DEFAULT_HINTS: std::sync::OnceLock<RuntimeResourceHints> = std::sync::OnceLock::new();
         Self {
             mode: VerifyMode::Fast,
-            hints: DEFAULT_HINTS.get_or_init(RuntimeResourceHints::default),
+            hints: default_runtime_hints(),
             progress: None,
         }
+    }
+}
+
+impl<'a> VerifyOptions<'a> {
+    fn with_mode(mut self, mode: VerifyMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    fn with_hints(mut self, hints: &'a RuntimeResourceHints) -> Self {
+        self.hints = hints;
+        self
+    }
+
+    fn with_progress(mut self, progress: &'a ProgressBar) -> Self {
+        self.progress = Some(progress);
+        self
     }
 }
 
@@ -201,8 +215,16 @@ pub fn verify_directory(target_manifest: &TargetManifest, dir: &Path) -> Result<
     Ok(verify_inner(target_manifest, dir, &VerifyOptions::default())?.0)
 }
 
-pub fn verify_directory_strict(target_manifest: &TargetManifest, dir: &Path) -> Result<Vec<String>> {
-    Ok(verify_inner(target_manifest, dir, &VerifyOptions { mode: VerifyMode::Strict, ..Default::default() })?.0)
+pub fn verify_directory_strict(
+    target_manifest: &TargetManifest,
+    dir: &Path,
+) -> Result<Vec<String>> {
+    Ok(verify_inner(
+        target_manifest,
+        dir,
+        &VerifyOptions::default().with_mode(VerifyMode::Strict),
+    )?
+    .0)
 }
 
 pub fn verify_directory_with_timings(
@@ -217,7 +239,11 @@ pub fn verify_directory_with_timings_and_mode(
     dir: &Path,
     verify_mode: VerifyMode,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_inner(target_manifest, dir, &VerifyOptions { mode: verify_mode, ..Default::default() })
+    verify_inner(
+        target_manifest,
+        dir,
+        &VerifyOptions::default().with_mode(verify_mode),
+    )
 }
 
 pub fn verify_directory_with_timings_and_hints(
@@ -225,7 +251,11 @@ pub fn verify_directory_with_timings_and_hints(
     dir: &Path,
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_inner(target_manifest, dir, &VerifyOptions { hints: runtime_hints, ..Default::default() })
+    verify_inner(
+        target_manifest,
+        dir,
+        &VerifyOptions::default().with_hints(runtime_hints),
+    )
 }
 
 pub fn verify_directory_with_timings_and_hints_and_mode(
@@ -234,7 +264,13 @@ pub fn verify_directory_with_timings_and_hints_and_mode(
     runtime_hints: &RuntimeResourceHints,
     verify_mode: VerifyMode,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_inner(target_manifest, dir, &VerifyOptions { mode: verify_mode, hints: runtime_hints, ..Default::default() })
+    verify_inner(
+        target_manifest,
+        dir,
+        &VerifyOptions::default()
+            .with_mode(verify_mode)
+            .with_hints(runtime_hints),
+    )
 }
 
 pub fn verify_directory_with_progress(
@@ -260,14 +296,16 @@ fn verify_with_progress_bar(
     runtime_hints: &RuntimeResourceHints,
     verify_mode: VerifyMode,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    let pb = create_progress_bar(target_manifest.files.len() as u64);
-    let result = verify_inner(target_manifest, dir, &VerifyOptions {
-        mode: verify_mode,
-        hints: runtime_hints,
-        progress: Some(&pb),
-    });
-    pb.finish_and_clear();
-    result
+    run_with_progress_bar(target_manifest, |progress| {
+        verify_inner(
+            target_manifest,
+            dir,
+            &VerifyOptions::default()
+                .with_mode(verify_mode)
+                .with_hints(runtime_hints)
+                .with_progress(progress),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +331,11 @@ pub fn classify_directory_with_timings_and_hints(
     dir: &Path,
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_inner(target_manifest, dir, &VerifyOptions { hints: runtime_hints, ..Default::default() })
+    classify_inner(
+        target_manifest,
+        dir,
+        &VerifyOptions::default().with_hints(runtime_hints),
+    )
 }
 
 pub fn classify_directory_with_timings_and_hints_and_mode(
@@ -302,7 +344,13 @@ pub fn classify_directory_with_timings_and_hints_and_mode(
     runtime_hints: &RuntimeResourceHints,
     verify_mode: VerifyMode,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_inner(target_manifest, dir, &VerifyOptions { mode: verify_mode, hints: runtime_hints, ..Default::default() })
+    classify_inner(
+        target_manifest,
+        dir,
+        &VerifyOptions::default()
+            .with_mode(verify_mode)
+            .with_hints(runtime_hints),
+    )
 }
 
 pub fn classify_directory_with_progress(
@@ -328,14 +376,16 @@ fn classify_with_progress_bar(
     runtime_hints: &RuntimeResourceHints,
     verify_mode: VerifyMode,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    let pb = create_progress_bar(target_manifest.files.len() as u64);
-    let result = classify_inner(target_manifest, dir, &VerifyOptions {
-        mode: verify_mode,
-        hints: runtime_hints,
-        progress: Some(&pb),
-    });
-    pb.finish_and_clear();
-    result
+    run_with_progress_bar(target_manifest, |progress| {
+        classify_inner(
+            target_manifest,
+            dir,
+            &VerifyOptions::default()
+                .with_mode(verify_mode)
+                .with_hints(runtime_hints)
+                .with_progress(progress),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +401,21 @@ fn create_progress_bar(file_count: u64) -> ProgressBar {
             .progress_chars("#>-"),
     );
     pb
+}
+
+fn run_with_progress_bar<T>(
+    target_manifest: &TargetManifest,
+    run: impl FnOnce(&ProgressBar) -> Result<T>,
+) -> Result<T> {
+    let progress = create_progress_bar(target_manifest.files.len() as u64);
+    let result = run(&progress);
+    progress.finish_and_clear();
+    result
+}
+
+fn default_runtime_hints() -> &'static RuntimeResourceHints {
+    static DEFAULT_HINTS: std::sync::OnceLock<RuntimeResourceHints> = std::sync::OnceLock::new();
+    DEFAULT_HINTS.get_or_init(RuntimeResourceHints::default)
 }
 
 fn accumulate_timings(total: &mut VerifyTimings, add: &VerifyTimings) {
@@ -414,7 +479,9 @@ fn verify_manifest_file(
                 path: fm.path.clone(),
                 detail: format!(
                     "size mismatch for {}: expected {}, got {}",
-                    fm.path, fm.size, metadata.len()
+                    fm.path,
+                    fm.size,
+                    metadata.len()
                 ),
             }],
             timings,
@@ -546,7 +613,11 @@ pub fn estimate_build(
 
     let estimate_ratio = 0.5;
     let missing_compressed = (missing_logical as f64 * estimate_ratio) as u64;
-    let bundle_estimate = if missing_chunks.is_empty() { 0 } else { 1 + (missing_chunks.len() as u64 / 2000) };
+    let bundle_estimate = if missing_chunks.is_empty() {
+        0
+    } else {
+        1 + (missing_chunks.len() as u64 / 2000)
+    };
 
     Ok(manifest::Estimate {
         missing_logical_bytes: missing_logical,

@@ -56,7 +56,10 @@ impl BuildConfig {
         self
     }
 
-    pub fn with_existing_chunks(mut self, locations: &HashMap<String, ExistingChunkLocation>) -> Self {
+    pub fn with_existing_chunks(
+        mut self,
+        locations: &HashMap<String, ExistingChunkLocation>,
+    ) -> Self {
         self.existing_chunk_locations = locations.clone();
         self
     }

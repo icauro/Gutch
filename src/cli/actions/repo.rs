@@ -63,7 +63,10 @@ struct LocalSyncTarget {
     tags: Vec<String>,
 }
 
-fn local_target_change(target: &LocalSyncTarget, artifact_state: Option<String>) -> RepoSyncTargetChange {
+fn local_target_change(
+    target: &LocalSyncTarget,
+    artifact_state: Option<String>,
+) -> RepoSyncTargetChange {
     RepoSyncTargetChange {
         target_id: target.target_id.clone(),
         version: target.version.clone(),
@@ -182,7 +185,11 @@ fn fetch_creator_targets(
 
 fn collect_local_sync_targets(
     repo: &PathBuf,
-) -> g::Result<(g::RepoInspectStatus, g::GutchRepoPaths, Vec<LocalSyncTarget>)> {
+) -> g::Result<(
+    g::RepoInspectStatus,
+    g::GutchRepoPaths,
+    Vec<LocalSyncTarget>,
+)> {
     let status = g::inspect_gutch_repo(repo)?;
     if !status.is_repo {
         return Err(g::Error::manifest(format!(
@@ -239,13 +246,8 @@ pub fn plan_sync_up_repo(
         .map_err(|err| g::Error::manifest(format!("failed to create sync client: {}", err)))?;
 
     let (status, repo_paths, local_targets) = collect_local_sync_targets(&repo)?;
-    let remote_targets = fetch_creator_targets(
-        &client,
-        &endpoint,
-        &session_id,
-        product_id,
-        gutch_repo_id,
-    )?;
+    let remote_targets =
+        fetch_creator_targets(&client, &endpoint, &session_id, product_id, gutch_repo_id)?;
 
     let mut to_add = Vec::new();
     let mut to_update = Vec::new();
@@ -362,13 +364,8 @@ pub fn sync_up_repo(
         Some(session_id.clone()),
     )?;
     let (status, repo_paths, _) = collect_local_sync_targets(&repo)?;
-    let mut remote_targets = fetch_creator_targets(
-        &client,
-        &endpoint,
-        &session_id,
-        product_id,
-        gutch_repo_id,
-    )?;
+    let mut remote_targets =
+        fetch_creator_targets(&client, &endpoint, &session_id, product_id, gutch_repo_id)?;
 
     for target in &plan.to_remove {
         if let Some(remote_target) = remote_targets.remove(&target.target_id) {
@@ -438,7 +435,10 @@ pub fn sync_up_repo(
                 ))
             })?;
         let (version_major, version_minor, version_patch) = parse_version_parts(version)?;
-        let remote_target_id = match remote_targets.get(&manifest.target_id).map(|target| target.id) {
+        let remote_target_id = match remote_targets
+            .get(&manifest.target_id)
+            .map(|target| target.id)
+        {
             Some(id) => id,
             None => {
                 let created: UpsertTargetResponse = request_json_from_backend(

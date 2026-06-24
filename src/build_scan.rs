@@ -25,6 +25,16 @@ pub struct FileBuildEntry {
     pub metadata: Duration,
 }
 
+pub(crate) struct ScanDirectoryOptions<'a> {
+    pub previous_file_manifests: &'a HashMap<String, FileManifest>,
+    pub chunking_profile: &'a manifest::ChunkSizingProfile,
+    pub existing_chunk_locations: &'a HashMap<String, ExistingChunkLocation>,
+    pub chunk_storage_mode: ChunkStorageMode,
+    pub chunk_spool_root: Option<&'a Path>,
+    pub worker_count: usize,
+    pub progress: Option<Arc<dyn BuildProgressSink>>,
+}
+
 pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileBuildEntry) {
     timings.scan_read += entry.scan_read;
     timings.scan_read_bytes += entry.size;
@@ -39,25 +49,10 @@ pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileB
 
 pub(crate) fn collect_scanned_chunks(
     dir: &Path,
-    previous_file_manifests: &HashMap<String, FileManifest>,
-    chunking_profile: &manifest::ChunkSizingProfile,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    chunk_storage_mode: ChunkStorageMode,
-    chunk_spool_root: Option<&Path>,
-    worker_count: usize,
-    progress: Option<Arc<dyn BuildProgressSink>>,
+    options: ScanDirectoryOptions<'_>,
     timings: &mut BuildTimings,
 ) -> Result<(Vec<FileManifest>, HashMap<String, ChunkPayload>, u64)> {
-    let file_entries = scan_directory_into_file_entries(
-        dir,
-        previous_file_manifests,
-        chunking_profile,
-        existing_chunk_locations,
-        chunk_storage_mode,
-        chunk_spool_root,
-        worker_count,
-        progress,
-    )?;
+    let file_entries = scan_directory_into_file_entries(dir, options)?;
 
     let mut file_manifests = Vec::with_capacity(file_entries.len());
     let mut unique_chunks = HashMap::new();
@@ -77,13 +72,7 @@ pub(crate) fn collect_scanned_chunks(
 
 pub(crate) fn scan_directory_into_file_entries(
     dir: &Path,
-    previous_file_manifests: &HashMap<String, FileManifest>,
-    chunking_profile: &manifest::ChunkSizingProfile,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    chunk_storage_mode: ChunkStorageMode,
-    chunk_spool_root: Option<&Path>,
-    worker_count: usize,
-    progress: Option<Arc<dyn BuildProgressSink>>,
+    options: ScanDirectoryOptions<'_>,
 ) -> Result<Vec<FileBuildEntry>> {
     let mut file_paths: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
@@ -93,43 +82,43 @@ pub(crate) fn scan_directory_into_file_entries(
         }
     }
 
-    if let Some(progress) = &progress {
+    if let Some(progress) = &options.progress {
         progress.on_file_scan_started(file_paths.len());
     }
 
-    let spool_root = chunk_spool_root.map(PathBuf::from);
-    let progress_for_scan = progress.clone();
+    let spool_root = options.chunk_spool_root.map(PathBuf::from);
+    let progress_for_scan = options.progress.clone();
     let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
         let result = (|| -> Result<FileBuildEntry> {
             let relative = path.strip_prefix(dir).map_err(|e| Error::PathError {
                 path: path.to_path_buf(),
                 reason: e.to_string(),
             })?;
+            let normalized_relative = relative.to_string_lossy().replace('\\', "/");
 
             let scan_read = Duration::ZERO;
             let (chunk_scan, chunk_timings) =
-                crate::chunk::chunk_file_streaming_with_file_hash(path, chunking_profile)?;
+                crate::chunk::chunk_file_streaming_with_file_hash(path, options.chunking_profile)?;
             let file_size = chunk_scan.file_size;
             let full_file_hash = chunk_scan.full_file_hash;
             let file_hash = chunk_scan.full_file_hash_duration;
 
-            if let Some(previous) =
-                previous_file_manifests.get(&relative.to_string_lossy().replace('\\', "/"))
+            if let Some(previous) = options.previous_file_manifests.get(&normalized_relative)
+                && previous.size == file_size
+                && previous.full_file_hash == full_file_hash
             {
-                if previous.size == file_size && previous.full_file_hash == full_file_hash {
-                    return Ok(FileBuildEntry {
-                        manifest: previous.clone(),
-                        chunks: Vec::new(),
-                        size: file_size,
-                        scan_read,
-                        file_hash,
-                        chunking: Duration::ZERO,
-                        chunking_bytes: 0,
-                        chunk_hash_judgment: Duration::ZERO,
-                        chunk_hash_judgment_bytes: 0,
-                        metadata: Duration::ZERO,
-                    });
-                }
+                return Ok(FileBuildEntry {
+                    manifest: previous.clone(),
+                    chunks: Vec::new(),
+                    size: file_size,
+                    scan_read,
+                    file_hash,
+                    chunking: Duration::ZERO,
+                    chunking_bytes: 0,
+                    chunk_hash_judgment: Duration::ZERO,
+                    chunk_hash_judgment_bytes: 0,
+                    metadata: Duration::ZERO,
+                });
             }
 
             let chunking = chunk_timings.boundary_scan;
@@ -145,8 +134,8 @@ pub(crate) fn scan_directory_into_file_entries(
                     chunk_hash: ch.clone(),
                     raw_size: cr.data.len() as u64,
                 });
-                if !existing_chunk_locations.contains_key(&ch) {
-                    let payload = match chunk_storage_mode {
+                if !options.existing_chunk_locations.contains_key(&ch) {
+                    let payload = match options.chunk_storage_mode {
                         ChunkStorageMode::Memory => ChunkPayload::InMemory {
                             bytes: std::sync::Arc::<[u8]>::from(cr.data),
                         },
@@ -192,7 +181,7 @@ pub(crate) fn scan_directory_into_file_entries(
 
             Ok(FileBuildEntry {
                 manifest: FileManifest {
-                    path: relative.to_string_lossy().replace('\\', "/"),
+                    path: normalized_relative,
                     size: file_size,
                     executable: false,
                     full_file_hash,
@@ -210,19 +199,19 @@ pub(crate) fn scan_directory_into_file_entries(
             })
         })();
 
-        if result.is_ok() {
-            if let Some(progress) = &progress_for_scan {
-                progress.on_file_scanned();
-            }
+        if result.is_ok()
+            && let Some(progress) = &progress_for_scan
+        {
+            progress.on_file_scanned();
         }
 
         result
     };
 
-    if worker_count <= 1 {
+    if options.worker_count <= 1 {
         file_paths.iter().map(scan_one).collect::<Result<Vec<_>>>()
     } else {
-        install_in_thread_pool(worker_count, || {
+        install_in_thread_pool(options.worker_count, || {
             file_paths
                 .par_iter()
                 .map(scan_one)

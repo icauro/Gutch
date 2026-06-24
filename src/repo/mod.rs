@@ -122,7 +122,8 @@ pub fn ensure_gutch_repo_layout(
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
-        let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
+        let mut repo_manifest: GutchRepoManifest =
+            crate::helpers::from_json_str(&repo_manifest_json)?;
         repo_manifest.gutch_repo_id = derive_gutch_repo_id_from_repo_root(&paths.repo_root);
         if repo_manifest.gutch_repo_id != gutch_repo_id {
             return Err(Error::manifest(format!(

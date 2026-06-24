@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GutchConfig {
     #[serde(default)]
@@ -27,12 +27,6 @@ pub struct LinkedRepo {
     pub creator_user_id: Option<String>,
     pub remote_repo_id: i64,
     pub remote_repo_slug: String,
-}
-
-impl Default for GutchConfig {
-    fn default() -> Self {
-        Self { repos: Vec::new() }
-    }
 }
 
 impl GutchConfig {

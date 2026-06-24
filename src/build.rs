@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use tempfile::TempDir;
 
 use crate::Result;
-use crate::build_scan::collect_scanned_chunks;
+use crate::build_scan::{ScanDirectoryOptions, collect_scanned_chunks};
 use crate::build_types::{
     BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
     ChunkPayload, ExistingChunkLocation,
@@ -62,6 +62,9 @@ impl Default for BundleSizingPolicy {
     }
 }
 
+type ChunkPayloadEntry = (String, ChunkPayload);
+type PlannedChunkGroup = Vec<ChunkPayloadEntry>;
+
 fn estimate_bundle_compression_ratio_from_probe(
     chunks: &[(String, ChunkPayload)],
     compression_profile: &manifest::CompressionProfile,
@@ -107,29 +110,30 @@ fn raw_target_size_for_bundle_compression(
     let normalized_ratio = compression_ratio.max(0.01);
     ((compressed_target_size as f64 / normalized_ratio).ceil() as u64)
         .max(bundle_policy.preferred_size)
-        .min(u64::MAX)
+}
+
+struct PlannedBundleGroups {
+    groups: Vec<PlannedChunkGroup>,
+    sort_duration: std::time::Duration,
+    sort_bytes: u64,
+    probe_duration: std::time::Duration,
+    probe_raw_bytes: u64,
 }
 
 fn plan_bundle_compressed_groups(
-    mut chunks: Vec<(String, ChunkPayload)>,
+    mut chunks: Vec<ChunkPayloadEntry>,
     compression_profile: &manifest::CompressionProfile,
     bundle_profile: &manifest::BundleSizingProfile,
     bundle_policy: BundleSizingPolicy,
-) -> Result<(
-    Vec<Vec<(String, ChunkPayload)>>,
-    std::time::Duration,
-    u64,
-    std::time::Duration,
-    u64,
-)> {
+) -> Result<PlannedBundleGroups> {
     if chunks.is_empty() {
-        return Ok((
-            Vec::new(),
-            std::time::Duration::ZERO,
-            0,
-            std::time::Duration::ZERO,
-            0,
-        ));
+        return Ok(PlannedBundleGroups {
+            groups: Vec::new(),
+            sort_duration: std::time::Duration::ZERO,
+            sort_bytes: 0,
+            probe_duration: std::time::Duration::ZERO,
+            probe_raw_bytes: 0,
+        });
     }
 
     let sort_start = Instant::now();
@@ -174,13 +178,13 @@ fn plan_bundle_compressed_groups(
         planned_groups.push(current_group);
     }
 
-    Ok((
-        planned_groups,
+    Ok(PlannedBundleGroups {
+        groups: planned_groups,
         sort_duration,
         sort_bytes,
         probe_duration,
         probe_raw_bytes,
-    ))
+    })
 }
 
 fn record_bundle_compressed_bundle_metrics(
@@ -223,6 +227,32 @@ struct BuiltLooseChunkResult {
     chunk: BuiltLooseChunk,
     payload_load: std::time::Duration,
     payload_load_bytes: u64,
+}
+
+fn base_build_config(
+    gutch_repo_id: &str,
+    target_id: &str,
+    target_tags: &TargetTagSet,
+) -> BuildConfig {
+    BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
+}
+
+fn build_config_against_existing_store(
+    gutch_repo_id: &str,
+    target_id: &str,
+    target_tags: &TargetTagSet,
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &HashSet<String>,
+    previous_file_manifests: Option<&HashMap<String, FileManifest>>,
+) -> BuildConfig {
+    let config = base_build_config(gutch_repo_id, target_id, target_tags)
+        .with_existing_chunks(existing_chunk_locations)
+        .with_existing_bundles(existing_bundle_ids);
+    if let Some(previous_file_manifests) = previous_file_manifests {
+        config.with_previous_manifests(previous_file_manifests)
+    } else {
+        config
+    }
 }
 
 fn build_loose_chunk(
@@ -303,7 +333,11 @@ pub fn build_from_directory(
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<BuildResult> {
-    Ok(build_with_config(dir, &BuildConfig::with_ids(gutch_repo_id, target_id, target_tags))?.0)
+    Ok(build_with_config(
+        dir,
+        &base_build_config(gutch_repo_id, target_id, target_tags),
+    )?
+    .0)
 }
 
 pub fn build_from_directory_with_timings(
@@ -312,7 +346,10 @@ pub fn build_from_directory_with_timings(
     target_id: &str,
     target_tags: &TargetTagSet,
 ) -> Result<(BuildResult, BuildTimings)> {
-    build_with_config(dir, &BuildConfig::with_ids(gutch_repo_id, target_id, target_tags))
+    build_with_config(
+        dir,
+        &base_build_config(gutch_repo_id, target_id, target_tags),
+    )
 }
 
 pub fn build_from_directory_with_timings_against_existing_bundles(
@@ -322,7 +359,7 @@ pub fn build_from_directory_with_timings_against_existing_bundles(
     target_tags: &TargetTagSet,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
+    let config = base_build_config(gutch_repo_id, target_id, target_tags)
         .with_existing_bundles(existing_bundle_ids);
     build_with_config(dir, &config)
 }
@@ -335,9 +372,14 @@ pub fn build_from_directory_with_timings_against_existing_store(
     existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
     existing_bundle_ids: &HashSet<String>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
-        .with_existing_chunks(existing_chunk_locations)
-        .with_existing_bundles(existing_bundle_ids);
+    let config = build_config_against_existing_store(
+        gutch_repo_id,
+        target_id,
+        target_tags,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        None,
+    );
     build_with_config(dir, &config)
 }
 
@@ -350,10 +392,14 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
     existing_bundle_ids: &HashSet<String>,
     previous_file_manifests: &HashMap<String, FileManifest>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
-        .with_existing_chunks(existing_chunk_locations)
-        .with_existing_bundles(existing_bundle_ids)
-        .with_previous_manifests(previous_file_manifests);
+    let config = build_config_against_existing_store(
+        gutch_repo_id,
+        target_id,
+        target_tags,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        Some(previous_file_manifests),
+    );
     build_with_config(dir, &config)
 }
 
@@ -368,12 +414,16 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     chunk_profile: &manifest::ChunkSizingProfile,
     bundle_profile: &manifest::BundleSizingProfile,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
-        .with_existing_chunks(existing_chunk_locations)
-        .with_existing_bundles(existing_bundle_ids)
-        .with_previous_manifests(previous_file_manifests)
-        .with_chunk_profile(chunk_profile)
-        .with_bundle_profile(bundle_profile);
+    let config = build_config_against_existing_store(
+        gutch_repo_id,
+        target_id,
+        target_tags,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        Some(previous_file_manifests),
+    )
+    .with_chunk_profile(chunk_profile)
+    .with_bundle_profile(bundle_profile);
     build_with_config(dir, &config)
 }
 
@@ -389,13 +439,17 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
     bundle_profile: &manifest::BundleSizingProfile,
     compression_profile: &manifest::CompressionProfile,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let config = BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
-        .with_existing_chunks(existing_chunk_locations)
-        .with_existing_bundles(existing_bundle_ids)
-        .with_previous_manifests(previous_file_manifests)
-        .with_chunk_profile(chunk_profile)
-        .with_bundle_profile(bundle_profile)
-        .with_compression_profile(compression_profile);
+    let config = build_config_against_existing_store(
+        gutch_repo_id,
+        target_id,
+        target_tags,
+        existing_chunk_locations,
+        existing_bundle_ids,
+        Some(previous_file_manifests),
+    )
+    .with_chunk_profile(chunk_profile)
+    .with_bundle_profile(bundle_profile)
+    .with_compression_profile(compression_profile);
     build_with_config(dir, &config)
 }
 
@@ -411,13 +465,15 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
 
     let (mut file_manifests, unique_chunks, total_logical_size) = collect_scanned_chunks(
         dir,
-        &config.previous_file_manifests,
-        &config.chunk_profile,
-        &config.existing_chunk_locations,
-        runtime_plan.chunk_storage_mode,
-        chunk_spool_dir.as_ref().map(|dir| dir.path()),
-        runtime_plan.worker_count,
-        config.progress.clone(),
+        ScanDirectoryOptions {
+            previous_file_manifests: &config.previous_file_manifests,
+            chunking_profile: &config.chunk_profile,
+            existing_chunk_locations: &config.existing_chunk_locations,
+            chunk_storage_mode: runtime_plan.chunk_storage_mode,
+            chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
+            worker_count: runtime_plan.worker_count,
+            progress: config.progress.clone(),
+        },
         &mut timings,
     )?;
 
@@ -437,7 +493,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
         }
     }
 
-    let mut chunks_to_compress = Vec::new();
+    let mut chunks_to_compress: Vec<ChunkPayloadEntry> = Vec::new();
 
     let t = Instant::now();
     for (hash, payload) in unique_chunks {
@@ -454,9 +510,10 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     }
     timings.dedupe_lookup += t.elapsed();
 
-    for (_, payload) in &chunks_to_compress {
-        timings.compression_input_bytes += payload.raw_size();
-    }
+    timings.compression_input_bytes = chunks_to_compress
+        .iter()
+        .map(|(_, payload)| payload.raw_size())
+        .sum();
 
     let t = Instant::now();
     let mut bundles = Vec::new();
@@ -474,26 +531,28 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
                 ));
             }
 
-            let (planned_bundles, sort_duration, sort_bytes, probe_duration, probe_raw_bytes) =
-                plan_bundle_compressed_groups(
-                    chunks_to_compress,
-                    &compression_profile,
-                    &config.bundle_profile,
-                    bundle_target_size_policy,
-                )?;
-            timings.bundle_compressed_sort += sort_duration;
-            timings.bundle_compressed_sort_bytes += sort_bytes;
-            timings.bundle_compressed_ratio_probe += probe_duration;
-            timings.bundle_compressed_ratio_probe_bytes += probe_raw_bytes;
+            let planned_bundle_groups = plan_bundle_compressed_groups(
+                chunks_to_compress,
+                &compression_profile,
+                &config.bundle_profile,
+                bundle_target_size_policy,
+            )?;
+            timings.bundle_compressed_sort += planned_bundle_groups.sort_duration;
+            timings.bundle_compressed_sort_bytes += planned_bundle_groups.sort_bytes;
+            timings.bundle_compressed_ratio_probe += planned_bundle_groups.probe_duration;
+            timings.bundle_compressed_ratio_probe_bytes += planned_bundle_groups.probe_raw_bytes;
             if let Some(progress) = &config.progress {
-                progress.on_bundle_build_started(planned_bundles.len());
+                progress.on_bundle_build_started(planned_bundle_groups.groups.len());
             }
             let compression_profile_for_work = compression_profile.clone();
             let progress_for_work = config.progress.clone();
-            let bundle_worker_count =
-                bundle_compression_worker_count(planned_bundles.len(), runtime_plan.worker_count);
+            let bundle_worker_count = bundle_compression_worker_count(
+                planned_bundle_groups.groups.len(),
+                runtime_plan.worker_count,
+            );
             let build_bundle_work = || {
-                planned_bundles
+                planned_bundle_groups
+                    .groups
                     .into_par_iter()
                     .map(|planned_bundle| {
                         build_bundle_compressed_group(

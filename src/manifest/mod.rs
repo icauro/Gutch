@@ -15,20 +15,15 @@ pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
 pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum ArtifactStorageMode {
     #[serde(rename = "bundled")]
     #[value(name = "bundled")]
+    #[default]
     Bundled,
     #[serde(rename = "loose_chunks")]
     #[value(name = "loose_chunks")]
     LooseChunks,
-}
-
-impl Default for ArtifactStorageMode {
-    fn default() -> Self {
-        Self::Bundled
-    }
 }
 
 impl ArtifactStorageMode {
@@ -40,7 +35,7 @@ impl ArtifactStorageMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum ArtifactSizingPreset {
     #[serde(rename = "chunk_1KiB")]
     #[value(name = "chunk_1KiB")]
@@ -59,6 +54,7 @@ pub enum ArtifactSizingPreset {
     Chunk64KiB,
     #[serde(rename = "chunk_128KiB")]
     #[value(name = "chunk_128KiB")]
+    #[default]
     Chunk128KiB,
     #[serde(rename = "chunk_256KiB")]
     #[value(name = "chunk_256KiB")]
@@ -69,12 +65,6 @@ pub enum ArtifactSizingPreset {
     #[serde(rename = "chunk_1MiB")]
     #[value(name = "chunk_1MiB")]
     Chunk1MiB,
-}
-
-impl Default for ArtifactSizingPreset {
-    fn default() -> Self {
-        Self::Chunk128KiB
-    }
 }
 
 impl ArtifactSizingPreset {
@@ -93,7 +83,7 @@ impl ArtifactSizingPreset {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum BundleSizingPreset {
     #[serde(rename = "auto")]
     #[value(name = "auto")]
@@ -106,6 +96,7 @@ pub enum BundleSizingPreset {
     Bundle8MiB,
     #[serde(rename = "bundle_16MiB")]
     #[value(name = "bundle_16MiB")]
+    #[default]
     Bundle16MiB,
     #[serde(rename = "bundle_32MiB")]
     #[value(name = "bundle_32MiB")]
@@ -116,12 +107,6 @@ pub enum BundleSizingPreset {
     #[serde(rename = "bundle_128MiB")]
     #[value(name = "bundle_128MiB")]
     Bundle128MiB,
-}
-
-impl Default for BundleSizingPreset {
-    fn default() -> Self {
-        Self::Bundle16MiB
-    }
 }
 
 impl BundleSizingPreset {
@@ -263,7 +248,7 @@ impl Default for BundleSizingProfile {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum CompressionPreset {
     #[serde(rename = "uncompressed")]
     #[value(name = "uncompressed")]
@@ -273,16 +258,11 @@ pub enum CompressionPreset {
     Zstd1,
     #[serde(rename = "zstd_3")]
     #[value(name = "zstd_3")]
+    #[default]
     Zstd3,
     #[serde(rename = "zstd_5")]
     #[value(name = "zstd_5")]
     Zstd5,
-}
-
-impl Default for CompressionPreset {
-    fn default() -> Self {
-        Self::Zstd3
-    }
 }
 
 impl CompressionPreset {
@@ -503,15 +483,14 @@ impl TargetTagSet {
                     raw_tag
                 )));
             }
-            if strict_exclusive {
-                if let Some(existing_value) = self.exclusive.get(prefix) {
-                    if existing_value != value {
-                        return Err(crate::Error::manifest(format!(
-                            "conflicting exclusive tag '{}'. Prefix '{}' already has value '{}'",
-                            raw_tag, prefix, existing_value
-                        )));
-                    }
-                }
+            if strict_exclusive
+                && let Some(existing_value) = self.exclusive.get(prefix)
+                && existing_value != value
+            {
+                return Err(crate::Error::manifest(format!(
+                    "conflicting exclusive tag '{}'. Prefix '{}' already has value '{}'",
+                    raw_tag, prefix, existing_value
+                )));
             }
             self.upsert_exclusive(prefix.to_string(), value.to_string());
             return Ok(());
@@ -736,17 +715,12 @@ pub struct Estimate {
     pub fragmentation_score: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum IncompleteInferenceBehavior {
     Warn,
+    #[default]
     Error,
-}
-
-impl Default for IncompleteInferenceBehavior {
-    fn default() -> Self {
-        Self::Error
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

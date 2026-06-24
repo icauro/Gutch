@@ -117,7 +117,7 @@ pub fn apply_target_install_with_timings_and_hints(
             let (source_classification, _) = classify_directory_with_progress(
                 source.target_manifest,
                 source.install_dir,
-                &RuntimeResourceHints::default(),
+                runtime_hints,
             )?;
             if !source_classification.missing_files.is_empty()
                 || !source_classification.corrupt_files.is_empty()
@@ -198,25 +198,16 @@ pub fn fetch_target_install_content(
     crate::helpers::create_dir_all(&repo_paths.bundles_root)?;
 
     let manifest_bytes = download_url(request.manifest_url.trim())?;
-    let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).map_err(|err| {
-        Error::manifest(format!(
-            "downloaded target manifest is invalid JSON: {}",
-            err
-        ))
-    })?;
+    let manifest =
+        download_json_bytes::<serde_json::Value>(&manifest_bytes, "downloaded target manifest")?;
     write_repo_manifest(&request.repo_path, &manifest)?;
 
-    if let Some(chunk_index_url) = request
-        .chunk_index_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(chunk_index_url) = non_empty_trimmed(request.chunk_index_url.as_deref()) {
         let chunk_index_bytes = download_url(chunk_index_url)?;
-        let chunk_index: manifest::ChunkIndex = serde_json::from_slice(&chunk_index_bytes)
-            .map_err(|err| {
-                Error::manifest(format!("downloaded chunk index is invalid JSON: {}", err))
-            })?;
+        let chunk_index = download_json_bytes::<manifest::ChunkIndex>(
+            &chunk_index_bytes,
+            "downloaded chunk index",
+        )?;
         crate::write_chunk_index(&repo_paths, &chunk_index)?;
     }
 
@@ -224,11 +215,7 @@ pub fn fetch_target_install_content(
         let chunk_index = crate::load_chunk_index(&repo_paths).ok();
 
         if let Some(index) = chunk_index {
-            let mut target: TargetManifest = serde_json::from_slice(&manifest_bytes)
-                .map_err(|err| Error::manifest(format!("invalid target manifest: {}", err)))?;
-            if target.target_id.trim().is_empty() {
-                target.target_id = request.target_id.clone();
-            }
+            let target = target_manifest_from_download(&manifest_bytes, &request.target_id)?;
             crate::repo::required_bundle_ids(&target, &index)
                 .into_iter()
                 .collect()
@@ -236,11 +223,7 @@ pub fn fetch_target_install_content(
             Vec::new()
         }
     };
-    let mut target_manifest: TargetManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|err| Error::manifest(format!("invalid target manifest: {}", err)))?;
-    if target_manifest.target_id.trim().is_empty() {
-        target_manifest.target_id = request.target_id.clone();
-    }
+    let target_manifest = target_manifest_from_download(&manifest_bytes, &request.target_id)?;
     crate::write_target_manifest_artifacts(&repo_paths, &target_manifest)?;
     let bundles = if request.bundles.is_empty() && !bundle_ids_from_chunk_index.is_empty() {
         fetch_bundle_urls(request, &bundle_ids_from_chunk_index)?
@@ -397,7 +380,7 @@ fn promote_staging_install(
         crate::helpers::remove_dir_all(backup_dir)?;
     }
 
-    Ok(backup_dir)
+    Ok(None)
 }
 
 fn backup_dir_for_install(install_dir: &Path, target_id: &str) -> PathBuf {
@@ -435,6 +418,26 @@ fn download_url(url: &str) -> Result<Vec<u8>> {
         .map_err(|err| Error::bundle(format!("failed to read Gutch download body: {}", err)))
 }
 
+fn download_json_bytes<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    description: &str,
+) -> Result<T> {
+    serde_json::from_slice(bytes)
+        .map_err(|err| Error::manifest(format!("{description} is invalid JSON: {err}")))
+}
+
+fn target_manifest_from_download(bytes: &[u8], fallback_target_id: &str) -> Result<TargetManifest> {
+    let mut manifest = download_json_bytes::<TargetManifest>(bytes, "downloaded target manifest")?;
+    if manifest.target_id.trim().is_empty() {
+        manifest.target_id = fallback_target_id.to_string();
+    }
+    Ok(manifest)
+}
+
+fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
 fn fetch_bundle_urls(
     request: &TargetInstallFetchRequest,
     bundle_ids: &[String],
@@ -442,16 +445,13 @@ fn fetch_bundle_urls(
     let endpoint = request
         .bundle_urls_endpoint
         .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+        .and_then(|value| non_empty_trimmed(Some(value)))
         .ok_or_else(|| Error::bundle("bundle URL endpoint is required for Gutch install"))?;
     let separator = if endpoint.contains('?') { '&' } else { '?' };
     let url = format!("{}{}ids={}", endpoint, separator, bundle_ids.join(","));
     let mut builder = reqwest::blocking::Client::new().get(url);
-    if let Some(session_id) = request.session_id.as_deref().map(str::trim) {
-        if !session_id.is_empty() {
-            builder = builder.header("Authorization", format!("Bearer {}", session_id));
-        }
+    if let Some(session_id) = non_empty_trimmed(request.session_id.as_deref()) {
+        builder = builder.header("Authorization", format!("Bearer {}", session_id));
     }
 
     let response = builder

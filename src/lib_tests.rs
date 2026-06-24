@@ -116,6 +116,10 @@ fn test_apply_target_install_reuses_verified_source_install() {
         result.reused_source_chunk_count > 0,
         "expected at least one source chunk to be reused"
     );
+    assert_eq!(
+        result.backup_dir, None,
+        "successful promotion should not report a deleted backup directory"
+    );
     assert!(install_dir.join("shared.txt").exists());
     assert!(install_dir.join("new.txt").exists());
     assert!(!install_dir.join("old.txt").exists());

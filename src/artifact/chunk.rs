@@ -76,8 +76,8 @@ pub fn chunk_slices(
 }
 
 fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
-    let offset: usize = chunk.offset as usize;
-    let length: usize = chunk.length as usize;
+    let offset = chunk.offset;
+    let length = chunk.length;
     let hash = blake3::hash(&source[offset..offset + length]);
     ChunkSlice {
         offset: offset as u64,

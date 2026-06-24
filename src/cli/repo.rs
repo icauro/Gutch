@@ -153,7 +153,8 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 println!("sync-up cancelled");
                 return Ok(());
             }
-            let stats = actions::repo::sync_up_repo(repo, endpoint, product_id, gutch_repo_id, session_id)?;
+            let stats =
+                actions::repo::sync_up_repo(repo, endpoint, product_id, gutch_repo_id, session_id)?;
             println!(
                 "synced repo {} to product {} repo {}",
                 stats.repo_root, stats.product_id, stats.gutch_repo_id
