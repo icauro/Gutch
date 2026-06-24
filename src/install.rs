@@ -473,11 +473,20 @@ fn fetch_bundle_urls(
 
 fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) -> Result<()> {
     let existing_manifest_path = repo_path.join(manifest::CONTENT_REPO_MANIFEST_FILE);
-    let gutch_repo_id = if existing_manifest_path.exists() {
+    let repo_name = if existing_manifest_path.exists() {
         let json = std::fs::read_to_string(&existing_manifest_path)?;
         let existing_manifest: crate::manifest::gutch_repo::GutchRepoManifest =
             serde_json::from_str(&json)?;
-        existing_manifest.gutch_repo_id
+        if existing_manifest.name.is_empty() {
+            repo_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or("base")
+                .to_string()
+        } else {
+            existing_manifest.name
+        }
     } else {
         repo_path
             .file_name()
@@ -486,7 +495,7 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
             .unwrap_or("base")
             .to_string()
     };
-    let mut repo_manifest = crate::manifest::gutch_repo::GutchRepoManifest::new(gutch_repo_id);
+    let mut repo_manifest = crate::manifest::gutch_repo::GutchRepoManifest::new(repo_name);
     if let Some(inserted_at) = target_manifest
         .get("inserted_at")
         .or_else(|| target_manifest.get("created_at"))

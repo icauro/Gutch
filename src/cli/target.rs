@@ -41,7 +41,7 @@ impl From<g::repo::ExistingStoreState> for MutableInsertStoreState {
 struct InsertOneTargetRequest<'a> {
     input_dir: &'a Path,
     repo_paths: &'a g::GutchRepoPaths,
-    gutch_repo_id: &'a str,
+    repo_name: &'a str,
     rules: &'a g::manifest::TargetTagSchema,
     explicit_tags: &'a g::manifest::TargetTagSet,
     chunk_profile: g::manifest::ArtifactSizingPreset,
@@ -87,7 +87,7 @@ fn run_insert_one_target(
         g::manifest::CompressionProfile::for_preset(request.compression_profile);
 
     let mut build_config =
-        g::BuildConfig::with_ids(request.gutch_repo_id, "", &resolved_identity.target_tags);
+        g::BuildConfig::with_ids(request.repo_name, "", &resolved_identity.target_tags);
     build_config.existing_chunk_locations = store_state.chunk_locations.clone();
     build_config.existing_bundle_ids = store_state.bundle_ids.clone();
     build_config.previous_file_manifests = store_state.previous_file_manifests.clone();
@@ -189,8 +189,8 @@ fn run_insert_one_target(
         input_path: request.input_dir.display().to_string(),
         target_id: result.target_manifest.target_id.clone(),
         manifest_path: manifest_path.display().to_string(),
-        product_id: request.gutch_repo_id.to_string(),
-        gutch_repo_id: request.gutch_repo_id.to_string(),
+        product_id: request.repo_name.to_string(),
+        remote_repo_id: request.repo_name.to_string(),
         version_id: resolved_identity
             .target_tags
             .get_exclusive("version")
@@ -306,7 +306,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             if let Some(tier) = tier {
                 explicit_tags.upsert_exclusive("tier", tier);
             }
-            let gutch_repo = repo_manifest.gutch_repo_id.clone();
+            let repo_name = repo_manifest.name.clone();
             let input_stats = collect_input_sizing_stats(&dir)?;
             let mut store_state: MutableInsertStoreState =
                 scan_existing_store_state(&repo_paths)?.into();
@@ -314,7 +314,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 InsertOneTargetRequest {
                     input_dir: &dir,
                     repo_paths: &repo_paths,
-                    gutch_repo_id: &gutch_repo,
+                    repo_name: &repo_name,
                     rules: &rules,
                     explicit_tags: &explicit_tags,
                     chunk_profile,
@@ -366,7 +366,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
             let explicit_tags = parse_cli_tags(&tags)?;
-            let gutch_repo = repo_manifest.gutch_repo_id.clone();
+            let repo_name = repo_manifest.name.clone();
             let mut store_state: MutableInsertStoreState =
                 scan_existing_store_state(&repo_paths)?.into();
             let empty_output = None;
@@ -377,7 +377,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     InsertOneTargetRequest {
                         input_dir: target_dir,
                         repo_paths: &repo_paths,
-                        gutch_repo_id: &gutch_repo,
+                        repo_name: &repo_name,
                         rules: &rules,
                         explicit_tags: &explicit_tags,
                         chunk_profile,

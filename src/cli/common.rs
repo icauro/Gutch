@@ -31,7 +31,7 @@ pub(crate) struct TargetInsertStats {
     pub(crate) target_id: String,
     pub(crate) manifest_path: String,
     pub(crate) product_id: String,
-    pub(crate) gutch_repo_id: String,
+    pub(crate) remote_repo_id: String,
     pub(crate) version_id: String,
     pub(crate) platform: String,
     pub(crate) architecture: String,
@@ -209,7 +209,7 @@ impl SummaryReport for TargetInsertStats {
             &mut lines,
             "Identity",
             [
-                summary_kv("gutch_repo", &self.gutch_repo_id),
+                summary_kv("repo", &self.remote_repo_id),
                 summary_kv("version", &self.version_id),
                 summary_kv("platform", &self.platform),
                 summary_kv("architecture", &self.architecture),

@@ -4,11 +4,6 @@ use gutch as g;
 
 pub(super) fn print_landing_info_table(config: &g::config::GutchConfig) {
     let tracked_repo_count = config.repos.len();
-    let linked_repo_count = config
-        .repos
-        .iter()
-        .filter(|repo| repo.linked.is_some())
-        .count();
     let lookup_path_count = config
         .repos
         .iter()
@@ -17,7 +12,6 @@ pub(super) fn print_landing_info_table(config: &g::config::GutchConfig) {
 
     let rows = vec![
         ("tracked repos", tracked_repo_count.to_string()),
-        ("linked repos", linked_repo_count.to_string()),
         ("lookup paths", lookup_path_count.to_string()),
     ];
 
@@ -34,16 +28,17 @@ pub(super) fn print_active_repo_info_table(repo: &Path) -> g::Result<()> {
     let tracked = config.find_repo(&repo_path);
     let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
 
-    let linked_value = match tracked.and_then(|tracked_repo| tracked_repo.linked.as_ref()) {
-        Some(linked) => format!("{} / {}", linked.product_id, linked.remote_repo_slug),
-        None => "not linked".to_string(),
+    let linked_value = if repo_manifest.is_linked() {
+        format!("product {} / repo {}", repo_manifest.product_id, repo_manifest.remote_repo_id)
+    } else {
+        "not linked".to_string()
     };
     let lookup_value = tracked
         .and_then(|tracked_repo| tracked_repo.target_lookup_path.as_deref())
         .unwrap_or("-");
 
     let rows = vec![
-        ("repo id", repo_manifest.gutch_repo_id),
+        ("name", repo_manifest.name),
         ("path", repo.display().to_string()),
         ("linked", linked_value),
         ("lookup path", lookup_value.to_string()),
@@ -189,7 +184,8 @@ pub(super) fn print_repo_summary(repo: &Path) -> g::Result<()> {
 
     println!();
     println!("  path:     {}", status.repo_path);
-    println!("  id:       {}", status.gutch_repo_id);
+    println!("  name:     {}", status.name);
+    println!("  linked:   {}", if status.remote_repo_id.is_empty() { "no".to_string() } else { format!("product {} / repo {}", status.product_id, status.remote_repo_id) });
     println!("  targets:  {}", status.targets.len());
     println!(
         "  bundles:  {} ({})",
@@ -200,12 +196,6 @@ pub(super) fn print_repo_summary(repo: &Path) -> g::Result<()> {
     if let Some(tracked) = tracked {
         if let Some(lookup) = &tracked.target_lookup_path {
             println!("  lookup:   {}", lookup);
-        }
-        if let Some(linked) = &tracked.linked {
-            println!(
-                "  linked:   product {} | repo {} (id: {})",
-                linked.product_id, linked.remote_repo_slug, linked.remote_repo_id
-            );
         }
     }
     println!();

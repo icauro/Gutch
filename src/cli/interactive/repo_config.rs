@@ -65,7 +65,8 @@ pub(super) fn run_repo_config_edit(theme: &ColorfulTheme, repo: &Path) -> g::Res
 
 fn print_repo_config_summary(repo_manifest: &g::manifest::gutch_repo::GutchRepoManifest) {
     println!("Repo config summary");
-    println!("  gutch repo      {}", repo_manifest.gutch_repo_id);
+    println!("  name              {}", repo_manifest.name);
+    println!("  remote_repo_id    {}", if repo_manifest.remote_repo_id.is_empty() { "(not linked)" } else { &repo_manifest.remote_repo_id });
     println!(
         "  chunk profile     {}",
         super::artifact_sizing_str(repo_manifest.chunk_sizing_profile.preset)

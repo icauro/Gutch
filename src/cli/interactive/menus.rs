@@ -147,7 +147,6 @@ pub(super) fn resolve_active_repo_from_selection(
                 config.upsert_repo(g::config::TrackedRepo {
                     path: repo_path_str,
                     target_lookup_path: None,
-                    linked: None,
                 });
                 g::config::save_config(&config)?;
             }
@@ -228,20 +227,13 @@ pub(super) fn prompt_advanced_action(
 }
 
 fn render_tracked_repo_label(index: usize, repo: &g::config::TrackedRepo) -> String {
-    let linked_prefix = match &repo.linked {
-        Some(linked) => format!(
-            "[linked to {}/{}]",
-            linked.product_id, linked.remote_repo_slug
-        ),
-        None => "[not linked]".to_string(),
-    };
     let lookup_marker = if repo.target_lookup_path.is_some() {
         " [lookup]"
     } else {
         ""
     };
     format!(
-        "- [Repo-{}] {} | {}{}",
-        index, linked_prefix, repo.path, lookup_marker
+        "- [Repo-{}] {}{}",
+        index, repo.path, lookup_marker
     )
 }

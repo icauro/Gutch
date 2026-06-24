@@ -15,7 +15,7 @@ pub struct RepoSyncUpStats {
     pub command: &'static str,
     pub repo_root: String,
     pub product_id: i64,
-    pub gutch_repo_id: i64,
+    pub remote_repo_id: i64,
     pub repo_manifest_uploaded: bool,
     pub chunk_index_uploaded: bool,
     pub target_manifest_uploaded_count: usize,
@@ -44,7 +44,7 @@ pub struct RepoSyncTargetChange {
 pub struct RepoSyncPlan {
     pub repo_root: String,
     pub product_id: i64,
-    pub gutch_repo_id: i64,
+    pub remote_repo_id: i64,
     pub target_count: usize,
     pub remote_target_count: usize,
     pub to_add: Vec<RepoSyncTargetChange>,
@@ -125,34 +125,27 @@ fn remote_target_tags(target: &CreatorTargetResponse) -> Vec<String> {
     values
 }
 
-fn resolve_sync_binding(
-    repo: &PathBuf,
-    product_id: Option<i64>,
-    gutch_repo_id: Option<i64>,
-) -> g::Result<(i64, i64)> {
-    if let (Some(pid), Some(cid)) = (product_id, gutch_repo_id) {
-        return Ok((pid, cid));
+fn resolve_sync_binding(repo: &PathBuf) -> g::Result<(i64, i64)> {
+    let (paths, manifest) = g::load_gutch_repo_manifest(repo)?;
+    if !manifest.is_linked() {
+        return Err(g::Error::manifest(format!(
+            "repo '{}' is not linked. Use 'gutch repo link' first.",
+            paths.repo_root.display()
+        )));
     }
-
-    let config = g::config::load_config()?;
-    let tracked = config
-        .find_repo(&repo.display().to_string())
-        .ok_or_else(|| {
-            g::Error::manifest(format!(
-                "repo '{}' is not tracked. Use repo link first or pass --product-id and --gutch-repo-id.",
-                repo.display()
-            ))
-        })?;
-    let linked = tracked.linked.as_ref().ok_or_else(|| {
+    let product_id = manifest.product_id.parse::<i64>().map_err(|_| {
         g::Error::manifest(format!(
-            "repo '{}' has no linked remote. Use repo link first or pass --product-id and --gutch-repo-id.",
-            repo.display()
+            "invalid product_id '{}' in manifest",
+            manifest.product_id
         ))
     })?;
-    let pid = linked.product_id.parse::<i64>().map_err(|_| {
-        g::Error::manifest(format!("invalid linked product_id: {}", linked.product_id))
+    let remote_repo_id = manifest.remote_repo_id_value().ok_or_else(|| {
+        g::Error::manifest(format!(
+            "invalid remote_repo_id '{}' in manifest",
+            manifest.remote_repo_id
+        ))
     })?;
-    Ok((pid, linked.remote_repo_id))
+    Ok((product_id, remote_repo_id))
 }
 
 fn fetch_creator_targets(
@@ -160,7 +153,7 @@ fn fetch_creator_targets(
     endpoint: &str,
     session_id: &str,
     product_id: i64,
-    gutch_repo_id: i64,
+    remote_repo_id: i64,
 ) -> g::Result<HashMap<String, CreatorTargetResponse>> {
     let creator_targets: CreatorRepoTargetsResponse = request_json_from_backend(
         client
@@ -168,7 +161,7 @@ fn fetch_creator_targets(
                 "{}/v1/users/me/creator/products/{}/repos/{}/targets",
                 endpoint.trim_end_matches('/'),
                 product_id,
-                gutch_repo_id
+                remote_repo_id
             ))
             .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {}", session_id)),
@@ -234,11 +227,9 @@ fn collect_local_sync_targets(
 pub fn plan_sync_up_repo(
     repo: PathBuf,
     endpoint: String,
-    product_id: Option<i64>,
-    gutch_repo_id: Option<i64>,
     session_override: Option<String>,
 ) -> g::Result<RepoSyncPlan> {
-    let (product_id, gutch_repo_id) = resolve_sync_binding(&repo, product_id, gutch_repo_id)?;
+    let (product_id, remote_repo_id) = resolve_sync_binding(&repo)?;
     let session_id = session_id_for_cli(session_override)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
@@ -247,7 +238,7 @@ pub fn plan_sync_up_repo(
 
     let (status, repo_paths, local_targets) = collect_local_sync_targets(&repo)?;
     let remote_targets =
-        fetch_creator_targets(&client, &endpoint, &session_id, product_id, gutch_repo_id)?;
+        fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
 
     let mut to_add = Vec::new();
     let mut to_update = Vec::new();
@@ -291,7 +282,7 @@ pub fn plan_sync_up_repo(
     Ok(RepoSyncPlan {
         repo_root: repo_paths.repo_root.display().to_string(),
         product_id,
-        gutch_repo_id,
+        remote_repo_id,
         target_count: status.targets.len(),
         remote_target_count: remote_targets.len(),
         to_add,
@@ -313,7 +304,7 @@ pub fn init_repo(path: &Path, schema: Option<&PathBuf>) -> g::Result<()> {
     g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
     println!(
-        "created gutch repo {} at {}",
+        "created gutch repo '{}' at {}",
         repo_name,
         repo_paths.repo_root.display()
     );
@@ -322,34 +313,152 @@ pub fn init_repo(path: &Path, schema: Option<&PathBuf>) -> g::Result<()> {
     config.upsert_repo(g::config::TrackedRepo {
         path: repo_paths.repo_root.display().to_string(),
         target_lookup_path: None,
-        linked: None,
     });
     g::config::save_config(&config)?;
     Ok(())
 }
 
-pub fn unlink_repo(repo: &Path) -> g::Result<()> {
-    let mut config = g::config::load_config()?;
-    let repo_path = repo.display().to_string();
-    if !config.clear_repo_link(&repo_path) {
+pub fn link_repo(
+    repo: &Path,
+    product_id: i64,
+    endpoint: &str,
+    session_override: Option<String>,
+) -> g::Result<()> {
+    let (paths, mut manifest) = g::load_gutch_repo_manifest(repo)?;
+    if manifest.is_linked() {
         return Err(g::Error::manifest(format!(
-            "repo '{}' is not tracked in config.",
-            repo_path
+            "repo '{}' is already linked (remote_repo_id={}, product_id={}). Unlink first.",
+            paths.repo_root.display(),
+            manifest.remote_repo_id,
+            manifest.product_id
         )));
     }
-    g::config::save_config(&config)?;
-    println!("unlinked repo '{}'", repo.display());
+
+    let session_id = session_id_for_cli(session_override)?;
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Gutch CLI")
+        .build()
+        .map_err(|err| g::Error::manifest(format!("failed to create link client: {}", err)))?;
+
+    let repo_name = manifest.name.clone();
+    let response = client
+        .post(format!(
+            "{}/v1/users/me/creator/products/{}/repos",
+            endpoint.trim_end_matches('/'),
+            product_id
+        ))
+        .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {}", session_id))
+        .json(&serde_json::json!({
+            "name": repo_name,
+        }))
+        .send()
+        .map_err(|err| g::Error::manifest(format!("backend request failed: {}", err)))?;
+
+    if response.status() == reqwest::StatusCode::CONFLICT {
+        let body = response
+            .text()
+            .unwrap_or_else(|_| "repo name already taken".to_string());
+        return Err(g::Error::manifest(format!(
+            "repo name '{}' already exists for product {}. {}",
+            repo_name, product_id, body
+        )));
+    }
+
+    if !response.status().is_success() {
+        return Err(g::Error::manifest(
+            g::remote::backend::parse_backend_error_response(response),
+        ));
+    }
+
+    let created: serde_json::Value = response
+        .json()
+        .map_err(|err| g::Error::manifest(format!("failed to parse link response: {}", err)))?;
+    let remote_repo_id = created["id"].as_i64().ok_or_else(|| {
+        g::Error::manifest("backend response missing repo id".to_string())
+    })?;
+
+    manifest.remote_repo_id = remote_repo_id.to_string();
+    manifest.product_id = product_id.to_string();
+    g::write_gutch_repo_manifest(&paths, &manifest)?;
+
+    println!(
+        "linked repo '{}' to remote repo {} (product {})",
+        paths.repo_root.display(),
+        remote_repo_id,
+        product_id
+    );
+    Ok(())
+}
+
+pub fn unlink_repo(repo: &Path, delete_remote: bool, endpoint: Option<&str>, session_override: Option<String>) -> g::Result<()> {
+    let (paths, mut manifest) = g::load_gutch_repo_manifest(repo)?;
+    if !manifest.is_linked() {
+        println!("repo '{}' is not linked, nothing to do.", paths.repo_root.display());
+        return Ok(());
+    }
+
+    if delete_remote {
+        let remote_repo_id = manifest.remote_repo_id_value().ok_or_else(|| {
+            g::Error::manifest(format!(
+                "invalid remote_repo_id '{}' in manifest",
+                manifest.remote_repo_id
+            ))
+        })?;
+        let product_id = manifest.product_id.parse::<i64>().map_err(|_| {
+            g::Error::manifest(format!(
+                "invalid product_id '{}' in manifest",
+                manifest.product_id
+            ))
+        })?;
+
+        let endpoint = endpoint.ok_or_else(|| {
+            g::Error::manifest("--endpoint required when using --delete-remote".to_string())
+        })?;
+        let session_id = session_id_for_cli(session_override)?;
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("Gutch CLI")
+            .build()
+            .map_err(|err| g::Error::manifest(format!("failed to create client: {}", err)))?;
+
+        let response = client
+            .delete(format!(
+                "{}/v1/users/me/creator/products/{}/repos/{}",
+                endpoint.trim_end_matches('/'),
+                product_id,
+                remote_repo_id
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id))
+            .send()
+            .map_err(|err| g::Error::manifest(format!("backend request failed: {}", err)))?;
+
+        if !response.status().is_success() {
+            return Err(g::Error::manifest(
+                g::remote::backend::parse_backend_error_response(response),
+            ));
+        }
+
+        println!(
+            "deleted remote repo {} (product {})",
+            remote_repo_id, product_id
+        );
+    }
+
+    manifest.remote_repo_id = String::new();
+    manifest.product_id = String::new();
+    g::write_gutch_repo_manifest(&paths, &manifest)?;
+
+    println!("unlinked repo '{}'", paths.repo_root.display());
     Ok(())
 }
 
 pub fn sync_up_repo(
     repo: PathBuf,
     endpoint: String,
-    product_id: Option<i64>,
-    gutch_repo_id: Option<i64>,
     session_override: Option<String>,
 ) -> g::Result<RepoSyncUpStats> {
-    let (product_id, gutch_repo_id) = resolve_sync_binding(&repo, product_id, gutch_repo_id)?;
+    let (product_id, remote_repo_id) = resolve_sync_binding(&repo)?;
     let session_id = session_id_for_cli(session_override)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
@@ -359,13 +468,11 @@ pub fn sync_up_repo(
     let plan = plan_sync_up_repo(
         repo.clone(),
         endpoint.clone(),
-        Some(product_id),
-        Some(gutch_repo_id),
         Some(session_id.clone()),
     )?;
     let (status, repo_paths, _) = collect_local_sync_targets(&repo)?;
     let mut remote_targets =
-        fetch_creator_targets(&client, &endpoint, &session_id, product_id, gutch_repo_id)?;
+        fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
 
     for target in &plan.to_remove {
         if let Some(remote_target) = remote_targets.remove(&target.target_id) {
@@ -374,7 +481,7 @@ pub fn sync_up_repo(
                     "{}/v1/users/me/creator/products/{}/repos/{}/targets/{}",
                     endpoint.trim_end_matches('/'),
                     product_id,
-                    gutch_repo_id,
+                    remote_repo_id,
                     remote_target.id
                 ))
                 .header("Accept", "application/json")
@@ -395,7 +502,7 @@ pub fn sync_up_repo(
         &endpoint,
         &format!(
             "/v1/users/me/creator/products/{}/repos/{}/manifest",
-            product_id, gutch_repo_id
+            product_id, remote_repo_id
         ),
         &session_id,
         repo_manifest_bytes,
@@ -412,7 +519,7 @@ pub fn sync_up_repo(
             &endpoint,
             &format!(
                 "/v1/users/me/creator/products/{}/repos/{}/chunks",
-                product_id, gutch_repo_id
+                product_id, remote_repo_id
             ),
             &session_id,
             chunk_index_bytes,
@@ -447,7 +554,7 @@ pub fn sync_up_repo(
                             "{}/v1/users/me/creator/products/{}/repos/{}/targets",
                             endpoint.trim_end_matches('/'),
                             product_id,
-                            gutch_repo_id
+                            remote_repo_id
                         ))
                         .header("Accept", "application/json")
                         .header("Authorization", format!("Bearer {}", session_id))
@@ -477,7 +584,7 @@ pub fn sync_up_repo(
             &endpoint,
             &format!(
                 "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
-                product_id, gutch_repo_id, remote_target_id
+                product_id, remote_repo_id, remote_target_id
             ),
             &session_id,
             manifest_bytes,
@@ -502,7 +609,7 @@ pub fn sync_up_repo(
             &endpoint,
             &format!(
                 "/v1/users/me/creator/products/{}/repos/{}/bundles/{}/content",
-                product_id, gutch_repo_id, bundle_id
+                product_id, remote_repo_id, bundle_id
             ),
             &session_id,
             crate::helpers::read(entry.path())?,
@@ -515,7 +622,7 @@ pub fn sync_up_repo(
         command: "repo sync-up",
         repo_root: repo_paths.repo_root.display().to_string(),
         product_id,
-        gutch_repo_id,
+        remote_repo_id,
         repo_manifest_uploaded,
         chunk_index_uploaded,
         target_manifest_uploaded_count,

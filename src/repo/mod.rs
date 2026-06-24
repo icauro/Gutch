@@ -28,7 +28,9 @@ pub struct RepoInspectStatus {
     pub exists: bool,
     pub is_repo: bool,
     pub repo_path: String,
-    pub gutch_repo_id: String,
+    pub name: String,
+    pub remote_repo_id: String,
+    pub product_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_schema: Option<manifest::TargetTagSchema>,
     pub targets: Vec<RepoInspectTargetStatus>,
@@ -103,7 +105,8 @@ impl GutchRepoPaths {
     }
 }
 
-fn derive_gutch_repo_id_from_repo_root(repo_root: &Path) -> String {
+#[allow(dead_code)]
+fn derive_repo_name_from_path(repo_root: &Path) -> String {
     repo_root
         .file_name()
         .and_then(|value| value.to_str())
@@ -114,7 +117,7 @@ fn derive_gutch_repo_id_from_repo_root(repo_root: &Path) -> String {
 
 pub fn ensure_gutch_repo_layout(
     paths: &GutchRepoPaths,
-    gutch_repo_id: &str,
+    name: &str,
 ) -> Result<GutchRepoManifest> {
     crate::helpers::create_dir_all(&paths.targets_root)?;
     crate::helpers::create_dir_all(&paths.bundles_root)?;
@@ -122,20 +125,11 @@ pub fn ensure_gutch_repo_layout(
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
-        let mut repo_manifest: GutchRepoManifest =
+        let repo_manifest: GutchRepoManifest =
             crate::helpers::from_json_str(&repo_manifest_json)?;
-        repo_manifest.gutch_repo_id = derive_gutch_repo_id_from_repo_root(&paths.repo_root);
-        if repo_manifest.gutch_repo_id != gutch_repo_id {
-            return Err(Error::manifest(format!(
-                "gutch repo at {} has repo id '{}' not '{}'",
-                paths.repo_root.display(),
-                repo_manifest.gutch_repo_id,
-                gutch_repo_id
-            )));
-        }
         repo_manifest
     } else {
-        let repo_manifest = GutchRepoManifest::new(gutch_repo_id.to_string());
+        let repo_manifest = GutchRepoManifest::new(name.to_string());
         crate::helpers::write_json(&paths.repo_manifest_path, &repo_manifest)?;
         repo_manifest
     };
@@ -153,8 +147,7 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
     }
 
     let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
-    let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
-    repo_manifest.gutch_repo_id = derive_gutch_repo_id_from_repo_root(repo_root);
+    let repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
 
     Ok((paths, repo_manifest))
 }
@@ -533,7 +526,9 @@ pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         exists: true,
         is_repo: true,
         repo_path: repo_path_display,
-        gutch_repo_id: repo_manifest.gutch_repo_id,
+        name: repo_manifest.name,
+        remote_repo_id: repo_manifest.remote_repo_id,
+        product_id: repo_manifest.product_id,
         target_schema: repo_manifest.target_schema,
         targets,
         bundle_count,
@@ -589,7 +584,9 @@ fn empty_repo_inspect_status(
         exists,
         is_repo: false,
         repo_path,
-        gutch_repo_id: String::new(),
+        name: String::new(),
+        remote_repo_id: String::new(),
+        product_id: String::new(),
         target_schema: None,
         targets: Vec::new(),
         bundle_count: 0,

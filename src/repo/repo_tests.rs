@@ -118,7 +118,7 @@ fn inspect_gutch_repo_reports_targets() {
 
     assert!(status.exists);
     assert!(status.is_repo);
-    assert_eq!(status.gutch_repo_id, "repo");
+    assert_eq!(status.name, "repo");
     assert_eq!(status.bundle_count, 1);
     assert_eq!(status.targets.len(), 1);
     assert_eq!(status.targets[0].target_id, "1");

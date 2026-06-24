@@ -15,18 +15,6 @@ pub struct TrackedRepo {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_lookup_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub linked: Option<LinkedRepo>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinkedRepo {
-    pub product_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub creator_user_id: Option<String>,
-    pub remote_repo_id: i64,
-    pub remote_repo_slug: String,
 }
 
 impl GutchConfig {
@@ -54,9 +42,6 @@ impl GutchConfig {
             if repo.target_lookup_path.is_some() {
                 existing.target_lookup_path = repo.target_lookup_path;
             }
-            if repo.linked.is_some() {
-                existing.linked = repo.linked;
-            }
         } else {
             self.repos.push(repo);
             self.repos.sort_by(|a, b| a.path.cmp(&b.path));
@@ -72,17 +57,8 @@ impl GutchConfig {
         self.repos.push(TrackedRepo {
             path: path.to_string(),
             target_lookup_path,
-            linked: None,
         });
         self.repos.sort_by(|a, b| a.path.cmp(&b.path));
-    }
-
-    pub fn clear_repo_link(&mut self, path: &str) -> bool {
-        if let Some(existing) = self.find_repo_mut(path) {
-            existing.linked = None;
-            return true;
-        }
-        false
     }
 
     pub fn remove_repo(&mut self, path: &str) {
@@ -146,20 +122,14 @@ pub fn save_config(config: &GutchConfig) -> Result<(), crate::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GutchConfig, LinkedRepo, TrackedRepo};
+    use super::{GutchConfig, TrackedRepo};
 
     #[test]
-    fn set_repo_target_lookup_path_updates_and_clears_existing_value() {
+    fn set_repo_target_lookup_path_updates_existing_value() {
         let mut config = GutchConfig {
             repos: vec![TrackedRepo {
                 path: "D:\\Repos\\game".to_string(),
                 target_lookup_path: Some("D:\\Builds\\game".to_string()),
-                linked: Some(LinkedRepo {
-                    product_id: "42".to_string(),
-                    creator_user_id: None,
-                    remote_repo_id: 7,
-                    remote_repo_slug: "base".to_string(),
-                }),
             }],
         };
 
@@ -167,31 +137,24 @@ mod tests {
 
         let tracked = config.find_repo("D:\\Repos\\game").unwrap();
         assert_eq!(tracked.target_lookup_path, None);
-        assert_eq!(tracked.linked.as_ref().unwrap().remote_repo_id, 7);
     }
 
     #[test]
-    fn clear_repo_link_preserves_other_repo_metadata() {
-        let mut config = GutchConfig {
-            repos: vec![TrackedRepo {
-                path: "D:\\Repos\\game".to_string(),
-                target_lookup_path: Some("D:\\Builds\\game".to_string()),
-                linked: Some(LinkedRepo {
-                    product_id: "42".to_string(),
-                    creator_user_id: Some("9".to_string()),
-                    remote_repo_id: 7,
-                    remote_repo_slug: "base".to_string(),
-                }),
-            }],
-        };
+    fn upsert_repo_inserts_new_and_updates_existing() {
+        let mut config = GutchConfig { repos: vec![] };
 
-        assert!(config.clear_repo_link("D:\\Repos\\game"));
+        config.upsert_repo(TrackedRepo {
+            path: "D:\\Repos\\game".to_string(),
+            target_lookup_path: Some("D:\\Builds\\game".to_string()),
+        });
+        assert_eq!(config.repos.len(), 1);
+        assert_eq!(config.repos[0].target_lookup_path, Some("D:\\Builds\\game".to_string()));
 
-        let tracked = config.find_repo("D:\\Repos\\game").unwrap();
-        assert_eq!(
-            tracked.target_lookup_path.as_deref(),
-            Some("D:\\Builds\\game")
-        );
-        assert!(tracked.linked.is_none());
+        config.upsert_repo(TrackedRepo {
+            path: "D:\\Repos\\game".to_string(),
+            target_lookup_path: Some("D:\\Builds\\game-v2".to_string()),
+        });
+        assert_eq!(config.repos.len(), 1);
+        assert_eq!(config.repos[0].target_lookup_path, Some("D:\\Builds\\game-v2".to_string()));
     }
 }

@@ -248,8 +248,6 @@ pub(super) fn run_interactive_repo_link(repo: &Path) -> g::Result<()> {
         endpoint,
         session_id: Some(session_id),
         product_id: None,
-        gutch_repo_id: None,
-        remote_repo_slug: None,
     })
 }
 
@@ -262,7 +260,7 @@ pub(super) fn run_interactive_repo_unlink(theme: &ColorfulTheme, repo: &Path) ->
         "plctl gutch repo unlink --repo {}",
         super::shell_arg_path(repo)
     ));
-    actions::repo::unlink_repo(repo)
+    actions::repo::unlink_repo(repo, false, None, None)
 }
 
 pub(super) fn run_interactive_repo_sync_up(repo: &Path) -> g::Result<()> {
@@ -275,10 +273,10 @@ pub(super) fn run_interactive_repo_sync_up(repo: &Path) -> g::Result<()> {
         super::shell_arg(&session_id)
     ));
     let stats =
-        actions::repo::sync_up_repo(repo.to_path_buf(), endpoint, None, None, Some(session_id))?;
+        actions::repo::sync_up_repo(repo.to_path_buf(), endpoint, Some(session_id))?;
     println!(
         "synced repo {} to product {} repo {}",
-        stats.repo_root, stats.product_id, stats.gutch_repo_id
+        stats.repo_root, stats.product_id, stats.remote_repo_id
     );
     println!(
         "repo manifest uploaded: {}, chunk index uploaded: {}",

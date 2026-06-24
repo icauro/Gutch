@@ -128,10 +128,6 @@ pub enum RepoCommands {
         repo: PathBuf,
         #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
         endpoint: String,
-        #[arg(long = "product-id")]
-        product_id: Option<i64>,
-        #[arg(long = "gutch-repo-id")]
-        gutch_repo_id: Option<i64>,
         #[arg(long = "session-id")]
         session_id: Option<String>,
         #[arg(long = "yes")]
@@ -146,14 +142,16 @@ pub enum RepoCommands {
         session_id: Option<String>,
         #[arg(long = "product-id")]
         product_id: Option<i64>,
-        #[arg(long = "gutch-repo-id")]
-        gutch_repo_id: Option<i64>,
-        #[arg(long = "remote-repo-slug")]
-        remote_repo_slug: Option<String>,
     },
     Unlink {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
+        #[arg(long = "delete-remote")]
+        delete_remote: bool,
+        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
+        endpoint: String,
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
     },
 }
 

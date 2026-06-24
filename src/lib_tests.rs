@@ -287,7 +287,7 @@ fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
 
     let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    assert_eq!(repo_manifest.gutch_repo_id, "base");
+    assert_eq!(repo_manifest.name, "base");
     assert!(paths.repo_manifest_path.exists());
     assert!(paths.targets_root.exists());
     assert!(paths.bundles_root.exists());
