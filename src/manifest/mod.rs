@@ -1,5 +1,6 @@
 pub mod binary;
 pub mod gutch_repo;
+pub mod schema_edit;
 pub mod target;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,6 +15,8 @@ pub const COMPRESSION_ZSTD: &str = "zstd";
 pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
 pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
+
+pub use schema_edit::{EditableTargetTagDefinition, sanitize_editable_target_tag_schema};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum ArtifactStorageMode {

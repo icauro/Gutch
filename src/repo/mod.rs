@@ -3,6 +3,8 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+mod lookup;
+
 use crate::hash::hash_hex;
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::manifest::{
@@ -486,6 +488,8 @@ fn load_target_manifest_from_json_text(
         files,
     ))
 }
+
+pub use lookup::{LookupTargetChangePlan, plan_lookup_target_changes};
 
 pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
     let repo_path = repo_root.to_path_buf();

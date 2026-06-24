@@ -153,6 +153,29 @@ pub enum RepoCommands {
         #[arg(long = "session-id")]
         session_id: Option<String>,
     },
+    #[command(name = "lookup-plan")]
+    LookupPlan {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+        #[arg(long = "lookup-root")]
+        lookup_root: PathBuf,
+        #[arg(long = "json-out")]
+        json_out: Option<PathBuf>,
+    },
+    #[command(name = "lookup-insert")]
+    LookupInsert {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+        #[arg(long = "lookup-root")]
+        lookup_root: PathBuf,
+    },
+    #[command(name = "lookup-remove")]
+    LookupRemove {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+        #[arg(long = "lookup-root")]
+        lookup_root: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]

@@ -67,9 +67,11 @@ pub use repo::{
     bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, chunk_path, chunk_path_in_root,
     compute_target_id_from_files, discover_source_target_installs, ensure_gutch_repo_layout,
     inspect_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
+    LookupTargetChangePlan, plan_lookup_target_changes,
     serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,
     write_chunk_index, write_gutch_repo_manifest, write_target_manifest_artifacts,
 };
+pub use manifest::{EditableTargetTagDefinition, sanitize_editable_target_tag_schema};
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,

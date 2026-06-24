@@ -199,6 +199,40 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 session_id,
             )?;
         }
+
+        RepoCommands::LookupPlan {
+            repo,
+            lookup_root,
+            json_out,
+        } => {
+            let plan = g::plan_lookup_target_changes(&repo, Some(&lookup_root))?;
+            if let Some(json_out) = json_out.as_ref() {
+                ensure_parent_directory(json_out)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&plan)?)?;
+            }
+            println!("{SECTION_SEPARATOR}");
+            println!("Lookup plan");
+            println!("lookup_ready: {}", plan.lookup_ready);
+            println!("candidates: {}", plan.candidate_count);
+            println!("insertable: {}", plan.insertable_count);
+            println!("removable: {}", plan.removable_count);
+        }
+
+        RepoCommands::LookupInsert {
+            repo,
+            lookup_root,
+        } => {
+            let result = actions::lookup::insert_uninserted_lookup_installs(&repo, &lookup_root)?;
+            println!("inserted {} target install(s)", result.inserted_count);
+        }
+
+        RepoCommands::LookupRemove {
+            repo,
+            lookup_root,
+        } => {
+            let result = actions::lookup::remove_lookup_missing_targets(&repo, &lookup_root)?;
+            println!("removed {} unavailable target(s)", result.removed_count);
+        }
     }
 
     Ok(())
