@@ -50,6 +50,41 @@ impl BuildConfig {
             progress: None,
         }
     }
+
+    pub fn with_existing_bundles(mut self, ids: &HashSet<String>) -> Self {
+        self.existing_bundle_ids = ids.clone();
+        self
+    }
+
+    pub fn with_existing_chunks(mut self, locations: &HashMap<String, ExistingChunkLocation>) -> Self {
+        self.existing_chunk_locations = locations.clone();
+        self
+    }
+
+    pub fn with_previous_manifests(mut self, manifests: &HashMap<String, FileManifest>) -> Self {
+        self.previous_file_manifests = manifests.clone();
+        self
+    }
+
+    pub fn with_chunk_profile(mut self, profile: &ChunkSizingProfile) -> Self {
+        self.chunk_profile = profile.clone();
+        self
+    }
+
+    pub fn with_bundle_profile(mut self, profile: &BundleSizingProfile) -> Self {
+        self.bundle_profile = profile.clone();
+        self
+    }
+
+    pub fn with_compression_profile(mut self, profile: &CompressionProfile) -> Self {
+        self.compression_profile = profile.clone();
+        self
+    }
+
+    pub fn with_progress(mut self, progress: Arc<dyn BuildProgressSink>) -> Self {
+        self.progress = Some(progress);
+        self
+    }
 }
 
 pub struct BuildResult {
