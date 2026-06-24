@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::Serialize;
 
 use crate::cli::common::{load_optional_rules, parse_version_parts, session_id_for_cli};
+use crate::sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink, emit_progress};
 use g::remote::backend::{
     CreatorRepoTargetsResponse, CreatorTargetResponse, UpsertTargetResponse,
     request_json_from_backend, upload_raw_file,
@@ -38,6 +40,8 @@ pub struct RepoSyncTargetChange {
     pub tier: String,
     pub artifact_state: Option<String>,
     pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +70,7 @@ struct LocalSyncTarget {
 fn local_target_change(
     target: &LocalSyncTarget,
     artifact_state: Option<String>,
+    update_reason: Option<String>,
 ) -> RepoSyncTargetChange {
     RepoSyncTargetChange {
         target_id: target.target_id.clone(),
@@ -75,6 +80,7 @@ fn local_target_change(
         tier: target.tier.clone(),
         artifact_state,
         tags: target.tags.clone(),
+        update_reason,
     }
 }
 
@@ -107,6 +113,7 @@ fn remote_target_change(target: &CreatorTargetResponse) -> RepoSyncTargetChange 
             .unwrap_or_default(),
         artifact_state: Some(target.artifact_state.clone()),
         tags: remote_target_tags(target),
+        update_reason: None,
     }
 }
 
@@ -245,19 +252,32 @@ pub fn plan_sync_up_repo(
     let mut unchanged = Vec::new();
     for local_target in &local_targets {
         match remote_targets.get(&local_target.target_id) {
-            None => to_add.push(local_target_change(local_target, None)),
+            None => to_add.push(local_target_change(local_target, None, None)),
             Some(remote_target) => {
                 let tag_mismatch = local_target.tags != remote_target_tags(remote_target);
                 let needs_state_update = remote_target.artifact_state != "ready";
                 if tag_mismatch || needs_state_update {
+                    let update_reason = if tag_mismatch && needs_state_update {
+                        Some(String::from(
+                            "Target tags and remote artifact state differ.",
+                        ))
+                    } else if tag_mismatch {
+                        Some(String::from("Target tags differ from remote."))
+                    } else {
+                        Some(String::from(
+                            "Remote artifact state is not ready; manifest will be re-uploaded.",
+                        ))
+                    };
                     to_update.push(local_target_change(
                         local_target,
                         Some(remote_target.artifact_state.clone()),
+                        update_reason,
                     ));
                 } else {
                     unchanged.push(local_target_change(
                         local_target,
                         Some(remote_target.artifact_state.clone()),
+                        None,
                     ));
                 }
             }
@@ -458,12 +478,49 @@ pub fn sync_up_repo(
     endpoint: String,
     session_override: Option<String>,
 ) -> g::Result<RepoSyncUpStats> {
+    sync_up_repo_with_progress(repo, endpoint, session_override, None)
+}
+
+fn collect_bundle_paths(bundles_root: &Path) -> g::Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() {
+            continue;
+        }
+        if g::bundle_id_from_bundle_path(entry.path()).is_some() {
+            paths.push(entry.path().to_path_buf());
+        }
+    }
+    Ok(paths)
+}
+
+pub fn sync_up_repo_with_progress(
+    repo: PathBuf,
+    endpoint: String,
+    session_override: Option<String>,
+    progress: Option<Arc<dyn SyncUpProgressSink>>,
+) -> g::Result<RepoSyncUpStats> {
     let (product_id, remote_repo_id) = resolve_sync_binding(&repo)?;
     let session_id = session_id_for_cli(session_override)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
         .build()
         .map_err(|err| g::Error::manifest(format!("failed to create sync client: {}", err)))?;
+
+    emit_progress(
+        &progress,
+        SyncUpProgressEvent {
+            phase: String::from("planning"),
+            message: String::from("Planning sync changes"),
+            current: 0,
+            total: 1,
+            detail: None,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            done: false,
+        },
+    );
 
     let plan = plan_sync_up_repo(
         repo.clone(),
@@ -474,7 +531,30 @@ pub fn sync_up_repo(
     let mut remote_targets =
         fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
 
+    let bundle_paths = collect_bundle_paths(&repo_paths.bundles_root)?;
+    let chunk_index_steps = usize::from(repo_paths.chunk_index_path.exists());
+    let total_steps = plan.to_remove.len()
+        + 1
+        + chunk_index_steps
+        + status.targets.len()
+        + bundle_paths.len();
+    let mut step = 0usize;
+
     for target in &plan.to_remove {
+        step += 1;
+        emit_progress(
+            &progress,
+            SyncUpProgressEvent {
+                phase: String::from("remove_targets"),
+                message: String::from("Removing remote targets"),
+                current: step,
+                total: total_steps,
+                detail: Some(target.target_id.clone()),
+                transferred_bytes: 0,
+                total_bytes: 0,
+                done: false,
+            },
+        );
         if let Some(remote_target) = remote_targets.remove(&target.target_id) {
             let response = client
                 .delete(format!(
@@ -496,6 +576,20 @@ pub fn sync_up_repo(
         }
     }
 
+    step += 1;
+    emit_progress(
+        &progress,
+        SyncUpProgressEvent {
+            phase: String::from("upload_repo_manifest"),
+            message: String::from("Uploading repo manifest"),
+            current: step,
+            total: total_steps,
+            detail: None,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            done: false,
+        },
+    );
     let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_manifest_path)?;
     upload_raw_file(
         &client,
@@ -512,6 +606,20 @@ pub fn sync_up_repo(
 
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {
+        step += 1;
+        emit_progress(
+            &progress,
+            SyncUpProgressEvent {
+                phase: String::from("upload_chunk_index"),
+                message: String::from("Uploading chunk index"),
+                current: step,
+                total: total_steps,
+                detail: None,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                done: false,
+            },
+        );
         let chunk_index = g::load_chunk_index(&repo_paths)?;
         let chunk_index_bytes = serde_json::to_vec_pretty(&chunk_index)?;
         upload_raw_file(
@@ -530,6 +638,20 @@ pub fn sync_up_repo(
 
     let mut target_manifest_uploaded_count = 0usize;
     for target in &status.targets {
+        step += 1;
+        emit_progress(
+            &progress,
+            SyncUpProgressEvent {
+                phase: String::from("upload_target_manifest"),
+                message: String::from("Uploading target manifests"),
+                current: step,
+                total: total_steps,
+                detail: Some(target.target_id.clone()),
+                transferred_bytes: 0,
+                total_bytes: 0,
+                done: false,
+            },
+        );
         let manifest = g::load_target_manifest(&repo_paths, &target.target_id)?;
         let manifest_bytes = g::serialize_target_manifest_for_remote(&manifest)?;
         let version = manifest
@@ -595,14 +717,26 @@ pub fn sync_up_repo(
 
     let mut bundle_uploaded_count = 0usize;
     let bundle_skipped_count = 0usize;
-    for entry in walkdir::WalkDir::new(&repo_paths.bundles_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file() {
-            continue;
-        }
-        let Some(bundle_id) = g::bundle_id_from_bundle_path(entry.path()) else {
+    for bundle_path in bundle_paths {
+        step += 1;
+        let Some(bundle_id) = g::bundle_id_from_bundle_path(&bundle_path) else {
             continue;
         };
+        let bundle_bytes = crate::helpers::read(&bundle_path)?;
+        let bundle_size = bundle_bytes.len() as u64;
+        emit_progress(
+            &progress,
+            SyncUpProgressEvent {
+                phase: String::from("upload_bundle"),
+                message: String::from("Uploading bundles"),
+                current: step,
+                total: total_steps,
+                detail: Some(bundle_id.clone()),
+                transferred_bytes: 0,
+                total_bytes: bundle_size,
+                done: false,
+            },
+        );
 
         upload_raw_file(
             &client,
@@ -612,11 +746,38 @@ pub fn sync_up_repo(
                 product_id, remote_repo_id, bundle_id
             ),
             &session_id,
-            crate::helpers::read(entry.path())?,
+            bundle_bytes,
             "application/octet-stream",
         )?;
         bundle_uploaded_count += 1;
+        emit_progress(
+            &progress,
+            SyncUpProgressEvent {
+                phase: String::from("upload_bundle"),
+                message: String::from("Uploading bundles"),
+                current: step,
+                total: total_steps,
+                detail: Some(bundle_id),
+                transferred_bytes: bundle_size,
+                total_bytes: bundle_size,
+                done: false,
+            },
+        );
     }
+
+    emit_progress(
+        &progress,
+        SyncUpProgressEvent {
+            phase: String::from("complete"),
+            message: String::from("Sync complete"),
+            current: total_steps,
+            total: total_steps,
+            detail: None,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            done: true,
+        },
+    );
 
     Ok(RepoSyncUpStats {
         command: "repo sync-up",

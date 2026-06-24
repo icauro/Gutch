@@ -19,6 +19,7 @@ pub mod plugin;
 pub mod remote;
 pub mod repo;
 pub mod runtime;
+pub mod sync_up_progress;
 #[cfg(test)]
 mod test_util;
 pub mod verify;
@@ -38,6 +39,7 @@ pub use build_types::{
     BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
     ChunkPayload, ExistingChunkLocation,
 };
+pub use sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 pub use core::target_identity::{
     ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
     resolve_target_identity_from_rules,
@@ -71,7 +73,10 @@ pub use repo::{
     serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,
     write_chunk_index, write_gutch_repo_manifest, write_target_manifest_artifacts,
 };
-pub use manifest::{EditableTargetTagDefinition, sanitize_editable_target_tag_schema};
+pub use manifest::{
+    EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
+    sanitize_editable_target_tag_schema, validate_editable_target_tag_schema,
+};
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,

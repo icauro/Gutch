@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -10,6 +10,10 @@ use gutch as g;
 pub struct LookupTargetApplyResult {
     pub inserted_count: usize,
     pub removed_count: usize,
+}
+
+fn candidate_insert_tags(candidate: &g::SourceTargetInstallCandidate) -> Vec<String> {
+    candidate.target_tags.to_canonical_strings()
 }
 
 pub fn insert_uninserted_lookup_installs(
@@ -29,14 +33,15 @@ pub fn insert_uninserted_lookup_installs(
     let mut inserted_count = 0;
 
     for candidate in &plan.to_insert {
+        let tags = candidate_insert_tags(candidate);
         crate::cli::target::run(TargetCommands::Insert {
-            dir: Path::new(&candidate.path).to_path_buf(),
+            dir: PathBuf::from(&candidate.path),
             repo: repo.to_path_buf(),
             version: Some(candidate.version_id.clone()),
             platform: Some(candidate.platform.clone()),
             architecture: Some(candidate.architecture.clone()),
             tier: Some(candidate.tier_id.clone()),
-            tags: Vec::new(),
+            tags,
             chunk_profile: g::manifest::ArtifactSizingPreset::Chunk128KiB,
             bundle_profile: g::manifest::BundleSizingPreset::Bundle16MiB,
             compression_profile,
