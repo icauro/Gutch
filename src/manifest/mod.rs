@@ -715,21 +715,11 @@ pub struct Estimate {
     pub fragmentation_score: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum IncompleteInferenceBehavior {
-    Warn,
-    #[default]
-    Error,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetTagSchema {
     #[serde(default)]
     pub target_tags: Vec<TargetTagDefinition>,
-    #[serde(default)]
-    pub on_incomplete: IncompleteInferenceBehavior,
 }
 
 impl TargetTagSchema {
@@ -826,7 +816,6 @@ impl Default for TargetTagSchema {
                     default_value: None,
                 },
             ],
-            on_incomplete: IncompleteInferenceBehavior::Error,
         }
     }
 }

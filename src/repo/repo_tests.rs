@@ -190,7 +190,6 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
                     default_value: None,
                 },
             ],
-            on_incomplete: manifest::IncompleteInferenceBehavior::Warn,
         }),
         plugin: None,
         ..GutchRepoManifest::new("mods".to_string())

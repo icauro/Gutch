@@ -138,7 +138,6 @@ pub(super) fn minimal_tagging_template() -> g::manifest::TargetTagSchema {
             values: Vec::new(),
             default_value: None,
         }],
-        on_incomplete: g::manifest::IncompleteInferenceBehavior::Error,
     }
 }
 

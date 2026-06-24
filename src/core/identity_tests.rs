@@ -101,7 +101,6 @@ fn test_resolve_missing_version_errors() {
 #[test]
 fn test_resolve_custom_scoped_tags() {
     let mut rules = test_rules();
-    rules.on_incomplete = IncompleteInferenceBehavior::Warn;
     rules
         .target_tags
         .push(gutch::manifest::TargetTagDefinition {
@@ -138,6 +137,26 @@ fn test_resolve_custom_scoped_tags() {
             .get("loader")
             .is_some_and(|values| values.contains("fabric"))
     );
+}
+
+#[test]
+fn test_resolve_missing_required_tag_errors() {
+    let mut rules = test_rules();
+    rules.target_tags.iter_mut().for_each(|definition| {
+        if definition.name == "os" {
+            definition.required = true;
+        }
+    });
+
+    let result = resolve_target_identity(
+        std::path::Path::new("game-v1.0.0"),
+        &TargetTagSet::default(),
+        &rules,
+        "test",
+    );
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("os"));
 }
 
 #[test]

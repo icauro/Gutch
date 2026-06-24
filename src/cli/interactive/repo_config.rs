@@ -15,7 +15,6 @@ pub(super) fn run_repo_config_edit(theme: &ColorfulTheme, repo: &Path) -> g::Res
         println!();
 
         let actions = [
-            "- Set incomplete inference behavior",
             "- Add or update tag definition",
             "- Remove tag definition",
             "- Edit sizing and compression defaults",
@@ -31,11 +30,10 @@ pub(super) fn run_repo_config_edit(theme: &ColorfulTheme, repo: &Path) -> g::Res
             .map_err(super::dialoguer_to_manifest_error)?;
 
         match selection {
-            0 => edit_incomplete_behavior(theme, &mut repo_manifest)?,
-            1 => add_or_update_tag_definition(theme, &mut repo_manifest)?,
-            2 => remove_tag_definition(theme, &mut repo_manifest)?,
-            3 => edit_repo_profiles(theme, &mut repo_manifest)?,
-            4 => {
+            0 => add_or_update_tag_definition(theme, &mut repo_manifest)?,
+            1 => remove_tag_definition(theme, &mut repo_manifest)?,
+            2 => edit_repo_profiles(theme, &mut repo_manifest)?,
+            3 => {
                 if super::prompt_approval_action(
                     theme,
                     "Reset target schema to built-in defaults?",
@@ -43,7 +41,7 @@ pub(super) fn run_repo_config_edit(theme: &ColorfulTheme, repo: &Path) -> g::Res
                     repo_manifest.target_schema = Some(g::manifest::TargetTagSchema::default());
                 }
             }
-            5 => {
+            4 => {
                 println!();
                 println!("This will write:");
                 println!("  {}", repo_paths.repo_manifest_path.display());
@@ -57,7 +55,7 @@ pub(super) fn run_repo_config_edit(theme: &ColorfulTheme, repo: &Path) -> g::Res
                     return Ok(());
                 }
             }
-            6 => return Err(g::Error::manifest("interactive command cancelled")),
+            5 => return Err(g::Error::manifest("interactive command cancelled")),
             _ => unreachable!(),
         }
     }
@@ -81,10 +79,6 @@ fn print_repo_config_summary(repo_manifest: &g::manifest::gutch_repo::GutchRepoM
     );
 
     let schema = repo_manifest.target_schema.clone().unwrap_or_default();
-    println!(
-        "  on incomplete     {}",
-        incomplete_behavior_str(schema.on_incomplete)
-    );
     println!("  tag definitions   {}", schema.target_tags.len());
     for definition in &schema.target_tags {
         let values = if definition.values.is_empty() {
@@ -113,30 +107,6 @@ fn print_repo_config_summary(repo_manifest: &g::manifest::gutch_repo::GutchRepoM
             values
         );
     }
-}
-
-fn edit_incomplete_behavior(
-    theme: &ColorfulTheme,
-    repo_manifest: &mut g::manifest::gutch_repo::GutchRepoManifest,
-) -> g::Result<()> {
-    let schema = ensure_target_schema(repo_manifest);
-    let options = [
-        ("error", g::manifest::IncompleteInferenceBehavior::Error),
-        ("warn", g::manifest::IncompleteInferenceBehavior::Warn),
-    ];
-    let labels: Vec<&str> = options.iter().map(|(label, _)| *label).collect();
-    let default_index = match schema.on_incomplete {
-        g::manifest::IncompleteInferenceBehavior::Error => 0,
-        g::manifest::IncompleteInferenceBehavior::Warn => 1,
-    };
-    let selection = Select::with_theme(theme)
-        .with_prompt("On incomplete inference")
-        .items(&labels)
-        .default(default_index)
-        .interact()
-        .map_err(super::dialoguer_to_manifest_error)?;
-    schema.on_incomplete = options[selection].1.clone();
-    Ok(())
 }
 
 fn add_or_update_tag_definition(
@@ -278,13 +248,6 @@ fn edit_repo_profiles(
     repo_manifest.compression_profile =
         g::manifest::CompressionProfile::for_preset(super::prompt_compression_profile(theme)?);
     Ok(())
-}
-
-fn incomplete_behavior_str(behavior: g::manifest::IncompleteInferenceBehavior) -> &'static str {
-    match behavior {
-        g::manifest::IncompleteInferenceBehavior::Warn => "warn",
-        g::manifest::IncompleteInferenceBehavior::Error => "error",
-    }
 }
 
 fn target_tag_kind_str(kind: g::manifest::TargetTagKind) -> &'static str {

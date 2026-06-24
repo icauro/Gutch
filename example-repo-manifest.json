@@ -13,8 +13,7 @@
       { "name": "tier",   "kind": "exclusive" },
       { "name": "loader", "kind": "scoped" }
     ],
-    "target_id_order": ["version", "os", "arch", "tier"],
-    "on_incomplete": "warn"
+    "target_id_order": ["version", "os", "arch", "tier"]
   },
   "chunk_sizing_profile": {
     "preset": "chunk_128KiB",

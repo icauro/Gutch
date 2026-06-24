@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 use crate::manifest::{
-    IncompleteInferenceBehavior, StructuredVersion, TargetTagDefinition, TargetTagKind,
-    TargetTagSchema, TargetTagSet, target::TargetManifest,
+    StructuredVersion, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagSet,
+    target::TargetManifest,
 };
 
 #[derive(Debug, Clone)]
@@ -31,20 +31,16 @@ pub fn resolve_target_identity(
         )));
     }
 
-    if matches!(rules.on_incomplete, IncompleteInferenceBehavior::Error) {
-        if let Some(missing_name) = rules
-            .target_tags
-            .iter()
-            .find(|definition| {
-                definition.required && !has_definition_value(&target_tags, definition)
-            })
-            .map(|definition| definition.name.as_str())
-        {
-            return Err(Error::manifest(format!(
-                "{context} is missing required tag '{}'.",
-                missing_name
-            )));
-        }
+    if let Some(missing_name) = rules
+        .target_tags
+        .iter()
+        .find(|definition| definition.required && !has_definition_value(&target_tags, definition))
+        .map(|definition| definition.name.as_str())
+    {
+        return Err(Error::manifest(format!(
+            "{context} is missing required tag '{}'.",
+            missing_name
+        )));
     }
 
     Ok(ResolvedTargetIdentity { target_tags })
