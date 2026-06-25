@@ -47,9 +47,10 @@ pub use core::target_identity::{
 pub use error::{Error, Result};
 pub use install::{
     GutchBundleDownload, TargetInstallApplyResult, TargetInstallApplySource,
-    TargetInstallFetchRequest, TargetInstallFetchResult, apply_target_install_with_timings,
-    apply_target_install_with_timings_and_hints, default_target_install_staging_dir,
-    fetch_target_install_content,
+    TargetInstallFetchRequest, TargetInstallFetchResult, TargetInstallRepairResult,
+    apply_target_install_with_timings, apply_target_install_with_timings_and_hints,
+    default_target_install_staging_dir, fetch_target_install_content,
+    repair_target_install_with_timings_and_hints,
 };
 pub use manifest::{
     EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,

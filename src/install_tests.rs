@@ -1,7 +1,79 @@
 use super::*;
 use crate::{GutchRepoPaths, write_chunk_index};
+use crate::hash::hash_hex;
+use crate::manifest::{FileManifest, TargetTagSet};
+use crate::runtime::RuntimeResourceHints;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+
+fn test_target_manifest(files: Vec<(&str, &[u8])>) -> TargetManifest {
+    let mut manifest = TargetManifest::new("repair-target".to_string(), TargetTagSet::default());
+    manifest.files = files
+        .into_iter()
+        .map(|(path, bytes)| FileManifest {
+            path: path.to_string(),
+            size: bytes.len() as u64,
+            executable: false,
+            full_file_hash: hash_hex(&blake3::hash(bytes)),
+            chunks: Vec::new(),
+        })
+        .collect();
+    manifest
+}
+
+#[test]
+fn repair_target_install_keeps_added_files_when_requested() {
+    let root = crate::test_util::temp_path("gutch_repair_keep_added_files");
+    let _ = std::fs::remove_dir_all(&root);
+    let install_dir = root.join("install");
+    let staging_dir = root.join("staging");
+    std::fs::create_dir_all(&install_dir).unwrap();
+    std::fs::write(install_dir.join("game.dat"), b"").unwrap();
+    std::fs::write(install_dir.join("mod.txt"), b"user data").unwrap();
+    let manifest = test_target_manifest(vec![("game.dat", b"")]);
+
+    let result = repair_target_install_with_timings_and_hints(
+        &manifest,
+        &[],
+        &install_dir,
+        &staging_dir,
+        false,
+        &RuntimeResourceHints::default(),
+    )
+    .unwrap();
+
+    assert_eq!(result.extra_file_count, 1);
+    assert_eq!(result.removed_extra_file_count, 0);
+    assert!(install_dir.join("mod.txt").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn repair_target_install_full_repair_deletes_added_files() {
+    let root = crate::test_util::temp_path("gutch_repair_delete_added_files");
+    let _ = std::fs::remove_dir_all(&root);
+    let install_dir = root.join("install");
+    let staging_dir = root.join("staging");
+    std::fs::create_dir_all(install_dir.join("mods")).unwrap();
+    std::fs::write(install_dir.join("game.dat"), b"").unwrap();
+    std::fs::write(install_dir.join("mods").join("mod.txt"), b"user data").unwrap();
+    let manifest = test_target_manifest(vec![("game.dat", b"")]);
+
+    let result = repair_target_install_with_timings_and_hints(
+        &manifest,
+        &[],
+        &install_dir,
+        &staging_dir,
+        true,
+        &RuntimeResourceHints::default(),
+    )
+    .unwrap();
+
+    assert_eq!(result.extra_file_count, 1);
+    assert_eq!(result.removed_extra_file_count, 1);
+    assert!(!install_dir.join("mods").join("mod.txt").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
 
 #[test]
 #[ignore = "integration test: requires local mock HTTP server"]
@@ -113,6 +185,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         bundle_urls_endpoint: Some(format!("http://{}/bundles", address)),
         session_id: Some("session-1".to_string()),
         bundles: Vec::new(),
+        progress: None,
     })
     .unwrap();
 
