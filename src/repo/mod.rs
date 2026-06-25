@@ -582,6 +582,28 @@ pub fn discover_source_target_installs(
     Ok(candidates)
 }
 
+pub fn preview_source_target_install(
+    repo_root: &Path,
+    source_dir: &Path,
+) -> Result<SourceTargetInstallCandidate> {
+    if !source_dir.exists() {
+        return Err(Error::manifest(format!(
+            "source targets path does not exist: {}",
+            source_dir.display()
+        )));
+    }
+    if !source_dir.is_dir() {
+        return Err(Error::manifest(format!(
+            "source targets path is not a directory: {}",
+            source_dir.display()
+        )));
+    }
+
+    let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    let rules = repo_manifest.target_schema.unwrap_or_default();
+    build_source_target_install_candidate(source_dir, &rules)
+}
+
 fn empty_repo_inspect_status(
     repo_path: String,
     exists: bool,
@@ -681,15 +703,26 @@ fn infer_source_target_candidate(
     path: &Path,
     rules: &manifest::TargetTagSchema,
 ) -> Option<SourceTargetInstallCandidate> {
+    build_source_target_install_candidate(path, rules).ok()
+}
+
+fn build_source_target_install_candidate(
+    path: &Path,
+    rules: &manifest::TargetTagSchema,
+) -> Result<SourceTargetInstallCandidate> {
     use crate::core::target_identity::resolve_target_identity;
 
     let context = format!("source target '{}'", path.display());
     let resolved =
-        resolve_target_identity(path, &manifest::TargetTagSet::default(), rules, &context).ok()?;
+        resolve_target_identity(path, &manifest::TargetTagSet::default(), rules, &context)?;
 
-    let folder_name = path.file_name()?.to_str()?.to_string();
+    let folder_name = path.file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| Error::manifest(format!("invalid source target path: {}", path.display())))?
+        .to_string();
 
-    Some(SourceTargetInstallCandidate {
+    Ok(SourceTargetInstallCandidate {
         path: path.display().to_string(),
         folder_name,
         target_id: preview_target_identity(&resolved.target_tags, Some(rules)),

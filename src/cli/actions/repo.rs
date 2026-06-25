@@ -183,6 +183,38 @@ fn fetch_creator_targets(
     Ok(remote_targets)
 }
 
+fn remote_bundle_exists(
+    client: &reqwest::blocking::Client,
+    endpoint: &str,
+    session_id: &str,
+    product_id: i64,
+    remote_repo_id: i64,
+    bundle_id: &str,
+) -> g::Result<bool> {
+    let response = client
+        .get(format!(
+            "{}/v1/users/me/creator/products/{}/repos/{}/bundles/{}",
+            endpoint.trim_end_matches('/'),
+            product_id,
+            remote_repo_id,
+            bundle_id
+        ))
+        .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {}", session_id))
+        .send()
+        .map_err(|err| g::Error::manifest(format!("backend request failed: {}", err)))?;
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(false);
+    }
+    if !response.status().is_success() {
+        return Err(g::Error::manifest(
+            g::remote::backend::parse_backend_error_response(response),
+        ));
+    }
+    Ok(true)
+}
+
 fn collect_local_sync_targets(
     repo: &PathBuf,
 ) -> g::Result<(
@@ -363,14 +395,14 @@ pub fn link_repo(
     let repo_name = manifest.name.clone();
     let response = client
         .post(format!(
-            "{}/v1/users/me/creator/products/{}/repos",
+            "{}/v1/users/me/creator/products/{}/repo-links",
             endpoint.trim_end_matches('/'),
             product_id
         ))
         .header("Accept", "application/json")
         .header("Authorization", format!("Bearer {}", session_id))
         .json(&serde_json::json!({
-            "name": repo_name,
+            "localRepoName": repo_name,
         }))
         .send()
         .map_err(|err| g::Error::manifest(format!("backend request failed: {}", err)))?;
@@ -591,18 +623,29 @@ pub fn sync_up_repo_with_progress(
         },
     );
     let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_manifest_path)?;
-    upload_raw_file(
+    let remote_repo_manifest_bytes = g::remote::backend::fetch_repo_manifest_bytes(
         &client,
         &endpoint,
-        &format!(
-            "/v1/users/me/creator/products/{}/repos/{}/manifest",
-            product_id, remote_repo_id
-        ),
         &session_id,
-        repo_manifest_bytes,
-        "application/json",
+        product_id,
+        remote_repo_id,
     )?;
-    let repo_manifest_uploaded = true;
+    let repo_manifest_uploaded = if remote_repo_manifest_bytes.as_deref() == Some(repo_manifest_bytes.as_slice()) {
+        false
+    } else {
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/manifest",
+                product_id, remote_repo_id
+            ),
+            &session_id,
+            repo_manifest_bytes,
+            "application/json",
+        )?;
+        true
+    };
 
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {
@@ -622,22 +665,41 @@ pub fn sync_up_repo_with_progress(
         );
         let chunk_index = g::load_chunk_index(&repo_paths)?;
         let chunk_index_bytes = serde_json::to_vec_pretty(&chunk_index)?;
-        upload_raw_file(
+        let remote_chunk_index_bytes = g::remote::backend::fetch_chunk_index_bytes(
             &client,
             &endpoint,
-            &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/chunks",
-                product_id, remote_repo_id
-            ),
             &session_id,
-            chunk_index_bytes,
-            "application/json",
+            product_id,
+            remote_repo_id,
         )?;
-        chunk_index_uploaded = true;
+        if remote_chunk_index_bytes.as_deref() != Some(chunk_index_bytes.as_slice()) {
+            upload_raw_file(
+                &client,
+                &endpoint,
+                &format!(
+                    "/v1/users/me/creator/products/{}/repos/{}/chunks",
+                    product_id, remote_repo_id
+                ),
+                &session_id,
+                chunk_index_bytes,
+                "application/json",
+            )?;
+            chunk_index_uploaded = true;
+        }
     }
 
     let mut target_manifest_uploaded_count = 0usize;
-    for target in &status.targets {
+    let target_ids_to_upload = plan
+        .to_add
+        .iter()
+        .chain(plan.to_update.iter())
+        .map(|change| change.target_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    for target in status
+        .targets
+        .iter()
+        .filter(|target| target_ids_to_upload.contains(target.target_id.as_str()))
+    {
         step += 1;
         emit_progress(
             &progress,
@@ -716,12 +778,36 @@ pub fn sync_up_repo_with_progress(
     }
 
     let mut bundle_uploaded_count = 0usize;
-    let bundle_skipped_count = 0usize;
+    let mut bundle_skipped_count = 0usize;
     for bundle_path in bundle_paths {
         step += 1;
         let Some(bundle_id) = g::bundle_id_from_bundle_path(&bundle_path) else {
             continue;
         };
+        if remote_bundle_exists(
+            &client,
+            &endpoint,
+            &session_id,
+            product_id,
+            remote_repo_id,
+            &bundle_id,
+        )? {
+            bundle_skipped_count += 1;
+            emit_progress(
+                &progress,
+                SyncUpProgressEvent {
+                    phase: String::from("upload_bundle"),
+                    message: String::from("Skipping bundles already present remotely"),
+                    current: step,
+                    total: total_steps,
+                    detail: Some(bundle_id),
+                    transferred_bytes: 0,
+                    total_bytes: 0,
+                    done: false,
+                },
+            );
+            continue;
+        }
         let bundle_bytes = crate::helpers::read(&bundle_path)?;
         let bundle_size = bundle_bytes.len() as u64;
         emit_progress(
