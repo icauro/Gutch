@@ -39,7 +39,6 @@ pub use build_types::{
     BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
     ChunkPayload, ExistingChunkLocation,
 };
-pub use sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 pub use core::target_identity::{
     ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
     resolve_target_identity_from_rules,
@@ -50,6 +49,10 @@ pub use install::{
     TargetInstallFetchRequest, TargetInstallFetchResult, apply_target_install_with_timings,
     apply_target_install_with_timings_and_hints, default_target_install_staging_dir,
     fetch_target_install_content,
+};
+pub use manifest::{
+    EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
+    sanitize_editable_target_tag_schema, validate_editable_target_tag_schema,
 };
 pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use reconstruct::{
@@ -64,23 +67,21 @@ pub use reconstruct::{
     reconstruct_from_target_manifest, reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
-    GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
-    add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index,
-    bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, chunk_path, chunk_path_in_root,
-    compute_target_id_from_files, discover_source_target_installs, ensure_gutch_repo_layout,
-    inspect_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
-    LookupTargetChangePlan, plan_lookup_target_changes, preview_source_target_install,
-    serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,
-    write_chunk_index, write_gutch_repo_manifest, write_target_manifest_artifacts,
-};
-pub use manifest::{
-    EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
-    sanitize_editable_target_tag_schema, validate_editable_target_tag_schema,
+    GutchRepoPaths, LookupTargetChangePlan, RepoInspectStatus, RepoInspectTargetStatus,
+    SourceTargetInstallCandidate, add_built_bundles_to_chunk_index,
+    add_built_loose_chunks_to_chunk_index, bundle_id_from_bundle_path, bundle_path,
+    bundle_path_in_root, chunk_path, chunk_path_in_root, compute_target_id_from_files,
+    discover_source_target_installs, ensure_gutch_repo_layout, inspect_gutch_repo,
+    load_chunk_index, load_gutch_repo_manifest, load_target_manifest, plan_lookup_target_changes,
+    preview_source_target_install, serialize_target_manifest_for_remote, target_manifest_bin_path,
+    target_manifest_path, write_chunk_index, write_gutch_repo_manifest,
+    write_target_manifest_artifacts,
 };
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
+pub use sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,
     classify_directory, classify_directory_with_progress,

@@ -279,7 +279,10 @@ pub fn fetch_target_install_content(
             continue;
         }
 
-        let bundle_bytes = download_url(bundle.url.trim(), None)?;
+        let bundle_bytes = download_url(
+            bundle.url.trim(),
+            non_empty_trimmed(request.session_id.as_deref()),
+        )?;
         crate::helpers::write(&bundle_path, bundle_bytes)?;
         downloaded_bundle_count += 1;
     }
@@ -410,7 +413,7 @@ fn download_url(url: &str, session_id: Option<&str>) -> Result<Vec<u8>> {
 
     let client = reqwest::blocking::Client::new();
     let mut builder = client.get(url);
-    if let Some(session_id) = session_id {
+    if let Some(session_id) = session_id.filter(|_| should_attach_bearer_session(url)) {
         builder = builder.header("Authorization", format!("Bearer {}", session_id));
     }
 
@@ -429,6 +432,19 @@ fn download_url(url: &str, session_id: Option<&str>) -> Result<Vec<u8>> {
         .bytes()
         .map(|bytes| bytes.to_vec())
         .map_err(|err| Error::bundle(format!("failed to read Gutch download body: {}", err)))
+}
+
+fn should_attach_bearer_session(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if !parsed.path().starts_with("/v1/") {
+        return false;
+    }
+    matches!(
+        parsed.host_str().unwrap_or_default(),
+        "localhost" | "127.0.0.1" | "api.example.invalid"
+    )
 }
 
 fn download_json_bytes<T: serde::de::DeserializeOwned>(

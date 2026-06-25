@@ -60,8 +60,22 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 println!("{SECTION_SEPARATOR}");
                 println!("Total");
                 println!("name: {}", status.name);
-                println!("remote_repo_id: {}", if status.remote_repo_id.is_empty() { "(not linked)" } else { &status.remote_repo_id });
-                println!("product_id: {}", if status.product_id.is_empty() { "(not linked)" } else { &status.product_id });
+                println!(
+                    "remote_repo_id: {}",
+                    if status.remote_repo_id.is_empty() {
+                        "(not linked)"
+                    } else {
+                        &status.remote_repo_id
+                    }
+                );
+                println!(
+                    "product_id: {}",
+                    if status.product_id.is_empty() {
+                        "(not linked)"
+                    } else {
+                        &status.product_id
+                    }
+                );
                 println!("repo_path: {}", status.repo_path);
                 println!("targets: {}", status.targets.len());
                 println!("bundles: {}", status.bundle_count);
@@ -128,7 +142,14 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             println!("{SECTION_SEPARATOR}");
             println!("Total");
             println!("name: {}", status.name);
-            println!("remote_repo_id: {}", if status.remote_repo_id.is_empty() { "(not linked)" } else { &status.remote_repo_id });
+            println!(
+                "remote_repo_id: {}",
+                if status.remote_repo_id.is_empty() {
+                    "(not linked)"
+                } else {
+                    &status.remote_repo_id
+                }
+            );
             println!("targets: {}", status.targets.len());
             println!("bundles: {}", status.bundle_count);
         }
@@ -149,8 +170,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 println!("sync-up cancelled");
                 return Ok(());
             }
-            let stats =
-                actions::repo::sync_up_repo(repo, endpoint, session_id)?;
+            let stats = actions::repo::sync_up_repo(repo, endpoint, session_id)?;
             println!(
                 "synced repo {} to product {} repo {}",
                 stats.repo_root, stats.product_id, stats.remote_repo_id
@@ -180,9 +200,8 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             session_id,
             product_id,
         } => {
-            let product_id = product_id.ok_or_else(|| {
-                g::Error::manifest("--product-id is required for linking")
-            })?;
+            let product_id = product_id
+                .ok_or_else(|| g::Error::manifest("--product-id is required for linking"))?;
             actions::repo::link_repo(&repo, product_id, &endpoint, session_id)?;
         }
 
@@ -218,18 +237,12 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             println!("removable: {}", plan.removable_count);
         }
 
-        RepoCommands::LookupInsert {
-            repo,
-            lookup_root,
-        } => {
+        RepoCommands::LookupInsert { repo, lookup_root } => {
             let result = actions::lookup::insert_uninserted_lookup_installs(&repo, &lookup_root)?;
             println!("inserted {} target install(s)", result.inserted_count);
         }
 
-        RepoCommands::LookupRemove {
-            repo,
-            lookup_root,
-        } => {
+        RepoCommands::LookupRemove { repo, lookup_root } => {
             let result = actions::lookup::remove_lookup_missing_targets(&repo, &lookup_root)?;
             println!("removed {} unavailable target(s)", result.removed_count);
         }
@@ -307,4 +320,3 @@ fn prompt_yes_no(prompt: &str, default_yes: bool) -> g::Result<bool> {
         eprintln!("enter y or n");
     }
 }
-

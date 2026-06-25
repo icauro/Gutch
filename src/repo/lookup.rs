@@ -3,7 +3,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{discover_source_target_installs, inspect_gutch_repo, SourceTargetInstallCandidate, Result};
+use super::{
+    Result, SourceTargetInstallCandidate, discover_source_target_installs, inspect_gutch_repo,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,8 +91,8 @@ fn normalized_lookup_path(lookup_path: Option<&Path>) -> Option<std::path::PathB
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repo::ensure_gutch_repo_layout;
     use crate::GutchRepoPaths;
+    use crate::repo::ensure_gutch_repo_layout;
 
     #[test]
     fn plan_lookup_target_changes_returns_empty_plan_without_lookup_path() {

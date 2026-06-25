@@ -232,8 +232,5 @@ fn render_tracked_repo_label(index: usize, repo: &g::config::TrackedRepo) -> Str
     } else {
         ""
     };
-    format!(
-        "- [Repo-{}] {}{}",
-        index, repo.path, lookup_marker
-    )
+    format!("- [Repo-{}] {}{}", index, repo.path, lookup_marker)
 }

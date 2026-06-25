@@ -272,8 +272,7 @@ pub(super) fn run_interactive_repo_sync_up(repo: &Path) -> g::Result<()> {
         super::shell_arg(&endpoint),
         super::shell_arg(&session_id)
     ));
-    let stats =
-        actions::repo::sync_up_repo(repo.to_path_buf(), endpoint, Some(session_id))?;
+    let stats = actions::repo::sync_up_repo(repo.to_path_buf(), endpoint, Some(session_id))?;
     println!(
         "synced repo {} to product {} repo {}",
         stats.repo_root, stats.product_id, stats.remote_repo_id

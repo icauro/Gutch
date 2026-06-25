@@ -148,13 +148,19 @@ mod tests {
             target_lookup_path: Some("D:\\Builds\\game".to_string()),
         });
         assert_eq!(config.repos.len(), 1);
-        assert_eq!(config.repos[0].target_lookup_path, Some("D:\\Builds\\game".to_string()));
+        assert_eq!(
+            config.repos[0].target_lookup_path,
+            Some("D:\\Builds\\game".to_string())
+        );
 
         config.upsert_repo(TrackedRepo {
             path: "D:\\Repos\\game".to_string(),
             target_lookup_path: Some("D:\\Builds\\game-v2".to_string()),
         });
         assert_eq!(config.repos.len(), 1);
-        assert_eq!(config.repos[0].target_lookup_path, Some("D:\\Builds\\game-v2".to_string()));
+        assert_eq!(
+            config.repos[0].target_lookup_path,
+            Some("D:\\Builds\\game-v2".to_string())
+        );
     }
 }

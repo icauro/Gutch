@@ -97,9 +97,7 @@ pub fn validate_editable_target_tag_schema(
                 if !allowed_values.contains(&canonical) {
                     errors.push(TargetTagSchemaValidationError {
                         field: format!("{field_prefix}.aliases"),
-                        message: format!(
-                            "Alias '{alias}' points to unknown value '{canonical}'."
-                        ),
+                        message: format!("Alias '{alias}' points to unknown value '{canonical}'."),
                     });
                 }
             }
@@ -209,22 +207,22 @@ mod tests {
 
     #[test]
     fn rejects_default_value_outside_allowed_values() {
-        let result = validate_editable_target_tag_schema(vec![
-            EditableTargetTagDefinition {
-                name: String::from("version"),
-                kind: TargetTagKind::Exclusive,
-                required: true,
-                inference_prefixes: vec![String::from("-")],
-                values: vec![String::from("1.0.0")],
-                aliases: BTreeMap::new(),
-                default_value: Some(String::from("9.9.9")),
-            },
-        ]);
+        let result = validate_editable_target_tag_schema(vec![EditableTargetTagDefinition {
+            name: String::from("version"),
+            kind: TargetTagKind::Exclusive,
+            required: true,
+            inference_prefixes: vec![String::from("-")],
+            values: vec![String::from("1.0.0")],
+            aliases: BTreeMap::new(),
+            default_value: Some(String::from("9.9.9")),
+        }]);
         assert!(!result.valid);
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error.field.contains("defaultValue")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.field.contains("defaultValue"))
+        );
     }
 
     #[test]
@@ -239,6 +237,11 @@ mod tests {
             default_value: None,
         }]);
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|error| error.field == "targetTags"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.field == "targetTags")
+        );
     }
 }

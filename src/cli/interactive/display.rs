@@ -29,7 +29,10 @@ pub(super) fn print_active_repo_info_table(repo: &Path) -> g::Result<()> {
     let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
 
     let linked_value = if repo_manifest.is_linked() {
-        format!("product {} / repo {}", repo_manifest.product_id, repo_manifest.remote_repo_id)
+        format!(
+            "product {} / repo {}",
+            repo_manifest.product_id, repo_manifest.remote_repo_id
+        )
     } else {
         "not linked".to_string()
     };
@@ -185,7 +188,17 @@ pub(super) fn print_repo_summary(repo: &Path) -> g::Result<()> {
     println!();
     println!("  path:     {}", status.repo_path);
     println!("  name:     {}", status.name);
-    println!("  linked:   {}", if status.remote_repo_id.is_empty() { "no".to_string() } else { format!("product {} / repo {}", status.product_id, status.remote_repo_id) });
+    println!(
+        "  linked:   {}",
+        if status.remote_repo_id.is_empty() {
+            "no".to_string()
+        } else {
+            format!(
+                "product {} / repo {}",
+                status.product_id, status.remote_repo_id
+            )
+        }
+    );
     println!("  targets:  {}", status.targets.len());
     println!(
         "  bundles:  {} ({})",

@@ -426,9 +426,9 @@ pub fn link_repo(
     let created: serde_json::Value = response
         .json()
         .map_err(|err| g::Error::manifest(format!("failed to parse link response: {}", err)))?;
-    let remote_repo_id = created["id"].as_i64().ok_or_else(|| {
-        g::Error::manifest("backend response missing repo id".to_string())
-    })?;
+    let remote_repo_id = created["id"]
+        .as_i64()
+        .ok_or_else(|| g::Error::manifest("backend response missing repo id".to_string()))?;
 
     manifest.remote_repo_id = remote_repo_id.to_string();
     manifest.product_id = product_id.to_string();
@@ -443,10 +443,18 @@ pub fn link_repo(
     Ok(())
 }
 
-pub fn unlink_repo(repo: &Path, delete_remote: bool, endpoint: Option<&str>, session_override: Option<String>) -> g::Result<()> {
+pub fn unlink_repo(
+    repo: &Path,
+    delete_remote: bool,
+    endpoint: Option<&str>,
+    session_override: Option<String>,
+) -> g::Result<()> {
     let (paths, mut manifest) = g::load_gutch_repo_manifest(repo)?;
     if !manifest.is_linked() {
-        println!("repo '{}' is not linked, nothing to do.", paths.repo_root.display());
+        println!(
+            "repo '{}' is not linked, nothing to do.",
+            paths.repo_root.display()
+        );
         return Ok(());
     }
 
@@ -554,22 +562,15 @@ pub fn sync_up_repo_with_progress(
         },
     );
 
-    let plan = plan_sync_up_repo(
-        repo.clone(),
-        endpoint.clone(),
-        Some(session_id.clone()),
-    )?;
+    let plan = plan_sync_up_repo(repo.clone(), endpoint.clone(), Some(session_id.clone()))?;
     let (status, repo_paths, _) = collect_local_sync_targets(&repo)?;
     let mut remote_targets =
         fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
 
     let bundle_paths = collect_bundle_paths(&repo_paths.bundles_root)?;
     let chunk_index_steps = usize::from(repo_paths.chunk_index_path.exists());
-    let total_steps = plan.to_remove.len()
-        + 1
-        + chunk_index_steps
-        + status.targets.len()
-        + bundle_paths.len();
+    let total_steps =
+        plan.to_remove.len() + 1 + chunk_index_steps + status.targets.len() + bundle_paths.len();
     let mut step = 0usize;
 
     for target in &plan.to_remove {
@@ -630,22 +631,23 @@ pub fn sync_up_repo_with_progress(
         product_id,
         remote_repo_id,
     )?;
-    let repo_manifest_uploaded = if remote_repo_manifest_bytes.as_deref() == Some(repo_manifest_bytes.as_slice()) {
-        false
-    } else {
-        upload_raw_file(
-            &client,
-            &endpoint,
-            &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/manifest",
-                product_id, remote_repo_id
-            ),
-            &session_id,
-            repo_manifest_bytes,
-            "application/json",
-        )?;
-        true
-    };
+    let repo_manifest_uploaded =
+        if remote_repo_manifest_bytes.as_deref() == Some(repo_manifest_bytes.as_slice()) {
+            false
+        } else {
+            upload_raw_file(
+                &client,
+                &endpoint,
+                &format!(
+                    "/v1/users/me/creator/products/{}/repos/{}/manifest",
+                    product_id, remote_repo_id
+                ),
+                &session_id,
+                repo_manifest_bytes,
+                "application/json",
+            )?;
+            true
+        };
 
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {

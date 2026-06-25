@@ -119,18 +119,14 @@ fn derive_repo_name_from_path(repo_root: &Path) -> String {
         .to_string()
 }
 
-pub fn ensure_gutch_repo_layout(
-    paths: &GutchRepoPaths,
-    name: &str,
-) -> Result<GutchRepoManifest> {
+pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<GutchRepoManifest> {
     crate::helpers::create_dir_all(&paths.targets_root)?;
     crate::helpers::create_dir_all(&paths.bundles_root)?;
     crate::helpers::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_manifest_path.exists() {
         let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
-        let repo_manifest: GutchRepoManifest =
-            crate::helpers::from_json_str(&repo_manifest_json)?;
+        let repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
         repo_manifest
     } else {
         let repo_manifest = GutchRepoManifest::new(name.to_string());
@@ -716,7 +712,8 @@ fn build_source_target_install_candidate(
     let resolved =
         resolve_target_identity(path, &manifest::TargetTagSet::default(), rules, &context)?;
 
-    let folder_name = path.file_name()
+    let folder_name = path
+        .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| Error::manifest(format!("invalid source target path: {}", path.display())))?
