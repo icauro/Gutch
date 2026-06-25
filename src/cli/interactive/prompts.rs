@@ -110,7 +110,7 @@ pub(super) fn path_or_browse_input_file(
 pub(super) fn prompt_tagging_template(theme: &ColorfulTheme) -> g::Result<TaggingTemplate> {
     let descriptions = [
         (
-            "Standard — version::, os::, arch::, tier::. Suitable for most apps.",
+            "Standard — version::, os::, arch::, access::. Suitable for most apps.",
             TaggingTemplate::Standard,
         ),
         (

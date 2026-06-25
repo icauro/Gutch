@@ -814,7 +814,7 @@ impl Default for TargetTagSchema {
                     default_value: None,
                 },
                 TargetTagDefinition {
-                    name: "tier".to_string(),
+                    name: "access".to_string(),
                     kind: TargetTagKind::Exclusive,
                     required: false,
                     inference_prefixes: vec!["-".to_string()],

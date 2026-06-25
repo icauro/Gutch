@@ -197,13 +197,19 @@ pub fn fetch_target_install_content(
     crate::helpers::create_dir_all(&repo_paths.targets_root)?;
     crate::helpers::create_dir_all(&repo_paths.bundles_root)?;
 
-    let manifest_bytes = download_url(request.manifest_url.trim())?;
+    let manifest_bytes = download_url(
+        request.manifest_url.trim(),
+        non_empty_trimmed(request.session_id.as_deref()),
+    )?;
     let manifest =
         download_json_bytes::<serde_json::Value>(&manifest_bytes, "downloaded target manifest")?;
     write_repo_manifest(&request.repo_path, &manifest)?;
 
     if let Some(chunk_index_url) = non_empty_trimmed(request.chunk_index_url.as_deref()) {
-        let chunk_index_bytes = download_url(chunk_index_url)?;
+        let chunk_index_bytes = download_url(
+            chunk_index_url,
+            non_empty_trimmed(request.session_id.as_deref()),
+        )?;
         let chunk_index = download_json_bytes::<manifest::ChunkIndex>(
             &chunk_index_bytes,
             "downloaded chunk index",
@@ -273,7 +279,7 @@ pub fn fetch_target_install_content(
             continue;
         }
 
-        let bundle_bytes = download_url(bundle.url.trim())?;
+        let bundle_bytes = download_url(bundle.url.trim(), None)?;
         crate::helpers::write(&bundle_path, bundle_bytes)?;
         downloaded_bundle_count += 1;
     }
@@ -397,12 +403,19 @@ fn backup_dir_for_install(install_dir: &Path, target_id: &str) -> PathBuf {
     install_dir.with_file_name(backup_name)
 }
 
-fn download_url(url: &str) -> Result<Vec<u8>> {
+fn download_url(url: &str, session_id: Option<&str>) -> Result<Vec<u8>> {
     if url.is_empty() {
         return Err(Error::bundle("download URL is required"));
     }
 
-    let response = reqwest::blocking::get(url)
+    let client = reqwest::blocking::Client::new();
+    let mut builder = client.get(url);
+    if let Some(session_id) = session_id {
+        builder = builder.header("Authorization", format!("Bearer {}", session_id));
+    }
+
+    let response = builder
+        .send()
         .map_err(|err| Error::bundle(format!("failed to download Gutch content: {}", err)))?;
     let status = response.status();
     if !status.is_success() {

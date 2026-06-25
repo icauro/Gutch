@@ -145,6 +145,19 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
                 }
                 break;
             }
+
+            if definition.values.is_empty() {
+                match definition.kind {
+                    TargetTagKind::Plain => {}
+                    TargetTagKind::Scoped => {
+                        tags.insert_scoped(definition.name.clone(), lowered.clone());
+                    }
+                    TargetTagKind::Exclusive => {
+                        tags.insert_exclusive_if_missing(definition.name.clone(), lowered.clone());
+                    }
+                }
+                break;
+            }
         }
     }
 

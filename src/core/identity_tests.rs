@@ -37,11 +37,15 @@ fn test_version_strips_v_prefix() {
 #[test]
 fn test_infer_tags_from_path_default_aliases() {
     let rules = test_rules();
-    let tags = infer_tags_from_path(std::path::Path::new("game-v1.0.0-win-x64"), &rules);
+    let tags = infer_tags_from_path(
+        std::path::Path::new("game-v1.0.0-win-x64-supporter"),
+        &rules,
+    );
 
     assert_eq!(tags.get_exclusive("version"), Some("1.0.0"));
     assert_eq!(tags.get_exclusive("os"), Some("windows"));
     assert_eq!(tags.get_exclusive("arch"), Some("x86_64"));
+    assert_eq!(tags.get_exclusive("access"), Some("supporter"));
 }
 
 #[test]
