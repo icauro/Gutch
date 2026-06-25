@@ -23,6 +23,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                 bundle_urls_endpoint,
                 session_id,
                 bundles: parse_bundle_downloads(&bundles)?,
+                progress: None,
             })?;
 
             if verbose_output_enabled() {

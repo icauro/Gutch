@@ -19,6 +19,7 @@ pub mod plugin;
 pub mod remote;
 pub mod repo;
 pub mod runtime;
+pub mod fetch_progress;
 pub mod sync_up_progress;
 #[cfg(test)]
 mod test_util;
@@ -81,6 +82,7 @@ pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
+pub use fetch_progress::{FetchProgressEvent, FetchProgressSink};
 pub use sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,

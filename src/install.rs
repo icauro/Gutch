@@ -44,7 +44,7 @@ pub struct GutchBundleDownload {
     pub url: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TargetInstallFetchRequest {
     pub repo_path: PathBuf,
     pub target_id: String,
@@ -53,6 +53,7 @@ pub struct TargetInstallFetchRequest {
     pub bundle_urls_endpoint: Option<String>,
     pub session_id: Option<String>,
     pub bundles: Vec<GutchBundleDownload>,
+    pub progress: Option<std::sync::Arc<dyn crate::FetchProgressSink>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -265,9 +266,11 @@ pub fn fetch_target_install_content(
         )));
     }
 
+    let total_bundles = bundles.len();
     let mut downloaded_bundle_count = 0usize;
     let mut skipped_existing_bundle_count = 0usize;
-    for bundle in &bundles {
+    let mut transferred_bytes: u64 = 0;
+    for (index, bundle) in bundles.iter().enumerate() {
         let bundle_id = bundle.bundle_id.trim();
         if bundle_id.is_empty() {
             continue;
@@ -276,24 +279,87 @@ pub fn fetch_target_install_content(
         let bundle_path = crate::bundle_path(&repo_paths, bundle_id);
         if bundle_path.exists() {
             skipped_existing_bundle_count += 1;
+            crate::fetch_progress::emit_progress(
+                &request.progress,
+                crate::FetchProgressEvent {
+                    phase: String::from("downloading"),
+                    message: format!("Bundle {} of {} (cached)", index + 1, total_bundles),
+                    current_bundle: index + 1,
+                    total_bundles,
+                    transferred_bytes,
+                    total_bytes: 0,
+                    done: false,
+                    failed: false,
+                    error: None,
+                },
+            );
             continue;
         }
+
+        crate::fetch_progress::emit_progress(
+            &request.progress,
+            crate::FetchProgressEvent {
+                phase: String::from("downloading"),
+                message: format!("Downloading bundle {} of {}", index + 1, total_bundles),
+                current_bundle: index + 1,
+                total_bundles,
+                transferred_bytes,
+                total_bytes: 0,
+                done: false,
+                failed: false,
+                error: None,
+            },
+        );
 
         let bundle_bytes = download_url(
             bundle.url.trim(),
             non_empty_trimmed(request.session_id.as_deref()),
         )?;
+        transferred_bytes += bundle_bytes.len() as u64;
         crate::helpers::write(&bundle_path, bundle_bytes)?;
         downloaded_bundle_count += 1;
     }
 
     if bundle_ids_from_chunk_index.len() > downloaded_bundle_count + skipped_existing_bundle_count {
-        return Err(Error::bundle(format!(
+        let msg = format!(
             "downloaded {} of {} required bundle(s)",
             downloaded_bundle_count + skipped_existing_bundle_count,
             bundle_ids_from_chunk_index.len()
-        )));
+        );
+        crate::fetch_progress::emit_progress(
+            &request.progress,
+            crate::FetchProgressEvent {
+                phase: String::from("failed"),
+                message: msg.clone(),
+                current_bundle: total_bundles,
+                total_bundles,
+                transferred_bytes,
+                total_bytes: 0,
+                done: true,
+                failed: true,
+                error: Some(msg.clone()),
+            },
+        );
+        return Err(Error::bundle(msg));
     }
+
+    crate::fetch_progress::emit_progress(
+        &request.progress,
+        crate::FetchProgressEvent {
+            phase: String::from("done"),
+            message: format!(
+                "Downloaded {} bundle(s), {} cached",
+                downloaded_bundle_count, skipped_existing_bundle_count
+            ),
+            current_bundle: total_bundles,
+            total_bundles,
+            transferred_bytes,
+            total_bytes: transferred_bytes,
+            done: true,
+            failed: false,
+            error: None,
+        },
+    );
 
     Ok(TargetInstallFetchResult {
         target_id: request.target_id.clone(),
