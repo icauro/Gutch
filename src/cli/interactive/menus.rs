@@ -31,8 +31,8 @@ pub(super) enum AdvancedAction {
     RepoConfigEdit,
     RepoLink,
     RepoUnlink,
-    SetTargetLookupPath,
-    DiscoverTargets,
+    SetTargetSourcesPath,
+    SyncTargetSources,
     Back,
 }
 
@@ -146,7 +146,7 @@ pub(super) fn resolve_active_repo_from_selection(
             if config.find_repo(&repo_path_str).is_none() {
                 config.upsert_repo(g::config::TrackedRepo {
                     path: repo_path_str,
-                    target_lookup_path: None,
+                    target_sources_path: None,
                 });
                 g::config::save_config(&config)?;
             }
@@ -198,8 +198,8 @@ pub(super) fn prompt_advanced_action(
 
     let actions = [
         (
-            "- Discover and insert targets from lookup path",
-            AdvancedAction::DiscoverTargets,
+            "- Sync targets from sources folder",
+            AdvancedAction::SyncTargetSources,
         ),
         (
             "- Edit repo config and tag inference",
@@ -211,8 +211,8 @@ pub(super) fn prompt_advanced_action(
             AdvancedAction::RepoUnlink,
         ),
         (
-            "- Set target lookup path",
-            AdvancedAction::SetTargetLookupPath,
+            "- Set target sources folder",
+            AdvancedAction::SetTargetSourcesPath,
         ),
         ("- Back", AdvancedAction::Back),
     ];
@@ -227,10 +227,10 @@ pub(super) fn prompt_advanced_action(
 }
 
 fn render_tracked_repo_label(index: usize, repo: &g::config::TrackedRepo) -> String {
-    let lookup_marker = if repo.target_lookup_path.is_some() {
-        " [lookup]"
+    let sources_marker = if repo.target_sources_path.is_some() {
+        " [sources]"
     } else {
         ""
     };
-    format!("- [Repo-{}] {}{}", index, repo.path, lookup_marker)
+    format!("- [Repo-{}] {}{}", index, repo.path, sources_marker)
 }

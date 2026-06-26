@@ -50,8 +50,8 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                         "{} | version={} | os={} | arch={} | tier={} | files={} | missing_bundles={}",
                         target.target_id,
                         target.version_id,
-                        target.platform,
-                        target.architecture,
+                        target.os,
+                        target.arch,
                         target.tier_id,
                         target.file_count,
                         target.missing_bundle_count
@@ -90,34 +90,8 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             }
         }
 
-        RepoCommands::DiscoverTargets {
-            repo,
-            lookup_root,
-            json_out,
-        } => {
-            let candidates = g::discover_source_target_installs(&repo, &lookup_root)?;
-            if let Some(json_out) = json_out.as_ref() {
-                ensure_parent_directory(json_out)?;
-                crate::helpers::write(json_out, serde_json::to_vec_pretty(&candidates)?)?;
-            }
-
-            println!("{SECTION_SEPARATOR}");
-            println!("Targets");
-            for candidate in &candidates {
-                println!(
-                    "{} | path={} | version={} | os={} | arch={} | tier={}",
-                    candidate.target_id,
-                    candidate.path,
-                    candidate.version_id,
-                    candidate.platform,
-                    candidate.architecture,
-                    candidate.tier_id
-                );
-            }
-            println!("{SECTION_SEPARATOR}");
-            println!("Total");
-            println!("count: {}", candidates.len());
-            println!("lookup_root: {}", lookup_root.display());
+        RepoCommands::TargetSources { command } => {
+            crate::cli::target_sources::run(command)?;
         }
 
         RepoCommands::List { repo, json_out } => {
@@ -219,33 +193,6 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             )?;
         }
 
-        RepoCommands::LookupPlan {
-            repo,
-            lookup_root,
-            json_out,
-        } => {
-            let plan = g::plan_lookup_target_changes(&repo, Some(&lookup_root))?;
-            if let Some(json_out) = json_out.as_ref() {
-                ensure_parent_directory(json_out)?;
-                crate::helpers::write(json_out, serde_json::to_vec_pretty(&plan)?)?;
-            }
-            println!("{SECTION_SEPARATOR}");
-            println!("Lookup plan");
-            println!("lookup_ready: {}", plan.lookup_ready);
-            println!("candidates: {}", plan.candidate_count);
-            println!("insertable: {}", plan.insertable_count);
-            println!("removable: {}", plan.removable_count);
-        }
-
-        RepoCommands::LookupInsert { repo, lookup_root } => {
-            let result = actions::lookup::insert_uninserted_lookup_installs(&repo, &lookup_root)?;
-            println!("inserted {} target install(s)", result.inserted_count);
-        }
-
-        RepoCommands::LookupRemove { repo, lookup_root } => {
-            let result = actions::lookup::remove_lookup_missing_targets(&repo, &lookup_root)?;
-            println!("removed {} unavailable target(s)", result.removed_count);
-        }
     }
 
     Ok(())
@@ -282,8 +229,8 @@ fn print_sync_section(label: &str, changes: &[actions::repo::RepoSyncTargetChang
             "{} | version={} | os={} | arch={} | tier={}{}",
             change.target_id,
             change.version,
-            change.platform,
-            change.architecture,
+            change.os,
+            change.arch,
             change.tier,
             change
                 .artifact_state

@@ -121,8 +121,8 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
                     "version_id": "1.0.0",
-                    "platform": "windows",
-                    "architecture": "x86_64",
+                    "os": "windows",
+                    "arch": "x86_64",
                     "tier_id": "base",
                     "inserted_at": "2026-05-11T00:00:00Z",
                     "files": [

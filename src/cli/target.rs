@@ -114,10 +114,67 @@ fn run_insert_one_target(
     if existing_manifest_path.exists() {
         let existing_manifest = g::load_target_manifest(request.repo_paths, &target_id)?;
         if existing_manifest.target_tags != result.target_manifest.target_tags {
-            return Err(g::Error::manifest(format!(
-                "target content id '{}' already exists with different target tags",
-                target_id
-            )));
+            let mut updated_manifest = existing_manifest;
+            updated_manifest.target_tags = result.target_manifest.target_tags.clone();
+            let (manifest_path, _) =
+                write_target_manifest(request.repo_paths, &updated_manifest)?;
+            build_progress.finish_and_clear();
+            if verbose_output_enabled() {
+                println!(
+                    "updated target tags for content id '{}' (content unchanged)",
+                    target_id
+                );
+            }
+
+            let required_chunk_count = count_required_chunks(&updated_manifest);
+            let required_bundle_count =
+                count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
+            return Ok(TargetInsertStats {
+                command: request.command_name,
+                repo_root: request.repo_paths.repo_root.display().to_string(),
+                input_path: request.input_dir.display().to_string(),
+                target_id: updated_manifest.target_id.clone(),
+                manifest_path: manifest_path.display().to_string(),
+                product_id: request.repo_name.to_string(),
+                remote_repo_id: request.repo_name.to_string(),
+                version_id: resolved_identity
+                    .target_tags
+                    .get_exclusive("version")
+                    .unwrap_or_default()
+                    .to_string(),
+                os: resolved_identity
+                    .target_tags
+                    .get_exclusive("os")
+                    .unwrap_or_default()
+                    .to_string(),
+                arch: resolved_identity
+                    .target_tags
+                    .get_exclusive("arch")
+                    .unwrap_or_default()
+                    .to_string(),
+                tier_id: resolved_identity
+                    .target_tags
+                    .get_exclusive("tier")
+                    .unwrap_or_default()
+                    .to_string(),
+                storage_mode: request.storage_mode.cli_name().to_string(),
+                file_count: updated_manifest.files.len(),
+                total_logical_size: updated_manifest.total_logical_size,
+                total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
+                required_chunk_count,
+                required_bundle_count,
+                generated_bundle_count: 0,
+                generated_bundle_bytes: 0,
+                generated_chunk_count: 0,
+                generated_chunk_bytes: 0,
+                reused_chunk_count: required_chunk_count,
+                new_chunk_count: 0,
+                reused_chunk_percent: 100.0,
+                reused_bundle_count: required_bundle_count,
+                reused_bundle_percent: 100.0,
+                timings: build_timings_summary(&timings),
+                outputs: optional_output_paths(request.summary_out, request.stats_json_out),
+            });
         }
     }
 
@@ -196,12 +253,12 @@ fn run_insert_one_target(
             .get_exclusive("version")
             .unwrap_or_default()
             .to_string(),
-        platform: resolved_identity
+        os: resolved_identity
             .target_tags
             .get_exclusive("os")
             .unwrap_or_default()
             .to_string(),
-        architecture: resolved_identity
+        arch: resolved_identity
             .target_tags
             .get_exclusive("arch")
             .unwrap_or_default()
@@ -276,10 +333,6 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
         TargetCommands::Insert {
             dir,
             repo,
-            version,
-            platform,
-            architecture,
-            tier,
             tags,
             chunk_profile,
             bundle_profile,
@@ -293,19 +346,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
         } => {
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
-            let mut explicit_tags = parse_cli_tags(&tags)?;
-            if let Some(version) = version {
-                explicit_tags.upsert_exclusive("version", version);
-            }
-            if let Some(platform) = platform {
-                explicit_tags.upsert_exclusive("os", platform);
-            }
-            if let Some(architecture) = architecture {
-                explicit_tags.upsert_exclusive("arch", architecture);
-            }
-            if let Some(tier) = tier {
-                explicit_tags.upsert_exclusive("tier", tier);
-            }
+            let explicit_tags = parse_cli_tags(&tags)?;
             let repo_name = repo_manifest.name.clone();
             let input_stats = collect_input_sizing_stats(&dir)?;
             let mut store_state: MutableInsertStoreState =
@@ -588,16 +629,28 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             write_report(&summary_out, &stats_json_out, &stats)?;
         }
 
-        TargetCommands::Estimate { dir, version } => {
+        TargetCommands::Estimate { dir, repo, tags } => {
             let prepared_input = prepare_input_path(&dir)?;
-            let result = {
-                let mut build_tags = g::manifest::TargetTagSet::default();
-                build_tags.upsert_exclusive("version", version.clone());
-                build_tags.upsert_exclusive("os", "windows");
-                build_tags.upsert_exclusive("arch", "x86_64");
-                build_tags.upsert_exclusive("tier", "base");
-                g::build_from_directory(&prepared_input.dir, "base", "1", &build_tags)?
+            let rules = if let Some(repo) = repo.as_ref() {
+                let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
+                repo_manifest.target_schema.unwrap_or_default()
+            } else {
+                g::manifest::TargetTagSchema::default()
             };
+            let explicit_tags = parse_cli_tags(&tags)?;
+            let context = format!("target estimate input '{}'", dir.display());
+            let resolved_identity = g::core::target_identity::resolve_target_identity(
+                &dir,
+                &explicit_tags,
+                &rules,
+                &context,
+            )?;
+            let result = g::build_from_directory(
+                &prepared_input.dir,
+                "estimate",
+                "estimate",
+                &resolved_identity.target_tags,
+            )?;
 
             let est = g::estimate_build(
                 &result.target_manifest,

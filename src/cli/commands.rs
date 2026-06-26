@@ -1,9 +1,8 @@
-use crate::cli::{Cli, Commands, auth, bundle, path};
+use crate::cli::{Cli, Commands, bundle, path};
 use gutch as g;
 
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
-        Commands::Auth { command } => auth::run(command),
         Commands::Repo { command } => crate::cli::repo::run(command),
         Commands::Interactive => crate::cli::interactive::run(),
         Commands::Target { command } => crate::cli::target::run(command),

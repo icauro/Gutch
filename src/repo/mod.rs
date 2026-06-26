@@ -3,9 +3,9 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-mod lookup;
+mod target_sources;
 
-use crate::hash::hash_hex;
+use crate::hash::{hash_file, hash_hex};
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::manifest::{
     self, ArtifactStorageMode, FileManifest, binary, gutch_repo::GutchRepoManifest,
@@ -48,8 +48,8 @@ pub struct RepoInspectStatus {
 pub struct RepoInspectTargetStatus {
     pub target_id: String,
     pub version_id: String,
-    pub platform: String,
-    pub architecture: String,
+    pub os: String,
+    pub arch: String,
     pub tier_id: String,
     pub file_count: usize,
     pub required_bundle_count: usize,
@@ -64,10 +64,13 @@ pub struct RepoInspectTargetStatus {
 pub struct SourceTargetInstallCandidate {
     pub path: String,
     pub folder_name: String,
+    /// Tag-derived identity preview for display (not the content hash).
     pub target_id: String,
+    /// Content-derived target id (same as stored repo target manifests).
+    pub content_target_id: String,
     pub version_id: String,
-    pub platform: String,
-    pub architecture: String,
+    pub os: String,
+    pub arch: String,
     pub tier_id: String,
     pub target_tags: manifest::TargetTagSet,
 }
@@ -395,6 +398,37 @@ pub fn write_gutch_repo_manifest(
     crate::helpers::write_json(&paths.repo_manifest_path, repo_manifest)
 }
 
+pub fn compute_target_id_from_directory(dir: &Path) -> Result<String> {
+    Ok(compute_target_id_from_files(&scan_directory_files_for_content_id(dir)?))
+}
+
+fn scan_directory_files_for_content_id(dir: &Path) -> Result<Vec<FileManifest>> {
+    let mut file_manifests = Vec::new();
+    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() {
+            continue;
+        }
+
+        let relative = entry.path().strip_prefix(dir).map_err(|err| Error::PathError {
+            path: entry.path().to_path_buf(),
+            reason: err.to_string(),
+        })?;
+        let normalized_relative = relative.to_string_lossy().replace('\\', "/");
+        let metadata = entry.metadata()?;
+        let full_file_hash = hash_hex(&hash_file(entry.path())?);
+        file_manifests.push(FileManifest {
+            path: normalized_relative,
+            size: metadata.len(),
+            executable: false,
+            full_file_hash,
+            chunks: Vec::new(),
+        });
+    }
+
+    Ok(file_manifests)
+}
+
 pub fn compute_target_id_from_files(files: &[FileManifest]) -> String {
     let mut sorted_files = files.to_vec();
     sorted_files.sort_by(|left, right| left.path.cmp(&right.path));
@@ -474,7 +508,9 @@ fn load_target_manifest_from_json_text(
     ))
 }
 
-pub use lookup::{LookupTargetChangePlan, plan_lookup_target_changes};
+pub use target_sources::{
+    TargetSourcesSyncPlan, TargetSourcesTagUpdate, plan_target_sources_sync,
+};
 
 pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
     let repo_path = repo_root.to_path_buf();
@@ -668,8 +704,8 @@ fn inspect_target_manifests(
         targets.push(RepoInspectTargetStatus {
             target_id: manifest.target_id.clone(),
             version_id: exclusive_tag_or_empty(&manifest.target_tags, "version"),
-            platform: exclusive_tag_or_empty(&manifest.target_tags, "os"),
-            architecture: exclusive_tag_or_empty(&manifest.target_tags, "arch"),
+            os: exclusive_tag_or_empty(&manifest.target_tags, "os"),
+            arch: exclusive_tag_or_empty(&manifest.target_tags, "arch"),
             tier_id: exclusive_tag_or_empty(&manifest.target_tags, "tier"),
             file_count: manifest.files.len(),
             required_bundle_count: required_bundle_ids.len(),
@@ -708,13 +744,16 @@ fn build_source_target_install_candidate(
         .ok_or_else(|| Error::manifest(format!("invalid source target path: {}", path.display())))?
         .to_string();
 
+    let content_target_id = compute_target_id_from_directory(path)?;
+
     Ok(SourceTargetInstallCandidate {
         path: path.display().to_string(),
         folder_name,
         target_id: preview_target_identity(&resolved.target_tags, Some(rules)),
+        content_target_id,
         version_id: exclusive_tag_or_empty(&resolved.target_tags, "version"),
-        platform: exclusive_tag_or_empty(&resolved.target_tags, "os"),
-        architecture: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
+        os: exclusive_tag_or_empty(&resolved.target_tags, "os"),
+        arch: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
         tier_id: exclusive_tag_or_empty(&resolved.target_tags, "tier"),
         target_tags: resolved.target_tags,
     })

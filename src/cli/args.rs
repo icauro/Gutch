@@ -19,10 +19,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    Auth {
-        #[command(subcommand)]
-        command: AuthCommands,
-    },
     Repo {
         #[command(subcommand)]
         command: RepoCommands,
@@ -44,42 +40,6 @@ pub enum Commands {
     Path {
         #[command(subcommand)]
         command: PathCommands,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum AuthCommands {
-    Login {
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "no-open")]
-        no_open: bool,
-        #[arg(long = "start")]
-        start: bool,
-    },
-    Logout {
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-    },
-    Status {
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-    },
-    Profile {
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-    },
-    Refresh {
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
     },
 }
 
@@ -106,14 +66,10 @@ pub enum RepoCommands {
         #[arg(long = "json-out")]
         json_out: Option<PathBuf>,
     },
-    #[command(name = "discover-targets")]
-    DiscoverTargets {
-        #[arg(long = "repo", default_value = ".")]
-        repo: PathBuf,
-        #[arg(long = "lookup-root")]
-        lookup_root: PathBuf,
-        #[arg(long = "json-out")]
-        json_out: Option<PathBuf>,
+    #[command(name = "target-sources")]
+    TargetSources {
+        #[command(subcommand)]
+        command: TargetSourcesCommands,
     },
     #[command(name = "list")]
     List {
@@ -153,28 +109,23 @@ pub enum RepoCommands {
         #[arg(long = "session-id")]
         session_id: Option<String>,
     },
-    #[command(name = "lookup-plan")]
-    LookupPlan {
+}
+
+#[derive(Subcommand)]
+pub enum TargetSourcesCommands {
+    Sync {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
-        #[arg(long = "lookup-root")]
-        lookup_root: PathBuf,
+        #[arg(long = "root")]
+        root: PathBuf,
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(long = "no-prune")]
+        no_prune: bool,
+        #[arg(long = "yes")]
+        yes: bool,
         #[arg(long = "json-out")]
         json_out: Option<PathBuf>,
-    },
-    #[command(name = "lookup-insert")]
-    LookupInsert {
-        #[arg(long = "repo", default_value = ".")]
-        repo: PathBuf,
-        #[arg(long = "lookup-root")]
-        lookup_root: PathBuf,
-    },
-    #[command(name = "lookup-remove")]
-    LookupRemove {
-        #[arg(long = "repo", default_value = ".")]
-        repo: PathBuf,
-        #[arg(long = "lookup-root")]
-        lookup_root: PathBuf,
     },
 }
 
@@ -185,14 +136,6 @@ pub enum TargetCommands {
         dir: PathBuf,
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
-        #[arg(long)]
-        version: Option<String>,
-        #[arg(short = 'P', long, visible_alias = "os")]
-        platform: Option<String>,
-        #[arg(short = 'A', long, visible_alias = "arch")]
-        architecture: Option<String>,
-        #[arg(short, long)]
-        tier: Option<String>,
         #[arg(long = "tag")]
         tags: Vec<String>,
         #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk128KiB)]
@@ -274,8 +217,10 @@ pub enum TargetCommands {
     Estimate {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
-        #[arg(long)]
-        version: String,
+        #[arg(long = "repo")]
+        repo: Option<PathBuf>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
     },
 }
 

@@ -1,6 +1,5 @@
 pub mod actions;
 pub mod args;
-pub(crate) mod auth;
 pub(crate) mod bundle;
 pub(crate) mod commands;
 pub(crate) mod common;
@@ -12,10 +11,11 @@ pub mod repo;
 pub(crate) mod reporting;
 pub mod target;
 pub(crate) mod target_install;
+pub mod target_sources;
 
 pub use args::{
-    AuthCommands, BundleCommands, Cli, Commands, PathCommands, RepoCommands, TargetCommands,
-    TargetInstallCommands,
+    BundleCommands, Cli, Commands, PathCommands, RepoCommands, TargetCommands,
+    TargetInstallCommands, TargetSourcesCommands,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};

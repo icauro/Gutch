@@ -69,14 +69,13 @@ pub use reconstruct::{
     reconstruct_from_target_manifest, reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
-    GutchRepoPaths, LookupTargetChangePlan, RepoInspectStatus, RepoInspectTargetStatus,
-    SourceTargetInstallCandidate, add_built_bundles_to_chunk_index,
-    add_built_loose_chunks_to_chunk_index, bundle_id_from_bundle_path, bundle_path,
-    bundle_path_in_root, chunk_path, chunk_path_in_root, compute_target_id_from_files,
-    discover_source_target_installs, ensure_gutch_repo_layout, inspect_gutch_repo,
-    load_chunk_index, load_gutch_repo_manifest, load_target_manifest, plan_lookup_target_changes,
-    preview_source_target_install, serialize_target_manifest_for_remote, target_manifest_bin_path,
-    target_manifest_path, write_chunk_index, write_gutch_repo_manifest,
+    GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
+    TargetSourcesSyncPlan, add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index,
+    bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, chunk_path, chunk_path_in_root,
+    compute_target_id_from_files, discover_source_target_installs, ensure_gutch_repo_layout,
+    inspect_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
+    plan_target_sources_sync, preview_source_target_install, serialize_target_manifest_for_remote,
+    target_manifest_bin_path, target_manifest_path, write_chunk_index, write_gutch_repo_manifest,
     write_target_manifest_artifacts,
 };
 pub use runtime::{

@@ -29,8 +29,8 @@ use self::prompts::{
 };
 use self::repo_config::run_repo_config_edit;
 use self::workflows::{
-    run_discover_targets, run_interactive_repo_link, run_interactive_repo_sync_up,
-    run_interactive_repo_unlink, run_repo_create, run_set_target_lookup_path, run_target_extract,
+    run_sync_target_sources, run_interactive_repo_link, run_interactive_repo_sync_up,
+    run_interactive_repo_unlink, run_repo_create, run_set_target_sources_path, run_target_extract,
     run_target_insert, run_target_install_apply, run_target_install_verify,
 };
 
@@ -147,13 +147,13 @@ pub(crate) fn run() -> g::Result<()> {
                                 handle_action_error(err)?;
                             }
                         }
-                        AdvancedAction::SetTargetLookupPath => {
-                            if let Err(err) = run_set_target_lookup_path(&theme, repo) {
+                        AdvancedAction::SetTargetSourcesPath => {
+                            if let Err(err) = run_set_target_sources_path(&theme, repo) {
                                 handle_action_error(err)?;
                             }
                         }
-                        AdvancedAction::DiscoverTargets => {
-                            if let Err(err) = run_discover_targets(&theme, repo) {
+                        AdvancedAction::SyncTargetSources => {
+                            if let Err(err) = run_sync_target_sources(&theme, repo) {
                                 handle_action_error(err)?;
                             }
                         }

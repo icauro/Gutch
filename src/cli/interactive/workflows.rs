@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use dialoguer::{Confirm, theme::ColorfulTheme};
@@ -77,23 +76,25 @@ pub(super) fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
 
 pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result<()> {
     let dir = super::path_or_browse_input_file(theme, "Input directory or file", ".")?;
-    let version = super::required_string(theme, "Version", "1.0.0")?;
-    let platform = super::required_string(theme, "Platform", "windows")?;
-    let architecture = super::required_string(theme, "Architecture", "x86_64")?;
-    let tier = super::required_string(theme, "Tier", "base")?;
+    let inferred = g::preview_source_target_install(repo, &dir)?;
+    let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
+    println!(
+        "Inferred from folder name '{}': {}",
+        inferred.folder_name,
+        super::display::render_target_tag_summary(
+            &inferred.target_tags,
+            repo_manifest.target_schema.as_ref(),
+        )
+    );
     let tags = super::optional_tag_list(theme)?;
     let chunk_profile = super::prompt_chunk_profile(theme)?;
     let bundle_profile = super::prompt_bundle_profile(theme)?;
     let compression_profile = super::prompt_compression_profile(theme)?;
     let runtime = super::prompt_runtime_options(theme)?;
     let preview = format!(
-        "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile {} --bundle-profile {} --compression-profile {}{}{}",
+        "plctl gutch target insert --dir {} --repo {} --chunk-profile {} --bundle-profile {} --compression-profile {}{}{}",
         super::shell_arg_path(&dir),
         super::shell_arg_path(repo),
-        super::shell_arg(&version),
-        super::shell_arg(&platform),
-        super::shell_arg(&architecture),
-        super::shell_arg(&tier),
         super::artifact_sizing_str(chunk_profile),
         super::bundle_sizing_str(bundle_profile),
         compression_profile.cli_name(),
@@ -105,10 +106,6 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
     crate::cli::target::run(TargetCommands::Insert {
         dir,
         repo: repo.to_path_buf(),
-        version: Some(version),
-        platform: Some(platform),
-        architecture: Some(architecture),
-        tier: Some(tier),
         tags,
         chunk_profile,
         bundle_profile,
@@ -290,111 +287,89 @@ pub(super) fn run_interactive_repo_sync_up(repo: &Path) -> g::Result<()> {
     Ok(())
 }
 
-pub(super) fn run_set_target_lookup_path(theme: &ColorfulTheme, repo: &Path) -> g::Result<()> {
+pub(super) fn run_set_target_sources_path(theme: &ColorfulTheme, repo: &Path) -> g::Result<()> {
     let current = g::config::load_config()?
         .find_repo(&repo.display().to_string())
-        .and_then(|r| r.target_lookup_path.clone())
+        .and_then(|r| r.target_sources_path.clone())
         .unwrap_or_default();
 
     let path = super::optional_path_or_browse_input(
         theme,
-        "Target lookup path (directory with build outputs)",
+        "Target sources folder (directory with build outputs)",
         &current,
     )?;
     let path_str = path.as_ref().map(|p| p.display().to_string());
 
     let mut config = g::config::load_config()?;
-    config.set_repo_target_lookup_path(&repo.display().to_string(), path_str.clone());
+    config.set_repo_target_sources_path(&repo.display().to_string(), path_str.clone());
     g::config::save_config(&config)?;
 
     match path_str {
-        Some(p) => println!("target lookup path set to '{}'", p),
-        None => println!("target lookup path cleared"),
+        Some(p) => println!("target sources folder set to '{}'", p),
+        None => println!("target sources folder cleared"),
     }
     Ok(())
 }
 
-pub(super) fn run_discover_targets(theme: &ColorfulTheme, repo: &Path) -> g::Result<()> {
-    let lookup = g::config::load_config()?
-        .find_repo(&repo.display().to_string())
-        .and_then(|r| r.target_lookup_path.clone());
+pub(super) fn run_sync_target_sources(theme: &ColorfulTheme, repo: &Path) -> g::Result<()> {
+    use crate::cli::actions::target_sources::{TargetSourcesSyncOptions, sync_target_sources};
 
-    let Some(lookup) = lookup else {
-        println!("no target lookup path set. Use 'Set target lookup path' first.");
+    let sources = g::config::load_config()?
+        .find_repo(&repo.display().to_string())
+        .and_then(|r| r.target_sources_path.clone());
+
+    let Some(sources) = sources else {
+        println!("no target sources folder set. Use 'Set target sources folder' first.");
         return Ok(());
     };
-    let lookup_path = PathBuf::from(&lookup);
+    let sources_path = PathBuf::from(&sources);
 
-    let candidates = g::discover_source_target_installs(repo, &lookup_path)?;
-    let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
-    let compression_profile = repo_manifest.compression_profile.preset;
-    let target_schema = repo_manifest.target_schema.unwrap_or_default();
-    if candidates.is_empty() {
-        println!("no source target installs found in '{}'", lookup);
+    let plan = g::plan_target_sources_sync(repo, Some(&sources_path))?;
+    if !plan.sources_ready {
+        println!("target sources folder is not ready.");
+        return Ok(());
+    }
+    if plan.candidate_count == 0 && plan.removable_count == 0 {
+        println!("no target source folders found in '{}'", sources);
+        return Ok(());
+    }
+    if !plan.has_changes() {
+        println!("target sources folder and local repo already match.");
         return Ok(());
     }
 
-    let status = g::inspect_gutch_repo(repo)?;
-    let existing_ids: HashSet<String> =
-        status.targets.iter().map(|t| t.target_id.clone()).collect();
-
-    let uninserted: Vec<_> = candidates
-        .iter()
-        .filter(|c| !existing_ids.contains(&c.target_id))
-        .collect();
-    let already_inserted = candidates.len() - uninserted.len();
-
-    super::display::print_discovered_targets(&lookup_path, &target_schema, &uninserted);
-    if already_inserted > 0 {
-        println!("Already inserted: {} target(s)", already_inserted);
+    println!("target sources sync plan");
+    println!("candidates: {}", plan.candidate_count);
+    println!("new targets: {}", plan.insertable_count);
+    println!("tag updates: {}", plan.tag_update_count);
+    println!("to refresh: {}", plan.refresh_count());
+    println!("to prune: {}", plan.removable_count);
+    for update in &plan.to_update_tags {
+        println!(
+            "  tag update: {} ({})",
+            update.content_target_id, update.folder_name
+        );
     }
 
-    if uninserted.is_empty() {
-        println!("all {} candidate(s) already inserted.", candidates.len());
-        return Ok(());
-    }
-
-    let confirmed = super::prompt_approval_action(
-        theme,
-        format!("Insert all {} uninserted targets?", uninserted.len()),
-    )?;
-
+    let confirmed = super::prompt_approval_action(theme, "Sync target sources?")?;
     if !confirmed {
         return Ok(());
     }
 
-    for candidate in &uninserted {
-        println!("inserting {} ...", candidate.folder_name);
-        super::set_last_ran_command(format!(
-            "plctl gutch target insert --dir {} --repo {} --version {} --platform {} --architecture {} --tier {} --chunk-profile chunk_128KiB --bundle-profile bundle_16MiB --compression-profile {}",
-            super::shell_arg(&candidate.path),
-            super::shell_arg_path(repo),
-            super::shell_arg(&candidate.version_id),
-            super::shell_arg(&candidate.platform),
-            super::shell_arg(&candidate.architecture),
-            super::shell_arg(&candidate.tier_id),
-            compression_profile.cli_name(),
-        ));
-        crate::cli::target::run(TargetCommands::Insert {
-            dir: PathBuf::from(&candidate.path),
-            repo: repo.to_path_buf(),
-            version: Some(candidate.version_id.clone()),
-            platform: Some(candidate.platform.clone()),
-            architecture: Some(candidate.architecture.clone()),
-            tier: Some(candidate.tier_id.clone()),
-            tags: Vec::new(),
-            chunk_profile: g::manifest::ArtifactSizingPreset::Chunk128KiB,
-            bundle_profile: g::manifest::BundleSizingPreset::Bundle16MiB,
-            compression_profile,
-            storage_mode: g::manifest::ArtifactStorageMode::Bundled,
-            memory_mode: g::MemoryMode::Auto,
-            max_memory_mib: None,
-            jobs: None,
-            summary_out: None,
-            stats_json_out: None,
-        })?;
-    }
+    super::set_last_ran_command(format!(
+        "plctl gutch repo target-sources sync --repo {} --root {} --yes",
+        super::shell_arg_path(repo),
+        super::shell_arg(&sources),
+    ));
 
-    println!("inserted {} target(s).", uninserted.len());
+    sync_target_sources(
+        repo,
+        &sources_path,
+        TargetSourcesSyncOptions {
+            dry_run: false,
+            no_prune: false,
+            yes: true,
+        },
+    )?;
     Ok(())
 }

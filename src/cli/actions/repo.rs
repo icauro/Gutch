@@ -35,8 +35,8 @@ pub struct RepoSyncUpStats {
 pub struct RepoSyncTargetChange {
     pub target_id: String,
     pub version: String,
-    pub platform: String,
-    pub architecture: String,
+    pub os: String,
+    pub arch: String,
     pub tier: String,
     pub artifact_state: Option<String>,
     pub tags: Vec<String>,
@@ -61,8 +61,8 @@ pub struct RepoSyncPlan {
 struct LocalSyncTarget {
     target_id: String,
     version: String,
-    platform: String,
-    architecture: String,
+    os: String,
+    arch: String,
     tier: String,
     tags: Vec<String>,
 }
@@ -75,8 +75,8 @@ fn local_target_change(
     RepoSyncTargetChange {
         target_id: target.target_id.clone(),
         version: target.version.clone(),
-        platform: target.platform.clone(),
-        architecture: target.architecture.clone(),
+        os: target.os.clone(),
+        arch: target.arch.clone(),
         tier: target.tier.clone(),
         artifact_state,
         tags: target.tags.clone(),
@@ -93,13 +93,13 @@ fn remote_target_change(target: &CreatorTargetResponse) -> RepoSyncTargetChange 
             .get("version")
             .cloned()
             .unwrap_or_default(),
-        platform: target
+        os: target
             .target_tags
             .exclusive
             .get("os")
             .cloned()
             .unwrap_or_default(),
-        architecture: target
+        arch: target
             .target_tags
             .exclusive
             .get("arch")
@@ -242,12 +242,12 @@ fn collect_local_sync_targets(
                 .get_exclusive("version")
                 .unwrap_or_default()
                 .to_string(),
-            platform: manifest
+            os: manifest
                 .target_tags
                 .get_exclusive("os")
                 .unwrap_or_default()
                 .to_string(),
-            architecture: manifest
+            arch: manifest
                 .target_tags
                 .get_exclusive("arch")
                 .unwrap_or_default()
@@ -364,7 +364,7 @@ pub fn init_repo(path: &Path, schema: Option<&PathBuf>) -> g::Result<()> {
     let mut config = g::config::load_config()?;
     config.upsert_repo(g::config::TrackedRepo {
         path: repo_paths.repo_root.display().to_string(),
-        target_lookup_path: None,
+        target_sources_path: None,
     });
     g::config::save_config(&config)?;
     Ok(())

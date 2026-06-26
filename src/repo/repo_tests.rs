@@ -363,7 +363,7 @@ fn inspect_repo_shows_target_tags() {
     assert_eq!(status.targets.len(), 1);
     assert_eq!(status.targets[0].target_id, "2");
     assert_eq!(status.targets[0].version_id, "2.0.0");
-    assert_eq!(status.targets[0].platform, "linux");
+    assert_eq!(status.targets[0].os, "linux");
 
     let _ = std::fs::remove_dir_all(&root);
 }
