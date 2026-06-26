@@ -15,8 +15,7 @@ pub struct GutchRepoManifest {
     pub created_at: String,
     #[serde(
         default,
-        skip_serializing_if = "Option::is_none",
-        alias = "auto_tagging_rules"
+        skip_serializing_if = "Option::is_none"
     )]
     pub target_schema: Option<TargetTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

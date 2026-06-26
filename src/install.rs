@@ -875,7 +875,6 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
     let mut repo_manifest = crate::manifest::gutch_repo::GutchRepoManifest::new(repo_name);
     if let Some(inserted_at) = target_manifest
         .get("inserted_at")
-        .or_else(|| target_manifest.get("created_at"))
         .and_then(serde_json::Value::as_str)
     {
         repo_manifest.created_at = inserted_at.to_string();

@@ -15,7 +15,6 @@ const TARGET_FILES_BINARY_VERSION: u16 = 2;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TargetManifestShell {
     pub manifest_version: String,
-    #[serde(alias = "created_at")]
     pub inserted_at: String,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,
@@ -200,108 +199,14 @@ pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkInde
     }
 
     let version = read_u16(&mut reader)?;
-    return match version {
-        1 => load_chunk_index_binary_v1(path, reader),
-        2 => load_chunk_index_binary_v2(path, reader),
-        CHUNK_INDEX_BINARY_VERSION => load_chunk_index_binary_v3(path, reader),
-        _ => Err(Error::manifest(format!(
+    if version != CHUNK_INDEX_BINARY_VERSION {
+        return Err(Error::manifest(format!(
             "unsupported chunk index binary version {} in {}",
             version,
             path.display()
-        ))),
-    };
-}
-
-fn load_chunk_index_binary_v1(
-    path: &Path,
-    mut reader: BufReader<std::fs::File>,
-) -> Result<manifest::ChunkIndex> {
-    let _reserved = read_u16(&mut reader)?;
-    let bundle_count = read_u32(&mut reader)? as usize;
-    let chunk_count = read_u64(&mut reader)? as usize;
-    let format_version = read_len_prefixed_string(&mut reader)?;
-    let updated_at = read_len_prefixed_string(&mut reader)?;
-
-    let bundles = read_len_prefixed_string_array(&mut reader, bundle_count)?;
-    let mut entries = BTreeMap::new();
-    for _ in 0..chunk_count {
-        let chunk_hash = read_len_prefixed_string(&mut reader)?;
-        let bundle_index = read_u32(&mut reader)? as usize;
-        let raw_size = read_u64(&mut reader)?;
-        let compressed_size = read_u64(&mut reader)?;
-        let bundle_id = bundles.get(bundle_index).cloned().ok_or_else(|| {
-            Error::manifest(format!(
-                "chunk index bundle reference out of range in {}",
-                path.display()
-            ))
-        })?;
-        entries.insert(
-            chunk_hash,
-            manifest::ChunkIndexEntry {
-                bundle_id,
-                raw_size,
-                compressed_size,
-                storage_mode: manifest::ArtifactStorageMode::Bundled,
-            },
-        );
+        )));
     }
 
-    Ok(manifest::ChunkIndex {
-        format_version,
-        updated_at,
-        entries,
-    })
-}
-
-fn load_chunk_index_binary_v2(
-    path: &Path,
-    mut reader: BufReader<std::fs::File>,
-) -> Result<manifest::ChunkIndex> {
-    let _reserved = read_u16(&mut reader)?;
-    let bundle_count = read_u32(&mut reader)? as usize;
-    let chunk_count = read_u64(&mut reader)? as usize;
-    let format_version = read_len_prefixed_string(&mut reader)?;
-    let updated_at = read_len_prefixed_string(&mut reader)?;
-
-    let bundles = read_len_prefixed_string_array(&mut reader, bundle_count)?;
-    let chunk_hashes = read_len_prefixed_string_array(&mut reader, chunk_count)?;
-    let bundle_indexes = read_u32_array(&mut reader, chunk_count)?;
-    let raw_sizes = read_u64_array(&mut reader, chunk_count)?;
-    let compressed_sizes = read_u64_array(&mut reader, chunk_count)?;
-    let mut entries = BTreeMap::new();
-    for index in 0..chunk_count {
-        let chunk_hash = chunk_hashes[index].clone();
-        let bundle_index = bundle_indexes[index] as usize;
-        let raw_size = raw_sizes[index];
-        let compressed_size = compressed_sizes[index];
-        let bundle_id = bundles.get(bundle_index).cloned().ok_or_else(|| {
-            Error::manifest(format!(
-                "chunk index bundle reference out of range in {}",
-                path.display()
-            ))
-        })?;
-        entries.insert(
-            chunk_hash,
-            manifest::ChunkIndexEntry {
-                bundle_id,
-                raw_size,
-                compressed_size,
-                storage_mode: manifest::ArtifactStorageMode::Bundled,
-            },
-        );
-    }
-
-    Ok(manifest::ChunkIndex {
-        format_version,
-        updated_at,
-        entries,
-    })
-}
-
-fn load_chunk_index_binary_v3(
-    path: &Path,
-    mut reader: BufReader<std::fs::File>,
-) -> Result<manifest::ChunkIndex> {
     let _reserved = read_u16(&mut reader)?;
     let chunk_count = read_u64(&mut reader)? as usize;
     let format_version = read_len_prefixed_string(&mut reader)?;
@@ -438,54 +343,14 @@ pub(crate) fn load_target_manifest_files_binary(path: &Path) -> Result<Vec<FileM
     }
 
     let version = read_u16(&mut reader)?;
-    return match version {
-        1 => load_target_manifest_files_binary_v1(path, reader),
-        TARGET_FILES_BINARY_VERSION => load_target_manifest_files_binary_v2(path, reader),
-        _ => Err(Error::manifest(format!(
+    if version != TARGET_FILES_BINARY_VERSION {
+        return Err(Error::manifest(format!(
             "unsupported target files binary version {} in {}",
             version,
             path.display()
-        ))),
-    };
-}
-
-fn load_target_manifest_files_binary_v1(
-    _path: &Path,
-    mut reader: BufReader<std::fs::File>,
-) -> Result<Vec<FileManifest>> {
-    let _reserved = read_u16(&mut reader)?;
-    let file_count = read_u32(&mut reader)? as usize;
-    let mut files = Vec::with_capacity(file_count);
-    for _ in 0..file_count {
-        let path_text = read_len_prefixed_string(&mut reader)?;
-        let size = read_u64(&mut reader)?;
-        let executable = read_exact_array::<1>(&mut reader)?[0] != 0;
-        let _padding = read_exact_array::<7>(&mut reader)?;
-        let full_file_hash = read_len_prefixed_string(&mut reader)?;
-        let chunk_count = read_u32(&mut reader)? as usize;
-        let mut chunks = Vec::with_capacity(chunk_count);
-        for _ in 0..chunk_count {
-            chunks.push(manifest::ChunkRef {
-                chunk_hash: read_len_prefixed_string(&mut reader)?,
-                raw_size: read_u64(&mut reader)?,
-            });
-        }
-        files.push(FileManifest {
-            path: path_text,
-            size,
-            executable,
-            full_file_hash,
-            chunks,
-        });
+        )));
     }
 
-    Ok(files)
-}
-
-fn load_target_manifest_files_binary_v2(
-    path: &Path,
-    mut reader: BufReader<std::fs::File>,
-) -> Result<Vec<FileManifest>> {
     let _reserved = read_u16(&mut reader)?;
     let file_count = read_u32(&mut reader)? as usize;
     let chunk_ref_count = read_u64(&mut reader)? as usize;

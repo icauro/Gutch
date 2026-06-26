@@ -160,10 +160,6 @@ fn empty_chunk_index() -> manifest::ChunkIndex {
     }
 }
 
-fn legacy_chunk_index_path(paths: &GutchRepoPaths) -> PathBuf {
-    paths.repo_root.join("chunk_index.json")
-}
-
 pub fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> PathBuf {
     bundles_root.join(bundle_id)
 }
@@ -199,13 +195,6 @@ pub fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
 pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
     if paths.chunk_index_path.exists() {
         return binary::load_chunk_index_binary(&paths.chunk_index_path);
-    }
-
-    let legacy_path = legacy_chunk_index_path(paths);
-    if legacy_path.exists() {
-        let json = crate::helpers::read_to_string(&legacy_path)?;
-        let index: manifest::ChunkIndex = crate::helpers::from_json_str(&json)?;
-        return Ok(index);
     }
 
     Ok(empty_chunk_index())

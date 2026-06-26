@@ -7,7 +7,6 @@ pub struct TargetManifest {
     pub manifest_version: String,
     #[serde(default, skip_serializing)]
     pub target_id: String,
-    #[serde(alias = "created_at")]
     pub inserted_at: String,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,

@@ -199,9 +199,7 @@ impl ChunkSizingProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleSizingProfile {
     pub preset: BundleSizingPreset,
-    #[serde(alias = "bundle_max_mibibytes")]
     pub bundle_max_mib: u64,
-    #[serde(alias = "bundle_min_preferred_mibibytes")]
     pub bundle_preferred_mib: u64,
 }
 
