@@ -237,8 +237,8 @@ pub enum TargetInstallCommands {
         manifest_url: String,
         #[arg(long = "chunk-index-url")]
         chunk_index_url: Option<String>,
-        #[arg(long = "bundle-urls-endpoint")]
-        bundle_urls_endpoint: Option<String>,
+        #[arg(long = "bundle-downloads-endpoint")]
+        bundle_downloads_endpoint: Option<String>,
         #[arg(long = "session-id")]
         session_id: Option<String>,
         #[arg(long = "bundle")]

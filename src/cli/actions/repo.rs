@@ -395,14 +395,14 @@ pub fn link_repo(
     let repo_name = manifest.name.clone();
     let response = client
         .post(format!(
-            "{}/v1/users/me/creator/products/{}/repo-links",
+            "{}/v1/users/me/creator/products/{}/repos",
             endpoint.trim_end_matches('/'),
             product_id
         ))
         .header("Accept", "application/json")
         .header("Authorization", format!("Bearer {}", session_id))
         .json(&serde_json::json!({
-            "localRepoName": repo_name,
+            "name": repo_name,
         }))
         .send()
         .map_err(|err| g::Error::manifest(format!("backend request failed: {}", err)))?;

@@ -11,7 +11,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             target,
             manifest_url,
             chunk_index_url,
-            bundle_urls_endpoint,
+            bundle_downloads_endpoint,
             session_id,
             bundles,
         } => {
@@ -20,7 +20,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                 target_id: target,
                 manifest_url,
                 chunk_index_url,
-                bundle_urls_endpoint,
+                bundle_downloads_endpoint: bundle_downloads_endpoint,
                 session_id,
                 bundles: parse_bundle_downloads(&bundles)?,
                 progress: None,

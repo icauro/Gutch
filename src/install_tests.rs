@@ -182,7 +182,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         target_id: "1.0.0-windows-x86_64-base".to_string(),
         manifest_url: format!("http://{}/manifest", address),
         chunk_index_url: None,
-        bundle_urls_endpoint: Some(format!("http://{}/bundles", address)),
+        bundle_downloads_endpoint: Some(format!("http://{}/bundles", address)),
         session_id: Some("session-1".to_string()),
         bundles: Vec::new(),
         progress: None,

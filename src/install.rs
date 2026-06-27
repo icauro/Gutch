@@ -57,6 +57,7 @@ pub struct TargetInstallRepairResult {
 #[serde(rename_all = "camelCase")]
 pub struct GutchBundleDownload {
     pub bundle_id: String,
+    #[serde(alias = "downloadUrl")]
     pub url: String,
 }
 
@@ -66,7 +67,7 @@ pub struct TargetInstallFetchRequest {
     pub target_id: String,
     pub manifest_url: String,
     pub chunk_index_url: Option<String>,
-    pub bundle_urls_endpoint: Option<String>,
+    pub bundle_downloads_endpoint: Option<String>,
     pub session_id: Option<String>,
     pub bundles: Vec<GutchBundleDownload>,
     pub progress: Option<std::sync::Arc<dyn crate::FetchProgressSink>>,
@@ -820,7 +821,7 @@ fn fetch_bundle_urls(
     bundle_ids: &[String],
 ) -> Result<Vec<GutchBundleDownload>> {
     let endpoint = request
-        .bundle_urls_endpoint
+        .bundle_downloads_endpoint
         .as_deref()
         .and_then(|value| non_empty_trimmed(Some(value)))
         .ok_or_else(|| Error::bundle("bundle URL endpoint is required for Gutch install"))?;
