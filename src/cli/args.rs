@@ -118,8 +118,6 @@ pub enum TargetSourcesCommands {
         repo: PathBuf,
         #[arg(long = "root")]
         root: PathBuf,
-        #[arg(long = "dry-run")]
-        dry_run: bool,
         #[arg(long = "no-prune")]
         no_prune: bool,
         #[arg(long = "yes")]
@@ -156,6 +154,8 @@ pub enum TargetCommands {
         summary_out: Option<PathBuf>,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
+        #[arg(long = "yes")]
+        yes: bool,
     },
     #[command(name = "insert-many")]
     InsertMany {
@@ -185,6 +185,8 @@ pub enum TargetCommands {
         summary_out: Option<PathBuf>,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
+        #[arg(long = "yes")]
+        yes: bool,
     },
     Delete {
         #[arg(long = "repo", default_value = ".")]

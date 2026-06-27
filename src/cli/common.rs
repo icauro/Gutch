@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -790,4 +791,29 @@ pub(crate) fn write_loose_chunks(
         }
     }
     Ok(chunk_sizes)
+}
+
+pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> g::Result<bool> {
+    loop {
+        let suffix = if default_yes { "[Y/n]" } else { "[y/N]" };
+        print!("{} {}: ", prompt, suffix);
+        io::stdout()
+            .flush()
+            .map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
+        let mut line = String::new();
+        io::stdin()
+            .read_line(&mut line)
+            .map_err(|err| g::Error::manifest(format!("io error: {}", err)))?;
+        let trimmed = line.trim().to_ascii_lowercase();
+        if trimmed.is_empty() {
+            return Ok(default_yes);
+        }
+        if trimmed == "y" || trimmed == "yes" {
+            return Ok(true);
+        }
+        if trimmed == "n" || trimmed == "no" {
+            return Ok(false);
+        }
+        eprintln!("enter y or n");
+    }
 }

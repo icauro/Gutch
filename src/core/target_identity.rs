@@ -85,6 +85,23 @@ fn segment_candidate_for_prefix<'a>(segment: &'a str, prefix: &str) -> Option<&'
     segment.strip_prefix(required_prefix)
 }
 
+fn definition_matches_token(definition: &TargetTagDefinition, token: &str) -> bool {
+    definition
+        .values
+        .iter()
+        .any(|value_definition| value_definition.matches_token(token))
+}
+
+fn another_definition_matches_token(
+    rules: &TargetTagSchema,
+    current_definition_name: &str,
+    token: &str,
+) -> bool {
+    rules.target_tags.iter().any(|definition| {
+        definition.name != current_definition_name && definition_matches_token(definition, token)
+    })
+}
+
 fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> TargetTagSet {
     let raw_name = if path.is_file() {
         path.file_stem()
@@ -122,6 +139,7 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
                     found_version = true;
                     break;
                 }
+                continue;
             }
 
             let lowered = candidate.to_ascii_lowercase();
@@ -147,6 +165,12 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
             }
 
             if definition.values.is_empty() {
+                if definition.kind == TargetTagKind::Exclusive && !found_version {
+                    continue;
+                }
+                if another_definition_matches_token(rules, &definition.name, &lowered) {
+                    continue;
+                }
                 match definition.kind {
                     TargetTagKind::Plain => {}
                     TargetTagKind::Scoped => {

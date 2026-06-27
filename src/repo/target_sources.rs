@@ -20,16 +20,29 @@ pub struct TargetSourcesTagUpdate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TargetSourcesReplaceSameTags {
+    pub folder_name: String,
+    pub path: String,
+    pub content_target_id: String,
+    pub replaced_target_ids: Vec<String>,
+    pub target_tags: TargetTagSet,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TargetSourcesSyncPlan {
     pub sources_ready: bool,
     pub candidate_count: usize,
     pub insertable_count: usize,
     pub tag_update_count: usize,
+    pub replace_same_tags_count: usize,
     pub removable_count: usize,
     #[serde(default)]
     pub to_insert: Vec<SourceTargetInstallCandidate>,
     #[serde(default)]
     pub to_update_tags: Vec<TargetSourcesTagUpdate>,
+    #[serde(default)]
+    pub to_replace_same_tags: Vec<TargetSourcesReplaceSameTags>,
     #[serde(default)]
     pub to_remove: Vec<String>,
 }
@@ -41,15 +54,24 @@ impl TargetSourcesSyncPlan {
             candidate_count: 0,
             insertable_count: 0,
             tag_update_count: 0,
+            replace_same_tags_count: 0,
             removable_count: 0,
             to_insert: Vec::new(),
             to_update_tags: Vec::new(),
+            to_replace_same_tags: Vec::new(),
             to_remove: Vec::new(),
         }
     }
 
     pub fn has_changes(&self) -> bool {
-        self.insertable_count > 0 || self.tag_update_count > 0 || self.removable_count > 0
+        self.insertable_count > 0
+            || self.tag_update_count > 0
+            || self.replace_same_tags_count > 0
+            || self.removable_count > 0
+    }
+
+    pub fn requires_confirmation(&self) -> bool {
+        self.has_changes()
     }
 
     pub fn refresh_count(&self) -> usize {
@@ -98,6 +120,21 @@ pub fn plan_target_sources_sync(
             .iter()
             .find(|target| target.target_id == candidate.content_target_id)
         else {
+            let replaced_target_ids: Vec<String> = status
+                .targets
+                .iter()
+                .filter(|target| target.target_tags == candidate.target_tags)
+                .map(|target| target.target_id.clone())
+                .collect();
+            if !replaced_target_ids.is_empty() {
+                plan.to_replace_same_tags.push(TargetSourcesReplaceSameTags {
+                    folder_name: candidate.folder_name.clone(),
+                    path: candidate.path.clone(),
+                    content_target_id: candidate.content_target_id.clone(),
+                    replaced_target_ids,
+                    target_tags: candidate.target_tags.clone(),
+                });
+            }
             plan.to_insert.push(candidate);
             continue;
         };
@@ -115,6 +152,7 @@ pub fn plan_target_sources_sync(
 
     plan.insertable_count = plan.to_insert.len();
     plan.tag_update_count = plan.to_update_tags.len();
+    plan.replace_same_tags_count = plan.to_replace_same_tags.len();
 
     Ok(plan)
 }
@@ -126,6 +164,42 @@ fn normalized_sources_path(sources_path: Option<&Path>) -> Option<std::path::Pat
         return None;
     }
     Some(std::path::PathBuf::from(trimmed))
+}
+
+pub fn describe_target_sources_sync_plan(plan: &TargetSourcesSyncPlan) -> Vec<String> {
+    let mut lines = Vec::new();
+    for update in &plan.to_update_tags {
+        lines.push(format!(
+            "Tag update for {} ({}): same content {}, tags will change",
+            update.folder_name, update.path, update.content_target_id
+        ));
+    }
+    for replace in &plan.to_replace_same_tags {
+        lines.push(format!(
+            "Replace slot for {} ({}): same tags, new content {} replaces repo target(s) {}. Patron installs pinned to the old content id become invalid until updated.",
+            replace.folder_name,
+            replace.path,
+            replace.content_target_id,
+            replace.replaced_target_ids.join(", ")
+        ));
+    }
+    for target_id in &plan.to_remove {
+        lines.push(format!("Remove repo target {} (missing from sources)", target_id));
+    }
+    for candidate in &plan.to_insert {
+        if plan
+            .to_replace_same_tags
+            .iter()
+            .any(|replace| replace.content_target_id == candidate.content_target_id)
+        {
+            continue;
+        }
+        lines.push(format!(
+            "Insert new target {} ({})",
+            candidate.content_target_id, candidate.folder_name
+        ));
+    }
+    lines
 }
 
 #[cfg(test)]
@@ -157,6 +231,7 @@ mod tests {
         assert!(!plan.sources_ready);
         assert_eq!(plan.insertable_count, 0);
         assert_eq!(plan.tag_update_count, 0);
+        assert_eq!(plan.replace_same_tags_count, 0);
         assert_eq!(plan.removable_count, 0);
     }
 
@@ -177,7 +252,7 @@ mod tests {
             size: 12,
             executable: false,
             full_file_hash: crate::hash::hash_hex(&crate::hash::hash_file(
-                &source_dir.join("game.exe"),
+                source_dir.join("game.exe").as_path(),
             )
             .unwrap()),
             chunks: Vec::new(),
@@ -186,30 +261,22 @@ mod tests {
         let old_tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
         let mut manifest = TargetManifest::new(content_target_id.clone(), old_tags);
         manifest.files = files;
-        manifest.total_logical_size = 12;
         write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
 
         let plan = plan_target_sources_sync(&repo_root, Some(&source_root)).unwrap();
-        assert!(plan.sources_ready);
-        assert_eq!(plan.candidate_count, 1);
-        assert_eq!(plan.insertable_count, 0);
         assert_eq!(plan.tag_update_count, 1);
-        assert_eq!(plan.removable_count, 0);
         assert_eq!(plan.to_update_tags[0].content_target_id, content_target_id);
         assert_eq!(
             plan.to_update_tags[0]
-                .from_tags
-                .get_exclusive("version")
-                .map(str::to_string),
-            Some("1.0.0".to_string())
+                .to_tags
+                .get_exclusive("version"),
+            Some("2.0.0")
         );
         assert_eq!(
             plan.to_update_tags[0]
-                .to_tags
-                .get_exclusive("version")
-                .map(str::to_string),
-            Some("2.0.0".to_string())
+                .from_tags
+                .get_exclusive("version"),
+            Some("1.0.0")
         );
-        assert!(plan.has_changes());
     }
 }

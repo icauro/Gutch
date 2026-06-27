@@ -70,12 +70,16 @@ pub use reconstruct::{
 };
 pub use repo::{
     GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
-    TargetSourcesSyncPlan, add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index,
+    TargetInsertKind, TargetInsertPlan, TargetSourcesReplaceSameTags, TargetSourcesSyncPlan,
+    TargetSourcesTagUpdate, add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index,
     bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, chunk_path, chunk_path_in_root,
-    compute_target_id_from_files, discover_source_target_installs, ensure_gutch_repo_layout,
+    cleanup_orphan_bundles_in_repo, compute_target_id_from_files, delete_repo_targets,
+    delete_repo_targets_with_matching_tags, describe_target_insert_plan,
+    describe_target_sources_sync_plan, discover_source_target_installs, ensure_gutch_repo_layout,
     inspect_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
-    plan_target_sources_sync, preview_source_target_install, serialize_target_manifest_for_remote,
-    target_manifest_bin_path, target_manifest_path, write_chunk_index, write_gutch_repo_manifest,
+    plan_target_insert, plan_target_sources_sync, preview_source_target_install,
+    remove_target_from_repo, serialize_target_manifest_for_remote, target_manifest_bin_path,
+    target_manifest_path, write_chunk_index, write_gutch_repo_manifest,
     write_target_manifest_artifacts,
 };
 pub use runtime::{

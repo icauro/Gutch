@@ -3,6 +3,7 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+mod insert_plan;
 mod target_sources;
 
 use crate::hash::{hash_file, hash_hex};
@@ -508,8 +509,83 @@ fn load_target_manifest_from_json_text(
     ))
 }
 
+pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> {
+    let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
+    let manifest_path = target_manifest_path(&repo_paths, target_id);
+    let manifest_bin_path = target_manifest_bin_path(&repo_paths, target_id);
+    for path in [&manifest_path, &manifest_bin_path] {
+        if !path.exists() {
+            continue;
+        }
+        if path.is_dir() {
+            std::fs::remove_dir_all(path)?;
+        } else {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn cleanup_orphan_bundles_in_repo(repo_root: &Path) -> Result<usize> {
+    let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
+    let remaining_targets: HashSet<String> = if repo_paths.targets_root.exists() {
+        std::fs::read_dir(&repo_paths.targets_root)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry.path().is_file()
+                    && entry
+                        .path()
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        == Some("json")
+            })
+            .filter_map(|entry| {
+                entry
+                    .path()
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .map(str::to_string)
+            })
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    let chunk_index = load_chunk_index(&repo_paths)?;
+    let mut still_required_bundle_ids = HashSet::new();
+    for target_id in &remaining_targets {
+        let manifest = load_target_manifest(&repo_paths, target_id)?;
+        still_required_bundle_ids.extend(required_bundle_ids(&manifest, &chunk_index));
+    }
+
+    let mut orphan_bundles = Vec::new();
+    if repo_paths.bundles_root.exists() {
+        for entry in walkdir::WalkDir::new(&repo_paths.bundles_root).sort_by_file_name() {
+            let entry = entry.map_err(Error::Walkdir)?;
+            if !entry.path().is_file() {
+                continue;
+            }
+            if let Some(bundle_id) = crate::bundle_id_from_bundle_path(entry.path()) {
+                if !still_required_bundle_ids.contains(&bundle_id) {
+                    orphan_bundles.push(entry.path().to_path_buf());
+                }
+            }
+        }
+    }
+
+    for orphan_path in &orphan_bundles {
+        std::fs::remove_file(orphan_path)?;
+    }
+    Ok(orphan_bundles.len())
+}
+
+pub use insert_plan::{
+    TargetInsertKind, TargetInsertPlan, delete_repo_targets, delete_repo_targets_with_matching_tags,
+    describe_target_insert_plan, plan_target_insert,
+};
 pub use target_sources::{
-    TargetSourcesSyncPlan, TargetSourcesTagUpdate, plan_target_sources_sync,
+    TargetSourcesReplaceSameTags, TargetSourcesSyncPlan, TargetSourcesTagUpdate,
+    describe_target_sources_sync_plan, plan_target_sources_sync,
 };
 
 pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
@@ -622,7 +698,7 @@ pub fn preview_source_target_install(
 
     let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let rules = repo_manifest.target_schema.unwrap_or_default();
-    build_source_target_install_candidate(source_dir, &rules)
+    build_source_target_install_candidate(source_dir, &rules, &manifest::TargetTagSet::default())
 }
 
 fn empty_repo_inspect_status(
@@ -724,18 +800,18 @@ fn infer_source_target_candidate(
     path: &Path,
     rules: &manifest::TargetTagSchema,
 ) -> Option<SourceTargetInstallCandidate> {
-    build_source_target_install_candidate(path, rules).ok()
+    build_source_target_install_candidate(path, rules, &manifest::TargetTagSet::default()).ok()
 }
 
 fn build_source_target_install_candidate(
     path: &Path,
     rules: &manifest::TargetTagSchema,
+    explicit_tags: &manifest::TargetTagSet,
 ) -> Result<SourceTargetInstallCandidate> {
     use crate::core::target_identity::resolve_target_identity;
 
     let context = format!("source target '{}'", path.display());
-    let resolved =
-        resolve_target_identity(path, &manifest::TargetTagSet::default(), rules, &context)?;
+    let resolved = resolve_target_identity(path, explicit_tags, rules, &context)?;
 
     let folder_name = path
         .file_name()

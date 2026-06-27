@@ -5,8 +5,8 @@ use crate::cli::TargetCommands;
 use crate::cli::common::{
     TargetExportStats, TargetInsertManyStats, TargetInsertStats, collect_input_sizing_stats,
     count_required_bundles_for_build, count_required_bundles_from_chunk_index,
-    count_required_chunks, load_target_manifest_from_repo, prepare_input_path, write_bundles,
-    write_loose_chunks, write_report, write_target_manifest,
+    count_required_chunks, load_target_manifest_from_repo, prepare_input_path, prompt_yes_no,
+    write_bundles, write_loose_chunks, write_report, write_target_manifest,
 };
 use crate::cli::progress::TargetInsertProgress;
 use crate::cli::reporting::{
@@ -54,12 +54,87 @@ struct InsertOneTargetRequest<'a> {
     summary_out: &'a Option<PathBuf>,
     stats_json_out: &'a Option<PathBuf>,
     command_name: &'static str,
+    yes: bool,
+    skip_confirmation: bool,
 }
 
 fn run_insert_one_target(
     request: InsertOneTargetRequest<'_>,
     store_state: &mut MutableInsertStoreState,
 ) -> g::Result<TargetInsertStats> {
+    let insert_plan = g::plan_target_insert(
+        request.repo_paths.repo_root.as_path(),
+        request.input_dir,
+        request.explicit_tags,
+    )?;
+    if !request.yes && !request.skip_confirmation {
+        println!("target insert plan:");
+        println!("  {}", g::describe_target_insert_plan(&insert_plan));
+        if insert_plan.invalidates_existing_installs {
+            println!(
+                "  Patron installs pinned to replaced content ids become invalid until updated."
+            );
+        }
+        if !prompt_yes_no("Proceed?", false)? {
+            return Err(g::Error::manifest("target insert cancelled"));
+        }
+    }
+    if insert_plan.kind == g::TargetInsertKind::ReplaceSameTags {
+        g::delete_repo_targets(
+            request.repo_paths.repo_root.as_path(),
+            &insert_plan.replaced_target_ids,
+        )?;
+        let _ = g::cleanup_orphan_bundles_in_repo(request.repo_paths.repo_root.as_path());
+    }
+    if insert_plan.kind == g::TargetInsertKind::UpdateTags {
+        let existing_manifest =
+            g::load_target_manifest(request.repo_paths, &insert_plan.content_target_id)?;
+        let mut updated_manifest = existing_manifest;
+        updated_manifest.target_tags = insert_plan.target_tags.clone();
+        let (manifest_path, _) = write_target_manifest(request.repo_paths, &updated_manifest)?;
+        if verbose_output_enabled() {
+            println!(
+                "updated target tags for content id '{}' (content unchanged)",
+                insert_plan.content_target_id
+            );
+        }
+        let required_chunk_count = count_required_chunks(&updated_manifest);
+        let required_bundle_count = count_required_bundles_from_chunk_index(
+            &updated_manifest,
+            &store_state.chunk_index,
+        );
+        return Ok(TargetInsertStats {
+            command: request.command_name,
+            repo_root: request.repo_paths.repo_root.display().to_string(),
+            input_path: request.input_dir.display().to_string(),
+            target_id: updated_manifest.target_id.clone(),
+            manifest_path: manifest_path.display().to_string(),
+            product_id: request.repo_name.to_string(),
+            remote_repo_id: request.repo_name.to_string(),
+            version_id: insert_plan.version_id.clone(),
+            os: insert_plan.os.clone(),
+            arch: insert_plan.arch.clone(),
+            tier_id: insert_plan.tier_id.clone(),
+            storage_mode: request.storage_mode.cli_name().to_string(),
+            file_count: updated_manifest.files.len(),
+            total_logical_size: updated_manifest.total_logical_size,
+            total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
+            required_chunk_count,
+            required_bundle_count,
+            generated_bundle_count: 0,
+            generated_bundle_bytes: 0,
+            generated_chunk_count: 0,
+            generated_chunk_bytes: 0,
+            reused_chunk_count: required_chunk_count,
+            new_chunk_count: 0,
+            reused_chunk_percent: 100.0,
+            reused_bundle_count: required_bundle_count,
+            reused_bundle_percent: 100.0,
+            timings: build_timings_summary(&g::BuildTimings::default()),
+            outputs: optional_output_paths(request.summary_out, request.stats_json_out),
+        });
+    }
+
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
     let context = format!("target insert input '{}'", request.input_dir.display());
     let resolved_identity = resolve_target_identity(
@@ -343,6 +418,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             jobs,
             summary_out,
             stats_json_out,
+            yes,
         } => {
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
@@ -368,6 +444,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     summary_out: &summary_out,
                     stats_json_out: &stats_json_out,
                     command_name: "target insert",
+                    yes,
+                    skip_confirmation: false,
                 },
                 &mut store_state,
             )?;
@@ -402,12 +480,40 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             jobs,
             summary_out,
             stats_json_out,
+            yes,
         } => {
             let target_dirs = collect_insert_many_dirs(product_dir, dirs)?;
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
             let explicit_tags = parse_cli_tags(&tags)?;
             let repo_name = repo_manifest.name.clone();
+            let insert_plans: Vec<g::TargetInsertPlan> = target_dirs
+                .iter()
+                .map(|target_dir| {
+                    g::plan_target_insert(
+                        repo_paths.repo_root.as_path(),
+                        target_dir,
+                        &explicit_tags,
+                    )
+                })
+                .collect::<g::Result<_>>()?;
+            if !yes {
+                println!("target insert-many plan:");
+                for plan in &insert_plans {
+                    println!("  {}", g::describe_target_insert_plan(plan));
+                }
+                if insert_plans
+                    .iter()
+                    .any(|plan| plan.invalidates_existing_installs)
+                {
+                    println!(
+                        "  Patron installs pinned to replaced content ids become invalid until updated."
+                    );
+                }
+                if !prompt_yes_no("Proceed?", false)? {
+                    return Err(g::Error::manifest("target insert-many cancelled"));
+                }
+            }
             let mut store_state: MutableInsertStoreState =
                 scan_existing_store_state(&repo_paths)?.into();
             let empty_output = None;
@@ -431,6 +537,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                         summary_out: &empty_output,
                         stats_json_out: &empty_output,
                         command_name: "target insert-many",
+                        yes,
+                        skip_confirmation: true,
                     },
                     &mut store_state,
                 )?);

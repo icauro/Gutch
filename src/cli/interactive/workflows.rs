@@ -91,8 +91,10 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
     let bundle_profile = super::prompt_bundle_profile(theme)?;
     let compression_profile = super::prompt_compression_profile(theme)?;
     let runtime = super::prompt_runtime_options(theme)?;
+    let explicit_tags = g::parse_cli_tags(&tags)?;
+    let insert_plan = g::plan_target_insert(repo, &dir, &explicit_tags)?;
     let preview = format!(
-        "plctl gutch target insert --dir {} --repo {} --chunk-profile {} --bundle-profile {} --compression-profile {}{}{}",
+        "plctl gutch target insert --dir {} --repo {} --chunk-profile {} --bundle-profile {} --compression-profile {}{}{}\n{}",
         super::shell_arg_path(&dir),
         super::shell_arg_path(repo),
         super::artifact_sizing_str(chunk_profile),
@@ -100,6 +102,7 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
         compression_profile.cli_name(),
         super::tags_preview_suffix(&tags),
         super::runtime_preview_suffix(&runtime),
+        g::describe_target_insert_plan(&insert_plan),
     );
     super::confirm_preview(theme, &preview)?;
 
@@ -116,6 +119,7 @@ pub(super) fn run_target_insert(theme: &ColorfulTheme, repo: &Path) -> g::Result
         jobs: runtime.jobs,
         summary_out: None,
         stats_json_out: None,
+        yes: true,
     })
 }
 
@@ -342,12 +346,15 @@ pub(super) fn run_sync_target_sources(theme: &ColorfulTheme, repo: &Path) -> g::
     println!("candidates: {}", plan.candidate_count);
     println!("new targets: {}", plan.insertable_count);
     println!("tag updates: {}", plan.tag_update_count);
+    println!("same-tag replacements: {}", plan.replace_same_tags_count);
     println!("to refresh: {}", plan.refresh_count());
     println!("to prune: {}", plan.removable_count);
-    for update in &plan.to_update_tags {
+    for line in g::describe_target_sources_sync_plan(&plan) {
+        println!("  {line}");
+    }
+    if plan.replace_same_tags_count > 0 {
         println!(
-            "  tag update: {} ({})",
-            update.content_target_id, update.folder_name
+            "  Patron installs pinned to replaced content ids become invalid until updated."
         );
     }
 
@@ -366,7 +373,6 @@ pub(super) fn run_sync_target_sources(theme: &ColorfulTheme, repo: &Path) -> g::
         repo,
         &sources_path,
         TargetSourcesSyncOptions {
-            dry_run: false,
             no_prune: false,
             yes: true,
         },
