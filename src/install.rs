@@ -125,7 +125,7 @@ pub struct TargetInstallFetchRequest {
     pub bundle_downloads_endpoint: Option<String>,
     pub session_id: Option<String>,
     pub bundles: Vec<GutchBundleDownload>,
-    pub progress: Option<std::sync::Arc<dyn crate::FetchProgressSink>>,
+    pub progress: Option<std::sync::Arc<dyn crate::GutchProgressSink>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -608,35 +608,35 @@ pub fn fetch_target_install_content(
         let bundle_path = crate::bundle_path(&repo_paths, bundle_id);
         if bundle_path.exists() {
             skipped_existing_bundle_count += 1;
-            crate::fetch_progress::emit_progress(
+            crate::progress::emit_progress(
                 &request.progress,
-                crate::FetchProgressEvent {
+                crate::GutchProgressEvent {
+                    operation: crate::GutchOperation::Fetch,
                     phase: String::from("downloading"),
                     message: format!("Bundle {} of {} (cached)", index + 1, total_bundles),
-                    current_bundle: index + 1,
-                    total_bundles,
+                    current: index + 1,
+                    total: total_bundles,
                     transferred_bytes,
                     total_bytes: 0,
+                    detail: Some(bundle_id.to_string()),
                     done: false,
-                    failed: false,
-                    error: None,
                 },
             );
             continue;
         }
 
-        crate::fetch_progress::emit_progress(
+        crate::progress::emit_progress(
             &request.progress,
-            crate::FetchProgressEvent {
+            crate::GutchProgressEvent {
+                operation: crate::GutchOperation::Fetch,
                 phase: String::from("downloading"),
                 message: format!("Downloading bundle {} of {}", index + 1, total_bundles),
-                current_bundle: index + 1,
-                total_bundles,
+                current: index + 1,
+                total: total_bundles,
                 transferred_bytes,
                 total_bytes: 0,
+                detail: Some(bundle_id.to_string()),
                 done: false,
-                failed: false,
-                error: None,
             },
         );
 
@@ -655,38 +655,38 @@ pub fn fetch_target_install_content(
             downloaded_bundle_count + skipped_existing_bundle_count,
             bundle_ids_from_chunk_index.len()
         );
-        crate::fetch_progress::emit_progress(
+        crate::progress::emit_progress(
             &request.progress,
-            crate::FetchProgressEvent {
+            crate::GutchProgressEvent {
+                operation: crate::GutchOperation::Fetch,
                 phase: String::from("failed"),
                 message: msg.clone(),
-                current_bundle: total_bundles,
-                total_bundles,
+                current: total_bundles,
+                total: total_bundles,
                 transferred_bytes,
                 total_bytes: 0,
+                detail: None,
                 done: true,
-                failed: true,
-                error: Some(msg.clone()),
             },
         );
         return Err(Error::bundle(msg));
     }
 
-    crate::fetch_progress::emit_progress(
+    crate::progress::emit_progress(
         &request.progress,
-        crate::FetchProgressEvent {
+        crate::GutchProgressEvent {
+            operation: crate::GutchOperation::Fetch,
             phase: String::from("done"),
             message: format!(
                 "Downloaded {} bundle(s), {} cached",
                 downloaded_bundle_count, skipped_existing_bundle_count
             ),
-            current_bundle: total_bundles,
-            total_bundles,
+            current: total_bundles,
+            total: total_bundles,
             transferred_bytes,
             total_bytes: transferred_bytes,
+            detail: None,
             done: true,
-            failed: false,
-            error: None,
         },
     );
 

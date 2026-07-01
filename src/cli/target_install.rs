@@ -1,6 +1,7 @@
 use crate::cli::TargetInstallCommands;
 use crate::cli::actions;
 use crate::cli::common::parse_bundle_downloads;
+use crate::cli::progress::CliProgressSink;
 use crate::cli::verbose_output_enabled;
 use gutch as g;
 
@@ -15,6 +16,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             session_id,
             bundles,
         } => {
+            let progress = CliProgressSink::new();
             let result = g::fetch_target_install_content(&g::TargetInstallFetchRequest {
                 repo_path: repo,
                 target_id: target,
@@ -23,7 +25,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                 bundle_downloads_endpoint: bundle_downloads_endpoint,
                 session_id,
                 bundles: parse_bundle_downloads(&bundles)?,
-                progress: None,
+                progress: Some(progress),
             })?;
 
             if verbose_output_enabled() {

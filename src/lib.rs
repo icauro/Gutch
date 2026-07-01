@@ -11,7 +11,6 @@ pub mod cli;
 pub mod config;
 pub mod core;
 pub mod error;
-pub mod fetch_progress;
 pub mod helpers;
 pub mod install;
 pub mod manifest;
@@ -21,7 +20,6 @@ mod progress;
 pub mod remote;
 pub mod repo;
 pub mod runtime;
-pub mod sync_up_progress;
 #[cfg(test)]
 mod test_util;
 pub mod verify;
@@ -46,7 +44,6 @@ pub use core::target_identity::{
     resolve_target_identity_from_rules,
 };
 pub use error::{Error, Result};
-pub use fetch_progress::{FetchProgressEvent, FetchProgressSink};
 pub use install::{
     GutchBundleDownload, TargetInstallApplyFromRepoRequest, TargetInstallApplyFromRepoResult,
     TargetInstallApplyResult, TargetInstallApplySource, TargetInstallDownloadAndApplyRequest,
@@ -94,8 +91,8 @@ pub use repo::{
     ensure_gutch_repo_tracked, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
     parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error, RepoInitAssessment,
     RepoInitOptions, RepoInitPathKind, RepoInitRisk, REPO_INIT_NEEDS_CONFIRMATION,
-    initialize_tracked_gutch_repo, insert_repo_target, insert_repo_target_from_directory,
-    inspect_gutch_repo, inspect_tracked_gutch_repo, link_repo, load_chunk_index,
+    initialize_tracked_gutch_repo, insert_repo_target, inspect_gutch_repo,
+    inspect_tracked_gutch_repo, link_repo, load_chunk_index,
     load_gutch_repo_manifest, load_target_manifest, plan_sync_up_repo, plan_target_insert,
     plan_target_sources_sync, preview_source_target_install, remove_target_from_repo,
     serialize_target_manifest_for_remote, sync_target_sources, sync_up_repo,
@@ -108,7 +105,6 @@ pub use runtime::{
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
 pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressSink};
-pub use sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,
     classify_directory, classify_directory_with_progress,

@@ -10,9 +10,6 @@ use crate::remote::backend::{
     CreatorRepoTargetsResponse, CreatorTargetResponse, UpsertTargetResponse,
     request_json_from_backend, upload_raw_file,
 };
-// Legacy sync progress types kept for backward compatibility
-// use crate::sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
-
 #[derive(Debug, Serialize)]
 pub struct RepoSyncUpStats {
     pub command: &'static str,

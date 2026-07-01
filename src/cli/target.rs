@@ -8,7 +8,7 @@ use crate::cli::common::{
     count_required_chunks, load_target_manifest_from_repo, prepare_input_path, prompt_yes_no,
     write_bundles, write_loose_chunks, write_report, write_target_manifest,
 };
-use crate::cli::progress::{CliProgressSink, TargetInsertProgress};
+use crate::cli::progress::{CliBuildProgressSink, CliProgressSink};
 use crate::cli::reporting::{
     build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
     ratio_pct, reconstruct_timings_summary,
@@ -172,7 +172,7 @@ fn run_insert_one_target(
         max_memory_mib: request.max_memory_mib,
         jobs: request.jobs,
     };
-    let build_progress = TargetInsertProgress::new();
+    let build_progress = CliBuildProgressSink::new();
     build_config.progress = Some(build_progress.as_build_sink());
 
     let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;

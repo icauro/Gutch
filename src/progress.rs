@@ -34,7 +34,7 @@ pub struct GutchProgressEvent {
     /// Optional extra detail (current file name, bundle id, etc.).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    /// True when the operation is complete (success or failure).
+    /// True when the engine has emitted its final progress stage. Errors still return through Result.
     #[serde(default)]
     pub done: bool,
 }
@@ -51,26 +51,5 @@ pub(crate) fn emit_progress(
 ) {
     if let Some(s) = sink {
         s.emit(event);
-    }
-}
-
-/// Convenience constructor for a progress event.
-pub(crate) fn event(
-    operation: GutchOperation,
-    phase: impl Into<String>,
-    message: impl Into<String>,
-    current: usize,
-    total: usize,
-) -> GutchProgressEvent {
-    GutchProgressEvent {
-        operation,
-        phase: phase.into(),
-        message: message.into(),
-        current,
-        total,
-        transferred_bytes: 0,
-        total_bytes: 0,
-        detail: None,
-        done: false,
     }
 }

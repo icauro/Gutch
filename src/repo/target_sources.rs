@@ -357,10 +357,42 @@ pub fn sync_target_sources(
 fn insert_source_target_candidate(
     repo_root: &Path,
     candidate: &SourceTargetInstallCandidate,
-    _progress: &Option<Arc<dyn GutchProgressSink>>,
+    progress: &Option<Arc<dyn GutchProgressSink>>,
 ) -> Result<()> {
-    // TODO: thread progress into insert_repo_target for per-candidate build progress
-    crate::insert_repo_target_from_directory(repo_root, std::path::Path::new(&candidate.path))
+    let candidate_progress = progress.as_ref().map(|sink| {
+        Arc::new(TargetSourcesCandidateProgress {
+            sink: sink.clone(),
+            folder_name: candidate.folder_name.clone(),
+        }) as Arc<dyn GutchProgressSink>
+    });
+    crate::insert_repo_target(crate::RepoTargetInsertRequest {
+        repo_root: repo_root.to_path_buf(),
+        source_dir: std::path::PathBuf::from(&candidate.path),
+        explicit_tags: TargetTagSet::default(),
+        chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
+        bundle_profile: crate::manifest::BundleSizingPreset::Bundle16MiB,
+        compression_profile: crate::manifest::CompressionPreset::Zstd3,
+        storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+        runtime_hints: crate::RuntimeResourceHints::default(),
+        progress: candidate_progress,
+    })
+    .map(|_| ())
+}
+
+#[derive(Debug)]
+struct TargetSourcesCandidateProgress {
+    sink: Arc<dyn GutchProgressSink>,
+    folder_name: String,
+}
+
+impl GutchProgressSink for TargetSourcesCandidateProgress {
+    fn emit(&self, mut event: GutchProgressEvent) {
+        event.operation = GutchOperation::TargetSourcesSync;
+        event.message = format!("{}: {}", self.folder_name, event.message);
+        event.detail = Some(self.folder_name.clone());
+        event.done = false;
+        self.sink.emit(event);
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -186,7 +187,8 @@ pub fn delete_repo_target_and_cleanup(
     );
     remove_target_from_repo(repo_root, target_id)?;
 
-    let orphan_count = crate::repo::cleanup_orphan_bundles_in_repo_with_progress(repo_root, progress)?;
+    let orphan_count =
+        crate::repo::cleanup_orphan_bundles_in_repo_with_progress(repo_root, progress)?;
 
     progress::emit_progress(
         progress,
@@ -221,24 +223,13 @@ pub fn delete_repo_targets_with_matching_tags(
     Ok(removed)
 }
 
-pub fn insert_repo_target_from_directory(repo_root: &Path, source_dir: &Path) -> Result<()> {
-    insert_repo_target(RepoTargetInsertRequest {
-        repo_root: repo_root.to_path_buf(),
-        source_dir: source_dir.to_path_buf(),
-        explicit_tags: TargetTagSet::default(),
-        chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
-        bundle_profile: crate::manifest::BundleSizingPreset::Bundle16MiB,
-        compression_profile: crate::manifest::CompressionPreset::Zstd3,
-        storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-        runtime_hints: RuntimeResourceHints::default(),
-        progress: None,
-    })
-    .map(|_| ())
-}
-
 /// Bridge that adapts a `GutchProgressSink` to `BuildProgressSink` for the build phase.
 struct BuildProgressBridge {
     sink: Arc<dyn GutchProgressSink>,
+    scanned_files: AtomicUsize,
+    total_files: AtomicUsize,
+    built_bundles: AtomicUsize,
+    total_bundles: AtomicUsize,
 }
 
 impl std::fmt::Debug for BuildProgressBridge {
@@ -249,6 +240,8 @@ impl std::fmt::Debug for BuildProgressBridge {
 
 impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     fn on_file_scan_started(&self, total_files: usize) {
+        self.scanned_files.store(0, Ordering::Relaxed);
+        self.total_files.store(total_files, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
             phase: "scan".to_string(),
@@ -263,10 +256,23 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     }
 
     fn on_file_scanned(&self) {
-        // Coarse progress: we report phase transitions, not per-file ticks.
+        let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
+        self.sink.emit(GutchProgressEvent {
+            operation: GutchOperation::TargetInsert,
+            phase: "scan".to_string(),
+            message: "Scanning files".to_string(),
+            current,
+            total: self.total_files.load(Ordering::Relaxed),
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        });
     }
 
     fn on_bundle_build_started(&self, total_bundles: usize) {
+        self.built_bundles.store(0, Ordering::Relaxed);
+        self.total_bundles.store(total_bundles, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
             phase: "build".to_string(),
@@ -281,7 +287,18 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     }
 
     fn on_bundle_built(&self) {
-        // Coarse progress: we report phase transitions, not per-bundle ticks.
+        let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
+        self.sink.emit(GutchProgressEvent {
+            operation: GutchOperation::TargetInsert,
+            phase: "build".to_string(),
+            message: "Building bundles".to_string(),
+            current,
+            total: self.total_bundles.load(Ordering::Relaxed),
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        });
     }
 }
 
@@ -367,7 +384,13 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     build_config.storage_mode = request.storage_mode;
     build_config.runtime_hints = request.runtime_hints;
     if let Some(ref sink) = request.progress {
-        build_config.progress = Some(Arc::new(BuildProgressBridge { sink: sink.clone() }));
+        build_config.progress = Some(Arc::new(BuildProgressBridge {
+            sink: sink.clone(),
+            scanned_files: AtomicUsize::new(0),
+            total_files: AtomicUsize::new(0),
+            built_bundles: AtomicUsize::new(0),
+            total_bundles: AtomicUsize::new(0),
+        }));
     }
 
     let (result, timings) = crate::build_with_config(&prepared_input.dir, &build_config)?;

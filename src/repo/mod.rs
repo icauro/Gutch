@@ -716,8 +716,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
 pub use insert_plan::{
     RepoTargetInsertRequest, RepoTargetInsertResult, TargetInsertKind, TargetInsertPlan,
     delete_repo_target_and_cleanup, delete_repo_targets, delete_repo_targets_with_matching_tags,
-    describe_target_insert_plan, insert_repo_target, insert_repo_target_from_directory,
-    plan_target_insert,
+    describe_target_insert_plan, insert_repo_target, plan_target_insert,
 };
 pub use remote_ops::{
     RepoSyncPlan, RepoSyncTargetChange, RepoSyncUpStats, link_repo, plan_sync_up_repo,
