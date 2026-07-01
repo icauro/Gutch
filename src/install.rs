@@ -12,7 +12,7 @@ use crate::runtime::RuntimeResourceHints;
 
 use crate::verify::{
     RepairClassification, RepairIssue, VerifyTimings, classify_directory_with_progress,
-    verify_directory_with_progress,
+    classify_directory_with_progress_and_mode, verify_directory_with_progress,
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,43 @@ pub struct TargetInstallApplyResult {
 }
 
 #[derive(Debug, Clone)]
+pub struct TargetInstallApplyFromRepoRequest {
+    pub repo_path: PathBuf,
+    pub target_id: String,
+    pub install_dir: PathBuf,
+    pub staging_dir: Option<PathBuf>,
+    pub source_target_id: Option<String>,
+    pub source_dir: Option<PathBuf>,
+    pub runtime_hints: RuntimeResourceHints,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallApplyFromRepoResult {
+    pub repo_root: PathBuf,
+    pub target_manifest: TargetManifest,
+    pub apply_result: TargetInstallApplyResult,
+    pub resolved_bundle_file_count: usize,
+    pub source_install_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallVerifyFromRepoRequest {
+    pub repo_path: PathBuf,
+    pub target_id: String,
+    pub install_dir: PathBuf,
+    pub verify_mode: crate::VerifyMode,
+    pub runtime_hints: RuntimeResourceHints,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallVerifyFromRepoResult {
+    pub repo_root: PathBuf,
+    pub target_manifest: TargetManifest,
+    pub classification: RepairClassification,
+    pub verify_timings: VerifyTimings,
+}
+
+#[derive(Debug, Clone)]
 pub struct TargetInstallRepairResult {
     pub target_id: String,
     pub install_dir: PathBuf,
@@ -51,6 +88,24 @@ pub struct TargetInstallRepairResult {
     pub restored_extra_file_count: usize,
     pub apply_result: Option<TargetInstallApplyResult>,
     pub verify_timings: VerifyTimings,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallRepairFromRepoRequest {
+    pub repo_path: PathBuf,
+    pub target_id: String,
+    pub install_dir: PathBuf,
+    pub staging_dir: Option<PathBuf>,
+    pub remove_added_files: bool,
+    pub runtime_hints: RuntimeResourceHints,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallRepairFromRepoResult {
+    pub repo_root: PathBuf,
+    pub target_manifest: TargetManifest,
+    pub repair_result: TargetInstallRepairResult,
+    pub resolved_bundle_file_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,12 +137,167 @@ pub struct TargetInstallFetchResult {
     pub skipped_existing_bundle_count: usize,
 }
 
+#[derive(Clone)]
+pub struct TargetInstallDownloadAndApplyRequest {
+    pub fetch_request: TargetInstallFetchRequest,
+    pub install_dir: PathBuf,
+    pub staging_dir: Option<PathBuf>,
+    pub source_target_id: Option<String>,
+    pub source_dir: Option<PathBuf>,
+    pub runtime_hints: RuntimeResourceHints,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallDownloadAndApplyResult {
+    pub fetch_result: TargetInstallFetchResult,
+    pub apply_result: TargetInstallApplyFromRepoResult,
+}
+
 pub fn default_target_install_staging_dir(install_dir: &Path, target_id: &str) -> PathBuf {
     let install_name = install_dir
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("install");
     install_dir.with_file_name(format!(".gutch-staging-{}-{}", install_name, target_id))
+}
+
+pub fn resolve_required_bundle_paths_from_repo(
+    repo_paths: &crate::GutchRepoPaths,
+    target_manifest: &TargetManifest,
+) -> Result<Vec<PathBuf>> {
+    let chunk_index = crate::load_chunk_index(repo_paths)?;
+    let required_bundle_ids = crate::repo::required_bundle_ids(target_manifest, &chunk_index);
+    let mut bundle_paths = Vec::with_capacity(required_bundle_ids.len());
+    let mut missing_bundles = Vec::new();
+    for bundle_id in &required_bundle_ids {
+        let bundle_path = crate::bundle_path(repo_paths, bundle_id);
+        if bundle_path.exists() {
+            bundle_paths.push(bundle_path);
+        } else {
+            missing_bundles.push(bundle_id.clone());
+        }
+    }
+    if !missing_bundles.is_empty() {
+        return Err(Error::manifest(format!(
+            "one or more required bundles are unavailable: {}",
+            missing_bundles.join(", ")
+        )));
+    }
+    Ok(bundle_paths)
+}
+
+pub fn verify_target_install_from_repo(
+    request: TargetInstallVerifyFromRepoRequest,
+) -> Result<TargetInstallVerifyFromRepoResult> {
+    let (repo_paths, _) = crate::load_gutch_repo_manifest(&request.repo_path)?;
+    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
+    let (classification, verify_timings) = classify_directory_with_progress_and_mode(
+        &target_manifest,
+        &request.install_dir,
+        &request.runtime_hints,
+        request.verify_mode,
+    )?;
+
+    Ok(TargetInstallVerifyFromRepoResult {
+        repo_root: repo_paths.repo_root,
+        target_manifest,
+        classification,
+        verify_timings,
+    })
+}
+
+pub fn apply_target_install_from_repo(
+    request: TargetInstallApplyFromRepoRequest,
+) -> Result<TargetInstallApplyFromRepoResult> {
+    let (repo_paths, _) = crate::load_gutch_repo_manifest(&request.repo_path)?;
+    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
+    let staging_dir = request.staging_dir.unwrap_or_else(|| {
+        default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
+    });
+    let bundle_paths = resolve_required_bundle_paths_from_repo(&repo_paths, &target_manifest)?;
+
+    let source_manifest = match request.source_target_id.as_ref() {
+        Some(source_target_id) => Some(crate::load_target_manifest(&repo_paths, source_target_id)?),
+        None => None,
+    };
+    let source_install_dir = source_manifest.as_ref().map(|_| {
+        request
+            .source_dir
+            .clone()
+            .unwrap_or_else(|| request.install_dir.clone())
+    });
+    let source = source_manifest
+        .as_ref()
+        .zip(source_install_dir.as_ref())
+        .map(
+            |(source_manifest, source_install_dir)| TargetInstallApplySource {
+                target_manifest: source_manifest,
+                install_dir: source_install_dir,
+            },
+        );
+
+    let apply_result = apply_target_install_with_timings_and_hints(
+        &target_manifest,
+        &bundle_paths,
+        &request.install_dir,
+        &staging_dir,
+        source,
+        &request.runtime_hints,
+    )?;
+
+    Ok(TargetInstallApplyFromRepoResult {
+        repo_root: repo_paths.repo_root,
+        target_manifest,
+        apply_result,
+        resolved_bundle_file_count: bundle_paths.len(),
+        source_install_dir,
+    })
+}
+
+pub fn repair_target_install_from_repo(
+    request: TargetInstallRepairFromRepoRequest,
+) -> Result<TargetInstallRepairFromRepoResult> {
+    let (repo_paths, _) = crate::load_gutch_repo_manifest(&request.repo_path)?;
+    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
+    let bundle_paths = resolve_required_bundle_paths_from_repo(&repo_paths, &target_manifest)?;
+    let staging_dir = request.staging_dir.unwrap_or_else(|| {
+        default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
+    });
+    let repair_result = repair_target_install_with_timings_and_hints(
+        &target_manifest,
+        &bundle_paths,
+        &request.install_dir,
+        &staging_dir,
+        request.remove_added_files,
+        &request.runtime_hints,
+    )?;
+
+    Ok(TargetInstallRepairFromRepoResult {
+        repo_root: repo_paths.repo_root,
+        target_manifest,
+        repair_result,
+        resolved_bundle_file_count: bundle_paths.len(),
+    })
+}
+
+pub fn download_and_apply_target_install(
+    request: TargetInstallDownloadAndApplyRequest,
+) -> Result<TargetInstallDownloadAndApplyResult> {
+    let fetch_result = fetch_target_install_content(&request.fetch_request)?;
+    let apply_result = apply_target_install_from_repo(TargetInstallApplyFromRepoRequest {
+        repo_path: request.fetch_request.repo_path.clone(),
+        target_id: request.fetch_request.target_id.clone(),
+        install_dir: request.install_dir,
+        staging_dir: request.staging_dir,
+        source_target_id: request.source_target_id,
+        source_dir: request.source_dir,
+        runtime_hints: request.runtime_hints,
+    })?;
+
+    Ok(TargetInstallDownloadAndApplyResult {
+        fetch_result,
+        apply_result,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -350,13 +560,14 @@ pub fn fetch_target_install_content(
     };
     let target_manifest = target_manifest_from_download(&manifest_bytes, &request.target_id)?;
     crate::write_target_manifest_artifacts(&repo_paths, &target_manifest)?;
-    let bundles = if request.bundles.is_empty() && !bundle_ids_from_chunk_index.is_empty() {
+    let explicit_bundles = normalize_bundle_downloads(&request.bundles);
+    let bundles = if explicit_bundles.is_empty() && !bundle_ids_from_chunk_index.is_empty() {
         fetch_bundle_urls(request, &bundle_ids_from_chunk_index)?
     } else {
-        request.bundles.clone()
+        explicit_bundles
     };
 
-    if request.bundles.is_empty() && bundle_ids_from_chunk_index.is_empty() {
+    if bundles.is_empty() && bundle_ids_from_chunk_index.is_empty() {
         let required_chunk_count = crate::repo::required_chunk_hashes(&target_manifest).len();
         if required_chunk_count > 0 {
             return Err(Error::bundle(
@@ -486,6 +697,24 @@ pub fn fetch_target_install_content(
         downloaded_bundle_count,
         skipped_existing_bundle_count,
     })
+}
+
+fn normalize_bundle_downloads(bundles: &[GutchBundleDownload]) -> Vec<GutchBundleDownload> {
+    bundles
+        .iter()
+        .filter_map(|bundle| {
+            let bundle_id = bundle.bundle_id.trim();
+            let url = bundle.url.trim();
+            if bundle_id.is_empty() || url.is_empty() {
+                None
+            } else {
+                Some(GutchBundleDownload {
+                    bundle_id: bundle_id.to_string(),
+                    url: url.to_string(),
+                })
+            }
+        })
+        .collect()
 }
 
 fn count_reusable_source_chunks(

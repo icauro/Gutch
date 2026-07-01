@@ -196,7 +196,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
     Ok(())
 }
 
-fn print_sync_plan(plan: &actions::repo::RepoSyncPlan) {
+fn print_sync_plan(plan: &g::RepoSyncPlan) {
     println!("{SECTION_SEPARATOR}");
     println!("Sync plan");
     println!("repo: {}", plan.repo_root);
@@ -216,7 +216,7 @@ fn print_sync_plan(plan: &actions::repo::RepoSyncPlan) {
     print_sync_section("Update", &plan.to_update);
 }
 
-fn print_sync_section(label: &str, changes: &[actions::repo::RepoSyncTargetChange]) {
+fn print_sync_section(label: &str, changes: &[g::RepoSyncTargetChange]) {
     if changes.is_empty() {
         return;
     }

@@ -47,11 +47,17 @@ pub use core::target_identity::{
 pub use error::{Error, Result};
 pub use fetch_progress::{FetchProgressEvent, FetchProgressSink};
 pub use install::{
-    GutchBundleDownload, TargetInstallApplyResult, TargetInstallApplySource,
-    TargetInstallFetchRequest, TargetInstallFetchResult, TargetInstallRepairResult,
+    GutchBundleDownload, TargetInstallApplyFromRepoRequest, TargetInstallApplyFromRepoResult,
+    TargetInstallApplyResult, TargetInstallApplySource, TargetInstallDownloadAndApplyRequest,
+    TargetInstallDownloadAndApplyResult, TargetInstallFetchRequest, TargetInstallFetchResult,
+    TargetInstallRepairFromRepoRequest, TargetInstallRepairFromRepoResult,
+    TargetInstallRepairResult, TargetInstallVerifyFromRepoRequest,
+    TargetInstallVerifyFromRepoResult, apply_target_install_from_repo,
     apply_target_install_with_timings, apply_target_install_with_timings_and_hints,
-    default_target_install_staging_dir, fetch_target_install_content,
-    repair_target_install_with_timings_and_hints,
+    default_target_install_staging_dir, download_and_apply_target_install,
+    fetch_target_install_content, repair_target_install_from_repo,
+    repair_target_install_with_timings_and_hints, resolve_required_bundle_paths_from_repo,
+    verify_target_install_from_repo,
 };
 pub use manifest::{
     EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
@@ -70,18 +76,24 @@ pub use reconstruct::{
     reconstruct_from_target_manifest, reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
-    GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
-    TargetInsertKind, TargetInsertPlan, TargetSourcesReplaceSameTags, TargetSourcesSyncPlan,
-    TargetSourcesTagUpdate, add_built_bundles_to_chunk_index,
+    GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, RepoSyncPlan, RepoSyncTargetChange,
+    RepoSyncUpStats, RepoTargetInsertRequest, RepoTargetInsertResult, SourceTargetInstallCandidate,
+    TargetInsertKind, TargetInsertPlan, TargetSourcesReplaceSameTags, TargetSourcesSyncOptions,
+    TargetSourcesSyncPlan, TargetSourcesSyncResult, TargetSourcesTagUpdate,
+    TrackedRepoInspectStatus, add_built_bundles_to_chunk_index,
     add_built_loose_chunks_to_chunk_index, bundle_id_from_bundle_path, bundle_path,
     bundle_path_in_root, chunk_path, chunk_path_in_root, cleanup_orphan_bundles_in_repo,
-    compute_target_id_from_files, delete_repo_targets, delete_repo_targets_with_matching_tags,
-    describe_target_insert_plan, describe_target_sources_sync_plan,
-    discover_source_target_installs, ensure_gutch_repo_layout, inspect_gutch_repo,
-    load_chunk_index, load_gutch_repo_manifest, load_target_manifest, plan_target_insert,
+    compute_target_id_from_files, delete_repo_target_and_cleanup, delete_repo_targets,
+    delete_repo_targets_with_matching_tags, describe_target_insert_plan,
+    describe_target_sources_sync_plan, discover_source_target_installs, ensure_gutch_repo_layout,
+    initialize_tracked_gutch_repo, insert_repo_target, insert_repo_target_from_directory,
+    inspect_gutch_repo, inspect_tracked_gutch_repo, link_repo, load_chunk_index,
+    load_gutch_repo_manifest, load_target_manifest, plan_sync_up_repo, plan_target_insert,
     plan_target_sources_sync, preview_source_target_install, remove_target_from_repo,
-    serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,
-    write_chunk_index, write_gutch_repo_manifest, write_target_manifest_artifacts,
+    serialize_target_manifest_for_remote, sync_target_sources, sync_up_repo,
+    sync_up_repo_with_progress, target_manifest_bin_path, target_manifest_path, unlink_repo,
+    update_gutch_repo_schema, write_chunk_index, write_gutch_repo_manifest,
+    write_target_manifest_artifacts,
 };
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,

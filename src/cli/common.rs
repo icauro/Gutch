@@ -634,40 +634,6 @@ pub(crate) fn count_required_bundles_for_build(
     required_bundle_ids.len() + generated_bundles.len()
 }
 
-pub(crate) fn resolve_required_bundle_paths(
-    bundles_root: &std::path::Path,
-) -> g::Result<Vec<PathBuf>> {
-    if bundles_root.is_file() {
-        return Ok(vec![bundles_root.to_path_buf()]);
-    }
-
-    if !bundles_root.is_dir() {
-        return Ok(Vec::new());
-    }
-
-    let mut paths = Vec::new();
-    for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file() {
-            continue;
-        }
-        if g::bundle_id_from_bundle_path(entry.path()).is_none() {
-            continue;
-        }
-        paths.push(entry.path().to_path_buf());
-    }
-
-    Ok(paths)
-}
-
-pub(crate) fn default_staging_dir(install_dir: &std::path::Path, target_id: &str) -> PathBuf {
-    let install_name = install_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("install");
-    install_dir.with_file_name(format!(".gutch-staging-{}-{}", install_name, target_id))
-}
-
 pub(crate) fn parse_bundle_downloads(
     bundle_args: &[String],
 ) -> g::Result<Vec<g::GutchBundleDownload>> {
@@ -707,31 +673,6 @@ pub(crate) fn session_id_for_cli(session_override: Option<String>) -> g::Result<
                 "authentication required. Run `plctl auth login` or pass --session-id.",
             )
         })
-}
-
-pub(crate) fn parse_version_parts(version: &str) -> g::Result<(i32, i32, i32)> {
-    let normalized = version
-        .trim()
-        .trim_start_matches('v')
-        .trim_start_matches('V');
-    let parts = normalized.split('.').collect::<Vec<_>>();
-    if parts.len() != 3 {
-        return Err(g::Error::manifest(format!(
-            "expected semantic version like 1.2.3, got '{}'",
-            version
-        )));
-    }
-
-    let major = parts[0]
-        .parse::<i32>()
-        .map_err(|_| g::Error::manifest(format!("invalid version '{}'", version)))?;
-    let minor = parts[1]
-        .parse::<i32>()
-        .map_err(|_| g::Error::manifest(format!("invalid version '{}'", version)))?;
-    let patch = parts[2]
-        .parse::<i32>()
-        .map_err(|_| g::Error::manifest(format!("invalid version '{}'", version)))?;
-    Ok((major, minor, patch))
 }
 
 pub(crate) fn write_target_manifest(

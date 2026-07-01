@@ -28,6 +28,21 @@ pub struct TargetSourcesReplaceSameTags {
     pub target_tags: TargetTagSet,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TargetSourcesSyncOptions {
+    pub prune_removed_targets: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetSourcesSyncResult {
+    pub inserted_count: usize,
+    pub tag_updated_count: usize,
+    pub replaced_same_tags_count: usize,
+    pub removed_count: usize,
+    pub pruned: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetSourcesSyncPlan {
@@ -204,6 +219,83 @@ pub fn describe_target_sources_sync_plan(plan: &TargetSourcesSyncPlan) -> Vec<St
         ));
     }
     lines
+}
+
+pub fn sync_target_sources(
+    repo_root: &Path,
+    sources_path: &Path,
+    options: TargetSourcesSyncOptions,
+) -> Result<TargetSourcesSyncResult> {
+    let plan = plan_target_sources_sync(repo_root, Some(sources_path))?;
+    if !plan.sources_ready {
+        return Err(crate::Error::manifest(
+            "target sources path is missing or invalid",
+        ));
+    }
+
+    if !plan.has_changes() {
+        return Ok(TargetSourcesSyncResult {
+            inserted_count: 0,
+            tag_updated_count: 0,
+            replaced_same_tags_count: 0,
+            removed_count: 0,
+            pruned: options.prune_removed_targets,
+        });
+    }
+
+    let candidates = discover_source_target_installs(repo_root, sources_path)?;
+    let mut removed_count = 0usize;
+
+    if options.prune_removed_targets {
+        for target_id in &plan.to_remove {
+            crate::remove_target_from_repo(repo_root, target_id)?;
+            removed_count += 1;
+        }
+    }
+
+    let tag_update_ids: HashSet<String> = plan
+        .to_update_tags
+        .iter()
+        .map(|update| update.content_target_id.clone())
+        .collect();
+    let replace_ids: HashSet<String> = plan
+        .to_replace_same_tags
+        .iter()
+        .map(|replace| replace.content_target_id.clone())
+        .collect();
+
+    let mut inserted_count = 0usize;
+    let mut tag_updated_count = 0usize;
+    let mut replaced_same_tags_count = 0usize;
+    for candidate in &candidates {
+        removed_count +=
+            crate::delete_repo_targets_with_matching_tags(repo_root, &candidate.target_tags)?.len();
+        insert_source_target_candidate(repo_root, candidate)?;
+        if tag_update_ids.contains(&candidate.content_target_id) {
+            tag_updated_count += 1;
+        } else if replace_ids.contains(&candidate.content_target_id) {
+            replaced_same_tags_count += 1;
+        } else {
+            inserted_count += 1;
+        }
+    }
+
+    let _ = crate::cleanup_orphan_bundles_in_repo(repo_root)?;
+
+    Ok(TargetSourcesSyncResult {
+        inserted_count,
+        tag_updated_count,
+        replaced_same_tags_count,
+        removed_count,
+        pruned: options.prune_removed_targets,
+    })
+}
+
+fn insert_source_target_candidate(
+    repo_root: &Path,
+    candidate: &SourceTargetInstallCandidate,
+) -> Result<()> {
+    crate::insert_repo_target_from_directory(repo_root, std::path::Path::new(&candidate.path))
 }
 
 #[cfg(test)]

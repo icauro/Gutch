@@ -408,38 +408,79 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             stats_json_out,
             yes,
         } => {
-            let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-            let rules = repo_manifest.target_schema.clone().unwrap_or_default();
             let explicit_tags = parse_cli_tags(&tags)?;
-            let repo_name = repo_manifest.name.clone();
             let input_stats = collect_input_sizing_stats(&dir)?;
-            let mut store_state: MutableInsertStoreState =
-                scan_existing_store_state(&repo_paths)?.into();
-            let stats = run_insert_one_target(
-                InsertOneTargetRequest {
-                    input_dir: &dir,
-                    repo_paths: &repo_paths,
-                    repo_name: &repo_name,
-                    rules: &rules,
-                    explicit_tags: &explicit_tags,
-                    chunk_profile,
-                    bundle_profile,
-                    compression_profile,
-                    storage_mode,
+            let plan = g::plan_target_insert(repo.as_path(), dir.as_path(), &explicit_tags)?;
+            if !yes {
+                println!("target insert plan:");
+                println!("  {}", g::describe_target_insert_plan(&plan));
+                if plan.invalidates_existing_installs {
+                    println!(
+                        "  Patron installs pinned to replaced content ids become invalid until updated."
+                    );
+                }
+                if !prompt_yes_no("Proceed?", false)? {
+                    return Err(g::Error::manifest("target insert cancelled"));
+                }
+            }
+            let insert_result = g::insert_repo_target(g::RepoTargetInsertRequest {
+                repo_root: repo.clone(),
+                source_dir: dir.clone(),
+                explicit_tags,
+                chunk_profile,
+                bundle_profile,
+                compression_profile,
+                storage_mode,
+                runtime_hints: g::RuntimeResourceHints {
                     memory_mode,
                     max_memory_mib,
                     jobs,
-                    summary_out: &summary_out,
-                    stats_json_out: &stats_json_out,
-                    command_name: "target insert",
-                    yes,
-                    skip_confirmation: false,
                 },
-                &mut store_state,
-            )?;
-            g::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
+            })?;
+            let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
+            let stats = TargetInsertStats {
+                command: "target insert",
+                repo_root: insert_result.repo_root.display().to_string(),
+                input_path: dir.display().to_string(),
+                target_id: insert_result.target_id,
+                manifest_path: insert_result.manifest_path.display().to_string(),
+                product_id: repo_manifest.name.clone(),
+                remote_repo_id: repo_manifest.name.clone(),
+                version_id: insert_result.version_id,
+                os: insert_result.os,
+                arch: insert_result.arch,
+                storage_mode: storage_mode.cli_name().to_string(),
+                file_count: insert_result.file_count,
+                total_logical_size: insert_result.total_logical_size,
+                total_compressed_size_estimate: insert_result.total_compressed_size_estimate,
+                required_chunk_count: insert_result.required_chunk_count,
+                required_bundle_count: insert_result.required_bundle_count,
+                generated_bundle_count: insert_result.generated_bundle_count,
+                generated_bundle_bytes: 0,
+                generated_chunk_count: insert_result.generated_chunk_count,
+                generated_chunk_bytes: 0,
+                reused_chunk_count: insert_result.reused_chunk_count,
+                new_chunk_count: insert_result.new_chunk_count,
+                reused_chunk_percent: ratio_pct(
+                    insert_result.reused_chunk_count as u64,
+                    insert_result.required_chunk_count as u64,
+                ),
+                reused_bundle_count: insert_result
+                    .required_bundle_count
+                    .saturating_sub(insert_result.generated_bundle_count),
+                reused_bundle_percent: ratio_pct(
+                    insert_result
+                        .required_bundle_count
+                        .saturating_sub(insert_result.generated_bundle_count)
+                        as u64,
+                    insert_result.required_bundle_count as u64,
+                ),
+                timings: build_timings_summary(&insert_result.build_timings),
+                outputs: optional_output_paths(&summary_out, &stats_json_out),
+            };
             write_report(&summary_out, &stats_json_out, &stats)?;
 
+            let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             repo_manifest.chunk_sizing_profile = g::manifest::ChunkSizingProfile::for_selection(
                 chunk_profile,
                 input_stats.median_file_size_bytes,

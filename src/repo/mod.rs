@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 mod insert_plan;
+mod remote_ops;
 mod target_sources;
 
 use crate::hash::{hash_file, hash_hex};
@@ -42,6 +43,18 @@ pub struct RepoInspectStatus {
     pub bundle_count: usize,
     pub bundle_bytes: u64,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackedRepoInspectStatus {
+    pub repo_status: RepoInspectStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_sources_path: Option<String>,
+    #[serde(default)]
+    pub source_target_installs: Vec<SourceTargetInstallCandidate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_sources_plan: Option<TargetSourcesSyncPlan>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +150,39 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
     };
 
     Ok(repo_manifest)
+}
+
+pub fn initialize_tracked_gutch_repo(
+    repo_root: &Path,
+    target_schema: Option<manifest::TargetTagSchema>,
+    target_sources_path: Option<String>,
+) -> Result<()> {
+    let repo_name = repo_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("base");
+    let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
+    let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
+    repo_manifest.target_schema = target_schema;
+    write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
+
+    let mut config = crate::config::load_config()?;
+    config.upsert_repo(crate::config::TrackedRepo {
+        path: repo_paths.repo_root.display().to_string(),
+        target_sources_path,
+    });
+    crate::config::save_config(&config)?;
+    Ok(())
+}
+
+pub fn update_gutch_repo_schema(
+    repo_root: &Path,
+    target_schema: Option<manifest::TargetTagSchema>,
+) -> Result<()> {
+    let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    repo_manifest.target_schema = target_schema;
+    write_gutch_repo_manifest(&repo_paths, &repo_manifest)
 }
 
 pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
@@ -579,13 +625,51 @@ pub fn cleanup_orphan_bundles_in_repo(repo_root: &Path) -> Result<usize> {
 }
 
 pub use insert_plan::{
-    TargetInsertKind, TargetInsertPlan, delete_repo_targets,
-    delete_repo_targets_with_matching_tags, describe_target_insert_plan, plan_target_insert,
+    RepoTargetInsertRequest, RepoTargetInsertResult, TargetInsertKind, TargetInsertPlan,
+    delete_repo_target_and_cleanup, delete_repo_targets, delete_repo_targets_with_matching_tags,
+    describe_target_insert_plan, insert_repo_target, insert_repo_target_from_directory,
+    plan_target_insert,
+};
+pub use remote_ops::{
+    RepoSyncPlan, RepoSyncTargetChange, RepoSyncUpStats, link_repo, plan_sync_up_repo,
+    sync_up_repo, sync_up_repo_with_progress, unlink_repo,
 };
 pub use target_sources::{
-    TargetSourcesReplaceSameTags, TargetSourcesSyncPlan, TargetSourcesTagUpdate,
-    describe_target_sources_sync_plan, plan_target_sources_sync,
+    TargetSourcesReplaceSameTags, TargetSourcesSyncOptions, TargetSourcesSyncPlan,
+    TargetSourcesSyncResult, TargetSourcesTagUpdate, describe_target_sources_sync_plan,
+    plan_target_sources_sync, sync_target_sources,
 };
+
+pub fn inspect_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoInspectStatus> {
+    let repo_status = inspect_gutch_repo(repo_root)?;
+    let target_sources_path = crate::config::load_config()?
+        .find_repo(&repo_status.repo_path)
+        .and_then(|repo| repo.target_sources_path.clone())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let source_target_installs = match target_sources_path.as_deref() {
+        Some(path) if repo_status.is_repo => {
+            discover_source_target_installs(repo_root, Path::new(path))?
+        }
+        _ => Vec::new(),
+    };
+    let target_sources_plan = if repo_status.is_repo {
+        Some(plan_target_sources_sync(
+            repo_root,
+            target_sources_path.as_deref().map(Path::new),
+        )?)
+    } else {
+        None
+    };
+
+    Ok(TrackedRepoInspectStatus {
+        repo_status,
+        target_sources_path,
+        source_target_installs,
+        target_sources_plan,
+    })
+}
 
 pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
     let repo_path = repo_root.to_path_buf();
