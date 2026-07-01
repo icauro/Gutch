@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 mod insert_plan;
+mod init_policy;
 mod remote_ops;
 mod target_sources;
 
@@ -157,24 +158,19 @@ pub fn initialize_tracked_gutch_repo(
     target_schema: Option<manifest::TargetTagSchema>,
     target_sources_path: Option<String>,
 ) -> Result<()> {
-    let repo_name = repo_root
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("base");
-    let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
-    let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
-    repo_manifest.target_schema = target_schema;
-    write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
-
-    let mut config = crate::config::load_config()?;
-    config.upsert_repo(crate::config::TrackedRepo {
-        path: repo_paths.repo_root.display().to_string(),
+    init_policy::initialize_tracked_gutch_repo_with_options(
+        repo_root,
+        target_schema,
         target_sources_path,
-    });
-    crate::config::save_config(&config)?;
-    Ok(())
+        init_policy::RepoInitOptions { force: false },
+    )
 }
+
+pub use init_policy::{
+    assess_repo_init_path, initialize_tracked_gutch_repo_with_options, parse_repo_init_needs_confirmation_error,
+    repo_init_needs_confirmation_error, RepoInitAssessment, RepoInitOptions, RepoInitPathKind, RepoInitRisk,
+    REPO_INIT_NEEDS_CONFIRMATION,
+};
 
 pub fn update_gutch_repo_schema(
     repo_root: &Path,
@@ -640,8 +636,29 @@ pub use target_sources::{
     plan_target_sources_sync, sync_target_sources,
 };
 
+pub fn ensure_gutch_repo_tracked(repo_path: &str) -> Result<()> {
+    let repo_path_str = repo_path.trim();
+    if repo_path_str.is_empty() {
+        return Ok(());
+    }
+
+    let mut config = crate::config::load_config()?;
+    if config.find_repo(repo_path_str).is_none() {
+        config.upsert_repo(crate::config::TrackedRepo {
+            path: repo_path_str.to_string(),
+            target_sources_path: None,
+        });
+        crate::config::save_config(&config)?;
+    }
+    Ok(())
+}
+
 pub fn inspect_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoInspectStatus> {
     let repo_status = inspect_gutch_repo(repo_root)?;
+    if repo_status.is_repo {
+        ensure_gutch_repo_tracked(&repo_status.repo_path)?;
+    }
+
     let target_sources_path = crate::config::load_config()?
         .find_repo(&repo_status.repo_path)
         .and_then(|repo| repo.target_sources_path.clone())

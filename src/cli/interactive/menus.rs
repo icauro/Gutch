@@ -141,15 +141,7 @@ pub(super) fn resolve_active_repo_from_selection(
             Ok(None)
         }
         Ok(_) => {
-            let mut config = g::config::load_config()?;
-            let repo_path_str = repo.display().to_string();
-            if config.find_repo(&repo_path_str).is_none() {
-                config.upsert_repo(g::config::TrackedRepo {
-                    path: repo_path_str,
-                    target_sources_path: None,
-                });
-                g::config::save_config(&config)?;
-            }
+            g::ensure_gutch_repo_tracked(&repo.display().to_string())?;
             Ok(Some(repo))
         }
     }

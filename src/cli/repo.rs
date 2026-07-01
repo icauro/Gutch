@@ -7,8 +7,8 @@ use gutch as g;
 
 pub fn run(command: RepoCommands) -> g::Result<()> {
     match command {
-        RepoCommands::Init { path, schema } => {
-            actions::repo::init_repo(&path, schema.as_ref())?;
+        RepoCommands::Init { path, schema, force } => {
+            actions::repo::init_repo(&path, schema.as_ref(), force)?;
         }
 
         RepoCommands::SchemaSet {

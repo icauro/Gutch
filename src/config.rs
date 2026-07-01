@@ -1,6 +1,9 @@
+use std::env;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+pub const LAUNCHER_CONFIG_DIR_ENV: &str = "LAUNCHER_CONFIG_DIR";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -72,9 +75,20 @@ impl GutchConfig {
     }
 }
 
-fn config_root_dir() -> Result<PathBuf, crate::Error> {
-    if let Some(config_root) = dirs::config_dir() {
-        return Ok(config_root.join("Launcher"));
+/// Shared Launcher desktop data root used by the app, updater, and Gutch CLI.
+///
+/// Layout:
+/// - `{root}/config.json` — launcher session and settings
+/// - `{root}/logs/` — launcher logs
+/// - `{root}/gutch/` — Gutch engine state (`config.json`, etc.)
+pub fn patron_launcher_config_root() -> Result<PathBuf, crate::Error> {
+    if let Some(override_dir) = env::var(LAUNCHER_CONFIG_DIR_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        return Ok(override_dir);
     }
 
     let home = dirs::home_dir()
@@ -83,7 +97,7 @@ fn config_root_dir() -> Result<PathBuf, crate::Error> {
 }
 
 pub fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
-    Ok(config_root_dir()?.join("gutch"))
+    Ok(patron_launcher_config_root()?.join("gutch"))
 }
 
 pub fn gutch_config_path() -> Result<PathBuf, crate::Error> {
@@ -110,7 +124,58 @@ pub fn save_config(config: &GutchConfig) -> Result<(), crate::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GutchConfig, TrackedRepo};
+    use std::sync::{Mutex, OnceLock};
+
+    use super::{gutch_config_dir, patron_launcher_config_root, GutchConfig, TrackedRepo};
+
+    fn env_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn lock_env_test() -> std::sync::MutexGuard<'static, ()> {
+        env_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn patron_launcher_config_root_honors_override_env() {
+        let _guard = lock_env_test();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "launcher-config-root-{}",
+            std::process::id()
+        ));
+        unsafe {
+            std::env::set_var(super::LAUNCHER_CONFIG_DIR_ENV, &temp_dir);
+        }
+        assert_eq!(
+            patron_launcher_config_root().expect("config root"),
+            temp_dir
+        );
+        unsafe {
+            std::env::remove_var(super::LAUNCHER_CONFIG_DIR_ENV);
+        }
+    }
+
+    #[test]
+    fn gutch_config_dir_lives_under_shared_root() {
+        let _guard = lock_env_test();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "launcher-gutch-config-{}",
+            std::process::id()
+        ));
+        unsafe {
+            std::env::set_var(super::LAUNCHER_CONFIG_DIR_ENV, &temp_dir);
+        }
+        assert_eq!(
+            gutch_config_dir().expect("gutch config dir"),
+            temp_dir.join("gutch")
+        );
+        unsafe {
+            std::env::remove_var(super::LAUNCHER_CONFIG_DIR_ENV);
+        }
+    }
 
     #[test]
     fn set_repo_target_sources_path_updates_existing_value() {

@@ -2,6 +2,7 @@ pub mod binary;
 pub mod gutch_repo;
 pub mod schema_edit;
 pub mod target;
+pub mod template;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -747,80 +748,7 @@ impl TargetTagSchema {
 
 impl Default for TargetTagSchema {
     fn default() -> Self {
-        Self {
-            target_tags: vec![
-                TargetTagDefinition {
-                    name: "version".to_string(),
-                    kind: TargetTagKind::Exclusive,
-                    required: true,
-                    inference_prefixes: vec!["-".to_string(), "-v".to_string()],
-                    values: Vec::new(),
-                    default_value: None,
-                },
-                TargetTagDefinition {
-                    name: "os".to_string(),
-                    kind: TargetTagKind::Exclusive,
-                    required: false,
-                    inference_prefixes: vec!["-".to_string()],
-                    values: vec![
-                        TargetTagValueDefinition {
-                            value: "windows".to_string(),
-                            aliases: vec![
-                                "win".to_string(),
-                                "win32".to_string(),
-                                "win64".to_string(),
-                            ],
-                        },
-                        TargetTagValueDefinition {
-                            value: "linux".to_string(),
-                            aliases: Vec::new(),
-                        },
-                        TargetTagValueDefinition {
-                            value: "macos".to_string(),
-                            aliases: vec![
-                                "mac".to_string(),
-                                "osx".to_string(),
-                                "darwin".to_string(),
-                            ],
-                        },
-                    ],
-                    default_value: None,
-                },
-                TargetTagDefinition {
-                    name: "arch".to_string(),
-                    kind: TargetTagKind::Exclusive,
-                    required: false,
-                    inference_prefixes: vec!["-".to_string()],
-                    values: vec![
-                        TargetTagValueDefinition {
-                            value: "x86_64".to_string(),
-                            aliases: vec![
-                                "x64".to_string(),
-                                "amd64".to_string(),
-                                "win64".to_string(),
-                            ],
-                        },
-                        TargetTagValueDefinition {
-                            value: "x86_32".to_string(),
-                            aliases: vec!["x86".to_string(), "win32".to_string()],
-                        },
-                        TargetTagValueDefinition {
-                            value: "arm64".to_string(),
-                            aliases: vec!["aarch64".to_string()],
-                        },
-                    ],
-                    default_value: None,
-                },
-                TargetTagDefinition {
-                    name: "access".to_string(),
-                    kind: TargetTagKind::Exclusive,
-                    required: false,
-                    inference_prefixes: vec!["-".to_string()],
-                    values: Vec::new(),
-                    default_value: None,
-                },
-            ],
-        }
+        template::template_schema(template::TaggingRuleTemplate::Default)
     }
 }
 

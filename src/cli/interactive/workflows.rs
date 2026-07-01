@@ -12,50 +12,55 @@ pub(super) fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
     let cwd_with_slash = format!("{}_", cwd.display()).replace("_", std::path::MAIN_SEPARATOR_STR);
 
     let path = super::path_or_browse_input(theme, "Repo path", &cwd_with_slash)?;
+    let assessment = g::assess_repo_init_path(&path)?;
+    let mut force = false;
 
-    if path.exists() && path.is_dir() {
-        let contents: Vec<String> = std::fs::read_dir(&path)
-            .map(|entries| {
-                entries
-                    .filter_map(|entry| entry.ok())
-                    .map(|entry| {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if entry.path().is_dir() {
-                            format!("{}/", name)
-                        } else {
-                            name
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !contents.is_empty() {
-            println!();
-            println!(
-                "WARNING: '{}' already exists with contents:",
-                path.display()
-            );
-            for item in &contents {
-                println!("  {}", item);
-            }
-            let proceed = super::prompt_approval_action(
-                theme,
-                "Existing contents may be overwritten. Continue?",
-            )?;
-            if !proceed {
-                return Err(g::Error::manifest("repo creation cancelled"));
-            }
+    if assessment.requires_confirmation {
+        println!();
+        println!("Repo init requires confirmation for '{}':", path.display());
+        for risk in &assessment.risks {
+            println!("  {}", risk.message);
         }
+        if assessment.path_kind == g::RepoInitPathKind::ExistingRepo {
+            if let Some(name) = assessment.repo_name.as_deref() {
+                println!("  existing repo: {}", name);
+            }
+            if let Some(target_count) = assessment.target_count {
+                println!("  targets: {}", target_count);
+            }
+            if let Some(bundle_count) = assessment.bundle_count {
+                println!("  bundles: {}", bundle_count);
+            }
+        } else if assessment.path_kind == g::RepoInitPathKind::NonEmpty {
+            println!("  entries: {}", assessment.entry_count);
+        }
+
+        let proceed = Confirm::with_theme(theme)
+            .with_prompt("Delete existing Gutch repo files and create a new repo?")
+            .default(false)
+            .interact()
+            .map_err(super::dialoguer_to_manifest_error)?;
+        if !proceed {
+            return Err(g::Error::manifest("repo creation cancelled"));
+        }
+        force = true;
     }
 
     let template = super::prompt_tagging_template(theme)?;
-    let preview = format!(
-        "plctl gutch repo init --path {}",
-        super::shell_arg_path(&path)
-    );
+    let preview = if force {
+        format!(
+            "plctl gutch repo init --path {} --force",
+            super::shell_arg_path(&path)
+        )
+    } else {
+        format!(
+            "plctl gutch repo init --path {}",
+            super::shell_arg_path(&path)
+        )
+    };
     super::confirm_preview(theme, &preview)?;
 
-    actions::repo::init_repo(&path, None)?;
+    actions::repo::init_repo(&path, None, force)?;
 
     let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&path)?;
     repo_manifest.target_schema = Some(match template {

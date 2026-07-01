@@ -50,6 +50,8 @@ pub enum RepoCommands {
         path: PathBuf,
         #[arg(long = "schema")]
         schema: Option<PathBuf>,
+        #[arg(long = "force")]
+        force: bool,
     },
     #[command(name = "schema-set")]
     SchemaSet {

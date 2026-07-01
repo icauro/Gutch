@@ -63,6 +63,9 @@ pub use manifest::{
     EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
     sanitize_editable_target_tag_schema, validate_editable_target_tag_schema,
 };
+pub use manifest::template::{
+    TaggingRuleTemplate, list_templates, template_by_name, template_schema,
+};
 pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use reconstruct::{
     ReconstructOptions, ReconstructTimings, VerifiedSourceInstall,
@@ -86,6 +89,9 @@ pub use repo::{
     compute_target_id_from_files, delete_repo_target_and_cleanup, delete_repo_targets,
     delete_repo_targets_with_matching_tags, describe_target_insert_plan,
     describe_target_sources_sync_plan, discover_source_target_installs, ensure_gutch_repo_layout,
+    ensure_gutch_repo_tracked, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
+    parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error, RepoInitAssessment,
+    RepoInitOptions, RepoInitPathKind, RepoInitRisk, REPO_INIT_NEEDS_CONFIRMATION,
     initialize_tracked_gutch_repo, insert_repo_target, insert_repo_target_from_directory,
     inspect_gutch_repo, inspect_tracked_gutch_repo, link_repo, load_chunk_index,
     load_gutch_repo_manifest, load_target_manifest, plan_sync_up_repo, plan_target_insert,

@@ -45,7 +45,8 @@ fn test_infer_tags_from_path_default_aliases() {
     assert_eq!(tags.get_exclusive("version"), Some("1.0.0"));
     assert_eq!(tags.get_exclusive("os"), Some("windows"));
     assert_eq!(tags.get_exclusive("arch"), Some("x86_64"));
-    assert_eq!(tags.get_exclusive("access"), Some("supporter"));
+    // access tag removed from Default template; "supporter" is not inferred
+    assert_eq!(tags.get_exclusive("access"), None);
 }
 
 #[test]
