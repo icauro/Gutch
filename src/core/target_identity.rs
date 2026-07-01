@@ -1,7 +1,6 @@
 use crate::error::{Error, Result};
 use crate::manifest::{
-    InferenceHandler, StructuredVersion, TargetTagDefinition, TargetTagKind, TargetTagSchema,
-    TargetTagSet, target::TargetManifest,
+    TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagSet, target::TargetManifest,
 };
 
 #[derive(Debug, Clone)]
