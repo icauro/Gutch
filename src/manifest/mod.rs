@@ -568,7 +568,7 @@ fn parse_date_token(raw: &str) -> Option<String> {
     let year: u32 = parts[0].parse().ok()?;
     let month: u32 = parts[1].parse().ok()?;
     let day: u32 = parts[2].parse().ok()?;
-    if year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 {
+    if year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31 {
         return None;
     }
     Some(format!("{:04}.{:02}.{:02}", year, month, day))
