@@ -24,14 +24,15 @@ fn test_parse_cli_tags_supports_all_three_kinds() {
 }
 
 #[test]
-fn test_version_strips_v_prefix() {
-    assert_eq!(normalize_version("v1.0.0").as_deref(), Some("1.0.0"));
-    assert_eq!(normalize_version("1.2.3").as_deref(), Some("1.2.3"));
+fn test_version_handler_strips_v_prefix() {
+    use crate::manifest::InferenceHandler;
+    assert_eq!(InferenceHandler::Version.parse_token("v1.0.0"), Some("1.0.0".to_string()));
+    assert_eq!(InferenceHandler::Version.parse_token("1.2.3"), Some("1.2.3".to_string()));
     assert_eq!(
-        normalize_version("2025.05.30.1").as_deref(),
-        Some("2025.05.30.1")
+        InferenceHandler::Version.parse_token("2025.05.30.1"),
+        Some("2025.05.30.1".to_string())
     );
-    assert_eq!(normalize_version("version-1"), None);
+    assert_eq!(InferenceHandler::Version.parse_token("version-1"), None);
 }
 
 #[test]
@@ -124,10 +125,11 @@ fn test_resolve_custom_scoped_tags() {
                 },
             ],
             default_value: None,
+            inference_handler: gutch::manifest::InferenceHandler::Default,
         });
 
     let resolved = resolve_target_identity(
-        std::path::Path::new("mod-v1.0.0-fabric"),
+        std::path::Path::new("mod-v1.0.0-win-x64-fabric"),
         &TargetTagSet::default(),
         &rules,
         "test",
@@ -135,6 +137,8 @@ fn test_resolve_custom_scoped_tags() {
     .unwrap();
 
     assert_eq!(resolved.target_tags.get_exclusive("version"), Some("1.0.0"));
+    assert_eq!(resolved.target_tags.get_exclusive("os"), Some("windows"));
+    assert_eq!(resolved.target_tags.get_exclusive("arch"), Some("x86_64"));
     assert!(
         resolved
             .target_tags

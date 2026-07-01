@@ -60,8 +60,9 @@ pub use install::{
     verify_target_install_from_repo,
 };
 pub use manifest::{
-    EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
-    sanitize_editable_target_tag_schema, validate_editable_target_tag_schema,
+    EditableTargetTagDefinition, InferenceHandler, TargetTagSchemaValidationError,
+    TargetTagSchemaValidationResult, sanitize_editable_target_tag_schema,
+    validate_editable_target_tag_schema,
 };
 pub use manifest::template::{
     TaggingRuleTemplate, list_templates, template_by_name, template_schema,

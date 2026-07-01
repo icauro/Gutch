@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 use crate::manifest::{
-    StructuredVersion, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagSet,
-    target::TargetManifest,
+    InferenceHandler, StructuredVersion, TargetTagDefinition, TargetTagKind, TargetTagSchema,
+    TargetTagSet, target::TargetManifest,
 };
 
 #[derive(Debug, Clone)]
@@ -71,12 +71,6 @@ fn identity_segments(name: &str) -> Vec<String> {
         .collect()
 }
 
-fn normalize_version(raw: &str) -> Option<String> {
-    StructuredVersion::parse(raw)
-        .ok()
-        .map(|version| version.canonical_string())
-}
-
 fn segment_candidate_for_prefix<'a>(segment: &'a str, prefix: &str) -> Option<&'a str> {
     if prefix == "-" {
         return Some(segment);
@@ -114,7 +108,6 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
     };
 
     let mut tags = TargetTagSet::default();
-    let mut found_version = false;
 
     for segment in identity_segments(raw_name) {
         for definition in &rules.target_tags {
@@ -133,59 +126,48 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
                 continue;
             };
 
-            if definition.name == "version" && !found_version {
-                if let Some(version) = normalize_version(candidate) {
-                    tags.upsert_exclusive("version".to_string(), version);
-                    found_version = true;
-                    break;
-                }
-                continue;
-            }
-
-            let lowered = candidate.to_ascii_lowercase();
-            if let Some(canonical) = definition
-                .values
-                .iter()
-                .find(|value_definition| value_definition.matches_token(&lowered))
-                .map(|value_definition| value_definition.value.as_str())
-            {
-                match definition.kind {
-                    TargetTagKind::Plain => {}
-                    TargetTagKind::Scoped => {
-                        tags.insert_scoped(definition.name.clone(), canonical.to_string());
+            // Use handler to parse/validate the candidate
+            if let Some(normalized) = definition.inference_handler.parse_token(candidate) {
+                // For tags with predefined values, match against them
+                if !definition.values.is_empty() {
+                    let lowered = normalized.to_ascii_lowercase();
+                    if let Some(canonical) = definition
+                        .values
+                        .iter()
+                        .find(|v| v.matches_token(&lowered))
+                        .map(|v| v.value.as_str())
+                    {
+                        insert_tag(&mut tags, definition, canonical.to_string());
+                        break;
                     }
-                    TargetTagKind::Exclusive => {
-                        tags.insert_exclusive_if_missing(
-                            definition.name.clone(),
-                            canonical.to_string(),
-                        );
-                    }
-                }
-                break;
-            }
-
-            if definition.values.is_empty() {
-                if definition.kind == TargetTagKind::Exclusive && !found_version {
+                    // Handler accepted but no value match - skip
                     continue;
                 }
+
+                // No predefined values, accept the normalized value
+                let lowered = normalized.to_ascii_lowercase();
                 if another_definition_matches_token(rules, &definition.name, &lowered) {
                     continue;
                 }
-                match definition.kind {
-                    TargetTagKind::Plain => {}
-                    TargetTagKind::Scoped => {
-                        tags.insert_scoped(definition.name.clone(), lowered.clone());
-                    }
-                    TargetTagKind::Exclusive => {
-                        tags.insert_exclusive_if_missing(definition.name.clone(), lowered.clone());
-                    }
-                }
+                insert_tag(&mut tags, definition, normalized);
                 break;
             }
         }
     }
 
     tags
+}
+
+fn insert_tag(tags: &mut TargetTagSet, definition: &TargetTagDefinition, value: String) {
+    match definition.kind {
+        TargetTagKind::Plain => {}
+        TargetTagKind::Scoped => {
+            tags.insert_scoped(definition.name.clone(), value);
+        }
+        TargetTagKind::Exclusive => {
+            tags.insert_exclusive_if_missing(definition.name.clone(), value);
+        }
+    }
 }
 
 fn apply_schema_defaults(target_tags: &mut TargetTagSet, rules: &TargetTagSchema) {

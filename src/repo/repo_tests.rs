@@ -150,6 +150,7 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
                     inference_prefixes: vec!["-".to_string(), "-v".to_string()],
                     values: Vec::new(),
                     default_value: None,
+                    inference_handler: manifest::InferenceHandler::Version,
                 },
                 manifest::TargetTagDefinition {
                     name: "loader".to_string(),
@@ -171,6 +172,7 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
                         },
                     ],
                     default_value: None,
+                    inference_handler: manifest::InferenceHandler::Default,
                 },
                 manifest::TargetTagDefinition {
                     name: "mc".to_string(),
@@ -188,6 +190,7 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
                         },
                     ],
                     default_value: None,
+                    inference_handler: manifest::InferenceHandler::Default,
                 },
             ],
         }),

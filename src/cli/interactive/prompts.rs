@@ -137,6 +137,7 @@ pub(super) fn minimal_tagging_template() -> g::manifest::TargetTagSchema {
             inference_prefixes: vec!["-".to_string(), "-v".to_string()],
             values: Vec::new(),
             default_value: None,
+            inference_handler: g::manifest::InferenceHandler::Version,
         }],
     }
 }

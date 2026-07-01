@@ -531,6 +531,49 @@ pub enum TargetTagKind {
     Exclusive,
 }
 
+/// Controls how tag values are parsed and validated during inference.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum InferenceHandler {
+    /// Simple string matching against known values.
+    #[default]
+    Default,
+    /// Parses and normalizes version strings (semver/calver).
+    Version,
+    /// Validates and normalizes dates in YYYY.MM.DD format.
+    Date,
+}
+
+impl InferenceHandler {
+    /// Attempts to parse and normalize a raw token using this handler.
+    /// Returns `Some(normalized)` on success, `None` if the token is invalid for this handler.
+    pub fn parse_token(&self, raw: &str) -> Option<String> {
+        match self {
+            Self::Default => Some(raw.to_string()),
+            Self::Version => StructuredVersion::parse(raw)
+                .ok()
+                .map(|v| v.canonical_string()),
+            Self::Date => parse_date_token(raw),
+        }
+    }
+}
+
+/// Parses a date token in YYYY.MM.DD or YYYY_MM_DD format, normalizes to YYYY.MM.DD.
+fn parse_date_token(raw: &str) -> Option<String> {
+    let normalized = raw.replace('_', ".");
+    let parts: Vec<&str> = normalized.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let year: u32 = parts[0].parse().ok()?;
+    let month: u32 = parts[1].parse().ok()?;
+    let day: u32 = parts[2].parse().ok()?;
+    if year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 {
+        return None;
+    }
+    Some(format!("{:04}.{:02}.{:02}", year, month, day))
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum VersionScheme {
@@ -674,6 +717,8 @@ pub struct TargetTagDefinition {
     pub values: Vec<TargetTagValueDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<String>,
+    #[serde(default)]
+    pub inference_handler: InferenceHandler,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

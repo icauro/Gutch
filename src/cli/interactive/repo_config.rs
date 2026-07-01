@@ -203,6 +203,7 @@ fn add_or_update_tag_definition(
         inference_prefixes,
         values: parse_tag_value_definitions(&values)?,
         default_value,
+        inference_handler: g::manifest::InferenceHandler::Default,
     };
 
     if let Some(position) = schema

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition};
+use super::{InferenceHandler, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition};
 
 /// Named tagging rule templates that creators can pick when creating or configuring a repo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -81,9 +81,10 @@ fn version_tag() -> TargetTagDefinition {
         name: "version".to_string(),
         kind: TargetTagKind::Exclusive,
         required: true,
-        inference_prefixes: vec!["-".to_string(), "-v".to_string()],
+        inference_prefixes: vec!["-v".to_string()],
         values: Vec::new(),
         default_value: None,
+        inference_handler: InferenceHandler::Version,
     }
 }
 
@@ -91,15 +92,13 @@ fn os_tag() -> TargetTagDefinition {
     TargetTagDefinition {
         name: "os".to_string(),
         kind: TargetTagKind::Exclusive,
-        required: false,
+        required: true,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
             TargetTagValueDefinition {
                 value: "windows".to_string(),
                 aliases: vec![
                     "win".to_string(),
-                    "win32".to_string(),
-                    "win64".to_string(),
                 ],
             },
             TargetTagValueDefinition {
@@ -116,6 +115,7 @@ fn os_tag() -> TargetTagDefinition {
             },
         ],
         default_value: None,
+        inference_handler: InferenceHandler::Default,
     }
 }
 
@@ -123,7 +123,7 @@ fn arch_tag() -> TargetTagDefinition {
     TargetTagDefinition {
         name: "arch".to_string(),
         kind: TargetTagKind::Exclusive,
-        required: false,
+        required: true,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
             TargetTagValueDefinition {
@@ -131,12 +131,11 @@ fn arch_tag() -> TargetTagDefinition {
                 aliases: vec![
                     "x64".to_string(),
                     "amd64".to_string(),
-                    "win64".to_string(),
                 ],
             },
             TargetTagValueDefinition {
                 value: "x86_32".to_string(),
-                aliases: vec!["x86".to_string(), "win32".to_string()],
+                aliases: vec!["x86".to_string()],
             },
             TargetTagValueDefinition {
                 value: "arm64".to_string(),
@@ -144,17 +143,19 @@ fn arch_tag() -> TargetTagDefinition {
             },
         ],
         default_value: None,
+        inference_handler: InferenceHandler::Default,
     }
 }
 
 fn released_at_tag() -> TargetTagDefinition {
     TargetTagDefinition {
         name: "released_at".to_string(),
-        kind: TargetTagKind::Plain,
-        required: false,
+        kind: TargetTagKind::Exclusive,
+        required: true,
         inference_prefixes: vec!["-".to_string()],
         values: Vec::new(),
         default_value: None,
+        inference_handler: InferenceHandler::Date,
     }
 }
 
@@ -162,7 +163,7 @@ fn variant_tag() -> TargetTagDefinition {
     TargetTagDefinition {
         name: "variant".to_string(),
         kind: TargetTagKind::Exclusive,
-        required: false,
+        required: true,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
             TargetTagValueDefinition {
@@ -179,6 +180,7 @@ fn variant_tag() -> TargetTagDefinition {
             },
         ],
         default_value: None,
+        inference_handler: InferenceHandler::Default,
     }
 }
 
@@ -268,7 +270,7 @@ mod tests {
             .iter()
             .find(|t| t.name == "released_at")
             .unwrap();
-        assert_eq!(released_at.kind, TargetTagKind::Plain);
+        assert_eq!(released_at.kind, TargetTagKind::Exclusive);
     }
 
     #[test]

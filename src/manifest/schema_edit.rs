@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::{TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition};
+use super::{InferenceHandler, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,8 +24,6 @@ pub struct EditableTargetTagDefinition {
     pub name: String,
     pub kind: TargetTagKind,
     #[serde(default)]
-    pub required: bool,
-    #[serde(default)]
     pub inference_prefixes: Vec<String>,
     #[serde(default)]
     pub values: Vec<String>,
@@ -33,6 +31,8 @@ pub struct EditableTargetTagDefinition {
     pub aliases: BTreeMap<String, String>,
     #[serde(default)]
     pub default_value: Option<String>,
+    #[serde(default)]
+    pub inference_handler: InferenceHandler,
 }
 
 pub fn validate_editable_target_tag_schema(
@@ -62,7 +62,15 @@ pub fn validate_editable_target_tag_schema(
             has_version = true;
         }
 
-        if tag.kind != TargetTagKind::Plain {
+        if tag.kind == TargetTagKind::Plain {
+            errors.push(TargetTagSchemaValidationError {
+                field: format!("{field_prefix}.kind"),
+                message: String::from("Plain tags are not allowed. Use exclusive or scoped."),
+            });
+            continue;
+        }
+
+        {
             let explicit_values = tag
                 .values
                 .iter()
@@ -135,7 +143,7 @@ pub fn sanitize_editable_target_tag_schema(
         .into_iter()
         .filter_map(|tag| {
             let name = tag.name.trim().to_string();
-            if name.is_empty() {
+            if name.is_empty() || tag.kind == TargetTagKind::Plain {
                 return None;
             }
 
@@ -179,7 +187,7 @@ pub fn sanitize_editable_target_tag_schema(
             Some(TargetTagDefinition {
                 name,
                 kind: tag.kind,
-                required: tag.required,
+                required: true,
                 inference_prefixes: tag.inference_prefixes,
                 values: canonical_values
                     .into_iter()
@@ -189,6 +197,7 @@ pub fn sanitize_editable_target_tag_schema(
                     })
                     .collect(),
                 default_value,
+                inference_handler: tag.inference_handler,
             })
         })
         .collect::<Vec<_>>();
@@ -210,11 +219,11 @@ mod tests {
         let result = validate_editable_target_tag_schema(vec![EditableTargetTagDefinition {
             name: String::from("version"),
             kind: TargetTagKind::Exclusive,
-            required: true,
             inference_prefixes: vec![String::from("-")],
             values: vec![String::from("1.0.0")],
             aliases: BTreeMap::new(),
             default_value: Some(String::from("9.9.9")),
+            inference_handler: InferenceHandler::Default,
         }]);
         assert!(!result.valid);
         assert!(
@@ -230,11 +239,11 @@ mod tests {
         let result = validate_editable_target_tag_schema(vec![EditableTargetTagDefinition {
             name: String::from("tier"),
             kind: TargetTagKind::Exclusive,
-            required: false,
             inference_prefixes: vec![String::from("-")],
             values: vec![String::from("base")],
             aliases: BTreeMap::new(),
             default_value: None,
+            inference_handler: InferenceHandler::Default,
         }]);
         assert!(!result.valid);
         assert!(
