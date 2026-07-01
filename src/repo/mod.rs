@@ -86,6 +86,8 @@ pub struct SourceTargetInstallCandidate {
     pub os: String,
     pub arch: String,
     pub target_tags: manifest::TargetTagSet,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -769,10 +771,30 @@ pub fn discover_source_target_installs(
             continue;
         }
 
-        let Some(candidate) = infer_source_target_candidate(&path, &rules) else {
-            continue;
-        };
-        candidates.push(candidate);
+        match infer_source_target_candidate(&path, &rules) {
+            Ok(candidate) => candidates.push(candidate),
+            Err(err) => {
+                // Include folder even if inference fails
+                let folder_name = path
+                    .file_name()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !folder_name.is_empty() {
+                    candidates.push(SourceTargetInstallCandidate {
+                        path: path.display().to_string(),
+                        folder_name,
+                        target_id: String::new(),
+                        content_target_id: String::new(),
+                        version_id: String::new(),
+                        os: String::new(),
+                        arch: String::new(),
+                        target_tags: manifest::TargetTagSet::default(),
+                        error: Some(err.to_string()),
+                    });
+                }
+            }
+        }
     }
 
     candidates.sort_by(|left, right| left.path.cmp(&right.path));
@@ -898,8 +920,8 @@ fn inspect_target_manifests(
 fn infer_source_target_candidate(
     path: &Path,
     rules: &manifest::TargetTagSchema,
-) -> Option<SourceTargetInstallCandidate> {
-    build_source_target_install_candidate(path, rules, &manifest::TargetTagSet::default()).ok()
+) -> Result<SourceTargetInstallCandidate> {
+    build_source_target_install_candidate(path, rules, &manifest::TargetTagSet::default())
 }
 
 fn build_source_target_install_candidate(
@@ -930,6 +952,7 @@ fn build_source_target_install_candidate(
         os: exclusive_tag_or_empty(&resolved.target_tags, "os"),
         arch: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
         target_tags: resolved.target_tags,
+        error: None,
     })
 }
 

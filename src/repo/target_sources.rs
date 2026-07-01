@@ -129,7 +129,19 @@ pub fn plan_target_sources_sync(
         .collect();
     plan.removable_count = plan.to_remove.len();
 
+    // Collect existing target IDs (both tag-derived and content-derived)
+    let existing_target_ids: HashSet<String> = status
+        .targets
+        .iter()
+        .map(|target| target.target_id.clone())
+        .collect();
+
     for candidate in candidates {
+        // Skip if this folder's tag set already matches an existing target
+        if existing_target_ids.contains(&candidate.target_id) {
+            continue;
+        }
+
         let Some(repo_target) = status
             .targets
             .iter()

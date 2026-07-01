@@ -208,9 +208,13 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
 
     let candidates = discover_source_target_installs(&repo_root, &source_root).unwrap();
 
-    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates.len(), 2);
+    // First is the matched folder (sorted by path)
     assert_eq!(candidates[0].folder_name, "ae2-v15.4.10-fabric-1.21");
     assert_eq!(candidates[0].version_id, "15.4.10");
+    // Second is the unmatched folder (included but with empty fields)
+    assert_eq!(candidates[1].folder_name, "not-a-target-folder");
+    assert_eq!(candidates[1].target_id, "");
     assert_eq!(
         candidates[0]
             .target_tags
