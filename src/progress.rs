@@ -5,6 +5,7 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub enum GutchOperation {
     TargetInsert,
+    TargetDelete,
     SyncUp,
     TargetSourcesSync,
     Fetch,

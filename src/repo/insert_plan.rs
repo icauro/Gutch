@@ -162,9 +162,47 @@ pub fn delete_repo_targets(repo_root: &Path, target_ids: &[String]) -> Result<()
     Ok(())
 }
 
-pub fn delete_repo_target_and_cleanup(repo_root: &Path, target_id: &str) -> Result<usize> {
+pub fn delete_repo_target_and_cleanup(
+    repo_root: &Path,
+    target_id: &str,
+    progress: &Option<Arc<dyn GutchProgressSink>>,
+) -> Result<usize> {
+    // Total matches cleanup_orphan_bundles_in_repo_with_progress
+    const TOTAL: usize = 1000;
+
+    progress::emit_progress(
+        progress,
+        GutchProgressEvent {
+            operation: GutchOperation::TargetDelete,
+            phase: "remove_manifest".to_string(),
+            message: format!("Removing target '{}'", target_id),
+            current: 0,
+            total: TOTAL,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: Some(target_id.to_string()),
+            done: false,
+        },
+    );
     remove_target_from_repo(repo_root, target_id)?;
-    crate::cleanup_orphan_bundles_in_repo(repo_root)
+
+    let orphan_count = crate::repo::cleanup_orphan_bundles_in_repo_with_progress(repo_root, progress)?;
+
+    progress::emit_progress(
+        progress,
+        GutchProgressEvent {
+            operation: GutchOperation::TargetDelete,
+            phase: "done".to_string(),
+            message: format!("Deleted target, removed {} orphan bundle(s)", orphan_count),
+            current: TOTAL,
+            total: TOTAL,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: true,
+        },
+    );
+    Ok(orphan_count)
 }
 
 pub fn delete_repo_targets_with_matching_tags(
