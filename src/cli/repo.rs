@@ -143,7 +143,13 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 println!("sync-up cancelled");
                 return Ok(());
             }
-            let stats = actions::repo::sync_up_repo(repo, endpoint, session_id)?;
+            let progress = crate::cli::progress::CliProgressSink::new();
+            let stats = actions::repo::sync_up_repo_with_progress(
+                repo,
+                endpoint,
+                session_id,
+                Some(progress),
+            )?;
             println!(
                 "synced repo {} to product {} repo {}",
                 stats.repo_root, stats.product_id, stats.remote_repo_id

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +10,7 @@ use super::{
     scan_existing_store_state,
 };
 use crate::manifest::TargetTagSet;
+use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
 use crate::runtime::RuntimeResourceHints;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +48,7 @@ pub struct RepoTargetInsertRequest {
     pub compression_profile: crate::manifest::CompressionPreset,
     pub storage_mode: crate::manifest::ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
+    pub progress: Option<Arc<dyn GutchProgressSink>>,
 }
 
 #[derive(Debug, Clone)]
@@ -190,8 +193,58 @@ pub fn insert_repo_target_from_directory(repo_root: &Path, source_dir: &Path) ->
         compression_profile: crate::manifest::CompressionPreset::Zstd3,
         storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
         runtime_hints: RuntimeResourceHints::default(),
+        progress: None,
     })
     .map(|_| ())
+}
+
+/// Bridge that adapts a `GutchProgressSink` to `BuildProgressSink` for the build phase.
+struct BuildProgressBridge {
+    sink: Arc<dyn GutchProgressSink>,
+}
+
+impl std::fmt::Debug for BuildProgressBridge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BuildProgressBridge").finish()
+    }
+}
+
+impl crate::build_types::BuildProgressSink for BuildProgressBridge {
+    fn on_file_scan_started(&self, total_files: usize) {
+        self.sink.emit(GutchProgressEvent {
+            operation: GutchOperation::TargetInsert,
+            phase: "scan".to_string(),
+            message: "Scanning files".to_string(),
+            current: 0,
+            total: total_files,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        });
+    }
+
+    fn on_file_scanned(&self) {
+        // Coarse progress: we report phase transitions, not per-file ticks.
+    }
+
+    fn on_bundle_build_started(&self, total_bundles: usize) {
+        self.sink.emit(GutchProgressEvent {
+            operation: GutchOperation::TargetInsert,
+            phase: "build".to_string(),
+            message: "Building bundles".to_string(),
+            current: 0,
+            total: total_bundles,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        });
+    }
+
+    fn on_bundle_built(&self) {
+        // Coarse progress: we report phase transitions, not per-bundle ticks.
+    }
 }
 
 pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTargetInsertResult> {
@@ -275,6 +328,9 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         crate::manifest::CompressionProfile::for_preset(request.compression_profile);
     build_config.storage_mode = request.storage_mode;
     build_config.runtime_hints = request.runtime_hints;
+    if let Some(ref sink) = request.progress {
+        build_config.progress = Some(Arc::new(BuildProgressBridge { sink: sink.clone() }));
+    }
 
     let (result, timings) = crate::build_with_config(&prepared_input.dir, &build_config)?;
     let mut result = result;
@@ -362,7 +418,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         .filter(|chunk_id| existing_chunk_ids.contains(chunk_id))
         .count();
 
-    Ok(RepoTargetInsertResult {
+    let insert_result = RepoTargetInsertResult {
         repo_root: repo_paths.repo_root,
         target_id: result.target_manifest.target_id.clone(),
         manifest_path,
@@ -391,7 +447,29 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         reused_chunk_count,
         new_chunk_count: required_chunk_count.saturating_sub(reused_chunk_count),
         build_timings: timings,
-    })
+    };
+    insert_result.emit_done(&request.progress);
+    Ok(insert_result)
+}
+
+impl RepoTargetInsertResult {
+    /// Emit a done event if a progress sink was provided.
+    pub(crate) fn emit_done(&self, progress: &Option<Arc<dyn GutchProgressSink>>) {
+        progress::emit_progress(
+            progress,
+            GutchProgressEvent {
+                operation: GutchOperation::TargetInsert,
+                phase: "done".to_string(),
+                message: "Target insert complete".to_string(),
+                current: 1,
+                total: 1,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                detail: Some(format!("target_id={}", self.target_id)),
+                done: true,
+            },
+        );
+    }
 }
 
 struct MutableInsertStoreState {

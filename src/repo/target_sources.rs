@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +8,7 @@ use super::{
     Result, SourceTargetInstallCandidate, discover_source_target_installs, inspect_gutch_repo,
 };
 use crate::manifest::TargetTagSet;
+use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -237,6 +239,7 @@ pub fn sync_target_sources(
     repo_root: &Path,
     sources_path: &Path,
     options: TargetSourcesSyncOptions,
+    progress: &Option<Arc<dyn GutchProgressSink>>,
 ) -> Result<TargetSourcesSyncResult> {
     let plan = plan_target_sources_sync(repo_root, Some(sources_path))?;
     if !plan.sources_ready {
@@ -256,12 +259,30 @@ pub fn sync_target_sources(
     }
 
     let candidates = discover_source_target_installs(repo_root, sources_path)?;
+    let total_candidates = candidates.len();
+    let total_steps = total_candidates + plan.to_remove.len();
+    let mut current_step = 0usize;
     let mut removed_count = 0usize;
 
     if options.prune_removed_targets {
         for target_id in &plan.to_remove {
             crate::remove_target_from_repo(repo_root, target_id)?;
             removed_count += 1;
+            current_step += 1;
+            progress::emit_progress(
+                progress,
+                GutchProgressEvent {
+                    operation: GutchOperation::TargetSourcesSync,
+                    phase: "prune".to_string(),
+                    message: format!("Removing target '{}'", target_id),
+                    current: current_step,
+                    total: total_steps,
+                    transferred_bytes: 0,
+                    total_bytes: 0,
+                    detail: Some(target_id.clone()),
+                    done: false,
+                },
+            );
         }
     }
 
@@ -280,9 +301,24 @@ pub fn sync_target_sources(
     let mut tag_updated_count = 0usize;
     let mut replaced_same_tags_count = 0usize;
     for candidate in &candidates {
+        current_step += 1;
+        progress::emit_progress(
+            progress,
+            GutchProgressEvent {
+                operation: GutchOperation::TargetSourcesSync,
+                phase: "insert".to_string(),
+                message: format!("Inserting target '{}'", candidate.folder_name),
+                current: current_step,
+                total: total_steps,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                detail: Some(candidate.folder_name.clone()),
+                done: false,
+            },
+        );
         removed_count +=
             crate::delete_repo_targets_with_matching_tags(repo_root, &candidate.target_tags)?.len();
-        insert_source_target_candidate(repo_root, candidate)?;
+        insert_source_target_candidate(repo_root, candidate, progress)?;
         if tag_update_ids.contains(&candidate.content_target_id) {
             tag_updated_count += 1;
         } else if replace_ids.contains(&candidate.content_target_id) {
@@ -293,6 +329,21 @@ pub fn sync_target_sources(
     }
 
     let _ = crate::cleanup_orphan_bundles_in_repo(repo_root)?;
+
+    progress::emit_progress(
+        progress,
+        GutchProgressEvent {
+            operation: GutchOperation::TargetSourcesSync,
+            phase: "done".to_string(),
+            message: "Target sources sync complete".to_string(),
+            current: total_steps,
+            total: total_steps,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: true,
+        },
+    );
 
     Ok(TargetSourcesSyncResult {
         inserted_count,
@@ -306,7 +357,9 @@ pub fn sync_target_sources(
 fn insert_source_target_candidate(
     repo_root: &Path,
     candidate: &SourceTargetInstallCandidate,
+    _progress: &Option<Arc<dyn GutchProgressSink>>,
 ) -> Result<()> {
+    // TODO: thread progress into insert_repo_target for per-candidate build progress
     crate::insert_repo_target_from_directory(repo_root, std::path::Path::new(&candidate.path))
 }
 

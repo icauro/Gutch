@@ -17,6 +17,7 @@ pub mod install;
 pub mod manifest;
 mod path_guard;
 pub mod plugin;
+mod progress;
 pub mod remote;
 pub mod repo;
 pub mod runtime;
@@ -106,6 +107,7 @@ pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
+pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressSink};
 pub use sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,

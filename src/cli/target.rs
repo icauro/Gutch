@@ -8,7 +8,7 @@ use crate::cli::common::{
     count_required_chunks, load_target_manifest_from_repo, prepare_input_path, prompt_yes_no,
     write_bundles, write_loose_chunks, write_report, write_target_manifest,
 };
-use crate::cli::progress::TargetInsertProgress;
+use crate::cli::progress::{CliProgressSink, TargetInsertProgress};
 use crate::cli::reporting::{
     build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
     ratio_pct, reconstruct_timings_summary,
@@ -173,14 +173,13 @@ fn run_insert_one_target(
         jobs: request.jobs,
     };
     let build_progress = TargetInsertProgress::new();
-    build_config.progress = Some(build_progress.as_sink());
+    build_config.progress = Some(build_progress.as_build_sink());
 
     let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
     let mut result = result;
     let target_id = g::compute_target_id_from_files(&result.target_manifest.files);
     result.target_manifest.target_id = target_id.clone();
     apply_resolved_target_identity(&mut result.target_manifest, &resolved_identity);
-    build_progress.set_message("write repo outputs");
 
     let existing_manifest_path = g::target_manifest_path(request.repo_paths, &target_id);
     if existing_manifest_path.exists() {
@@ -189,7 +188,6 @@ fn run_insert_one_target(
             let mut updated_manifest = existing_manifest;
             updated_manifest.target_tags = result.target_manifest.target_tags.clone();
             let (manifest_path, _) = write_target_manifest(request.repo_paths, &updated_manifest)?;
-            build_progress.finish_and_clear();
             if verbose_output_enabled() {
                 println!(
                     "updated target tags for content id '{}' (content unchanged)",
@@ -350,7 +348,6 @@ fn run_insert_one_target(
         outputs: optional_output_paths(request.summary_out, request.stats_json_out),
     };
 
-    build_progress.finish_and_clear();
     Ok(stats)
 }
 
@@ -423,6 +420,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     return Err(g::Error::manifest("target insert cancelled"));
                 }
             }
+            let progress = CliProgressSink::new();
             let insert_result = g::insert_repo_target(g::RepoTargetInsertRequest {
                 repo_root: repo.clone(),
                 source_dir: dir.clone(),
@@ -436,6 +434,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     max_memory_mib,
                     jobs,
                 },
+                progress: Some(progress),
             })?;
             let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let stats = TargetInsertStats {

@@ -1,6 +1,8 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::cli::common::prompt_yes_no;
+use crate::cli::progress::CliProgressSink;
 use gutch as g;
 
 pub type TargetSourcesSyncOptions = CliTargetSourcesSyncOptions;
@@ -74,12 +76,14 @@ pub fn sync_target_sources(
         });
     }
 
+    let progress: Arc<dyn g::GutchProgressSink> = CliProgressSink::new();
     let result = g::sync_target_sources(
         repo,
         sources_path,
         g::TargetSourcesSyncOptions {
             prune_removed_targets: prune,
         },
+        &Some(progress),
     )?;
 
     println!(

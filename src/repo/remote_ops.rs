@@ -5,11 +5,13 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use crate::Result;
+use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
 use crate::remote::backend::{
     CreatorRepoTargetsResponse, CreatorTargetResponse, UpsertTargetResponse,
     request_json_from_backend, upload_raw_file,
 };
-use crate::sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink, emit_progress};
+// Legacy sync progress types kept for backward compatibility
+// use crate::sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 
 #[derive(Debug, Serialize)]
 pub struct RepoSyncUpStats {
@@ -477,7 +479,7 @@ pub fn sync_up_repo_with_progress(
     repo: PathBuf,
     endpoint: String,
     session_id: String,
-    progress: Option<Arc<dyn SyncUpProgressSink>>,
+    progress: Option<Arc<dyn GutchProgressSink>>,
 ) -> Result<RepoSyncUpStats> {
     let (product_id, remote_repo_id) = resolve_sync_binding(&repo)?;
     let client = reqwest::blocking::Client::builder()
@@ -485,16 +487,17 @@ pub fn sync_up_repo_with_progress(
         .build()
         .map_err(|err| crate::Error::manifest(format!("failed to create sync client: {}", err)))?;
 
-    emit_progress(
+    progress::emit_progress(
         &progress,
-        SyncUpProgressEvent {
-            phase: String::from("planning"),
-            message: String::from("Planning sync changes"),
+        GutchProgressEvent {
+            operation: GutchOperation::SyncUp,
+            phase: "planning".to_string(),
+            message: "Planning sync changes".to_string(),
             current: 0,
             total: 1,
-            detail: None,
             transferred_bytes: 0,
             total_bytes: 0,
+            detail: None,
             done: false,
         },
     );
@@ -512,16 +515,17 @@ pub fn sync_up_repo_with_progress(
 
     for target in &plan.to_remove {
         step += 1;
-        emit_progress(
+        progress::emit_progress(
             &progress,
-            SyncUpProgressEvent {
-                phase: String::from("remove_targets"),
-                message: String::from("Removing remote targets"),
+            GutchProgressEvent {
+                operation: GutchOperation::SyncUp,
+                phase: "remove_targets".to_string(),
+                message: "Removing remote targets".to_string(),
                 current: step,
                 total: total_steps,
-                detail: Some(target.target_id.clone()),
                 transferred_bytes: 0,
                 total_bytes: 0,
+                detail: Some(target.target_id.clone()),
                 done: false,
             },
         );
@@ -549,16 +553,17 @@ pub fn sync_up_repo_with_progress(
     }
 
     step += 1;
-    emit_progress(
+    progress::emit_progress(
         &progress,
-        SyncUpProgressEvent {
-            phase: String::from("upload_repo_manifest"),
-            message: String::from("Uploading repo manifest"),
+        GutchProgressEvent {
+            operation: GutchOperation::SyncUp,
+            phase: "upload_repo_manifest".to_string(),
+            message: "Uploading repo manifest".to_string(),
             current: step,
             total: total_steps,
-            detail: None,
             transferred_bytes: 0,
             total_bytes: 0,
+            detail: None,
             done: false,
         },
     );
@@ -591,16 +596,17 @@ pub fn sync_up_repo_with_progress(
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {
         step += 1;
-        emit_progress(
+        progress::emit_progress(
             &progress,
-            SyncUpProgressEvent {
-                phase: String::from("upload_chunk_index"),
-                message: String::from("Uploading chunk index"),
+            GutchProgressEvent {
+                operation: GutchOperation::SyncUp,
+                phase: "upload_chunk_index".to_string(),
+                message: "Uploading chunk index".to_string(),
                 current: step,
                 total: total_steps,
-                detail: None,
                 transferred_bytes: 0,
                 total_bytes: 0,
+                detail: None,
                 done: false,
             },
         );
@@ -642,16 +648,17 @@ pub fn sync_up_repo_with_progress(
         .filter(|target| target_ids_to_upload.contains(target.target_id.as_str()))
     {
         step += 1;
-        emit_progress(
+        progress::emit_progress(
             &progress,
-            SyncUpProgressEvent {
-                phase: String::from("upload_target_manifest"),
-                message: String::from("Uploading target manifests"),
+            GutchProgressEvent {
+                operation: GutchOperation::SyncUp,
+                phase: "upload_target_manifest".to_string(),
+                message: "Uploading target manifests".to_string(),
                 current: step,
                 total: total_steps,
-                detail: Some(target.target_id.clone()),
                 transferred_bytes: 0,
                 total_bytes: 0,
+                detail: Some(target.target_id.clone()),
                 done: false,
             },
         );
@@ -740,16 +747,17 @@ pub fn sync_up_repo_with_progress(
             &bundle_id,
         )? {
             bundle_skipped_count += 1;
-            emit_progress(
+            progress::emit_progress(
                 &progress,
-                SyncUpProgressEvent {
-                    phase: String::from("upload_bundle"),
-                    message: String::from("Skipping bundles already present remotely"),
+                GutchProgressEvent {
+                    operation: GutchOperation::SyncUp,
+                    phase: "upload_bundle".to_string(),
+                    message: "Skipping bundles already present remotely".to_string(),
                     current: step,
                     total: total_steps,
-                    detail: Some(bundle_id),
                     transferred_bytes: 0,
                     total_bytes: 0,
+                    detail: Some(bundle_id),
                     done: false,
                 },
             );
@@ -757,16 +765,17 @@ pub fn sync_up_repo_with_progress(
         }
         let bundle_bytes = crate::helpers::read(&bundle_path)?;
         let bundle_size = bundle_bytes.len() as u64;
-        emit_progress(
+        progress::emit_progress(
             &progress,
-            SyncUpProgressEvent {
-                phase: String::from("upload_bundle"),
-                message: String::from("Uploading bundles"),
+            GutchProgressEvent {
+                operation: GutchOperation::SyncUp,
+                phase: "upload_bundle".to_string(),
+                message: "Uploading bundles".to_string(),
                 current: step,
                 total: total_steps,
-                detail: Some(bundle_id.clone()),
                 transferred_bytes: 0,
                 total_bytes: bundle_size,
+                detail: Some(bundle_id.clone()),
                 done: false,
             },
         );
@@ -783,31 +792,33 @@ pub fn sync_up_repo_with_progress(
             "application/octet-stream",
         )?;
         bundle_uploaded_count += 1;
-        emit_progress(
+        progress::emit_progress(
             &progress,
-            SyncUpProgressEvent {
-                phase: String::from("upload_bundle"),
-                message: String::from("Uploading bundles"),
+            GutchProgressEvent {
+                operation: GutchOperation::SyncUp,
+                phase: "upload_bundle".to_string(),
+                message: "Uploading bundles".to_string(),
                 current: step,
                 total: total_steps,
-                detail: Some(bundle_id),
                 transferred_bytes: bundle_size,
                 total_bytes: bundle_size,
+                detail: Some(bundle_id),
                 done: false,
             },
         );
     }
 
-    emit_progress(
+    progress::emit_progress(
         &progress,
-        SyncUpProgressEvent {
-            phase: String::from("complete"),
-            message: String::from("Sync complete"),
+        GutchProgressEvent {
+            operation: GutchOperation::SyncUp,
+            phase: "done".to_string(),
+            message: "Sync complete".to_string(),
             current: total_steps,
             total: total_steps,
-            detail: None,
             transferred_bytes: 0,
             total_bytes: 0,
+            detail: None,
             done: true,
         },
     );
