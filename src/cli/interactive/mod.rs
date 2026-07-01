@@ -29,8 +29,8 @@ use self::prompts::{
 };
 use self::repo_config::run_repo_config_edit;
 use self::workflows::{
-    run_sync_target_sources, run_interactive_repo_link, run_interactive_repo_sync_up,
-    run_interactive_repo_unlink, run_repo_create, run_set_target_sources_path, run_target_extract,
+    run_interactive_repo_link, run_interactive_repo_sync_up, run_interactive_repo_unlink,
+    run_repo_create, run_set_target_sources_path, run_sync_target_sources, run_target_extract,
     run_target_insert, run_target_install_apply, run_target_install_verify,
 };
 

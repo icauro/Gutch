@@ -12,11 +12,8 @@ pub fn run(command: TargetSourcesCommands) -> g::Result<()> {
             yes,
             json_out,
         } => {
-            let result = sync_target_sources(
-                &repo,
-                &root,
-                TargetSourcesSyncOptions { no_prune, yes },
-            )?;
+            let result =
+                sync_target_sources(&repo, &root, TargetSourcesSyncOptions { no_prune, yes })?;
 
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;

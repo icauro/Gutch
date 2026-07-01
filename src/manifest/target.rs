@@ -19,16 +19,6 @@ pub struct TargetManifest {
     pub files: Vec<FileManifest>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TierOverlayManifest {
-    pub format_version: String,
-    pub version_id: String,
-    pub base_tier_id: String,
-    pub target_tier_id: String,
-    pub add_files: Vec<FileManifest>,
-    pub replace_files: Vec<FileManifest>,
-}
-
 impl TargetManifest {
     pub fn new(target_id: String, target_tags: TargetTagSet) -> Self {
         TargetManifest {

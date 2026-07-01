@@ -99,10 +99,8 @@ fn run_insert_one_target(
             );
         }
         let required_chunk_count = count_required_chunks(&updated_manifest);
-        let required_bundle_count = count_required_bundles_from_chunk_index(
-            &updated_manifest,
-            &store_state.chunk_index,
-        );
+        let required_bundle_count =
+            count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
         return Ok(TargetInsertStats {
             command: request.command_name,
             repo_root: request.repo_paths.repo_root.display().to_string(),
@@ -114,7 +112,6 @@ fn run_insert_one_target(
             version_id: insert_plan.version_id.clone(),
             os: insert_plan.os.clone(),
             arch: insert_plan.arch.clone(),
-            tier_id: insert_plan.tier_id.clone(),
             storage_mode: request.storage_mode.cli_name().to_string(),
             file_count: updated_manifest.files.len(),
             total_logical_size: updated_manifest.total_logical_size,
@@ -191,8 +188,7 @@ fn run_insert_one_target(
         if existing_manifest.target_tags != result.target_manifest.target_tags {
             let mut updated_manifest = existing_manifest;
             updated_manifest.target_tags = result.target_manifest.target_tags.clone();
-            let (manifest_path, _) =
-                write_target_manifest(request.repo_paths, &updated_manifest)?;
+            let (manifest_path, _) = write_target_manifest(request.repo_paths, &updated_manifest)?;
             build_progress.finish_and_clear();
             if verbose_output_enabled() {
                 println!(
@@ -202,8 +198,10 @@ fn run_insert_one_target(
             }
 
             let required_chunk_count = count_required_chunks(&updated_manifest);
-            let required_bundle_count =
-                count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
+            let required_bundle_count = count_required_bundles_from_chunk_index(
+                &updated_manifest,
+                &store_state.chunk_index,
+            );
             return Ok(TargetInsertStats {
                 command: request.command_name,
                 repo_root: request.repo_paths.repo_root.display().to_string(),
@@ -225,11 +223,6 @@ fn run_insert_one_target(
                 arch: resolved_identity
                     .target_tags
                     .get_exclusive("arch")
-                    .unwrap_or_default()
-                    .to_string(),
-                tier_id: resolved_identity
-                    .target_tags
-                    .get_exclusive("tier")
                     .unwrap_or_default()
                     .to_string(),
                 storage_mode: request.storage_mode.cli_name().to_string(),
@@ -336,11 +329,6 @@ fn run_insert_one_target(
         arch: resolved_identity
             .target_tags
             .get_exclusive("arch")
-            .unwrap_or_default()
-            .to_string(),
-        tier_id: resolved_identity
-            .target_tags
-            .get_exclusive("tier")
             .unwrap_or_default()
             .to_string(),
         storage_mode: request.storage_mode.cli_name().to_string(),

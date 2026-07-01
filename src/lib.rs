@@ -11,6 +11,7 @@ pub mod cli;
 pub mod config;
 pub mod core;
 pub mod error;
+pub mod fetch_progress;
 pub mod helpers;
 pub mod install;
 pub mod manifest;
@@ -19,7 +20,6 @@ pub mod plugin;
 pub mod remote;
 pub mod repo;
 pub mod runtime;
-pub mod fetch_progress;
 pub mod sync_up_progress;
 #[cfg(test)]
 mod test_util;
@@ -45,6 +45,7 @@ pub use core::target_identity::{
     resolve_target_identity_from_rules,
 };
 pub use error::{Error, Result};
+pub use fetch_progress::{FetchProgressEvent, FetchProgressSink};
 pub use install::{
     GutchBundleDownload, TargetInstallApplyResult, TargetInstallApplySource,
     TargetInstallFetchRequest, TargetInstallFetchResult, TargetInstallRepairResult,
@@ -71,22 +72,21 @@ pub use reconstruct::{
 pub use repo::{
     GutchRepoPaths, RepoInspectStatus, RepoInspectTargetStatus, SourceTargetInstallCandidate,
     TargetInsertKind, TargetInsertPlan, TargetSourcesReplaceSameTags, TargetSourcesSyncPlan,
-    TargetSourcesTagUpdate, add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index,
-    bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, chunk_path, chunk_path_in_root,
-    cleanup_orphan_bundles_in_repo, compute_target_id_from_files, delete_repo_targets,
-    delete_repo_targets_with_matching_tags, describe_target_insert_plan,
-    describe_target_sources_sync_plan, discover_source_target_installs, ensure_gutch_repo_layout,
-    inspect_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
-    plan_target_insert, plan_target_sources_sync, preview_source_target_install,
-    remove_target_from_repo, serialize_target_manifest_for_remote, target_manifest_bin_path,
-    target_manifest_path, write_chunk_index, write_gutch_repo_manifest,
-    write_target_manifest_artifacts,
+    TargetSourcesTagUpdate, add_built_bundles_to_chunk_index,
+    add_built_loose_chunks_to_chunk_index, bundle_id_from_bundle_path, bundle_path,
+    bundle_path_in_root, chunk_path, chunk_path_in_root, cleanup_orphan_bundles_in_repo,
+    compute_target_id_from_files, delete_repo_targets, delete_repo_targets_with_matching_tags,
+    describe_target_insert_plan, describe_target_sources_sync_plan,
+    discover_source_target_installs, ensure_gutch_repo_layout, inspect_gutch_repo,
+    load_chunk_index, load_gutch_repo_manifest, load_target_manifest, plan_target_insert,
+    plan_target_sources_sync, preview_source_target_install, remove_target_from_repo,
+    serialize_target_manifest_for_remote, target_manifest_bin_path, target_manifest_path,
+    write_chunk_index, write_gutch_repo_manifest, write_target_manifest_artifacts,
 };
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
-pub use fetch_progress::{FetchProgressEvent, FetchProgressSink};
 pub use sync_up_progress::{SyncUpProgressEvent, SyncUpProgressSink};
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,

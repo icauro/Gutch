@@ -127,13 +127,14 @@ pub fn plan_target_sources_sync(
                 .map(|target| target.target_id.clone())
                 .collect();
             if !replaced_target_ids.is_empty() {
-                plan.to_replace_same_tags.push(TargetSourcesReplaceSameTags {
-                    folder_name: candidate.folder_name.clone(),
-                    path: candidate.path.clone(),
-                    content_target_id: candidate.content_target_id.clone(),
-                    replaced_target_ids,
-                    target_tags: candidate.target_tags.clone(),
-                });
+                plan.to_replace_same_tags
+                    .push(TargetSourcesReplaceSameTags {
+                        folder_name: candidate.folder_name.clone(),
+                        path: candidate.path.clone(),
+                        content_target_id: candidate.content_target_id.clone(),
+                        replaced_target_ids,
+                        target_tags: candidate.target_tags.clone(),
+                    });
             }
             plan.to_insert.push(candidate);
             continue;
@@ -184,7 +185,10 @@ pub fn describe_target_sources_sync_plan(plan: &TargetSourcesSyncPlan) -> Vec<St
         ));
     }
     for target_id in &plan.to_remove {
-        lines.push(format!("Remove repo target {} (missing from sources)", target_id));
+        lines.push(format!(
+            "Remove repo target {} (missing from sources)",
+            target_id
+        ));
     }
     for candidate in &plan.to_insert {
         if plan
@@ -251,10 +255,9 @@ mod tests {
             path: "game.exe".into(),
             size: 12,
             executable: false,
-            full_file_hash: crate::hash::hash_hex(&crate::hash::hash_file(
-                source_dir.join("game.exe").as_path(),
-            )
-            .unwrap()),
+            full_file_hash: crate::hash::hash_hex(
+                &crate::hash::hash_file(source_dir.join("game.exe").as_path()).unwrap(),
+            ),
             chunks: Vec::new(),
         }];
         let content_target_id = compute_target_id_from_files(&files);
@@ -267,15 +270,11 @@ mod tests {
         assert_eq!(plan.tag_update_count, 1);
         assert_eq!(plan.to_update_tags[0].content_target_id, content_target_id);
         assert_eq!(
-            plan.to_update_tags[0]
-                .to_tags
-                .get_exclusive("version"),
+            plan.to_update_tags[0].to_tags.get_exclusive("version"),
             Some("2.0.0")
         );
         assert_eq!(
-            plan.to_update_tags[0]
-                .from_tags
-                .get_exclusive("version"),
+            plan.to_update_tags[0].from_tags.get_exclusive("version"),
             Some("1.0.0")
         );
     }

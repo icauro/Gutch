@@ -36,7 +36,6 @@ pub(crate) struct TargetInsertStats {
     pub(crate) version_id: String,
     pub(crate) os: String,
     pub(crate) arch: String,
-    pub(crate) tier_id: String,
     pub(crate) storage_mode: String,
     pub(crate) file_count: usize,
     pub(crate) total_logical_size: u64,
@@ -214,7 +213,6 @@ impl SummaryReport for TargetInsertStats {
                 summary_kv("version", &self.version_id),
                 summary_kv("os", &self.os),
                 summary_kv("arch", &self.arch),
-                summary_kv("tier", &self.tier_id),
                 summary_kv("storage_mode", &self.storage_mode),
             ],
         );

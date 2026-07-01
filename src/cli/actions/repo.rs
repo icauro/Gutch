@@ -37,7 +37,6 @@ pub struct RepoSyncTargetChange {
     pub version: String,
     pub os: String,
     pub arch: String,
-    pub tier: String,
     pub artifact_state: Option<String>,
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,7 +62,6 @@ struct LocalSyncTarget {
     version: String,
     os: String,
     arch: String,
-    tier: String,
     tags: Vec<String>,
 }
 
@@ -77,7 +75,6 @@ fn local_target_change(
         version: target.version.clone(),
         os: target.os.clone(),
         arch: target.arch.clone(),
-        tier: target.tier.clone(),
         artifact_state,
         tags: target.tags.clone(),
         update_reason,
@@ -103,12 +100,6 @@ fn remote_target_change(target: &CreatorTargetResponse) -> RepoSyncTargetChange 
             .target_tags
             .exclusive
             .get("arch")
-            .cloned()
-            .unwrap_or_default(),
-        tier: target
-            .target_tags
-            .exclusive
-            .get("tier")
             .cloned()
             .unwrap_or_default(),
         artifact_state: Some(target.artifact_state.clone()),
@@ -250,11 +241,6 @@ fn collect_local_sync_targets(
             arch: manifest
                 .target_tags
                 .get_exclusive("arch")
-                .unwrap_or_default()
-                .to_string(),
-            tier: manifest
-                .target_tags
-                .get_exclusive("tier")
                 .unwrap_or_default()
                 .to_string(),
             tags,

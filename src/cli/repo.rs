@@ -47,12 +47,11 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 println!("Targets");
                 for target in &status.targets {
                     println!(
-                        "{} | version={} | os={} | arch={} | tier={} | files={} | missing_bundles={}",
+                        "{} | version={} | os={} | arch={} | files={} | missing_bundles={}",
                         target.target_id,
                         target.version_id,
                         target.os,
                         target.arch,
-                        target.tier_id,
                         target.file_count,
                         target.missing_bundle_count
                     );
@@ -192,7 +191,6 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 session_id,
             )?;
         }
-
     }
 
     Ok(())
@@ -226,12 +224,11 @@ fn print_sync_section(label: &str, changes: &[actions::repo::RepoSyncTargetChang
     println!("{}", label);
     for change in changes {
         println!(
-            "{} | version={} | os={} | arch={} | tier={}{}",
+            "{} | version={} | os={} | arch={}{}",
             change.target_id,
             change.version,
             change.os,
             change.arch,
-            change.tier,
             change
                 .artifact_state
                 .as_deref()

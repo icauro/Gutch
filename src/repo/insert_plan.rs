@@ -3,8 +3,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Result, SourceTargetInstallCandidate, build_source_target_install_candidate, inspect_gutch_repo,
-    remove_target_from_repo,
+    Result, SourceTargetInstallCandidate, build_source_target_install_candidate,
+    inspect_gutch_repo, remove_target_from_repo,
 };
 use crate::manifest::TargetTagSet;
 
@@ -26,7 +26,6 @@ pub struct TargetInsertPlan {
     pub version_id: String,
     pub os: String,
     pub arch: String,
-    pub tier_id: String,
     pub target_tags: TargetTagSet,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_tags: Option<TargetTagSet>,
@@ -50,7 +49,6 @@ impl TargetInsertPlan {
             version_id: candidate.version_id,
             os: candidate.os,
             arch: candidate.arch,
-            tier_id: candidate.tier_id,
             target_tags: candidate.target_tags,
             from_tags,
             replaced_target_ids,
@@ -69,10 +67,7 @@ pub fn plan_target_insert(
     explicit_tags: &TargetTagSet,
 ) -> Result<TargetInsertPlan> {
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(repo_root)?;
-    let rules = repo_manifest
-        .target_schema
-        .clone()
-        .unwrap_or_default();
+    let rules = repo_manifest.target_schema.clone().unwrap_or_default();
 
     let candidate = build_source_target_install_candidate(source_dir, &rules, explicit_tags)?;
     let status = inspect_gutch_repo(repo_root)?;
@@ -188,26 +183,31 @@ mod tests {
 
         let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
         let rules = repo_manifest.target_schema.clone().unwrap_or_default();
-        let old_candidate =
-            super::super::build_source_target_install_candidate(&new_source, &rules, &manifest::TargetTagSet::default()).unwrap();
+        let old_candidate = super::super::build_source_target_install_candidate(
+            &new_source,
+            &rules,
+            &manifest::TargetTagSet::default(),
+        )
+        .unwrap();
         let old_files = vec![manifest::FileManifest {
             path: "game.exe".into(),
             size: 11,
             executable: false,
-            full_file_hash: crate::hash::hash_hex(&crate::hash::hash_file(
-                new_source.join("game.exe").as_path(),
-            )
-            .unwrap()),
+            full_file_hash: crate::hash::hash_hex(
+                &crate::hash::hash_file(new_source.join("game.exe").as_path()).unwrap(),
+            ),
             chunks: Vec::new(),
         }];
         let old_content_id = compute_target_id_from_files(&old_files);
-        let mut old_manifest = TargetManifest::new(old_content_id.clone(), old_candidate.target_tags);
+        let mut old_manifest =
+            TargetManifest::new(old_content_id.clone(), old_candidate.target_tags);
         old_manifest.files = old_files;
         write_target_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
 
         std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
-        let plan = plan_target_insert(&repo_root, &new_source, &manifest::TargetTagSet::default()).unwrap();
+        let plan = plan_target_insert(&repo_root, &new_source, &manifest::TargetTagSet::default())
+            .unwrap();
         assert_eq!(plan.kind, TargetInsertKind::ReplaceSameTags);
         assert_eq!(plan.replaced_target_ids, vec![old_content_id]);
         assert!(plan.invalidates_existing_installs);

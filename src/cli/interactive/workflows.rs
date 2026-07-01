@@ -65,7 +65,7 @@ pub(super) fn run_repo_create(theme: &ColorfulTheme) -> g::Result<PathBuf> {
     g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
     let template_name = match template {
-        super::TaggingTemplate::Standard => "standard (version::, os::, arch::, tier::)",
+        super::TaggingTemplate::Standard => "standard (version::, os::, arch::, access::)",
         super::TaggingTemplate::Minimal => "minimal (version:: only)",
     };
     println!("Applied tagging template: {}", template_name);
@@ -353,9 +353,7 @@ pub(super) fn run_sync_target_sources(theme: &ColorfulTheme, repo: &Path) -> g::
         println!("  {line}");
     }
     if plan.replace_same_tags_count > 0 {
-        println!(
-            "  Patron installs pinned to replaced content ids become invalid until updated."
-        );
+        println!("  Patron installs pinned to replaced content ids become invalid until updated.");
     }
 
     let confirmed = super::prompt_approval_action(theme, "Sync target sources?")?;

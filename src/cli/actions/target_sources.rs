@@ -63,9 +63,7 @@ fn print_target_sources_sync_plan(plan: &g::TargetSourcesSyncPlan, prune: bool) 
         println!("  {line}");
     }
     if plan.replace_same_tags_count > 0 {
-        println!(
-            "  Patron installs pinned to replaced content ids become invalid until updated."
-        );
+        println!("  Patron installs pinned to replaced content ids become invalid until updated.");
     }
 }
 
@@ -131,8 +129,8 @@ pub fn sync_target_sources(
     let mut tag_updated_count = 0;
     let mut replaced_same_tags_count = 0;
     for candidate in &candidates {
-        removed_count += g::delete_repo_targets_with_matching_tags(repo, &candidate.target_tags)?
-            .len();
+        removed_count +=
+            g::delete_repo_targets_with_matching_tags(repo, &candidate.target_tags)?.len();
         insert_candidate(repo, candidate)?;
         if tag_update_ids.contains(&candidate.content_target_id) {
             tag_updated_count += 1;

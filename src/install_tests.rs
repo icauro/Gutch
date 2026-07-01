@@ -1,8 +1,8 @@
 use super::*;
-use crate::{GutchRepoPaths, write_chunk_index};
 use crate::hash::hash_hex;
 use crate::manifest::{FileManifest, TargetTagSet};
 use crate::runtime::RuntimeResourceHints;
+use crate::{GutchRepoPaths, write_chunk_index};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
@@ -123,7 +123,6 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                     "version_id": "1.0.0",
                     "os": "windows",
                     "arch": "x86_64",
-                    "tier_id": "base",
                     "inserted_at": "2026-05-11T00:00:00Z",
                     "files": [
                         {

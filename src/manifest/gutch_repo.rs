@@ -13,10 +13,7 @@ pub struct GutchRepoManifest {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub product_id: String,
     pub created_at: String,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_schema: Option<TargetTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin: Option<PluginInfo>,

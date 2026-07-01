@@ -51,7 +51,6 @@ pub struct RepoInspectTargetStatus {
     pub version_id: String,
     pub os: String,
     pub arch: String,
-    pub tier_id: String,
     pub file_count: usize,
     pub required_bundle_count: usize,
     pub total_logical_size: u64,
@@ -72,7 +71,6 @@ pub struct SourceTargetInstallCandidate {
     pub version_id: String,
     pub os: String,
     pub arch: String,
-    pub tier_id: String,
     pub target_tags: manifest::TargetTagSet,
 }
 
@@ -400,7 +398,9 @@ pub fn write_gutch_repo_manifest(
 }
 
 pub fn compute_target_id_from_directory(dir: &Path) -> Result<String> {
-    Ok(compute_target_id_from_files(&scan_directory_files_for_content_id(dir)?))
+    Ok(compute_target_id_from_files(
+        &scan_directory_files_for_content_id(dir)?,
+    ))
 }
 
 fn scan_directory_files_for_content_id(dir: &Path) -> Result<Vec<FileManifest>> {
@@ -411,10 +411,13 @@ fn scan_directory_files_for_content_id(dir: &Path) -> Result<Vec<FileManifest>> 
             continue;
         }
 
-        let relative = entry.path().strip_prefix(dir).map_err(|err| Error::PathError {
-            path: entry.path().to_path_buf(),
-            reason: err.to_string(),
-        })?;
+        let relative = entry
+            .path()
+            .strip_prefix(dir)
+            .map_err(|err| Error::PathError {
+                path: entry.path().to_path_buf(),
+                reason: err.to_string(),
+            })?;
         let normalized_relative = relative.to_string_lossy().replace('\\', "/");
         let metadata = entry.metadata()?;
         let full_file_hash = hash_hex(&hash_file(entry.path())?);
@@ -533,11 +536,7 @@ pub fn cleanup_orphan_bundles_in_repo(repo_root: &Path) -> Result<usize> {
             .filter_map(|entry| entry.ok())
             .filter(|entry| {
                 entry.path().is_file()
-                    && entry
-                        .path()
-                        .extension()
-                        .and_then(|value| value.to_str())
-                        == Some("json")
+                    && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
             })
             .filter_map(|entry| {
                 entry
@@ -580,8 +579,8 @@ pub fn cleanup_orphan_bundles_in_repo(repo_root: &Path) -> Result<usize> {
 }
 
 pub use insert_plan::{
-    TargetInsertKind, TargetInsertPlan, delete_repo_targets, delete_repo_targets_with_matching_tags,
-    describe_target_insert_plan, plan_target_insert,
+    TargetInsertKind, TargetInsertPlan, delete_repo_targets,
+    delete_repo_targets_with_matching_tags, describe_target_insert_plan, plan_target_insert,
 };
 pub use target_sources::{
     TargetSourcesReplaceSameTags, TargetSourcesSyncPlan, TargetSourcesTagUpdate,
@@ -782,7 +781,6 @@ fn inspect_target_manifests(
             version_id: exclusive_tag_or_empty(&manifest.target_tags, "version"),
             os: exclusive_tag_or_empty(&manifest.target_tags, "os"),
             arch: exclusive_tag_or_empty(&manifest.target_tags, "arch"),
-            tier_id: exclusive_tag_or_empty(&manifest.target_tags, "tier"),
             file_count: manifest.files.len(),
             required_bundle_count: required_bundle_ids.len(),
             total_logical_size: manifest.total_logical_size,
@@ -830,7 +828,6 @@ fn build_source_target_install_candidate(
         version_id: exclusive_tag_or_empty(&resolved.target_tags, "version"),
         os: exclusive_tag_or_empty(&resolved.target_tags, "os"),
         arch: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
-        tier_id: exclusive_tag_or_empty(&resolved.target_tags, "tier"),
         target_tags: resolved.target_tags,
     })
 }
