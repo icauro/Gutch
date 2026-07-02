@@ -164,9 +164,15 @@ fn fetch_creator_targets(
     )?;
 
     let mut remote_targets = HashMap::new();
-    for tier in creator_targets.tier_labels {
-        for target in tier.targets {
+    if !creator_targets.targets.is_empty() {
+        for target in creator_targets.targets {
             remote_targets.insert(target.target_id.clone(), target);
+        }
+    } else {
+        for tier in creator_targets.tier_labels {
+            for target in tier.targets {
+                remote_targets.insert(target.target_id.clone(), target);
+            }
         }
     }
     Ok(remote_targets)
