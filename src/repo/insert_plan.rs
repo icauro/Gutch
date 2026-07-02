@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ExistingStoreState, Result, SourceTargetInstallCandidate,
-    build_source_target_install_candidate, inspect_gutch_repo, remove_target_from_repo,
+    build_source_target_install_candidate, check_gutch_repo, remove_target_from_repo,
     scan_existing_store_state,
 };
 use crate::manifest::TargetTagSet;
@@ -109,28 +109,7 @@ pub fn plan_target_insert(
     let rules = repo_manifest.target_schema.clone().unwrap_or_default();
 
     let candidate = build_source_target_install_candidate(source_dir, &rules, explicit_tags)?;
-    let status = inspect_gutch_repo(repo_root)?;
-
-    if let Some(existing) = status
-        .targets
-        .iter()
-        .find(|target| target.target_id == candidate.content_target_id)
-    {
-        if existing.target_tags != candidate.target_tags {
-            return Ok(TargetInsertPlan::from_candidate(
-                candidate,
-                TargetInsertKind::UpdateTags,
-                Some(existing.target_tags.clone()),
-                Vec::new(),
-            ));
-        }
-        return Ok(TargetInsertPlan::from_candidate(
-            candidate,
-            TargetInsertKind::InsertNew,
-            None,
-            Vec::new(),
-        ));
-    }
+    let status = check_gutch_repo(repo_root)?;
 
     let replaced_target_ids: Vec<String> = status
         .targets
@@ -211,7 +190,7 @@ pub fn delete_repo_targets_with_matching_tags(
     repo_root: &Path,
     target_tags: &TargetTagSet,
 ) -> Result<Vec<String>> {
-    let status = inspect_gutch_repo(repo_root)?;
+    let status = check_gutch_repo(repo_root)?;
     let mut removed = Vec::new();
     for target in status.targets {
         if target.target_tags != *target_tags {
@@ -397,6 +376,8 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     let mut result = result;
     let target_id = crate::compute_target_id_from_files(&result.target_manifest.files);
     result.target_manifest.target_id = target_id.clone();
+    result.target_manifest.source_modified_at =
+        crate::repo::source_modified_at_from_directory(request.source_dir.as_path())?;
     crate::core::target_identity::apply_resolved_target_identity(
         &mut result.target_manifest,
         &resolved_identity,
@@ -408,6 +389,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         if existing_manifest.target_tags != result.target_manifest.target_tags {
             let mut updated_manifest = existing_manifest;
             updated_manifest.target_tags = result.target_manifest.target_tags.clone();
+            updated_manifest.source_modified_at = result.target_manifest.source_modified_at.clone();
             let (manifest_path, _) =
                 crate::write_target_manifest_artifacts(&repo_paths, &updated_manifest)?;
             let required_chunk_count = crate::repo::required_chunk_hashes(&updated_manifest).len();
@@ -651,8 +633,8 @@ fn median_u64(sorted_values: &[u64]) -> u64 {
 pub fn describe_target_insert_plan(plan: &TargetInsertPlan) -> String {
     match plan.kind {
         TargetInsertKind::InsertNew => format!(
-            "Insert new target {} ({})",
-            plan.content_target_id, plan.folder_name
+            "Insert new target slot {} ({})",
+            plan.folder_name, plan.version_id
         ),
         TargetInsertKind::UpdateTags => format!(
             "Update tags for existing content {} ({}): folder rename or tag inference changed; content unchanged",
@@ -708,7 +690,9 @@ mod tests {
         }];
         let old_content_id = compute_target_id_from_files(&old_files);
         let mut old_manifest =
-            TargetManifest::new(old_content_id.clone(), old_candidate.target_tags);
+            TargetManifest::new(old_content_id.clone(), old_candidate.target_tags.clone());
+        old_manifest.source_modified_at =
+            crate::repo::source_modified_at_from_directory(&new_source).unwrap();
         old_manifest.files = old_files;
         write_target_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
 

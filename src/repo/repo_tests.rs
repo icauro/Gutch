@@ -88,7 +88,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
 }
 
 #[test]
-fn inspect_gutch_repo_reports_targets() {
+fn check_gutch_repo_reports_targets() {
     let root = std::env::temp_dir().join(format!(
         "gutch_repo_inspect_test_{}_{}",
         std::process::id(),
@@ -114,7 +114,7 @@ fn inspect_gutch_repo_reports_targets() {
     write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
     std::fs::write(repo_paths.bundles_root.join("bundle-a"), b"bundle-a").unwrap();
 
-    let status = inspect_gutch_repo(&repo_root).unwrap();
+    let status = check_gutch_repo(&repo_root).unwrap();
 
     assert!(status.exists);
     assert!(status.is_repo);
@@ -366,7 +366,7 @@ fn inspect_repo_shows_target_tags() {
     });
     write_target_manifest_artifacts(&paths, &manifest).unwrap();
 
-    let status = inspect_gutch_repo(&root).unwrap();
+    let status = check_gutch_repo(&root).unwrap();
     assert_eq!(status.targets.len(), 1);
     assert_eq!(status.targets[0].target_id, "2");
     assert_eq!(status.targets[0].version_id, "2.0.0");

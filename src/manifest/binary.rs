@@ -180,6 +180,7 @@ pub(crate) fn target_manifest_from_shell(
         manifest_version: shell.manifest_version,
         target_id,
         inserted_at: shell.inserted_at,
+        source_modified_at: String::new(),
         total_logical_size: shell.total_logical_size,
         total_compressed_size_estimate: shell.total_compressed_size_estimate,
         target_tags: shell.target_tags,

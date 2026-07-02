@@ -350,14 +350,13 @@ pub(super) fn run_sync_target_sources(theme: &ColorfulTheme, repo: &Path) -> g::
     println!("target sources sync plan");
     println!("candidates: {}", plan.candidate_count);
     println!("new targets: {}", plan.insertable_count);
-    println!("tag updates: {}", plan.tag_update_count);
-    println!("same-tag replacements: {}", plan.replace_same_tags_count);
-    println!("to refresh: {}", plan.refresh_count());
+    println!("refreshes: {}", plan.refresh_count);
+    println!("up to date: {}", plan.up_to_date_count());
     println!("to prune: {}", plan.removable_count);
     for line in g::describe_target_sources_sync_plan(&plan) {
         println!("  {line}");
     }
-    if plan.replace_same_tags_count > 0 {
+    if plan.refresh_count > 0 {
         println!("  Patron installs pinned to replaced content ids become invalid until updated.");
     }
 

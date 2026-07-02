@@ -86,7 +86,7 @@ pub(super) fn render_target_tag_summary(
 }
 
 pub(super) fn print_repo_summary(repo: &Path) -> g::Result<()> {
-    let status = g::inspect_gutch_repo(repo)?;
+    let status = g::check_gutch_repo(repo)?;
     let config = g::config::load_config()?;
     let tracked = config.find_repo(&repo.display().to_string());
 
@@ -120,8 +120,9 @@ pub(super) fn print_repo_summary(repo: &Path) -> g::Result<()> {
     Ok(())
 }
 
-pub(super) fn print_repo_inspect(repo: &Path) -> g::Result<()> {
-    let status = g::inspect_gutch_repo(repo)?;
+pub(super) fn print_repo_check(repo: &Path) -> g::Result<()> {
+    let tracked = g::check_tracked_gutch_repo(repo)?;
+    let status = tracked.repo_status;
     if !status.is_repo {
         println!("not a gutch repo.");
         return Ok(());
@@ -135,6 +136,38 @@ pub(super) fn print_repo_inspect(repo: &Path) -> g::Result<()> {
             render_target_tag_summary(&target.target_tags, status.target_schema.as_ref()),
             target.file_count,
             target.missing_bundle_count
+        );
+    }
+
+    if let (Some(repo_timings), Some(tracked_timings)) =
+        (status.timings.as_ref(), tracked.timings.as_ref())
+    {
+        println!();
+        crate::cli::reporting::print_tracked_repo_check_timings(repo_timings, tracked_timings);
+    } else if let Some(repo_timings) = status.timings.as_ref() {
+        println!();
+        crate::cli::reporting::print_repo_check_timings(repo_timings);
+    }
+
+    Ok(())
+}
+
+pub(super) fn print_repo_verify(
+    repo: &Path,
+    target_id: Option<&str>,
+    mode: g::VerifyMode,
+) -> g::Result<()> {
+    let result = g::verify_gutch_repo(repo, target_id, mode)?;
+    println!();
+    println!("verify mode: {}", result.mode);
+    println!("ok: {}", result.ok);
+    for target in &result.targets {
+        println!(
+            "{} | ok={} | missing={} | corrupt={}",
+            target.target_id,
+            target.ok,
+            target.missing_bundle_count,
+            target.corrupt_bundle_count
         );
     }
     Ok(())

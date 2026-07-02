@@ -207,11 +207,11 @@ fn remote_bundle_exists(
 fn collect_local_sync_targets(
     repo: &Path,
 ) -> Result<(
-    crate::RepoInspectStatus,
+    crate::RepoCheckStatus,
     crate::GutchRepoPaths,
     Vec<LocalSyncTarget>,
 )> {
-    let status = crate::inspect_gutch_repo(repo)?;
+    let status = crate::check_gutch_repo(repo)?;
     if !status.is_repo {
         return Err(crate::Error::manifest(format!(
             "no gutch repo found at {}",

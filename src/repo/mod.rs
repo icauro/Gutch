@@ -8,6 +8,7 @@ mod insert_plan;
 mod init_policy;
 mod remote_ops;
 mod target_sources;
+mod verify;
 
 use crate::hash::{hash_file, hash_hex};
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
@@ -30,7 +31,7 @@ pub struct GutchRepoPaths {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoInspectStatus {
+pub struct RepoCheckStatus {
     pub exists: bool,
     pub is_repo: bool,
     pub repo_path: String,
@@ -41,27 +42,65 @@ pub struct RepoInspectStatus {
     pub target_schema: Option<manifest::TargetTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_manifest: Option<manifest::gutch_repo::GutchRepoManifest>,
-    pub targets: Vec<RepoInspectTargetStatus>,
+    pub targets: Vec<RepoCheckTargetStatus>,
+    #[serde(default)]
     pub bundle_count: usize,
+    #[serde(default)]
     pub bundle_bytes: u64,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timings: Option<RepoCheckTimings>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCheckTimings {
+    /// Time to load repo_manifest.json
+    pub load_manifest_ms: u64,
+    /// Time to scan bundle inventory on disk
+    pub scan_bundles_ms: u64,
+    /// Time to load chunk_index.json
+    pub load_chunk_index_ms: u64,
+    /// Time to load target manifests and compute missing bundles
+    pub load_target_manifests_ms: u64,
+    /// Number of target manifests loaded
+    pub target_count: usize,
+    /// Total time for the check call
+    pub total_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TrackedRepoInspectStatus {
-    pub repo_status: RepoInspectStatus,
+pub struct TrackedRepoCheckStatus {
+    pub repo_status: RepoCheckStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_sources_path: Option<String>,
     #[serde(default)]
     pub source_target_installs: Vec<SourceTargetInstallCandidate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_sources_plan: Option<TargetSourcesSyncPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timings: Option<TrackedRepoCheckTimings>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackedRepoCheckTimings {
+    /// Time to load config and find repo entry
+    pub load_config_ms: u64,
+    /// Time to scan source target installs
+    pub scan_sources_ms: u64,
+    /// Time to build the target sources sync plan
+    pub plan_sources_ms: u64,
+    /// Number of source folders found
+    pub source_count: usize,
+    /// Total time for the tracked check call
+    pub total_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoInspectTargetStatus {
+pub struct RepoCheckTargetStatus {
     pub target_id: String,
     pub version_id: String,
     pub os: String,
@@ -71,6 +110,7 @@ pub struct RepoInspectTargetStatus {
     pub total_logical_size: u64,
     pub manifest_path: String,
     pub missing_bundle_count: usize,
+    pub source_modified_at: String,
     pub target_tags: manifest::TargetTagSet,
 }
 
@@ -81,8 +121,12 @@ pub struct SourceTargetInstallCandidate {
     pub folder_name: String,
     /// Tag-derived identity preview for display (not the content hash).
     pub target_id: String,
-    /// Content-derived target id (same as stored repo target manifests).
+    /// Content-derived target id (computed at insert time; empty during fast source scan).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content_target_id: String,
+    /// Max source file mtime (UTC) from a metadata-only directory walk.
+    #[serde(default)]
+    pub source_modified_at: String,
     pub version_id: String,
     pub os: String,
     pub arch: String,
@@ -448,6 +492,65 @@ pub fn compute_target_id_from_directory(dir: &Path) -> Result<String> {
     ))
 }
 
+pub fn source_modified_at_from_directory(dir: &Path) -> Result<String> {
+    Ok(format_system_time_utc(max_file_modified_time(dir)?))
+}
+
+pub(crate) fn format_system_time_utc(time: std::time::SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(time).format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+pub(crate) fn is_source_modified_at_newer(candidate: &str, recorded: &str) -> bool {
+    if recorded.trim().is_empty() {
+        return true;
+    }
+    let Some(recorded_time) = parse_source_modified_at(recorded) else {
+        return true;
+    };
+    let Some(candidate_time) = parse_source_modified_at(candidate) else {
+        return false;
+    };
+    candidate_time > recorded_time
+}
+
+fn parse_source_modified_at(value: &str) -> Option<std::time::SystemTime> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(std::time::SystemTime::from)
+}
+
+fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
+    if !dir.is_dir() {
+        return Err(Error::manifest(format!(
+            "source path is not a directory: {}",
+            dir.display()
+        )));
+    }
+
+    let mut max_mtime = std::time::SystemTime::UNIX_EPOCH;
+    let mut found_file = false;
+    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() {
+            continue;
+        }
+        let mtime = entry.metadata()?.modified()?;
+        if !found_file || mtime > max_mtime {
+            max_mtime = mtime;
+            found_file = true;
+        }
+    }
+
+    if found_file {
+        return Ok(max_mtime);
+    }
+
+    dir.metadata()?.modified().map_err(|err| Error::manifest(format!(
+        "failed to read source directory mtime for {}: {err}",
+        dir.display()
+    )))
+}
+
 fn scan_directory_files_for_content_id(dir: &Path) -> Result<Vec<FileManifest>> {
     let mut file_manifests = Vec::new();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
@@ -723,10 +826,11 @@ pub use remote_ops::{
     sync_up_repo, sync_up_repo_with_progress, unlink_repo,
 };
 pub use target_sources::{
-    TargetSourcesReplaceSameTags, TargetSourcesSyncOptions, TargetSourcesSyncPlan,
-    TargetSourcesSyncResult, TargetSourcesTagUpdate, describe_target_sources_sync_plan,
-    plan_target_sources_sync, sync_target_sources,
+    TargetSourcesRefresh, TargetSourcesSyncOptions, TargetSourcesSyncPlan, TargetSourcesSyncResult,
+    describe_target_sources_sync_plan, plan_target_sources_sync, sync_target_sources,
 };
+
+pub use verify::{RepoVerifyResult, RepoVerifyTimings, TargetVerifyResult, verify_gutch_repo};
 
 pub fn ensure_gutch_repo_tracked(repo_path: &str) -> Result<()> {
     let repo_path_str = repo_path.trim();
@@ -745,53 +849,74 @@ pub fn ensure_gutch_repo_tracked(repo_path: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn inspect_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoInspectStatus> {
-    let repo_status = inspect_gutch_repo(repo_root)?;
+pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStatus> {
+    let total_start = std::time::Instant::now();
+    let repo_status = check_gutch_repo(repo_root)?;
     if repo_status.is_repo {
         ensure_gutch_repo_tracked(&repo_status.repo_path)?;
     }
 
+    let config_start = std::time::Instant::now();
     let target_sources_path = crate::config::load_config()?
         .find_repo(&repo_status.repo_path)
         .and_then(|repo| repo.target_sources_path.clone())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    let load_config_ms = config_start.elapsed().as_millis() as u64;
 
+    let sources_start = std::time::Instant::now();
     let source_target_installs = match target_sources_path.as_deref() {
         Some(path) if repo_status.is_repo => {
             discover_source_target_installs(repo_root, Path::new(path))?
         }
         _ => Vec::new(),
     };
+    let scan_sources_ms = sources_start.elapsed().as_millis() as u64;
+    let source_count = source_target_installs.len();
+
+    let plan_start = std::time::Instant::now();
     let target_sources_plan = if repo_status.is_repo {
-        Some(plan_target_sources_sync(
+        Some(target_sources::plan_target_sources_sync_with_context(
             repo_root,
             target_sources_path.as_deref().map(Path::new),
+            Some(source_target_installs.as_slice()),
+            Some(&repo_status),
         )?)
     } else {
         None
     };
+    let plan_sources_ms = plan_start.elapsed().as_millis() as u64;
 
-    Ok(TrackedRepoInspectStatus {
+    let total_ms = total_start.elapsed().as_millis() as u64;
+
+    Ok(TrackedRepoCheckStatus {
         repo_status,
         target_sources_path,
         source_target_installs,
         target_sources_plan,
+        timings: Some(TrackedRepoCheckTimings {
+            load_config_ms,
+            scan_sources_ms,
+            plan_sources_ms,
+            source_count,
+            total_ms,
+        }),
     })
 }
 
-pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
+pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
+    let total_start = std::time::Instant::now();
     let repo_path = repo_root.to_path_buf();
     let repo_path_display = repo_path.display().to_string();
     if !repo_path.exists() {
-        return Ok(empty_repo_inspect_status(
+        return Ok(empty_repo_check_status(
             repo_path_display,
             false,
             Some("Path does not exist.".to_string()),
         ));
     }
     if !repo_path.is_dir() {
-        return Ok(empty_repo_inspect_status(
+        return Ok(empty_repo_check_status(
             repo_path_display,
             true,
             Some("Path is not a directory.".to_string()),
@@ -800,24 +925,32 @@ pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
 
     let repo_manifest_path = repo_path.join(CONTENT_REPO_MANIFEST_FILE);
     if !repo_manifest_path.exists() {
-        return Ok(empty_repo_inspect_status(
+        return Ok(empty_repo_check_status(
             repo_path_display,
             true,
             Some("repo_manifest.json was not found.".to_string()),
         ));
     }
 
+    let manifest_start = std::time::Instant::now();
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo_path)?;
-    let (_bundle_ids, bundle_count, bundle_bytes) =
-        inspect_bundle_inventory(&repo_paths.bundles_root)?;
-    let targets = inspect_target_manifests(
+    let load_manifest_ms = manifest_start.elapsed().as_millis() as u64;
+
+    let scan_start = std::time::Instant::now();
+    let (available_bundle_ids, bundle_count, bundle_bytes) =
+        scan_bundle_inventory(&repo_paths.bundles_root)?;
+    let scan_bundles_ms = scan_start.elapsed().as_millis() as u64;
+
+    let (targets, target_check_timings) = check_target_manifests(
         &repo_paths,
         &repo_paths.targets_root,
-        &repo_paths.bundles_root,
-        repo_manifest.target_schema.as_ref(),
+        &available_bundle_ids,
     )?;
+    let target_count = targets.len();
 
-    Ok(RepoInspectStatus {
+    let total_ms = total_start.elapsed().as_millis() as u64;
+
+    Ok(RepoCheckStatus {
         exists: true,
         is_repo: true,
         repo_path: repo_path_display,
@@ -830,6 +963,14 @@ pub fn inspect_gutch_repo(repo_root: &Path) -> Result<RepoInspectStatus> {
         bundle_count,
         bundle_bytes,
         error: None,
+        timings: Some(RepoCheckTimings {
+            load_manifest_ms,
+            scan_bundles_ms,
+            load_chunk_index_ms: target_check_timings.load_chunk_index_ms,
+            load_target_manifests_ms: target_check_timings.load_target_manifests_ms,
+            target_count,
+            total_ms,
+        }),
     })
 }
 
@@ -876,6 +1017,7 @@ pub fn discover_source_target_installs(
                         folder_name,
                         target_id: String::new(),
                         content_target_id: String::new(),
+                        source_modified_at: String::new(),
                         version_id: String::new(),
                         os: String::new(),
                         arch: String::new(),
@@ -913,12 +1055,12 @@ pub fn preview_source_target_install(
     build_source_target_install_candidate(source_dir, &rules, &manifest::TargetTagSet::default())
 }
 
-fn empty_repo_inspect_status(
+fn empty_repo_check_status(
     repo_path: String,
     exists: bool,
     error: Option<String>,
-) -> RepoInspectStatus {
-    RepoInspectStatus {
+) -> RepoCheckStatus {
+    RepoCheckStatus {
         exists,
         is_repo: false,
         repo_path,
@@ -931,10 +1073,11 @@ fn empty_repo_inspect_status(
         bundle_count: 0,
         bundle_bytes: 0,
         error,
+        timings: None,
     }
 }
 
-fn inspect_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usize, u64)> {
+fn scan_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usize, u64)> {
     if !bundles_root.exists() {
         return Ok((HashSet::new(), 0, 0));
     }
@@ -958,18 +1101,20 @@ fn inspect_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usi
     Ok((bundle_ids, bundle_count, bundle_bytes))
 }
 
-fn inspect_target_manifests(
+fn check_target_manifests(
     repo_paths: &GutchRepoPaths,
     targets_root: &Path,
-    bundles_root: &Path,
-    _target_schema: Option<&manifest::TargetTagSchema>,
-) -> Result<Vec<RepoInspectTargetStatus>> {
+    available_bundle_ids: &HashSet<String>,
+) -> Result<(Vec<RepoCheckTargetStatus>, TargetManifestCheckTimings)> {
     if !targets_root.exists() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), TargetManifestCheckTimings::default()));
     }
 
-    let (available_bundle_ids, _, _) = inspect_bundle_inventory(bundles_root)?;
+    let chunk_start = std::time::Instant::now();
     let chunk_index = load_chunk_index(repo_paths)?;
+    let load_chunk_index_ms = chunk_start.elapsed().as_millis() as u64;
+
+    let manifests_start = std::time::Instant::now();
     let mut targets = Vec::new();
     for entry in std::fs::read_dir(targets_root)? {
         let entry = entry?;
@@ -989,7 +1134,7 @@ fn inspect_target_manifests(
             .filter(|bundle_id| !available_bundle_ids.contains(*bundle_id))
             .count();
 
-        targets.push(RepoInspectTargetStatus {
+        targets.push(RepoCheckTargetStatus {
             target_id: manifest.target_id.clone(),
             version_id: exclusive_tag_or_empty(&manifest.target_tags, "version"),
             os: exclusive_tag_or_empty(&manifest.target_tags, "os"),
@@ -999,12 +1144,27 @@ fn inspect_target_manifests(
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),
             missing_bundle_count,
+            source_modified_at: manifest.source_modified_at.clone(),
             target_tags: manifest.target_tags,
         });
     }
 
     targets.sort_by(|left, right| left.target_id.cmp(&right.target_id));
-    Ok(targets)
+    let load_target_manifests_ms = manifests_start.elapsed().as_millis() as u64;
+
+    Ok((
+        targets,
+        TargetManifestCheckTimings {
+            load_chunk_index_ms,
+            load_target_manifests_ms,
+        },
+    ))
+}
+
+#[derive(Debug, Clone, Default)]
+struct TargetManifestCheckTimings {
+    load_chunk_index_ms: u64,
+    load_target_manifests_ms: u64,
 }
 
 fn infer_source_target_candidate(
@@ -1031,13 +1191,15 @@ fn build_source_target_install_candidate(
         .ok_or_else(|| Error::manifest(format!("invalid source target path: {}", path.display())))?
         .to_string();
 
-    let content_target_id = compute_target_id_from_directory(path)?;
+    let content_target_id = String::new();
+    let source_modified_at = source_modified_at_from_directory(path)?;
 
     Ok(SourceTargetInstallCandidate {
         path: path.display().to_string(),
         folder_name,
         target_id: preview_target_identity(&resolved.target_tags, Some(rules)),
         content_target_id,
+        source_modified_at,
         version_id: exclusive_tag_or_empty(&resolved.target_tags, "version"),
         os: exclusive_tag_or_empty(&resolved.target_tags, "os"),
         arch: exclusive_tag_or_empty(&resolved.target_tags, "arch"),

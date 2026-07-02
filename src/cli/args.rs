@@ -62,9 +62,19 @@ pub enum RepoCommands {
         #[arg(long = "clear")]
         clear: bool,
     },
-    Inspect {
+    Check {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
+        #[arg(long = "json-out")]
+        json_out: Option<PathBuf>,
+    },
+    Verify {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+        #[arg(long = "target")]
+        target: Option<String>,
+        #[arg(long = "strict")]
+        strict: bool,
         #[arg(long = "json-out")]
         json_out: Option<PathBuf>,
     },

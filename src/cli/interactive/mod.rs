@@ -121,8 +121,11 @@ pub(crate) fn run() -> g::Result<()> {
                         handle_action_error(err)?;
                     }
                 }
-                RepoWorkAction::RepoInspect => {
-                    display::print_repo_inspect(repo)?;
+                RepoWorkAction::RepoCheck => {
+                    display::print_repo_check(repo)?;
+                }
+                RepoWorkAction::RepoVerify => {
+                    display::print_repo_verify(repo, None, g::VerifyMode::Fast)?;
                 }
                 RepoWorkAction::RepoSyncUp => {
                     if let Err(err) = run_interactive_repo_sync_up(repo) {

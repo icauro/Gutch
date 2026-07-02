@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ensure_gutch_repo_layout, inspect_gutch_repo, write_gutch_repo_manifest, GutchRepoPaths};
+use super::{ensure_gutch_repo_layout, check_gutch_repo, write_gutch_repo_manifest, GutchRepoPaths};
 use crate::manifest;
 use crate::{Error, Result};
 
@@ -89,7 +89,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     let paths = GutchRepoPaths::from_repo_root(repo_root);
 
     if paths.repo_manifest_path.exists() {
-        let status = inspect_gutch_repo(repo_root)?;
+        let status = check_gutch_repo(repo_root)?;
         if status.is_repo {
             return Ok(RepoInitAssessment {
                 path,
@@ -317,7 +317,7 @@ mod tests {
         )
         .unwrap();
 
-        let status = inspect_gutch_repo(&repo_root).unwrap();
+        let status = check_gutch_repo(&repo_root).unwrap();
         assert!(status.is_repo);
         assert_eq!(status.targets.len(), 0);
         assert_eq!(status.bundle_count, 0);

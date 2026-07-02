@@ -147,7 +147,7 @@ pub(super) fn prompt_target_selection(
     repo: &Path,
     prompt: &str,
 ) -> g::Result<Option<String>> {
-    let status = g::inspect_gutch_repo(repo)?;
+    let status = g::check_gutch_repo(repo)?;
     let target_schema = status.target_schema.as_ref();
     if status.targets.is_empty() {
         println!("No targets found in repo.");

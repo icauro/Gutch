@@ -18,9 +18,8 @@ fn print_target_sources_sync_plan(plan: &g::TargetSourcesSyncPlan, prune: bool) 
     println!("target sources sync plan:");
     println!("candidates: {}", plan.candidate_count);
     println!("new targets: {}", plan.insertable_count);
-    println!("tag updates: {}", plan.tag_update_count);
-    println!("same-tag replacements: {}", plan.replace_same_tags_count);
-    println!("to refresh: {}", plan.refresh_count());
+    println!("refreshes: {}", plan.refresh_count);
+    println!("up to date: {}", plan.up_to_date_count());
     println!(
         "to prune: {}{}",
         plan.removable_count,
@@ -33,7 +32,7 @@ fn print_target_sources_sync_plan(plan: &g::TargetSourcesSyncPlan, prune: bool) 
     for line in g::describe_target_sources_sync_plan(plan) {
         println!("  {line}");
     }
-    if plan.replace_same_tags_count > 0 {
+    if plan.refresh_count > 0 {
         println!("  Patron installs pinned to replaced content ids become invalid until updated.");
     }
 }
@@ -56,8 +55,7 @@ pub fn sync_target_sources(
         println!("target sources sync: no changes");
         return Ok(g::TargetSourcesSyncResult {
             inserted_count: 0,
-            tag_updated_count: 0,
-            replaced_same_tags_count: 0,
+            refreshed_count: 0,
             removed_count: 0,
             pruned: prune,
         });
@@ -69,8 +67,7 @@ pub fn sync_target_sources(
         println!("target sources sync cancelled");
         return Ok(g::TargetSourcesSyncResult {
             inserted_count: 0,
-            tag_updated_count: 0,
-            replaced_same_tags_count: 0,
+            refreshed_count: 0,
             removed_count: 0,
             pruned: prune,
         });
@@ -87,10 +84,9 @@ pub fn sync_target_sources(
     )?;
 
     println!(
-        "target sources sync complete: inserted {}, tag updates {}, same-tag replacements {}, pruned {}{}",
+        "target sources sync complete: inserted {}, refreshed {}, pruned {}{}",
         result.inserted_count,
-        result.tag_updated_count,
-        result.replaced_same_tags_count,
+        result.refreshed_count,
         result.removed_count,
         if prune {
             String::new()

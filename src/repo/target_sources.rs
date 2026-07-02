@@ -5,29 +5,20 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Result, SourceTargetInstallCandidate, discover_source_target_installs, inspect_gutch_repo,
+    Result, RepoCheckStatus, SourceTargetInstallCandidate, discover_source_target_installs,
+    check_gutch_repo, is_source_modified_at_newer,
 };
 use crate::manifest::TargetTagSet;
 use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetSourcesTagUpdate {
-    pub content_target_id: String,
+pub struct TargetSourcesRefresh {
     pub folder_name: String,
     pub path: String,
-    pub from_tags: TargetTagSet,
-    pub to_tags: TargetTagSet,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TargetSourcesReplaceSameTags {
-    pub folder_name: String,
-    pub path: String,
-    pub content_target_id: String,
-    pub replaced_target_ids: Vec<String>,
     pub target_tags: TargetTagSet,
+    pub replaced_target_ids: Vec<String>,
+    pub source_modified_at: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,8 +30,7 @@ pub struct TargetSourcesSyncOptions {
 #[serde(rename_all = "camelCase")]
 pub struct TargetSourcesSyncResult {
     pub inserted_count: usize,
-    pub tag_updated_count: usize,
-    pub replaced_same_tags_count: usize,
+    pub refreshed_count: usize,
     pub removed_count: usize,
     pub pruned: bool,
 }
@@ -51,15 +41,14 @@ pub struct TargetSourcesSyncPlan {
     pub sources_ready: bool,
     pub candidate_count: usize,
     pub insertable_count: usize,
-    pub tag_update_count: usize,
-    pub replace_same_tags_count: usize,
+    pub refresh_count: usize,
     pub removable_count: usize,
     #[serde(default)]
     pub to_insert: Vec<SourceTargetInstallCandidate>,
     #[serde(default)]
-    pub to_update_tags: Vec<TargetSourcesTagUpdate>,
+    pub to_refresh: Vec<TargetSourcesRefresh>,
     #[serde(default)]
-    pub to_replace_same_tags: Vec<TargetSourcesReplaceSameTags>,
+    pub to_apply: Vec<SourceTargetInstallCandidate>,
     #[serde(default)]
     pub to_remove: Vec<String>,
 }
@@ -70,37 +59,42 @@ impl TargetSourcesSyncPlan {
             sources_ready: false,
             candidate_count: 0,
             insertable_count: 0,
-            tag_update_count: 0,
-            replace_same_tags_count: 0,
+            refresh_count: 0,
             removable_count: 0,
             to_insert: Vec::new(),
-            to_update_tags: Vec::new(),
-            to_replace_same_tags: Vec::new(),
+            to_refresh: Vec::new(),
+            to_apply: Vec::new(),
             to_remove: Vec::new(),
         }
     }
 
     pub fn has_changes(&self) -> bool {
-        self.insertable_count > 0
-            || self.tag_update_count > 0
-            || self.replace_same_tags_count > 0
-            || self.removable_count > 0
+        self.insertable_count > 0 || self.refresh_count > 0 || self.removable_count > 0
     }
 
     pub fn requires_confirmation(&self) -> bool {
         self.has_changes()
     }
 
-    pub fn refresh_count(&self) -> usize {
+    pub fn up_to_date_count(&self) -> usize {
         self.candidate_count
             .saturating_sub(self.insertable_count)
-            .saturating_sub(self.tag_update_count)
+            .saturating_sub(self.refresh_count)
     }
 }
 
 pub fn plan_target_sources_sync(
     repo_root: &Path,
     sources_path: Option<&Path>,
+) -> Result<TargetSourcesSyncPlan> {
+    plan_target_sources_sync_with_context(repo_root, sources_path, None, None)
+}
+
+pub(crate) fn plan_target_sources_sync_with_context(
+    repo_root: &Path,
+    sources_path: Option<&Path>,
+    candidates: Option<&[SourceTargetInstallCandidate]>,
+    repo_status: Option<&RepoCheckStatus>,
 ) -> Result<TargetSourcesSyncPlan> {
     let Some(sources_path) = normalized_sources_path(sources_path) else {
         return Ok(TargetSourcesSyncPlan::empty());
@@ -111,78 +105,81 @@ pub fn plan_target_sources_sync(
         ..TargetSourcesSyncPlan::empty()
     };
 
-    let candidates = match discover_source_target_installs(repo_root, &sources_path) {
-        Ok(candidates) => candidates,
-        Err(_) => return Ok(plan),
+    let candidates = match candidates {
+        Some(candidates) => candidates.to_vec(),
+        None => match discover_source_target_installs(repo_root, &sources_path) {
+            Ok(candidates) => candidates,
+            Err(_) => return Ok(plan),
+        },
     };
 
-    let status = inspect_gutch_repo(repo_root)?;
-    let candidate_content_ids: HashSet<String> = candidates
-        .iter()
-        .map(|candidate| candidate.content_target_id.clone())
+    let status = match repo_status {
+        Some(status) => status.clone(),
+        None => check_gutch_repo(repo_root)?,
+    };
+
+    let valid_candidates: Vec<_> = candidates
+        .into_iter()
+        .filter(|candidate| candidate.error.is_none())
         .collect();
 
-    plan.candidate_count = candidates.len();
+    let candidate_tag_sets: Vec<TargetTagSet> = valid_candidates
+        .iter()
+        .map(|candidate| candidate.target_tags.clone())
+        .collect();
+
+    plan.candidate_count = valid_candidates.len();
     plan.to_remove = status
         .targets
         .iter()
-        .filter(|target| !candidate_content_ids.contains(&target.target_id))
+        .filter(|target| {
+            !candidate_tag_sets
+                .iter()
+                .any(|tags| tags == &target.target_tags)
+        })
         .map(|target| target.target_id.clone())
         .collect();
     plan.removable_count = plan.to_remove.len();
 
-    // Collect existing target IDs (both tag-derived and content-derived)
-    let existing_target_ids: HashSet<String> = status
-        .targets
-        .iter()
-        .map(|target| target.target_id.clone())
-        .collect();
-
-    for candidate in candidates {
-        // Skip if this folder's tag set already matches an existing target
-        if existing_target_ids.contains(&candidate.target_id) {
-            continue;
-        }
-
-        let Some(repo_target) = status
+    for candidate in valid_candidates {
+        let matching_targets: Vec<_> = status
             .targets
             .iter()
-            .find(|target| target.target_id == candidate.content_target_id)
-        else {
-            let replaced_target_ids: Vec<String> = status
-                .targets
-                .iter()
-                .filter(|target| target.target_tags == candidate.target_tags)
-                .map(|target| target.target_id.clone())
-                .collect();
-            if !replaced_target_ids.is_empty() {
-                plan.to_replace_same_tags
-                    .push(TargetSourcesReplaceSameTags {
-                        folder_name: candidate.folder_name.clone(),
-                        path: candidate.path.clone(),
-                        content_target_id: candidate.content_target_id.clone(),
-                        replaced_target_ids,
-                        target_tags: candidate.target_tags.clone(),
-                    });
-            }
-            plan.to_insert.push(candidate);
-            continue;
-        };
+            .filter(|target| target.target_tags == candidate.target_tags)
+            .collect();
 
-        if repo_target.target_tags != candidate.target_tags {
-            plan.to_update_tags.push(TargetSourcesTagUpdate {
-                content_target_id: candidate.content_target_id,
-                folder_name: candidate.folder_name,
-                path: candidate.path,
-                from_tags: repo_target.target_tags.clone(),
-                to_tags: candidate.target_tags,
-            });
+        if matching_targets.is_empty() {
+            plan.to_insert.push(candidate.clone());
+            plan.to_apply.push(candidate);
+            continue;
         }
+
+        let recorded_source_modified_at = matching_targets
+            .first()
+            .map(|target| target.source_modified_at.as_str())
+            .unwrap_or_default();
+        if !is_source_modified_at_newer(
+            &candidate.source_modified_at,
+            recorded_source_modified_at,
+        ) {
+            continue;
+        }
+
+        plan.to_refresh.push(TargetSourcesRefresh {
+            folder_name: candidate.folder_name.clone(),
+            path: candidate.path.clone(),
+            target_tags: candidate.target_tags.clone(),
+            replaced_target_ids: matching_targets
+                .iter()
+                .map(|target| target.target_id.clone())
+                .collect(),
+            source_modified_at: candidate.source_modified_at.clone(),
+        });
+        plan.to_apply.push(candidate);
     }
 
     plan.insertable_count = plan.to_insert.len();
-    plan.tag_update_count = plan.to_update_tags.len();
-    plan.replace_same_tags_count = plan.to_replace_same_tags.len();
+    plan.refresh_count = plan.to_refresh.len();
 
     Ok(plan)
 }
@@ -198,19 +195,10 @@ fn normalized_sources_path(sources_path: Option<&Path>) -> Option<std::path::Pat
 
 pub fn describe_target_sources_sync_plan(plan: &TargetSourcesSyncPlan) -> Vec<String> {
     let mut lines = Vec::new();
-    for update in &plan.to_update_tags {
+    for refresh in &plan.to_refresh {
         lines.push(format!(
-            "Tag update for {} ({}): same content {}, tags will change",
-            update.folder_name, update.path, update.content_target_id
-        ));
-    }
-    for replace in &plan.to_replace_same_tags {
-        lines.push(format!(
-            "Replace slot for {} ({}): same tags, new content {} replaces repo target(s) {}. Patron installs pinned to the old content id become invalid until updated.",
-            replace.folder_name,
-            replace.path,
-            replace.content_target_id,
-            replace.replaced_target_ids.join(", ")
+            "Refresh target slot for {} ({}): source modified at {}",
+            refresh.folder_name, refresh.path, refresh.source_modified_at
         ));
     }
     for target_id in &plan.to_remove {
@@ -220,16 +208,9 @@ pub fn describe_target_sources_sync_plan(plan: &TargetSourcesSyncPlan) -> Vec<St
         ));
     }
     for candidate in &plan.to_insert {
-        if plan
-            .to_replace_same_tags
-            .iter()
-            .any(|replace| replace.content_target_id == candidate.content_target_id)
-        {
-            continue;
-        }
         lines.push(format!(
-            "Insert new target {} ({})",
-            candidate.content_target_id, candidate.folder_name
+            "Insert new target slot {} ({})",
+            candidate.target_id, candidate.folder_name
         ));
     }
     lines
@@ -251,16 +232,18 @@ pub fn sync_target_sources(
     if !plan.has_changes() {
         return Ok(TargetSourcesSyncResult {
             inserted_count: 0,
-            tag_updated_count: 0,
-            replaced_same_tags_count: 0,
+            refreshed_count: 0,
             removed_count: 0,
             pruned: options.prune_removed_targets,
         });
     }
 
-    let candidates = discover_source_target_installs(repo_root, sources_path)?;
-    let total_candidates = candidates.len();
-    let total_steps = total_candidates + plan.to_remove.len();
+    let apply_paths: HashSet<String> = plan
+        .to_apply
+        .iter()
+        .map(|candidate| candidate.path.clone())
+        .collect();
+    let total_steps = plan.to_apply.len() + plan.to_remove.len();
     let mut current_step = 0usize;
     let mut removed_count = 0usize;
 
@@ -286,28 +269,25 @@ pub fn sync_target_sources(
         }
     }
 
-    let tag_update_ids: HashSet<String> = plan
-        .to_update_tags
+    let refresh_paths: HashSet<String> = plan
+        .to_refresh
         .iter()
-        .map(|update| update.content_target_id.clone())
-        .collect();
-    let replace_ids: HashSet<String> = plan
-        .to_replace_same_tags
-        .iter()
-        .map(|replace| replace.content_target_id.clone())
+        .map(|refresh| refresh.path.clone())
         .collect();
 
     let mut inserted_count = 0usize;
-    let mut tag_updated_count = 0usize;
-    let mut replaced_same_tags_count = 0usize;
-    for candidate in &candidates {
+    let mut refreshed_count = 0usize;
+    for candidate in &plan.to_apply {
+        if !apply_paths.contains(&candidate.path) {
+            continue;
+        }
         current_step += 1;
         progress::emit_progress(
             progress,
             GutchProgressEvent {
                 operation: GutchOperation::TargetSourcesSync,
                 phase: "insert".to_string(),
-                message: format!("Inserting target '{}'", candidate.folder_name),
+                message: format!("Syncing target '{}'", candidate.folder_name),
                 current: current_step,
                 total: total_steps,
                 transferred_bytes: 0,
@@ -319,10 +299,8 @@ pub fn sync_target_sources(
         removed_count +=
             crate::delete_repo_targets_with_matching_tags(repo_root, &candidate.target_tags)?.len();
         insert_source_target_candidate(repo_root, candidate, progress)?;
-        if tag_update_ids.contains(&candidate.content_target_id) {
-            tag_updated_count += 1;
-        } else if replace_ids.contains(&candidate.content_target_id) {
-            replaced_same_tags_count += 1;
+        if refresh_paths.contains(&candidate.path) {
+            refreshed_count += 1;
         } else {
             inserted_count += 1;
         }
@@ -347,8 +325,7 @@ pub fn sync_target_sources(
 
     Ok(TargetSourcesSyncResult {
         inserted_count,
-        tag_updated_count,
-        replaced_same_tags_count,
+        refreshed_count,
         removed_count,
         pruned: options.prune_removed_targets,
     })
@@ -401,17 +378,10 @@ mod tests {
     use crate::GutchRepoPaths;
     use crate::manifest::{self, target::TargetManifest};
     use crate::repo::{
-        compute_target_id_from_files, ensure_gutch_repo_layout, write_target_manifest_artifacts,
+        discover_source_target_installs, ensure_gutch_repo_layout, format_system_time_utc,
+        write_target_manifest_artifacts,
     };
-
-    fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::TargetTagSet {
-        let mut tags = manifest::TargetTagSet::default();
-        tags.upsert_exclusive("version", version);
-        tags.upsert_exclusive("os", os);
-        tags.upsert_exclusive("arch", arch);
-        tags.upsert_exclusive("tier", tier);
-        tags
-    }
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn plan_target_sources_sync_returns_empty_plan_without_sources_path() {
@@ -423,13 +393,12 @@ mod tests {
         let plan = plan_target_sources_sync(&repo_root, None).unwrap();
         assert!(!plan.sources_ready);
         assert_eq!(plan.insertable_count, 0);
-        assert_eq!(plan.tag_update_count, 0);
-        assert_eq!(plan.replace_same_tags_count, 0);
+        assert_eq!(plan.refresh_count, 0);
         assert_eq!(plan.removable_count, 0);
     }
 
     #[test]
-    fn plan_target_sources_sync_detects_tag_update_for_same_content() {
+    fn plan_target_sources_sync_detects_refresh_when_source_is_newer() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
@@ -438,33 +407,31 @@ mod tests {
 
         let source_dir = source_root.join("game-v2.0.0-windows-x86_64-base");
         std::fs::create_dir_all(&source_dir).unwrap();
-        std::fs::write(source_dir.join("game.exe"), b"same-content").unwrap();
+        let game_path = source_dir.join("game.exe");
+        std::fs::write(&game_path, b"same-content").unwrap();
 
-        let files = vec![manifest::FileManifest {
+        let candidate = discover_source_target_installs(&repo_root, &source_root).unwrap();
+        assert_eq!(candidate.len(), 1);
+
+        let tags = candidate[0].target_tags.clone();
+        let mut manifest = TargetManifest::new("existing-content-id".into(), tags);
+        manifest.source_modified_at =
+            format_system_time_utc(SystemTime::now() - Duration::from_secs(3600));
+        manifest.files = vec![manifest::FileManifest {
             path: "game.exe".into(),
             size: 12,
             executable: false,
-            full_file_hash: crate::hash::hash_hex(
-                &crate::hash::hash_file(source_dir.join("game.exe").as_path()).unwrap(),
-            ),
+            full_file_hash: "hash".into(),
             chunks: Vec::new(),
         }];
-        let content_target_id = compute_target_id_from_files(&files);
-        let old_tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-        let mut manifest = TargetManifest::new(content_target_id.clone(), old_tags);
-        manifest.files = files;
         write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
 
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&game_path, b"new-content").unwrap();
+
         let plan = plan_target_sources_sync(&repo_root, Some(&source_root)).unwrap();
-        assert_eq!(plan.tag_update_count, 1);
-        assert_eq!(plan.to_update_tags[0].content_target_id, content_target_id);
-        assert_eq!(
-            plan.to_update_tags[0].to_tags.get_exclusive("version"),
-            Some("2.0.0")
-        );
-        assert_eq!(
-            plan.to_update_tags[0].from_tags.get_exclusive("version"),
-            Some("1.0.0")
-        );
+        assert_eq!(plan.refresh_count, 1);
+        assert_eq!(plan.insertable_count, 0);
+        assert_eq!(plan.to_refresh[0].folder_name, "game-v2.0.0-windows-x86_64-base");
     }
 }

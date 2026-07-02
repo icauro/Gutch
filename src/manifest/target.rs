@@ -8,6 +8,9 @@ pub struct TargetManifest {
     #[serde(default, skip_serializing)]
     pub target_id: String,
     pub inserted_at: String,
+    /// Max source file mtime (UTC) recorded when this target was last synced from a source folder.
+    #[serde(default)]
+    pub source_modified_at: String,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,
     #[serde(
@@ -25,6 +28,7 @@ impl TargetManifest {
             manifest_version: FORMAT_VERSION.to_string(),
             target_id,
             inserted_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            source_modified_at: String::new(),
             total_logical_size: 0,
             total_compressed_size_estimate: 0,
             target_tags,

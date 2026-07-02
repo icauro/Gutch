@@ -2,7 +2,7 @@ use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::actions;
 use crate::cli::common::load_optional_rules;
-use crate::cli::reporting::ensure_parent_directory;
+use crate::cli::reporting::{ensure_parent_directory, print_repo_check_timings, print_tracked_repo_check_timings};
 use gutch as g;
 
 pub fn run(command: RepoCommands) -> g::Result<()> {
@@ -35,11 +35,12 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             );
         }
 
-        RepoCommands::Inspect { repo, json_out } => {
-            let status = g::inspect_gutch_repo(&repo)?;
+        RepoCommands::Check { repo, json_out } => {
+            let tracked = g::check_tracked_gutch_repo(&repo)?;
+            let status = tracked.repo_status.clone();
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
-                crate::helpers::write(json_out, serde_json::to_vec_pretty(&status)?)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&tracked)?)?;
             }
 
             if status.is_repo {
@@ -79,13 +80,60 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 println!("targets: {}", status.targets.len());
                 println!("bundles: {}", status.bundle_count);
                 println!("bundle_bytes: {}", status.bundle_bytes);
+                if let (Some(repo_timings), Some(tracked_timings)) =
+                    (status.timings.as_ref(), tracked.timings.as_ref())
+                {
+                    println!();
+                    print_tracked_repo_check_timings(repo_timings, tracked_timings);
+                } else if let Some(repo_timings) = status.timings.as_ref() {
+                    println!();
+                    print_repo_check_timings(repo_timings);
+                }
             } else if let Some(error) = status.error.as_deref() {
-                println!("inspect status: {}", error);
+                println!("check status: {}", error);
             } else {
                 println!(
-                    "inspect status: no gutch repo found at {}",
+                    "check status: no gutch repo found at {}",
                     status.repo_path
                 );
+            }
+        }
+
+        RepoCommands::Verify {
+            repo,
+            target,
+            strict,
+            json_out,
+        } => {
+            let mode = if strict {
+                g::VerifyMode::Strict
+            } else {
+                g::VerifyMode::Fast
+            };
+            let result = g::verify_gutch_repo(&repo, target.as_deref(), mode)?;
+            if let Some(json_out) = json_out.as_ref() {
+                ensure_parent_directory(json_out)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&result)?)?;
+            }
+
+            println!("{SECTION_SEPARATOR}");
+            println!("Verify ({})", result.mode);
+            println!("ok: {}", result.ok);
+            println!("targets: {} ok={}", result.target_count, result.targets_ok);
+            for target_result in &result.targets {
+                println!(
+                    "{} | ok={} | missing={} | corrupt={}",
+                    target_result.target_id,
+                    target_result.ok,
+                    target_result.missing_bundle_count,
+                    target_result.corrupt_bundle_count
+                );
+                for missing in &target_result.missing_bundles {
+                    println!("  missing bundle: {missing}");
+                }
+                for corrupt in &target_result.corrupt_bundles {
+                    println!("  corrupt bundle: {corrupt}");
+                }
             }
         }
 
@@ -94,7 +142,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
         }
 
         RepoCommands::List { repo, json_out } => {
-            let status = g::inspect_gutch_repo(&repo)?;
+            let status = g::check_gutch_repo(&repo)?;
             if !status.is_repo {
                 return Err(g::Error::manifest(format!(
                     "no gutch repo found at {}",

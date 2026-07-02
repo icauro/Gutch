@@ -863,6 +863,33 @@ pub fn print_verify_timings(t: &g::VerifyTimings) {
     );
 }
 
+pub fn print_repo_check_timings(t: &g::RepoCheckTimings) {
+    print_section_title("Check Timing");
+    print_metric_line("load manifest", format!("{} ms", t.load_manifest_ms));
+    print_metric_line("scan bundles", format!("{} ms", t.scan_bundles_ms));
+    print_metric_line("load chunk index", format!("{} ms", t.load_chunk_index_ms));
+    print_metric_line(
+        "load target manifests",
+        format!("{} ms  ({} targets)", t.load_target_manifests_ms, t.target_count),
+    );
+    print_metric_line("total", format!("{} ms", t.total_ms));
+}
+
+pub fn print_tracked_repo_check_timings(
+    repo: &g::RepoCheckTimings,
+    tracked: &g::TrackedRepoCheckTimings,
+) {
+    print_repo_check_timings(repo);
+    print_section_title("Tracked Check Timing");
+    print_metric_line("load config", format!("{} ms", tracked.load_config_ms));
+    print_metric_line(
+        "scan source installs",
+        format!("{} ms  ({} folders)", tracked.scan_sources_ms, tracked.source_count),
+    );
+    print_metric_line("plan source sync", format!("{} ms", tracked.plan_sources_ms));
+    print_metric_line("total tracked", format!("{} ms", tracked.total_ms));
+}
+
 #[cfg(test)]
 #[path = "reporting_tests.rs"]
 mod tests;
