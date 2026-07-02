@@ -24,7 +24,7 @@ impl TaggingRuleTemplate {
         match self {
             Self::Default => "version, os, arch",
             Self::Minimal => "version only",
-            Self::SubscriptionExample => "version, os, arch, released_at, variant",
+            Self::SubscriptionExample => "version, os, arch, variant, released_at",
         }
     }
 }
@@ -202,8 +202,8 @@ fn subscription_example_template() -> TargetTagSchema {
             version_tag(),
             os_tag(),
             arch_tag(),
-            released_at_tag(),
             variant_tag(),
+            released_at_tag(),
         ],
     }
 }
@@ -257,7 +257,7 @@ mod tests {
         let names: Vec<&str> = schema.target_tags.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(
             names,
-            vec!["version", "os", "arch", "released_at", "variant"]
+            vec!["version", "os", "arch", "variant", "released_at"]
         );
 
         let variant = schema.target_tags.iter().find(|t| t.name == "variant").unwrap();
