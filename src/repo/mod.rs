@@ -7,6 +7,7 @@ use std::time::SystemTime;
 mod init_policy;
 mod insert_plan;
 mod remote_ops;
+mod target_descriptor;
 mod target_sources;
 mod verify;
 
@@ -18,6 +19,7 @@ use crate::manifest::{
 };
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
+use target_descriptor::{preview_target_identity, summarize_target_tags};
 
 #[derive(Debug, Clone)]
 pub struct GutchRepoPaths {
@@ -1217,11 +1219,12 @@ fn check_target_manifests(
                 .transpose()?
         };
 
+        let summary = summarize_target_tags(&manifest.target_tags, None);
         targets.push(RepoCheckTargetStatus {
             target_id: manifest.target_id.clone(),
-            version_id: exclusive_tag_or_empty(&manifest.target_tags, "version"),
-            os: exclusive_tag_or_empty(&manifest.target_tags, "os"),
-            arch: exclusive_tag_or_empty(&manifest.target_tags, "arch"),
+            version_id: summary.version_id,
+            os: summary.os,
+            arch: summary.arch,
             file_count: manifest.files.len(),
             required_bundle_count: required_bundle_ids.len(),
             total_logical_size: manifest.total_logical_size,
@@ -1280,32 +1283,20 @@ fn build_source_target_install_candidate(
     let content_target_id = String::new();
     let source_modified_at = source_modified_at_from_directory(path)?;
 
+    let summary = summarize_target_tags(&resolved.target_tags, Some(rules));
+
     Ok(SourceTargetInstallCandidate {
         path: path.display().to_string(),
         folder_name,
         target_id: preview_target_identity(&resolved.target_tags, Some(rules)),
         content_target_id,
         source_modified_at,
-        version_id: exclusive_tag_or_empty(&resolved.target_tags, "version"),
-        os: exclusive_tag_or_empty(&resolved.target_tags, "os"),
-        arch: exclusive_tag_or_empty(&resolved.target_tags, "arch"),
+        version_id: summary.version_id,
+        os: summary.os,
+        arch: summary.arch,
         target_tags: resolved.target_tags,
         error: None,
     })
-}
-
-fn exclusive_tag_or_empty(target_tags: &manifest::TargetTagSet, prefix: &str) -> String {
-    target_tags
-        .get_exclusive(prefix)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn preview_target_identity(
-    target_tags: &manifest::TargetTagSet,
-    target_schema: Option<&manifest::TargetTagSchema>,
-) -> String {
-    target_tags.to_ordered_strings(target_schema).join(" ")
 }
 
 #[cfg(test)]

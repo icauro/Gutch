@@ -1171,5 +1171,5 @@ fn write_repo_manifest(repo_path: &Path, target_manifest: &serde_json::Value) ->
 }
 
 #[cfg(test)]
-#[path = "install_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

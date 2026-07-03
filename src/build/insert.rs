@@ -53,7 +53,7 @@ impl BundleSizingPolicy {
 }
 
 #[cfg(test)]
-#[path = "build_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 impl Default for BundleSizingPolicy {

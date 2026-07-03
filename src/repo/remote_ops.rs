@@ -10,6 +10,7 @@ use crate::remote::backend::{
     CreatorRepoTargetsResponse, CreatorTargetResponse, UpsertTargetResponse,
     request_json_from_backend, upload_raw_file,
 };
+use crate::repo::target_descriptor::summarize_target_tags;
 #[derive(Debug, Serialize)]
 pub struct RepoSyncUpStats {
     pub command: &'static str,
@@ -55,7 +56,7 @@ pub struct RepoSyncPlan {
 }
 
 #[derive(Debug, Clone)]
-struct LocalSyncTarget {
+struct SyncTargetSnapshot {
     target_id: String,
     version: String,
     os: String,
@@ -63,8 +64,8 @@ struct LocalSyncTarget {
     tags: Vec<String>,
 }
 
-fn local_target_change(
-    target: &LocalSyncTarget,
+fn sync_target_change(
+    target: &SyncTargetSnapshot,
     artifact_state: Option<String>,
     update_reason: Option<String>,
 ) -> RepoSyncTargetChange {
@@ -80,30 +81,8 @@ fn local_target_change(
 }
 
 fn remote_target_change(target: &CreatorTargetResponse) -> RepoSyncTargetChange {
-    RepoSyncTargetChange {
-        target_id: target.target_id.clone(),
-        version: target
-            .target_tags
-            .exclusive
-            .get("version")
-            .cloned()
-            .unwrap_or_default(),
-        os: target
-            .target_tags
-            .exclusive
-            .get("os")
-            .cloned()
-            .unwrap_or_default(),
-        arch: target
-            .target_tags
-            .exclusive
-            .get("arch")
-            .cloned()
-            .unwrap_or_default(),
-        artifact_state: Some(target.artifact_state.clone()),
-        tags: remote_target_tags(target),
-        update_reason: None,
-    }
+    let (target_snapshot, artifact_state) = remote_sync_target_snapshot(target);
+    sync_target_change(&target_snapshot, artifact_state, None)
 }
 
 fn remote_target_tags(target: &CreatorTargetResponse) -> Vec<String> {
@@ -119,6 +98,36 @@ fn remote_target_tags(target: &CreatorTargetResponse) -> Vec<String> {
     }
     values.sort();
     values
+}
+
+fn remote_sync_target_snapshot(
+    target: &CreatorTargetResponse,
+) -> (SyncTargetSnapshot, Option<String>) {
+    (
+        SyncTargetSnapshot {
+            target_id: target.target_id.clone(),
+            version: target
+                .target_tags
+                .exclusive
+                .get("version")
+                .cloned()
+                .unwrap_or_default(),
+            os: target
+                .target_tags
+                .exclusive
+                .get("os")
+                .cloned()
+                .unwrap_or_default(),
+            arch: target
+                .target_tags
+                .exclusive
+                .get("arch")
+                .cloned()
+                .unwrap_or_default(),
+            tags: remote_target_tags(target),
+        },
+        Some(target.artifact_state.clone()),
+    )
 }
 
 fn resolve_sync_binding(repo: &Path) -> Result<(i64, i64)> {
@@ -215,7 +224,7 @@ fn collect_local_sync_targets(
 ) -> Result<(
     crate::RepoCheckStatus,
     crate::GutchRepoPaths,
-    Vec<LocalSyncTarget>,
+    Vec<SyncTargetSnapshot>,
 )> {
     let status = crate::check_gutch_repo(repo)?;
     if !status.is_repo {
@@ -228,26 +237,13 @@ fn collect_local_sync_targets(
     let mut local_targets = Vec::with_capacity(status.targets.len());
     for target in &status.targets {
         let manifest = crate::load_target_manifest(&repo_paths, &target.target_id)?;
-        let mut tags = manifest.target_tags.to_canonical_strings();
-        tags.sort();
-        local_targets.push(LocalSyncTarget {
+        let summary = summarize_target_tags(&manifest.target_tags, None);
+        local_targets.push(SyncTargetSnapshot {
             target_id: manifest.target_id.clone(),
-            version: manifest
-                .target_tags
-                .get_exclusive("version")
-                .unwrap_or_default()
-                .to_string(),
-            os: manifest
-                .target_tags
-                .get_exclusive("os")
-                .unwrap_or_default()
-                .to_string(),
-            arch: manifest
-                .target_tags
-                .get_exclusive("arch")
-                .unwrap_or_default()
-                .to_string(),
-            tags,
+            version: summary.version_id,
+            os: summary.os,
+            arch: summary.arch,
+            tags: summary.canonical_tags,
         });
     }
     Ok((status, repo_paths, local_targets))
@@ -273,7 +269,7 @@ pub fn plan_sync_up_repo(
     let mut unchanged = Vec::new();
     for local_target in &local_targets {
         match remote_targets.get(&local_target.target_id) {
-            None => to_add.push(local_target_change(local_target, None, None)),
+            None => to_add.push(sync_target_change(local_target, None, None)),
             Some(remote_target) => {
                 let tag_mismatch = local_target.tags != remote_target_tags(remote_target);
                 let needs_state_update = remote_target.artifact_state != "ready";
@@ -289,13 +285,13 @@ pub fn plan_sync_up_repo(
                             "Remote artifact state is not ready; manifest will be re-uploaded.",
                         ))
                     };
-                    to_update.push(local_target_change(
+                    to_update.push(sync_target_change(
                         local_target,
                         Some(remote_target.artifact_state.clone()),
                         update_reason,
                     ));
                 } else {
-                    unchanged.push(local_target_change(
+                    unchanged.push(sync_target_change(
                         local_target,
                         Some(remote_target.artifact_state.clone()),
                         None,
