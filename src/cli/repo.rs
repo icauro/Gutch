@@ -2,12 +2,18 @@ use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::actions;
 use crate::cli::common::load_optional_rules;
-use crate::cli::reporting::{ensure_parent_directory, print_repo_check_timings, print_tracked_repo_check_timings};
+use crate::cli::reporting::{
+    ensure_parent_directory, print_repo_check_timings, print_tracked_repo_check_timings,
+};
 use gutch as g;
 
 pub fn run(command: RepoCommands) -> g::Result<()> {
     match command {
-        RepoCommands::Init { path, schema, force } => {
+        RepoCommands::Init {
+            path,
+            schema,
+            force,
+        } => {
             actions::repo::init_repo(&path, schema.as_ref(), force)?;
         }
 
@@ -33,6 +39,27 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 "updated repo schema at {}",
                 repo_paths.repo_manifest_path.display()
             );
+        }
+
+        RepoCommands::LaunchSet {
+            repo,
+            launch,
+            clear,
+        } => {
+            if clear == launch.is_some() {
+                return Err(g::Error::manifest(
+                    "provide either --launch <path> or --clear",
+                ));
+            }
+            let configuration = if clear {
+                None
+            } else {
+                let path = launch.as_ref().expect("launch path checked");
+                let json = crate::helpers::read_to_string(path)?;
+                Some(serde_json::from_str::<g::RepoLaunchConfiguration>(&json)?)
+            };
+            g::update_gutch_repo_launch(&repo, configuration)?;
+            println!("updated repo launch configuration");
         }
 
         RepoCommands::Check { repo, json_out } => {
@@ -92,10 +119,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             } else if let Some(error) = status.error.as_deref() {
                 println!("check status: {}", error);
             } else {
-                println!(
-                    "check status: no gutch repo found at {}",
-                    status.repo_path
-                );
+                println!("check status: no gutch repo found at {}", status.repo_path);
             }
         }
 

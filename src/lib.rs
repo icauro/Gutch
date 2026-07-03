@@ -57,15 +57,21 @@ pub use install::{
     repair_target_install_with_timings_and_hints, resolve_required_bundle_paths_from_repo,
     verify_target_install_from_repo,
 };
+pub use manifest::launch::{
+    LaunchPlatform, RepoLaunchAction, RepoLaunchCommand, RepoLaunchConfiguration,
+    ResolvedLaunchAction, ResolvedLaunchConfiguration, resolve_repo_launch_for_target,
+    validate_launch_path, validate_repo_launch_configuration, validate_resolved_launch_for_target,
+};
+pub use manifest::template::{
+    TaggingRuleTemplate, list_templates, template_by_name, template_schema,
+};
 pub use manifest::{
     EditableTargetTagDefinition, InferenceHandler, TargetTagSchemaValidationError,
     TargetTagSchemaValidationResult, sanitize_editable_target_tag_schema,
     validate_editable_target_tag_schema,
 };
-pub use manifest::template::{
-    TaggingRuleTemplate, list_templates, template_by_name, template_schema,
-};
 pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
+pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressSink};
 pub use reconstruct::{
     ReconstructOptions, ReconstructTimings, VerifiedSourceInstall,
     reconstruct_from_bundle_paths_and_verified_source_with_timings,
@@ -78,34 +84,33 @@ pub use reconstruct::{
     reconstruct_from_target_manifest, reconstruct_from_target_manifest_with_timings,
 };
 pub use repo::{
-    GutchRepoPaths, RepoCheckStatus, RepoCheckTargetStatus, RepoCheckTimings, RepoSyncPlan,
-    RepoSyncTargetChange, RepoSyncUpStats, RepoTargetInsertRequest, RepoTargetInsertResult,
-    RepoVerifyResult, RepoVerifyTimings, SourceTargetInstallCandidate, TargetInsertKind,
-    TargetInsertPlan, TargetSourcesRefresh, TargetSourcesSyncOptions, TargetSourcesSyncPlan,
-    TargetSourcesSyncResult, TargetVerifyResult, TrackedRepoCheckStatus,
+    GutchRepoPaths, REPO_INIT_NEEDS_CONFIRMATION, RepoCheckStatus, RepoCheckTargetStatus,
+    RepoCheckTimings, RepoInitAssessment, RepoInitOptions, RepoInitPathKind, RepoInitRisk,
+    RepoSyncPlan, RepoSyncTargetChange, RepoSyncUpStats, RepoTargetInsertRequest,
+    RepoTargetInsertResult, RepoVerifyResult, RepoVerifyTimings, SourceTargetInstallCandidate,
+    TargetInsertKind, TargetInsertPlan, TargetSourcesRefresh, TargetSourcesSyncOptions,
+    TargetSourcesSyncPlan, TargetSourcesSyncResult, TargetVerifyResult, TrackedRepoCheckStatus,
     TrackedRepoCheckTimings, add_built_bundles_to_chunk_index,
-    add_built_loose_chunks_to_chunk_index, bundle_id_from_bundle_path, bundle_path,
-    bundle_path_in_root, chunk_path, chunk_path_in_root, cleanup_orphan_bundles_in_repo,
-    compute_target_id_from_files, delete_repo_target_and_cleanup, delete_repo_targets,
-    delete_repo_targets_with_matching_tags, describe_target_insert_plan,
-    describe_target_sources_sync_plan, discover_source_target_installs, ensure_gutch_repo_layout,
-    ensure_gutch_repo_tracked, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
-    parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error, RepoInitAssessment,
-    RepoInitOptions, RepoInitPathKind, RepoInitRisk, REPO_INIT_NEEDS_CONFIRMATION,
-    initialize_tracked_gutch_repo, insert_repo_target, check_gutch_repo,
-    check_tracked_gutch_repo, link_repo, load_chunk_index,
-    load_gutch_repo_manifest, load_target_manifest, plan_sync_up_repo, plan_target_insert,
+    add_built_loose_chunks_to_chunk_index, assess_repo_init_path, bundle_id_from_bundle_path,
+    bundle_path, bundle_path_in_root, check_gutch_repo, check_tracked_gutch_repo, chunk_path,
+    chunk_path_in_root, cleanup_orphan_bundles_in_repo, compute_target_id_from_files,
+    delete_repo_target_and_cleanup, delete_repo_targets, delete_repo_targets_with_matching_tags,
+    describe_target_insert_plan, describe_target_sources_sync_plan,
+    discover_source_target_installs, ensure_gutch_repo_layout, ensure_gutch_repo_tracked,
+    initialize_tracked_gutch_repo, initialize_tracked_gutch_repo_with_options, insert_repo_target,
+    link_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
+    parse_repo_init_needs_confirmation_error, plan_sync_up_repo, plan_target_insert,
     plan_target_sources_sync, preview_source_target_install, remove_target_from_repo,
-    serialize_target_manifest_for_remote, sync_target_sources, sync_up_repo,
-    sync_up_repo_with_progress, target_manifest_bin_path, target_manifest_path, unlink_repo,
-    update_gutch_repo_schema, verify_gutch_repo, write_chunk_index, write_gutch_repo_manifest,
+    repo_init_needs_confirmation_error, serialize_target_manifest_for_remote, sync_target_sources,
+    sync_up_repo, sync_up_repo_with_progress, target_manifest_bin_path, target_manifest_path,
+    unlink_repo, update_gutch_repo_launch, update_gutch_repo_schema, update_gutch_target_launch,
+    verify_gutch_repo, write_chunk_index, write_gutch_repo_manifest,
     write_target_manifest_artifacts,
 };
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
-pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressSink};
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,
     classify_directory, classify_directory_with_progress,

@@ -6,4 +6,5 @@ fn test_gutch_repo_manifest_new() {
     assert_eq!(repo.format, CONTENT_REPO_FORMAT);
     assert_eq!(repo.format_version, "1.0.0");
     assert_eq!(repo.name, "base");
+    assert!(repo.launch.is_none());
 }

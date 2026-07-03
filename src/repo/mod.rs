@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-mod insert_plan;
 mod init_policy;
+mod insert_plan;
 mod remote_ops;
 mod target_sources;
 mod verify;
@@ -112,6 +112,12 @@ pub struct RepoCheckTargetStatus {
     pub missing_bundle_count: usize,
     pub source_modified_at: String,
     pub target_tags: manifest::TargetTagSet,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
+    #[serde(default)]
+    pub file_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,9 +220,9 @@ pub fn initialize_tracked_gutch_repo(
 }
 
 pub use init_policy::{
-    assess_repo_init_path, initialize_tracked_gutch_repo_with_options, parse_repo_init_needs_confirmation_error,
-    repo_init_needs_confirmation_error, RepoInitAssessment, RepoInitOptions, RepoInitPathKind, RepoInitRisk,
-    REPO_INIT_NEEDS_CONFIRMATION,
+    REPO_INIT_NEEDS_CONFIRMATION, RepoInitAssessment, RepoInitOptions, RepoInitPathKind,
+    RepoInitRisk, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
+    parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error,
 };
 
 pub fn update_gutch_repo_schema(
@@ -226,6 +232,65 @@ pub fn update_gutch_repo_schema(
     let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     repo_manifest.target_schema = target_schema;
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)
+}
+
+pub fn update_gutch_repo_launch(
+    repo_root: &Path,
+    launch: Option<manifest::launch::RepoLaunchConfiguration>,
+) -> Result<()> {
+    if let Some(configuration) = launch.as_ref() {
+        manifest::launch::validate_repo_launch_configuration(configuration)?;
+    }
+    let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    for target_id in repo_target_ids(&repo_paths)? {
+        let target = load_target_manifest(&repo_paths, &target_id)?;
+        if let Some(override_configuration) = target.launch.as_ref() {
+            manifest::launch::validate_resolved_launch_for_target(override_configuration, &target)?;
+        } else if let Some(configuration) = launch.as_ref() {
+            manifest::launch::resolve_repo_launch_for_target(configuration, &target)?;
+        }
+    }
+    repo_manifest.launch = launch;
+    write_gutch_repo_manifest(&repo_paths, &repo_manifest)
+}
+
+pub fn update_gutch_target_launch(
+    repo_root: &Path,
+    target_id: &str,
+    launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
+) -> Result<()> {
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    let mut target = load_target_manifest(&repo_paths, target_id)?;
+    if let Some(configuration) = launch.as_ref() {
+        manifest::launch::validate_resolved_launch_for_target(configuration, &target)?;
+    } else if let Some(configuration) = repo_manifest.launch.as_ref() {
+        manifest::launch::resolve_repo_launch_for_target(configuration, &target)?;
+    }
+    target.launch = launch;
+    write_target_manifest_artifacts(&repo_paths, &target)?;
+    Ok(())
+}
+
+fn repo_target_ids(paths: &GutchRepoPaths) -> Result<Vec<String>> {
+    if !paths.targets_root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut target_ids = std::fs::read_dir(&paths.targets_root)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.path().is_file()
+                && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+        })
+        .filter_map(|entry| {
+            entry
+                .path()
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    target_ids.sort();
+    Ok(target_ids)
 }
 
 pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
@@ -497,7 +562,9 @@ pub fn source_modified_at_from_directory(dir: &Path) -> Result<String> {
 }
 
 pub(crate) fn format_system_time_utc(time: std::time::SystemTime) -> String {
-    chrono::DateTime::<chrono::Utc>::from(time).format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    chrono::DateTime::<chrono::Utc>::from(time)
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
 }
 
 pub(crate) fn is_source_modified_at_newer(candidate: &str, recorded: &str) -> bool {
@@ -545,10 +612,12 @@ fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
         return Ok(max_mtime);
     }
 
-    dir.metadata()?.modified().map_err(|err| Error::manifest(format!(
-        "failed to read source directory mtime for {}: {err}",
-        dir.display()
-    )))
+    dir.metadata()?.modified().map_err(|err| {
+        Error::manifest(format!(
+            "failed to read source directory mtime for {}: {err}",
+            dir.display()
+        ))
+    })
 }
 
 fn scan_directory_files_for_content_id(dir: &Path) -> Result<Vec<FileManifest>> {
@@ -734,14 +803,18 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
     let mut still_required_bundle_ids = HashSet::new();
     let target_count = remaining_targets.len().max(1);
     for (i, target_id) in remaining_targets.iter().enumerate() {
-        let progress_current = SCAN_TARGETS_END
-            + (LOAD_MANIFESTS_END - SCAN_TARGETS_END) * i / target_count;
+        let progress_current =
+            SCAN_TARGETS_END + (LOAD_MANIFESTS_END - SCAN_TARGETS_END) * i / target_count;
         emit_progress(
             progress,
             GutchProgressEvent {
                 operation: GutchOperation::TargetDelete,
                 phase: "load_manifests".to_string(),
-                message: format!("Loading target manifests ({}/{})", i + 1, remaining_targets.len()),
+                message: format!(
+                    "Loading target manifests ({}/{})",
+                    i + 1,
+                    remaining_targets.len()
+                ),
                 current: progress_current,
                 total: TOTAL,
                 transferred_bytes: 0,
@@ -772,8 +845,8 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
     let mut orphan_bundles = Vec::new();
     for (i, bundle_path) in bundle_files.iter().enumerate() {
         if i % 50 == 0 || i == bundle_files.len() - 1 {
-            let progress_current = SCAN_BUNDLES_END
-                + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / bundle_count;
+            let progress_current =
+                SCAN_BUNDLES_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / bundle_count;
             emit_progress(
                 progress,
                 GutchProgressEvent {
@@ -945,6 +1018,7 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         &repo_paths,
         &repo_paths.targets_root,
         &available_bundle_ids,
+        repo_manifest.launch.as_ref(),
     )?;
     let target_count = targets.len();
 
@@ -1105,6 +1179,7 @@ fn check_target_manifests(
     repo_paths: &GutchRepoPaths,
     targets_root: &Path,
     available_bundle_ids: &HashSet<String>,
+    repo_launch: Option<&manifest::launch::RepoLaunchConfiguration>,
 ) -> Result<(Vec<RepoCheckTargetStatus>, TargetManifestCheckTimings)> {
     if !targets_root.exists() {
         return Ok((Vec::new(), TargetManifestCheckTimings::default()));
@@ -1133,6 +1208,14 @@ fn check_target_manifests(
             .iter()
             .filter(|bundle_id| !available_bundle_ids.contains(*bundle_id))
             .count();
+        let resolved_launch = if let Some(launch) = manifest.launch.as_ref() {
+            manifest::launch::validate_resolved_launch_for_target(launch, &manifest)?;
+            Some(launch.clone())
+        } else {
+            repo_launch
+                .map(|launch| manifest::launch::resolve_repo_launch_for_target(launch, &manifest))
+                .transpose()?
+        };
 
         targets.push(RepoCheckTargetStatus {
             target_id: manifest.target_id.clone(),
@@ -1146,6 +1229,9 @@ fn check_target_manifests(
             missing_bundle_count,
             source_modified_at: manifest.source_modified_at.clone(),
             target_tags: manifest.target_tags,
+            launch: manifest.launch,
+            resolved_launch,
+            file_paths: manifest.files.into_iter().map(|file| file.path).collect(),
         });
     }
 

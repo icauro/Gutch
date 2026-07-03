@@ -19,3 +19,15 @@ plctl gutch repo sync-up --repo ./my-repo --yes
 ```
 
 Automation and CI: pass `--yes` on `target insert`, `insert-many`, and `target-sources sync`. To preview a plan without applying it, run the command and answer `n` at the prompt.
+
+## Launch options
+
+```sh
+plctl gutch repo launch-set --repo ./my-repo --launch ./repo-launch.json
+plctl gutch repo launch-set --repo ./my-repo --clear
+plctl gutch target launch-set --repo ./my-repo --target 1.0.0-windows-x86_64 --launch ./target-launch.json
+plctl gutch target launch-set --repo ./my-repo --target 1.0.0-windows-x86_64 --clear
+```
+
+The JSON formats and inheritance behavior are defined in
+[`21_LAUNCH_OPTIONS.md`](../../docs/blueprint/gutch/21_LAUNCH_OPTIONS.md).

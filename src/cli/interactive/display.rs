@@ -164,10 +164,7 @@ pub(super) fn print_repo_verify(
     for target in &result.targets {
         println!(
             "{} | ok={} | missing={} | corrupt={}",
-            target.target_id,
-            target.ok,
-            target.missing_bundle_count,
-            target.corrupt_bundle_count
+            target.target_id, target.ok, target.missing_bundle_count, target.corrupt_bundle_count
         );
     }
     Ok(())

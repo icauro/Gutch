@@ -24,6 +24,8 @@ pub(crate) struct TargetManifestShell {
         deserialize_with = "crate::manifest::target::deserialize_target_tags_from_compact_strings"
     )]
     pub target_tags: manifest::TargetTagSet,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
 }
 
 fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
@@ -168,6 +170,7 @@ pub(crate) fn target_manifest_shell_from_manifest(
         total_logical_size: target_manifest.total_logical_size,
         total_compressed_size_estimate: target_manifest.total_compressed_size_estimate,
         target_tags: target_manifest.target_tags.clone(),
+        launch: target_manifest.launch.clone(),
     }
 }
 
@@ -184,6 +187,7 @@ pub(crate) fn target_manifest_from_shell(
         total_logical_size: shell.total_logical_size,
         total_compressed_size_estimate: shell.total_compressed_size_estimate,
         target_tags: shell.target_tags,
+        launch: shell.launch,
         files,
     }
 }

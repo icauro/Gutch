@@ -62,6 +62,15 @@ pub enum RepoCommands {
         #[arg(long = "clear")]
         clear: bool,
     },
+    #[command(name = "launch-set")]
+    LaunchSet {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+        #[arg(long = "launch")]
+        launch: Option<PathBuf>,
+        #[arg(long = "clear")]
+        clear: bool,
+    },
     Check {
         #[arg(long = "repo", default_value = ".")]
         repo: PathBuf,
@@ -141,6 +150,17 @@ pub enum TargetSourcesCommands {
 
 #[derive(Subcommand)]
 pub enum TargetCommands {
+    #[command(name = "launch-set")]
+    LaunchSet {
+        #[arg(long = "repo", default_value = ".")]
+        repo: PathBuf,
+        #[arg(long = "target")]
+        target: String,
+        #[arg(long = "launch")]
+        launch: Option<PathBuf>,
+        #[arg(long = "clear")]
+        clear: bool,
+    },
     Insert {
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,

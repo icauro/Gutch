@@ -126,7 +126,7 @@ pub fn save_config(config: &GutchConfig) -> Result<(), crate::Error> {
 mod tests {
     use std::sync::{Mutex, OnceLock};
 
-    use super::{gutch_config_dir, patron_launcher_config_root, GutchConfig, TrackedRepo};
+    use super::{GutchConfig, TrackedRepo, gutch_config_dir, patron_launcher_config_root};
 
     fn env_test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -142,10 +142,8 @@ mod tests {
     #[test]
     fn patron_launcher_config_root_honors_override_env() {
         let _guard = lock_env_test();
-        let temp_dir = std::env::temp_dir().join(format!(
-            "launcher-config-root-{}",
-            std::process::id()
-        ));
+        let temp_dir =
+            std::env::temp_dir().join(format!("launcher-config-root-{}", std::process::id()));
         unsafe {
             std::env::set_var(super::LAUNCHER_CONFIG_DIR_ENV, &temp_dir);
         }

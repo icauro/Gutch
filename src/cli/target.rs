@@ -390,6 +390,29 @@ fn collect_insert_many_dirs(
 
 pub fn run(command: TargetCommands) -> g::Result<()> {
     match command {
+        TargetCommands::LaunchSet {
+            repo,
+            target,
+            launch,
+            clear,
+        } => {
+            if clear == launch.is_some() {
+                return Err(g::Error::manifest(
+                    "provide either --launch <path> or --clear",
+                ));
+            }
+            let configuration = if clear {
+                None
+            } else {
+                let path = launch.as_ref().expect("launch path checked");
+                let json = crate::helpers::read_to_string(path)?;
+                Some(serde_json::from_str::<g::ResolvedLaunchConfiguration>(
+                    &json,
+                )?)
+            };
+            g::update_gutch_target_launch(&repo, &target, configuration)?;
+            println!("updated target launch configuration");
+        }
         TargetCommands::Insert {
             dir,
             repo,
@@ -641,13 +664,11 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             }
 
             let progress = CliProgressSink::new();
-            let orphan_count =
-                g::delete_repo_target_and_cleanup(&repo, &target, &Some(progress))?;
+            let orphan_count = g::delete_repo_target_and_cleanup(&repo, &target, &Some(progress))?;
 
             println!(
                 "deleted target '{}': removed manifest, {} orphaned bundles cleaned up",
-                target,
-                orphan_count
+                target, orphan_count
             );
         }
 

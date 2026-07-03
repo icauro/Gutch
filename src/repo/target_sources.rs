@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Result, RepoCheckStatus, SourceTargetInstallCandidate, discover_source_target_installs,
-    check_gutch_repo, is_source_modified_at_newer,
+    RepoCheckStatus, Result, SourceTargetInstallCandidate, check_gutch_repo,
+    discover_source_target_installs, is_source_modified_at_newer,
 };
 use crate::manifest::TargetTagSet;
 use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
@@ -158,10 +158,8 @@ pub(crate) fn plan_target_sources_sync_with_context(
             .first()
             .map(|target| target.source_modified_at.as_str())
             .unwrap_or_default();
-        if !is_source_modified_at_newer(
-            &candidate.source_modified_at,
-            recorded_source_modified_at,
-        ) {
+        if !is_source_modified_at_newer(&candidate.source_modified_at, recorded_source_modified_at)
+        {
             continue;
         }
 
@@ -432,6 +430,9 @@ mod tests {
         let plan = plan_target_sources_sync(&repo_root, Some(&source_root)).unwrap();
         assert_eq!(plan.refresh_count, 1);
         assert_eq!(plan.insertable_count, 0);
-        assert_eq!(plan.to_refresh[0].folder_name, "game-v2.0.0-windows-x86_64-base");
+        assert_eq!(
+            plan.to_refresh[0].folder_name,
+            "game-v2.0.0-windows-x86_64-base"
+        );
     }
 }

@@ -8,8 +8,8 @@ use crate::verify::VerifyMode;
 use crate::{Error, Result};
 
 use super::{
-    bundle_path, check_gutch_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
-    required_bundle_ids, GutchRepoPaths,
+    GutchRepoPaths, bundle_path, check_gutch_repo, load_chunk_index, load_gutch_repo_manifest,
+    load_target_manifest, required_bundle_ids,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

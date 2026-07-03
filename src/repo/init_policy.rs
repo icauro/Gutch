@@ -2,7 +2,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ensure_gutch_repo_layout, check_gutch_repo, write_gutch_repo_manifest, GutchRepoPaths};
+use super::{
+    GutchRepoPaths, check_gutch_repo, ensure_gutch_repo_layout, write_gutch_repo_manifest,
+};
 use crate::manifest;
 use crate::{Error, Result};
 

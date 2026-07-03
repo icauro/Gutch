@@ -19,6 +19,8 @@ pub struct TargetManifest {
         deserialize_with = "deserialize_target_tags_from_compact_strings"
     )]
     pub target_tags: TargetTagSet,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<launch::ResolvedLaunchConfiguration>,
     pub files: Vec<FileManifest>,
 }
 
@@ -32,6 +34,7 @@ impl TargetManifest {
             total_logical_size: 0,
             total_compressed_size_estimate: 0,
             target_tags,
+            launch: None,
             files: Vec::new(),
         }
     }

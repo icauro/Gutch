@@ -1,5 +1,6 @@
 pub mod binary;
 pub mod gutch_repo;
+pub mod launch;
 pub mod schema_edit;
 pub mod target;
 pub mod template;

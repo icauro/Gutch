@@ -26,8 +26,14 @@ fn test_parse_cli_tags_supports_all_three_kinds() {
 #[test]
 fn test_version_handler_strips_v_prefix() {
     use crate::manifest::InferenceHandler;
-    assert_eq!(InferenceHandler::Version.parse_token("v1.0.0"), Some("1.0.0".to_string()));
-    assert_eq!(InferenceHandler::Version.parse_token("1.2.3"), Some("1.2.3".to_string()));
+    assert_eq!(
+        InferenceHandler::Version.parse_token("v1.0.0"),
+        Some("1.0.0".to_string())
+    );
+    assert_eq!(
+        InferenceHandler::Version.parse_token("1.2.3"),
+        Some("1.2.3".to_string())
+    );
     assert_eq!(
         InferenceHandler::Version.parse_token("2025.05.30.1"),
         Some("2025.05.30.1".to_string())

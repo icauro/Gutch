@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::{InferenceHandler, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition};
+use super::{
+    InferenceHandler, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition,
+};
 
 /// Named tagging rule templates that creators can pick when creating or configuring a repo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -97,9 +99,7 @@ fn os_tag() -> TargetTagDefinition {
         values: vec![
             TargetTagValueDefinition {
                 value: "windows".to_string(),
-                aliases: vec![
-                    "win".to_string(),
-                ],
+                aliases: vec!["win".to_string()],
             },
             TargetTagValueDefinition {
                 value: "linux".to_string(),
@@ -107,11 +107,7 @@ fn os_tag() -> TargetTagDefinition {
             },
             TargetTagValueDefinition {
                 value: "macos".to_string(),
-                aliases: vec![
-                    "mac".to_string(),
-                    "osx".to_string(),
-                    "darwin".to_string(),
-                ],
+                aliases: vec!["mac".to_string(), "osx".to_string(), "darwin".to_string()],
             },
         ],
         default_value: None,
@@ -128,10 +124,7 @@ fn arch_tag() -> TargetTagDefinition {
         values: vec![
             TargetTagValueDefinition {
                 value: "x86_64".to_string(),
-                aliases: vec![
-                    "x64".to_string(),
-                    "amd64".to_string(),
-                ],
+                aliases: vec!["x64".to_string(), "amd64".to_string()],
             },
             TargetTagValueDefinition {
                 value: "x86_32".to_string(),
@@ -260,7 +253,11 @@ mod tests {
             vec!["version", "os", "arch", "variant", "released_at"]
         );
 
-        let variant = schema.target_tags.iter().find(|t| t.name == "variant").unwrap();
+        let variant = schema
+            .target_tags
+            .iter()
+            .find(|t| t.name == "variant")
+            .unwrap();
         assert_eq!(variant.kind, TargetTagKind::Exclusive);
         let variant_values: Vec<&str> = variant.values.iter().map(|v| v.value.as_str()).collect();
         assert_eq!(variant_values, vec!["free", "tier1", "tier2"]);
