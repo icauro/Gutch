@@ -27,6 +27,12 @@ struct MutableInsertStoreState {
     previous_file_manifests: HashMap<String, g::manifest::FileManifest>,
 }
 
+struct TargetIdentityStrings {
+    version_id: String,
+    os: String,
+    arch: String,
+}
+
 impl From<g::repo::ExistingStoreState> for MutableInsertStoreState {
     fn from(state: g::repo::ExistingStoreState) -> Self {
         Self {
@@ -56,6 +62,69 @@ struct InsertOneTargetRequest<'a> {
     command_name: &'static str,
     yes: bool,
     skip_confirmation: bool,
+}
+
+fn resolved_identity_strings(target_tags: &g::manifest::TargetTagSet) -> TargetIdentityStrings {
+    TargetIdentityStrings {
+        version_id: target_tags
+            .get_exclusive("version")
+            .unwrap_or_default()
+            .to_string(),
+        os: target_tags
+            .get_exclusive("os")
+            .unwrap_or_default()
+            .to_string(),
+        arch: target_tags
+            .get_exclusive("arch")
+            .unwrap_or_default()
+            .to_string(),
+    }
+}
+
+fn unchanged_target_insert_stats(
+    command_name: &'static str,
+    repo_root: &Path,
+    input_path: &Path,
+    manifest_path: &Path,
+    repo_name: &str,
+    target_manifest: &g::manifest::target::TargetManifest,
+    identity: TargetIdentityStrings,
+    storage_mode: g::manifest::ArtifactStorageMode,
+    required_chunk_count: usize,
+    required_bundle_count: usize,
+    timings: &g::BuildTimings,
+    summary_out: &Option<PathBuf>,
+    stats_json_out: &Option<PathBuf>,
+) -> TargetInsertStats {
+    TargetInsertStats {
+        command: command_name,
+        repo_root: repo_root.display().to_string(),
+        input_path: input_path.display().to_string(),
+        target_id: target_manifest.target_id.clone(),
+        manifest_path: manifest_path.display().to_string(),
+        product_id: repo_name.to_string(),
+        remote_repo_id: repo_name.to_string(),
+        version_id: identity.version_id,
+        os: identity.os,
+        arch: identity.arch,
+        storage_mode: storage_mode.cli_name().to_string(),
+        file_count: target_manifest.files.len(),
+        total_logical_size: target_manifest.total_logical_size,
+        total_compressed_size_estimate: target_manifest.total_compressed_size_estimate,
+        required_chunk_count,
+        required_bundle_count,
+        generated_bundle_count: 0,
+        generated_bundle_bytes: 0,
+        generated_chunk_count: 0,
+        generated_chunk_bytes: 0,
+        reused_chunk_count: required_chunk_count,
+        new_chunk_count: 0,
+        reused_chunk_percent: 100.0,
+        reused_bundle_count: required_bundle_count,
+        reused_bundle_percent: 100.0,
+        timings: build_timings_summary(timings),
+        outputs: optional_output_paths(summary_out, stats_json_out),
+    }
 }
 
 fn run_insert_one_target(
@@ -101,35 +170,25 @@ fn run_insert_one_target(
         let required_chunk_count = count_required_chunks(&updated_manifest);
         let required_bundle_count =
             count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
-        return Ok(TargetInsertStats {
-            command: request.command_name,
-            repo_root: request.repo_paths.repo_root.display().to_string(),
-            input_path: request.input_dir.display().to_string(),
-            target_id: updated_manifest.target_id.clone(),
-            manifest_path: manifest_path.display().to_string(),
-            product_id: request.repo_name.to_string(),
-            remote_repo_id: request.repo_name.to_string(),
-            version_id: insert_plan.version_id.clone(),
-            os: insert_plan.os.clone(),
-            arch: insert_plan.arch.clone(),
-            storage_mode: request.storage_mode.cli_name().to_string(),
-            file_count: updated_manifest.files.len(),
-            total_logical_size: updated_manifest.total_logical_size,
-            total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
+        return Ok(unchanged_target_insert_stats(
+            request.command_name,
+            &request.repo_paths.repo_root,
+            request.input_dir,
+            &manifest_path,
+            request.repo_name,
+            &updated_manifest,
+            TargetIdentityStrings {
+                version_id: insert_plan.version_id.clone(),
+                os: insert_plan.os.clone(),
+                arch: insert_plan.arch.clone(),
+            },
+            request.storage_mode,
             required_chunk_count,
             required_bundle_count,
-            generated_bundle_count: 0,
-            generated_bundle_bytes: 0,
-            generated_chunk_count: 0,
-            generated_chunk_bytes: 0,
-            reused_chunk_count: required_chunk_count,
-            new_chunk_count: 0,
-            reused_chunk_percent: 100.0,
-            reused_bundle_count: required_bundle_count,
-            reused_bundle_percent: 100.0,
-            timings: build_timings_summary(&g::BuildTimings::default()),
-            outputs: optional_output_paths(request.summary_out, request.stats_json_out),
-        });
+            &g::BuildTimings::default(),
+            request.summary_out,
+            request.stats_json_out,
+        ));
     }
 
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
@@ -200,47 +259,21 @@ fn run_insert_one_target(
                 &updated_manifest,
                 &store_state.chunk_index,
             );
-            return Ok(TargetInsertStats {
-                command: request.command_name,
-                repo_root: request.repo_paths.repo_root.display().to_string(),
-                input_path: request.input_dir.display().to_string(),
-                target_id: updated_manifest.target_id.clone(),
-                manifest_path: manifest_path.display().to_string(),
-                product_id: request.repo_name.to_string(),
-                remote_repo_id: request.repo_name.to_string(),
-                version_id: resolved_identity
-                    .target_tags
-                    .get_exclusive("version")
-                    .unwrap_or_default()
-                    .to_string(),
-                os: resolved_identity
-                    .target_tags
-                    .get_exclusive("os")
-                    .unwrap_or_default()
-                    .to_string(),
-                arch: resolved_identity
-                    .target_tags
-                    .get_exclusive("arch")
-                    .unwrap_or_default()
-                    .to_string(),
-                storage_mode: request.storage_mode.cli_name().to_string(),
-                file_count: updated_manifest.files.len(),
-                total_logical_size: updated_manifest.total_logical_size,
-                total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
+            return Ok(unchanged_target_insert_stats(
+                request.command_name,
+                &request.repo_paths.repo_root,
+                request.input_dir,
+                &manifest_path,
+                request.repo_name,
+                &updated_manifest,
+                resolved_identity_strings(&resolved_identity.target_tags),
+                request.storage_mode,
                 required_chunk_count,
                 required_bundle_count,
-                generated_bundle_count: 0,
-                generated_bundle_bytes: 0,
-                generated_chunk_count: 0,
-                generated_chunk_bytes: 0,
-                reused_chunk_count: required_chunk_count,
-                new_chunk_count: 0,
-                reused_chunk_percent: 100.0,
-                reused_bundle_count: required_bundle_count,
-                reused_bundle_percent: 100.0,
-                timings: build_timings_summary(&timings),
-                outputs: optional_output_paths(request.summary_out, request.stats_json_out),
-            });
+                &timings,
+                request.summary_out,
+                request.stats_json_out,
+            ));
         }
     }
 
@@ -306,6 +339,7 @@ fn run_insert_one_target(
     let reused_bundle_count = required_bundle_count.saturating_sub(generated_bundle_count);
     let reused_chunk_percent = ratio_pct(reused_chunk_count as u64, required_chunk_count as u64);
     let reused_bundle_percent = ratio_pct(reused_bundle_count as u64, required_bundle_count as u64);
+    let resolved_identity_strings = resolved_identity_strings(&resolved_identity.target_tags);
     let stats = TargetInsertStats {
         command: request.command_name,
         repo_root: request.repo_paths.repo_root.display().to_string(),
@@ -314,21 +348,9 @@ fn run_insert_one_target(
         manifest_path: manifest_path.display().to_string(),
         product_id: request.repo_name.to_string(),
         remote_repo_id: request.repo_name.to_string(),
-        version_id: resolved_identity
-            .target_tags
-            .get_exclusive("version")
-            .unwrap_or_default()
-            .to_string(),
-        os: resolved_identity
-            .target_tags
-            .get_exclusive("os")
-            .unwrap_or_default()
-            .to_string(),
-        arch: resolved_identity
-            .target_tags
-            .get_exclusive("arch")
-            .unwrap_or_default()
-            .to_string(),
+        version_id: resolved_identity_strings.version_id,
+        os: resolved_identity_strings.os,
+        arch: resolved_identity_strings.arch,
         storage_mode: request.storage_mode.cli_name().to_string(),
         file_count: result.target_manifest.files.len(),
         total_logical_size: result.target_manifest.total_logical_size,
