@@ -3,8 +3,9 @@ use std::path::Path;
 use crate::Result;
 use crate::manifest;
 
+use super::inventory::list_repo_target_ids;
 use super::{
-    GutchRepoPaths, load_gutch_repo_manifest, load_target_manifest, write_gutch_repo_manifest,
+    load_gutch_repo_manifest, load_target_manifest, write_gutch_repo_manifest,
     write_target_manifest_artifacts,
 };
 
@@ -38,7 +39,7 @@ pub fn update_gutch_repo_launch(
         manifest::launch::validate_repo_launch_configuration(configuration)?;
     }
     let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    for target_id in repo_target_ids(&repo_paths)? {
+    for target_id in list_repo_target_ids(&repo_paths)? {
         let target = load_target_manifest(&repo_paths, &target_id)?;
         if let Some(override_configuration) = target.launch.as_ref() {
             manifest::launch::validate_resolved_launch_for_target(override_configuration, &target)?;
@@ -65,26 +66,4 @@ pub fn update_gutch_target_launch(
     target.launch = launch;
     write_target_manifest_artifacts(&repo_paths, &target)?;
     Ok(())
-}
-
-fn repo_target_ids(paths: &GutchRepoPaths) -> Result<Vec<String>> {
-    if !paths.targets_root.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut target_ids = std::fs::read_dir(&paths.targets_root)?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry.path().is_file()
-                && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
-        })
-        .filter_map(|entry| {
-            entry
-                .path()
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .map(str::to_string)
-        })
-        .collect::<Vec<_>>();
-    target_ids.sort();
-    Ok(target_ids)
 }

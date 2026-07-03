@@ -236,14 +236,8 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_
     runtime_hints: &RuntimeResourceHints,
     options: ReconstructOptions,
 ) -> Result<((), ReconstructTimings)> {
-    let needed_chunks = required_chunk_hashes(target_manifest);
-    let total_start = Instant::now();
-    let runtime_plan = plan_reconstruct_runtime(runtime_hints);
-    let timings = ReconstructTimings {
-        runtime_plan: Some(runtime_plan.clone()),
-        ..ReconstructTimings::default()
-    };
-    crate::helpers::create_dir_all(output_dir)?;
+    let (needed_chunks, total_start, runtime_plan, timings) =
+        prepare_reconstruct(target_manifest, output_dir, runtime_hints)?;
 
     let local_chunks = match verified_source {
         Some(source) => read_reusable_source_chunks(source, &needed_chunks)?,
@@ -287,14 +281,8 @@ pub fn reconstruct_from_repo_paths_with_timings_and_hints_with_options(
     runtime_hints: &RuntimeResourceHints,
     options: ReconstructOptions,
 ) -> Result<((), ReconstructTimings)> {
-    let needed_chunks = required_chunk_hashes(target_manifest);
-    let total_start = Instant::now();
-    let runtime_plan = plan_reconstruct_runtime(runtime_hints);
-    let mut timings = ReconstructTimings {
-        runtime_plan: Some(runtime_plan.clone()),
-        ..ReconstructTimings::default()
-    };
-    crate::helpers::create_dir_all(output_dir)?;
+    let (needed_chunks, total_start, runtime_plan, mut timings) =
+        prepare_reconstruct(target_manifest, output_dir, runtime_hints)?;
 
     let chunk_index = crate::repo::load_chunk_index(repo_paths)?;
     let local_chunks = read_loose_repo_chunks(
@@ -323,6 +311,22 @@ pub fn reconstruct_from_repo_paths_with_timings_and_hints_with_options(
         timings,
         options,
     )
+}
+
+fn prepare_reconstruct(
+    target_manifest: &TargetManifest,
+    output_dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<(HashSet<String>, Instant, RuntimePlan, ReconstructTimings)> {
+    let needed_chunks = required_chunk_hashes(target_manifest);
+    let total_start = Instant::now();
+    let runtime_plan = plan_reconstruct_runtime(runtime_hints);
+    let timings = ReconstructTimings {
+        runtime_plan: Some(runtime_plan.clone()),
+        ..ReconstructTimings::default()
+    };
+    crate::helpers::create_dir_all(output_dir)?;
+    Ok((needed_chunks, total_start, runtime_plan, timings))
 }
 
 fn reconstruct_from_bundle_paths_and_local_chunks(
@@ -635,30 +639,10 @@ fn direct_bundle_chunk_slice<'a>(
     timings: &mut ReconstructTimings,
     options: ReconstructOptions,
 ) -> Result<&'a [u8]> {
-    let start = location.raw_offset as usize;
-    let end = start.saturating_add(location.raw_size as usize);
-    if end > raw_payload.len() {
-        return Err(Error::Reconstruct(format!(
-            "bundle raw span {}..{} exceeds direct payload size {}",
-            start,
-            end,
-            raw_payload.len()
-        )));
-    }
+    let chunk_data = slice_bundle_raw_payload(raw_payload, location, "direct")?;
     let t = Instant::now();
-    let chunk_data = &raw_payload[start..end];
     timings.bundle_read += t.elapsed();
-
-    if options.verify_chunks {
-        let actual_hash = hash_hex(&crate::hash::hash_chunk(chunk_data));
-        if actual_hash != expected_chunk_hash {
-            return Err(Error::HashMismatch {
-                expected: expected_chunk_hash.to_string(),
-                actual: actual_hash,
-            });
-        }
-    }
-
+    verify_chunk_hash(chunk_data, expected_chunk_hash, options)?;
     Ok(chunk_data)
 }
 
@@ -688,38 +672,29 @@ fn read_reusable_source_chunks(
             if !needed_chunks.contains(&chunk_ref.chunk_hash)
                 || chunk_map.contains_key(&chunk_ref.chunk_hash)
             {
-                chunk_buffer.resize(chunk_size, 0);
-                if let Err(e) = reader.read_exact(&mut chunk_buffer) {
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                        return Err(Error::Reconstruct(format!(
-                            "source chunk out of bounds in {} at offset {}",
-                            fm.path, current_offset
-                        )));
-                    }
-                    return Err(e.into());
-                }
+                read_source_chunk_into(
+                    &mut reader,
+                    &mut chunk_buffer,
+                    chunk_size,
+                    &fm.path,
+                    current_offset,
+                )?;
                 current_offset += chunk_ref.raw_size;
                 continue;
             }
 
-            chunk_buffer.resize(chunk_size, 0);
-            if let Err(e) = reader.read_exact(&mut chunk_buffer) {
-                if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                    return Err(Error::Reconstruct(format!(
-                        "source chunk out of bounds in {} at offset {}",
-                        fm.path, current_offset
-                    )));
-                }
-                return Err(e.into());
-            }
-
-            let actual_hash = hash_hex(&crate::hash::hash_chunk(&chunk_buffer));
-            if actual_hash != chunk_ref.chunk_hash {
-                return Err(Error::HashMismatch {
-                    expected: chunk_ref.chunk_hash.clone(),
-                    actual: actual_hash,
-                });
-            }
+            read_source_chunk_into(
+                &mut reader,
+                &mut chunk_buffer,
+                chunk_size,
+                &fm.path,
+                current_offset,
+            )?;
+            verify_chunk_hash(
+                &chunk_buffer,
+                &chunk_ref.chunk_hash,
+                ReconstructOptions::default(),
+            )?;
 
             chunk_map.insert(chunk_ref.chunk_hash.clone(), chunk_buffer.clone());
             current_offset += chunk_ref.raw_size;
@@ -727,6 +702,26 @@ fn read_reusable_source_chunks(
     }
 
     Ok(chunk_map)
+}
+
+fn read_source_chunk_into(
+    reader: &mut impl Read,
+    chunk_buffer: &mut Vec<u8>,
+    chunk_size: usize,
+    file_path: &str,
+    current_offset: u64,
+) -> Result<()> {
+    chunk_buffer.resize(chunk_size, 0);
+    if let Err(error) = reader.read_exact(chunk_buffer) {
+        if error.kind() == std::io::ErrorKind::UnexpectedEof {
+            return Err(Error::Reconstruct(format!(
+                "source chunk out of bounds in {} at offset {}",
+                file_path, current_offset
+            )));
+        }
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 fn reconstruct_files_from_locations_and_chunks(
@@ -786,15 +781,13 @@ fn reconstruct_manifest_file(
 
     for chunk_ref in &fm.chunks {
         if let Some(local_chunk) = local_chunks.get(&chunk_ref.chunk_hash) {
-            let t = Instant::now();
-            output.write_all(local_chunk)?;
-            timings.file_write += t.elapsed();
-            timings.file_write_bytes += local_chunk.len() as u64;
-            if let Some(hasher) = &mut hasher {
-                hasher.update(local_chunk);
-            }
-            written += local_chunk.len() as u64;
-            timings.file_rebuild_bytes += local_chunk.len() as u64;
+            write_reconstructed_chunk(
+                &mut output,
+                local_chunk,
+                &mut hasher,
+                &mut timings,
+                &mut written,
+            )?;
             continue;
         }
 
@@ -813,16 +806,13 @@ fn reconstruct_manifest_file(
                 &mut timings,
                 options,
             )?;
-
-            let t = Instant::now();
-            output.write_all(chunk_data)?;
-            timings.file_write += t.elapsed();
-            timings.file_write_bytes += chunk_data.len() as u64;
-            if let Some(hasher) = &mut hasher {
-                hasher.update(chunk_data);
-            }
-            written += chunk_data.len() as u64;
-            timings.file_rebuild_bytes += chunk_data.len() as u64;
+            write_reconstructed_chunk(
+                &mut output,
+                chunk_data,
+                &mut hasher,
+                &mut timings,
+                &mut written,
+            )?;
             continue;
         }
 
@@ -835,16 +825,13 @@ fn reconstruct_manifest_file(
             &mut timings,
             options,
         )?;
-
-        let t = Instant::now();
-        output.write_all(&chunk_data)?;
-        timings.file_write += t.elapsed();
-        timings.file_write_bytes += chunk_data.len() as u64;
-        if let Some(hasher) = &mut hasher {
-            hasher.update(&chunk_data);
-        }
-        written += chunk_data.len() as u64;
-        timings.file_rebuild_bytes += chunk_data.len() as u64;
+        write_reconstructed_chunk(
+            &mut output,
+            &chunk_data,
+            &mut hasher,
+            &mut timings,
+            &mut written,
+        )?;
     }
 
     if written != fm.size {
@@ -914,17 +901,7 @@ fn read_chunk_for_reconstruct(
             staged_file.read_exact(&mut chunk_data)?;
             timings.bundle_read += t.elapsed();
             timings.bundle_read_decompressed_bytes += location.raw_size;
-
-            if options.verify_chunks {
-                let actual_hash = hash_hex(&crate::hash::hash_chunk(&chunk_data));
-                if actual_hash != expected_chunk_hash {
-                    return Err(Error::HashMismatch {
-                        expected: expected_chunk_hash.to_string(),
-                        actual: actual_hash,
-                    });
-                }
-            }
-
+            verify_chunk_hash(&chunk_data, expected_chunk_hash, options)?;
             Ok(chunk_data)
         }
         BundleAccessStrategy::StagedBundleMemory { .. } => Err(Error::Reconstruct(
@@ -940,32 +917,11 @@ fn read_staged_memory_chunk_for_reconstruct<'a>(
     timings: &mut ReconstructTimings,
     options: ReconstructOptions,
 ) -> Result<&'a [u8]> {
-    let start = location.raw_offset as usize;
-    let end = start.saturating_add(location.raw_size as usize);
-    if end > raw_payload.len() {
-        return Err(Error::Reconstruct(format!(
-            "bundle raw span {}..{} exceeds staged payload size {}",
-            start,
-            end,
-            raw_payload.len()
-        )));
-    }
-
+    let chunk_data = slice_bundle_raw_payload(raw_payload, location, "staged")?;
     let t = Instant::now();
-    let chunk_data = &raw_payload[start..end];
     timings.bundle_read += t.elapsed();
     timings.bundle_read_decompressed_bytes += location.raw_size;
-
-    if options.verify_chunks {
-        let actual_hash = hash_hex(&crate::hash::hash_chunk(chunk_data));
-        if actual_hash != expected_chunk_hash {
-            return Err(Error::HashMismatch {
-                expected: expected_chunk_hash.to_string(),
-                actual: actual_hash,
-            });
-        }
-    }
-
+    verify_chunk_hash(chunk_data, expected_chunk_hash, options)?;
     Ok(chunk_data)
 }
 
@@ -1088,6 +1044,63 @@ fn stage_bundle_raw_payload(
         payload.1,
         stage_start.elapsed(),
     ))
+}
+
+fn slice_bundle_raw_payload<'a>(
+    raw_payload: &'a [u8],
+    location: &ChunkLocation,
+    mode: &str,
+) -> Result<&'a [u8]> {
+    let start = location.raw_offset as usize;
+    let end = start.saturating_add(location.raw_size as usize);
+    if end > raw_payload.len() {
+        return Err(Error::Reconstruct(format!(
+            "bundle raw span {}..{} exceeds {} payload size {}",
+            start,
+            end,
+            mode,
+            raw_payload.len()
+        )));
+    }
+    Ok(&raw_payload[start..end])
+}
+
+fn verify_chunk_hash(
+    chunk_data: &[u8],
+    expected_chunk_hash: &str,
+    options: ReconstructOptions,
+) -> Result<()> {
+    if !options.verify_chunks {
+        return Ok(());
+    }
+
+    let actual_hash = hash_hex(&crate::hash::hash_chunk(chunk_data));
+    if actual_hash != expected_chunk_hash {
+        return Err(Error::HashMismatch {
+            expected: expected_chunk_hash.to_string(),
+            actual: actual_hash,
+        });
+    }
+    Ok(())
+}
+
+fn write_reconstructed_chunk(
+    output: &mut BufWriter<std::fs::File>,
+    chunk_data: &[u8],
+    hasher: &mut Option<blake3::Hasher>,
+    timings: &mut ReconstructTimings,
+    written: &mut u64,
+) -> Result<()> {
+    let t = Instant::now();
+    output.write_all(chunk_data)?;
+    timings.file_write += t.elapsed();
+    timings.file_write_bytes += chunk_data.len() as u64;
+    if let Some(hasher) = hasher {
+        hasher.update(chunk_data);
+    }
+    *written += chunk_data.len() as u64;
+    timings.file_rebuild_bytes += chunk_data.len() as u64;
+    Ok(())
 }
 
 fn should_stage_bundle_payloads_in_memory(

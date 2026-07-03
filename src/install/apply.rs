@@ -58,8 +58,8 @@ pub fn resolve_required_bundle_paths_from_repo(
 pub fn verify_target_install_from_repo(
     request: TargetInstallVerifyFromRepoRequest,
 ) -> Result<TargetInstallVerifyFromRepoResult> {
-    let (repo_paths, _) = crate::load_gutch_repo_manifest(&request.repo_path)?;
-    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
+    let (repo_paths, target_manifest) =
+        super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
     let (classification, verify_timings) = classify_directory_with_progress_and_mode(
         &target_manifest,
         &request.install_dir,
@@ -78,12 +78,11 @@ pub fn verify_target_install_from_repo(
 pub fn apply_target_install_from_repo(
     request: TargetInstallApplyFromRepoRequest,
 ) -> Result<TargetInstallApplyFromRepoResult> {
-    let (repo_paths, _) = crate::load_gutch_repo_manifest(&request.repo_path)?;
-    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
+    let (repo_paths, target_manifest, bundle_paths) =
+        super::repo_target::load_repo_target_bundle_paths(&request.repo_path, &request.target_id)?;
     let staging_dir = request.staging_dir.unwrap_or_else(|| {
         default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
     });
-    let bundle_paths = resolve_required_bundle_paths_from_repo(&repo_paths, &target_manifest)?;
 
     let source_manifest = match request.source_target_id.as_ref() {
         Some(source_target_id) => Some(crate::load_target_manifest(&repo_paths, source_target_id)?),

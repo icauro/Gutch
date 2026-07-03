@@ -1,9 +1,10 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::Result;
 
+use super::inventory::{list_repo_bundle_paths, list_repo_target_ids};
 use super::{
     load_chunk_index, load_gutch_repo_manifest, load_target_manifest, required_bundle_ids,
     target_manifest_bin_path, target_manifest_path,
@@ -56,26 +57,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
         },
     );
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
-    let remaining_targets: Vec<String> = if repo_paths.targets_root.exists() {
-        let mut ids: Vec<String> = std::fs::read_dir(&repo_paths.targets_root)?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry.path().is_file()
-                    && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
-            })
-            .filter_map(|entry| {
-                entry
-                    .path()
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .map(str::to_string)
-            })
-            .collect();
-        ids.sort();
-        ids
-    } else {
-        Vec::new()
-    };
+    let remaining_targets = list_repo_target_ids(&repo_paths)?;
 
     let chunk_index = load_chunk_index(&repo_paths)?;
     let mut still_required_bundle_ids = HashSet::new();
@@ -105,18 +87,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
         still_required_bundle_ids.extend(required_bundle_ids(&manifest, &chunk_index));
     }
 
-    let bundle_files: Vec<PathBuf> = if repo_paths.bundles_root.exists() {
-        walkdir::WalkDir::new(&repo_paths.bundles_root)
-            .sort_by_file_name()
-            .into_iter()
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().is_file())
-            .filter(|entry| crate::bundle_id_from_bundle_path(entry.path()).is_some())
-            .map(|entry| entry.path().to_path_buf())
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let bundle_files = list_repo_bundle_paths(&repo_paths);
 
     let bundle_count = bundle_files.len().max(1);
     let mut orphan_bundles = Vec::new();

@@ -20,7 +20,7 @@ fn mib_per_s(bytes: u64, d: std::time::Duration) -> f64 {
     }
 }
 
-fn secs_f64_sum(values: &[f64]) -> f64 {
+fn duration_sum(values: &[std::time::Duration]) -> std::time::Duration {
     values.iter().copied().sum()
 }
 
@@ -42,6 +42,55 @@ fn print_metric_line(label: &str, value: impl std::fmt::Display) {
 
 fn print_blank_line() {
     println!();
+}
+
+fn runtime_plan_detail(plan: &g::RuntimePlan, include_storage: bool) -> String {
+    let storage = include_storage
+        .then(|| format!(" storage={}", plan.chunk_storage_mode.as_str()))
+        .unwrap_or_default();
+    format!(
+        "requested={} effective={}{} workers={} budget={} MiB{}",
+        plan.requested_memory_mode.as_str(),
+        plan.effective_memory_mode.as_str(),
+        storage,
+        plan.worker_count,
+        plan.memory_budget_mib,
+        plan.available_memory_mib
+            .map(|mib| format!(" available={} MiB", mib))
+            .unwrap_or_default()
+    )
+}
+
+fn print_runtime_plan(plan: Option<&g::RuntimePlan>, include_storage: bool) {
+    if let Some(plan) = plan {
+        print_metric_line("runtime plan", runtime_plan_detail(plan, include_storage));
+    }
+}
+
+fn print_timing_throughput_line(label: &str, duration: std::time::Duration, bytes: u64) {
+    print_metric_line(
+        label,
+        format!(
+            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
+            secs(duration),
+            mib(bytes),
+            mib_per_s(bytes, duration)
+        ),
+    );
+}
+
+fn print_benchmark_snapshot(title: &str, total: std::time::Duration, accounted: f64) {
+    print_blank_line();
+    print_section_title(title);
+    print_metric_line("total", format!("{:.2} s", secs(total)));
+    print_metric_line(
+        "accounted",
+        format!("{:.2}%", pct_of_total(accounted, secs(total))),
+    );
+    print_metric_line(
+        "unaccounted",
+        format!("{:.2} s", (secs(total) - accounted).max(0.0)),
+    );
 }
 
 fn print_table_border() {
@@ -86,6 +135,40 @@ pub fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
     } else {
         (numerator as f64 * 100.0) / denominator as f64
     }
+}
+
+struct RuntimePlanSummary {
+    requested_memory_mode: Option<String>,
+    effective_memory_mode: Option<String>,
+    chunk_storage_mode: Option<String>,
+    worker_count: Option<usize>,
+    available_memory_mib: Option<u64>,
+    memory_budget_mib: Option<u64>,
+}
+
+fn runtime_plan_summary(plan: Option<&g::RuntimePlan>) -> RuntimePlanSummary {
+    RuntimePlanSummary {
+        requested_memory_mode: plan.map(|plan| plan.requested_memory_mode.as_str().to_string()),
+        effective_memory_mode: plan.map(|plan| plan.effective_memory_mode.as_str().to_string()),
+        chunk_storage_mode: plan.map(|plan| plan.chunk_storage_mode.as_str().to_string()),
+        worker_count: plan.map(|plan| plan.worker_count),
+        available_memory_mib: plan.and_then(|plan| plan.available_memory_mib),
+        memory_budget_mib: plan.map(|plan| plan.memory_budget_mib),
+    }
+}
+
+fn accounted_timing_fields(
+    total: std::time::Duration,
+    parts: &[std::time::Duration],
+) -> (f64, f64, f64, f64) {
+    let total_seconds = secs(total);
+    let accounted_seconds = secs(duration_sum(parts));
+    (
+        accounted_seconds,
+        (total_seconds - accounted_seconds).max(0.0),
+        pct_of_total(accounted_seconds, total_seconds),
+        total_seconds,
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -224,47 +307,30 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
         secs(timings.bundle_compressed_stream_compression);
     let bundle_compressed_serialization_seconds = secs(timings.bundle_compressed_serialization);
     let target_manifest_finalize_seconds = secs(timings.target_manifest_finalize);
-    let total_seconds = secs(timings.total);
-    let accounted_seconds = secs_f64_sum(&[
-        scan_read_seconds,
-        file_hash_seconds,
-        chunking_seconds,
-        chunk_hash_judgment_seconds,
-        metadata_seconds,
-        dedupe_lookup_seconds,
-        compression_seconds,
-        bundle_build_seconds,
-        target_manifest_finalize_seconds,
-    ]);
-    let requested_memory_mode = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.requested_memory_mode.as_str().to_string());
-    let effective_memory_mode = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.effective_memory_mode.as_str().to_string());
-    let chunk_storage_mode = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.chunk_storage_mode.as_str().to_string());
-    let worker_count = timings.runtime_plan.as_ref().map(|plan| plan.worker_count);
-    let available_memory_mib = timings
-        .runtime_plan
-        .as_ref()
-        .and_then(|plan| plan.available_memory_mib);
-    let memory_budget_mib = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.memory_budget_mib);
+    let (accounted_seconds, unaccounted_seconds, accounted_percent_of_total, total_seconds) =
+        accounted_timing_fields(
+            timings.total,
+            &[
+                timings.scan_read,
+                timings.file_hash,
+                timings.chunking,
+                timings.chunk_hash_judgment,
+                timings.metadata,
+                timings.dedupe_lookup,
+                timings.compression,
+                timings.bundle_build,
+                timings.target_manifest_finalize,
+            ],
+        );
+    let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
 
     BuildTimingsSummary {
-        requested_memory_mode,
-        effective_memory_mode,
-        chunk_storage_mode,
-        worker_count,
-        available_memory_mib,
-        memory_budget_mib,
+        requested_memory_mode: runtime_plan.requested_memory_mode,
+        effective_memory_mode: runtime_plan.effective_memory_mode,
+        chunk_storage_mode: runtime_plan.chunk_storage_mode,
+        worker_count: runtime_plan.worker_count,
+        available_memory_mib: runtime_plan.available_memory_mib,
+        memory_budget_mib: runtime_plan.memory_budget_mib,
         scan_read_seconds,
         scan_read_bytes: timings.scan_read_bytes,
         scan_read_mib_per_second: mib_per_s(timings.scan_read_bytes, timings.scan_read),
@@ -342,8 +408,8 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
         bundle_build_mib_per_second: mib_per_s(timings.bundle_build_bytes, timings.bundle_build),
         target_manifest_finalize_seconds,
         accounted_seconds,
-        unaccounted_seconds: (total_seconds - accounted_seconds).max(0.0),
-        accounted_percent_of_total: pct_of_total(accounted_seconds, total_seconds),
+        unaccounted_seconds,
+        accounted_percent_of_total,
         total_seconds,
     }
 }
@@ -353,37 +419,24 @@ pub fn reconstruct_timings_summary(timings: &g::ReconstructTimings) -> Reconstru
     let file_rebuild_seconds = secs(timings.file_rebuild);
     let file_verify_seconds = secs(timings.file_verify);
     let file_write_seconds = secs(timings.file_write);
-    let total_seconds = secs(timings.total);
-    let accounted_seconds = secs_f64_sum(&[
-        bundle_read_seconds,
-        file_rebuild_seconds,
-        file_verify_seconds,
-        file_write_seconds,
-    ]);
-    let requested_memory_mode = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.requested_memory_mode.as_str().to_string());
-    let effective_memory_mode = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.effective_memory_mode.as_str().to_string());
-    let worker_count = timings.runtime_plan.as_ref().map(|plan| plan.worker_count);
-    let available_memory_mib = timings
-        .runtime_plan
-        .as_ref()
-        .and_then(|plan| plan.available_memory_mib);
-    let memory_budget_mib = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.memory_budget_mib);
+    let (accounted_seconds, unaccounted_seconds, accounted_percent_of_total, total_seconds) =
+        accounted_timing_fields(
+            timings.total,
+            &[
+                timings.bundle_read,
+                timings.file_rebuild,
+                timings.file_verify,
+                timings.file_write,
+            ],
+        );
+    let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
 
     ReconstructTimingsSummary {
-        requested_memory_mode,
-        effective_memory_mode,
-        worker_count,
-        available_memory_mib,
-        memory_budget_mib,
+        requested_memory_mode: runtime_plan.requested_memory_mode,
+        effective_memory_mode: runtime_plan.effective_memory_mode,
+        worker_count: runtime_plan.worker_count,
+        available_memory_mib: runtime_plan.available_memory_mib,
+        memory_budget_mib: runtime_plan.memory_budget_mib,
         bundle_read_seconds,
         bundle_read_compressed_bytes: timings.bundle_read_compressed_bytes,
         bundle_read_decompressed_bytes: timings.bundle_read_decompressed_bytes,
@@ -401,8 +454,8 @@ pub fn reconstruct_timings_summary(timings: &g::ReconstructTimings) -> Reconstru
         file_write_bytes: timings.file_write_bytes,
         file_write_mib_per_second: mib_per_s(timings.file_write_bytes, timings.file_write),
         accounted_seconds,
-        unaccounted_seconds: (total_seconds - accounted_seconds).max(0.0),
-        accounted_percent_of_total: pct_of_total(accounted_seconds, total_seconds),
+        unaccounted_seconds,
+        accounted_percent_of_total,
         total_seconds,
     }
 }
@@ -412,38 +465,25 @@ pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummar
     let file_read_seconds = secs(timings.file_read);
     let file_hash_seconds = secs(timings.file_hash);
     let chunk_hash_seconds = secs(timings.chunk_hash);
-    let total_seconds = secs(timings.total);
-    let accounted_seconds = secs_f64_sum(&[
-        stat_seconds,
-        file_read_seconds,
-        file_hash_seconds,
-        chunk_hash_seconds,
-    ]);
-    let requested_memory_mode = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.requested_memory_mode.as_str().to_string());
-    let effective_memory_mode = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.effective_memory_mode.as_str().to_string());
-    let worker_count = timings.runtime_plan.as_ref().map(|plan| plan.worker_count);
-    let available_memory_mib = timings
-        .runtime_plan
-        .as_ref()
-        .and_then(|plan| plan.available_memory_mib);
-    let memory_budget_mib = timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.memory_budget_mib);
+    let (accounted_seconds, unaccounted_seconds, accounted_percent_of_total, total_seconds) =
+        accounted_timing_fields(
+            timings.total,
+            &[
+                timings.stat,
+                timings.file_read,
+                timings.file_hash,
+                timings.chunk_hash,
+            ],
+        );
+    let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
 
     VerifyTimingsSummary {
         verify_mode: timings.verify_mode.as_str().to_string(),
-        requested_memory_mode,
-        effective_memory_mode,
-        worker_count,
-        available_memory_mib,
-        memory_budget_mib,
+        requested_memory_mode: runtime_plan.requested_memory_mode,
+        effective_memory_mode: runtime_plan.effective_memory_mode,
+        worker_count: runtime_plan.worker_count,
+        available_memory_mib: runtime_plan.available_memory_mib,
+        memory_budget_mib: runtime_plan.memory_budget_mib,
         stat_seconds,
         file_read_seconds,
         file_read_bytes: timings.file_read_bytes,
@@ -455,8 +495,8 @@ pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummar
         chunk_hash_bytes: timings.chunk_hash_bytes,
         chunk_hash_mib_per_second: mib_per_s(timings.chunk_hash_bytes, timings.chunk_hash),
         accounted_seconds,
-        unaccounted_seconds: (total_seconds - accounted_seconds).max(0.0),
-        accounted_percent_of_total: pct_of_total(accounted_seconds, total_seconds),
+        unaccounted_seconds,
+        accounted_percent_of_total,
         total_seconds,
     }
 }
@@ -518,22 +558,7 @@ pub fn format_bytes(bytes: u64) -> String {
 
 pub fn print_build_timings(t: &g::BuildTimings) {
     print_section_title("Build Timing Summary");
-    if let Some(plan) = &t.runtime_plan {
-        print_metric_line(
-            "runtime plan",
-            format!(
-                "requested={} effective={} storage={} workers={} budget={} MiB{}",
-                plan.requested_memory_mode.as_str(),
-                plan.effective_memory_mode.as_str(),
-                plan.chunk_storage_mode.as_str(),
-                plan.worker_count,
-                plan.memory_budget_mib,
-                plan.available_memory_mib
-                    .map(|mib| format!(" available={} MiB", mib))
-                    .unwrap_or_default()
-            ),
-        );
-    }
+    print_runtime_plan(t.runtime_plan.as_ref(), true);
     print_table_header();
     print_table_row(
         "read files",
@@ -736,21 +761,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
 
 pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_section_title("Reconstruct Timing Summary");
-    if let Some(plan) = &t.runtime_plan {
-        print_metric_line(
-            "runtime plan",
-            format!(
-                "requested={} effective={} workers={} budget={} MiB{}",
-                plan.requested_memory_mode.as_str(),
-                plan.effective_memory_mode.as_str(),
-                plan.worker_count,
-                plan.memory_budget_mib,
-                plan.available_memory_mib
-                    .map(|mib| format!(" available={} MiB", mib))
-                    .unwrap_or_default()
-            ),
-        );
-    }
+    print_runtime_plan(t.runtime_plan.as_ref(), false);
     print_metric_line(
         "bundle read",
         format!(
@@ -761,106 +772,24 @@ pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
             mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read)
         ),
     );
-    print_metric_line(
-        "file rebuild",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.file_rebuild),
-            mib(t.file_rebuild_bytes),
-            mib_per_s(t.file_rebuild_bytes, t.file_rebuild)
-        ),
-    );
-    print_metric_line(
-        "file verify",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.file_verify),
-            mib(t.file_verify_bytes),
-            mib_per_s(t.file_verify_bytes, t.file_verify)
-        ),
-    );
-    print_metric_line(
-        "file write",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.file_write),
-            mib(t.file_write_bytes),
-            mib_per_s(t.file_write_bytes, t.file_write)
-        ),
-    );
+    print_timing_throughput_line("file rebuild", t.file_rebuild, t.file_rebuild_bytes);
+    print_timing_throughput_line("file verify", t.file_verify, t.file_verify_bytes);
+    print_timing_throughput_line("file write", t.file_write, t.file_write_bytes);
     let accounted =
         secs(t.bundle_read) + secs(t.file_rebuild) + secs(t.file_verify) + secs(t.file_write);
-    print_blank_line();
-    print_section_title("Reconstruct Benchmark Snapshot");
-    print_metric_line("total", format!("{:.2} s", secs(t.total)));
-    print_metric_line(
-        "accounted",
-        format!("{:.2}%", pct_of_total(accounted, secs(t.total))),
-    );
-    print_metric_line(
-        "unaccounted",
-        format!("{:.2} s", (secs(t.total) - accounted).max(0.0)),
-    );
+    print_benchmark_snapshot("Reconstruct Benchmark Snapshot", t.total, accounted);
 }
 
 pub fn print_verify_timings(t: &g::VerifyTimings) {
     print_section_title("Verify Timing Summary");
     print_metric_line("mode", t.verify_mode.as_str());
-    if let Some(plan) = &t.runtime_plan {
-        print_metric_line(
-            "runtime plan",
-            format!(
-                "requested={} effective={} workers={} budget={} MiB{}",
-                plan.requested_memory_mode.as_str(),
-                plan.effective_memory_mode.as_str(),
-                plan.worker_count,
-                plan.memory_budget_mib,
-                plan.available_memory_mib
-                    .map(|mib| format!(" available={} MiB", mib))
-                    .unwrap_or_default()
-            ),
-        );
-    }
+    print_runtime_plan(t.runtime_plan.as_ref(), false);
     print_metric_line("stat", format!("{:.2} s", secs(t.stat)));
-    print_metric_line(
-        "file read",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.file_read),
-            mib(t.file_read_bytes),
-            mib_per_s(t.file_read_bytes, t.file_read)
-        ),
-    );
-    print_metric_line(
-        "file hash",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.file_hash),
-            mib(t.file_hash_bytes),
-            mib_per_s(t.file_hash_bytes, t.file_hash)
-        ),
-    );
-    print_metric_line(
-        "chunk hash",
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(t.chunk_hash),
-            mib(t.chunk_hash_bytes),
-            mib_per_s(t.chunk_hash_bytes, t.chunk_hash)
-        ),
-    );
+    print_timing_throughput_line("file read", t.file_read, t.file_read_bytes);
+    print_timing_throughput_line("file hash", t.file_hash, t.file_hash_bytes);
+    print_timing_throughput_line("chunk hash", t.chunk_hash, t.chunk_hash_bytes);
     let accounted = secs(t.stat) + secs(t.file_read) + secs(t.file_hash) + secs(t.chunk_hash);
-    print_blank_line();
-    print_section_title("Verify Benchmark Snapshot");
-    print_metric_line("total", format!("{:.2} s", secs(t.total)));
-    print_metric_line(
-        "accounted",
-        format!("{:.2}%", pct_of_total(accounted, secs(t.total))),
-    );
-    print_metric_line(
-        "unaccounted",
-        format!("{:.2} s", (secs(t.total) - accounted).max(0.0)),
-    );
+    print_benchmark_snapshot("Verify Benchmark Snapshot", t.total, accounted);
 }
 
 pub fn print_repo_check_timings(t: &g::RepoCheckTimings) {

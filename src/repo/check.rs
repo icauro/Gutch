@@ -3,10 +3,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::inventory::{list_repo_target_ids, scan_bundle_inventory};
 use super::target_descriptor::{preview_target_identity, summarize_target_tags};
 use super::{
-    GutchRepoPaths, bundle_id_from_bundle_path, load_chunk_index, load_gutch_repo_manifest,
-    load_target_manifest, required_bundle_ids, source_modified_at_from_directory, target_sources,
+    GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
+    required_bundle_ids, source_modified_at_from_directory, target_sources,
 };
 use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
 use crate::manifest::{self};
@@ -355,30 +356,6 @@ fn empty_repo_check_status(
     }
 }
 
-fn scan_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usize, u64)> {
-    if !bundles_root.exists() {
-        return Ok((HashSet::new(), 0, 0));
-    }
-
-    let mut bundle_ids = HashSet::new();
-    let mut bundle_count = 0usize;
-    let mut bundle_bytes = 0u64;
-    for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file() {
-            continue;
-        }
-
-        if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
-            bundle_count += 1;
-            bundle_bytes += entry.metadata()?.len();
-            bundle_ids.insert(bundle_id);
-        }
-    }
-
-    Ok((bundle_ids, bundle_count, bundle_bytes))
-}
-
 fn check_target_manifests(
     repo_paths: &GutchRepoPaths,
     targets_root: &Path,
@@ -395,18 +372,9 @@ fn check_target_manifests(
 
     let manifests_start = std::time::Instant::now();
     let mut targets = Vec::new();
-    for entry in std::fs::read_dir(targets_root)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-
-        let Some(target_id) = path.file_stem().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        let manifest_path = path.clone();
-        let manifest = load_target_manifest(repo_paths, target_id)?;
+    for target_id in list_repo_target_ids(repo_paths)? {
+        let manifest_path = targets_root.join(format!("{target_id}.json"));
+        let manifest = load_target_manifest(repo_paths, &target_id)?;
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()

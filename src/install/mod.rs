@@ -1,6 +1,7 @@
 mod apply;
 pub mod fetch;
 mod repair;
+mod repo_target;
 pub mod state;
 pub mod types;
 

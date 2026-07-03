@@ -16,13 +16,19 @@ use super::types::{
     TargetInstallRepairFromRepoResult, TargetInstallRepairResult,
 };
 
+fn manifest_paths_set(target_manifest: &TargetManifest) -> HashSet<&str> {
+    target_manifest
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect()
+}
+
 pub fn repair_target_install_from_repo(
     request: TargetInstallRepairFromRepoRequest,
 ) -> Result<TargetInstallRepairFromRepoResult> {
-    let (repo_paths, _) = crate::load_gutch_repo_manifest(&request.repo_path)?;
-    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
-    let bundle_paths =
-        super::apply::resolve_required_bundle_paths_from_repo(&repo_paths, &target_manifest)?;
+    let (repo_paths, target_manifest, bundle_paths) =
+        super::repo_target::load_repo_target_bundle_paths(&request.repo_path, &request.target_id)?;
     let staging_dir = request.staging_dir.unwrap_or_else(|| {
         default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
     });
@@ -162,11 +168,7 @@ fn preserve_extra_files(
     }
     crate::helpers::create_dir_all(&preserve_dir)?;
 
-    let manifest_paths = target_manifest
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect::<HashSet<_>>();
+    let manifest_paths = manifest_paths_set(target_manifest);
 
     for issue in &classification.extra_files {
         if manifest_paths.contains(issue.path.as_str()) {
@@ -237,11 +239,7 @@ fn restore_preserved_extra_files(
     install_dir: &Path,
     target_manifest: &TargetManifest,
 ) -> Result<usize> {
-    let manifest_paths = target_manifest
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect::<HashSet<_>>();
+    let manifest_paths = manifest_paths_set(target_manifest);
     let mut restored = 0usize;
 
     for entry in walkdir::WalkDir::new(preserve_dir).sort_by_file_name() {
@@ -275,11 +273,7 @@ fn remove_extra_files(
     target_manifest: &TargetManifest,
     extra_files: &[RepairIssue],
 ) -> Result<usize> {
-    let manifest_paths = target_manifest
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect::<HashSet<_>>();
+    let manifest_paths = manifest_paths_set(target_manifest);
     let mut removed = 0usize;
 
     for issue in extra_files {

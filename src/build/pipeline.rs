@@ -229,6 +229,64 @@ struct BuiltLooseChunkResult {
     payload_load_bytes: u64,
 }
 
+fn build_bundled_chunks(
+    planned_bundle_groups: PlannedBundleGroups,
+    compression_profile: &manifest::CompressionProfile,
+    runtime_worker_count: usize,
+    progress: Option<&std::sync::Arc<dyn BuildProgressSink>>,
+) -> Result<Vec<BuiltBundleCompressedGroup>> {
+    if let Some(progress) = progress {
+        progress.on_bundle_build_started(planned_bundle_groups.groups.len());
+    }
+    let compression_profile_for_work = compression_profile.clone();
+    let progress_for_work = progress.cloned();
+    let bundle_worker_count =
+        bundle_compression_worker_count(planned_bundle_groups.groups.len(), runtime_worker_count);
+    let build_bundle_work = || {
+        planned_bundle_groups
+            .groups
+            .into_par_iter()
+            .map(|planned_bundle| {
+                build_bundle_compressed_group(
+                    planned_bundle,
+                    &compression_profile_for_work,
+                    progress_for_work.as_deref(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()
+    };
+
+    install_in_thread_pool(bundle_worker_count, build_bundle_work)?
+}
+
+fn build_loose_chunks(
+    chunks_to_compress: Vec<ChunkPayloadEntry>,
+    compression_profile: &manifest::CompressionProfile,
+    runtime_worker_count: usize,
+    progress: Option<&std::sync::Arc<dyn BuildProgressSink>>,
+) -> Result<Vec<BuiltLooseChunkResult>> {
+    if let Some(progress) = progress {
+        progress.on_bundle_build_started(chunks_to_compress.len());
+    }
+    let compression_profile_for_work = compression_profile.clone();
+    let progress_for_work = progress.cloned();
+    let build_loose_work = || {
+        chunks_to_compress
+            .into_par_iter()
+            .map(|(chunk_hash, payload)| {
+                build_loose_chunk(
+                    chunk_hash,
+                    payload,
+                    &compression_profile_for_work,
+                    progress_for_work.as_deref(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()
+    };
+
+    install_in_thread_pool(runtime_worker_count, build_loose_work)?
+}
+
 fn base_build_config(
     gutch_repo_id: &str,
     target_id: &str,
@@ -541,30 +599,12 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
             timings.bundle_compressed_sort_bytes += planned_bundle_groups.sort_bytes;
             timings.bundle_compressed_ratio_probe += planned_bundle_groups.probe_duration;
             timings.bundle_compressed_ratio_probe_bytes += planned_bundle_groups.probe_raw_bytes;
-            if let Some(progress) = &config.progress {
-                progress.on_bundle_build_started(planned_bundle_groups.groups.len());
-            }
-            let compression_profile_for_work = compression_profile.clone();
-            let progress_for_work = config.progress.clone();
-            let bundle_worker_count = bundle_compression_worker_count(
-                planned_bundle_groups.groups.len(),
+            let built_bundle_groups = build_bundled_chunks(
+                planned_bundle_groups,
+                &compression_profile,
                 runtime_plan.worker_count,
-            );
-            let build_bundle_work = || {
-                planned_bundle_groups
-                    .groups
-                    .into_par_iter()
-                    .map(|planned_bundle| {
-                        build_bundle_compressed_group(
-                            planned_bundle,
-                            &compression_profile_for_work,
-                            progress_for_work.as_deref(),
-                        )
-                    })
-                    .collect::<Result<Vec<_>>>()
-            };
-            let built_bundle_groups: Vec<BuiltBundleCompressedGroup> =
-                install_in_thread_pool(bundle_worker_count, build_bundle_work)??;
+                config.progress.as_ref(),
+            )?;
 
             for built_bundle in built_bundle_groups {
                 timings.bundle_compressed_payload_load += built_bundle.payload_load;
@@ -585,26 +625,12 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
             }
         }
         ArtifactStorageMode::LooseChunks => {
-            if let Some(progress) = &config.progress {
-                progress.on_bundle_build_started(chunks_to_compress.len());
-            }
-            let compression_profile_for_work = compression_profile.clone();
-            let progress_for_work = config.progress.clone();
-            let build_loose_work = || {
-                chunks_to_compress
-                    .into_par_iter()
-                    .map(|(chunk_hash, payload)| {
-                        build_loose_chunk(
-                            chunk_hash,
-                            payload,
-                            &compression_profile_for_work,
-                            progress_for_work.as_deref(),
-                        )
-                    })
-                    .collect::<Result<Vec<_>>>()
-            };
-            let built_chunks: Vec<BuiltLooseChunkResult> =
-                install_in_thread_pool(runtime_plan.worker_count, build_loose_work)??;
+            let built_chunks = build_loose_chunks(
+                chunks_to_compress,
+                &compression_profile,
+                runtime_plan.worker_count,
+                config.progress.as_ref(),
+            )?;
 
             for built_chunk in built_chunks {
                 timings.bundle_compressed_payload_load += built_chunk.payload_load;

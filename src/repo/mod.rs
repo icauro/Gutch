@@ -3,6 +3,7 @@ mod chunk_index;
 mod cleanup;
 mod init_policy;
 mod insert_plan;
+mod inventory;
 mod paths;
 mod remote_ops;
 mod source_identity;
