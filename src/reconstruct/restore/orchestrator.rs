@@ -79,7 +79,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
         bundle_scan_info.insert(
             bundle_path.clone(),
             super::super::types::BundleScanInfo {
-                compression_unit: reader.compression_unit().to_string(),
+                compression_unit: reader.compression_unit(),
                 raw_payload_size: estimate_bundle_raw_payload_size(reader.entries()),
             },
         );

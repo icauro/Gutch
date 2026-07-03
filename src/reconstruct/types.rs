@@ -61,7 +61,7 @@ pub(super) struct ChunkWriteTarget {
 
 #[derive(Clone)]
 pub(super) struct BundleScanInfo {
-    pub compression_unit: String,
+    pub compression_unit: &'static str,
     pub raw_payload_size: u64,
 }
 

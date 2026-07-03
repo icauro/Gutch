@@ -551,15 +551,11 @@ pub fn build_with_config(
         &mut timings,
     )?;
 
-    let mut all_chunk_hashes: HashSet<String> = HashSet::new();
-    let mut required_bundle_set = Vec::new();
     let mut total_compressed: u64 = 0;
     let mut compressed_estimate_seen: HashSet<String> = HashSet::new();
     for fm in &file_manifests {
         for chunk_ref in &fm.chunks {
-            all_chunk_hashes.insert(chunk_ref.chunk_hash.clone());
             if let Some(existing) = existing_chunk_locations.get(&chunk_ref.chunk_hash) {
-                required_bundle_set.push(existing.bundle_id.clone());
                 if compressed_estimate_seen.insert(chunk_ref.chunk_hash.clone()) {
                     total_compressed += existing.compressed_size;
                 }
@@ -625,7 +621,6 @@ pub fn build_with_config(
             for built_bundle in built_bundle_groups {
                 timings.bundle_compressed_payload_load += built_bundle.payload_load;
                 timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
-                required_bundle_set.push(built_bundle.bundle_id.clone());
                 if !existing_bundle_ids.contains(&built_bundle.bundle_id) {
                     record_bundle_compressed_bundle_metrics(
                         &mut timings,

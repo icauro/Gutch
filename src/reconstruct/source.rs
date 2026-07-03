@@ -12,6 +12,7 @@ pub(super) fn read_reusable_source_chunks(
     needed_chunks: &std::collections::HashSet<String>,
 ) -> Result<HashMap<String, Vec<u8>>> {
     let mut chunk_map: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut skip_buffer = Vec::new();
 
     for fm in &source.target_manifest.files {
         if fm
@@ -25,7 +26,6 @@ pub(super) fn read_reusable_source_chunks(
         let file_path = resolve_manifest_relative_path(source.install_dir, &fm.path)?;
         let file = std::fs::File::open(&file_path)?;
         let mut reader = std::io::BufReader::new(file);
-        let mut chunk_buffer = Vec::new();
 
         let mut current_offset = 0u64;
         for chunk_ref in &fm.chunks {
@@ -35,7 +35,7 @@ pub(super) fn read_reusable_source_chunks(
             {
                 read_source_chunk_into(
                     &mut reader,
-                    &mut chunk_buffer,
+                    &mut skip_buffer,
                     chunk_size,
                     &fm.path,
                     current_offset,
@@ -44,20 +44,23 @@ pub(super) fn read_reusable_source_chunks(
                 continue;
             }
 
-            read_source_chunk_into(
-                &mut reader,
-                &mut chunk_buffer,
-                chunk_size,
-                &fm.path,
-                current_offset,
-            )?;
+            let mut chunk_data = vec![0u8; chunk_size];
+            if let Err(error) = reader.read_exact(&mut chunk_data) {
+                if error.kind() == std::io::ErrorKind::UnexpectedEof {
+                    return Err(Error::Reconstruct(format!(
+                        "source chunk out of bounds in {} at offset {}",
+                        fm.path, current_offset
+                    )));
+                }
+                return Err(error.into());
+            }
             verify_chunk_hash(
-                &chunk_buffer,
+                &chunk_data,
                 &chunk_ref.chunk_hash,
                 ReconstructOptions::default(),
             )?;
 
-            chunk_map.insert(chunk_ref.chunk_hash.clone(), chunk_buffer.clone());
+            chunk_map.insert(chunk_ref.chunk_hash.clone(), chunk_data);
             current_offset += chunk_ref.raw_size;
         }
     }

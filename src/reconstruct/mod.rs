@@ -266,7 +266,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -285,7 +285,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -304,7 +304,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
                 raw_payload_size: 700 * 1024 * 1024,
             },
         )]);
@@ -321,7 +321,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("bundle-a.bundle"),
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -342,7 +342,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("bundle-a.bundle"),
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -363,7 +363,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("bundle-a.bundle"),
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE.to_string(),
+                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);

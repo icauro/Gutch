@@ -351,7 +351,7 @@ impl<R: Read + Seek> BundleReader<R> {
             .collect()
     }
 
-    pub fn compression_unit(&self) -> &str {
+    pub fn compression_unit(&self) -> &'static str {
         self.compression_unit
     }
 
