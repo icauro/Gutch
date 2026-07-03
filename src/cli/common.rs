@@ -714,13 +714,14 @@ pub(crate) fn write_loose_chunks(
 ) -> g::Result<std::collections::HashMap<String, u64>> {
     let mut chunk_sizes = std::collections::HashMap::with_capacity(chunks.len());
     for chunk in chunks {
-        let chunk_path = g::chunk_path_in_root(chunks_root, &chunk.chunk_hash);
+        let chunk_hash = chunk.chunk_hash.to_string();
+        let chunk_path = g::chunk_path_in_root(chunks_root, &chunk_hash);
         if let Some(parent) = chunk_path.parent() {
             crate::helpers::create_dir_all(parent)?;
         }
         crate::helpers::write(&chunk_path, &chunk.data)?;
         let chunk_size = chunk.data.len() as u64;
-        chunk_sizes.insert(chunk.chunk_hash.clone(), chunk_size);
+        chunk_sizes.insert(chunk_hash, chunk_size);
         if verbose_output_enabled() {
             println!(
                 "wrote chunk: {} ({} bytes)",

@@ -1,13 +1,13 @@
 use super::*;
-use crate::hash;
+use crate::hash::{self, ChunkHash};
 
 #[test]
 fn test_build_and_read_bundle() {
     let chunk1_data = b"chunk one data for testing ".repeat(10);
     let chunk2_data = b"chunk two different data ".repeat(10);
 
-    let hash1 = hash::hash_hex(&hash::hash_chunk(&chunk1_data));
-    let hash2 = hash::hash_hex(&hash::hash_chunk(&chunk2_data));
+    let hash1 = ChunkHash::from_blake3(hash::hash_chunk(&chunk1_data));
+    let hash2 = ChunkHash::from_blake3(hash::hash_chunk(&chunk2_data));
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
     builder.add_chunk(hash1.clone(), chunk1_data.to_vec());
@@ -18,8 +18,8 @@ fn test_build_and_read_bundle() {
     let mut reader = read_bundle(&bundle_data).unwrap();
     assert_eq!(reader.chunk_count(), 2);
 
-    let read1 = reader.read_chunk_by_hash(&hash1).unwrap();
-    let read2 = reader.read_chunk_by_hash(&hash2).unwrap();
+    let read1 = reader.read_chunk_by_hash(&hash1.to_string()).unwrap();
+    let read2 = reader.read_chunk_by_hash(&hash2.to_string()).unwrap();
 
     assert_eq!(read1, chunk1_data.to_vec());
     assert_eq!(read2, chunk2_data.to_vec());
@@ -38,7 +38,7 @@ fn test_empty_bundle() {
 #[test]
 fn test_single_chunk_bundle() {
     let data = b"single chunk test data ".repeat(20);
-    let hash = hash::hash_hex(&hash::hash_chunk(&data));
+    let hash = ChunkHash::from_blake3(hash::hash_chunk(&data));
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
     builder.add_chunk(hash.clone(), data.to_vec());
@@ -57,8 +57,14 @@ fn test_verify_bundle() {
     let chunk2 = b"verify test chunk two ".repeat(10);
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
-    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk1)), chunk1.to_vec());
-    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk2)), chunk2.to_vec());
+    builder.add_chunk(
+        ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
+        chunk1.to_vec(),
+    );
+    builder.add_chunk(
+        ChunkHash::from_blake3(hash::hash_chunk(&chunk2)),
+        chunk2.to_vec(),
+    );
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data).unwrap();
@@ -71,11 +77,17 @@ fn test_build_and_read_bundle_compressed_stream() {
     let chunk2 = b"bundle compression test chunk two ".repeat(8);
 
     let mut profile = CompressionProfile::default();
-    profile.compression_unit = COMPRESSION_UNIT_BUNDLE.to_string();
+    profile.compression_unit = CompressionUnit::Bundle;
 
     let mut builder = BundleBuilder::new(profile);
-    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk1)), chunk1.to_vec());
-    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk2)), chunk2.to_vec());
+    builder.add_chunk(
+        ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
+        chunk1.to_vec(),
+    );
+    builder.add_chunk(
+        ChunkHash::from_blake3(hash::hash_chunk(&chunk2)),
+        chunk2.to_vec(),
+    );
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data).unwrap();
@@ -91,13 +103,19 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
 
     let profile = CompressionProfile::for_preset(crate::manifest::CompressionPreset::Uncompressed);
     let mut builder = BundleBuilder::new(profile);
-    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk1)), chunk1.clone());
-    builder.add_chunk(hash::hash_hex(&hash::hash_chunk(&chunk2)), chunk2.clone());
+    builder.add_chunk(
+        ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
+        chunk1.clone(),
+    );
+    builder.add_chunk(
+        ChunkHash::from_blake3(hash::hash_chunk(&chunk2)),
+        chunk2.clone(),
+    );
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data).unwrap();
 
-    assert_eq!(reader.compression_unit(), COMPRESSION_UNIT_BUNDLE);
+    assert_eq!(reader.compression_unit(), CompressionUnit::Bundle);
     assert_eq!(reader.read_chunk(0).unwrap(), chunk1);
     assert_eq!(reader.read_chunk(1).unwrap(), chunk2);
 }
@@ -105,7 +123,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
 #[test]
 fn test_bundle_id_deterministic() {
     let data1 = b"deterministic test ".repeat(15);
-    let hash1 = hash::hash_hex(&hash::hash_chunk(&data1));
+    let hash1 = ChunkHash::from_blake3(hash::hash_chunk(&data1));
 
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
     b1.add_chunk(hash1.clone(), data1.to_vec());
@@ -122,8 +140,8 @@ fn test_bundle_id_deterministic() {
 fn test_bundle_id_depends_on_final_bundle_bytes() {
     let d1 = b"chunk a ".repeat(10);
     let d2 = b"chunk b ".repeat(10);
-    let h1 = hash::hash_hex(&hash::hash_chunk(&d1));
-    let h2 = hash::hash_hex(&hash::hash_chunk(&d2));
+    let h1 = ChunkHash::from_blake3(hash::hash_chunk(&d1));
+    let h2 = ChunkHash::from_blake3(hash::hash_chunk(&d2));
 
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
     b1.add_chunk(h1.clone(), d1.to_vec());

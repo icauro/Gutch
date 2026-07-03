@@ -45,3 +45,5 @@ rfd = "0.17.2"
 # Native file dialogs (GUI file picker)
 pl-auth = { path = "../pl-auth" }
 # Shared auth utilities (session tokens)
+smol_str = { version = "0.3.2", features = ["serde"] }
+# Small owned strings for clone-heavy metadata

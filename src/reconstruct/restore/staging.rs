@@ -7,6 +7,7 @@ use rayon::prelude::*;
 
 use crate::Result;
 use crate::bundle;
+use crate::hash::ChunkHash;
 use crate::runtime::{RuntimePlan, install_in_thread_pool};
 
 use super::super::types::{
@@ -19,7 +20,7 @@ use super::super::types::{
 // ---------------------------------------------------------------------------
 
 pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
-    locations: &HashMap<String, ChunkLocation>,
+    locations: &HashMap<ChunkHash, ChunkLocation>,
     bundle_scan_info: &HashMap<PathBuf, BundleScanInfo>,
     runtime_plan: &RuntimePlan,
     timings: &mut ReconstructTimings,
@@ -40,7 +41,7 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
                 bundle_path.display()
             ))
         })?;
-        if scan_info.compression_unit == crate::manifest::COMPRESSION_UNIT_BUNDLE {
+        if scan_info.compression_unit == crate::manifest::CompressionUnit::Bundle {
             bundle_compressed_paths.push(bundle_path);
         } else {
             strategies.insert(bundle_path, BundleAccessStrategy::DirectChunkRead);

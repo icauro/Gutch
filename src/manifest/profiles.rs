@@ -1,9 +1,8 @@
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
-use super::{
-    CHUNK_HASH_BLAKE3, CHUNKER_FASTCDC, COMPRESSION_UNIT_BUNDLE, COMPRESSION_ZSTD, FORMAT_VERSION,
-};
+use super::{CHUNK_HASH_BLAKE3, CHUNKER_FASTCDC, FORMAT_VERSION};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum ArtifactStorageMode {
@@ -14,6 +13,41 @@ pub enum ArtifactStorageMode {
     #[serde(rename = "loose_chunks")]
     #[value(name = "loose_chunks")]
     LooseChunks,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CompressionKind {
+    #[serde(rename = "none")]
+    None,
+    #[default]
+    #[serde(rename = "zstd")]
+    Zstd,
+}
+
+impl CompressionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Zstd => "zstd",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CompressionUnit {
+    #[default]
+    #[serde(rename = "bundle")]
+    Bundle,
+}
+
+impl CompressionUnit {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Bundle => "bundle",
+        }
+    }
 }
 
 impl ArtifactStorageMode {
@@ -116,13 +150,13 @@ impl BundleSizingPreset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkSizingProfile {
     pub preset: ArtifactSizingPreset,
-    pub chunker: String,
+    pub chunker: SmolStr,
     pub min_chunk_bytes: u32,
     pub avg_chunk_bytes: u32,
     pub max_chunk_bytes: u32,
     pub gear_table_id: u32,
-    pub chunk_hash_algorithm: String,
-    pub format_version: String,
+    pub chunk_hash_algorithm: SmolStr,
+    pub format_version: SmolStr,
 }
 
 impl Default for ChunkSizingProfile {
@@ -147,13 +181,13 @@ impl ChunkSizingProfile {
 
         ChunkSizingProfile {
             preset,
-            chunker: CHUNKER_FASTCDC.to_string(),
+            chunker: CHUNKER_FASTCDC.into(),
             min_chunk_bytes,
             avg_chunk_bytes,
             max_chunk_bytes,
             gear_table_id: 3,
-            chunk_hash_algorithm: CHUNK_HASH_BLAKE3.to_string(),
-            format_version: FORMAT_VERSION.to_string(),
+            chunk_hash_algorithm: CHUNK_HASH_BLAKE3.into(),
+            format_version: FORMAT_VERSION.into(),
         }
     }
 
@@ -267,23 +301,23 @@ impl CompressionPreset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompressionProfile {
     pub preset: CompressionPreset,
-    pub compression: String,
-    pub compression_unit: String,
+    pub compression: CompressionKind,
+    pub compression_unit: CompressionUnit,
     pub zstd_level: i32,
 }
 
 impl CompressionProfile {
     pub fn for_preset(preset: CompressionPreset) -> Self {
         let (compression, zstd_level) = match preset {
-            CompressionPreset::Uncompressed => ("none".to_string(), 0),
-            CompressionPreset::Zstd1 => (COMPRESSION_ZSTD.to_string(), 1),
-            CompressionPreset::Zstd3 => (COMPRESSION_ZSTD.to_string(), 3),
-            CompressionPreset::Zstd5 => (COMPRESSION_ZSTD.to_string(), 5),
+            CompressionPreset::Uncompressed => (CompressionKind::None, 0),
+            CompressionPreset::Zstd1 => (CompressionKind::Zstd, 1),
+            CompressionPreset::Zstd3 => (CompressionKind::Zstd, 3),
+            CompressionPreset::Zstd5 => (CompressionKind::Zstd, 5),
         };
         CompressionProfile {
             preset,
             compression,
-            compression_unit: COMPRESSION_UNIT_BUNDLE.to_string(),
+            compression_unit: CompressionUnit::Bundle,
             zstd_level,
         }
     }

@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use tempfile::TempDir;
 
+use crate::hash::ChunkHash;
+use crate::manifest::CompressionUnit;
 use crate::manifest::target::TargetManifest;
 use crate::runtime::RuntimePlan;
 
@@ -61,7 +63,7 @@ pub(super) struct ChunkWriteTarget {
 
 #[derive(Clone)]
 pub(super) struct BundleScanInfo {
-    pub compression_unit: &'static str,
+    pub compression_unit: CompressionUnit,
     pub raw_payload_size: u64,
 }
 
@@ -84,7 +86,7 @@ pub(super) struct BundleAccessPlan {
 
 #[derive(Debug)]
 pub(super) struct LoadedChunk {
-    pub chunk_hash: String,
+    pub chunk_hash: ChunkHash,
     pub data: Vec<u8>,
     pub read_duration: Duration,
     pub compressed_bytes: u64,

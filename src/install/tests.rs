@@ -25,6 +25,10 @@ fn test_target_manifest(files: Vec<(&str, &[u8])>) -> TargetManifest {
     manifest
 }
 
+fn test_hash(label: &str) -> String {
+    hash_hex(&blake3::hash(label.as_bytes()))
+}
+
 #[test]
 fn resolved_install_state_uses_repo_inheritance_and_target_override() {
     let root = crate::test_util::temp_path("gutch_resolved_install_launch_state");
@@ -54,7 +58,7 @@ fn resolved_install_state_uses_repo_inheritance_and_target_override() {
         path: "Game.exe".into(),
         size: 1,
         executable: true,
-        full_file_hash: "hash".into(),
+        full_file_hash: test_hash("Game.exe"),
         chunks: Vec::new(),
     });
     crate::write_target_manifest_artifacts(&paths, &target).unwrap();
@@ -151,7 +155,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         format_version: "1.0.0".to_string(),
         updated_at: String::new(),
         entries: std::collections::BTreeMap::from([(
-            "chunk-a".to_string(),
+            test_hash("chunk-a"),
             manifest::ChunkIndexEntry {
                 bundle_id: "bundle-a".to_string(),
                 raw_size: 100,
@@ -190,9 +194,9 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                             "path": "game.exe",
                             "size": 100,
                                                                 "executable": true,
-                                                                "full_file_hash": "abc",
+                                                                "full_file_hash": test_hash("game.exe"),
                             "chunks": [
-                                { "chunk_hash": "chunk-a", "raw_size": 100 }
+                                { "chunk_hash": test_hash("chunk-a"), "raw_size": 100 }
                             ]
                         }
                     ],

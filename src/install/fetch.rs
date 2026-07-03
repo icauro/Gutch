@@ -10,7 +10,9 @@ use super::types::{
 };
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::target::TargetManifest;
-use crate::progress::{GutchOperation, GutchProgressEvent, GutchProgressSink, emit_progress};
+use crate::progress::{
+    GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
+};
 use crate::{Error, Result};
 
 #[derive(Debug, Deserialize)]
@@ -48,7 +50,7 @@ pub fn fetch_target_install_content(
         &progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
-            phase: "prepare".to_string(),
+            phase: GutchProgressPhase::Prepare,
             message: "Preparing local repo layout".to_string(),
             current: 0,
             total: 1,
@@ -67,7 +69,7 @@ pub fn fetch_target_install_content(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::Fetch,
-                phase: "repo_manifest".to_string(),
+                phase: GutchProgressPhase::RepoManifest,
                 message: "Downloading repo manifest".to_string(),
                 current: 0,
                 total: 1,
@@ -81,7 +83,7 @@ pub fn fetch_target_install_content(
             repo_manifest_url,
             request.session_id.as_deref(),
             &progress,
-            "repo_manifest",
+            GutchProgressPhase::RepoManifest,
             None,
         )?;
         let repo_manifest: GutchRepoManifest =
@@ -96,7 +98,7 @@ pub fn fetch_target_install_content(
         &progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
-            phase: "target_manifest".to_string(),
+            phase: GutchProgressPhase::TargetManifest,
             message: "Downloading target manifest".to_string(),
             current: 0,
             total: 1,
@@ -110,7 +112,7 @@ pub fn fetch_target_install_content(
         &request.manifest_url,
         request.session_id.as_deref(),
         &progress,
-        "target_manifest",
+        GutchProgressPhase::TargetManifest,
         Some(request.target_id.as_str()),
     )?;
     let target_manifest =
@@ -122,7 +124,7 @@ pub fn fetch_target_install_content(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::Fetch,
-                phase: "chunk_index".to_string(),
+                phase: GutchProgressPhase::ChunkIndex,
                 message: "Downloading chunk index".to_string(),
                 current: 0,
                 total: 1,
@@ -136,7 +138,7 @@ pub fn fetch_target_install_content(
             chunk_index_url,
             request.session_id.as_deref(),
             &progress,
-            "chunk_index",
+            GutchProgressPhase::ChunkIndex,
             None,
         )?;
         let chunk_index: crate::manifest::ChunkIndex =
@@ -171,7 +173,7 @@ pub fn fetch_target_install_content(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::Fetch,
-                phase: "bundle".to_string(),
+                phase: GutchProgressPhase::Bundle,
                 message: format!(
                     "Downloading bundle {}/{}",
                     downloaded_bundle_count + 1,
@@ -191,7 +193,7 @@ pub fn fetch_target_install_content(
             url,
             request.session_id.as_deref(),
             &progress,
-            "bundle",
+            GutchProgressPhase::Bundle,
             detail.as_deref(),
         )?;
         let bundle_path = crate::bundle_path(&repo_paths, bundle_id);
@@ -206,7 +208,7 @@ pub fn fetch_target_install_content(
         &progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
-            phase: "done".to_string(),
+            phase: GutchProgressPhase::Done,
             message: "Target install content fetched".to_string(),
             current: required_bundle_ids.len(),
             total: required_bundle_ids.len().max(1),
@@ -240,7 +242,7 @@ fn download_url(
     url: &str,
     session_id: Option<&str>,
     progress: &Option<Arc<dyn GutchProgressSink>>,
-    phase: &str,
+    phase: GutchProgressPhase,
     detail: Option<&str>,
 ) -> Result<Vec<u8>> {
     let client = reqwest::blocking::Client::builder()
@@ -270,7 +272,7 @@ fn download_url(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
-            phase: phase.to_string(),
+            phase,
             message: "Downloaded content".to_string(),
             current: 1,
             total: 1,
@@ -288,7 +290,7 @@ fn should_attach_bearer_session(url: &str, session_id: Option<&str>) -> bool {
 }
 
 fn download_json_bytes(url: &str, session_id: Option<&str>) -> Result<Vec<u8>> {
-    download_url(url, session_id, &None, "json", None)
+    download_url(url, session_id, &None, GutchProgressPhase::Json, None)
 }
 
 fn target_manifest_from_download(

@@ -8,7 +8,7 @@ use rayon::prelude::*;
 
 use crate::bundle;
 use crate::compress::decompress_data;
-use crate::hash::hash_hex;
+use crate::hash::{ChunkHash, hash_hex};
 use crate::manifest::{ArtifactStorageMode, CompressionProfile, target::TargetManifest};
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::repo::{GutchRepoPaths, chunk_path};
@@ -34,11 +34,11 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
     target_manifest: &TargetManifest,
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
-) -> Result<(HashSet<String>, Instant, RuntimePlan, ReconstructTimings)> {
+) -> Result<(HashSet<ChunkHash>, Instant, RuntimePlan, ReconstructTimings)> {
     let needed_chunks = crate::repo::required_chunk_hashes(target_manifest)
         .into_iter()
-        .map(str::to_string)
-        .collect();
+        .map(ChunkHash::parse_hex)
+        .collect::<Result<HashSet<_>>>()?;
     let total_start = Instant::now();
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
     let timings = ReconstructTimings {
@@ -56,20 +56,21 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
 pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
     target_manifest: &TargetManifest,
     bundle_paths: &[std::path::PathBuf],
-    needed_chunks: &HashSet<String>,
-    local_chunks: HashMap<String, Vec<u8>>,
+    needed_chunks: &HashSet<ChunkHash>,
+    local_chunks: HashMap<ChunkHash, Vec<u8>>,
     output_dir: &Path,
     runtime_plan: RuntimePlan,
     total_start: Instant,
     mut timings: ReconstructTimings,
     options: ReconstructOptions,
 ) -> Result<((), ReconstructTimings)> {
-    let missing_chunks: HashSet<String> = needed_chunks
+    let missing_chunks: HashSet<ChunkHash> = needed_chunks
         .iter()
         .filter(|chunk_hash| !local_chunks.contains_key(*chunk_hash))
-        .cloned()
+        .copied()
         .collect();
-    let mut locations: HashMap<String, ChunkLocation> = HashMap::with_capacity(needed_chunks.len());
+    let mut locations: HashMap<ChunkHash, ChunkLocation> =
+        HashMap::with_capacity(needed_chunks.len());
     let mut bundle_scan_info: HashMap<std::path::PathBuf, super::super::types::BundleScanInfo> =
         HashMap::new();
 
@@ -84,9 +85,10 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
             },
         );
         for (index, entry) in reader.entries().iter().enumerate() {
-            if missing_chunks.contains(&entry.chunk_hash) {
+            let chunk_hash = reader.chunk_hashes()[index];
+            if missing_chunks.contains(&chunk_hash) {
                 locations
-                    .entry(entry.chunk_hash.clone())
+                    .entry(chunk_hash)
                     .or_insert_with(|| ChunkLocation {
                         bundle_path: bundle_path.clone(),
                         index,
@@ -149,16 +151,16 @@ pub(in crate::reconstruct) fn read_loose_repo_chunks(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::manifest::ChunkIndex,
     compression_profile: &CompressionProfile,
-    needed_chunks: &HashSet<String>,
+    needed_chunks: &HashSet<ChunkHash>,
     options: ReconstructOptions,
     worker_count: usize,
     timings: &mut ReconstructTimings,
-) -> Result<HashMap<String, Vec<u8>>> {
+) -> Result<HashMap<ChunkHash, Vec<u8>>> {
     let loaded_chunks = install_in_thread_pool(worker_count, || {
         needed_chunks
             .par_iter()
             .filter_map(|chunk_hash| {
-                let index_entry = chunk_index.entries.get(chunk_hash)?;
+                let index_entry = chunk_index.entries.get(&chunk_hash.to_hex())?;
                 if index_entry.storage_mode != ArtifactStorageMode::LooseChunks {
                     return None;
                 }
@@ -186,17 +188,18 @@ pub(in crate::reconstruct) fn read_loose_repo_chunks(
 fn read_loose_repo_chunk(
     repo_paths: &GutchRepoPaths,
     compression_profile: &CompressionProfile,
-    chunk_hash: &str,
+    chunk_hash: &ChunkHash,
     options: ReconstructOptions,
 ) -> Result<LoadedChunk> {
-    let path = chunk_path(repo_paths, chunk_hash);
+    let chunk_hash_hex = chunk_hash.to_hex();
+    let path = chunk_path(repo_paths, &chunk_hash_hex);
     let read_start = Instant::now();
     let stored = crate::helpers::read(&path)?;
     let read_duration = read_start.elapsed();
-    let chunk_data = decompress_data(&stored, &compression_profile.compression)?;
-    verify_chunk_hash(&chunk_data, chunk_hash, options)?;
+    let chunk_data = decompress_data(&stored, compression_profile.compression)?;
+    verify_chunk_hash(&chunk_data, *chunk_hash, options)?;
     Ok(LoadedChunk {
-        chunk_hash: chunk_hash.to_string(),
+        chunk_hash: *chunk_hash,
         compressed_bytes: stored.len() as u64,
         decompressed_bytes: chunk_data.len() as u64,
         data: chunk_data,
@@ -210,7 +213,7 @@ fn read_loose_repo_chunk(
 
 pub(in crate::reconstruct) fn rebuild_files_from_chunks(
     target_manifest: &TargetManifest,
-    chunk_map: &HashMap<String, Vec<u8>>,
+    chunk_map: &HashMap<ChunkHash, Vec<u8>>,
     output_dir: &Path,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {
@@ -219,8 +222,9 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
         let mut file_data = Vec::with_capacity(fm.size as usize);
 
         for chunk_ref in &fm.chunks {
+            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
             let chunk_data = chunk_map
-                .get(&chunk_ref.chunk_hash)
+                .get(&chunk_hash)
                 .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
 
             file_data.extend_from_slice(chunk_data);
@@ -267,9 +271,9 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
 
 fn reconstruct_files_from_locations_and_chunks(
     target_manifest: &TargetManifest,
-    locations: &HashMap<String, ChunkLocation>,
+    locations: &HashMap<ChunkHash, ChunkLocation>,
     access_plan: &BundleAccessPlan,
-    local_chunks: &HashMap<String, Vec<u8>>,
+    local_chunks: &HashMap<ChunkHash, Vec<u8>>,
     output_dir: &Path,
     timings: &mut ReconstructTimings,
     worker_count: usize,
@@ -302,9 +306,9 @@ fn reconstruct_files_from_locations_and_chunks(
 
 fn reconstruct_manifest_file(
     fm: &crate::manifest::FileManifest,
-    locations: &HashMap<String, ChunkLocation>,
+    locations: &HashMap<ChunkHash, ChunkLocation>,
     access_plan: &BundleAccessPlan,
-    local_chunks: &HashMap<String, Vec<u8>>,
+    local_chunks: &HashMap<ChunkHash, Vec<u8>>,
     output_dir: &Path,
     options: ReconstructOptions,
 ) -> Result<ReconstructTimings> {
@@ -322,7 +326,8 @@ fn reconstruct_manifest_file(
     let mut staged_raw_readers: HashMap<std::path::PathBuf, std::fs::File> = HashMap::new();
 
     for chunk_ref in &fm.chunks {
-        if let Some(local_chunk) = local_chunks.get(&chunk_ref.chunk_hash) {
+        let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+        if let Some(local_chunk) = local_chunks.get(&chunk_hash) {
             write_reconstructed_chunk(
                 &mut output,
                 local_chunk,
@@ -334,7 +339,7 @@ fn reconstruct_manifest_file(
         }
 
         let location = locations
-            .get(&chunk_ref.chunk_hash)
+            .get(&chunk_hash)
             .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
         let strategy = access_plan
             .strategies
@@ -344,7 +349,7 @@ fn reconstruct_manifest_file(
             let chunk_data = read_staged_memory_chunk_for_reconstruct(
                 raw_payload,
                 location,
-                &chunk_ref.chunk_hash,
+                chunk_hash,
                 &mut timings,
                 options,
             )?;
@@ -361,7 +366,7 @@ fn reconstruct_manifest_file(
         let chunk_data = read_chunk_for_reconstruct(
             strategy,
             location,
-            &chunk_ref.chunk_hash,
+            chunk_hash,
             &mut bundle_readers,
             &mut staged_raw_readers,
             &mut timings,
@@ -406,7 +411,7 @@ fn reconstruct_manifest_file(
 fn read_chunk_for_reconstruct(
     strategy: &BundleAccessStrategy,
     location: &ChunkLocation,
-    expected_chunk_hash: &str,
+    expected_chunk_hash: ChunkHash,
     bundle_readers: &mut HashMap<std::path::PathBuf, bundle::BundleReader<std::fs::File>>,
     staged_raw_readers: &mut HashMap<std::path::PathBuf, std::fs::File>,
     timings: &mut ReconstructTimings,
@@ -457,7 +462,7 @@ fn read_chunk_for_reconstruct(
 fn read_staged_memory_chunk_for_reconstruct<'a>(
     raw_payload: &'a [u8],
     location: &ChunkLocation,
-    expected_chunk_hash: &str,
+    expected_chunk_hash: ChunkHash,
     timings: &mut ReconstructTimings,
     options: ReconstructOptions,
 ) -> Result<&'a [u8]> {
@@ -477,18 +482,18 @@ fn read_staged_memory_chunk_for_reconstruct<'a>(
 
 pub(in crate::reconstruct) fn verify_chunk_hash(
     chunk_data: &[u8],
-    expected_chunk_hash: &str,
+    expected_chunk_hash: ChunkHash,
     options: ReconstructOptions,
 ) -> Result<()> {
     if !options.verify_chunks {
         return Ok(());
     }
 
-    let actual_hash = hash_hex(&crate::hash::hash_chunk(chunk_data));
+    let actual_hash = ChunkHash::from_blake3(crate::hash::hash_chunk(chunk_data));
     if actual_hash != expected_chunk_hash {
         return Err(Error::HashMismatch {
-            expected: expected_chunk_hash.to_string(),
-            actual: actual_hash,
+            expected: expected_chunk_hash.to_hex(),
+            actual: actual_hash.to_hex(),
         });
     }
     Ok(())

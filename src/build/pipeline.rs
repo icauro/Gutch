@@ -13,6 +13,7 @@ use crate::build_types::{
 };
 use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
+use crate::hash::ChunkHash;
 use crate::manifest::{
     self, ArtifactStorageMode, FileManifest, TargetTagSet, target::TargetManifest,
 };
@@ -62,11 +63,11 @@ impl Default for BundleSizingPolicy {
     }
 }
 
-type ChunkPayloadEntry = (String, ChunkPayload);
+type ChunkPayloadEntry = (ChunkHash, ChunkPayload);
 type PlannedChunkGroup = Vec<ChunkPayloadEntry>;
 
 fn estimate_bundle_compression_ratio_from_probe(
-    chunks: &[(String, ChunkPayload)],
+    chunks: &[(ChunkHash, ChunkPayload)],
     compression_profile: &manifest::CompressionProfile,
     probe_raw_target_size: u64,
 ) -> Result<(f64, u64)> {
@@ -91,7 +92,7 @@ fn estimate_bundle_compression_ratio_from_probe(
         return Ok((1.0, 0));
     }
 
-    if compression_profile.compression == "none" {
+    if compression_profile.compression == manifest::CompressionKind::None {
         return Ok((1.0, raw_probe_size));
     }
 
@@ -314,7 +315,7 @@ fn build_config_against_existing_store<'a>(
 }
 
 fn build_loose_chunk(
-    chunk_hash: String,
+    chunk_hash: ChunkHash,
     payload: ChunkPayload,
     compression_profile: &manifest::CompressionProfile,
     progress: Option<&dyn BuildProgressSink>,
@@ -324,7 +325,7 @@ fn build_loose_chunk(
     let bytes = payload.load_bytes()?;
     let payload_load = load_start.elapsed();
 
-    let data = if compression_profile.compression == "none" {
+    let data = if compression_profile.compression == manifest::CompressionKind::None {
         bytes
     } else {
         compress_with_level(&bytes, compression_profile.zstd_level)?
@@ -347,7 +348,7 @@ fn build_loose_chunk(
 }
 
 fn build_bundle_compressed_group(
-    planned_bundle: Vec<(String, ChunkPayload)>,
+    planned_bundle: Vec<(ChunkHash, ChunkPayload)>,
     compression_profile: &manifest::CompressionProfile,
     progress: Option<&dyn BuildProgressSink>,
 ) -> Result<BuiltBundleCompressedGroup> {
@@ -520,7 +521,7 @@ pub fn build_with_config(
     let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings::default();
     let runtime_plan =
-        plan_build_runtime(&config.runtime_hints, &compression_profile.compression_unit);
+        plan_build_runtime(&config.runtime_hints, compression_profile.compression_unit);
     timings.runtime_plan = Some(runtime_plan.clone());
     let chunk_spool_dir = prepare_chunk_spool_dir(runtime_plan.chunk_storage_mode)?;
 
@@ -532,6 +533,8 @@ pub fn build_with_config(
     let existing_chunk_locations = config
         .existing_chunk_locations
         .unwrap_or(&empty_existing_chunk_locations);
+    let existing_chunk_locations_by_hash =
+        parse_existing_chunk_locations(existing_chunk_locations)?;
     let empty_existing_bundle_ids = HashSet::new();
     let existing_bundle_ids = config
         .existing_bundle_ids
@@ -542,7 +545,7 @@ pub fn build_with_config(
         ScanDirectoryOptions {
             previous_file_manifests,
             chunking_profile: &config.chunk_profile,
-            existing_chunk_locations,
+            existing_chunk_locations: &existing_chunk_locations_by_hash,
             chunk_storage_mode: runtime_plan.chunk_storage_mode,
             chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
             worker_count: runtime_plan.worker_count,
@@ -552,11 +555,12 @@ pub fn build_with_config(
     )?;
 
     let mut total_compressed: u64 = 0;
-    let mut compressed_estimate_seen: HashSet<String> = HashSet::new();
+    let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
     for fm in &file_manifests {
         for chunk_ref in &fm.chunks {
-            if let Some(existing) = existing_chunk_locations.get(&chunk_ref.chunk_hash) {
-                if compressed_estimate_seen.insert(chunk_ref.chunk_hash.clone()) {
+            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+            if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash) {
+                if compressed_estimate_seen.insert(chunk_hash) {
                     total_compressed += existing.compressed_size;
                 }
             }
@@ -570,8 +574,8 @@ pub fn build_with_config(
         let raw_size = payload.raw_size();
         timings.dedupe_lookup_bytes += raw_size;
 
-        if let Some(existing) = existing_chunk_locations.get(&hash) {
-            if compressed_estimate_seen.insert(hash.clone()) {
+        if let Some(existing) = existing_chunk_locations_by_hash.get(&hash) {
+            if compressed_estimate_seen.insert(hash) {
                 total_compressed += existing.compressed_size;
             }
         } else {
@@ -595,7 +599,7 @@ pub fn build_with_config(
 
     match config.storage_mode {
         ArtifactStorageMode::Bundled => {
-            if compression_profile.compression_unit != manifest::COMPRESSION_UNIT_BUNDLE {
+            if compression_profile.compression_unit != manifest::CompressionUnit::Bundle {
                 return Err(crate::Error::manifest(
                     "gutch only supports bundle-compressed storage".to_string(),
                 ));
@@ -679,6 +683,15 @@ pub fn build_with_config(
         },
         timings,
     ))
+}
+
+fn parse_existing_chunk_locations(
+    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
+) -> Result<HashMap<ChunkHash, ExistingChunkLocation>> {
+    existing_chunk_locations
+        .iter()
+        .map(|(chunk_hash, location)| Ok((ChunkHash::parse_hex(chunk_hash)?, location.clone())))
+        .collect()
 }
 
 fn prepare_chunk_spool_dir(chunk_storage_mode: ChunkStorageMode) -> Result<Option<TempDir>> {

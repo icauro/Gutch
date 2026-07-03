@@ -7,14 +7,14 @@ use std::time::Duration;
 use rayon::prelude::*;
 
 use crate::build::types::{BuildProgressSink, BuildTimings, ChunkPayload, ExistingChunkLocation};
-use crate::hash::hash_hex;
+use crate::hash::ChunkHash;
 use crate::manifest::{self, ChunkRef, FileManifest};
 use crate::runtime::{ChunkStorageMode, install_in_thread_pool};
 use crate::{Error, Result};
 
 pub struct FileBuildEntry {
     pub manifest: FileManifest,
-    pub chunks: Vec<(String, ChunkPayload)>,
+    pub chunks: Vec<(ChunkHash, ChunkPayload)>,
     pub size: u64,
     pub scan_read: Duration,
     pub file_hash: Duration,
@@ -28,7 +28,7 @@ pub struct FileBuildEntry {
 pub(crate) struct ScanDirectoryOptions<'a> {
     pub previous_file_manifests: &'a HashMap<String, FileManifest>,
     pub chunking_profile: &'a manifest::ChunkSizingProfile,
-    pub existing_chunk_locations: &'a HashMap<String, ExistingChunkLocation>,
+    pub existing_chunk_locations: &'a HashMap<ChunkHash, ExistingChunkLocation>,
     pub chunk_storage_mode: ChunkStorageMode,
     pub chunk_spool_root: Option<&'a Path>,
     pub worker_count: usize,
@@ -51,7 +51,7 @@ pub(crate) fn collect_scanned_chunks(
     dir: &Path,
     options: ScanDirectoryOptions<'_>,
     timings: &mut BuildTimings,
-) -> Result<(Vec<FileManifest>, HashMap<String, ChunkPayload>, u64)> {
+) -> Result<(Vec<FileManifest>, HashMap<ChunkHash, ChunkPayload>, u64)> {
     let file_entries = scan_directory_into_file_entries(dir, options)?;
 
     let mut file_manifests = Vec::with_capacity(file_entries.len());
@@ -129,12 +129,12 @@ pub(crate) fn scan_directory_into_file_entries(
             let mut spill_path = None;
             let mut spill_offset: u64 = 0;
             for cr in chunk_scan.chunks {
-                let ch = hash_hex(&cr.hash);
+                let chunk_hash = ChunkHash::from_blake3(cr.hash);
                 chunk_refs.push(ChunkRef {
-                    chunk_hash: ch.clone(),
+                    chunk_hash: chunk_hash.to_hex(),
                     raw_size: cr.data.len() as u64,
                 });
-                if !options.existing_chunk_locations.contains_key(&ch) {
+                if !options.existing_chunk_locations.contains_key(&chunk_hash) {
                     let payload = match options.chunk_storage_mode {
                         ChunkStorageMode::Memory => ChunkPayload::InMemory {
                             bytes: std::sync::Arc::<[u8]>::from(cr.data),
@@ -171,7 +171,7 @@ pub(crate) fn scan_directory_into_file_entries(
                             }
                         }
                     };
-                    chunks.push((ch, payload));
+                    chunks.push((chunk_hash, payload));
                 }
             }
 

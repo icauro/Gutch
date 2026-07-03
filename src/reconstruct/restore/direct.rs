@@ -7,6 +7,7 @@ use std::time::Instant;
 use rayon::prelude::*;
 
 use crate::bundle;
+use crate::hash::ChunkHash;
 use crate::manifest::target::TargetManifest;
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::runtime::{RuntimePlan, install_in_thread_pool};
@@ -22,7 +23,7 @@ use super::orchestrator::verify_chunk_hash;
 // ---------------------------------------------------------------------------
 
 pub(in crate::reconstruct) fn should_use_direct_bundle_to_file_restore(
-    local_chunks: &HashMap<String, Vec<u8>>,
+    local_chunks: &HashMap<ChunkHash, Vec<u8>>,
     bundle_scan_info: &HashMap<PathBuf, BundleScanInfo>,
     runtime_plan: &RuntimePlan,
     options: ReconstructOptions,
@@ -33,7 +34,7 @@ pub(in crate::reconstruct) fn should_use_direct_bundle_to_file_restore(
 
 #[cfg(test)]
 pub(in crate::reconstruct) fn should_use_direct_bundle_to_file_restore_experimental(
-    local_chunks: &HashMap<String, Vec<u8>>,
+    local_chunks: &HashMap<ChunkHash, Vec<u8>>,
     bundle_scan_info: &HashMap<PathBuf, BundleScanInfo>,
     runtime_plan: &RuntimePlan,
     options: ReconstructOptions,
@@ -46,7 +47,7 @@ pub(in crate::reconstruct) fn should_use_direct_bundle_to_file_restore_experimen
     }
     bundle_scan_info
         .values()
-        .all(|info| info.compression_unit == crate::manifest::COMPRESSION_UNIT_BUNDLE)
+        .all(|info| info.compression_unit == crate::manifest::CompressionUnit::Bundle)
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ pub(in crate::reconstruct) fn should_use_direct_bundle_to_file_restore_experimen
 
 pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
     target_manifest: &TargetManifest,
-    locations: &HashMap<String, ChunkLocation>,
+    locations: &HashMap<ChunkHash, ChunkLocation>,
     output_dir: &Path,
     timings: &mut ReconstructTimings,
     worker_count: usize,
@@ -64,12 +65,12 @@ pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
     let write_targets = build_chunk_write_targets(target_manifest, output_dir)?;
     prepare_direct_output_files(target_manifest, output_dir)?;
 
-    let mut bundle_locations: HashMap<PathBuf, Vec<(String, ChunkLocation)>> = HashMap::new();
+    let mut bundle_locations: HashMap<PathBuf, Vec<(ChunkHash, ChunkLocation)>> = HashMap::new();
     for (chunk_hash, location) in locations {
         bundle_locations
             .entry(location.bundle_path.clone())
             .or_default()
-            .push((chunk_hash.clone(), location.clone()));
+            .push((*chunk_hash, location.clone()));
     }
     let mut bundle_locations = bundle_locations.into_iter().collect::<Vec<_>>();
     bundle_locations.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -94,14 +95,15 @@ pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
 fn build_chunk_write_targets(
     target_manifest: &TargetManifest,
     output_dir: &Path,
-) -> Result<HashMap<String, Vec<ChunkWriteTarget>>> {
-    let mut write_targets: HashMap<String, Vec<ChunkWriteTarget>> = HashMap::new();
+) -> Result<HashMap<ChunkHash, Vec<ChunkWriteTarget>>> {
+    let mut write_targets: HashMap<ChunkHash, Vec<ChunkWriteTarget>> = HashMap::new();
     for fm in &target_manifest.files {
         let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         let mut file_offset = 0u64;
         for chunk_ref in &fm.chunks {
+            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
             write_targets
-                .entry(chunk_ref.chunk_hash.clone())
+                .entry(chunk_hash)
                 .or_default()
                 .push(ChunkWriteTarget {
                     output_path: output_path.clone(),
@@ -128,8 +130,8 @@ fn prepare_direct_output_files(target_manifest: &TargetManifest, output_dir: &Pa
 
 fn direct_reconstruct_one_bundle(
     bundle_path: &Path,
-    chunk_locations: &[(String, ChunkLocation)],
-    write_targets: &HashMap<String, Vec<ChunkWriteTarget>>,
+    chunk_locations: &[(ChunkHash, ChunkLocation)],
+    write_targets: &HashMap<ChunkHash, Vec<ChunkWriteTarget>>,
     options: ReconstructOptions,
 ) -> Result<ReconstructTimings> {
     let mut timings = ReconstructTimings::default();
@@ -145,7 +147,7 @@ fn direct_reconstruct_one_bundle(
 
     for (chunk_hash, location) in chunk_locations {
         let chunk_data =
-            direct_bundle_chunk_slice(&raw_payload, location, chunk_hash, &mut timings, options)?;
+            direct_bundle_chunk_slice(&raw_payload, location, *chunk_hash, &mut timings, options)?;
         let Some(targets) = write_targets.get(chunk_hash) else {
             continue;
         };
@@ -177,7 +179,7 @@ fn direct_reconstruct_one_bundle(
 fn direct_bundle_chunk_slice<'a>(
     raw_payload: &'a [u8],
     location: &ChunkLocation,
-    expected_chunk_hash: &str,
+    expected_chunk_hash: ChunkHash,
     timings: &mut ReconstructTimings,
     options: ReconstructOptions,
 ) -> Result<&'a [u8]> {

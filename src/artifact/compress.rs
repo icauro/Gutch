@@ -1,22 +1,19 @@
 use std::io::{Cursor, Write};
 
 use crate::error::Result;
+use crate::manifest::CompressionKind;
 
-pub fn decompress_data(data: &[u8], compression: &str) -> Result<Vec<u8>> {
+pub fn decompress_data(data: &[u8], compression: CompressionKind) -> Result<Vec<u8>> {
     match compression {
-        "none" => Ok(data.to_vec()),
-        "zstd" => zstd::decode_all(data)
+        CompressionKind::None => Ok(data.to_vec()),
+        CompressionKind::Zstd => zstd::decode_all(data)
             .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e))),
-        other => Err(crate::error::Error::InvalidBundle(format!(
-            "unsupported bundle compression '{}'",
-            other
-        ))),
     }
 }
 
 pub fn decompress_data_to_writer<W: Write>(
     data: &[u8],
-    compression: &str,
+    compression: CompressionKind,
     mut writer: W,
 ) -> Result<u64> {
     struct CountingWriter<'a, W> {
@@ -37,13 +34,13 @@ pub fn decompress_data_to_writer<W: Write>(
     }
 
     match compression {
-        "none" => {
+        CompressionKind::None => {
             writer
                 .write_all(data)
                 .map_err(|e| crate::error::Error::bundle(format!("write: {}", e)))?;
             Ok(data.len() as u64)
         }
-        "zstd" => {
+        CompressionKind::Zstd => {
             let mut counting_writer = CountingWriter {
                 inner: &mut writer,
                 written: 0,
@@ -52,15 +49,11 @@ pub fn decompress_data_to_writer<W: Write>(
                 .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e)))?;
             Ok(counting_writer.written)
         }
-        other => Err(crate::error::Error::InvalidBundle(format!(
-            "unsupported bundle compression '{}'",
-            other
-        ))),
     }
 }
 
 pub fn decompress_chunk_at_level(data: &[u8], _level: i32) -> Result<Vec<u8>> {
-    decompress_data(data, "zstd")
+    decompress_data(data, CompressionKind::Zstd)
 }
 
 pub fn compress_with_level(data: &[u8], level: i32) -> Result<Vec<u8>> {

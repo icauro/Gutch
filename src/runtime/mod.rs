@@ -1,6 +1,7 @@
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
+use crate::manifest::CompressionUnit;
 use crate::{Error, Result};
 
 const LOW_MEMORY_THRESHOLD_MIB: u64 = 4 * 1024;
@@ -99,7 +100,10 @@ pub struct RuntimePlan {
     pub chunk_storage_mode: ChunkStorageMode,
 }
 
-pub fn plan_build_runtime(hints: &RuntimeResourceHints, compression_unit: &str) -> RuntimePlan {
+pub fn plan_build_runtime(
+    hints: &RuntimeResourceHints,
+    compression_unit: CompressionUnit,
+) -> RuntimePlan {
     let _ = compression_unit;
     plan_runtime(hints, RuntimeWorkload::Build)
 }
@@ -291,7 +295,7 @@ mod tests {
                 max_memory_mib: Some(2048),
                 jobs: None,
             },
-            crate::manifest::COMPRESSION_UNIT_BUNDLE,
+            crate::manifest::CompressionUnit::Bundle,
         );
         assert_eq!(plan.effective_memory_mode, EffectiveMemoryMode::Low);
         assert_eq!(plan.chunk_storage_mode, ChunkStorageMode::TempSpill);
@@ -305,7 +309,7 @@ mod tests {
                 max_memory_mib: Some(32768),
                 jobs: Some(8),
             },
-            crate::manifest::COMPRESSION_UNIT_BUNDLE,
+            crate::manifest::CompressionUnit::Bundle,
         );
         assert_eq!(plan.effective_memory_mode, EffectiveMemoryMode::High);
         assert_eq!(plan.chunk_storage_mode, ChunkStorageMode::Memory);
@@ -320,7 +324,7 @@ mod tests {
                 max_memory_mib: Some(HIGH_MEMORY_THRESHOLD_MIB + 1),
                 jobs: None,
             },
-            crate::manifest::COMPRESSION_UNIT_BUNDLE,
+            crate::manifest::CompressionUnit::Bundle,
         );
         assert_eq!(plan.effective_memory_mode, EffectiveMemoryMode::High);
         assert_eq!(plan.chunk_storage_mode, ChunkStorageMode::Memory);

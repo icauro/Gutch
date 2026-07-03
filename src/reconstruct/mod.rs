@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use crate::Result;
 use crate::bundle;
+use crate::hash::ChunkHash;
 use crate::manifest::{CompressionProfile, target::TargetManifest};
 use crate::repo::{GutchRepoPaths, required_bundle_ids, required_chunk_hashes};
 use crate::runtime::RuntimeResourceHints;
@@ -52,8 +53,11 @@ pub fn reconstruct_from_target_manifest_with_timings(
     let mut timings = ReconstructTimings::default();
     crate::helpers::create_dir_all(output_dir)?;
 
-    let needed_chunks = required_chunk_hashes(target_manifest);
-    let mut chunk_map: HashMap<String, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
+    let needed_chunks = required_chunk_hashes(target_manifest)
+        .into_iter()
+        .map(ChunkHash::parse_hex)
+        .collect::<Result<std::collections::HashSet<_>>>()?;
+    let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
 
     for bundle_data in bundles {
         let t = Instant::now();
@@ -62,14 +66,10 @@ pub fn reconstruct_from_target_manifest_with_timings(
             .entries()
             .iter()
             .enumerate()
-            .filter_map(|(index, entry)| {
-                if needed_chunks.contains(entry.chunk_hash.as_str())
-                    && !chunk_map.contains_key(&entry.chunk_hash)
-                {
-                    Some(index)
-                } else {
-                    None
-                }
+            .filter_map(|(index, _)| {
+                let chunk_hash = reader.chunk_hashes()[index];
+                (needed_chunks.contains(&chunk_hash) && !chunk_map.contains_key(&chunk_hash))
+                    .then_some(index)
             })
             .collect();
         if matching_indices.is_empty() {
@@ -78,7 +78,7 @@ pub fn reconstruct_from_target_manifest_with_timings(
 
         timings.bundle_read_compressed_bytes += bundle_data.len() as u64;
         for index in matching_indices {
-            let hash = reader.entries()[index].chunk_hash.clone();
+            let hash = reader.chunk_hashes()[index];
             let data = reader.read_chunk(index)?;
             timings.bundle_read_decompressed_bytes += data.len() as u64;
             chunk_map.insert(hash, data);
@@ -266,7 +266,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
+                compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -285,7 +285,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
+                compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -304,7 +304,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
+                compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 700 * 1024 * 1024,
             },
         )]);
@@ -321,7 +321,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("bundle-a.bundle"),
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
+                compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -342,7 +342,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("bundle-a.bundle"),
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
+                compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);
@@ -363,7 +363,7 @@ mod tests {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("bundle-a.bundle"),
             BundleScanInfo {
-                compression_unit: crate::manifest::COMPRESSION_UNIT_BUNDLE,
+                compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,
             },
         )]);

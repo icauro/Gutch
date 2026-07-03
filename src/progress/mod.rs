@@ -11,6 +11,33 @@ pub enum GutchOperation {
     Fetch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GutchProgressPhase {
+    Prepare,
+    RepoManifest,
+    TargetManifest,
+    ChunkIndex,
+    Bundle,
+    Json,
+    Done,
+    ScanTargets,
+    LoadManifests,
+    ScanBundles,
+    DeleteOrphans,
+    RemoveManifest,
+    Scan,
+    Build,
+    Planning,
+    RemoveTargets,
+    UploadRepoManifest,
+    UploadChunkIndex,
+    UploadTargetManifest,
+    UploadBundle,
+    Prune,
+    Insert,
+}
+
 /// A single unified progress event for all gutch operations.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,7 +45,7 @@ pub struct GutchProgressEvent {
     /// Which operation is running.
     pub operation: GutchOperation,
     /// Current phase within the operation (e.g. "scan", "build", "upload", "apply").
-    pub phase: String,
+    pub phase: GutchProgressPhase,
     /// Human-readable message for the current step.
     pub message: String,
     /// Current progress counter (files scanned, bundles built, targets synced, etc.).

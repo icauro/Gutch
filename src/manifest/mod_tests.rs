@@ -88,8 +88,8 @@ fn test_compression_profile_defaults() {
     let p = CompressionProfile::default();
     assert_eq!(p.preset, CompressionPreset::Zstd3);
     assert_eq!(p.zstd_level, 3);
-    assert_eq!(p.compression, "zstd");
-    assert_eq!(p.compression_unit, "bundle");
+    assert_eq!(p.compression, CompressionKind::Zstd);
+    assert_eq!(p.compression_unit, CompressionUnit::Bundle);
 }
 
 #[test]
@@ -97,8 +97,8 @@ fn test_compression_profile_zstd5_preset() {
     let p = CompressionProfile::for_preset(CompressionPreset::Zstd5);
     assert_eq!(p.preset, CompressionPreset::Zstd5);
     assert_eq!(p.zstd_level, 5);
-    assert_eq!(p.compression, "zstd");
-    assert_eq!(p.compression_unit, "bundle");
+    assert_eq!(p.compression, CompressionKind::Zstd);
+    assert_eq!(p.compression_unit, CompressionUnit::Bundle);
 }
 
 #[test]

@@ -69,7 +69,7 @@ pub use manifest::{
     TargetTagSchemaValidationResult, sanitize_editable_target_tag_schema,
     validate_editable_target_tag_schema,
 };
-pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressSink};
+pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink};
 pub use reconstruct::{
     ReconstructOptions, ReconstructTimings, VerifiedSourceInstall,
     reconstruct_from_bundle_paths_and_verified_source_with_timings,

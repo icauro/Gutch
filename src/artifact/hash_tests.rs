@@ -23,6 +23,13 @@ fn test_hex_decode_invalid_length() {
 }
 
 #[test]
+fn test_chunk_hash_byte_roundtrip() {
+    let hash = ChunkHash::from_blake3(hash_chunk(b"hello"));
+    let reparsed = ChunkHash::from_bytes(*hash.as_bytes());
+    assert_eq!(hash, reparsed);
+}
+
+#[test]
 fn test_hash_file() {
     let dir = std::env::temp_dir();
     let path = dir.join("gutch_test_hash_file.tmp");

@@ -250,6 +250,7 @@ pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hash::hash_hex;
     use crate::manifest::target::TargetManifest;
     use crate::{ensure_gutch_repo_layout, write_target_manifest_artifacts};
 
@@ -260,6 +261,10 @@ mod tests {
         tags.upsert_exclusive("arch", arch);
         tags.upsert_exclusive("tier", tier);
         tags
+    }
+
+    fn test_hash(label: &str) -> String {
+        hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
     }
 
     #[test]
@@ -305,7 +310,7 @@ mod tests {
             path: "game.exe".to_string(),
             size: 4,
             executable: true,
-            full_file_hash: "abc".to_string(),
+            full_file_hash: test_hash("game.exe"),
             chunks: vec![],
         });
         write_target_manifest_artifacts(&repo_paths, &target_manifest).unwrap();

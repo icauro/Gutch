@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use gutch::{GutchOperation, GutchProgressEvent, GutchProgressSink};
+use gutch::{GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 /// Unified CLI progress sink that handles all gutch operations via indicatif.
@@ -110,7 +110,7 @@ impl BuildProgressSink for CliBuildProgressSink {
         self.total_files.store(total_files, Ordering::Relaxed);
         self.inner.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "scan".to_string(),
+            phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current: 0,
             total: total_files,
@@ -125,7 +125,7 @@ impl BuildProgressSink for CliBuildProgressSink {
         let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
         self.inner.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "scan".to_string(),
+            phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current,
             total: self.total_files.load(Ordering::Relaxed),
@@ -141,7 +141,7 @@ impl BuildProgressSink for CliBuildProgressSink {
         self.total_bundles.store(total_bundles, Ordering::Relaxed);
         self.inner.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "build".to_string(),
+            phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current: 0,
             total: total_bundles,
@@ -156,7 +156,7 @@ impl BuildProgressSink for CliBuildProgressSink {
         let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
         self.inner.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "build".to_string(),
+            phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current,
             total: self.total_bundles.load(Ordering::Relaxed),

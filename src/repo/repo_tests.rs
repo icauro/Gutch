@@ -2,6 +2,7 @@ use super::*;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::hash::hash_hex;
 use crate::manifest;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::target::TargetManifest;
@@ -13,6 +14,10 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::
     tags.upsert_exclusive("arch", arch);
     tags.upsert_exclusive("tier", tier);
     tags
+}
+
+fn test_hash(label: &str) -> String {
+    hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
 }
 
 #[test]
@@ -113,7 +118,7 @@ fn check_gutch_repo_reports_targets() {
         path: "game.exe".to_string(),
         size: 42,
         executable: true,
-        full_file_hash: "abc123".to_string(),
+        full_file_hash: test_hash("game.exe"),
         chunks: Vec::new(),
     });
 
@@ -243,7 +248,7 @@ fn chunk_index_write_and_load_roundtrip() {
 
     let mut entries = BTreeMap::new();
     entries.insert(
-        "chunk-a".to_string(),
+        test_hash("chunk-a"),
         manifest::ChunkIndexEntry {
             bundle_id: "bundle-1".to_string(),
             raw_size: 100,
@@ -252,7 +257,7 @@ fn chunk_index_write_and_load_roundtrip() {
         },
     );
     entries.insert(
-        "chunk-b".to_string(),
+        test_hash("chunk-b"),
         manifest::ChunkIndexEntry {
             bundle_id: "bundle-1".to_string(),
             raw_size: 100,
@@ -261,7 +266,7 @@ fn chunk_index_write_and_load_roundtrip() {
         },
     );
     entries.insert(
-        "chunk-c".to_string(),
+        test_hash("chunk-c"),
         manifest::ChunkIndexEntry {
             bundle_id: "bundle-2".to_string(),
             raw_size: 100,
@@ -283,14 +288,14 @@ fn chunk_index_write_and_load_roundtrip() {
     assert_eq!(
         loaded
             .entries
-            .get("chunk-a")
+            .get(&test_hash("chunk-a"))
             .map(|entry| entry.bundle_id.as_str()),
         Some("bundle-1")
     );
     assert_eq!(
         loaded
             .entries
-            .get("chunk-c")
+            .get(&test_hash("chunk-c"))
             .map(|entry| entry.bundle_id.as_str()),
         Some("bundle-2")
     );
@@ -320,7 +325,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    let chunk_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(b"hello"));
+    let chunk_hash = crate::hash::ChunkHash::from_blake3(crate::hash::hash_chunk(b"hello"));
     let mut builder = crate::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
     builder.add_chunk(chunk_hash.clone(), b"hello".to_vec());
     let (bundle_id, data) = builder.build_with_id().unwrap();
@@ -344,7 +349,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     assert_eq!(
         rebuilt
             .entries
-            .get(&chunk_hash)
+            .get(&chunk_hash.to_string())
             .map(|entry| entry.bundle_id.as_str()),
         Some(bundle_id.as_str())
     );
@@ -367,7 +372,7 @@ fn inspect_repo_shows_target_tags() {
         path: "game.bin".to_string(),
         size: 100,
         executable: true,
-        full_file_hash: "abc".to_string(),
+        full_file_hash: test_hash("game.bin"),
         chunks: vec![],
     });
     write_target_manifest_artifacts(&paths, &manifest).unwrap();
@@ -377,6 +382,50 @@ fn inspect_repo_shows_target_tags() {
     assert_eq!(status.targets[0].target_id, "2");
     assert_eq!(status.targets[0].version_id, "2.0.0");
     assert_eq!(status.targets[0].os, "linux");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn target_manifest_bin_roundtrip_preserves_hash_fields() {
+    let root = std::env::temp_dir().join("gutch_target_manifest_bin_roundtrip");
+    let _ = std::fs::remove_dir_all(&root);
+    let paths = GutchRepoPaths::from_repo_root(&root);
+    ensure_gutch_repo_layout(&paths, "base").unwrap();
+
+    let chunk_one = test_hash("chunk-one");
+    let chunk_two = test_hash("chunk-two");
+    let mut manifest = TargetManifest::new(
+        "target-a".to_string(),
+        exclusive_tags("1.0.0", "windows", "x86_64", "base"),
+    );
+    manifest.files.push(manifest::FileManifest {
+        path: "game.exe".to_string(),
+        size: 300,
+        executable: true,
+        full_file_hash: test_hash("game.exe"),
+        chunks: vec![
+            manifest::ChunkRef {
+                chunk_hash: chunk_one.clone(),
+                raw_size: 100,
+            },
+            manifest::ChunkRef {
+                chunk_hash: chunk_two.clone(),
+                raw_size: 200,
+            },
+        ],
+    });
+
+    write_target_manifest_artifacts(&paths, &manifest).unwrap();
+    let loaded = load_target_manifest(&paths, "target-a").unwrap();
+
+    assert_eq!(loaded.files.len(), 1);
+    assert_eq!(
+        loaded.files[0].full_file_hash,
+        manifest.files[0].full_file_hash
+    );
+    assert_eq!(loaded.files[0].chunks[0].chunk_hash, chunk_one);
+    assert_eq!(loaded.files[0].chunks[1].chunk_hash, chunk_two);
 
     let _ = std::fs::remove_dir_all(&root);
 }

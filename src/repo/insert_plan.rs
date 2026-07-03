@@ -11,7 +11,9 @@ use super::{
     scan_existing_store_state,
 };
 use crate::manifest::TargetTagSet;
-use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
+use crate::progress::{
+    self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
+};
 use crate::runtime::RuntimeResourceHints;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,7 +156,7 @@ pub fn delete_repo_target_and_cleanup(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
-            phase: "remove_manifest".to_string(),
+            phase: GutchProgressPhase::RemoveManifest,
             message: format!("Removing target '{}'", target_id),
             current: 0,
             total: TOTAL,
@@ -173,7 +175,7 @@ pub fn delete_repo_target_and_cleanup(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
-            phase: "done".to_string(),
+            phase: GutchProgressPhase::Done,
             message: format!("Deleted target, removed {} orphan bundle(s)", orphan_count),
             current: TOTAL,
             total: TOTAL,
@@ -223,7 +225,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         self.total_files.store(total_files, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "scan".to_string(),
+            phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current: 0,
             total: total_files,
@@ -238,7 +240,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
         self.sink.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "scan".to_string(),
+            phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current,
             total: self.total_files.load(Ordering::Relaxed),
@@ -254,7 +256,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         self.total_bundles.store(total_bundles, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "build".to_string(),
+            phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current: 0,
             total: total_bundles,
@@ -269,7 +271,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
         self.sink.emit(GutchProgressEvent {
             operation: GutchOperation::TargetInsert,
-            phase: "build".to_string(),
+            phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current,
             total: self.total_bundles.load(Ordering::Relaxed),
@@ -505,7 +507,7 @@ impl RepoTargetInsertResult {
             progress,
             GutchProgressEvent {
                 operation: GutchOperation::TargetInsert,
-                phase: "done".to_string(),
+                phase: GutchProgressPhase::Done,
                 message: "Target insert complete".to_string(),
                 current: 1,
                 total: 1,
@@ -586,7 +588,8 @@ fn write_bundles(bundles_root: &Path, bundles: &[crate::BuiltBundle]) -> Result<
 
 fn write_loose_chunks(chunks_root: &Path, chunks: &[crate::BuiltLooseChunk]) -> Result<()> {
     for chunk in chunks {
-        let chunk_path = crate::chunk_path_in_root(chunks_root, &chunk.chunk_hash);
+        let chunk_hash = chunk.chunk_hash.to_string();
+        let chunk_path = crate::chunk_path_in_root(chunks_root, &chunk_hash);
         if let Some(parent) = chunk_path.parent() {
             crate::helpers::create_dir_all(parent)?;
         }

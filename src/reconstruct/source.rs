@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 
+use crate::hash::ChunkHash;
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::{Error, Result};
 
@@ -9,17 +10,18 @@ use super::types::{ReconstructOptions, VerifiedSourceInstall};
 
 pub(super) fn read_reusable_source_chunks(
     source: VerifiedSourceInstall<'_>,
-    needed_chunks: &std::collections::HashSet<String>,
-) -> Result<HashMap<String, Vec<u8>>> {
-    let mut chunk_map: HashMap<String, Vec<u8>> = HashMap::new();
+    needed_chunks: &std::collections::HashSet<ChunkHash>,
+) -> Result<HashMap<ChunkHash, Vec<u8>>> {
+    let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::new();
     let mut skip_buffer = Vec::new();
 
     for fm in &source.target_manifest.files {
-        if fm
-            .chunks
-            .iter()
-            .all(|chunk_ref| !needed_chunks.contains(&chunk_ref.chunk_hash))
-        {
+        if fm.chunks.iter().all(|chunk_ref| {
+            let Ok(chunk_hash) = ChunkHash::parse_hex(&chunk_ref.chunk_hash) else {
+                return false;
+            };
+            !needed_chunks.contains(&chunk_hash)
+        }) {
             continue;
         }
 
@@ -30,9 +32,13 @@ pub(super) fn read_reusable_source_chunks(
         let mut current_offset = 0u64;
         for chunk_ref in &fm.chunks {
             let chunk_size = chunk_ref.raw_size as usize;
-            if !needed_chunks.contains(&chunk_ref.chunk_hash)
-                || chunk_map.contains_key(&chunk_ref.chunk_hash)
-            {
+            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash).map_err(|err| {
+                Error::Reconstruct(format!(
+                    "invalid chunk hash '{}' in source manifest {}: {}",
+                    chunk_ref.chunk_hash, fm.path, err
+                ))
+            })?;
+            if !needed_chunks.contains(&chunk_hash) || chunk_map.contains_key(&chunk_hash) {
                 read_source_chunk_into(
                     &mut reader,
                     &mut skip_buffer,
@@ -54,13 +60,9 @@ pub(super) fn read_reusable_source_chunks(
                 }
                 return Err(error.into());
             }
-            verify_chunk_hash(
-                &chunk_data,
-                &chunk_ref.chunk_hash,
-                ReconstructOptions::default(),
-            )?;
+            verify_chunk_hash(&chunk_data, chunk_hash, ReconstructOptions::default())?;
 
-            chunk_map.insert(chunk_ref.chunk_hash.clone(), chunk_data);
+            chunk_map.insert(chunk_hash, chunk_data);
             current_offset += chunk_ref.raw_size;
         }
     }

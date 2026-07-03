@@ -35,7 +35,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
     repo_root: &Path,
     progress: &Option<Arc<dyn crate::progress::GutchProgressSink>>,
 ) -> Result<usize> {
-    use crate::progress::{GutchOperation, GutchProgressEvent, emit_progress};
+    use crate::progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase, emit_progress};
 
     const TOTAL: usize = 1000;
     const SCAN_TARGETS_END: usize = 50;
@@ -46,7 +46,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
-            phase: "scan_targets".to_string(),
+            phase: GutchProgressPhase::ScanTargets,
             message: "Scanning remaining targets".to_string(),
             current: 0,
             total: TOTAL,
@@ -69,7 +69,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
             progress,
             GutchProgressEvent {
                 operation: GutchOperation::TargetDelete,
-                phase: "load_manifests".to_string(),
+                phase: GutchProgressPhase::LoadManifests,
                 message: format!(
                     "Loading target manifests ({}/{})",
                     i + 1,
@@ -99,7 +99,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
                 progress,
                 GutchProgressEvent {
                     operation: GutchOperation::TargetDelete,
-                    phase: "scan_bundles".to_string(),
+                    phase: GutchProgressPhase::ScanBundles,
                     message: format!("Scanning bundles ({}/{})", i + 1, bundle_files.len()),
                     current: progress_current.min(SCAN_BUNDLES_END),
                     total: TOTAL,
@@ -121,7 +121,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
-            phase: "delete_orphans".to_string(),
+            phase: GutchProgressPhase::DeleteOrphans,
             message: format!("Removing {} orphan bundle(s)", orphan_bundles.len()),
             current: SCAN_BUNDLES_END,
             total: TOTAL,

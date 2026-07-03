@@ -23,7 +23,7 @@ pub use content::{
 pub use plugin::{PluginDependency, PluginInfo, PluginOverride, PluginType, TagConstraint};
 pub use profiles::{
     ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, BundleSizingProfile,
-    ChunkSizingProfile, CompressionPreset, CompressionProfile,
+    ChunkSizingProfile, CompressionKind, CompressionPreset, CompressionProfile, CompressionUnit,
 };
 pub use schema_edit::{
     EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::hash::ChunkHash;
 use crate::manifest::{
     ArtifactStorageMode, BundleSizingProfile, ChunkSizingProfile, CompressionProfile, FileManifest,
     TargetTagSet, target::TargetManifest,
@@ -108,7 +109,7 @@ pub struct BuiltBundle {
 
 #[derive(Debug, Clone)]
 pub struct BuiltLooseChunk {
-    pub chunk_hash: String,
+    pub chunk_hash: ChunkHash,
     pub data: Vec<u8>,
     pub raw_size: u64,
     pub compressed_size: u64,

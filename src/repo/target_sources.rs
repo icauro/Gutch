@@ -9,7 +9,9 @@ use super::{
     discover_source_target_installs, is_source_modified_at_newer,
 };
 use crate::manifest::TargetTagSet;
-use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
+use crate::progress::{
+    self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -254,7 +256,7 @@ pub fn sync_target_sources(
                 progress,
                 GutchProgressEvent {
                     operation: GutchOperation::TargetSourcesSync,
-                    phase: "prune".to_string(),
+                    phase: GutchProgressPhase::Prune,
                     message: format!("Removing target '{}'", target_id),
                     current: current_step,
                     total: total_steps,
@@ -284,7 +286,7 @@ pub fn sync_target_sources(
             progress,
             GutchProgressEvent {
                 operation: GutchOperation::TargetSourcesSync,
-                phase: "insert".to_string(),
+                phase: GutchProgressPhase::Insert,
                 message: format!("Syncing target '{}'", candidate.folder_name),
                 current: current_step,
                 total: total_steps,
@@ -310,7 +312,7 @@ pub fn sync_target_sources(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::TargetSourcesSync,
-            phase: "done".to_string(),
+            phase: GutchProgressPhase::Done,
             message: "Target sources sync complete".to_string(),
             current: total_steps,
             total: total_steps,
@@ -374,12 +376,17 @@ impl GutchProgressSink for TargetSourcesCandidateProgress {
 mod tests {
     use super::*;
     use crate::GutchRepoPaths;
+    use crate::hash::hash_hex;
     use crate::manifest::{self, target::TargetManifest};
     use crate::repo::{
         discover_source_target_installs, ensure_gutch_repo_layout, format_system_time_utc,
         write_target_manifest_artifacts,
     };
     use std::time::{Duration, SystemTime};
+
+    fn test_hash(label: &str) -> String {
+        hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
+    }
 
     #[test]
     fn plan_target_sources_sync_returns_empty_plan_without_sources_path() {
@@ -419,7 +426,7 @@ mod tests {
             path: "game.exe".into(),
             size: 12,
             executable: false,
-            full_file_hash: "hash".into(),
+            full_file_hash: test_hash("game.exe"),
             chunks: Vec::new(),
         }];
         write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();

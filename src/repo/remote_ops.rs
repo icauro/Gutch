@@ -5,7 +5,9 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use crate::Result;
-use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressSink};
+use crate::progress::{
+    self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
+};
 use crate::remote::backend::{
     CreatorRepoTargetsResponse, CreatorTargetResponse, UpsertTargetResponse,
     request_json_from_backend, upload_raw_file,
@@ -490,7 +492,7 @@ pub fn sync_up_repo_with_progress(
         &progress,
         GutchProgressEvent {
             operation: GutchOperation::SyncUp,
-            phase: "planning".to_string(),
+            phase: GutchProgressPhase::Planning,
             message: "Planning sync changes".to_string(),
             current: 0,
             total: 1,
@@ -518,7 +520,7 @@ pub fn sync_up_repo_with_progress(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: "remove_targets".to_string(),
+                phase: GutchProgressPhase::RemoveTargets,
                 message: "Removing remote targets".to_string(),
                 current: step,
                 total: total_steps,
@@ -556,7 +558,7 @@ pub fn sync_up_repo_with_progress(
         &progress,
         GutchProgressEvent {
             operation: GutchOperation::SyncUp,
-            phase: "upload_repo_manifest".to_string(),
+            phase: GutchProgressPhase::UploadRepoManifest,
             message: "Uploading repo manifest".to_string(),
             current: step,
             total: total_steps,
@@ -599,7 +601,7 @@ pub fn sync_up_repo_with_progress(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: "upload_chunk_index".to_string(),
+                phase: GutchProgressPhase::UploadChunkIndex,
                 message: "Uploading chunk index".to_string(),
                 current: step,
                 total: total_steps,
@@ -651,7 +653,7 @@ pub fn sync_up_repo_with_progress(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: "upload_target_manifest".to_string(),
+                phase: GutchProgressPhase::UploadTargetManifest,
                 message: "Uploading target manifests".to_string(),
                 current: step,
                 total: total_steps,
@@ -750,7 +752,7 @@ pub fn sync_up_repo_with_progress(
                 &progress,
                 GutchProgressEvent {
                     operation: GutchOperation::SyncUp,
-                    phase: "upload_bundle".to_string(),
+                    phase: GutchProgressPhase::UploadBundle,
                     message: "Skipping bundles already present remotely".to_string(),
                     current: step,
                     total: total_steps,
@@ -768,7 +770,7 @@ pub fn sync_up_repo_with_progress(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: "upload_bundle".to_string(),
+                phase: GutchProgressPhase::UploadBundle,
                 message: "Uploading bundles".to_string(),
                 current: step,
                 total: total_steps,
@@ -795,7 +797,7 @@ pub fn sync_up_repo_with_progress(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: "upload_bundle".to_string(),
+                phase: GutchProgressPhase::UploadBundle,
                 message: "Uploading bundles".to_string(),
                 current: step,
                 total: total_steps,
@@ -811,7 +813,7 @@ pub fn sync_up_repo_with_progress(
         &progress,
         GutchProgressEvent {
             operation: GutchOperation::SyncUp,
-            phase: "done".to_string(),
+            phase: GutchProgressPhase::Done,
             message: "Sync complete".to_string(),
             current: total_steps,
             total: total_steps,

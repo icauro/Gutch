@@ -216,10 +216,11 @@ pub fn add_built_loose_chunks_to_chunk_index(
     chunks: &[crate::BuiltLooseChunk],
 ) -> Result<()> {
     for chunk in chunks {
+        let chunk_hash = chunk.chunk_hash.to_string();
         chunk_index.entries.insert(
-            chunk.chunk_hash.clone(),
+            chunk_hash.clone(),
             manifest::ChunkIndexEntry {
-                bundle_id: chunk.chunk_hash.clone(),
+                bundle_id: chunk_hash,
                 raw_size: chunk.raw_size,
                 compressed_size: chunk.compressed_size,
                 storage_mode: ArtifactStorageMode::LooseChunks,
