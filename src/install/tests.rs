@@ -1,7 +1,8 @@
 use super::*;
 use crate::hash::hash_hex;
 use crate::install::{
-    TargetInstallFetchRequest, fetch_target_install_content, resolve_target_install_state,
+    TargetInstallFetchRequest, fetch_target_install_content,
+    repair_target_install_with_timings_and_hints, resolve_target_install_state,
 };
 use crate::manifest::{self, FileManifest, TargetTagSet};
 use crate::runtime::RuntimeResourceHints;

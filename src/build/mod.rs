@@ -1,6 +1,6 @@
-mod insert;
+mod pipeline;
 pub mod scan;
 pub mod types;
 
-pub use insert::*;
+pub use pipeline::*;
 pub use types::*;

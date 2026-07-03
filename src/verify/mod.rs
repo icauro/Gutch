@@ -516,5 +516,4 @@ fn verify_file_streaming(
 }
 
 #[cfg(test)]
-#[path = "../verify_tests.rs"]
 mod tests;

@@ -1,6 +1,6 @@
 mod check;
 mod chunk_index;
-mod core;
+mod cleanup;
 mod init_policy;
 mod insert_plan;
 mod paths;
@@ -9,6 +9,7 @@ mod source_identity;
 mod target_descriptor;
 mod target_manifests;
 mod target_sources;
+mod updates;
 mod verify;
 
 pub use crate::Result;
@@ -18,7 +19,7 @@ pub use check::{
     discover_source_target_installs, ensure_gutch_repo_tracked, preview_source_target_install,
 };
 pub use chunk_index::*;
-pub use core::*;
+pub use cleanup::*;
 pub use init_policy::{
     REPO_INIT_NEEDS_CONFIRMATION, RepoInitAssessment, RepoInitOptions, RepoInitPathKind,
     RepoInitRisk, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
@@ -40,6 +41,7 @@ pub use target_sources::{
     TargetSourcesRefresh, TargetSourcesSyncOptions, TargetSourcesSyncPlan, TargetSourcesSyncResult,
     describe_target_sources_sync_plan, plan_target_sources_sync, sync_target_sources,
 };
+pub use updates::*;
 pub use verify::{RepoVerifyResult, RepoVerifyTimings, TargetVerifyResult, verify_gutch_repo};
 
 #[cfg(test)]
