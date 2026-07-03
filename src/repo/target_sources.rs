@@ -260,7 +260,7 @@ pub fn sync_target_sources(
                     total: total_steps,
                     transferred_bytes: 0,
                     total_bytes: 0,
-                    detail: Some(target_id.clone()),
+                    detail: Some(target_id.to_string()),
                     done: false,
                 },
             );

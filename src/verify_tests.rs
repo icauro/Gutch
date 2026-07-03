@@ -1,6 +1,7 @@
 use super::*;
 use crate::manifest::{TargetTagSet, target::TargetManifest};
 use crate::test_util;
+use std::collections::HashSet;
 
 fn empty_manifest() -> TargetManifest {
     TargetManifest::new("t1".into(), TargetTagSet::default())

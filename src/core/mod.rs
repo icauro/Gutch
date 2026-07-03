@@ -1,1 +1,1 @@
-pub mod target_identity;
+pub use crate::target::identity as target_identity;

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -10,87 +10,12 @@ use crate::Result;
 use crate::hash::hash_hex;
 use crate::manifest::{self, target::TargetManifest};
 use crate::path_guard::resolve_manifest_relative_path;
-use crate::runtime::{
-    RuntimePlan, RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime,
-};
+use crate::runtime::{RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime};
+mod estimate;
+mod types;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum VerifyMode {
-    #[default]
-    Fast,
-    Strict,
-}
-
-impl VerifyMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            VerifyMode::Fast => "fast",
-            VerifyMode::Strict => "strict",
-        }
-    }
-
-    fn checks_chunk_hashes(self) -> bool {
-        matches!(self, VerifyMode::Strict)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct VerifyTimings {
-    pub verify_mode: VerifyMode,
-    pub runtime_plan: Option<RuntimePlan>,
-    pub stat: Duration,
-    pub file_read: Duration,
-    pub file_read_bytes: u64,
-    pub file_hash: Duration,
-    pub file_hash_bytes: u64,
-    pub chunk_hash: Duration,
-    pub chunk_hash_bytes: u64,
-    pub total: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RepairIssueKind {
-    Missing,
-    Corrupt,
-    Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepairIssue {
-    pub kind: RepairIssueKind,
-    pub path: String,
-    pub detail: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RepairClassification {
-    pub missing_files: Vec<RepairIssue>,
-    pub corrupt_files: Vec<RepairIssue>,
-    pub extra_files: Vec<RepairIssue>,
-}
-
-impl RepairClassification {
-    fn push(&mut self, issue: RepairIssue) {
-        match issue.kind {
-            RepairIssueKind::Missing => self.missing_files.push(issue),
-            RepairIssueKind::Corrupt => self.corrupt_files.push(issue),
-            RepairIssueKind::Extra => self.extra_files.push(issue),
-        }
-    }
-
-    pub fn into_messages(self) -> Vec<String> {
-        self.missing_files
-            .into_iter()
-            .chain(self.corrupt_files)
-            .chain(self.extra_files)
-            .map(|issue| issue.detail)
-            .collect()
-    }
-}
+pub use estimate::estimate_build;
+pub use types::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings};
 
 // ---------------------------------------------------------------------------
 // Options
@@ -590,47 +515,6 @@ fn verify_file_streaming(
     Ok(issues)
 }
 
-// ---------------------------------------------------------------------------
-// Estimate
-// ---------------------------------------------------------------------------
-
-pub fn estimate_build(
-    target_manifest: &TargetManifest,
-    available_chunks: &HashSet<String>,
-    available_disk_space: u64,
-) -> Result<manifest::Estimate> {
-    let mut missing_chunks: HashSet<String> = HashSet::new();
-    let mut missing_logical: u64 = 0;
-
-    for fm in &target_manifest.files {
-        for cr in &fm.chunks {
-            if !available_chunks.contains(&cr.chunk_hash) {
-                missing_chunks.insert(cr.chunk_hash.clone());
-                missing_logical += cr.raw_size;
-            }
-        }
-    }
-
-    let estimate_ratio = 0.5;
-    let missing_compressed = (missing_logical as f64 * estimate_ratio) as u64;
-    let bundle_estimate = if missing_chunks.is_empty() {
-        0
-    } else {
-        1 + (missing_chunks.len() as u64 / 2000)
-    };
-
-    Ok(manifest::Estimate {
-        missing_logical_bytes: missing_logical,
-        missing_compressed_bytes: missing_compressed,
-        missing_chunk_count: missing_chunks.len() as u64,
-        required_bundle_count: bundle_estimate,
-        range_request_count: missing_chunks.len() as u64,
-        local_cache_hits: 0,
-        available_disk_space,
-        fragmentation_score: bundle_estimate as f64,
-    })
-}
-
 #[cfg(test)]
-#[path = "verify_tests.rs"]
+#[path = "../verify_tests.rs"]
 mod tests;

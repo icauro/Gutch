@@ -1,4 +1,10 @@
 use super::*;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use crate::manifest;
+use crate::manifest::gutch_repo::GutchRepoManifest;
+use crate::manifest::target::TargetManifest;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::TargetTagSet {
     let mut tags = manifest::TargetTagSet::default();

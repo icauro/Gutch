@@ -204,5 +204,5 @@ fn has_definition_value(target_tags: &TargetTagSet, definition: &TargetTagDefini
 }
 
 #[cfg(test)]
-#[path = "identity_tests.rs"]
+#[path = "../core/identity_tests.rs"]
 mod tests;

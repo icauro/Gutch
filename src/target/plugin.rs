@@ -250,5 +250,5 @@ fn apply_override_ordering(
 }
 
 #[cfg(test)]
-#[path = "plugin_tests.rs"]
+#[path = "../plugin_tests.rs"]
 mod tests;

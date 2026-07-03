@@ -1,6 +1,9 @@
 use super::*;
 use crate::hash::hash_hex;
-use crate::manifest::{FileManifest, TargetTagSet};
+use crate::install::{
+    TargetInstallFetchRequest, fetch_target_install_content, resolve_target_install_state,
+};
+use crate::manifest::{self, FileManifest, TargetTagSet};
 use crate::runtime::RuntimeResourceHints;
 use crate::{GutchRepoPaths, write_chunk_index};
 use std::io::{Read, Write};

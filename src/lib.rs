@@ -5,8 +5,6 @@ extern crate self as gutch;
 
 pub mod artifact;
 pub mod build;
-pub mod build_scan;
-pub mod build_types;
 pub mod cli;
 pub mod config;
 pub mod core;
@@ -14,18 +12,26 @@ pub mod error;
 pub mod helpers;
 pub mod install;
 pub mod manifest;
-mod path_guard;
-pub mod plugin;
 mod progress;
+pub mod reconstruct;
 pub mod remote;
 pub mod repo;
 pub mod runtime;
+pub mod target;
 #[cfg(test)]
 mod test_util;
 pub mod verify;
 
-pub use artifact::{bundle, chunk, compress, hash, reconstruct};
+pub use artifact::{bundle, chunk, compress, hash};
+pub use build::scan as build_scan;
+pub use build::types as build_types;
+pub use target::path_guard;
+pub use target::plugin;
 
+pub use build::types::{
+    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
+    ChunkPayload, ExistingChunkLocation,
+};
 pub use build::{
     build_from_directory, build_from_directory_with_timings,
     build_from_directory_with_timings_against_existing_bundles,
@@ -34,14 +40,6 @@ pub use build::{
     build_from_directory_with_timings_against_existing_store_and_manifests_and_profile,
     build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles,
     build_with_config,
-};
-pub use build_types::{
-    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
-    ChunkPayload, ExistingChunkLocation,
-};
-pub use core::target_identity::{
-    ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
-    resolve_target_identity_from_rules,
 };
 pub use error::{Error, Result};
 pub use install::{
@@ -71,10 +69,6 @@ pub use manifest::{
     TargetTagSchemaValidationResult, sanitize_editable_target_tag_schema,
     validate_editable_target_tag_schema,
 };
-pub use path_guard::{
-    ExistingInstallPathKind, resolve_existing_install_path, validate_manifest_relative_path,
-};
-pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressSink};
 pub use reconstruct::{
     ReconstructOptions, ReconstructTimings, VerifiedSourceInstall,
@@ -115,6 +109,14 @@ pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
     plan_build_runtime, plan_reconstruct_runtime, plan_verify_runtime,
 };
+pub use target::identity::{
+    ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
+    resolve_target_identity_from_rules,
+};
+pub use target::path_guard::{
+    ExistingInstallPathKind, resolve_existing_install_path, validate_manifest_relative_path,
+};
+pub use target::plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,
     classify_directory, classify_directory_with_progress,

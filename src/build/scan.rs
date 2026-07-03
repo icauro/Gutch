@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use rayon::prelude::*;
 
-use crate::build_types::{BuildProgressSink, BuildTimings, ChunkPayload, ExistingChunkLocation};
+use crate::build::types::{BuildProgressSink, BuildTimings, ChunkPayload, ExistingChunkLocation};
 use crate::hash::hash_hex;
 use crate::manifest::{self, ChunkRef, FileManifest};
 use crate::runtime::{ChunkStorageMode, install_in_thread_pool};

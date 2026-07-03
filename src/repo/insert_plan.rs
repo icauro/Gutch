@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ExistingStoreState, Result, SourceTargetInstallCandidate,
-    build_source_target_install_candidate, check_gutch_repo, remove_target_from_repo,
+    check::build_source_target_install_candidate, check_gutch_repo, remove_target_from_repo,
     scan_existing_store_state,
 };
 use crate::manifest::TargetTagSet;
@@ -673,7 +673,7 @@ mod tests {
 
         let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
         let rules = repo_manifest.target_schema.clone().unwrap_or_default();
-        let old_candidate = super::super::build_source_target_install_candidate(
+        let old_candidate = build_source_target_install_candidate(
             &new_source,
             &rules,
             &manifest::TargetTagSet::default(),
