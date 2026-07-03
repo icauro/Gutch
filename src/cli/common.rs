@@ -624,7 +624,7 @@ pub(crate) fn count_required_bundles_for_build(
 ) -> usize {
     let mut required_bundle_ids = HashSet::new();
     for chunk_hash in required_chunk_hashes(target_manifest) {
-        if let Some(existing) = existing_chunk_locations.get(&chunk_hash) {
+        if let Some(existing) = existing_chunk_locations.get(chunk_hash) {
             if existing.storage_mode == g::manifest::ArtifactStorageMode::Bundled {
                 required_bundle_ids.insert(existing.bundle_id.clone());
             }

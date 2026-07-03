@@ -17,12 +17,14 @@ use crate::runtime::{
 };
 use crate::{Error, Result};
 
-use super::direct::{direct_reconstruct_bundle_compressed_to_files, should_use_direct_bundle_to_file_restore};
-use super::staging::stage_reconstruct_bundle_access;
 use super::super::types::{
     BundleAccessPlan, BundleAccessStrategy, ChunkLocation, LoadedChunk, ReconstructOptions,
     ReconstructTimings,
 };
+use super::direct::{
+    direct_reconstruct_bundle_compressed_to_files, should_use_direct_bundle_to_file_restore,
+};
+use super::staging::stage_reconstruct_bundle_access;
 
 // ---------------------------------------------------------------------------
 // Entry preparation
@@ -33,7 +35,10 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<(HashSet<String>, Instant, RuntimePlan, ReconstructTimings)> {
-    let needed_chunks = crate::repo::required_chunk_hashes(target_manifest);
+    let needed_chunks = crate::repo::required_chunk_hashes(target_manifest)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     let total_start = Instant::now();
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
     let timings = ReconstructTimings {

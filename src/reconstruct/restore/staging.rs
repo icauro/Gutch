@@ -5,13 +5,13 @@ use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 
+use crate::Result;
 use crate::bundle;
 use crate::runtime::{RuntimePlan, install_in_thread_pool};
-use crate::Result;
 
 use super::super::types::{
-    BundleAccessPlan, BundleAccessStrategy, BundleScanInfo, ChunkLocation,
-    ReconstructTimings, StagedBundlePayload,
+    BundleAccessPlan, BundleAccessStrategy, BundleScanInfo, ChunkLocation, ReconstructTimings,
+    StagedBundlePayload,
 };
 
 // ---------------------------------------------------------------------------

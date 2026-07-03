@@ -63,7 +63,7 @@ pub fn reconstruct_from_target_manifest_with_timings(
             .iter()
             .enumerate()
             .filter_map(|(index, entry)| {
-                if needed_chunks.contains(&entry.chunk_hash)
+                if needed_chunks.contains(entry.chunk_hash.as_str())
                     && !chunk_map.contains_key(&entry.chunk_hash)
                 {
                     Some(index)

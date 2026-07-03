@@ -97,7 +97,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data).unwrap();
 
-    assert_eq!(reader.entries()[0].compression, "none");
+    assert_eq!(reader.compression_unit(), COMPRESSION_UNIT_BUNDLE);
     assert_eq!(reader.read_chunk(0).unwrap(), chunk1);
     assert_eq!(reader.read_chunk(1).unwrap(), chunk2);
 }

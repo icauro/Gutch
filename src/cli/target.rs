@@ -218,13 +218,13 @@ fn run_insert_one_target(
         g::manifest::CompressionProfile::for_preset(request.compression_profile);
 
     let mut build_config =
-        g::BuildConfig::with_ids(request.repo_name, "", &resolved_identity.target_tags);
-    build_config.existing_chunk_locations = store_state.chunk_locations.clone();
-    build_config.existing_bundle_ids = store_state.bundle_ids.clone();
-    build_config.previous_file_manifests = store_state.previous_file_manifests.clone();
-    build_config.chunk_profile = chunk_sizing_profile;
-    build_config.bundle_profile = bundle_sizing_profile;
-    build_config.compression_profile = compression_profile;
+        g::BuildConfig::with_ids(request.repo_name, "", &resolved_identity.target_tags)
+            .with_existing_chunks(&store_state.chunk_locations)
+            .with_existing_bundles(&store_state.bundle_ids)
+            .with_previous_manifests(&store_state.previous_file_manifests)
+            .with_chunk_profile(&chunk_sizing_profile)
+            .with_bundle_profile(&bundle_sizing_profile)
+            .with_compression_profile(&compression_profile);
     build_config.storage_mode = request.storage_mode;
     build_config.runtime_hints = g::RuntimeResourceHints {
         memory_mode: request.memory_mode,
@@ -315,7 +315,7 @@ fn run_insert_one_target(
     let required_chunk_count = count_required_chunks(&result.target_manifest);
     let required_bundle_count = count_required_bundles_for_build(
         &result.target_manifest,
-        &build_config.existing_chunk_locations,
+        &store_state.chunk_locations,
         &result.bundles,
         &result.loose_chunks,
     );
@@ -333,7 +333,7 @@ fn run_insert_one_target(
         .sum::<u64>();
     let reused_chunk_count = required_chunk_hashes(&result.target_manifest)
         .into_iter()
-        .filter(|chunk_id| existing_chunk_ids.contains(chunk_id))
+        .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
         .count();
     let new_chunk_count = required_chunk_count.saturating_sub(reused_chunk_count);
     let reused_bundle_count = required_bundle_count.saturating_sub(generated_bundle_count);

@@ -12,10 +12,10 @@ use crate::path_guard::resolve_manifest_relative_path;
 use crate::runtime::{RuntimePlan, install_in_thread_pool};
 use crate::{Error, Result};
 
-use super::orchestrator::verify_chunk_hash;
 use super::super::types::{
     BundleScanInfo, ChunkLocation, ChunkWriteTarget, ReconstructOptions, ReconstructTimings,
 };
+use super::orchestrator::verify_chunk_hash;
 
 // ---------------------------------------------------------------------------
 // Direct bundle-to-file restore strategy (currently disabled by default)

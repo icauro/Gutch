@@ -291,18 +291,18 @@ fn base_build_config(
     gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
-) -> BuildConfig {
+) -> BuildConfig<'static> {
     BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
 }
 
-fn build_config_against_existing_store(
+fn build_config_against_existing_store<'a>(
     gutch_repo_id: &str,
     target_id: &str,
     target_tags: &TargetTagSet,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-    previous_file_manifests: Option<&HashMap<String, FileManifest>>,
-) -> BuildConfig {
+    existing_chunk_locations: &'a HashMap<String, ExistingChunkLocation>,
+    existing_bundle_ids: &'a HashSet<String>,
+    previous_file_manifests: Option<&'a HashMap<String, FileManifest>>,
+) -> BuildConfig<'a> {
     let config = base_build_config(gutch_repo_id, target_id, target_tags)
         .with_existing_chunks(existing_chunk_locations)
         .with_existing_bundles(existing_bundle_ids);
@@ -512,7 +512,10 @@ pub fn build_from_directory_with_timings_against_existing_store_and_manifests_an
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResult, BuildTimings)> {
+pub fn build_with_config(
+    dir: &Path,
+    config: &BuildConfig<'_>,
+) -> Result<(BuildResult, BuildTimings)> {
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings::default();
@@ -521,12 +524,25 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     timings.runtime_plan = Some(runtime_plan.clone());
     let chunk_spool_dir = prepare_chunk_spool_dir(runtime_plan.chunk_storage_mode)?;
 
+    let empty_previous_file_manifests = HashMap::new();
+    let previous_file_manifests = config
+        .previous_file_manifests
+        .unwrap_or(&empty_previous_file_manifests);
+    let empty_existing_chunk_locations = HashMap::new();
+    let existing_chunk_locations = config
+        .existing_chunk_locations
+        .unwrap_or(&empty_existing_chunk_locations);
+    let empty_existing_bundle_ids = HashSet::new();
+    let existing_bundle_ids = config
+        .existing_bundle_ids
+        .unwrap_or(&empty_existing_bundle_ids);
+
     let (mut file_manifests, unique_chunks, total_logical_size) = collect_scanned_chunks(
         dir,
         ScanDirectoryOptions {
-            previous_file_manifests: &config.previous_file_manifests,
+            previous_file_manifests,
             chunking_profile: &config.chunk_profile,
-            existing_chunk_locations: &config.existing_chunk_locations,
+            existing_chunk_locations,
             chunk_storage_mode: runtime_plan.chunk_storage_mode,
             chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
             worker_count: runtime_plan.worker_count,
@@ -542,7 +558,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
     for fm in &file_manifests {
         for chunk_ref in &fm.chunks {
             all_chunk_hashes.insert(chunk_ref.chunk_hash.clone());
-            if let Some(existing) = config.existing_chunk_locations.get(&chunk_ref.chunk_hash) {
+            if let Some(existing) = existing_chunk_locations.get(&chunk_ref.chunk_hash) {
                 required_bundle_set.push(existing.bundle_id.clone());
                 if compressed_estimate_seen.insert(chunk_ref.chunk_hash.clone()) {
                     total_compressed += existing.compressed_size;
@@ -558,7 +574,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
         let raw_size = payload.raw_size();
         timings.dedupe_lookup_bytes += raw_size;
 
-        if let Some(existing) = config.existing_chunk_locations.get(&hash) {
+        if let Some(existing) = existing_chunk_locations.get(&hash) {
             if compressed_estimate_seen.insert(hash.clone()) {
                 total_compressed += existing.compressed_size;
             }
@@ -610,7 +626,7 @@ pub fn build_with_config(dir: &Path, config: &BuildConfig) -> Result<(BuildResul
                 timings.bundle_compressed_payload_load += built_bundle.payload_load;
                 timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
                 required_bundle_set.push(built_bundle.bundle_id.clone());
-                if !config.existing_bundle_ids.contains(&built_bundle.bundle_id) {
+                if !existing_bundle_ids.contains(&built_bundle.bundle_id) {
                     record_bundle_compressed_bundle_metrics(
                         &mut timings,
                         &mut total_compressed,

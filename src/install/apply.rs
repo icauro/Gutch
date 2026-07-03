@@ -239,10 +239,7 @@ fn count_reusable_source_chunks(
 ) -> usize {
     let target_chunks = crate::repo::required_chunk_hashes(target_manifest);
     let source_chunks = crate::repo::required_chunk_hashes(source_manifest);
-    source_chunks
-        .iter()
-        .filter(|chunk_hash| target_chunks.contains(chunk_hash.as_str()))
-        .count()
+    source_chunks.intersection(&target_chunks).count()
 }
 
 fn count_required_bundle_paths(
@@ -253,7 +250,7 @@ fn count_required_bundle_paths(
     let mut needed_chunks = crate::repo::required_chunk_hashes(target_manifest);
     if let Some(source_manifest) = source_manifest {
         for chunk_hash in crate::repo::required_chunk_hashes(source_manifest) {
-            needed_chunks.remove(&chunk_hash);
+            needed_chunks.remove(chunk_hash);
         }
     }
     if needed_chunks.is_empty() {
@@ -269,7 +266,7 @@ fn count_required_bundle_paths(
         let mut matched_bundle = false;
 
         for entry in reader.entries() {
-            if needed_chunks.contains(&entry.chunk_hash)
+            if needed_chunks.contains(entry.chunk_hash.as_str())
                 && covered_chunks.insert(entry.chunk_hash.clone())
             {
                 matched_bundle = true;

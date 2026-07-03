@@ -9,7 +9,10 @@ use crate::manifest::{BundleTableEntry, COMPRESSION_UNIT_BUNDLE, CompressionProf
 use std::time::{Duration, Instant};
 
 const MAGIC: &[u8; 4] = b"GCHB";
-const FORMAT_VERSION: u8 = 1;
+const FORMAT_VERSION: u8 = 2;
+const COMPRESSION_NONE_CODE: u8 = 0;
+const COMPRESSION_ZSTD_CODE: u8 = 1;
+const COMPRESSION_UNIT_BUNDLE_CODE: u8 = 0;
 
 #[derive(Debug, Clone, Default)]
 pub struct BundleBuildMetrics {
@@ -148,7 +151,6 @@ impl BundleBuilder {
 
     fn build_bundle_compressed(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
         let is_uncompressed = self.profile.compression == "none";
-        let compression_label = if is_uncompressed { "none" } else { "zstd" };
         let mut entries: Vec<BundleTableEntry> = Vec::with_capacity(self.chunks.len());
         let payload_assembly_start = Instant::now();
         let mut current_raw_offset: u64 = 0;
@@ -165,8 +167,6 @@ impl BundleBuilder {
                 raw_size: chunk.raw_size,
                 compressed_size: 0,
                 compressed_offset: 0,
-                compression: compression_label.to_string(),
-                compression_unit: COMPRESSION_UNIT_BUNDLE.to_string(),
                 raw_offset: current_raw_offset,
             });
             current_raw_offset += chunk.raw_size;
@@ -231,6 +231,10 @@ impl BundleBuilder {
         let mut header = Vec::new();
         header.extend_from_slice(MAGIC);
         header.push(FORMAT_VERSION);
+        header.push(compression_code(self.profile.compression.as_str())?);
+        header.push(compression_unit_code(
+            self.profile.compression_unit.as_str(),
+        )?);
         header.extend_from_slice(&chunk_count.to_le_bytes());
         header.extend_from_slice(&0u32.to_le_bytes());
 
@@ -270,8 +274,8 @@ pub struct BundleReader<R: Read + Seek> {
     entries: Vec<BundleTableEntry>,
     data_start: u64,
     payload_size: u64,
-    compression: String,
-    compression_unit: String,
+    compression: &'static str,
+    compression_unit: &'static str,
     bundle_raw_cache: Option<Vec<u8>>,
     reader: R,
 }
@@ -295,6 +299,14 @@ impl<R: Read + Seek> BundleReader<R> {
             )));
         }
 
+        let mut compression_code_buf = [0u8; 1];
+        reader.read_exact(&mut compression_code_buf)?;
+        let compression = compression_label_from_code(compression_code_buf[0])?;
+
+        let mut compression_unit_code_buf = [0u8; 1];
+        reader.read_exact(&mut compression_unit_code_buf)?;
+        let compression_unit = compression_unit_from_code(compression_unit_code_buf[0])?;
+
         let mut count_buf = [0u8; 4];
         reader.read_exact(&mut count_buf)?;
         let _chunk_count = u32::from_le_bytes(count_buf);
@@ -312,27 +324,6 @@ impl<R: Read + Seek> BundleReader<R> {
         let end = reader.seek(SeekFrom::End(0))?;
         let payload_size = end.saturating_sub(data_start).saturating_sub(64);
         reader.seek(SeekFrom::Start(data_start))?;
-        let compression_unit = entries
-            .first()
-            .map(|entry| entry.compression_unit.clone())
-            .unwrap_or_else(|| COMPRESSION_UNIT_BUNDLE.to_string());
-        let compression = entries
-            .first()
-            .map(|entry| entry.compression.clone())
-            .unwrap_or_else(|| "zstd".to_string());
-        let has_mixed_compression = entries.iter().any(|entry| entry.compression != compression);
-        if has_mixed_compression {
-            return Err(crate::error::Error::InvalidBundle(
-                "bundle entries must use the same compression".into(),
-            ));
-        }
-        if compression != "none" && compression != "zstd" {
-            return Err(crate::error::Error::InvalidBundle(format!(
-                "unsupported bundle compression '{}'",
-                compression
-            )));
-        }
-
         Ok(BundleReader {
             entries,
             data_start,
@@ -361,7 +352,7 @@ impl<R: Read + Seek> BundleReader<R> {
     }
 
     pub fn compression_unit(&self) -> &str {
-        &self.compression_unit
+        self.compression_unit
     }
 
     pub fn payload_size(&self) -> u64 {
@@ -440,6 +431,48 @@ impl<R: Read + Seek> BundleReader<R> {
             }
         }
         Ok(true)
+    }
+}
+
+fn compression_code(compression: &str) -> Result<u8> {
+    match compression {
+        "none" => Ok(COMPRESSION_NONE_CODE),
+        "zstd" => Ok(COMPRESSION_ZSTD_CODE),
+        other => Err(crate::error::Error::InvalidBundle(format!(
+            "unsupported bundle compression '{}'",
+            other
+        ))),
+    }
+}
+
+fn compression_label_from_code(code: u8) -> Result<&'static str> {
+    match code {
+        COMPRESSION_NONE_CODE => Ok("none"),
+        COMPRESSION_ZSTD_CODE => Ok("zstd"),
+        other => Err(crate::error::Error::InvalidBundle(format!(
+            "unsupported bundle compression code {}",
+            other
+        ))),
+    }
+}
+
+fn compression_unit_code(compression_unit: &str) -> Result<u8> {
+    match compression_unit {
+        COMPRESSION_UNIT_BUNDLE => Ok(COMPRESSION_UNIT_BUNDLE_CODE),
+        other => Err(crate::error::Error::InvalidBundle(format!(
+            "unsupported bundle compression unit '{}'",
+            other
+        ))),
+    }
+}
+
+fn compression_unit_from_code(code: u8) -> Result<&'static str> {
+    match code {
+        COMPRESSION_UNIT_BUNDLE_CODE => Ok(COMPRESSION_UNIT_BUNDLE),
+        other => Err(crate::error::Error::InvalidBundle(format!(
+            "unsupported bundle compression unit code {}",
+            other
+        ))),
     }
 }
 

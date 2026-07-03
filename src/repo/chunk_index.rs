@@ -41,11 +41,11 @@ pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> 
     Ok(empty_chunk_index())
 }
 
-pub fn required_chunk_hashes(target_manifest: &TargetManifest) -> HashSet<String> {
+pub fn required_chunk_hashes(target_manifest: &TargetManifest) -> HashSet<&str> {
     target_manifest
         .files
         .iter()
-        .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.clone()))
+        .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.as_str()))
         .collect()
 }
 
@@ -53,12 +53,14 @@ pub fn required_bundle_ids(
     target_manifest: &TargetManifest,
     chunk_index: &manifest::ChunkIndex,
 ) -> HashSet<String> {
-    required_chunk_hashes(target_manifest)
-        .into_iter()
-        .filter_map(|chunk_hash| {
+    target_manifest
+        .files
+        .iter()
+        .flat_map(|file| file.chunks.iter())
+        .filter_map(|chunk_ref| {
             chunk_index
                 .entries
-                .get(&chunk_hash)
+                .get(&chunk_ref.chunk_hash)
                 .filter(|entry| entry.storage_mode == ArtifactStorageMode::Bundled)
                 .map(|entry| entry.bundle_id.clone())
         })
@@ -69,14 +71,17 @@ pub fn required_loose_chunk_hashes(
     target_manifest: &TargetManifest,
     chunk_index: &manifest::ChunkIndex,
 ) -> HashSet<String> {
-    required_chunk_hashes(target_manifest)
-        .into_iter()
-        .filter(|chunk_hash| {
+    target_manifest
+        .files
+        .iter()
+        .flat_map(|file| file.chunks.iter())
+        .filter(|chunk_ref| {
             chunk_index
                 .entries
-                .get(chunk_hash)
+                .get(&chunk_ref.chunk_hash)
                 .is_some_and(|entry| entry.storage_mode == ArtifactStorageMode::LooseChunks)
         })
+        .map(|chunk_ref| chunk_ref.chunk_hash.clone())
         .collect()
 }
 

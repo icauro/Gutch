@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{ArtifactStorageMode, COMPRESSION_UNIT_BUNDLE};
+use super::ArtifactStorageMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileManifest {
@@ -23,15 +23,8 @@ pub struct BundleTableEntry {
     pub raw_size: u64,
     pub compressed_size: u64,
     pub compressed_offset: u64,
-    pub compression: String,
-    #[serde(default = "default_compression_unit")]
-    pub compression_unit: String,
     #[serde(default)]
     pub raw_offset: u64,
-}
-
-fn default_compression_unit() -> String {
-    COMPRESSION_UNIT_BUNDLE.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

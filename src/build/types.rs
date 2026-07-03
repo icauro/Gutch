@@ -18,13 +18,13 @@ pub trait BuildProgressSink: Send + Sync + std::fmt::Debug {
 }
 
 #[derive(Debug, Clone)]
-pub struct BuildConfig {
+pub struct BuildConfig<'a> {
     pub gutch_repo_id: String,
     pub target_id: String,
     pub target_tags: TargetTagSet,
-    pub existing_chunk_locations: HashMap<String, ExistingChunkLocation>,
-    pub existing_bundle_ids: HashSet<String>,
-    pub previous_file_manifests: HashMap<String, FileManifest>,
+    pub existing_chunk_locations: Option<&'a HashMap<String, ExistingChunkLocation>>,
+    pub existing_bundle_ids: Option<&'a HashSet<String>>,
+    pub previous_file_manifests: Option<&'a HashMap<String, FileManifest>>,
     pub chunk_profile: ChunkSizingProfile,
     pub bundle_profile: BundleSizingProfile,
     pub compression_profile: CompressionProfile,
@@ -33,15 +33,19 @@ pub struct BuildConfig {
     pub progress: Option<Arc<dyn BuildProgressSink>>,
 }
 
-impl BuildConfig {
-    pub fn with_ids(gutch_repo_id: &str, target_id: &str, target_tags: &TargetTagSet) -> Self {
-        Self {
+impl<'a> BuildConfig<'a> {
+    pub fn with_ids(
+        gutch_repo_id: &str,
+        target_id: &str,
+        target_tags: &TargetTagSet,
+    ) -> BuildConfig<'a> {
+        BuildConfig {
             gutch_repo_id: gutch_repo_id.to_string(),
             target_id: target_id.to_string(),
             target_tags: target_tags.clone(),
-            existing_chunk_locations: HashMap::new(),
-            existing_bundle_ids: HashSet::new(),
-            previous_file_manifests: HashMap::new(),
+            existing_chunk_locations: None,
+            existing_bundle_ids: None,
+            previous_file_manifests: None,
             chunk_profile: ChunkSizingProfile::default(),
             bundle_profile: BundleSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
@@ -51,21 +55,21 @@ impl BuildConfig {
         }
     }
 
-    pub fn with_existing_bundles(mut self, ids: &HashSet<String>) -> Self {
-        self.existing_bundle_ids = ids.clone();
+    pub fn with_existing_bundles(mut self, ids: &'a HashSet<String>) -> Self {
+        self.existing_bundle_ids = Some(ids);
         self
     }
 
     pub fn with_existing_chunks(
         mut self,
-        locations: &HashMap<String, ExistingChunkLocation>,
+        locations: &'a HashMap<String, ExistingChunkLocation>,
     ) -> Self {
-        self.existing_chunk_locations = locations.clone();
+        self.existing_chunk_locations = Some(locations);
         self
     }
 
-    pub fn with_previous_manifests(mut self, manifests: &HashMap<String, FileManifest>) -> Self {
-        self.previous_file_manifests = manifests.clone();
+    pub fn with_previous_manifests(mut self, manifests: &'a HashMap<String, FileManifest>) -> Self {
+        self.previous_file_manifests = Some(manifests);
         self
     }
 
