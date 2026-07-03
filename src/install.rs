@@ -120,6 +120,7 @@ pub struct GutchBundleDownload {
 pub struct TargetInstallFetchRequest {
     pub repo_path: PathBuf,
     pub target_id: String,
+    pub repo_manifest_url: Option<String>,
     pub manifest_url: String,
     pub chunk_index_url: Option<String>,
     pub bundle_downloads_endpoint: Option<String>,
@@ -135,6 +136,15 @@ pub struct TargetInstallFetchResult {
     pub required_bundle_count: usize,
     pub downloaded_bundle_count: usize,
     pub skipped_existing_bundle_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedTargetInstallState {
+    pub target_id: String,
+    pub manifest_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
 }
 
 #[derive(Clone)]
@@ -526,13 +536,27 @@ pub fn fetch_target_install_content(
     crate::helpers::create_dir_all(&repo_paths.targets_root)?;
     crate::helpers::create_dir_all(&repo_paths.bundles_root)?;
 
+    if let Some(repo_manifest_url) = non_empty_trimmed(request.repo_manifest_url.as_deref()) {
+        let repo_manifest_bytes = download_url(
+            repo_manifest_url,
+            non_empty_trimmed(request.session_id.as_deref()),
+        )?;
+        let repo_manifest = download_json_bytes::<manifest::gutch_repo::GutchRepoManifest>(
+            &repo_manifest_bytes,
+            "downloaded repo manifest",
+        )?;
+        crate::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
+    }
+
     let manifest_bytes = download_url(
         request.manifest_url.trim(),
         non_empty_trimmed(request.session_id.as_deref()),
     )?;
     let manifest =
         download_json_bytes::<serde_json::Value>(&manifest_bytes, "downloaded target manifest")?;
-    write_repo_manifest(&request.repo_path, &manifest)?;
+    if request.repo_manifest_url.is_none() {
+        write_repo_manifest(&request.repo_path, &manifest)?;
+    }
 
     if let Some(chunk_index_url) = non_empty_trimmed(request.chunk_index_url.as_deref()) {
         let chunk_index_bytes = download_url(
@@ -696,6 +720,34 @@ pub fn fetch_target_install_content(
         required_bundle_count: bundle_ids_from_chunk_index.len(),
         downloaded_bundle_count,
         skipped_existing_bundle_count,
+    })
+}
+
+pub fn resolve_target_install_state(
+    repo_path: &Path,
+    target_id: &str,
+) -> Result<ResolvedTargetInstallState> {
+    let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(repo_path)?;
+    let target_manifest = crate::load_target_manifest(&repo_paths, target_id)?;
+    let launch = if let Some(target_launch) = target_manifest.launch.as_ref() {
+        manifest::launch::validate_resolved_launch_for_target(target_launch, &target_manifest)?;
+        Some(target_launch.clone())
+    } else {
+        repo_manifest
+            .launch
+            .as_ref()
+            .map(|repo_launch| {
+                manifest::launch::resolve_repo_launch_for_target(repo_launch, &target_manifest)
+            })
+            .transpose()?
+    };
+    let manifest_bytes =
+        crate::helpers::read(&crate::target_manifest_path(&repo_paths, target_id))?;
+
+    Ok(ResolvedTargetInstallState {
+        target_id: target_manifest.target_id,
+        manifest_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(&manifest_bytes)),
+        launch,
     })
 }
 

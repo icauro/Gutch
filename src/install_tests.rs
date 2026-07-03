@@ -22,6 +22,63 @@ fn test_target_manifest(files: Vec<(&str, &[u8])>) -> TargetManifest {
 }
 
 #[test]
+fn resolved_install_state_uses_repo_inheritance_and_target_override() {
+    let root = crate::test_util::temp_path("gutch_resolved_install_launch_state");
+    let _ = std::fs::remove_dir_all(&root);
+    let paths = GutchRepoPaths::from_repo_root(&root);
+    crate::ensure_gutch_repo_layout(&paths, "test").unwrap();
+    let (_, mut repo_manifest) = crate::load_gutch_repo_manifest(&root).unwrap();
+    repo_manifest.launch = Some(crate::RepoLaunchConfiguration {
+        primary: None,
+        actions: vec![crate::RepoLaunchAction {
+            name: "Play".into(),
+            commands: vec![crate::RepoLaunchCommand {
+                platform: None,
+                executable: "Game.exe".into(),
+                arguments: vec!["--repo".into()],
+                working_directory: None,
+            }],
+        }],
+    });
+    crate::write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
+
+    let mut tags = TargetTagSet::default();
+    tags.upsert_exclusive("os", "windows");
+    tags.upsert_exclusive("arch", "x86_64");
+    let mut target = TargetManifest::new("target".into(), tags);
+    target.files.push(FileManifest {
+        path: "Game.exe".into(),
+        size: 1,
+        executable: true,
+        full_file_hash: "hash".into(),
+        chunks: Vec::new(),
+    });
+    crate::write_target_manifest_artifacts(&paths, &target).unwrap();
+
+    let inherited = resolve_target_install_state(&root, "target").unwrap();
+    assert_eq!(inherited.launch.unwrap().actions[0].arguments, ["--repo"]);
+    assert!(!inherited.manifest_hash.is_empty());
+
+    target.launch = Some(crate::ResolvedLaunchConfiguration {
+        primary: None,
+        actions: vec![crate::ResolvedLaunchAction {
+            name: "Play".into(),
+            executable: "Game.exe".into(),
+            arguments: vec!["--target".into()],
+            working_directory: None,
+        }],
+    });
+    crate::write_target_manifest_artifacts(&paths, &target).unwrap();
+    let overridden = resolve_target_install_state(&root, "target").unwrap();
+    assert_eq!(
+        overridden.launch.unwrap().actions[0].arguments,
+        ["--target"]
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn repair_target_install_keeps_added_files_when_requested() {
     let root = crate::test_util::temp_path("gutch_repair_keep_added_files");
     let _ = std::fs::remove_dir_all(&root);
@@ -179,6 +236,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     let result = fetch_target_install_content(&TargetInstallFetchRequest {
         repo_path: repo_path.clone(),
         target_id: "1.0.0-windows-x86_64-base".to_string(),
+        repo_manifest_url: None,
         manifest_url: format!("http://{}/manifest", address),
         chunk_index_url: None,
         bundle_downloads_endpoint: Some(format!("http://{}/bundles", address)),

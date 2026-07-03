@@ -199,37 +199,11 @@ pub fn validate_resolved_launch_for_target(
 }
 
 pub fn validate_launch_path(value: &str, allow_install_root: bool) -> Result<()> {
-    let value = value.trim();
-    if value.is_empty() || value.contains('\0') || value.contains('\\') || value.starts_with('/') {
-        return Err(Error::manifest(format!(
-            "launch path must be a normalized relative path inside the installation: '{}'",
-            value
-        )));
-    }
-    if value == "." {
-        if allow_install_root {
-            return Ok(());
-        }
-        return Err(Error::manifest(
-            "launch executable cannot be the installation root",
-        ));
-    }
-    let mut segments = value.split('/');
-    let Some(first) = segments.next() else {
-        return Err(Error::manifest("launch path is empty"));
-    };
-    if first.ends_with(':')
-        || first.is_empty()
-        || first == "."
-        || first == ".."
-        || segments.any(|segment| segment.is_empty() || segment == "." || segment == "..")
-    {
-        return Err(Error::manifest(format!(
-            "launch path must stay inside the installation: '{}'",
-            value
-        )));
-    }
-    Ok(())
+    crate::validate_manifest_relative_path(value, allow_install_root).map_err(|error| {
+        Error::manifest(format!(
+            "launch path must be normalized inside the installation: {error}"
+        ))
+    })
 }
 
 fn validate_repo_launch_command(command: &RepoLaunchCommand) -> Result<()> {

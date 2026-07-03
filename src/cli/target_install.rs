@@ -11,6 +11,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             repo,
             target,
             manifest_url,
+            repo_manifest_url,
             chunk_index_url,
             bundle_downloads_endpoint,
             session_id,
@@ -20,6 +21,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             let result = g::fetch_target_install_content(&g::TargetInstallFetchRequest {
                 repo_path: repo,
                 target_id: target,
+                repo_manifest_url,
                 manifest_url,
                 chunk_index_url,
                 bundle_downloads_endpoint: bundle_downloads_endpoint,

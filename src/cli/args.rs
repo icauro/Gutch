@@ -267,6 +267,8 @@ pub enum TargetInstallCommands {
         target: String,
         #[arg(long = "manifest-url")]
         manifest_url: String,
+        #[arg(long = "repo-manifest-url")]
+        repo_manifest_url: Option<String>,
         #[arg(long = "chunk-index-url")]
         chunk_index_url: Option<String>,
         #[arg(long = "bundle-downloads-endpoint")]

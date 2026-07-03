@@ -45,16 +45,17 @@ pub use core::target_identity::{
 };
 pub use error::{Error, Result};
 pub use install::{
-    GutchBundleDownload, TargetInstallApplyFromRepoRequest, TargetInstallApplyFromRepoResult,
-    TargetInstallApplyResult, TargetInstallApplySource, TargetInstallDownloadAndApplyRequest,
-    TargetInstallDownloadAndApplyResult, TargetInstallFetchRequest, TargetInstallFetchResult,
-    TargetInstallRepairFromRepoRequest, TargetInstallRepairFromRepoResult,
-    TargetInstallRepairResult, TargetInstallVerifyFromRepoRequest,
-    TargetInstallVerifyFromRepoResult, apply_target_install_from_repo,
-    apply_target_install_with_timings, apply_target_install_with_timings_and_hints,
-    default_target_install_staging_dir, download_and_apply_target_install,
-    fetch_target_install_content, repair_target_install_from_repo,
-    repair_target_install_with_timings_and_hints, resolve_required_bundle_paths_from_repo,
+    GutchBundleDownload, ResolvedTargetInstallState, TargetInstallApplyFromRepoRequest,
+    TargetInstallApplyFromRepoResult, TargetInstallApplyResult, TargetInstallApplySource,
+    TargetInstallDownloadAndApplyRequest, TargetInstallDownloadAndApplyResult,
+    TargetInstallFetchRequest, TargetInstallFetchResult, TargetInstallRepairFromRepoRequest,
+    TargetInstallRepairFromRepoResult, TargetInstallRepairResult,
+    TargetInstallVerifyFromRepoRequest, TargetInstallVerifyFromRepoResult,
+    apply_target_install_from_repo, apply_target_install_with_timings,
+    apply_target_install_with_timings_and_hints, default_target_install_staging_dir,
+    download_and_apply_target_install, fetch_target_install_content,
+    repair_target_install_from_repo, repair_target_install_with_timings_and_hints,
+    resolve_required_bundle_paths_from_repo, resolve_target_install_state,
     verify_target_install_from_repo,
 };
 pub use manifest::launch::{
@@ -69,6 +70,9 @@ pub use manifest::{
     EditableTargetTagDefinition, InferenceHandler, TargetTagSchemaValidationError,
     TargetTagSchemaValidationResult, sanitize_editable_target_tag_schema,
     validate_editable_target_tag_schema,
+};
+pub use path_guard::{
+    ExistingInstallPathKind, resolve_existing_install_path, validate_manifest_relative_path,
 };
 pub use plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressSink};
