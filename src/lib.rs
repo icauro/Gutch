@@ -97,7 +97,7 @@ pub use repo::{
     describe_target_insert_plan, describe_target_sources_sync_plan,
     discover_source_target_installs, ensure_gutch_repo_layout, ensure_gutch_repo_tracked,
     initialize_tracked_gutch_repo, initialize_tracked_gutch_repo_with_options, insert_repo_target,
-    link_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
+    bind_gutch_repo_remote, link_repo, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
     parse_repo_init_needs_confirmation_error, plan_sync_up_repo, plan_target_insert,
     plan_target_sources_sync, preview_source_target_install, remove_target_from_repo,
     repo_init_needs_confirmation_error, serialize_target_manifest_for_remote, sync_target_sources,

@@ -51,6 +51,24 @@ pub fn update_gutch_repo_launch(
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)
 }
 
+pub fn bind_gutch_repo_remote(
+    repo_root: &Path,
+    product_id: i64,
+    remote_repo_id: i64,
+) -> Result<()> {
+    if product_id <= 0 {
+        return Err(crate::Error::manifest("product_id must be greater than zero"));
+    }
+    if remote_repo_id <= 0 {
+        return Err(crate::Error::manifest("remote_repo_id must be greater than zero"));
+    }
+
+    let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    repo_manifest.product_id = product_id.to_string();
+    repo_manifest.remote_repo_id = remote_repo_id.to_string();
+    write_gutch_repo_manifest(&repo_paths, &repo_manifest)
+}
+
 pub fn update_gutch_target_launch(
     repo_root: &Path,
     target_id: &str,

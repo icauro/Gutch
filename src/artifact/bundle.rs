@@ -9,7 +9,7 @@ use crate::manifest::{BundleTableEntry, CompressionKind, CompressionProfile, Com
 use std::time::{Duration, Instant};
 
 const MAGIC: &[u8; 4] = b"GCHB";
-const FORMAT_VERSION: u8 = 3;
+const FORMAT_VERSION: u8 = 1;
 const COMPRESSION_NONE_CODE: u8 = 0;
 const COMPRESSION_ZSTD_CODE: u8 = 1;
 const COMPRESSION_UNIT_BUNDLE_CODE: u8 = 0;

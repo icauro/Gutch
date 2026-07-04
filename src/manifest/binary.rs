@@ -9,9 +9,9 @@ use crate::manifest::{self, FileManifest, target::TargetManifest};
 use crate::{Error, Result};
 
 const CHUNK_INDEX_BINARY_MAGIC: &[u8; 8] = b"GTCIDX1\0";
-const CHUNK_INDEX_BINARY_VERSION: u16 = 4;
+const CHUNK_INDEX_BINARY_VERSION: u16 = 1;
 const TARGET_FILES_BINARY_MAGIC: &[u8; 8] = b"GTCTGT1\0";
-const TARGET_FILES_BINARY_VERSION: u16 = 3;
+const TARGET_FILES_BINARY_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TargetManifestShell {
