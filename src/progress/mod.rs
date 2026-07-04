@@ -38,6 +38,35 @@ pub enum GutchProgressPhase {
     Insert,
 }
 
+impl GutchProgressPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GutchProgressPhase::Prepare => "prepare",
+            GutchProgressPhase::RepoManifest => "repo_manifest",
+            GutchProgressPhase::TargetManifest => "target_manifest",
+            GutchProgressPhase::ChunkIndex => "chunk_index",
+            GutchProgressPhase::Bundle => "bundle",
+            GutchProgressPhase::Json => "json",
+            GutchProgressPhase::Done => "done",
+            GutchProgressPhase::ScanTargets => "scan_targets",
+            GutchProgressPhase::LoadManifests => "load_manifests",
+            GutchProgressPhase::ScanBundles => "scan_bundles",
+            GutchProgressPhase::DeleteOrphans => "delete_orphans",
+            GutchProgressPhase::RemoveManifest => "remove_manifest",
+            GutchProgressPhase::Scan => "scan",
+            GutchProgressPhase::Build => "build",
+            GutchProgressPhase::Planning => "planning",
+            GutchProgressPhase::RemoveTargets => "remove_targets",
+            GutchProgressPhase::UploadRepoManifest => "upload_repo_manifest",
+            GutchProgressPhase::UploadChunkIndex => "upload_chunk_index",
+            GutchProgressPhase::UploadTargetManifest => "upload_target_manifest",
+            GutchProgressPhase::UploadBundle => "upload_bundle",
+            GutchProgressPhase::Prune => "prune",
+            GutchProgressPhase::Insert => "insert",
+        }
+    }
+}
+
 /// A single unified progress event for all gutch operations.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

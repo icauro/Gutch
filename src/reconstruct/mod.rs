@@ -10,7 +10,7 @@ use crate::Result;
 use crate::bundle;
 use crate::hash::ChunkHash;
 use crate::manifest::{CompressionProfile, target::TargetManifest};
-use crate::repo::{GutchRepoPaths, required_bundle_ids, required_chunk_hashes};
+use crate::repo::{GutchRepoPaths, required_bundle_ids, required_chunk_hashes_typed};
 use crate::runtime::RuntimeResourceHints;
 
 use restore::{
@@ -53,10 +53,7 @@ pub fn reconstruct_from_target_manifest_with_timings(
     let mut timings = ReconstructTimings::default();
     crate::helpers::create_dir_all(output_dir)?;
 
-    let needed_chunks = required_chunk_hashes(target_manifest)
-        .into_iter()
-        .map(ChunkHash::parse_hex)
-        .collect::<Result<std::collections::HashSet<_>>>()?;
+    let needed_chunks = required_chunk_hashes_typed(target_manifest)?;
     let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
 
     for bundle_data in bundles {

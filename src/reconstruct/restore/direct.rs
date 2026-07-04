@@ -15,6 +15,7 @@ use crate::{Error, Result};
 
 use super::super::types::{
     BundleScanInfo, ChunkLocation, ChunkWriteTarget, ReconstructOptions, ReconstructTimings,
+    typed_chunk_refs,
 };
 use super::orchestrator::verify_chunk_hash;
 
@@ -100,8 +101,8 @@ fn build_chunk_write_targets(
     for fm in &target_manifest.files {
         let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         let mut file_offset = 0u64;
-        for chunk_ref in &fm.chunks {
-            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+        for chunk_ref in typed_chunk_refs(fm)? {
+            let chunk_hash = chunk_ref.hash;
             write_targets
                 .entry(chunk_hash)
                 .or_default()

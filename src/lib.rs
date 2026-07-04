@@ -22,6 +22,7 @@ pub mod target;
 mod test_util;
 pub mod verify;
 
+pub use artifact::hash::ChunkHash;
 pub use artifact::{bundle, chunk, compress, hash};
 pub use build::scan as build_scan;
 pub use build::types as build_types;

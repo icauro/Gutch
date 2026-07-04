@@ -19,7 +19,9 @@ use crate::verify::{
 use crate::{Error, Result};
 
 fn derive_chunk_count(manifest: &TargetManifest) -> usize {
-    crate::repo::required_chunk_hashes(manifest).len()
+    crate::repo::required_chunk_hashes_typed(manifest)
+        .map(|chunks| chunks.len())
+        .unwrap_or_default()
 }
 
 pub fn default_target_install_staging_dir(install_dir: &Path, target_id: &str) -> PathBuf {
@@ -237,8 +239,12 @@ fn count_reusable_source_chunks(
     target_manifest: &TargetManifest,
     source_manifest: &TargetManifest,
 ) -> usize {
-    let target_chunks = crate::repo::required_chunk_hashes(target_manifest);
-    let source_chunks = crate::repo::required_chunk_hashes(source_manifest);
+    let Ok(target_chunks) = crate::repo::required_chunk_hashes_typed(target_manifest) else {
+        return 0;
+    };
+    let Ok(source_chunks) = crate::repo::required_chunk_hashes_typed(source_manifest) else {
+        return 0;
+    };
     source_chunks.intersection(&target_chunks).count()
 }
 
@@ -247,10 +253,10 @@ fn count_required_bundle_paths(
     bundle_paths: &[PathBuf],
     source_manifest: Option<&TargetManifest>,
 ) -> Result<usize> {
-    let mut needed_chunks = crate::repo::required_chunk_hashes(target_manifest);
+    let mut needed_chunks = crate::repo::required_chunk_hashes_typed(target_manifest)?;
     if let Some(source_manifest) = source_manifest {
-        for chunk_hash in crate::repo::required_chunk_hashes(source_manifest) {
-            needed_chunks.remove(chunk_hash);
+        for chunk_hash in crate::repo::required_chunk_hashes_typed(source_manifest)? {
+            needed_chunks.remove(&chunk_hash);
         }
     }
     if needed_chunks.is_empty() {
@@ -265,10 +271,8 @@ fn count_required_bundle_paths(
         let reader = crate::bundle::BundleReader::open(file)?;
         let mut matched_bundle = false;
 
-        for entry in reader.entries() {
-            if needed_chunks.contains(entry.chunk_hash.as_str())
-                && covered_chunks.insert(entry.chunk_hash.clone())
-            {
+        for chunk_hash in reader.chunk_hashes() {
+            if needed_chunks.contains(chunk_hash) && covered_chunks.insert(*chunk_hash) {
                 matched_bundle = true;
             }
         }

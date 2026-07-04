@@ -7,7 +7,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 
 use crate::Result;
-use crate::hash::hash_hex;
+use crate::hash::ChunkHash;
+use crate::manifest::runtime::typed_file_manifest;
 use crate::manifest::{self, target::TargetManifest};
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::runtime::{RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime};
@@ -432,6 +433,8 @@ fn verify_file_streaming(
     verify_mode: VerifyMode,
     timings: &mut VerifyTimings,
 ) -> std::io::Result<Vec<RepairIssue>> {
+    let typed_file =
+        typed_file_manifest(fm).map_err(|err| std::io::Error::other(err.to_string()))?;
     let file = std::fs::File::open(file_path)?;
     let mut reader = std::io::BufReader::new(file);
     let mut issues = Vec::new();
@@ -439,7 +442,7 @@ fn verify_file_streaming(
     let mut chunk_buffer = Vec::new();
     let mut chunk_offset = 0u64;
 
-    for chunk_ref in &fm.chunks {
+    for chunk_ref in &typed_file.chunks {
         let chunk_size = chunk_ref.raw_size as usize;
         let start = chunk_offset;
         let end = start + chunk_ref.raw_size;
@@ -471,16 +474,19 @@ fn verify_file_streaming(
 
         if verify_mode.checks_chunk_hashes() {
             let t = Instant::now();
-            let chunk_hash_actual = hash_hex(&crate::hash::hash_chunk(&chunk_buffer));
+            let chunk_hash_actual = ChunkHash::from_blake3(crate::hash::hash_chunk(&chunk_buffer));
             timings.chunk_hash += t.elapsed();
             timings.chunk_hash_bytes += chunk_ref.raw_size;
-            if chunk_hash_actual != chunk_ref.chunk_hash {
+            if chunk_hash_actual != chunk_ref.hash {
                 issues.push(RepairIssue {
                     kind: RepairIssueKind::Corrupt,
                     path: fm.path.clone(),
                     detail: format!(
                         "chunk hash mismatch in {} at offset {}: expected {}, got {}",
-                        fm.path, start, chunk_ref.chunk_hash, chunk_hash_actual
+                        fm.path,
+                        start,
+                        chunk_ref.hash_hex,
+                        chunk_hash_actual.to_hex()
                     ),
                 });
             }
@@ -499,15 +505,17 @@ fn verify_file_streaming(
     }
 
     let t = Instant::now();
-    let actual_hash = hash_hex(&full_file_hasher.finalize());
+    let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
     timings.file_hash += t.elapsed();
-    if actual_hash != fm.full_file_hash {
+    if actual_hash != typed_file.full_file_hash {
         issues.push(RepairIssue {
             kind: RepairIssueKind::Corrupt,
             path: fm.path.clone(),
             detail: format!(
                 "hash mismatch for {}: expected {}, got {}",
-                fm.path, fm.full_file_hash, actual_hash
+                fm.path,
+                fm.full_file_hash,
+                actual_hash.to_hex()
             ),
         });
     }

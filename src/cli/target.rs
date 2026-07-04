@@ -14,10 +14,11 @@ use crate::cli::reporting::{
     ratio_pct, reconstruct_timings_summary,
 };
 use crate::cli::verbose_output_enabled;
+use crate::hash::ChunkHash;
 use g::core::target_identity::{
     apply_resolved_target_identity, parse_cli_tags, resolve_target_identity,
 };
-use g::repo::{required_chunk_hashes, scan_existing_store_state};
+use g::repo::scan_existing_store_state;
 use gutch as g;
 
 struct MutableInsertStoreState {
@@ -204,8 +205,8 @@ fn run_insert_one_target(
     let existing_chunk_ids = store_state
         .chunk_locations
         .keys()
-        .cloned()
-        .collect::<HashSet<_>>();
+        .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
+        .collect::<g::Result<HashSet<_>>>()?;
     let chunk_sizing_profile = g::manifest::ChunkSizingProfile::for_selection(
         request.chunk_profile,
         input_stats.median_file_size_bytes,
@@ -331,8 +332,8 @@ fn run_insert_one_target(
         .iter()
         .map(|chunk| chunk.data.len() as u64)
         .sum::<u64>();
-    let reused_chunk_count = required_chunk_hashes(&result.target_manifest)
-        .into_iter()
+    let reused_chunk_count = g::repo::required_chunk_hashes_typed(&result.target_manifest)?
+        .iter()
         .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
         .count();
     let new_chunk_count = required_chunk_count.saturating_sub(reused_chunk_count);

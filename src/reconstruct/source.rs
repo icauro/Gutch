@@ -6,7 +6,7 @@ use crate::path_guard::resolve_manifest_relative_path;
 use crate::{Error, Result};
 
 use super::restore::verify_chunk_hash;
-use super::types::{ReconstructOptions, VerifiedSourceInstall};
+use super::types::{ReconstructOptions, VerifiedSourceInstall, typed_chunk_refs};
 
 pub(super) fn read_reusable_source_chunks(
     source: VerifiedSourceInstall<'_>,
@@ -16,12 +16,11 @@ pub(super) fn read_reusable_source_chunks(
     let mut skip_buffer = Vec::new();
 
     for fm in &source.target_manifest.files {
-        if fm.chunks.iter().all(|chunk_ref| {
-            let Ok(chunk_hash) = ChunkHash::parse_hex(&chunk_ref.chunk_hash) else {
-                return false;
-            };
-            !needed_chunks.contains(&chunk_hash)
-        }) {
+        let typed_chunks = typed_chunk_refs(fm)?;
+        if typed_chunks
+            .iter()
+            .all(|chunk_ref| !needed_chunks.contains(&chunk_ref.hash))
+        {
             continue;
         }
 
@@ -30,14 +29,9 @@ pub(super) fn read_reusable_source_chunks(
         let mut reader = std::io::BufReader::new(file);
 
         let mut current_offset = 0u64;
-        for chunk_ref in &fm.chunks {
+        for chunk_ref in typed_chunks {
             let chunk_size = chunk_ref.raw_size as usize;
-            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash).map_err(|err| {
-                Error::Reconstruct(format!(
-                    "invalid chunk hash '{}' in source manifest {}: {}",
-                    chunk_ref.chunk_hash, fm.path, err
-                ))
-            })?;
+            let chunk_hash = chunk_ref.hash;
             if !needed_chunks.contains(&chunk_hash) || chunk_map.contains_key(&chunk_hash) {
                 read_source_chunk_into(
                     &mut reader,

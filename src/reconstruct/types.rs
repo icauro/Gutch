@@ -5,9 +5,11 @@ use std::time::Duration;
 
 use tempfile::TempDir;
 
+use crate::Result;
 use crate::hash::ChunkHash;
-use crate::manifest::CompressionUnit;
+use crate::manifest::runtime as manifest_runtime;
 use crate::manifest::target::TargetManifest;
+use crate::manifest::{CompressionUnit, FileManifest};
 use crate::runtime::RuntimePlan;
 
 #[derive(Debug, Clone, Default)]
@@ -91,4 +93,10 @@ pub(super) struct LoadedChunk {
     pub read_duration: Duration,
     pub compressed_bytes: u64,
     pub decompressed_bytes: u64,
+}
+
+pub(super) type TypedChunkRef<'a> = manifest_runtime::TypedChunkRef<'a>;
+
+pub(super) fn typed_chunk_refs(file_manifest: &FileManifest) -> Result<Vec<TypedChunkRef<'_>>> {
+    Ok(manifest_runtime::typed_file_manifest(file_manifest)?.chunks)
 }

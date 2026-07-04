@@ -19,7 +19,7 @@ use crate::{Error, Result};
 
 use super::super::types::{
     BundleAccessPlan, BundleAccessStrategy, ChunkLocation, LoadedChunk, ReconstructOptions,
-    ReconstructTimings,
+    ReconstructTimings, typed_chunk_refs,
 };
 use super::direct::{
     direct_reconstruct_bundle_compressed_to_files, should_use_direct_bundle_to_file_restore,
@@ -35,10 +35,7 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
 ) -> Result<(HashSet<ChunkHash>, Instant, RuntimePlan, ReconstructTimings)> {
-    let needed_chunks = crate::repo::required_chunk_hashes(target_manifest)
-        .into_iter()
-        .map(ChunkHash::parse_hex)
-        .collect::<Result<HashSet<_>>>()?;
+    let needed_chunks = crate::repo::required_chunk_hashes_typed(target_manifest)?;
     let total_start = Instant::now();
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
     let timings = ReconstructTimings {
@@ -156,11 +153,12 @@ pub(in crate::reconstruct) fn read_loose_repo_chunks(
     worker_count: usize,
     timings: &mut ReconstructTimings,
 ) -> Result<HashMap<ChunkHash, Vec<u8>>> {
+    let typed_chunk_index_entries = crate::repo::chunk_index_entries_typed(chunk_index)?;
     let loaded_chunks = install_in_thread_pool(worker_count, || {
         needed_chunks
             .par_iter()
             .filter_map(|chunk_hash| {
-                let index_entry = chunk_index.entries.get(&chunk_hash.to_hex())?;
+                let index_entry = typed_chunk_index_entries.get(chunk_hash)?;
                 if index_entry.storage_mode != ArtifactStorageMode::LooseChunks {
                     return None;
                 }
@@ -221,11 +219,11 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
         let t = Instant::now();
         let mut file_data = Vec::with_capacity(fm.size as usize);
 
-        for chunk_ref in &fm.chunks {
-            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+        for chunk_ref in typed_chunk_refs(fm)? {
+            let chunk_hash = chunk_ref.hash;
             let chunk_data = chunk_map
                 .get(&chunk_hash)
-                .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
+                .ok_or_else(|| Error::MissingChunk(chunk_ref.hash_hex.to_string()))?;
 
             file_data.extend_from_slice(chunk_data);
         }
@@ -321,12 +319,13 @@ fn reconstruct_manifest_file(
     let mut output = BufWriter::new(std::fs::File::create(&output_path)?);
     let mut hasher = options.verify_files.then(blake3::Hasher::new);
     let mut written = 0u64;
+    let mut staged_chunk_buffer = Vec::new();
     let mut bundle_readers: HashMap<std::path::PathBuf, bundle::BundleReader<std::fs::File>> =
         HashMap::new();
     let mut staged_raw_readers: HashMap<std::path::PathBuf, std::fs::File> = HashMap::new();
 
-    for chunk_ref in &fm.chunks {
-        let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+    for chunk_ref in typed_chunk_refs(fm)? {
+        let chunk_hash = chunk_ref.hash;
         if let Some(local_chunk) = local_chunks.get(&chunk_hash) {
             write_reconstructed_chunk(
                 &mut output,
@@ -340,11 +339,11 @@ fn reconstruct_manifest_file(
 
         let location = locations
             .get(&chunk_hash)
-            .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
+            .ok_or_else(|| Error::MissingChunk(chunk_ref.hash_hex.to_string()))?;
         let strategy = access_plan
             .strategies
             .get(&location.bundle_path)
-            .ok_or_else(|| Error::MissingChunk(chunk_ref.chunk_hash.clone()))?;
+            .ok_or_else(|| Error::MissingChunk(chunk_ref.hash_hex.to_string()))?;
         if let BundleAccessStrategy::StagedBundleMemory { raw_payload } = strategy {
             let chunk_data = read_staged_memory_chunk_for_reconstruct(
                 raw_payload,
@@ -363,22 +362,60 @@ fn reconstruct_manifest_file(
             continue;
         }
 
-        let chunk_data = read_chunk_for_reconstruct(
-            strategy,
-            location,
-            chunk_hash,
-            &mut bundle_readers,
-            &mut staged_raw_readers,
-            &mut timings,
-            options,
-        )?;
-        write_reconstructed_chunk(
-            &mut output,
-            &chunk_data,
-            &mut hasher,
-            &mut timings,
-            &mut written,
-        )?;
+        match strategy {
+            BundleAccessStrategy::DirectChunkRead => {
+                let reader = match bundle_readers.entry(location.bundle_path.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let file = std::fs::File::open(&location.bundle_path)?;
+                        entry.insert(bundle::BundleReader::open(file)?)
+                    }
+                };
+
+                let t = Instant::now();
+                let chunk_data = reader.read_chunk_bytes(location.index)?;
+                timings.bundle_read += t.elapsed();
+                timings.bundle_read_compressed_bytes += location.compressed_size;
+                timings.bundle_read_decompressed_bytes += chunk_data.len() as u64;
+                write_reconstructed_chunk(
+                    &mut output,
+                    chunk_data,
+                    &mut hasher,
+                    &mut timings,
+                    &mut written,
+                )?;
+            }
+            BundleAccessStrategy::StagedBundleRaw { staged_raw_path } => {
+                use std::io::{Read, Seek, SeekFrom};
+
+                let staged_file = match staged_raw_readers.entry(staged_raw_path.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(std::fs::File::open(staged_raw_path)?)
+                    }
+                };
+
+                staged_chunk_buffer.resize(location.raw_size as usize, 0);
+                let t = Instant::now();
+                staged_file.seek(SeekFrom::Start(location.raw_offset))?;
+                staged_file.read_exact(&mut staged_chunk_buffer)?;
+                timings.bundle_read += t.elapsed();
+                timings.bundle_read_decompressed_bytes += location.raw_size;
+                verify_chunk_hash(&staged_chunk_buffer, chunk_hash, options)?;
+                write_reconstructed_chunk(
+                    &mut output,
+                    &staged_chunk_buffer,
+                    &mut hasher,
+                    &mut timings,
+                    &mut written,
+                )?;
+            }
+            BundleAccessStrategy::StagedBundleMemory { .. } => {
+                return Err(Error::Reconstruct(
+                    "in-memory bundle strategy must be handled by caller".to_string(),
+                ));
+            }
+        }
     }
 
     if written != fm.size {
@@ -406,57 +443,6 @@ fn reconstruct_manifest_file(
     }
 
     Ok(timings)
-}
-
-fn read_chunk_for_reconstruct(
-    strategy: &BundleAccessStrategy,
-    location: &ChunkLocation,
-    expected_chunk_hash: ChunkHash,
-    bundle_readers: &mut HashMap<std::path::PathBuf, bundle::BundleReader<std::fs::File>>,
-    staged_raw_readers: &mut HashMap<std::path::PathBuf, std::fs::File>,
-    timings: &mut ReconstructTimings,
-    options: ReconstructOptions,
-) -> Result<Vec<u8>> {
-    use std::io::{Read, Seek, SeekFrom};
-
-    match strategy {
-        BundleAccessStrategy::DirectChunkRead => {
-            let reader = match bundle_readers.entry(location.bundle_path.clone()) {
-                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    let file = std::fs::File::open(&location.bundle_path)?;
-                    entry.insert(bundle::BundleReader::open(file)?)
-                }
-            };
-
-            let t = Instant::now();
-            let chunk_data = reader.read_chunk(location.index)?;
-            timings.bundle_read += t.elapsed();
-            timings.bundle_read_compressed_bytes += location.compressed_size;
-            timings.bundle_read_decompressed_bytes += chunk_data.len() as u64;
-            Ok(chunk_data)
-        }
-        BundleAccessStrategy::StagedBundleRaw { staged_raw_path } => {
-            let staged_file = match staged_raw_readers.entry(staged_raw_path.clone()) {
-                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    entry.insert(std::fs::File::open(staged_raw_path)?)
-                }
-            };
-
-            let mut chunk_data = vec![0u8; location.raw_size as usize];
-            let t = Instant::now();
-            staged_file.seek(SeekFrom::Start(location.raw_offset))?;
-            staged_file.read_exact(&mut chunk_data)?;
-            timings.bundle_read += t.elapsed();
-            timings.bundle_read_decompressed_bytes += location.raw_size;
-            verify_chunk_hash(&chunk_data, expected_chunk_hash, options)?;
-            Ok(chunk_data)
-        }
-        BundleAccessStrategy::StagedBundleMemory { .. } => Err(Error::Reconstruct(
-            "in-memory bundle strategy must be handled by caller".to_string(),
-        )),
-    }
 }
 
 fn read_staged_memory_chunk_for_reconstruct<'a>(

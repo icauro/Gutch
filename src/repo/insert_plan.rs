@@ -10,6 +10,7 @@ use super::{
     check::build_source_target_install_candidate, check_gutch_repo, remove_target_from_repo,
     scan_existing_store_state,
 };
+use crate::hash::ChunkHash;
 use crate::manifest::TargetTagSet;
 use crate::progress::{
     self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
@@ -345,8 +346,8 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     let existing_chunk_ids = store_state
         .chunk_locations
         .keys()
-        .cloned()
-        .collect::<HashSet<_>>();
+        .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
+        .collect::<Result<HashSet<_>>>()?;
     let chunk_profile = crate::manifest::ChunkSizingProfile::for_selection(
         request.chunk_profile,
         input_stats.median_file_size_bytes,
@@ -455,14 +456,15 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     }
     crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
 
-    let required_chunk_count = crate::repo::required_chunk_hashes(&result.target_manifest).len();
+    let required_chunks = crate::repo::required_chunk_hashes_typed(&result.target_manifest)?;
+    let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
         &result.target_manifest,
         &store_state.chunk_locations,
         &result.bundles,
     );
-    let reused_chunk_count = crate::repo::required_chunk_hashes(&result.target_manifest)
-        .into_iter()
+    let reused_chunk_count = required_chunks
+        .iter()
         .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
         .count();
 
@@ -603,9 +605,20 @@ fn count_required_bundles_for_build(
     existing_chunk_locations: &HashMap<String, crate::ExistingChunkLocation>,
     generated_bundles: &[crate::BuiltBundle],
 ) -> usize {
+    let existing_chunk_locations_by_hash = existing_chunk_locations
+        .iter()
+        .filter_map(|(chunk_hash, location)| {
+            ChunkHash::parse_hex(chunk_hash)
+                .ok()
+                .map(|chunk_hash| (chunk_hash, location))
+        })
+        .collect::<HashMap<_, _>>();
     let mut required_bundle_ids = HashSet::new();
-    for chunk_hash in crate::repo::required_chunk_hashes(target_manifest) {
-        if let Some(existing) = existing_chunk_locations.get(chunk_hash) {
+    let Ok(required_chunks) = crate::repo::required_chunk_hashes_typed(target_manifest) else {
+        return generated_bundles.len();
+    };
+    for chunk_hash in required_chunks {
+        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash) {
             if existing.storage_mode == crate::manifest::ArtifactStorageMode::Bundled {
                 required_bundle_ids.insert(existing.bundle_id.clone());
             }

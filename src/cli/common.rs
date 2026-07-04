@@ -11,6 +11,7 @@ use crate::cli::reporting::{
     ensure_parent_directory, format_bytes, write_stats_json_output,
 };
 use crate::cli::verbose_output_enabled;
+use crate::hash::ChunkHash;
 use g::repo::{required_bundle_ids as resolve_required_bundle_ids, required_chunk_hashes};
 use gutch as g;
 
@@ -622,9 +623,20 @@ pub(crate) fn count_required_bundles_for_build(
     generated_bundles: &[g::BuiltBundle],
     _generated_loose_chunks: &[g::BuiltLooseChunk],
 ) -> usize {
+    let existing_chunk_locations_by_hash = existing_chunk_locations
+        .iter()
+        .filter_map(|(chunk_hash, location)| {
+            ChunkHash::parse_hex(chunk_hash)
+                .ok()
+                .map(|chunk_hash| (chunk_hash, location))
+        })
+        .collect::<HashMap<_, _>>();
     let mut required_bundle_ids = HashSet::new();
-    for chunk_hash in required_chunk_hashes(target_manifest) {
-        if let Some(existing) = existing_chunk_locations.get(chunk_hash) {
+    let Ok(required_chunks) = g::repo::required_chunk_hashes_typed(target_manifest) else {
+        return generated_bundles.len();
+    };
+    for chunk_hash in required_chunks {
+        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash) {
             if existing.storage_mode == g::manifest::ArtifactStorageMode::Bundled {
                 required_bundle_ids.insert(existing.bundle_id.clone());
             }

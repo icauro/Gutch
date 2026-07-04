@@ -1,7 +1,16 @@
 use super::*;
+use crate::hash::ChunkHash;
 use crate::manifest::{TargetTagSet, target::TargetManifest};
 use crate::test_util;
 use std::collections::HashSet;
+
+fn test_chunk_hash(label: &str) -> ChunkHash {
+    ChunkHash::from_blake3(crate::hash::hash_chunk(label.as_bytes()))
+}
+
+fn test_file_hash(label: &str) -> String {
+    crate::hash::hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
+}
 
 fn empty_manifest() -> TargetManifest {
     TargetManifest::new("t1".into(), TargetTagSet::default())
@@ -24,19 +33,19 @@ fn estimate_build_missing_chunks_counted() {
         path: "game.exe".into(),
         size: 1000,
         executable: true,
-        full_file_hash: "hash1".into(),
+        full_file_hash: test_file_hash("game.exe"),
         chunks: vec![
             crate::manifest::ChunkRef {
-                chunk_hash: "a".into(),
+                chunk_hash: test_chunk_hash("a").to_hex(),
                 raw_size: 500,
             },
             crate::manifest::ChunkRef {
-                chunk_hash: "b".into(),
+                chunk_hash: test_chunk_hash("b").to_hex(),
                 raw_size: 500,
             },
         ],
     });
-    let available = HashSet::from(["a".into()]);
+    let available = HashSet::from([test_chunk_hash("a")]);
     let result = estimate_build(&manifest, &available, 1_000_000).unwrap();
     assert_eq!(result.missing_chunk_count, 1);
     assert_eq!(result.missing_logical_bytes, 500);
@@ -49,19 +58,19 @@ fn estimate_build_all_chunks_available() {
         path: "data.bin".into(),
         size: 200,
         executable: false,
-        full_file_hash: "hash2".into(),
+        full_file_hash: test_file_hash("data.bin"),
         chunks: vec![
             crate::manifest::ChunkRef {
-                chunk_hash: "x".into(),
+                chunk_hash: test_chunk_hash("x").to_hex(),
                 raw_size: 100,
             },
             crate::manifest::ChunkRef {
-                chunk_hash: "y".into(),
+                chunk_hash: test_chunk_hash("y").to_hex(),
                 raw_size: 100,
             },
         ],
     });
-    let available = HashSet::from(["x".into(), "y".into()]);
+    let available = HashSet::from([test_chunk_hash("x"), test_chunk_hash("y")]);
     let result = estimate_build(&manifest, &available, 500_000).unwrap();
     assert_eq!(result.missing_chunk_count, 0);
     assert_eq!(result.local_cache_hits, 0);

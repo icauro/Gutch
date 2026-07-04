@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
 use std::time::SystemTime;
 
+use crate::hash::ChunkHash;
 use crate::manifest::{self, ArtifactStorageMode, FileManifest, binary, target::TargetManifest};
 use crate::{Result, bundle_id_from_bundle_path, bundle_path, chunk_path, load_target_manifest};
 
@@ -46,6 +47,25 @@ pub fn required_chunk_hashes(target_manifest: &TargetManifest) -> HashSet<&str> 
         .files
         .iter()
         .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.as_str()))
+        .collect()
+}
+
+pub fn required_chunk_hashes_typed(target_manifest: &TargetManifest) -> Result<HashSet<ChunkHash>> {
+    target_manifest
+        .files
+        .iter()
+        .flat_map(|file| file.chunks.iter())
+        .map(|chunk| ChunkHash::parse_hex(&chunk.chunk_hash))
+        .collect()
+}
+
+pub fn chunk_index_entries_typed(
+    chunk_index: &manifest::ChunkIndex,
+) -> Result<std::collections::HashMap<ChunkHash, &manifest::ChunkIndexEntry>> {
+    chunk_index
+        .entries
+        .iter()
+        .map(|(chunk_hash, entry)| Ok((ChunkHash::parse_hex(chunk_hash)?, entry)))
         .collect()
 }
 

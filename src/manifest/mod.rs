@@ -4,6 +4,7 @@ pub mod gutch_repo;
 pub mod launch;
 mod plugin;
 mod profiles;
+pub mod runtime;
 pub mod schema_edit;
 mod tags;
 pub mod target;
