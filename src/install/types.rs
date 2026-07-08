@@ -10,8 +10,10 @@ use crate::runtime::RuntimeResourceHints;
 use crate::verify::{RepairClassification, VerifyMode, VerifyTimings};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GutchBundleDownload {
     pub bundle_id: String,
+    #[serde(alias = "downloadUrl")]
     pub url: String,
 }
 

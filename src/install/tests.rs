@@ -1,7 +1,7 @@
 use super::*;
 use crate::hash::hash_hex;
 use crate::install::{
-    TargetInstallFetchRequest, fetch_target_install_content,
+    GutchBundleDownload, TargetInstallFetchRequest, fetch_target_install_content,
     repair_target_install_with_timings_and_hints, resolve_target_install_state,
 };
 use crate::manifest::{self, FileManifest, TargetTagSet};
@@ -27,6 +27,16 @@ fn test_target_manifest(files: Vec<(&str, &[u8])>) -> TargetManifest {
 
 fn test_hash(label: &str) -> String {
     hash_hex(&blake3::hash(label.as_bytes()))
+}
+
+#[test]
+fn gutch_bundle_download_deserializes_backend_bundle_downloads_response() {
+    let bundle: GutchBundleDownload = serde_json::from_str(
+        r#"{"bundleId":"abc123","downloadUrl":"https://example.com/bundle","expiresInSeconds":3600}"#,
+    )
+    .unwrap();
+    assert_eq!(bundle.bundle_id, "abc123");
+    assert_eq!(bundle.url, "https://example.com/bundle");
 }
 
 #[test]
@@ -221,7 +231,8 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                     serde_json::to_vec(&serde_json::json!({
                         "bundles": [{
                             "bundleId": "bundle-a",
-                            "url": format!("http://{}/bundle-a", address)
+                            "downloadUrl": format!("http://{}/bundle-a", address),
+                            "expiresInSeconds": 3600
                         }]
                     }))
                     .unwrap(),
