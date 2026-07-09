@@ -16,8 +16,8 @@ pub use fetch::{
     download_and_apply_target_install, fetch_target_install_content,
     fetch_target_install_content_for_required_bundle_ids,
 };
-pub use repair::{repair_target_install_from_repo, repair_target_install_with_timings_and_hints};
 pub use repair::plan_repair_target_install_from_repo;
+pub use repair::{repair_target_install_from_repo, repair_target_install_with_timings_and_hints};
 pub use state::resolve_target_install_state;
 pub use types::{
     GutchBundleDownload, ResolvedTargetInstallState, TargetInstallApplyFromRepoRequest,

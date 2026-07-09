@@ -37,7 +37,9 @@ pub fn update_gutch_repo_name(repo_root: &Path, name: &str) -> Result<()> {
         return Err(crate::Error::manifest("repo name cannot be empty"));
     }
     if trimmed.contains('/') || trimmed.contains('\\') {
-        return Err(crate::Error::manifest("repo name cannot contain path separators"));
+        return Err(crate::Error::manifest(
+            "repo name cannot contain path separators",
+        ));
     }
 
     let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
@@ -71,10 +73,14 @@ pub fn bind_gutch_repo_remote(
     remote_repo_id: i64,
 ) -> Result<()> {
     if product_id <= 0 {
-        return Err(crate::Error::manifest("product_id must be greater than zero"));
+        return Err(crate::Error::manifest(
+            "product_id must be greater than zero",
+        ));
     }
     if remote_repo_id <= 0 {
-        return Err(crate::Error::manifest("remote_repo_id must be greater than zero"));
+        return Err(crate::Error::manifest(
+            "remote_repo_id must be greater than zero",
+        ));
     }
 
     let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;

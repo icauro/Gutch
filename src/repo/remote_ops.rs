@@ -9,8 +9,8 @@ use crate::progress::{
     self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
 };
 use crate::remote::backend::{
-    CreatorRepoTargetsResponse, CreatorTargetResponse, UpsertTargetResponse,
-    request_json_from_backend, upload_raw_file,
+    CreatorRepoResponse, CreatorRepoTargetsResponse, CreatorReposResponse, CreatorTargetResponse,
+    UpsertTargetResponse, request_json_from_backend, upload_raw_file,
 };
 use crate::repo::target_descriptor::summarize_target_tags;
 #[derive(Debug, Serialize)]
@@ -22,6 +22,7 @@ pub struct RepoSyncUpStats {
     pub repo_manifest_uploaded: bool,
     pub chunk_index_uploaded: bool,
     pub target_manifest_uploaded_count: usize,
+    pub target_manifest_bin_uploaded_count: usize,
     pub bundle_uploaded_count: usize,
     pub bundle_skipped_count: usize,
     pub target_count: usize,
@@ -49,6 +50,8 @@ pub struct RepoSyncPlan {
     pub repo_root: String,
     pub product_id: i64,
     pub remote_repo_id: i64,
+    pub repo_manifest_changed: bool,
+    pub chunk_index_changed: bool,
     pub target_count: usize,
     pub remote_target_count: usize,
     pub to_add: Vec<RepoSyncTargetChange>,
@@ -64,6 +67,8 @@ struct SyncTargetSnapshot {
     os: String,
     arch: String,
     tags: Vec<String>,
+    target_manifest_hash_b3: String,
+    target_bin_hash_b3: String,
 }
 
 fn sync_target_change(
@@ -127,9 +132,52 @@ fn remote_sync_target_snapshot(
                 .cloned()
                 .unwrap_or_default(),
             tags: remote_target_tags(target),
+            target_manifest_hash_b3: target.target_manifest_hash_b3.clone(),
+            target_bin_hash_b3: target.target_bin_hash_b3.clone(),
         },
         Some(target.artifact_state.clone()),
     )
+}
+
+fn repo_file_hash(bytes: &[u8]) -> String {
+    crate::hash::hash_hex(&blake3::hash(bytes))
+}
+
+fn local_repo_manifest_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
+    Ok(repo_file_hash(&crate::helpers::read(
+        &repo_paths.repo_manifest_path,
+    )?))
+}
+
+fn local_chunk_index_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
+    if !repo_paths.chunk_index_path.exists() {
+        return Ok(String::new());
+    }
+    let chunk_index = crate::load_chunk_index(repo_paths)?;
+    Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
+}
+
+fn local_target_manifest_hash_b3(
+    repo_paths: &crate::GutchRepoPaths,
+    target_id: &str,
+) -> Result<String> {
+    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
+    Ok(repo_file_hash(
+        &crate::serialize_target_manifest_for_remote(&manifest)?,
+    ))
+}
+
+fn local_target_bin_hash_b3(repo_paths: &crate::GutchRepoPaths, target_id: &str) -> Result<String> {
+    let hash = crate::hash::hash_file(&crate::target_manifest_bin_path(repo_paths, target_id))?;
+    Ok(crate::hash::hash_hex(&hash))
+}
+
+fn hashes_differ(local_hash: &str, remote_hash: &str) -> bool {
+    if local_hash.trim().is_empty() && remote_hash.trim().is_empty() {
+        return false;
+    }
+    let remote_hash = remote_hash.trim();
+    remote_hash.is_empty() || local_hash != remote_hash
 }
 
 fn resolve_sync_binding(repo: &Path) -> Result<(i64, i64)> {
@@ -189,6 +237,35 @@ fn fetch_creator_targets(
     Ok(remote_targets)
 }
 
+fn fetch_creator_repo(
+    client: &reqwest::blocking::Client,
+    endpoint: &str,
+    session_id: &str,
+    product_id: i64,
+    remote_repo_id: i64,
+) -> Result<CreatorRepoResponse> {
+    let creator_repos: CreatorReposResponse = request_json_from_backend(
+        client
+            .get(format!(
+                "{}/v1/users/me/creator/products/{}/repos",
+                endpoint.trim_end_matches('/'),
+                product_id
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id)),
+    )?;
+    creator_repos
+        .repos
+        .into_iter()
+        .find(|repo| repo.id == remote_repo_id)
+        .ok_or_else(|| {
+            crate::Error::manifest(format!(
+                "remote repo {} not found for product {}",
+                remote_repo_id, product_id
+            ))
+        })
+}
+
 fn remote_bundle_exists(
     client: &reqwest::blocking::Client,
     endpoint: &str,
@@ -246,6 +323,11 @@ fn collect_local_sync_targets(
             os: summary.os,
             arch: summary.arch,
             tags: summary.canonical_tags,
+            target_manifest_hash_b3: local_target_manifest_hash_b3(
+                &repo_paths,
+                &manifest.target_id,
+            )?,
+            target_bin_hash_b3: local_target_bin_hash_b3(&repo_paths, &manifest.target_id)?,
         });
     }
     Ok((status, repo_paths, local_targets))
@@ -263,8 +345,18 @@ pub fn plan_sync_up_repo(
         .map_err(|err| crate::Error::manifest(format!("failed to create sync client: {}", err)))?;
 
     let (status, repo_paths, local_targets) = collect_local_sync_targets(&repo)?;
+    let remote_repo =
+        fetch_creator_repo(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
     let remote_targets =
         fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
+    let repo_manifest_changed = hashes_differ(
+        &local_repo_manifest_hash_b3(&repo_paths)?,
+        &remote_repo.repo_manifest_hash_b3,
+    );
+    let chunk_index_changed = hashes_differ(
+        &local_chunk_index_hash_b3(&repo_paths)?,
+        &remote_repo.chunk_index_hash_b3,
+    );
 
     let mut to_add = Vec::new();
     let mut to_update = Vec::new();
@@ -275,22 +367,36 @@ pub fn plan_sync_up_repo(
             Some(remote_target) => {
                 let tag_mismatch = local_target.tags != remote_target_tags(remote_target);
                 let needs_state_update = remote_target.artifact_state != "ready";
-                if tag_mismatch || needs_state_update {
-                    let update_reason = if tag_mismatch && needs_state_update {
-                        Some(String::from(
-                            "Target tags and remote artifact state differ.",
-                        ))
-                    } else if tag_mismatch {
-                        Some(String::from("Target tags differ from remote."))
-                    } else {
-                        Some(String::from(
-                            "Remote artifact state is not ready; manifest will be re-uploaded.",
-                        ))
-                    };
+                let manifest_hash_changed = hashes_differ(
+                    &local_target.target_manifest_hash_b3,
+                    &remote_target.target_manifest_hash_b3,
+                );
+                let target_bin_hash_changed = hashes_differ(
+                    &local_target.target_bin_hash_b3,
+                    &remote_target.target_bin_hash_b3,
+                );
+                if tag_mismatch
+                    || needs_state_update
+                    || manifest_hash_changed
+                    || target_bin_hash_changed
+                {
+                    let mut reasons = Vec::new();
+                    if tag_mismatch {
+                        reasons.push("target tags differ from remote");
+                    }
+                    if needs_state_update {
+                        reasons.push("remote artifact state is not ready");
+                    }
+                    if manifest_hash_changed {
+                        reasons.push("target manifest hash differs");
+                    }
+                    if target_bin_hash_changed {
+                        reasons.push("target manifest bin hash differs");
+                    }
                     to_update.push(sync_target_change(
                         local_target,
                         Some(remote_target.artifact_state.clone()),
-                        update_reason,
+                        Some(format!("{}.", reasons.join("; "))),
                     ));
                 } else {
                     unchanged.push(sync_target_change(
@@ -322,6 +428,8 @@ pub fn plan_sync_up_repo(
         repo_root: repo_paths.repo_root.display().to_string(),
         product_id,
         remote_repo_id,
+        repo_manifest_changed,
+        chunk_index_changed,
         target_count: status.targets.len(),
         remote_target_count: remote_targets.len(),
         to_add,
@@ -510,8 +618,13 @@ pub fn sync_up_repo_with_progress(
 
     let bundle_paths = collect_bundle_paths(&repo_paths.bundles_root)?;
     let chunk_index_steps = usize::from(repo_paths.chunk_index_path.exists());
-    let total_steps =
-        plan.to_remove.len() + 1 + chunk_index_steps + status.targets.len() + bundle_paths.len();
+    let target_upload_count = plan.to_add.len() + plan.to_update.len();
+    let total_steps = plan.to_remove.len()
+        + 1
+        + chunk_index_steps
+        + target_upload_count
+        + target_upload_count
+        + bundle_paths.len();
     let mut step = 0usize;
 
     for target in &plan.to_remove {
@@ -569,30 +682,22 @@ pub fn sync_up_repo_with_progress(
         },
     );
     let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_manifest_path)?;
-    let remote_repo_manifest_bytes = crate::remote::backend::fetch_repo_manifest_bytes(
-        &client,
-        &endpoint,
-        &session_id,
-        product_id,
-        remote_repo_id,
-    )?;
-    let repo_manifest_uploaded =
-        if remote_repo_manifest_bytes.as_deref() == Some(repo_manifest_bytes.as_slice()) {
-            false
-        } else {
-            upload_raw_file(
-                &client,
-                &endpoint,
-                &format!(
-                    "/v1/users/me/creator/products/{}/repos/{}/manifest",
-                    product_id, remote_repo_id
-                ),
-                &session_id,
-                repo_manifest_bytes,
-                "application/json",
-            )?;
-            true
-        };
+    let repo_manifest_uploaded = if plan.repo_manifest_changed {
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/manifest",
+                product_id, remote_repo_id
+            ),
+            &session_id,
+            repo_manifest_bytes,
+            "application/json",
+        )?;
+        true
+    } else {
+        false
+    };
 
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {
@@ -613,14 +718,7 @@ pub fn sync_up_repo_with_progress(
         );
         let chunk_index = crate::load_chunk_index(&repo_paths)?;
         let chunk_index_bytes = serde_json::to_vec_pretty(&chunk_index)?;
-        let remote_chunk_index_bytes = crate::remote::backend::fetch_chunk_index_bytes(
-            &client,
-            &endpoint,
-            &session_id,
-            product_id,
-            remote_repo_id,
-        )?;
-        if remote_chunk_index_bytes.as_deref() != Some(chunk_index_bytes.as_slice()) {
+        if plan.chunk_index_changed {
             upload_raw_file(
                 &client,
                 &endpoint,
@@ -637,6 +735,7 @@ pub fn sync_up_repo_with_progress(
     }
 
     let mut target_manifest_uploaded_count = 0usize;
+    let mut target_manifest_bin_uploaded_count = 0usize;
     let target_ids_to_upload = plan
         .to_add
         .iter()
@@ -712,6 +811,8 @@ pub fn sync_up_repo_with_progress(
                         target_id: manifest.target_id.clone(),
                         target_tags: Default::default(),
                         artifact_state: String::from("pending"),
+                        target_manifest_hash_b3: String::new(),
+                        target_bin_hash_b3: String::new(),
                     },
                 );
                 created.id
@@ -730,6 +831,38 @@ pub fn sync_up_repo_with_progress(
             "application/json",
         )?;
         target_manifest_uploaded_count += 1;
+
+        step += 1;
+        progress::emit_progress(
+            &progress,
+            GutchProgressEvent {
+                operation: GutchOperation::SyncUp,
+                phase: GutchProgressPhase::UploadTargetManifestBin,
+                message: "Uploading target manifest bins".to_string(),
+                current: step,
+                total: total_steps,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                detail: Some(target.target_id.clone()),
+                done: false,
+            },
+        );
+        let manifest_bin_bytes = crate::helpers::read(&crate::target_manifest_bin_path(
+            &repo_paths,
+            &target.target_id,
+        ))?;
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest-bin",
+                product_id, remote_repo_id, remote_target_id
+            ),
+            &session_id,
+            manifest_bin_bytes,
+            "application/octet-stream",
+        )?;
+        target_manifest_bin_uploaded_count += 1;
     }
 
     let mut bundle_uploaded_count = 0usize;
@@ -832,6 +965,7 @@ pub fn sync_up_repo_with_progress(
         repo_manifest_uploaded,
         chunk_index_uploaded,
         target_manifest_uploaded_count,
+        target_manifest_bin_uploaded_count,
         bundle_uploaded_count,
         bundle_skipped_count,
         target_count: status.targets.len(),

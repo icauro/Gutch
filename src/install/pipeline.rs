@@ -1,18 +1,16 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::io::Write;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-use super::transfer::{
-    FetchTransferProgress, PendingBundleDownload, download_pending_bundle,
-};
-use super::types::{TargetInstallDownloadAndApplyRequest, TargetInstallApplyFromRepoResult};
 use super::apply::build_target_install_apply_result;
+use super::transfer::{FetchTransferProgress, PendingBundleDownload, download_pending_bundle};
+use super::types::{TargetInstallApplyFromRepoResult, TargetInstallDownloadAndApplyRequest};
 use crate::manifest::target::TargetManifest;
 use crate::progress::{
     GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
@@ -40,8 +38,12 @@ struct InstallPipelineFile {
 
 #[derive(Clone)]
 enum InstallPipelineMaterialization {
-    CopyFromSource { source_path: PathBuf },
-    ReconstructFromParts { chunks: Vec<InstallPipelineChunkInput> },
+    CopyFromSource {
+        source_path: PathBuf,
+    },
+    ReconstructFromParts {
+        chunks: Vec<InstallPipelineChunkInput>,
+    },
 }
 
 #[derive(Clone)]
@@ -144,12 +146,15 @@ pub(super) fn build_install_pipeline_plan(
                 reused_source_chunk_count += 1;
                 continue;
             }
-            let entry = chunk_index.entries.get(&chunk_ref.chunk_hash).ok_or_else(|| {
-                Error::manifest(format!(
-                    "missing chunk index entry for required chunk '{}'",
-                    chunk_ref.chunk_hash
-                ))
-            })?;
+            let entry = chunk_index
+                .entries
+                .get(&chunk_ref.chunk_hash)
+                .ok_or_else(|| {
+                    Error::manifest(format!(
+                        "missing chunk index entry for required chunk '{}'",
+                        chunk_ref.chunk_hash
+                    ))
+                })?;
             if entry.storage_mode != crate::manifest::ArtifactStorageMode::Bundled {
                 return Err(Error::manifest(format!(
                     "fresh install pipeline only supports bundled chunk storage, but '{}' uses {:?}",
@@ -191,7 +196,11 @@ pub(super) fn build_install_pipeline_plan(
         remaining_bundle_dependencies,
         required_bundle_ids: required_bundle_ids.clone(),
         required_bundle_count: required_bundle_ids.len(),
-        required_chunk_count: target_manifest.files.iter().map(|file| file.chunks.len()).sum(),
+        required_chunk_count: target_manifest
+            .files
+            .iter()
+            .map(|file| file.chunks.len())
+            .sum(),
         reused_source_chunk_count,
     })
 }
@@ -337,8 +346,7 @@ pub(super) fn execute_install_pipeline_materialization(
     }
 
     let (pipeline_event_tx, pipeline_event_rx) = mpsc::channel::<InstallPipelineEvent>();
-    let bundle_task_receiver =
-        Arc::new(Mutex::new(pending_bundle_downloads.to_vec().into_iter()));
+    let bundle_task_receiver = Arc::new(Mutex::new(pending_bundle_downloads.to_vec().into_iter()));
     let (file_task_tx, file_task_rx) = mpsc::channel::<usize>();
     let file_task_rx = Arc::new(Mutex::new(file_task_rx));
     let file_plans = Arc::new(pipeline_plan.files.clone());
@@ -351,40 +359,44 @@ pub(super) fn execute_install_pipeline_materialization(
             let transfer_progress = Arc::clone(transfer_progress);
             let download_client = download_client.clone();
             let session_id = session_id.map(str::to_string);
-            bundle_worker_handles.push(thread::spawn(move || loop {
-                let next_task = match task_receiver.lock() {
-                    Ok(mut tasks) => tasks.next(),
-                    Err(_) => {
+            bundle_worker_handles.push(thread::spawn(move || {
+                loop {
+                    let next_task = match task_receiver.lock() {
+                        Ok(mut tasks) => tasks.next(),
+                        Err(_) => {
+                            let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                                BundlePipelineEvent::Failed(
+                                    "bundle task state is unavailable".to_string(),
+                                ),
+                            ));
+                            return;
+                        }
+                    };
+                    let Some(bundle_download) = next_task else {
                         let _ = event_tx.send(InstallPipelineEvent::Bundle(
-                            BundlePipelineEvent::Failed("bundle task state is unavailable".to_string()),
+                            BundlePipelineEvent::WorkerDone,
                         ));
                         return;
-                    }
-                };
-                let Some(bundle_download) = next_task else {
-                    let _ = event_tx.send(InstallPipelineEvent::Bundle(
-                        BundlePipelineEvent::WorkerDone,
-                    ));
-                    return;
-                };
-                let result = download_pending_bundle(
-                    &download_client,
-                    &bundle_download,
-                    session_id.as_deref(),
-                    &progress,
-                    &transfer_progress,
-                );
-                match result {
-                    Ok(_) => {
-                        let _ = event_tx.send(InstallPipelineEvent::Bundle(
-                            BundlePipelineEvent::Ready(bundle_download.bundle_id),
-                        ));
-                    }
-                    Err(error) => {
-                        let _ = event_tx.send(InstallPipelineEvent::Bundle(
-                            BundlePipelineEvent::Failed(error.to_string()),
-                        ));
-                        return;
+                    };
+                    let result = download_pending_bundle(
+                        &download_client,
+                        &bundle_download,
+                        session_id.as_deref(),
+                        &progress,
+                        &transfer_progress,
+                    );
+                    match result {
+                        Ok(_) => {
+                            let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                                BundlePipelineEvent::Ready(bundle_download.bundle_id),
+                            ));
+                        }
+                        Err(error) => {
+                            let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                                BundlePipelineEvent::Failed(error.to_string()),
+                            ));
+                            return;
+                        }
                     }
                 }
             }));
@@ -397,30 +409,32 @@ pub(super) fn execute_install_pipeline_materialization(
         let file_task_rx = Arc::clone(&file_task_rx);
         let staging_dir = staging_dir.to_path_buf();
         let file_plans = Arc::clone(&file_plans);
-        file_worker_handles.push(thread::spawn(move || loop {
-            let next_file_index = match file_task_rx.lock() {
-                Ok(receiver) => receiver.recv(),
-                Err(_) => {
-                    let _ = event_tx.send(InstallPipelineEvent::FileFailed(
-                        "file task state is unavailable".to_string(),
-                    ));
-                    return;
-                }
-            };
-            let file_index = match next_file_index {
-                Ok(file_index) => file_index,
-                Err(_) => {
-                    let _ = event_tx.send(InstallPipelineEvent::FileWorkerDone);
-                    return;
-                }
-            };
-            match materialize_pipeline_file(&file_plans[file_index], &staging_dir) {
-                Ok(file_timings) => {
-                    let _ = event_tx.send(InstallPipelineEvent::FileCompleted(file_timings));
-                }
-                Err(error) => {
-                    let _ = event_tx.send(InstallPipelineEvent::FileFailed(error.to_string()));
-                    return;
+        file_worker_handles.push(thread::spawn(move || {
+            loop {
+                let next_file_index = match file_task_rx.lock() {
+                    Ok(receiver) => receiver.recv(),
+                    Err(_) => {
+                        let _ = event_tx.send(InstallPipelineEvent::FileFailed(
+                            "file task state is unavailable".to_string(),
+                        ));
+                        return;
+                    }
+                };
+                let file_index = match next_file_index {
+                    Ok(file_index) => file_index,
+                    Err(_) => {
+                        let _ = event_tx.send(InstallPipelineEvent::FileWorkerDone);
+                        return;
+                    }
+                };
+                match materialize_pipeline_file(&file_plans[file_index], &staging_dir) {
+                    Ok(file_timings) => {
+                        let _ = event_tx.send(InstallPipelineEvent::FileCompleted(file_timings));
+                    }
+                    Err(error) => {
+                        let _ = event_tx.send(InstallPipelineEvent::FileFailed(error.to_string()));
+                        return;
+                    }
                 }
             }
         }));
@@ -638,8 +652,10 @@ fn reconstruct_pipeline_file_from_parts(
     let mut output = std::io::BufWriter::new(File::create(&output_path)?);
     let mut file_hasher = blake3::Hasher::new();
     let mut written = 0u64;
-    let mut bundle_readers: HashMap<String, (crate::bundle::BundleReader<File>, HashMap<String, usize>)> =
-        HashMap::new();
+    let mut bundle_readers: HashMap<
+        String,
+        (crate::bundle::BundleReader<File>, HashMap<String, usize>),
+    > = HashMap::new();
     let mut source_readers: HashMap<PathBuf, std::io::BufReader<File>> = HashMap::new();
 
     for chunk in chunks {
@@ -741,16 +757,18 @@ fn build_source_chunk_locations(
     let mut chunk_locations = HashMap::new();
     for file_manifest in &source.target_manifest.files {
         let typed_file = crate::manifest::runtime::typed_file_manifest(file_manifest)?;
-        let source_path =
-            crate::path_guard::resolve_manifest_relative_path(source.install_dir, &file_manifest.path)?;
+        let source_path = crate::path_guard::resolve_manifest_relative_path(
+            source.install_dir,
+            &file_manifest.path,
+        )?;
         let mut offset = 0u64;
         for chunk_ref in typed_file.chunks {
-            chunk_locations.entry(chunk_ref.hash_hex.to_string()).or_insert_with(|| {
-                SourceChunkLocation {
+            chunk_locations
+                .entry(chunk_ref.hash_hex.to_string())
+                .or_insert_with(|| SourceChunkLocation {
                     path: source_path.clone(),
                     offset,
-                }
-            });
+                });
             offset += chunk_ref.raw_size;
         }
     }

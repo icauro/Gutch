@@ -4,14 +4,10 @@ use std::path::{Path, PathBuf};
 
 use crate::manifest::target::TargetManifest;
 use crate::runtime::RuntimeResourceHints;
-use crate::verify::{
-    RepairClassification, RepairIssue, classify_directory_with_progress,
-};
+use crate::verify::{RepairClassification, RepairIssue, classify_directory_with_progress};
 use crate::{Error, Result};
 
-use super::apply::{
-    default_target_install_staging_dir, stage_target_install_from_bundle_paths,
-};
+use super::apply::{default_target_install_staging_dir, stage_target_install_from_bundle_paths};
 use super::pipeline::{build_install_pipeline_plan, execute_install_pipeline_materialization};
 use super::types::{
     TargetInstallRepairFromRepoRequest, TargetInstallRepairFromRepoResult,
@@ -142,11 +138,7 @@ pub fn repair_target_install_with_timings_and_hints(
 ) -> Result<TargetInstallRepairResult> {
     let (classification, initial_verify_timings) =
         classify_directory_with_progress(target_manifest, install_dir, runtime_hints)?;
-    let repair_plan = build_repair_plan_from_classification(
-        target_manifest,
-        None,
-        classification,
-    )?;
+    let repair_plan = build_repair_plan_from_classification(target_manifest, None, classification)?;
     let missing_file_count = repair_plan.missing_file_count;
     let corrupt_file_count = repair_plan.corrupt_file_count;
     let extra_file_count = repair_plan.extra_file_count;
@@ -183,8 +175,11 @@ pub fn repair_target_install_with_timings_and_hints(
     let mut removed_extra_file_count = 0usize;
     let mut preserved_extra_dir = None;
     if !remove_added_files && extra_file_count > 0 {
-        preserved_extra_dir =
-            Some(preserve_extra_files(install_dir, target_manifest, &repair_plan.classification)?);
+        preserved_extra_dir = Some(preserve_extra_files(
+            install_dir,
+            target_manifest,
+            &repair_plan.classification,
+        )?);
     }
 
     if let Some(preserved_extra_dir) = preserved_extra_dir.as_ref() {
@@ -194,12 +189,11 @@ pub fn repair_target_install_with_timings_and_hints(
     }
 
     if remove_added_files {
-        removed_extra_file_count =
-            remove_extra_files(
-                install_dir,
-                target_manifest,
-                &repair_plan.classification.extra_files,
-            )?;
+        removed_extra_file_count = remove_extra_files(
+            install_dir,
+            target_manifest,
+            &repair_plan.classification.extra_files,
+        )?;
     }
 
     let (final_classification, final_verify_timings) =
@@ -292,8 +286,11 @@ fn finalize_repair_result_after_materialization(
     let mut preserved_extra_dir = None;
 
     if !remove_added_files && repair_plan.extra_file_count > 0 {
-        preserved_extra_dir =
-            Some(preserve_extra_files(install_dir, target_manifest, &repair_plan.classification)?);
+        preserved_extra_dir = Some(preserve_extra_files(
+            install_dir,
+            target_manifest,
+            &repair_plan.classification,
+        )?);
     }
 
     promote_repaired_files(&repair_plan.affected_manifest, install_dir, staging_dir)?;

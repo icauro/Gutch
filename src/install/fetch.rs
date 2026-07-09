@@ -56,12 +56,8 @@ pub fn fetch_target_install_content_for_required_bundle_ids(
     let progress = request.progress.clone();
     let download_client = build_download_client()?;
     let transfer_progress = Arc::new(FetchTransferProgress::default());
-    let prepared = prepare_target_install_fetch(
-        request,
-        &download_client,
-        &progress,
-        &transfer_progress,
-    )?;
+    let prepared =
+        prepare_target_install_fetch(request, &download_client, &progress, &transfer_progress)?;
     let required_bundle_ids = required_bundle_ids_override
         .cloned()
         .unwrap_or_else(|| prepared.required_bundle_ids.clone());
@@ -111,18 +107,19 @@ fn download_and_apply_unified_target_install(
         &transfer_progress,
     )?;
     let resolved_source = resolve_install_source(&request, &prepared.repo_paths)?;
-    let verified_source =
-        resolve_verified_source_install(
-            resolved_source
-                .source_manifest
-                .as_ref()
-                .zip(resolved_source.source_install_dir.as_deref())
-                .map(|(source_manifest, source_install_dir)| TargetInstallApplySource {
+    let verified_source = resolve_verified_source_install(
+        resolved_source
+            .source_manifest
+            .as_ref()
+            .zip(resolved_source.source_install_dir.as_deref())
+            .map(
+                |(source_manifest, source_install_dir)| TargetInstallApplySource {
                     target_manifest: source_manifest,
                     install_dir: source_install_dir,
-                }),
-            &request.runtime_hints,
-        )?;
+                },
+            ),
+        &request.runtime_hints,
+    )?;
 
     let pipeline_plan = build_install_pipeline_plan(
         &prepared.target_manifest,
@@ -384,7 +381,8 @@ fn build_fetch_result(
         target_id: target_id.to_string(),
         required_bundle_count,
         downloaded_bundle_count,
-        skipped_existing_bundle_count: required_bundle_count.saturating_sub(downloaded_bundle_count),
+        skipped_existing_bundle_count: required_bundle_count
+            .saturating_sub(downloaded_bundle_count),
     }
 }
 
@@ -399,57 +397,60 @@ fn download_pending_bundle_files(
         return Ok(0);
     }
 
-    install_in_thread_pool(bundle_download_worker_count(pending_bundle_downloads.len()), || {
-        pending_bundle_downloads
-            .par_iter()
-            .map(|bundle_download| {
-                emit_progress(
-                    progress,
-                    GutchProgressEvent {
-                        operation: GutchOperation::Fetch,
-                        phase: GutchProgressPhase::Bundle,
-                        message: format!(
-                            "Downloading bundles ({}/{})",
-                            bundle_download.ordinal + 1,
-                            bundle_download.total_missing_bundle_count.max(1)
-                        ),
-                        current: transfer_progress.completed_bundle_count(),
-                        total: bundle_download.total_missing_bundle_count.max(1),
-                        transferred_bytes: transfer_progress.transferred_bytes(),
-                        total_bytes: transfer_progress.total_bytes(),
-                        detail: Some(bundle_download.bundle_id.clone()),
-                        done: false,
-                    },
-                );
-                let completed_bundle_count = download_pending_bundle(
-                    download_client,
-                    bundle_download,
-                    request.session_id.as_deref(),
-                    progress,
-                    transfer_progress,
-                )?;
-                emit_progress(
-                    progress,
-                    GutchProgressEvent {
-                        operation: GutchOperation::Fetch,
-                        phase: GutchProgressPhase::Bundle,
-                        message: format!(
-                            "Downloaded bundles ({}/{})",
-                            completed_bundle_count,
-                            bundle_download.total_missing_bundle_count.max(1)
-                        ),
-                        current: completed_bundle_count,
-                        total: bundle_download.total_missing_bundle_count.max(1),
-                        transferred_bytes: transfer_progress.transferred_bytes(),
-                        total_bytes: transfer_progress.total_bytes(),
-                        detail: Some(bundle_download.bundle_id.clone()),
-                        done: false,
-                    },
-                );
-                Ok::<(), Error>(())
-            })
-            .collect::<Vec<_>>()
-    })?
+    install_in_thread_pool(
+        bundle_download_worker_count(pending_bundle_downloads.len()),
+        || {
+            pending_bundle_downloads
+                .par_iter()
+                .map(|bundle_download| {
+                    emit_progress(
+                        progress,
+                        GutchProgressEvent {
+                            operation: GutchOperation::Fetch,
+                            phase: GutchProgressPhase::Bundle,
+                            message: format!(
+                                "Downloading bundles ({}/{})",
+                                bundle_download.ordinal + 1,
+                                bundle_download.total_missing_bundle_count.max(1)
+                            ),
+                            current: transfer_progress.completed_bundle_count(),
+                            total: bundle_download.total_missing_bundle_count.max(1),
+                            transferred_bytes: transfer_progress.transferred_bytes(),
+                            total_bytes: transfer_progress.total_bytes(),
+                            detail: Some(bundle_download.bundle_id.clone()),
+                            done: false,
+                        },
+                    );
+                    let completed_bundle_count = download_pending_bundle(
+                        download_client,
+                        bundle_download,
+                        request.session_id.as_deref(),
+                        progress,
+                        transfer_progress,
+                    )?;
+                    emit_progress(
+                        progress,
+                        GutchProgressEvent {
+                            operation: GutchOperation::Fetch,
+                            phase: GutchProgressPhase::Bundle,
+                            message: format!(
+                                "Downloaded bundles ({}/{})",
+                                completed_bundle_count,
+                                bundle_download.total_missing_bundle_count.max(1)
+                            ),
+                            current: completed_bundle_count,
+                            total: bundle_download.total_missing_bundle_count.max(1),
+                            transferred_bytes: transfer_progress.transferred_bytes(),
+                            total_bytes: transfer_progress.total_bytes(),
+                            detail: Some(bundle_download.bundle_id.clone()),
+                            done: false,
+                        },
+                    );
+                    Ok::<(), Error>(())
+                })
+                .collect::<Vec<_>>()
+        },
+    )?
     .into_iter()
     .collect::<Result<Vec<_>>>()?;
     Ok(pending_bundle_downloads.len())
