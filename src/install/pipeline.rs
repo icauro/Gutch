@@ -84,6 +84,16 @@ enum InstallPipelineEvent {
     FileWorkerDone,
 }
 
+fn has_files_still_waiting_on_bundles(
+    scheduled_files: &[bool],
+    remaining_bundle_dependencies: &[usize],
+) -> bool {
+    scheduled_files
+        .iter()
+        .zip(remaining_bundle_dependencies.iter())
+        .any(|(scheduled, remaining)| !scheduled && *remaining > 0)
+}
+
 pub(super) fn build_install_pipeline_plan(
     target_manifest: &TargetManifest,
     chunk_index: &crate::manifest::ChunkIndex,
@@ -487,8 +497,11 @@ pub(super) fn execute_install_pipeline_materialization(
             Ok(InstallPipelineEvent::Bundle(BundlePipelineEvent::WorkerDone)) => {
                 completed_bundle_workers += 1;
                 if completed_bundle_workers == bundle_worker_count
-                    && ready_files.is_empty()
                     && completed_file_count < pipeline_plan.files.len()
+                    && has_files_still_waiting_on_bundles(
+                        &scheduled_files,
+                        &pipeline_plan.remaining_bundle_dependencies,
+                    )
                 {
                     pipeline_error = Some(Error::reconstruct(
                         "install pipeline stopped before all files became ready",
@@ -1004,5 +1017,12 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&source_root);
         let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn bundle_completion_check_only_fails_when_files_still_wait_on_bundles() {
+        assert!(!has_files_still_waiting_on_bundles(&[true, true], &[0, 1]));
+        assert!(!has_files_still_waiting_on_bundles(&[true, true], &[0, 0]));
+        assert!(has_files_still_waiting_on_bundles(&[true, false], &[0, 1]));
     }
 }
