@@ -105,6 +105,26 @@ pub struct TargetInstallRepairFromRepoRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct TargetInstallRepairPlanFromRepoRequest {
+    pub repo_path: PathBuf,
+    pub target_id: String,
+    pub install_dir: PathBuf,
+    pub remove_added_files: bool,
+    pub runtime_hints: RuntimeResourceHints,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInstallRepairPlanFromRepoResult {
+    pub repo_root: PathBuf,
+    pub target_manifest: TargetManifest,
+    pub missing_file_count: usize,
+    pub corrupt_file_count: usize,
+    pub extra_file_count: usize,
+    pub needs_rebuild: bool,
+    pub required_bundle_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct TargetInstallRepairFromRepoResult {
     pub repo_root: PathBuf,
     pub target_manifest: TargetManifest,

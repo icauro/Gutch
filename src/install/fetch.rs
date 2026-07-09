@@ -1,11 +1,18 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use rayon::prelude::*;
 
-use super::apply::apply_target_install_from_repo;
+use super::apply::resolve_verified_source_install;
+use super::pipeline::{apply_install_pipeline, build_install_pipeline_plan};
+use super::transfer::{
+    FetchTransferProgress, PendingBundleDownload, TransferPhaseCounters, build_download_client,
+    bundle_download_worker_count, download_pending_bundle, download_url, fetch_bundle_urls,
+    target_manifest_from_download, write_repo_manifest,
+};
 use super::types::{
-    GutchBundleDownload, TargetInstallApplyFromRepoRequest, TargetInstallDownloadAndApplyRequest,
+    TargetInstallApplySource, TargetInstallDownloadAndApplyRequest,
     TargetInstallDownloadAndApplyResult, TargetInstallFetchRequest, TargetInstallFetchResult,
 };
 use crate::manifest::gutch_repo::GutchRepoManifest;
@@ -13,28 +20,139 @@ use crate::manifest::target::TargetManifest;
 use crate::progress::{
     GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
 };
+use crate::runtime::install_in_thread_pool;
 use crate::{Error, Result};
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GutchBundleUrlsResponse {
-    #[serde(default)]
-    bundles: Vec<GutchBundleDownload>,
+struct PreparedTargetInstallFetch {
+    repo_paths: crate::GutchRepoPaths,
+    target_manifest: TargetManifest,
+    chunk_index: crate::manifest::ChunkIndex,
+    required_bundle_ids: HashSet<String>,
+    existing_bundle_ids: HashSet<String>,
+    pending_bundle_downloads: Vec<PendingBundleDownload>,
+}
+
+struct ResolvedInstallSource {
+    source_manifest: Option<TargetManifest>,
+    source_install_dir: Option<PathBuf>,
 }
 
 pub fn download_and_apply_target_install(
     request: TargetInstallDownloadAndApplyRequest,
 ) -> Result<TargetInstallDownloadAndApplyResult> {
-    let fetch_result = fetch_target_install_content(&request.fetch_request)?;
-    let apply_result = apply_target_install_from_repo(TargetInstallApplyFromRepoRequest {
-        repo_path: request.fetch_request.repo_path.clone(),
-        target_id: request.fetch_request.target_id.clone(),
-        install_dir: request.install_dir,
-        staging_dir: request.staging_dir,
-        source_target_id: request.source_target_id,
-        source_dir: request.source_dir,
-        runtime_hints: request.runtime_hints,
-    })?;
+    download_and_apply_unified_target_install(request)
+}
+
+pub fn fetch_target_install_content(
+    request: &TargetInstallFetchRequest,
+) -> Result<TargetInstallFetchResult> {
+    fetch_target_install_content_for_required_bundle_ids(request, None)
+}
+
+pub fn fetch_target_install_content_for_required_bundle_ids(
+    request: &TargetInstallFetchRequest,
+    required_bundle_ids_override: Option<&HashSet<String>>,
+) -> Result<TargetInstallFetchResult> {
+    let progress = request.progress.clone();
+    let download_client = build_download_client()?;
+    let transfer_progress = Arc::new(FetchTransferProgress::default());
+    let prepared = prepare_target_install_fetch(
+        request,
+        &download_client,
+        &progress,
+        &transfer_progress,
+    )?;
+    let required_bundle_ids = required_bundle_ids_override
+        .cloned()
+        .unwrap_or_else(|| prepared.required_bundle_ids.clone());
+    let pending_bundle_downloads =
+        select_pending_bundle_downloads(&prepared.pending_bundle_downloads, &required_bundle_ids);
+    let downloaded_bundle_count = download_pending_bundle_files(
+        request,
+        &download_client,
+        &progress,
+        &transfer_progress,
+        &pending_bundle_downloads,
+    )?;
+
+    emit_progress(
+        &progress,
+        GutchProgressEvent {
+            operation: GutchOperation::Fetch,
+            phase: GutchProgressPhase::Done,
+            message: "Target install content fetched".to_string(),
+            current: required_bundle_ids.len(),
+            total: required_bundle_ids.len().max(1),
+            transferred_bytes: transfer_progress.transferred_bytes(),
+            total_bytes: transfer_progress.total_bytes(),
+            detail: Some(request.target_id.clone()),
+            done: true,
+        },
+    );
+
+    Ok(build_fetch_result(
+        &prepared.repo_paths.repo_root,
+        &request.target_id,
+        required_bundle_ids.len(),
+        downloaded_bundle_count,
+    ))
+}
+
+fn download_and_apply_unified_target_install(
+    request: TargetInstallDownloadAndApplyRequest,
+) -> Result<TargetInstallDownloadAndApplyResult> {
+    let progress = request.fetch_request.progress.clone();
+    let download_client = build_download_client()?;
+    let transfer_progress = Arc::new(FetchTransferProgress::default());
+    let prepared = prepare_target_install_fetch(
+        &request.fetch_request,
+        &download_client,
+        &progress,
+        &transfer_progress,
+    )?;
+    let resolved_source = resolve_install_source(&request, &prepared.repo_paths)?;
+    let verified_source =
+        resolve_verified_source_install(
+            resolved_source
+                .source_manifest
+                .as_ref()
+                .zip(resolved_source.source_install_dir.as_deref())
+                .map(|(source_manifest, source_install_dir)| TargetInstallApplySource {
+                    target_manifest: source_manifest,
+                    install_dir: source_install_dir,
+                }),
+            &request.runtime_hints,
+        )?;
+
+    let pipeline_plan = build_install_pipeline_plan(
+        &prepared.target_manifest,
+        &prepared.chunk_index,
+        &prepared.repo_paths,
+        &prepared.existing_bundle_ids,
+        verified_source,
+    )?;
+    let pending_bundle_downloads = select_pending_bundle_downloads(
+        &prepared.pending_bundle_downloads,
+        &pipeline_plan.required_bundle_ids,
+    );
+
+    let fetch_result = build_fetch_result(
+        &prepared.repo_paths.repo_root,
+        &request.fetch_request.target_id,
+        pipeline_plan.required_bundle_count,
+        pending_bundle_downloads.len(),
+    );
+    let apply_result = apply_install_pipeline(
+        &request,
+        &prepared.repo_paths.repo_root,
+        &prepared.target_manifest,
+        resolved_source.source_install_dir,
+        &prepared.existing_bundle_ids,
+        &pending_bundle_downloads,
+        pipeline_plan,
+        &download_client,
+        &transfer_progress,
+    )?;
 
     Ok(TargetInstallDownloadAndApplyResult {
         fetch_result,
@@ -42,12 +160,14 @@ pub fn download_and_apply_target_install(
     })
 }
 
-pub fn fetch_target_install_content(
+fn prepare_target_install_fetch(
     request: &TargetInstallFetchRequest,
-) -> Result<TargetInstallFetchResult> {
-    let progress = request.progress.clone();
+    download_client: &reqwest::blocking::Client,
+    progress: &Option<Arc<dyn GutchProgressSink>>,
+    transfer_progress: &Arc<FetchTransferProgress>,
+) -> Result<PreparedTargetInstallFetch> {
     emit_progress(
-        &progress,
+        progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Prepare,
@@ -66,7 +186,7 @@ pub fn fetch_target_install_content(
 
     if let Some(repo_manifest_url) = request.repo_manifest_url.as_deref() {
         emit_progress(
-            &progress,
+            progress,
             GutchProgressEvent {
                 operation: GutchOperation::Fetch,
                 phase: GutchProgressPhase::RepoManifest,
@@ -80,22 +200,28 @@ pub fn fetch_target_install_content(
             },
         );
         let repo_manifest_bytes = download_url(
+            download_client,
             repo_manifest_url,
             request.session_id.as_deref(),
-            &progress,
+            progress,
+            transfer_progress,
             GutchProgressPhase::RepoManifest,
+            "Downloading repo manifest",
+            TransferPhaseCounters {
+                current: 0,
+                total: 1,
+            },
             None,
         )?;
         let repo_manifest: GutchRepoManifest =
             crate::helpers::from_json_bytes(&repo_manifest_bytes)?;
         write_repo_manifest(&repo_paths, &repo_manifest)?;
     } else if !repo_paths.repo_manifest_path.exists() {
-        let default_manifest = GutchRepoManifest::new("download".to_string());
-        write_repo_manifest(&repo_paths, &default_manifest)?;
+        write_repo_manifest(&repo_paths, &GutchRepoManifest::new("download".to_string()))?;
     }
 
     emit_progress(
-        &progress,
+        progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::TargetManifest,
@@ -109,10 +235,17 @@ pub fn fetch_target_install_content(
         },
     );
     let target_manifest_bytes = download_url(
+        download_client,
         &request.manifest_url,
         request.session_id.as_deref(),
-        &progress,
+        progress,
+        transfer_progress,
         GutchProgressPhase::TargetManifest,
+        "Downloading target manifest",
+        TransferPhaseCounters {
+            current: 0,
+            total: 1,
+        },
         Some(request.target_id.as_str()),
     )?;
     let target_manifest =
@@ -121,7 +254,7 @@ pub fn fetch_target_install_content(
 
     if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
         emit_progress(
-            &progress,
+            progress,
             GutchProgressEvent {
                 operation: GutchOperation::Fetch,
                 phase: GutchProgressPhase::ChunkIndex,
@@ -135,10 +268,17 @@ pub fn fetch_target_install_content(
             },
         );
         let chunk_index_bytes = download_url(
+            download_client,
             chunk_index_url,
             request.session_id.as_deref(),
-            &progress,
+            progress,
+            transfer_progress,
             GutchProgressPhase::ChunkIndex,
+            "Downloading chunk index",
+            TransferPhaseCounters {
+                current: 0,
+                total: 1,
+            },
             None,
         )?;
         let chunk_index: crate::manifest::ChunkIndex =
@@ -153,238 +293,164 @@ pub fn fetch_target_install_content(
         .filter(|bundle_id| crate::bundle_path(&repo_paths, bundle_id).is_file())
         .cloned()
         .collect::<HashSet<_>>();
-
     let bundle_urls = fetch_bundle_urls(request, &required_bundle_ids, &existing_bundle_ids)?;
-    let mut downloaded_bundle_count = 0usize;
-    let skipped_existing_bundle_count = existing_bundle_ids.len();
+    let pending_bundle_downloads = build_pending_bundle_downloads(
+        &required_bundle_ids,
+        &existing_bundle_ids,
+        &bundle_urls,
+        &repo_paths,
+    )?;
 
-    for (index, bundle_id) in required_bundle_ids.iter().enumerate() {
-        if existing_bundle_ids.contains(bundle_id) {
-            continue;
-        }
-        let url = bundle_urls.get(bundle_id).ok_or_else(|| {
-            Error::manifest(format!(
-                "missing download URL for required bundle '{}'",
-                bundle_id
-            ))
-        })?;
-        let detail = Some(bundle_id.clone());
-        emit_progress(
-            &progress,
-            GutchProgressEvent {
-                operation: GutchOperation::Fetch,
-                phase: GutchProgressPhase::Bundle,
-                message: format!(
-                    "Downloading bundle {}/{}",
-                    downloaded_bundle_count + 1,
-                    required_bundle_ids
-                        .len()
-                        .saturating_sub(skipped_existing_bundle_count)
-                ),
-                current: index,
-                total: required_bundle_ids.len(),
-                transferred_bytes: 0,
-                total_bytes: 0,
-                detail: detail.clone(),
-                done: false,
-            },
-        );
-        let bundle_bytes = download_url(
-            url,
-            request.session_id.as_deref(),
-            &progress,
-            GutchProgressPhase::Bundle,
-            detail.as_deref(),
-        )?;
-        let bundle_path = crate::bundle_path(&repo_paths, bundle_id);
-        if let Some(parent) = bundle_path.parent() {
-            crate::helpers::create_dir_all(parent)?;
-        }
-        crate::helpers::write(&bundle_path, &bundle_bytes)?;
-        downloaded_bundle_count += 1;
-    }
-
-    emit_progress(
-        &progress,
-        GutchProgressEvent {
-            operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::Done,
-            message: "Target install content fetched".to_string(),
-            current: required_bundle_ids.len(),
-            total: required_bundle_ids.len().max(1),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: Some(request.target_id.clone()),
-            done: true,
-        },
-    );
-
-    Ok(TargetInstallFetchResult {
-        repo_path: repo_paths.repo_root,
-        target_id: request.target_id.clone(),
-        required_bundle_count: required_bundle_ids.len(),
-        downloaded_bundle_count,
-        skipped_existing_bundle_count,
+    Ok(PreparedTargetInstallFetch {
+        repo_paths,
+        target_manifest,
+        chunk_index,
+        required_bundle_ids,
+        existing_bundle_ids,
+        pending_bundle_downloads,
     })
 }
 
-fn normalize_bundle_downloads(bundles: &[GutchBundleDownload]) -> Result<HashMap<String, String>> {
-    let mut normalized = HashMap::with_capacity(bundles.len());
-    for bundle in bundles {
-        let bundle_id = non_empty_trimmed(&bundle.bundle_id, "bundle id")?;
-        let url = non_empty_trimmed(&bundle.url, "bundle URL")?;
-        normalized.insert(bundle_id.to_string(), url.to_string());
-    }
-    Ok(normalized)
-}
-
-fn download_url(
-    url: &str,
-    session_id: Option<&str>,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
-    phase: GutchProgressPhase,
-    detail: Option<&str>,
-) -> Result<Vec<u8>> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("Gutch CLI")
-        .build()
-        .map_err(|err| Error::manifest(format!("failed to create download client: {}", err)))?;
-    let mut request = client.get(url);
-    if should_attach_bearer_session(url, session_id) {
-        request = request.header(
-            "Authorization",
-            format!("Bearer {}", session_id.expect("session already checked")),
-        );
-    }
-    let response = request
-        .send()
-        .map_err(|err| Error::manifest(format!("download request failed: {}", err)))?;
-    if !response.status().is_success() {
-        return Err(Error::manifest(format!(
-            "download request failed with status {}",
-            response.status()
-        )));
-    }
-    let bytes = response
-        .bytes()
-        .map_err(|err| Error::manifest(format!("failed to read download response: {}", err)))?;
-    emit_progress(
-        progress,
-        GutchProgressEvent {
-            operation: GutchOperation::Fetch,
-            phase,
-            message: "Downloaded content".to_string(),
-            current: 1,
-            total: 1,
-            transferred_bytes: bytes.len() as u64,
-            total_bytes: bytes.len() as u64,
-            detail: detail.map(str::to_string),
-            done: false,
-        },
-    );
-    Ok(bytes.to_vec())
-}
-
-fn should_attach_bearer_session(url: &str, session_id: Option<&str>) -> bool {
-    session_id.is_some() && !url.contains("X-Amz-Algorithm=") && !url.contains("sig=")
-}
-
-fn download_json_bytes(url: &str, session_id: Option<&str>) -> Result<Vec<u8>> {
-    download_url(url, session_id, &None, GutchProgressPhase::Json, None)
-}
-
-fn target_manifest_from_download(
-    repo_paths: &crate::GutchRepoPaths,
-    target_id: &str,
-    manifest_bytes: &[u8],
-) -> Result<TargetManifest> {
-    let manifest_json = std::str::from_utf8(manifest_bytes)
-        .map_err(|err| Error::manifest(format!("target manifest is not valid UTF-8: {}", err)))?;
-    let manifest_value: serde_json::Value = serde_json::from_str(manifest_json)?;
-    let mut manifest = if manifest_value.get("files").is_some() {
-        serde_json::from_value::<TargetManifest>(manifest_value)?
-    } else {
-        let shell: crate::manifest::binary::TargetManifestShell =
-            serde_json::from_str(manifest_json)?;
-        crate::manifest::binary::target_manifest_from_shell(
-            shell,
-            target_id.to_string(),
-            Vec::new(),
-        )
-    };
-    if manifest.target_id.trim().is_empty() {
-        manifest.target_id = target_id.to_string();
-    }
-    if manifest.target_id != target_id {
-        manifest.target_id = target_id.to_string();
-    }
-    let _ = repo_paths;
-    Ok(manifest)
-}
-
-fn non_empty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(Error::manifest(format!("{label} is required")));
-    }
-    Ok(trimmed)
-}
-
-fn fetch_bundle_urls(
-    request: &TargetInstallFetchRequest,
+fn build_pending_bundle_downloads(
     required_bundle_ids: &HashSet<String>,
     existing_bundle_ids: &HashSet<String>,
-) -> Result<HashMap<String, String>> {
-    let mut bundle_urls = normalize_bundle_downloads(&request.bundles)?;
-    let unresolved_bundle_ids = required_bundle_ids
+    bundle_urls: &HashMap<String, String>,
+    repo_paths: &crate::GutchRepoPaths,
+) -> Result<Vec<PendingBundleDownload>> {
+    let total_missing_bundle_count = required_bundle_ids
+        .len()
+        .saturating_sub(existing_bundle_ids.len());
+    required_bundle_ids
         .iter()
-        .filter(|bundle_id| {
-            !existing_bundle_ids.contains(*bundle_id)
-                && !bundle_urls.contains_key(bundle_id.as_str())
+        .filter(|bundle_id| !existing_bundle_ids.contains(*bundle_id))
+        .enumerate()
+        .map(|(ordinal, bundle_id)| {
+            let url = bundle_urls.get(bundle_id).ok_or_else(|| {
+                Error::manifest(format!(
+                    "missing download URL for required bundle '{}'",
+                    bundle_id
+                ))
+            })?;
+            Ok(PendingBundleDownload {
+                bundle_id: bundle_id.clone(),
+                url: url.clone(),
+                bundle_path: crate::bundle_path(repo_paths, bundle_id),
+                ordinal,
+                total_missing_bundle_count,
+            })
         })
-        .cloned()
-        .collect::<Vec<_>>();
-    if unresolved_bundle_ids.is_empty() {
-        return Ok(bundle_urls);
-    }
-
-    let endpoint = request
-        .bundle_downloads_endpoint
-        .as_deref()
-        .ok_or_else(|| {
-            Error::manifest(
-                "bundle-downloads-endpoint is required when direct bundle URLs are not provided",
-            )
-        })?;
-    let ids = unresolved_bundle_ids.join(",");
-    let separator = if endpoint.contains('?') { "&" } else { "?" };
-    let response_bytes = download_json_bytes(
-        &format!("{endpoint}{separator}ids={ids}"),
-        request.session_id.as_deref(),
-    )?;
-    let response: GutchBundleUrlsResponse = crate::helpers::from_json_bytes(&response_bytes)?;
-    for bundle in response.bundles {
-        let bundle_id = non_empty_trimmed(&bundle.bundle_id, "bundle id")?;
-        let url = non_empty_trimmed(&bundle.url, "bundle URL")?;
-        bundle_urls.insert(bundle_id.to_string(), url.to_string());
-    }
-
-    let missing = unresolved_bundle_ids
-        .into_iter()
-        .filter(|bundle_id| !bundle_urls.contains_key(bundle_id))
-        .collect::<Vec<_>>();
-    if !missing.is_empty() {
-        return Err(Error::manifest(format!(
-            "missing bundle download URLs for: {}",
-            missing.join(", ")
-        )));
-    }
-    Ok(bundle_urls)
+        .collect()
 }
 
-fn write_repo_manifest(
+fn resolve_install_source(
+    request: &TargetInstallDownloadAndApplyRequest,
     repo_paths: &crate::GutchRepoPaths,
-    repo_manifest: &GutchRepoManifest,
-) -> Result<()> {
-    crate::write_gutch_repo_manifest(repo_paths, repo_manifest)
+) -> Result<ResolvedInstallSource> {
+    let source_manifest = match request.source_target_id.as_ref() {
+        Some(source_target_id) => Some(crate::load_target_manifest(repo_paths, source_target_id)?),
+        None => None,
+    };
+    let source_install_dir = source_manifest.as_ref().map(|_| {
+        request
+            .source_dir
+            .clone()
+            .unwrap_or_else(|| request.install_dir.clone())
+    });
+    Ok(ResolvedInstallSource {
+        source_manifest,
+        source_install_dir,
+    })
+}
+
+fn select_pending_bundle_downloads(
+    pending_bundle_downloads: &[PendingBundleDownload],
+    required_bundle_ids: &HashSet<String>,
+) -> Vec<PendingBundleDownload> {
+    pending_bundle_downloads
+        .iter()
+        .filter(|bundle_download| required_bundle_ids.contains(&bundle_download.bundle_id))
+        .cloned()
+        .collect()
+}
+
+fn build_fetch_result(
+    repo_root: &std::path::Path,
+    target_id: &str,
+    required_bundle_count: usize,
+    downloaded_bundle_count: usize,
+) -> TargetInstallFetchResult {
+    TargetInstallFetchResult {
+        repo_path: repo_root.to_path_buf(),
+        target_id: target_id.to_string(),
+        required_bundle_count,
+        downloaded_bundle_count,
+        skipped_existing_bundle_count: required_bundle_count.saturating_sub(downloaded_bundle_count),
+    }
+}
+
+fn download_pending_bundle_files(
+    request: &TargetInstallFetchRequest,
+    download_client: &reqwest::blocking::Client,
+    progress: &Option<Arc<dyn GutchProgressSink>>,
+    transfer_progress: &Arc<FetchTransferProgress>,
+    pending_bundle_downloads: &[PendingBundleDownload],
+) -> Result<usize> {
+    if pending_bundle_downloads.is_empty() {
+        return Ok(0);
+    }
+
+    install_in_thread_pool(bundle_download_worker_count(pending_bundle_downloads.len()), || {
+        pending_bundle_downloads
+            .par_iter()
+            .map(|bundle_download| {
+                emit_progress(
+                    progress,
+                    GutchProgressEvent {
+                        operation: GutchOperation::Fetch,
+                        phase: GutchProgressPhase::Bundle,
+                        message: format!(
+                            "Downloading bundles ({}/{})",
+                            bundle_download.ordinal + 1,
+                            bundle_download.total_missing_bundle_count.max(1)
+                        ),
+                        current: transfer_progress.completed_bundle_count(),
+                        total: bundle_download.total_missing_bundle_count.max(1),
+                        transferred_bytes: transfer_progress.transferred_bytes(),
+                        total_bytes: transfer_progress.total_bytes(),
+                        detail: Some(bundle_download.bundle_id.clone()),
+                        done: false,
+                    },
+                );
+                let completed_bundle_count = download_pending_bundle(
+                    download_client,
+                    bundle_download,
+                    request.session_id.as_deref(),
+                    progress,
+                    transfer_progress,
+                )?;
+                emit_progress(
+                    progress,
+                    GutchProgressEvent {
+                        operation: GutchOperation::Fetch,
+                        phase: GutchProgressPhase::Bundle,
+                        message: format!(
+                            "Downloaded bundles ({}/{})",
+                            completed_bundle_count,
+                            bundle_download.total_missing_bundle_count.max(1)
+                        ),
+                        current: completed_bundle_count,
+                        total: bundle_download.total_missing_bundle_count.max(1),
+                        transferred_bytes: transfer_progress.transferred_bytes(),
+                        total_bytes: transfer_progress.total_bytes(),
+                        detail: Some(bundle_download.bundle_id.clone()),
+                        done: false,
+                    },
+                );
+                Ok::<(), Error>(())
+            })
+            .collect::<Vec<_>>()
+    })?
+    .into_iter()
+    .collect::<Result<Vec<_>>>()?;
+    Ok(pending_bundle_downloads.len())
 }

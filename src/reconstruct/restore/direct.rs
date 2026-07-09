@@ -29,8 +29,15 @@ pub(in crate::reconstruct) fn should_use_direct_bundle_to_file_restore(
     runtime_plan: &RuntimePlan,
     options: ReconstructOptions,
 ) -> bool {
-    let _ = (local_chunks, bundle_scan_info, runtime_plan, options);
-    false
+    if runtime_plan.effective_memory_mode != crate::runtime::EffectiveMemoryMode::High {
+        return false;
+    }
+    if options.verify_files || !local_chunks.is_empty() || bundle_scan_info.is_empty() {
+        return false;
+    }
+    bundle_scan_info
+        .values()
+        .all(|info| info.compression_unit == crate::manifest::CompressionUnit::Bundle)
 }
 
 #[cfg(test)]

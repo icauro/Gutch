@@ -151,6 +151,89 @@ fn repair_target_install_full_repair_deletes_added_files() {
 }
 
 #[test]
+fn repair_plan_only_requires_bundles_for_affected_files() {
+    let root = crate::test_util::temp_path("gutch_repair_plan_bundle_subset");
+    let _ = std::fs::remove_dir_all(&root);
+    let paths = GutchRepoPaths::from_repo_root(&root);
+    crate::ensure_gutch_repo_layout(&paths, "test").unwrap();
+
+    let chunk_a = test_hash("chunk-a");
+    let chunk_b = test_hash("chunk-b");
+    let chunk_index = manifest::ChunkIndex {
+        format_version: "1.0.0".to_string(),
+        updated_at: String::new(),
+        entries: std::collections::BTreeMap::from([
+            (
+                chunk_a.clone(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: "bundle-a".to_string(),
+                    raw_size: 4,
+                    compressed_size: 4,
+                    storage_mode: manifest::ArtifactStorageMode::Bundled,
+                },
+            ),
+            (
+                chunk_b.clone(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: "bundle-b".to_string(),
+                    raw_size: 4,
+                    compressed_size: 4,
+                    storage_mode: manifest::ArtifactStorageMode::Bundled,
+                },
+            ),
+        ]),
+    };
+    write_chunk_index(&paths, &chunk_index).unwrap();
+
+    let mut manifest = TargetManifest::new("target".to_string(), TargetTagSet::default());
+    manifest.files = vec![
+        FileManifest {
+            path: "game.exe".to_string(),
+            size: 4,
+            executable: true,
+            full_file_hash: test_hash("game"),
+            chunks: vec![manifest::ChunkRef {
+                chunk_hash: chunk_a,
+                raw_size: 4,
+            }],
+        },
+        FileManifest {
+            path: "data.bin".to_string(),
+            size: 4,
+            executable: false,
+            full_file_hash: test_hash("data"),
+            chunks: vec![manifest::ChunkRef {
+                chunk_hash: chunk_b,
+                raw_size: 4,
+            }],
+        },
+    ];
+    crate::write_target_manifest_artifacts(&paths, &manifest).unwrap();
+
+    let install_dir = root.join("install");
+    std::fs::create_dir_all(&install_dir).unwrap();
+    std::fs::write(install_dir.join("game.exe"), b"bad!").unwrap();
+    std::fs::write(install_dir.join("data.bin"), b"data").unwrap();
+
+    let plan = crate::plan_repair_target_install_from_repo(
+        crate::TargetInstallRepairPlanFromRepoRequest {
+            repo_path: root.clone(),
+            target_id: "target".to_string(),
+            install_dir: install_dir.clone(),
+            remove_added_files: false,
+            runtime_hints: RuntimeResourceHints::default(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.missing_file_count, 0);
+    assert_eq!(plan.corrupt_file_count, 1);
+    assert_eq!(plan.required_bundle_ids, vec!["bundle-a".to_string()]);
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 #[ignore = "integration test: requires local mock HTTP server"]
 fn fetch_target_install_content_downloads_manifest_and_bundles() {
     let root = std::env::temp_dir().join(format!(
@@ -180,7 +263,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for _ in 0..4 {
+        for _ in 0..3 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0u8; 4096];
             let bytes_read = stream.read(&mut buffer).unwrap();
@@ -210,7 +293,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                             ]
                         }
                     ],
-                    "target_tags": {"version": "1.0.0"},
+                    "target_tags": ["version:1.0.0"],
                     "manifest_version": "1.0.0",
                     "chunk_sizing_profile": manifest::ChunkSizingProfile::default(),
                     "compression_profile": manifest::CompressionProfile::default(),

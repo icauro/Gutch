@@ -27,6 +27,7 @@ pub struct ReconstructTimings {
     pub total: Duration,
 }
 
+#[derive(Clone, Copy)]
 pub struct VerifiedSourceInstall<'a> {
     pub target_manifest: &'a TargetManifest,
     pub install_dir: &'a Path,

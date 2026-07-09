@@ -6,15 +6,28 @@ use crate::manifest::target::TargetManifest;
 use crate::runtime::RuntimeResourceHints;
 use crate::verify::{
     RepairClassification, RepairIssue, classify_directory_with_progress,
-    verify_directory_with_progress,
 };
 use crate::{Error, Result};
 
-use super::apply::default_target_install_staging_dir;
-use super::types::{
-    TargetInstallApplyResult, TargetInstallRepairFromRepoRequest,
-    TargetInstallRepairFromRepoResult, TargetInstallRepairResult,
+use super::apply::{
+    default_target_install_staging_dir, stage_target_install_from_bundle_paths,
 };
+use super::pipeline::{build_install_pipeline_plan, execute_install_pipeline_materialization};
+use super::types::{
+    TargetInstallRepairFromRepoRequest, TargetInstallRepairFromRepoResult,
+    TargetInstallRepairPlanFromRepoRequest, TargetInstallRepairPlanFromRepoResult,
+    TargetInstallRepairResult,
+};
+
+struct PlannedRepair {
+    classification: RepairClassification,
+    affected_manifest: TargetManifest,
+    missing_file_count: usize,
+    corrupt_file_count: usize,
+    extra_file_count: usize,
+    needs_rebuild: bool,
+    required_bundle_ids: HashSet<String>,
+}
 
 fn manifest_paths_set(target_manifest: &TargetManifest) -> HashSet<&str> {
     target_manifest
@@ -27,25 +40,95 @@ fn manifest_paths_set(target_manifest: &TargetManifest) -> HashSet<&str> {
 pub fn repair_target_install_from_repo(
     request: TargetInstallRepairFromRepoRequest,
 ) -> Result<TargetInstallRepairFromRepoResult> {
-    let (repo_paths, target_manifest, bundle_paths) =
-        super::repo_target::load_repo_target_bundle_paths(&request.repo_path, &request.target_id)?;
-    let staging_dir = request.staging_dir.unwrap_or_else(|| {
-        default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
-    });
-    let repair_result = repair_target_install_with_timings_and_hints(
+    let (repo_paths, target_manifest) =
+        super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
+    let chunk_index = crate::load_chunk_index(&repo_paths)?;
+    let repair_plan = plan_repair_target_install(
         &target_manifest,
-        &bundle_paths,
+        Some(&chunk_index),
         &request.install_dir,
-        &staging_dir,
         request.remove_added_files,
         &request.runtime_hints,
     )?;
+    let staging_dir = request.staging_dir.unwrap_or_else(|| {
+        default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
+    });
+    let resolved_bundle_file_count = repair_plan.required_bundle_ids.len();
+    let repair_result = if repair_plan.needs_rebuild {
+        let existing_bundle_ids = repair_plan
+            .required_bundle_ids
+            .iter()
+            .filter(|bundle_id| crate::bundle_path(&repo_paths, bundle_id).is_file())
+            .cloned()
+            .collect::<HashSet<_>>();
+        let pipeline_plan = build_install_pipeline_plan(
+            &repair_plan.affected_manifest,
+            &chunk_index,
+            &repo_paths,
+            &existing_bundle_ids,
+            None,
+        )?;
+        let _ = execute_install_pipeline_materialization(
+            pipeline_plan,
+            &staging_dir,
+            &target_manifest.target_id,
+            &request.runtime_hints,
+            &existing_bundle_ids,
+            &[],
+            &None,
+            None,
+            None,
+            None,
+        )?;
+        finalize_repair_result_after_materialization(
+            &target_manifest,
+            &request.install_dir,
+            &staging_dir,
+            request.remove_added_files,
+            &request.runtime_hints,
+            &repair_plan,
+        )?
+    } else {
+        repair_target_install_with_timings_and_hints(
+            &target_manifest,
+            &[],
+            &request.install_dir,
+            &staging_dir,
+            request.remove_added_files,
+            &request.runtime_hints,
+        )?
+    };
 
     Ok(TargetInstallRepairFromRepoResult {
         repo_root: repo_paths.repo_root,
         target_manifest,
         repair_result,
-        resolved_bundle_file_count: bundle_paths.len(),
+        resolved_bundle_file_count,
+    })
+}
+
+pub fn plan_repair_target_install_from_repo(
+    request: TargetInstallRepairPlanFromRepoRequest,
+) -> Result<TargetInstallRepairPlanFromRepoResult> {
+    let (repo_paths, target_manifest) =
+        super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
+    let chunk_index = crate::load_chunk_index(&repo_paths)?;
+    let repair_plan = plan_repair_target_install(
+        &target_manifest,
+        Some(&chunk_index),
+        &request.install_dir,
+        request.remove_added_files,
+        &request.runtime_hints,
+    )?;
+
+    Ok(TargetInstallRepairPlanFromRepoResult {
+        repo_root: repo_paths.repo_root,
+        target_manifest,
+        missing_file_count: repair_plan.missing_file_count,
+        corrupt_file_count: repair_plan.corrupt_file_count,
+        extra_file_count: repair_plan.extra_file_count,
+        needs_rebuild: repair_plan.needs_rebuild,
+        required_bundle_ids: repair_plan.required_bundle_ids.into_iter().collect(),
     })
 }
 
@@ -59,49 +142,50 @@ pub fn repair_target_install_with_timings_and_hints(
 ) -> Result<TargetInstallRepairResult> {
     let (classification, initial_verify_timings) =
         classify_directory_with_progress(target_manifest, install_dir, runtime_hints)?;
-    let missing_file_count = classification.missing_files.len();
-    let corrupt_file_count = classification.corrupt_files.len();
-    let extra_file_count = classification.extra_files.len();
-    let needs_rebuild = missing_file_count > 0 || corrupt_file_count > 0;
+    let repair_plan = build_repair_plan_from_classification(
+        target_manifest,
+        None,
+        classification,
+    )?;
+    let missing_file_count = repair_plan.missing_file_count;
+    let corrupt_file_count = repair_plan.corrupt_file_count;
+    let extra_file_count = repair_plan.extra_file_count;
+    let needs_rebuild = repair_plan.needs_rebuild;
+
+    if needs_rebuild {
+        if repair_plan.affected_manifest.files.is_empty() {
+            return finalize_repair_result_after_materialization(
+                target_manifest,
+                install_dir,
+                staging_dir,
+                remove_added_files,
+                runtime_hints,
+                &repair_plan,
+            );
+        }
+        materialize_repair_subset_from_bundle_paths(
+            &repair_plan.affected_manifest,
+            bundle_paths,
+            staging_dir,
+            runtime_hints,
+        )?;
+        return finalize_repair_result_after_materialization(
+            target_manifest,
+            install_dir,
+            staging_dir,
+            remove_added_files,
+            runtime_hints,
+            &repair_plan,
+        );
+    }
 
     let mut restored_extra_file_count = 0usize;
     let mut removed_extra_file_count = 0usize;
     let mut preserved_extra_dir = None;
-
-    if needs_rebuild && !remove_added_files && extra_file_count > 0 {
-        let preserve_dir = preserve_extra_files(install_dir, target_manifest, &classification)?;
-        preserved_extra_dir = Some(preserve_dir);
+    if !remove_added_files && extra_file_count > 0 {
+        preserved_extra_dir =
+            Some(preserve_extra_files(install_dir, target_manifest, &repair_plan.classification)?);
     }
-
-    let apply_result: Option<TargetInstallApplyResult> = if needs_rebuild {
-        let affected_manifest = subset_manifest_for_issues(target_manifest, &classification)?;
-        if affected_manifest.files.is_empty() {
-            None
-        } else {
-            if staging_dir.exists() {
-                crate::helpers::remove_dir_all(staging_dir)?;
-            }
-            crate::reconstruct::reconstruct_from_bundle_paths_with_timings_and_hints(
-                &affected_manifest,
-                bundle_paths,
-                staging_dir,
-                runtime_hints,
-            )?;
-            let (staged_errors, _) =
-                verify_directory_with_progress(&affected_manifest, staging_dir, runtime_hints)?;
-            if !staged_errors.is_empty() {
-                return Err(Error::verify(format!(
-                    "staged repair files did not verify: {}",
-                    staged_errors.join("; ")
-                )));
-            }
-            promote_repaired_files(&affected_manifest, install_dir, staging_dir)?;
-            let _ = crate::helpers::remove_dir_all(staging_dir);
-            None
-        }
-    } else {
-        None
-    };
 
     if let Some(preserved_extra_dir) = preserved_extra_dir.as_ref() {
         restored_extra_file_count =
@@ -111,7 +195,11 @@ pub fn repair_target_install_with_timings_and_hints(
 
     if remove_added_files {
         removed_extra_file_count =
-            remove_extra_files(install_dir, target_manifest, &classification.extra_files)?;
+            remove_extra_files(
+                install_dir,
+                target_manifest,
+                &repair_plan.classification.extra_files,
+            )?;
     }
 
     let (final_classification, final_verify_timings) =
@@ -141,13 +229,136 @@ pub fn repair_target_install_with_timings_and_hints(
         extra_file_count,
         removed_extra_file_count,
         restored_extra_file_count,
-        apply_result,
+        apply_result: None,
         verify_timings: if needs_rebuild || remove_added_files {
             final_verify_timings
         } else {
             initial_verify_timings
         },
     })
+}
+
+fn plan_repair_target_install(
+    target_manifest: &TargetManifest,
+    chunk_index: Option<&crate::manifest::ChunkIndex>,
+    install_dir: &Path,
+    _remove_added_files: bool,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<PlannedRepair> {
+    let (classification, _) =
+        classify_directory_with_progress(target_manifest, install_dir, runtime_hints)?;
+    build_repair_plan_from_classification(target_manifest, chunk_index, classification)
+}
+
+fn build_repair_plan_from_classification(
+    target_manifest: &TargetManifest,
+    chunk_index: Option<&crate::manifest::ChunkIndex>,
+    classification: RepairClassification,
+) -> Result<PlannedRepair> {
+    let missing_file_count = classification.missing_files.len();
+    let corrupt_file_count = classification.corrupt_files.len();
+    let extra_file_count = classification.extra_files.len();
+    let needs_rebuild = missing_file_count > 0 || corrupt_file_count > 0;
+    let affected_manifest = subset_manifest_for_issues(target_manifest, &classification)?;
+    let required_bundle_ids = if needs_rebuild {
+        chunk_index
+            .map(|index| crate::repo::required_bundle_ids(&affected_manifest, index))
+            .unwrap_or_default()
+    } else {
+        HashSet::new()
+    };
+
+    Ok(PlannedRepair {
+        classification,
+        affected_manifest,
+        missing_file_count,
+        corrupt_file_count,
+        extra_file_count,
+        needs_rebuild,
+        required_bundle_ids,
+    })
+}
+
+fn finalize_repair_result_after_materialization(
+    target_manifest: &TargetManifest,
+    install_dir: &Path,
+    staging_dir: &Path,
+    remove_added_files: bool,
+    runtime_hints: &RuntimeResourceHints,
+    repair_plan: &PlannedRepair,
+) -> Result<TargetInstallRepairResult> {
+    let mut restored_extra_file_count = 0usize;
+    let mut removed_extra_file_count = 0usize;
+    let mut preserved_extra_dir = None;
+
+    if !remove_added_files && repair_plan.extra_file_count > 0 {
+        preserved_extra_dir =
+            Some(preserve_extra_files(install_dir, target_manifest, &repair_plan.classification)?);
+    }
+
+    promote_repaired_files(&repair_plan.affected_manifest, install_dir, staging_dir)?;
+    let _ = crate::helpers::remove_dir_all(staging_dir);
+
+    if let Some(preserved_extra_dir) = preserved_extra_dir.as_ref() {
+        restored_extra_file_count =
+            restore_preserved_extra_files(preserved_extra_dir, install_dir, target_manifest)?;
+        let _ = crate::helpers::remove_dir_all(preserved_extra_dir);
+    }
+
+    if remove_added_files {
+        removed_extra_file_count = remove_extra_files(
+            install_dir,
+            target_manifest,
+            &repair_plan.classification.extra_files,
+        )?;
+    }
+
+    let (final_classification, final_verify_timings) =
+        classify_directory_with_progress(target_manifest, install_dir, runtime_hints)?;
+    if !final_classification.missing_files.is_empty()
+        || !final_classification.corrupt_files.is_empty()
+        || (remove_added_files && !final_classification.extra_files.is_empty())
+    {
+        return Err(Error::verify(format!(
+            "repaired install did not verify: {}",
+            final_classification
+                .missing_files
+                .into_iter()
+                .chain(final_classification.corrupt_files)
+                .chain(final_classification.extra_files)
+                .map(|issue| issue.detail)
+                .collect::<Vec<_>>()
+                .join("; ")
+        )));
+    }
+
+    Ok(TargetInstallRepairResult {
+        target_id: target_manifest.target_id.clone(),
+        install_dir: install_dir.to_path_buf(),
+        missing_file_count: repair_plan.missing_file_count,
+        corrupt_file_count: repair_plan.corrupt_file_count,
+        extra_file_count: repair_plan.extra_file_count,
+        removed_extra_file_count,
+        restored_extra_file_count,
+        apply_result: None,
+        verify_timings: final_verify_timings,
+    })
+}
+
+fn materialize_repair_subset_from_bundle_paths(
+    affected_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    staging_dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<()> {
+    let _ = stage_target_install_from_bundle_paths(
+        affected_manifest,
+        bundle_paths,
+        staging_dir,
+        None,
+        runtime_hints,
+    )?;
+    Ok(())
 }
 
 fn preserve_extra_files(

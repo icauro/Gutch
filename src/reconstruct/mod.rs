@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn high_memory_no_verify_restore_keeps_direct_bundle_to_file_disabled_by_default() {
+    fn high_memory_no_verify_restore_uses_direct_bundle_to_file_path() {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("bundle-a.bundle"),
             BundleScanInfo {
@@ -323,7 +323,7 @@ mod tests {
             },
         )]);
 
-        assert!(!should_use_direct_bundle_to_file_restore(
+        assert!(should_use_direct_bundle_to_file_restore(
             &HashMap::new(),
             &bundle_scan_info,
             &runtime_plan(EffectiveMemoryMode::High, 1024),

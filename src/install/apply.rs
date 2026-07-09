@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 
 use crate::manifest::target::TargetManifest;
 use crate::reconstruct::{
-    VerifiedSourceInstall, reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints,
+    ReconstructOptions, VerifiedSourceInstall,
+    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options,
 };
-use crate::runtime::RuntimeResourceHints;
+use crate::runtime::{RuntimeResourceHints, plan_verify_runtime};
 
 use super::types::{
     TargetInstallApplyFromRepoRequest, TargetInstallApplyFromRepoResult, TargetInstallApplyResult,
@@ -22,6 +23,42 @@ fn derive_chunk_count(manifest: &TargetManifest) -> usize {
     crate::repo::required_chunk_hashes_typed(manifest)
         .map(|chunks| chunks.len())
         .unwrap_or_default()
+}
+
+pub(super) fn resolve_verified_source_install<'a>(
+    source: Option<TargetInstallApplySource<'a>>,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<Option<VerifiedSourceInstall<'a>>> {
+    match source {
+        Some(source) => {
+            let (source_classification, _) = classify_directory_with_progress(
+                source.target_manifest,
+                source.install_dir,
+                runtime_hints,
+            )?;
+            if !source_classification.missing_files.is_empty()
+                || !source_classification.corrupt_files.is_empty()
+            {
+                let source_errors = source_classification
+                    .missing_files
+                    .iter()
+                    .chain(source_classification.corrupt_files.iter())
+                    .map(|issue| issue.detail.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Err(Error::verify(format!(
+                    "source install did not verify: {}",
+                    source_errors
+                )));
+            }
+
+            Ok(Some(VerifiedSourceInstall {
+                target_manifest: source.target_manifest,
+                install_dir: source.install_dir,
+            }))
+        }
+        None => Ok(None),
+    }
 }
 
 pub fn default_target_install_staging_dir(install_dir: &Path, target_id: &str) -> PathBuf {
@@ -157,37 +194,41 @@ pub fn apply_target_install_with_timings_and_hints(
     }
 
     let source_manifest = source.as_ref().map(|value| value.target_manifest);
-    let verified_source = match source {
-        Some(source) => {
-            let (source_classification, _) = classify_directory_with_progress(
-                source.target_manifest,
-                source.install_dir,
-                runtime_hints,
-            )?;
-            if !source_classification.missing_files.is_empty()
-                || !source_classification.corrupt_files.is_empty()
-            {
-                let source_errors = source_classification
-                    .missing_files
-                    .iter()
-                    .chain(source_classification.corrupt_files.iter())
-                    .map(|issue| issue.detail.as_str())
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                return Err(Error::verify(format!(
-                    "source install did not verify: {}",
-                    source_errors
-                )));
-            }
+    let verified_source = resolve_verified_source_install(source, runtime_hints)?;
+    let reused_source_chunk_count = verified_source.as_ref().map_or(0, |source| {
+        count_reusable_source_chunks(target_manifest, source.target_manifest)
+    });
+    let (reconstruct_timings, verify_timings) = stage_target_install_from_bundle_paths(
+        target_manifest,
+        bundle_paths,
+        staging_dir,
+        verified_source,
+        runtime_hints,
+    )?;
+    let backup_dir = promote_staging_install(install_dir, staging_dir, target_manifest)?;
+    let required_bundle_count =
+        count_required_bundle_paths(target_manifest, bundle_paths, source_manifest)?;
 
-            Some(VerifiedSourceInstall {
-                target_manifest: source.target_manifest,
-                install_dir: source.install_dir,
-            })
-        }
-        None => None,
-    };
+    Ok(build_target_install_apply_result(
+        target_manifest,
+        install_dir,
+        staging_dir,
+        backup_dir,
+        reused_source_chunk_count,
+        derive_chunk_count(target_manifest),
+        required_bundle_count,
+        reconstruct_timings,
+        verify_timings,
+    ))
+}
 
+pub(super) fn stage_target_install_from_bundle_paths(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    staging_dir: &Path,
+    verified_source: Option<VerifiedSourceInstall<'_>>,
+    runtime_hints: &RuntimeResourceHints,
+) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
     if staging_dir.exists() {
         crate::helpers::remove_dir_all(staging_dir)?;
     }
@@ -195,44 +236,17 @@ pub fn apply_target_install_with_timings_and_hints(
         crate::helpers::create_dir_all(parent)?;
     }
 
-    let reused_source_chunk_count = verified_source
-        .as_ref()
-        .map(|source| count_reusable_source_chunks(target_manifest, source.target_manifest))
-        .unwrap_or(0);
-
-    let (_, reconstruct_timings) =
-        reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
-            target_manifest,
-            bundle_paths,
-            verified_source,
-            staging_dir,
-            runtime_hints,
-        )?;
-
-    let (verify_errors, verify_timings) =
-        verify_directory_with_progress(target_manifest, staging_dir, runtime_hints)?;
-    if !verify_errors.is_empty() {
-        return Err(Error::verify(format!(
-            "staged install did not verify: {}",
-            verify_errors.join("; ")
-        )));
-    }
-
-    let backup_dir = promote_staging_install(install_dir, staging_dir, target_manifest)?;
-    let required_bundle_count =
-        count_required_bundle_paths(target_manifest, bundle_paths, source_manifest)?;
-
-    Ok(TargetInstallApplyResult {
-        target_id: target_manifest.target_id.clone(),
-        install_dir: install_dir.to_path_buf(),
-        staging_dir: staging_dir.to_path_buf(),
-        backup_dir,
-        reused_source_chunk_count,
-        required_chunk_count: derive_chunk_count(target_manifest),
-        required_bundle_count,
-        reconstruct_timings,
-        verify_timings,
-    })
+    reconstruct_and_verify_target_manifest_from_bundles(
+        target_manifest,
+        bundle_paths,
+        staging_dir,
+        verified_source,
+        runtime_hints,
+        ReconstructOptions {
+            verify_chunks: true,
+            verify_files: verified_source.is_some(),
+        },
+    )
 }
 
 fn count_reusable_source_chunks(
@@ -248,7 +262,73 @@ fn count_reusable_source_chunks(
     source_chunks.intersection(&target_chunks).count()
 }
 
-fn count_required_bundle_paths(
+pub(super) fn reconstruct_and_verify_target_manifest_from_bundles(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    staging_dir: &Path,
+    verified_source: Option<VerifiedSourceInstall<'_>>,
+    runtime_hints: &RuntimeResourceHints,
+    reconstruct_options: ReconstructOptions,
+) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
+    let (_, reconstruct_timings) =
+        reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
+            target_manifest,
+            bundle_paths,
+            verified_source,
+            staging_dir,
+            runtime_hints,
+            reconstruct_options,
+        )?;
+
+    let verify_timings = if reconstruct_options.verify_files {
+        crate::verify::VerifyTimings {
+            verify_mode: crate::verify::VerifyMode::Fast,
+            runtime_plan: Some(plan_verify_runtime(runtime_hints)),
+            file_hash: reconstruct_timings.file_verify,
+            file_hash_bytes: reconstruct_timings.file_verify_bytes,
+            total: reconstruct_timings.file_verify,
+            ..crate::verify::VerifyTimings::default()
+        }
+    } else {
+        let (verify_errors, verify_timings) =
+            verify_directory_with_progress(target_manifest, staging_dir, runtime_hints)?;
+        if !verify_errors.is_empty() {
+            return Err(Error::verify(format!(
+                "staged install did not verify: {}",
+                verify_errors.join("; ")
+            )));
+        }
+        verify_timings
+    };
+
+    Ok((reconstruct_timings, verify_timings))
+}
+
+pub(super) fn build_target_install_apply_result(
+    target_manifest: &TargetManifest,
+    install_dir: &Path,
+    staging_dir: &Path,
+    backup_dir: Option<PathBuf>,
+    reused_source_chunk_count: usize,
+    required_chunk_count: usize,
+    required_bundle_count: usize,
+    reconstruct_timings: crate::ReconstructTimings,
+    verify_timings: crate::verify::VerifyTimings,
+) -> TargetInstallApplyResult {
+    TargetInstallApplyResult {
+        target_id: target_manifest.target_id.clone(),
+        install_dir: install_dir.to_path_buf(),
+        staging_dir: staging_dir.to_path_buf(),
+        backup_dir,
+        reused_source_chunk_count,
+        required_chunk_count,
+        required_bundle_count,
+        reconstruct_timings,
+        verify_timings,
+    }
+}
+
+pub(super) fn count_required_bundle_paths(
     target_manifest: &TargetManifest,
     bundle_paths: &[PathBuf],
     source_manifest: Option<&TargetManifest>,
@@ -288,7 +368,7 @@ fn count_required_bundle_paths(
     Ok(required_bundle_count)
 }
 
-fn promote_staging_install(
+pub(super) fn promote_staging_install(
     install_dir: &Path,
     staging_dir: &Path,
     target_manifest: &TargetManifest,
