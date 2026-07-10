@@ -25,6 +25,7 @@ pub struct RepoSyncUpStats {
     pub target_manifest_bin_uploaded_count: usize,
     pub bundle_uploaded_count: usize,
     pub bundle_skipped_count: usize,
+    pub remote_bundle_deleted_count: usize,
     pub target_count: usize,
     pub bundle_count: usize,
     pub target_added_count: usize,
@@ -584,6 +585,26 @@ fn collect_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+fn collect_required_bundle_ids(
+    repo_paths: &crate::GutchRepoPaths,
+    status: &crate::RepoCheckStatus,
+) -> Result<Vec<String>> {
+    let chunk_index = crate::load_chunk_index(repo_paths)?;
+    let mut required = std::collections::BTreeSet::new();
+    for target in &status.targets {
+        let manifest = crate::load_target_manifest(repo_paths, &target.target_id)?;
+        required.extend(crate::repo::required_bundle_ids(&manifest, &chunk_index));
+    }
+    Ok(required.into_iter().collect())
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReconcileRepoBundlesResponse {
+    #[serde(default)]
+    deleted_bundle_ids: Vec<String>,
+}
+
 pub fn sync_up_repo_with_progress(
     repo: PathBuf,
     endpoint: String,
@@ -617,6 +638,7 @@ pub fn sync_up_repo_with_progress(
         fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
 
     let bundle_paths = collect_bundle_paths(&repo_paths.bundles_root)?;
+    let required_bundle_ids = collect_required_bundle_ids(&repo_paths, &status)?;
     let chunk_index_steps = usize::from(repo_paths.chunk_index_path.exists());
     let target_upload_count = plan.to_add.len() + plan.to_update.len();
     let total_steps = plan.to_remove.len()
@@ -624,7 +646,8 @@ pub fn sync_up_repo_with_progress(
         + chunk_index_steps
         + target_upload_count
         + target_upload_count
-        + bundle_paths.len();
+        + bundle_paths.len()
+        + 1;
     let mut step = 0usize;
 
     for target in &plan.to_remove {
@@ -942,6 +965,36 @@ pub fn sync_up_repo_with_progress(
         );
     }
 
+    step += 1;
+    progress::emit_progress(
+        &progress,
+        GutchProgressEvent {
+            operation: GutchOperation::SyncUp,
+            phase: GutchProgressPhase::Prune,
+            message: "Removing unreferenced remote bundles".to_string(),
+            current: step,
+            total: total_steps,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        },
+    );
+    let reconcile: ReconcileRepoBundlesResponse = request_json_from_backend(
+        client
+            .put(format!(
+                "{}/v1/users/me/creator/products/{}/repos/{}/bundles",
+                endpoint.trim_end_matches('/'),
+                product_id,
+                remote_repo_id
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", session_id))
+            .json(&serde_json::json!({
+                "bundleIds": required_bundle_ids,
+            })),
+    )?;
+
     progress::emit_progress(
         &progress,
         GutchProgressEvent {
@@ -968,6 +1021,7 @@ pub fn sync_up_repo_with_progress(
         target_manifest_bin_uploaded_count,
         bundle_uploaded_count,
         bundle_skipped_count,
+        remote_bundle_deleted_count: reconcile.deleted_bundle_ids.len(),
         target_count: status.targets.len(),
         bundle_count: status.bundle_count,
         target_added_count: plan.to_add.len(),
