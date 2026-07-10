@@ -44,7 +44,7 @@ pub fn reconstruct_from_target_manifest(
     Ok(())
 }
 
-pub fn reconstruct_from_target_manifest_with_timings(
+fn reconstruct_from_target_manifest_with_timings(
     target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
     output_dir: &Path,
@@ -92,67 +92,7 @@ pub fn reconstruct_from_target_manifest_with_timings(
     Ok(((), timings))
 }
 
-pub fn reconstruct_from_bundle_paths_with_timings(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    output_dir: &Path,
-) -> Result<((), ReconstructTimings)> {
-    reconstruct_from_bundle_paths_with_timings_and_hints(
-        target_manifest,
-        bundle_paths,
-        output_dir,
-        &RuntimeResourceHints::default(),
-    )
-}
-
-pub fn reconstruct_from_bundle_paths_with_timings_and_hints(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    output_dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<((), ReconstructTimings)> {
-    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
-        target_manifest,
-        bundle_paths,
-        None,
-        output_dir,
-        runtime_hints,
-    )
-}
-
-pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    verified_source: Option<VerifiedSourceInstall<'_>>,
-    output_dir: &Path,
-) -> Result<((), ReconstructTimings)> {
-    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
-        target_manifest,
-        bundle_paths,
-        verified_source,
-        output_dir,
-        &RuntimeResourceHints::default(),
-    )
-}
-
-pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    verified_source: Option<VerifiedSourceInstall<'_>>,
-    output_dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<((), ReconstructTimings)> {
-    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
-        target_manifest,
-        bundle_paths,
-        verified_source,
-        output_dir,
-        runtime_hints,
-        ReconstructOptions::default(),
-    )
-}
-
-pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
+pub fn reconstruct_from_bundle_paths(
     target_manifest: &TargetManifest,
     bundle_paths: &[PathBuf],
     verified_source: Option<VerifiedSourceInstall<'_>>,
@@ -180,24 +120,7 @@ pub fn reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_
     )
 }
 
-pub fn reconstruct_from_repo_paths_with_timings_and_hints(
-    target_manifest: &TargetManifest,
-    repo_paths: &GutchRepoPaths,
-    compression_profile: &CompressionProfile,
-    output_dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<((), ReconstructTimings)> {
-    reconstruct_from_repo_paths_with_timings_and_hints_with_options(
-        target_manifest,
-        repo_paths,
-        compression_profile,
-        output_dir,
-        runtime_hints,
-        ReconstructOptions::default(),
-    )
-}
-
-pub fn reconstruct_from_repo_paths_with_timings_and_hints_with_options(
+pub fn reconstruct_from_repo(
     target_manifest: &TargetManifest,
     repo_paths: &GutchRepoPaths,
     compression_profile: &CompressionProfile,

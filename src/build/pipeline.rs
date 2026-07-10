@@ -14,9 +14,7 @@ use crate::build_types::{
 use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
 use crate::hash::ChunkHash;
-use crate::manifest::{
-    self, ArtifactStorageMode, FileManifest, TargetTagSet, target::TargetManifest,
-};
+use crate::manifest::{self, ArtifactStorageMode, TargetTagSet, target::TargetManifest};
 use crate::runtime::{ChunkStorageMode, install_in_thread_pool, plan_build_runtime};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
@@ -296,24 +294,6 @@ fn base_build_config(
     BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
 }
 
-fn build_config_against_existing_store<'a>(
-    gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
-    existing_chunk_locations: &'a HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &'a HashSet<String>,
-    previous_file_manifests: Option<&'a HashMap<String, FileManifest>>,
-) -> BuildConfig<'a> {
-    let config = base_build_config(gutch_repo_id, target_id, target_tags)
-        .with_existing_chunks(existing_chunk_locations)
-        .with_existing_bundles(existing_bundle_ids);
-    if let Some(previous_file_manifests) = previous_file_manifests {
-        config.with_previous_manifests(previous_file_manifests)
-    } else {
-        config
-    }
-}
-
 fn build_loose_chunk(
     chunk_hash: ChunkHash,
     payload: ChunkPayload,
@@ -397,119 +377,6 @@ pub fn build_from_directory(
         &base_build_config(gutch_repo_id, target_id, target_tags),
     )?
     .0)
-}
-
-pub fn build_from_directory_with_timings(
-    dir: &Path,
-    gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
-) -> Result<(BuildResult, BuildTimings)> {
-    build_with_config(
-        dir,
-        &base_build_config(gutch_repo_id, target_id, target_tags),
-    )
-}
-
-pub fn build_from_directory_with_timings_against_existing_bundles(
-    dir: &Path,
-    gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
-    existing_bundle_ids: &HashSet<String>,
-) -> Result<(BuildResult, BuildTimings)> {
-    let config = base_build_config(gutch_repo_id, target_id, target_tags)
-        .with_existing_bundles(existing_bundle_ids);
-    build_with_config(dir, &config)
-}
-
-pub fn build_from_directory_with_timings_against_existing_store(
-    dir: &Path,
-    gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-) -> Result<(BuildResult, BuildTimings)> {
-    let config = build_config_against_existing_store(
-        gutch_repo_id,
-        target_id,
-        target_tags,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        None,
-    );
-    build_with_config(dir, &config)
-}
-
-pub fn build_from_directory_with_timings_against_existing_store_and_manifests(
-    dir: &Path,
-    gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-    previous_file_manifests: &HashMap<String, FileManifest>,
-) -> Result<(BuildResult, BuildTimings)> {
-    let config = build_config_against_existing_store(
-        gutch_repo_id,
-        target_id,
-        target_tags,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        Some(previous_file_manifests),
-    );
-    build_with_config(dir, &config)
-}
-
-pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profile(
-    dir: &Path,
-    gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-    previous_file_manifests: &HashMap<String, FileManifest>,
-    chunk_profile: &manifest::ChunkSizingProfile,
-    bundle_profile: &manifest::BundleSizingProfile,
-) -> Result<(BuildResult, BuildTimings)> {
-    let config = build_config_against_existing_store(
-        gutch_repo_id,
-        target_id,
-        target_tags,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        Some(previous_file_manifests),
-    )
-    .with_chunk_profile(chunk_profile)
-    .with_bundle_profile(bundle_profile);
-    build_with_config(dir, &config)
-}
-
-pub fn build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles(
-    dir: &Path,
-    gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-    existing_bundle_ids: &HashSet<String>,
-    previous_file_manifests: &HashMap<String, FileManifest>,
-    chunk_profile: &manifest::ChunkSizingProfile,
-    bundle_profile: &manifest::BundleSizingProfile,
-    compression_profile: &manifest::CompressionProfile,
-) -> Result<(BuildResult, BuildTimings)> {
-    let config = build_config_against_existing_store(
-        gutch_repo_id,
-        target_id,
-        target_tags,
-        existing_chunk_locations,
-        existing_bundle_ids,
-        Some(previous_file_manifests),
-    )
-    .with_chunk_profile(chunk_profile)
-    .with_bundle_profile(bundle_profile)
-    .with_compression_profile(compression_profile);
-    build_with_config(dir, &config)
 }
 
 #[allow(clippy::too_many_arguments)]

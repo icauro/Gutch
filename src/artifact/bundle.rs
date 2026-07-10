@@ -549,24 +549,6 @@ pub fn read_bundle(data: &[u8]) -> Result<BundleReader<std::io::Cursor<&[u8]>>> 
     BundleReader::open(cursor)
 }
 
-pub fn bundle_id_from_chunks(chunk_hashes: &[(&str, u64)], format_version: u8) -> String {
-    let mut sorted: Vec<(&str, u64)> = chunk_hashes.to_vec();
-    sorted.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
-
-    let mut hasher = blake3::Hasher::new();
-    for (h, size) in &sorted {
-        hasher.update(h.as_bytes());
-        hasher.update(b"\x00");
-        hasher.update(&size.to_le_bytes());
-    }
-    hasher.update(&format_version.to_le_bytes());
-    hash::hash_hex(&hasher.finalize())
-}
-
-pub fn bundle_id_prefix(bundle_id: &str) -> &str {
-    &bundle_id[..2.min(bundle_id.len())]
-}
-
 #[cfg(test)]
 #[path = "bundle_tests.rs"]
 mod tests;

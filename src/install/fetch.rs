@@ -5,7 +5,9 @@ use std::sync::Arc;
 use rayon::prelude::*;
 
 use super::apply::resolve_verified_source_install;
-use super::pipeline::{apply_install_pipeline, build_install_pipeline_plan};
+use super::pipeline::{
+    InstallPipelineApplyRequest, apply_install_pipeline, build_install_pipeline_plan,
+};
 use super::transfer::{
     FetchTransferProgress, PendingBundleDownload, TransferPhaseCounters, build_download_client,
     bundle_download_worker_count, download_pending_bundle, download_url, fetch_bundle_urls,
@@ -140,15 +142,21 @@ fn download_and_apply_unified_target_install(
         pending_bundle_downloads.len(),
     );
     let apply_result = apply_install_pipeline(
-        &request,
-        &prepared.repo_paths.repo_root,
-        &prepared.target_manifest,
-        resolved_source.source_install_dir,
-        &prepared.existing_bundle_ids,
-        &pending_bundle_downloads,
+        InstallPipelineApplyRequest {
+            repo_root: &prepared.repo_paths.repo_root,
+            target_manifest: &prepared.target_manifest,
+            install_dir: &request.install_dir,
+            staging_dir: request.staging_dir.as_deref(),
+            source_install_dir: resolved_source.source_install_dir,
+            runtime_hints: &request.runtime_hints,
+            existing_bundle_ids: &prepared.existing_bundle_ids,
+            pending_bundle_downloads: &pending_bundle_downloads,
+            progress: &progress,
+            download_client: Some(&download_client),
+            transfer_progress: Some(&transfer_progress),
+            session_id: request.fetch_request.session_id.as_deref(),
+        },
         pipeline_plan,
-        &download_client,
-        &transfer_progress,
     )?;
 
     Ok(TargetInstallDownloadAndApplyResult {

@@ -27,21 +27,12 @@ pub use artifact::{bundle, chunk, compress, hash};
 pub use build::scan as build_scan;
 pub use build::types as build_types;
 pub use target::path_guard;
-pub use target::plugin;
 
 pub use build::types::{
     BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
     ChunkPayload, ExistingChunkLocation,
 };
-pub use build::{
-    build_from_directory, build_from_directory_with_timings,
-    build_from_directory_with_timings_against_existing_bundles,
-    build_from_directory_with_timings_against_existing_store,
-    build_from_directory_with_timings_against_existing_store_and_manifests,
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profile,
-    build_from_directory_with_timings_against_existing_store_and_manifests_and_profiles,
-    build_with_config,
-};
+pub use build::{build_from_directory, build_with_config};
 pub use error::{Error, Result};
 pub use install::{
     GutchBundleDownload, ResolvedTargetInstallState, TargetInstallApplyFromRepoRequest,
@@ -51,13 +42,10 @@ pub use install::{
     TargetInstallRepairFromRepoResult, TargetInstallRepairPlanFromRepoRequest,
     TargetInstallRepairPlanFromRepoResult, TargetInstallRepairResult,
     TargetInstallVerifyFromRepoRequest, TargetInstallVerifyFromRepoResult,
-    apply_target_install_from_repo, apply_target_install_with_timings,
-    apply_target_install_with_timings_and_hints, default_target_install_staging_dir,
+    apply_target_install_from_repo, default_target_install_staging_dir,
     download_and_apply_target_install, fetch_target_install_content,
     fetch_target_install_content_for_required_bundle_ids, plan_repair_target_install_from_repo,
-    repair_target_install_from_repo, repair_target_install_with_timings_and_hints,
-    resolve_required_bundle_paths_from_repo, resolve_target_install_state,
-    verify_target_install_from_repo,
+    repair_target_install_from_repo, resolve_target_install_state, verify_target_install_from_repo,
 };
 pub use manifest::launch::{
     LaunchPlatform, RepoLaunchAction, RepoLaunchCommand, RepoLaunchConfiguration,
@@ -74,15 +62,8 @@ pub use manifest::{
 };
 pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink};
 pub use reconstruct::{
-    ReconstructOptions, ReconstructTimings, VerifiedSourceInstall,
-    reconstruct_from_bundle_paths_and_verified_source_with_timings,
-    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints,
-    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options,
-    reconstruct_from_bundle_paths_with_timings,
-    reconstruct_from_bundle_paths_with_timings_and_hints,
-    reconstruct_from_repo_paths_with_timings_and_hints,
-    reconstruct_from_repo_paths_with_timings_and_hints_with_options,
-    reconstruct_from_target_manifest, reconstruct_from_target_manifest_with_timings,
+    ReconstructOptions, ReconstructTimings, VerifiedSourceInstall, reconstruct_from_bundle_paths,
+    reconstruct_from_repo, reconstruct_from_target_manifest,
 };
 pub use repo::{
     GutchRepoPaths, REPO_INIT_NEEDS_CONFIRMATION, RepoCheckStatus, RepoCheckTargetStatus,
@@ -120,15 +101,9 @@ pub use target::identity::{
 pub use target::path_guard::{
     ExistingInstallPathKind, resolve_existing_install_path, validate_manifest_relative_path,
 };
-pub use target::plugin::{DependencyGraph, ResolvedTarget, resolve_plugin_dependencies};
 pub use verify::{
-    RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings,
-    classify_directory, classify_directory_with_progress,
-    classify_directory_with_progress_and_mode, classify_directory_with_timings,
-    classify_directory_with_timings_and_hints, classify_directory_with_timings_and_hints_and_mode,
-    estimate_build, verify_directory, verify_directory_strict, verify_directory_with_progress,
-    verify_directory_with_progress_and_mode, verify_directory_with_timings,
-    verify_directory_with_timings_and_hints, verify_directory_with_timings_and_hints_and_mode,
+    RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyRequest, VerifyTimings,
+    classify_directory, estimate_build, verify_directory,
 };
 
 #[cfg(test)]

@@ -13,6 +13,30 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> TargetTagS
     tags
 }
 
+fn verify_test_directory(manifest: &TargetManifest, dir: &Path) -> Vec<String> {
+    verify_directory(VerifyRequest {
+        target_manifest: manifest,
+        dir,
+        mode: VerifyMode::Fast,
+        runtime_hints: &RuntimeResourceHints::default(),
+        progress: None,
+    })
+    .unwrap()
+    .0
+}
+
+fn classify_test_directory(manifest: &TargetManifest, dir: &Path) -> RepairClassification {
+    classify_directory(VerifyRequest {
+        target_manifest: manifest,
+        dir,
+        mode: VerifyMode::Fast,
+        runtime_hints: &RuntimeResourceHints::default(),
+        progress: None,
+    })
+    .unwrap()
+    .0
+}
+
 #[test]
 fn test_build_and_reconstruct_roundtrip() {
     let dir = test_util::temp_path("gutch_test_roundtrip");
@@ -44,7 +68,7 @@ fn test_build_and_reconstruct_roundtrip() {
     let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
     reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir).unwrap();
 
-    let verify_errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
+    let verify_errors = verify_test_directory(&result.target_manifest, &out_dir);
 
     assert!(
         verify_errors.is_empty(),
@@ -61,13 +85,12 @@ fn test_apply_target_install_reuses_verified_source_install() {
     let root = test_util::temp_path("gutch_test_apply_target_install");
     let v1_dir = root.join("v1");
     let v2_dir = root.join("v2");
-    let bundles_dir = root.join("bundles");
+    let repo_dir = root.join("repo");
     let install_dir = root.join("install");
     let staging_dir = root.join(".staging");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&v1_dir).unwrap();
     std::fs::create_dir_all(&v2_dir).unwrap();
-    std::fs::create_dir_all(&bundles_dir).unwrap();
 
     std::fs::write(v1_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
     std::fs::write(v1_dir.join("old.txt"), b"old content").unwrap();
@@ -87,30 +110,28 @@ fn test_apply_target_install_reuses_verified_source_install() {
     reconstruct_from_target_manifest(&v1.target_manifest, &v1_bundle_data, &install_dir).unwrap();
     std::fs::write(install_dir.join("player.log"), b"local runtime log").unwrap();
 
+    let repo_paths = GutchRepoPaths::from_repo_root(&repo_dir);
+    ensure_gutch_repo_layout(&repo_paths, "test").unwrap();
+    write_target_manifest_artifacts(&repo_paths, &v1.target_manifest).unwrap();
+    write_target_manifest_artifacts(&repo_paths, &v2.target_manifest).unwrap();
     for bundle in &v2.bundles {
-        std::fs::write(
-            bundle_path_in_root(&bundles_dir, &bundle.bundle_id),
-            &bundle.data,
-        )
-        .unwrap();
+        std::fs::write(bundle_path(&repo_paths, &bundle.bundle_id), &bundle.data).unwrap();
     }
-    let bundle_paths: Vec<PathBuf> = v2
-        .bundles
-        .iter()
-        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
-        .collect();
+    let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
+    add_built_bundles_to_chunk_index(&mut chunk_index, &v2.bundles).unwrap();
+    write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
-    let result = apply_target_install_with_timings(
-        &v2.target_manifest,
-        &bundle_paths,
-        &install_dir,
-        &staging_dir,
-        Some(TargetInstallApplySource {
-            target_manifest: &v1.target_manifest,
-            install_dir: &install_dir,
-        }),
-    )
-    .unwrap();
+    let result = apply_target_install_from_repo(TargetInstallApplyFromRepoRequest {
+        repo_path: repo_dir,
+        target_id: v2.target_manifest.target_id.clone(),
+        install_dir: install_dir.clone(),
+        staging_dir: Some(staging_dir.clone()),
+        source_target_id: Some(v1.target_manifest.target_id.clone()),
+        source_dir: Some(install_dir.clone()),
+        runtime_hints: RuntimeResourceHints::default(),
+    })
+    .unwrap()
+    .apply_result;
 
     assert!(
         result.reused_source_chunk_count > 0,
@@ -125,7 +146,7 @@ fn test_apply_target_install_reuses_verified_source_install() {
     assert!(!install_dir.join("old.txt").exists());
     assert!(!staging_dir.exists());
 
-    let verify_errors = verify_directory(&v2.target_manifest, &install_dir).unwrap();
+    let verify_errors = verify_test_directory(&v2.target_manifest, &install_dir);
     assert!(
         verify_errors.is_empty(),
         "verification errors: {:?}",
@@ -171,19 +192,21 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
         .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
         .collect();
 
-    let (_, timings) = reconstruct_from_bundle_paths_with_timings_and_hints(
+    let (_, timings) = reconstruct_from_bundle_paths(
         &result.target_manifest,
         &bundle_paths,
+        None,
         &out_dir,
         &crate::runtime::RuntimeResourceHints {
             memory_mode: crate::runtime::MemoryMode::Low,
             max_memory_mib: Some(1024),
             jobs: Some(1),
         },
+        ReconstructOptions::default(),
     )
     .unwrap();
 
-    let verify_errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
+    let verify_errors = verify_test_directory(&result.target_manifest, &out_dir);
     assert!(
         verify_errors.is_empty(),
         "verification errors: {:?}",
@@ -233,7 +256,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
         .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
         .collect();
 
-    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
+    reconstruct_from_bundle_paths(
         &result.target_manifest,
         &bundle_paths,
         None,
@@ -250,7 +273,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
     )
     .unwrap();
 
-    let verify_errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
+    let verify_errors = verify_test_directory(&result.target_manifest, &out_dir);
     assert!(
         verify_errors.is_empty(),
         "verification errors: {:?}",
@@ -311,7 +334,7 @@ fn test_verify_directory_missing_file() {
     let tags = exclusive_tags("v", "win", "x64", "base");
     let mut vm = TargetManifest::new("1".into(), tags);
     vm.files.push(fm);
-    let errors = verify_directory(&vm, &dir).unwrap();
+    let errors = verify_test_directory(&vm, &dir);
     assert!(!errors.is_empty());
     assert!(errors[0].contains("missing"));
 
@@ -333,7 +356,7 @@ fn test_verify_directory_reports_extra_file() {
     manifest.files.retain(|file| file.path == "expected.txt");
     manifest.total_logical_size = b"hello world".len() as u64;
 
-    let errors = verify_directory(&manifest, &dir).unwrap();
+    let errors = verify_test_directory(&manifest, &dir);
     assert!(
         errors.iter().any(|error| error == "extra file: extra.log"),
         "expected extra file error, got {:?}",
@@ -358,7 +381,7 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
     std::fs::write(dir.join("notes.tmp"), b"user scratch").unwrap();
 
-    let classification = classify_directory(&result.target_manifest, &dir).unwrap();
+    let classification = classify_test_directory(&result.target_manifest, &dir);
 
     assert_eq!(classification.missing_files.len(), 1);
     assert_eq!(classification.missing_files[0].path, "healthy.txt");
@@ -465,7 +488,7 @@ fn test_large_game_build_200mb() {
     let recon_ms = t2.elapsed().as_millis();
 
     let t3 = Instant::now();
-    let errors = verify_directory(&result.target_manifest, &out_dir).unwrap();
+    let errors = verify_test_directory(&result.target_manifest, &out_dir);
     let verify_ms = t3.elapsed().as_millis();
     let pipeline_without_verify_ms = gen_ms + build_ms + recon_ms;
 

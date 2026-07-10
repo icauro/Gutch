@@ -16,6 +16,33 @@ fn empty_manifest() -> TargetManifest {
     TargetManifest::new("t1".into(), TargetTagSet::default())
 }
 
+fn verify_with<'a>(
+    target_manifest: &'a TargetManifest,
+    dir: &'a std::path::Path,
+    mode: VerifyMode,
+    runtime_hints: &'a RuntimeResourceHints,
+) -> Result<(Vec<String>, VerifyTimings)> {
+    verify_directory(VerifyRequest {
+        target_manifest,
+        dir,
+        mode,
+        runtime_hints,
+        progress: None,
+    })
+}
+
+fn verify_fast(
+    target_manifest: &TargetManifest,
+    dir: &std::path::Path,
+) -> Result<(Vec<String>, VerifyTimings)> {
+    verify_with(
+        target_manifest,
+        dir,
+        VerifyMode::Fast,
+        default_runtime_hints(),
+    )
+}
+
 #[test]
 fn estimate_build_no_missing_chunks() {
     let manifest = empty_manifest();
@@ -115,7 +142,7 @@ fn verify_contiguous_chunks_detects_corruption() {
             },
         ],
     });
-    let errors = verify_directory(&manifest, &dir).unwrap();
+    let (errors, _) = verify_fast(&manifest, &dir).unwrap();
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 
     // Now corrupt the file — swap data
@@ -123,7 +150,7 @@ fn verify_contiguous_chunks_detects_corruption() {
     corrupted.extend_from_slice(chunk_b_data);
     corrupted.extend_from_slice(chunk_a_data);
     std::fs::write(dir.join("data.bin"), &corrupted).unwrap();
-    let errors = verify_directory(&manifest, &dir).unwrap();
+    let (errors, _) = verify_fast(&manifest, &dir).unwrap();
     assert!(!errors.is_empty(), "expected corruption errors");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -149,7 +176,7 @@ fn verify_contiguous_chunks_single_chunk() {
             raw_size: data.len() as u64,
         }],
     });
-    let errors = verify_directory(&manifest, &dir).unwrap();
+    let (errors, _) = verify_fast(&manifest, &dir).unwrap();
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -176,7 +203,7 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
         }],
     });
 
-    let (errors, timings) = verify_directory_with_timings(&manifest, &dir).unwrap();
+    let (errors, timings) = verify_fast(&manifest, &dir).unwrap();
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     assert_eq!(timings.verify_mode, VerifyMode::Fast);
     assert_eq!(timings.chunk_hash_bytes, 0);
@@ -216,7 +243,7 @@ fn verify_strict_mode_checks_chunk_hashing() {
         ],
     });
 
-    let (fast_errors, fast_timings) = verify_directory_with_timings(&manifest, &dir).unwrap();
+    let (fast_errors, fast_timings) = verify_fast(&manifest, &dir).unwrap();
     assert!(
         fast_errors.is_empty(),
         "fast mode should trust the full-file hash, got: {:?}",
@@ -225,7 +252,7 @@ fn verify_strict_mode_checks_chunk_hashing() {
     assert_eq!(fast_timings.chunk_hash_bytes, 0);
 
     let (strict_errors, strict_timings) =
-        verify_directory_with_timings_and_mode(&manifest, &dir, VerifyMode::Strict).unwrap();
+        verify_with(&manifest, &dir, VerifyMode::Strict, default_runtime_hints()).unwrap();
     assert_eq!(strict_timings.verify_mode, VerifyMode::Strict);
     assert_eq!(strict_timings.chunk_hash_bytes, full_file.len() as u64);
     assert!(
@@ -262,7 +289,7 @@ fn verify_rejects_manifest_path_traversal() {
         chunks: vec![],
     });
 
-    let error = verify_directory(&manifest, &dir).unwrap_err();
+    let error = verify_fast(&manifest, &dir).unwrap_err();
     assert!(matches!(error, crate::Error::PathError { .. }));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -289,9 +316,10 @@ fn verify_with_hints_records_runtime_plan() {
         }],
     });
 
-    let (_, timings) = verify_directory_with_timings_and_hints(
+    let (_, timings) = verify_with(
         &manifest,
         &dir,
+        VerifyMode::Fast,
         &crate::runtime::RuntimeResourceHints {
             memory_mode: crate::runtime::MemoryMode::Low,
             max_memory_mib: Some(1024),

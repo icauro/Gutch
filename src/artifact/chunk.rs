@@ -44,10 +44,7 @@ pub fn chunk_bytes(data: &[u8], profile: &ChunkSizingProfile) -> Vec<ChunkResult
         .collect()
 }
 
-pub fn chunk_slices(
-    data: &[u8],
-    profile: &ChunkSizingProfile,
-) -> (Vec<ChunkSlice>, ChunkScanTimings) {
+fn chunk_slices(data: &[u8], profile: &ChunkSizingProfile) -> (Vec<ChunkSlice>, ChunkScanTimings) {
     let min = profile.min_chunk_size_bytes() as usize;
     let avg = profile.avg_chunk_size_bytes() as usize;
     let max = profile.max_chunk_size_bytes() as usize;
@@ -84,14 +81,6 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
         len: length,
         hash,
     }
-}
-
-pub fn chunk_file(
-    path: &std::path::Path,
-    profile: &ChunkSizingProfile,
-) -> Result<Vec<ChunkResult>> {
-    let data = crate::helpers::read(path)?;
-    Ok(chunk_bytes(&data, profile))
 }
 
 pub fn chunk_file_streaming(

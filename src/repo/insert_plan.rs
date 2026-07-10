@@ -335,7 +335,6 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     }
 
     let prepared_input = prepare_input_path(&request.source_dir)?;
-    let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
     let resolved_identity = crate::resolve_target_identity(
         request.source_dir.as_path(),
         &request.explicit_tags,
@@ -348,14 +347,8 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         .keys()
         .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
         .collect::<Result<HashSet<_>>>()?;
-    let chunk_profile = crate::manifest::ChunkSizingProfile::for_selection(
-        request.chunk_profile,
-        input_stats.median_file_size_bytes,
-    );
-    let bundle_profile = crate::manifest::BundleSizingProfile::for_selection(
-        request.bundle_profile,
-        input_stats.target_logical_size_bytes,
-    );
+    let chunk_profile = crate::manifest::ChunkSizingProfile::for_preset(request.chunk_profile);
+    let bundle_profile = crate::manifest::BundleSizingProfile::for_preset(request.bundle_profile);
     let compression_profile =
         crate::manifest::CompressionProfile::for_preset(request.compression_profile);
     let mut build_config =
@@ -540,21 +533,6 @@ impl MutableInsertStoreState {
     }
 }
 
-fn collect_input_sizing_stats(dir: &Path) -> Result<InputSizingStats> {
-    let mut sizes = Vec::new();
-    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
-        let entry = entry?;
-        if entry.path().is_file() {
-            sizes.push(entry.metadata()?.len());
-        }
-    }
-    sizes.sort_unstable();
-    Ok(InputSizingStats {
-        target_logical_size_bytes: sizes.iter().copied().sum(),
-        median_file_size_bytes: median_u64(&sizes),
-    })
-}
-
 fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
     if path.is_dir() {
         return Ok(PreparedInputPath {
@@ -627,26 +605,9 @@ fn count_required_bundles_for_build(
     required_bundle_ids.len() + generated_bundles.len()
 }
 
-struct InputSizingStats {
-    target_logical_size_bytes: u64,
-    median_file_size_bytes: u64,
-}
-
 struct PreparedInputPath {
     dir: PathBuf,
     _tempdir: Option<tempfile::TempDir>,
-}
-
-fn median_u64(sorted_values: &[u64]) -> u64 {
-    if sorted_values.is_empty() {
-        return 0;
-    }
-    let mid = sorted_values.len() / 2;
-    if sorted_values.len() % 2 == 1 {
-        sorted_values[mid]
-    } else {
-        (sorted_values[mid - 1] + sorted_values[mid]) / 2
-    }
 }
 
 pub fn describe_target_insert_plan(plan: &TargetInsertPlan) -> String {

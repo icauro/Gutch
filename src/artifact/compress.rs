@@ -52,10 +52,6 @@ pub fn decompress_data_to_writer<W: Write>(
     }
 }
 
-pub fn decompress_chunk_at_level(data: &[u8], _level: i32) -> Result<Vec<u8>> {
-    decompress_data(data, CompressionKind::Zstd)
-}
-
 pub fn compress_with_level(data: &[u8], level: i32) -> Result<Vec<u8>> {
     compress_segments_with_level(std::iter::once(data), data.len() as u64, level)
 }

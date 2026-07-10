@@ -74,10 +74,6 @@ impl TargetSourcesSyncPlan {
         self.insertable_count > 0 || self.refresh_count > 0 || self.removable_count > 0
     }
 
-    pub fn requires_confirmation(&self) -> bool {
-        self.has_changes()
-    }
-
     pub fn up_to_date_count(&self) -> usize {
         self.candidate_count
             .saturating_sub(self.insertable_count)
@@ -238,11 +234,6 @@ pub fn sync_target_sources(
         });
     }
 
-    let apply_paths: HashSet<String> = plan
-        .to_apply
-        .iter()
-        .map(|candidate| candidate.path.clone())
-        .collect();
     let total_steps = plan.to_apply.len() + plan.to_remove.len();
     let mut current_step = 0usize;
     let mut removed_count = 0usize;
@@ -278,9 +269,6 @@ pub fn sync_target_sources(
     let mut inserted_count = 0usize;
     let mut refreshed_count = 0usize;
     for candidate in &plan.to_apply {
-        if !apply_paths.contains(&candidate.path) {
-            continue;
-        }
         current_step += 1;
         progress::emit_progress(
             progress,

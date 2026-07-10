@@ -1,29 +1,16 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::target::TargetManifest;
-use crate::reconstruct::{
-    ReconstructOptions, VerifiedSourceInstall,
-    reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options,
-};
-use crate::runtime::{RuntimeResourceHints, plan_verify_runtime};
+use crate::reconstruct::VerifiedSourceInstall;
+use crate::runtime::RuntimeResourceHints;
 
 use super::types::{
     TargetInstallApplyFromRepoRequest, TargetInstallApplyFromRepoResult, TargetInstallApplyResult,
     TargetInstallApplySource, TargetInstallVerifyFromRepoRequest,
     TargetInstallVerifyFromRepoResult,
 };
-use crate::verify::{
-    classify_directory_with_progress, classify_directory_with_progress_and_mode,
-    verify_directory_with_progress,
-};
+use crate::verify::{VerifyRequest, classify_directory};
 use crate::{Error, Result};
-
-fn derive_chunk_count(manifest: &TargetManifest) -> usize {
-    crate::repo::required_chunk_hashes_typed(manifest)
-        .map(|chunks| chunks.len())
-        .unwrap_or_default()
-}
 
 pub(super) fn resolve_verified_source_install<'a>(
     source: Option<TargetInstallApplySource<'a>>,
@@ -31,11 +18,13 @@ pub(super) fn resolve_verified_source_install<'a>(
 ) -> Result<Option<VerifiedSourceInstall<'a>>> {
     match source {
         Some(source) => {
-            let (source_classification, _) = classify_directory_with_progress(
-                source.target_manifest,
-                source.install_dir,
+            let (source_classification, _) = classify_directory(VerifyRequest {
+                target_manifest: source.target_manifest,
+                dir: source.install_dir,
+                mode: crate::VerifyMode::Fast,
                 runtime_hints,
-            )?;
+                progress: None,
+            })?;
             if !source_classification.missing_files.is_empty()
                 || !source_classification.corrupt_files.is_empty()
             {
@@ -69,42 +58,18 @@ pub fn default_target_install_staging_dir(install_dir: &Path, target_id: &str) -
     install_dir.with_file_name(format!(".gutch-staging-{}-{}", install_name, target_id))
 }
 
-pub fn resolve_required_bundle_paths_from_repo(
-    repo_paths: &crate::GutchRepoPaths,
-    target_manifest: &TargetManifest,
-) -> Result<Vec<PathBuf>> {
-    let chunk_index = crate::load_chunk_index(repo_paths)?;
-    let required_bundle_ids = crate::repo::required_bundle_ids(target_manifest, &chunk_index);
-    let mut bundle_paths = Vec::with_capacity(required_bundle_ids.len());
-    let mut missing_bundles = Vec::new();
-    for bundle_id in &required_bundle_ids {
-        let bundle_path = crate::bundle_path(repo_paths, bundle_id);
-        if bundle_path.exists() {
-            bundle_paths.push(bundle_path);
-        } else {
-            missing_bundles.push(bundle_id.clone());
-        }
-    }
-    if !missing_bundles.is_empty() {
-        return Err(Error::manifest(format!(
-            "one or more required bundles are unavailable: {}",
-            missing_bundles.join(", ")
-        )));
-    }
-    Ok(bundle_paths)
-}
-
 pub fn verify_target_install_from_repo(
     request: TargetInstallVerifyFromRepoRequest,
 ) -> Result<TargetInstallVerifyFromRepoResult> {
     let (repo_paths, target_manifest) =
         super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
-    let (classification, verify_timings) = classify_directory_with_progress_and_mode(
-        &target_manifest,
-        &request.install_dir,
-        &request.runtime_hints,
-        request.verify_mode,
-    )?;
+    let (classification, verify_timings) = classify_directory(VerifyRequest {
+        target_manifest: &target_manifest,
+        dir: &request.install_dir,
+        mode: request.verify_mode,
+        runtime_hints: &request.runtime_hints,
+        progress: request.progress,
+    })?;
 
     Ok(TargetInstallVerifyFromRepoResult {
         repo_root: repo_paths.repo_root,
@@ -117,11 +82,13 @@ pub fn verify_target_install_from_repo(
 pub fn apply_target_install_from_repo(
     request: TargetInstallApplyFromRepoRequest,
 ) -> Result<TargetInstallApplyFromRepoResult> {
-    let (repo_paths, target_manifest, bundle_paths) =
-        super::repo_target::load_repo_target_bundle_paths(&request.repo_path, &request.target_id)?;
-    let staging_dir = request.staging_dir.unwrap_or_else(|| {
-        default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
-    });
+    let (repo_paths, target_manifest) =
+        super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
+    let chunk_index = crate::load_chunk_index(&repo_paths)?;
+    let existing_bundle_ids = crate::repo::required_bundle_ids(&target_manifest, &chunk_index)
+        .into_iter()
+        .filter(|bundle_id| crate::bundle_path(&repo_paths, bundle_id).is_file())
+        .collect();
 
     let source_manifest = match request.source_target_id.as_ref() {
         Some(source_target_id) => Some(crate::load_target_manifest(&repo_paths, source_target_id)?),
@@ -142,166 +109,32 @@ pub fn apply_target_install_from_repo(
                 install_dir: source_install_dir,
             },
         );
-
-    let apply_result = apply_target_install_with_timings_and_hints(
+    let verified_source = resolve_verified_source_install(source, &request.runtime_hints)?;
+    let pipeline_plan = super::pipeline::build_install_pipeline_plan(
         &target_manifest,
-        &bundle_paths,
-        &request.install_dir,
-        &staging_dir,
-        source,
-        &request.runtime_hints,
-    )?;
-
-    Ok(TargetInstallApplyFromRepoResult {
-        repo_root: repo_paths.repo_root,
-        target_manifest,
-        apply_result,
-        resolved_bundle_file_count: bundle_paths.len(),
-        source_install_dir,
-    })
-}
-
-pub fn apply_target_install_with_timings(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    install_dir: &Path,
-    staging_dir: &Path,
-    source: Option<TargetInstallApplySource<'_>>,
-) -> Result<TargetInstallApplyResult> {
-    apply_target_install_with_timings_and_hints(
-        target_manifest,
-        bundle_paths,
-        install_dir,
-        staging_dir,
-        source,
-        &RuntimeResourceHints::default(),
-    )
-}
-
-pub fn apply_target_install_with_timings_and_hints(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    install_dir: &Path,
-    staging_dir: &Path,
-    source: Option<TargetInstallApplySource<'_>>,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<TargetInstallApplyResult> {
-    if install_dir == staging_dir {
-        return Err(Error::PathError {
-            path: install_dir.to_path_buf(),
-            reason: "install and staging directories must be different".to_string(),
-        });
-    }
-
-    let source_manifest = source.as_ref().map(|value| value.target_manifest);
-    let verified_source = resolve_verified_source_install(source, runtime_hints)?;
-    let reused_source_chunk_count = verified_source.as_ref().map_or(0, |source| {
-        count_reusable_source_chunks(target_manifest, source.target_manifest)
-    });
-    let (reconstruct_timings, verify_timings) = stage_target_install_from_bundle_paths(
-        target_manifest,
-        bundle_paths,
-        staging_dir,
+        &chunk_index,
+        &repo_paths,
+        &existing_bundle_ids,
         verified_source,
-        runtime_hints,
     )?;
-    let backup_dir = promote_staging_install(install_dir, staging_dir, target_manifest)?;
-    let required_bundle_count =
-        count_required_bundle_paths(target_manifest, bundle_paths, source_manifest)?;
-
-    Ok(build_target_install_apply_result(
-        target_manifest,
-        install_dir,
-        staging_dir,
-        backup_dir,
-        reused_source_chunk_count,
-        derive_chunk_count(target_manifest),
-        required_bundle_count,
-        reconstruct_timings,
-        verify_timings,
-    ))
-}
-
-pub(super) fn stage_target_install_from_bundle_paths(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    staging_dir: &Path,
-    verified_source: Option<VerifiedSourceInstall<'_>>,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
-    if staging_dir.exists() {
-        crate::helpers::remove_dir_all(staging_dir)?;
-    }
-    if let Some(parent) = staging_dir.parent() {
-        crate::helpers::create_dir_all(parent)?;
-    }
-
-    reconstruct_and_verify_target_manifest_from_bundles(
-        target_manifest,
-        bundle_paths,
-        staging_dir,
-        verified_source,
-        runtime_hints,
-        ReconstructOptions {
-            verify_chunks: true,
-            verify_files: verified_source.is_some(),
+    let progress = None;
+    super::pipeline::apply_install_pipeline(
+        super::pipeline::InstallPipelineApplyRequest {
+            repo_root: &repo_paths.repo_root,
+            target_manifest: &target_manifest,
+            install_dir: &request.install_dir,
+            staging_dir: request.staging_dir.as_deref(),
+            source_install_dir,
+            runtime_hints: &request.runtime_hints,
+            existing_bundle_ids: &existing_bundle_ids,
+            pending_bundle_downloads: &[],
+            progress: &progress,
+            download_client: None,
+            transfer_progress: None,
+            session_id: None,
         },
+        pipeline_plan,
     )
-}
-
-fn count_reusable_source_chunks(
-    target_manifest: &TargetManifest,
-    source_manifest: &TargetManifest,
-) -> usize {
-    let Ok(target_chunks) = crate::repo::required_chunk_hashes_typed(target_manifest) else {
-        return 0;
-    };
-    let Ok(source_chunks) = crate::repo::required_chunk_hashes_typed(source_manifest) else {
-        return 0;
-    };
-    source_chunks.intersection(&target_chunks).count()
-}
-
-pub(super) fn reconstruct_and_verify_target_manifest_from_bundles(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    staging_dir: &Path,
-    verified_source: Option<VerifiedSourceInstall<'_>>,
-    runtime_hints: &RuntimeResourceHints,
-    reconstruct_options: ReconstructOptions,
-) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
-    let (_, reconstruct_timings) =
-        reconstruct_from_bundle_paths_and_verified_source_with_timings_and_hints_with_options(
-            target_manifest,
-            bundle_paths,
-            verified_source,
-            staging_dir,
-            runtime_hints,
-            reconstruct_options,
-        )?;
-
-    let verify_timings = if reconstruct_options.verify_files {
-        crate::verify::VerifyTimings {
-            verify_mode: crate::verify::VerifyMode::Fast,
-            runtime_plan: Some(plan_verify_runtime(runtime_hints)),
-            file_hash: reconstruct_timings.file_verify,
-            file_hash_bytes: reconstruct_timings.file_verify_bytes,
-            total: reconstruct_timings.file_verify,
-            ..crate::verify::VerifyTimings::default()
-        }
-    } else {
-        let (verify_errors, verify_timings) =
-            verify_directory_with_progress(target_manifest, staging_dir, runtime_hints)?;
-        if !verify_errors.is_empty() {
-            return Err(Error::verify(format!(
-                "staged install did not verify: {}",
-                verify_errors.join("; ")
-            )));
-        }
-        verify_timings
-    };
-
-    Ok((reconstruct_timings, verify_timings))
 }
 
 pub(super) fn build_target_install_apply_result(
@@ -326,46 +159,6 @@ pub(super) fn build_target_install_apply_result(
         reconstruct_timings,
         verify_timings,
     }
-}
-
-pub(super) fn count_required_bundle_paths(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    source_manifest: Option<&TargetManifest>,
-) -> Result<usize> {
-    let mut needed_chunks = crate::repo::required_chunk_hashes_typed(target_manifest)?;
-    if let Some(source_manifest) = source_manifest {
-        for chunk_hash in crate::repo::required_chunk_hashes_typed(source_manifest)? {
-            needed_chunks.remove(&chunk_hash);
-        }
-    }
-    if needed_chunks.is_empty() {
-        return Ok(0);
-    }
-
-    let mut covered_chunks = HashSet::new();
-    let mut required_bundle_count = 0usize;
-
-    for bundle_path in bundle_paths {
-        let file = std::fs::File::open(bundle_path)?;
-        let reader = crate::bundle::BundleReader::open(file)?;
-        let mut matched_bundle = false;
-
-        for chunk_hash in reader.chunk_hashes() {
-            if needed_chunks.contains(chunk_hash) && covered_chunks.insert(*chunk_hash) {
-                matched_bundle = true;
-            }
-        }
-
-        if matched_bundle {
-            required_bundle_count += 1;
-            if covered_chunks.len() == needed_chunks.len() {
-                break;
-            }
-        }
-    }
-
-    Ok(required_bundle_count)
 }
 
 pub(super) fn promote_staging_install(

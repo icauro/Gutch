@@ -8,15 +8,10 @@ use gutch as g;
 pub(crate) fn compare(
     expected: PathBuf,
     actual: PathBuf,
-    summary_out: Option<PathBuf>,
     stats_json_out: Option<PathBuf>,
 ) -> g::Result<()> {
-    let stats = compare_paths(
-        &expected,
-        &actual,
-        optional_output_paths(&summary_out, &stats_json_out),
-    )?;
-    write_report(&summary_out, &stats_json_out, &stats)?;
+    let stats = compare_paths(&expected, &actual, optional_output_paths(&stats_json_out))?;
+    write_report(&stats_json_out, &stats)?;
 
     if stats.compare_passed {
         println!(

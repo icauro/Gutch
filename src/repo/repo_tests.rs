@@ -205,7 +205,6 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
                 },
             ],
         }),
-        plugin: None,
         ..GutchRepoManifest::new("mods".to_string())
     };
     std::fs::write(

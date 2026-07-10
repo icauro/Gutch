@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 
 use crate::Result;
@@ -11,6 +12,9 @@ use crate::hash::ChunkHash;
 use crate::manifest::runtime::typed_file_manifest;
 use crate::manifest::{self, target::TargetManifest};
 use crate::path_guard::resolve_manifest_relative_path;
+use crate::progress::{
+    GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
+};
 use crate::runtime::{RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime};
 mod estimate;
 mod types;
@@ -25,7 +29,7 @@ pub use types::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, 
 struct VerifyOptions<'a> {
     mode: VerifyMode,
     hints: &'a RuntimeResourceHints,
-    progress: Option<&'a ProgressBar>,
+    progress: &'a Option<Arc<dyn GutchProgressSink>>,
 }
 
 impl<'a> Default for VerifyOptions<'a> {
@@ -33,7 +37,7 @@ impl<'a> Default for VerifyOptions<'a> {
         Self {
             mode: VerifyMode::Fast,
             hints: default_runtime_hints(),
-            progress: None,
+            progress: no_progress(),
         }
     }
 }
@@ -49,10 +53,18 @@ impl<'a> VerifyOptions<'a> {
         self
     }
 
-    fn with_progress(mut self, progress: &'a ProgressBar) -> Self {
-        self.progress = Some(progress);
+    fn with_progress(mut self, progress: &'a Option<Arc<dyn GutchProgressSink>>) -> Self {
+        self.progress = progress;
         self
     }
+}
+
+pub struct VerifyRequest<'a> {
+    pub target_manifest: &'a TargetManifest,
+    pub dir: &'a Path,
+    pub mode: VerifyMode,
+    pub runtime_hints: &'a RuntimeResourceHints,
+    pub progress: Option<Arc<dyn GutchProgressSink>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +89,8 @@ fn classify_inner(
         .iter()
         .map(|fm| fm.path.as_str())
         .collect();
+    let completed_files = AtomicUsize::new(0);
+    emit_verify_progress(opts.progress, 0, target_manifest.files.len(), false);
 
     let per_file_results = install_in_thread_pool(runtime_plan.worker_count, || {
         target_manifest
@@ -84,9 +98,8 @@ fn classify_inner(
             .par_iter()
             .map(|fm| {
                 let result = verify_manifest_file(target_manifest, dir, fm, opts.mode);
-                if let Some(pb) = opts.progress {
-                    pb.inc(1);
-                }
+                let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
+                emit_verify_progress(opts.progress, current, target_manifest.files.len(), false);
                 result
             })
             .collect::<Vec<_>>()
@@ -121,6 +134,12 @@ fn classify_inner(
     }
 
     timings.total = total_start.elapsed();
+    emit_verify_progress(
+        opts.progress,
+        target_manifest.files.len(),
+        target_manifest.files.len(),
+        true,
+    );
     Ok((classification, timings))
 }
 
@@ -133,210 +152,55 @@ fn verify_inner(
     Ok((classification.into_messages(), timings))
 }
 
-// ---------------------------------------------------------------------------
-// Public API — verify (returns error messages)
-// ---------------------------------------------------------------------------
-
-pub fn verify_directory(target_manifest: &TargetManifest, dir: &Path) -> Result<Vec<String>> {
-    Ok(verify_inner(target_manifest, dir, &VerifyOptions::default())?.0)
-}
-
-pub fn verify_directory_strict(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-) -> Result<Vec<String>> {
-    Ok(verify_inner(
-        target_manifest,
-        dir,
-        &VerifyOptions::default().with_mode(VerifyMode::Strict),
-    )?
-    .0)
-}
-
-pub fn verify_directory_with_timings(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_inner(target_manifest, dir, &VerifyOptions::default())
-}
-
-pub fn verify_directory_with_timings_and_mode(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    verify_mode: VerifyMode,
-) -> Result<(Vec<String>, VerifyTimings)> {
+pub fn verify_directory(request: VerifyRequest<'_>) -> Result<(Vec<String>, VerifyTimings)> {
     verify_inner(
-        target_manifest,
-        dir,
-        &VerifyOptions::default().with_mode(verify_mode),
-    )
-}
-
-pub fn verify_directory_with_timings_and_hints(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_inner(
-        target_manifest,
-        dir,
-        &VerifyOptions::default().with_hints(runtime_hints),
-    )
-}
-
-pub fn verify_directory_with_timings_and_hints_and_mode(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    verify_mode: VerifyMode,
-) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_inner(
-        target_manifest,
-        dir,
+        request.target_manifest,
+        request.dir,
         &VerifyOptions::default()
-            .with_mode(verify_mode)
-            .with_hints(runtime_hints),
+            .with_mode(request.mode)
+            .with_hints(request.runtime_hints)
+            .with_progress(&request.progress),
     )
 }
-
-pub fn verify_directory_with_progress(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_with_progress_bar(target_manifest, dir, runtime_hints, VerifyMode::Fast)
-}
-
-pub fn verify_directory_with_progress_and_mode(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    verify_mode: VerifyMode,
-) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_with_progress_bar(target_manifest, dir, runtime_hints, verify_mode)
-}
-
-fn verify_with_progress_bar(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    verify_mode: VerifyMode,
-) -> Result<(Vec<String>, VerifyTimings)> {
-    run_with_progress_bar(target_manifest, |progress| {
-        verify_inner(
-            target_manifest,
-            dir,
-            &VerifyOptions::default()
-                .with_mode(verify_mode)
-                .with_hints(runtime_hints)
-                .with_progress(progress),
-        )
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Public API — classify (returns RepairClassification)
-// ---------------------------------------------------------------------------
 
 pub fn classify_directory(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-) -> Result<RepairClassification> {
-    Ok(classify_inner(target_manifest, dir, &VerifyOptions::default())?.0)
-}
-
-pub fn classify_directory_with_timings(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_inner(target_manifest, dir, &VerifyOptions::default())
-}
-
-pub fn classify_directory_with_timings_and_hints(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
+    request: VerifyRequest<'_>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
-        target_manifest,
-        dir,
-        &VerifyOptions::default().with_hints(runtime_hints),
-    )
-}
-
-pub fn classify_directory_with_timings_and_hints_and_mode(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    verify_mode: VerifyMode,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_inner(
-        target_manifest,
-        dir,
+        request.target_manifest,
+        request.dir,
         &VerifyOptions::default()
-            .with_mode(verify_mode)
-            .with_hints(runtime_hints),
+            .with_mode(request.mode)
+            .with_hints(request.runtime_hints)
+            .with_progress(&request.progress),
     )
 }
 
-pub fn classify_directory_with_progress(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_with_progress_bar(target_manifest, dir, runtime_hints, VerifyMode::Fast)
-}
-
-pub fn classify_directory_with_progress_and_mode(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    verify_mode: VerifyMode,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_with_progress_bar(target_manifest, dir, runtime_hints, verify_mode)
-}
-
-fn classify_with_progress_bar(
-    target_manifest: &TargetManifest,
-    dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    verify_mode: VerifyMode,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    run_with_progress_bar(target_manifest, |progress| {
-        classify_inner(
-            target_manifest,
-            dir,
-            &VerifyOptions::default()
-                .with_mode(verify_mode)
-                .with_hints(runtime_hints)
-                .with_progress(progress),
-        )
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn create_progress_bar(file_count: u64) -> ProgressBar {
-    let pb = ProgressBar::new(file_count);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} verifying [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files ({eta})")
-            .unwrap()
-            .progress_chars("#>-"),
+fn emit_verify_progress(
+    progress: &Option<Arc<dyn GutchProgressSink>>,
+    current: usize,
+    total: usize,
+    done: bool,
+) {
+    emit_progress(
+        progress,
+        GutchProgressEvent {
+            operation: GutchOperation::Verify,
+            phase: GutchProgressPhase::Verify,
+            message: "Verifying files".to_string(),
+            current,
+            total: total.max(1),
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done,
+        },
     );
-    pb
 }
 
-fn run_with_progress_bar<T>(
-    target_manifest: &TargetManifest,
-    run: impl FnOnce(&ProgressBar) -> Result<T>,
-) -> Result<T> {
-    let progress = create_progress_bar(target_manifest.files.len() as u64);
-    let result = run(&progress);
-    progress.finish_and_clear();
-    result
+fn no_progress() -> &'static Option<Arc<dyn GutchProgressSink>> {
+    static NO_PROGRESS: Option<Arc<dyn GutchProgressSink>> = None;
+    &NO_PROGRESS
 }
 
 fn default_runtime_hints() -> &'static RuntimeResourceHints {

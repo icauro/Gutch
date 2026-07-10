@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use super::apply::build_target_install_apply_result;
 use super::transfer::{FetchTransferProgress, PendingBundleDownload, download_pending_bundle};
-use super::types::{TargetInstallApplyFromRepoResult, TargetInstallDownloadAndApplyRequest};
+use super::types::TargetInstallApplyFromRepoResult;
 use crate::manifest::target::TargetManifest;
 use crate::progress::{
     GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
@@ -26,6 +26,21 @@ pub(super) struct InstallPipelinePlan {
     pub required_bundle_count: usize,
     required_chunk_count: usize,
     reused_source_chunk_count: usize,
+}
+
+pub(super) struct InstallPipelineApplyRequest<'a> {
+    pub repo_root: &'a Path,
+    pub target_manifest: &'a TargetManifest,
+    pub install_dir: &'a Path,
+    pub staging_dir: Option<&'a Path>,
+    pub source_install_dir: Option<PathBuf>,
+    pub runtime_hints: &'a RuntimeResourceHints,
+    pub existing_bundle_ids: &'a HashSet<String>,
+    pub pending_bundle_downloads: &'a [PendingBundleDownload],
+    pub progress: &'a Option<Arc<dyn GutchProgressSink>>,
+    pub download_client: Option<&'a reqwest::blocking::Client>,
+    pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
+    pub session_id: Option<&'a str>,
 }
 
 #[derive(Clone)]
@@ -216,22 +231,24 @@ pub(super) fn build_install_pipeline_plan(
 }
 
 pub(super) fn apply_install_pipeline(
-    request: &TargetInstallDownloadAndApplyRequest,
-    repo_root: &Path,
-    target_manifest: &TargetManifest,
-    source_install_dir: Option<PathBuf>,
-    existing_bundle_ids: &HashSet<String>,
-    pending_bundle_downloads: &[PendingBundleDownload],
+    request: InstallPipelineApplyRequest<'_>,
     pipeline_plan: InstallPipelinePlan,
-    download_client: &reqwest::blocking::Client,
-    transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<TargetInstallApplyFromRepoResult> {
-    let staging_dir = request.staging_dir.clone().unwrap_or_else(|| {
-        super::apply::default_target_install_staging_dir(
-            &request.install_dir,
-            &target_manifest.target_id,
-        )
-    });
+    let staging_dir = request
+        .staging_dir
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| {
+            super::apply::default_target_install_staging_dir(
+                request.install_dir,
+                &request.target_manifest.target_id,
+            )
+        });
+    if request.install_dir == staging_dir {
+        return Err(Error::PathError {
+            path: request.install_dir.to_path_buf(),
+            reason: "install and staging directories must be different".to_string(),
+        });
+    }
     if staging_dir.exists() {
         crate::helpers::remove_dir_all(&staging_dir)?;
     }
@@ -239,7 +256,6 @@ pub(super) fn apply_install_pipeline(
         crate::helpers::create_dir_all(parent)?;
     }
 
-    let progress = request.fetch_request.progress.clone();
     let main_result = (|| -> Result<TargetInstallApplyFromRepoResult> {
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
@@ -247,26 +263,26 @@ pub(super) fn apply_install_pipeline(
         let (reconstruct_timings, verify_timings) = execute_install_pipeline_materialization(
             pipeline_plan,
             &staging_dir,
-            &target_manifest.target_id,
-            &request.runtime_hints,
-            existing_bundle_ids,
-            pending_bundle_downloads,
-            &progress,
-            Some(download_client),
-            Some(transfer_progress),
-            request.fetch_request.session_id.as_deref(),
+            &request.target_manifest.target_id,
+            request.runtime_hints,
+            request.existing_bundle_ids,
+            request.pending_bundle_downloads,
+            request.progress,
+            request.download_client,
+            request.transfer_progress,
+            request.session_id,
         )?;
         let backup_dir = super::apply::promote_staging_install(
-            &request.install_dir,
+            request.install_dir,
             &staging_dir,
-            target_manifest,
+            request.target_manifest,
         )?;
         Ok(TargetInstallApplyFromRepoResult {
-            repo_root: repo_root.to_path_buf(),
-            target_manifest: target_manifest.clone(),
+            repo_root: request.repo_root.to_path_buf(),
+            target_manifest: request.target_manifest.clone(),
             apply_result: build_target_install_apply_result(
-                target_manifest,
-                &request.install_dir,
+                request.target_manifest,
+                request.install_dir,
                 &staging_dir,
                 backup_dir,
                 reused_source_chunk_count,
@@ -276,7 +292,7 @@ pub(super) fn apply_install_pipeline(
                 verify_timings,
             ),
             resolved_bundle_file_count: required_bundle_count,
-            source_install_dir,
+            source_install_dir: request.source_install_dir.clone(),
         })
     })();
 

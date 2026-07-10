@@ -16,8 +16,6 @@ pub struct GutchRepoManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_schema: Option<TargetTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plugin: Option<PluginInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<launch::RepoLaunchConfiguration>,
     #[serde(default)]
     pub chunk_sizing_profile: ChunkSizingProfile,
@@ -39,7 +37,6 @@ impl GutchRepoManifest {
             product_id: String::new(),
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             target_schema: None,
-            plugin: None,
             launch: None,
             chunk_sizing_profile: ChunkSizingProfile::default(),
             compression_profile: CompressionProfile::default(),

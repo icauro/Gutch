@@ -1,7 +1,39 @@
 use std::path::PathBuf;
 
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 use gutch as g;
+
+#[derive(Debug, Clone, Copy, Args)]
+pub struct RuntimeArgs {
+    #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
+    pub(crate) memory_mode: g::MemoryMode,
+    #[arg(long = "max-memory-mib")]
+    pub(crate) max_memory_mib: Option<u64>,
+    #[arg(long = "jobs")]
+    pub(crate) jobs: Option<usize>,
+}
+
+impl RuntimeArgs {
+    pub(crate) fn hints(self) -> g::RuntimeResourceHints {
+        g::RuntimeResourceHints {
+            memory_mode: self.memory_mode,
+            max_memory_mib: self.max_memory_mib,
+            jobs: self.jobs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Args)]
+pub struct ArtifactBuildProfileArgs {
+    #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk128KiB)]
+    pub(crate) chunk_profile: g::manifest::ArtifactSizingPreset,
+    #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
+    pub(crate) bundle_profile: g::manifest::BundleSizingPreset,
+    #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
+    pub(crate) compression_profile: g::manifest::CompressionPreset,
+    #[arg(long = "storage-mode", value_enum, default_value_t = g::manifest::ArtifactStorageMode::Bundled)]
+    pub(crate) storage_mode: g::manifest::ArtifactStorageMode,
+}
 
 #[derive(Parser)]
 #[command(
@@ -23,7 +55,6 @@ pub enum Commands {
         #[command(subcommand)]
         command: RepoCommands,
     },
-    Interactive,
     Target {
         #[command(subcommand)]
         command: TargetCommands,
@@ -168,22 +199,10 @@ pub enum TargetCommands {
         repo: PathBuf,
         #[arg(long = "tag")]
         tags: Vec<String>,
-        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk128KiB)]
-        chunk_profile: g::manifest::ArtifactSizingPreset,
-        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
-        bundle_profile: g::manifest::BundleSizingPreset,
-        #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
-        compression_profile: g::manifest::CompressionPreset,
-        #[arg(long = "storage-mode", value_enum, default_value_t = g::manifest::ArtifactStorageMode::Bundled)]
-        storage_mode: g::manifest::ArtifactStorageMode,
-        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
-        memory_mode: g::MemoryMode,
-        #[arg(long = "max-memory-mib")]
-        max_memory_mib: Option<u64>,
-        #[arg(long = "jobs")]
-        jobs: Option<usize>,
-        #[arg(long = "summary-out")]
-        summary_out: Option<PathBuf>,
+        #[command(flatten)]
+        build_profile: ArtifactBuildProfileArgs,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
@@ -199,22 +218,10 @@ pub enum TargetCommands {
         dirs: Vec<PathBuf>,
         #[arg(long = "tag")]
         tags: Vec<String>,
-        #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk128KiB)]
-        chunk_profile: g::manifest::ArtifactSizingPreset,
-        #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
-        bundle_profile: g::manifest::BundleSizingPreset,
-        #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
-        compression_profile: g::manifest::CompressionPreset,
-        #[arg(long = "storage-mode", value_enum, default_value_t = g::manifest::ArtifactStorageMode::Bundled)]
-        storage_mode: g::manifest::ArtifactStorageMode,
-        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
-        memory_mode: g::MemoryMode,
-        #[arg(long = "max-memory-mib")]
-        max_memory_mib: Option<u64>,
-        #[arg(long = "jobs")]
-        jobs: Option<usize>,
-        #[arg(long = "summary-out")]
-        summary_out: Option<PathBuf>,
+        #[command(flatten)]
+        build_profile: ArtifactBuildProfileArgs,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
@@ -235,16 +242,10 @@ pub enum TargetCommands {
         target: String,
         #[arg(short, long)]
         output: PathBuf,
-        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
-        memory_mode: g::MemoryMode,
-        #[arg(long = "max-memory-mib")]
-        max_memory_mib: Option<u64>,
-        #[arg(long = "jobs")]
-        jobs: Option<usize>,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
         #[arg(long = "no-restore-verify", action = ArgAction::SetFalse, default_value_t = true)]
         restore_verify: bool,
-        #[arg(long = "summary-out")]
-        summary_out: Option<PathBuf>,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
     },
@@ -291,14 +292,8 @@ pub enum TargetInstallCommands {
         source_target: Option<String>,
         #[arg(long = "source-dir")]
         source_dir: Option<PathBuf>,
-        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
-        memory_mode: g::MemoryMode,
-        #[arg(long = "max-memory-mib")]
-        max_memory_mib: Option<u64>,
-        #[arg(long = "jobs")]
-        jobs: Option<usize>,
-        #[arg(long = "summary-out")]
-        summary_out: Option<PathBuf>,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
     },
@@ -311,14 +306,8 @@ pub enum TargetInstallCommands {
         dir: PathBuf,
         #[arg(long = "strict")]
         strict: bool,
-        #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
-        memory_mode: g::MemoryMode,
-        #[arg(long = "max-memory-mib")]
-        max_memory_mib: Option<u64>,
-        #[arg(long = "jobs")]
-        jobs: Option<usize>,
-        #[arg(long = "summary-out")]
-        summary_out: Option<PathBuf>,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
     },
@@ -339,8 +328,6 @@ pub enum PathCommands {
         expected: PathBuf,
         #[arg(long = "actual")]
         actual: PathBuf,
-        #[arg(long = "summary-out")]
-        summary_out: Option<PathBuf>,
         #[arg(long = "stats-json-out")]
         stats_json_out: Option<PathBuf>,
     },

@@ -9,6 +9,7 @@ pub enum GutchOperation {
     SyncUp,
     TargetSourcesSync,
     Fetch,
+    Verify,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -38,6 +39,7 @@ pub enum GutchProgressPhase {
     UploadBundle,
     Prune,
     Insert,
+    Verify,
 }
 
 impl GutchProgressPhase {
@@ -67,6 +69,7 @@ impl GutchProgressPhase {
             GutchProgressPhase::UploadBundle => "upload_bundle",
             GutchProgressPhase::Prune => "prune",
             GutchProgressPhase::Insert => "insert",
+            GutchProgressPhase::Verify => "verify",
         }
     }
 }

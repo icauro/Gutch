@@ -24,7 +24,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                 repo_manifest_url,
                 manifest_url,
                 chunk_index_url,
-                bundle_downloads_endpoint: bundle_downloads_endpoint,
+                bundle_downloads_endpoint,
                 session_id,
                 bundles: parse_bundle_downloads(&bundles)?,
                 progress: Some(progress),
@@ -52,10 +52,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             staging_dir,
             source_target,
             source_dir,
-            memory_mode,
-            max_memory_mib,
-            jobs,
-            summary_out,
+            runtime,
             stats_json_out,
         } => actions::target_install::apply_install(actions::target_install::ApplyCommand {
             repo,
@@ -64,10 +61,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             staging_dir,
             source_target,
             source_dir,
-            memory_mode,
-            max_memory_mib,
-            jobs,
-            summary_out,
+            runtime_hints: runtime.hints(),
             stats_json_out,
         })?,
 
@@ -76,10 +70,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             target,
             dir,
             strict,
-            memory_mode,
-            max_memory_mib,
-            jobs,
-            summary_out,
+            runtime,
             stats_json_out,
         } => actions::target_install::verify_install(actions::target_install::VerifyCommand {
             repo,
@@ -90,10 +81,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
             } else {
                 g::VerifyMode::Fast
             },
-            memory_mode,
-            max_memory_mib,
-            jobs,
-            summary_out,
+            runtime_hints: runtime.hints(),
             stats_json_out,
         })?,
     }

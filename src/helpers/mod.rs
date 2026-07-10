@@ -43,7 +43,7 @@ pub fn remove_dir_all(path: &Path) -> Result<(), Error> {
 // ---------------------------------------------------------------------------
 
 /// Serialize to pretty JSON string.
-pub fn to_json_pretty<T: serde::Serialize>(value: &T) -> Result<String, Error> {
+fn to_json_pretty<T: serde::Serialize>(value: &T) -> Result<String, Error> {
     Ok(serde_json::to_string_pretty(value)?)
 }
 

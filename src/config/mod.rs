@@ -96,11 +96,11 @@ pub fn patron_launcher_config_root() -> Result<PathBuf, crate::Error> {
     Ok(home.join(".config").join("Launcher"))
 }
 
-pub fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
+fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
     Ok(patron_launcher_config_root()?.join("gutch"))
 }
 
-pub fn gutch_config_path() -> Result<PathBuf, crate::Error> {
+fn gutch_config_path() -> Result<PathBuf, crate::Error> {
     Ok(gutch_config_dir()?.join("config.json"))
 }
 

@@ -50,18 +50,6 @@ fn test_chunk_profile_1mib_uses_expected_range() {
 }
 
 #[test]
-fn test_chunk_auto_selection_always_resolves_128kib() {
-    assert_eq!(
-        ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1),
-        ArtifactSizingPreset::Chunk128KiB
-    );
-    assert_eq!(
-        ChunkSizingProfile::auto_preset_for_median_file_size_bytes(1024 * 1024 * 1024),
-        ArtifactSizingPreset::Chunk128KiB
-    );
-}
-
-#[test]
 fn test_bundle_sizing_profile_defaults() {
     let p = BundleSizingProfile::default();
     assert_eq!(p.preset, BundleSizingPreset::Bundle16MiB);
@@ -69,18 +57,6 @@ fn test_bundle_sizing_profile_defaults() {
     assert_eq!(p.bundle_preferred_mib, 16);
     assert_eq!(p.bundle_max_size_bytes(), 32 * 1024 * 1024);
     assert_eq!(p.bundle_preferred_size_bytes(), 16 * 1024 * 1024);
-}
-
-#[test]
-fn test_bundle_auto_selection_always_resolves_balanced() {
-    assert_eq!(
-        BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1),
-        BundleSizingPreset::Bundle16MiB
-    );
-    assert_eq!(
-        BundleSizingProfile::auto_preset_for_target_logical_size_bytes(1024 * 1024 * 1024 * 1024),
-        BundleSizingPreset::Bundle16MiB
-    );
 }
 
 #[test]

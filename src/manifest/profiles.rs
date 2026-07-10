@@ -109,9 +109,6 @@ impl ArtifactSizingPreset {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum BundleSizingPreset {
-    #[serde(rename = "auto")]
-    #[value(name = "auto")]
-    Auto,
     #[serde(rename = "bundle_4MiB")]
     #[value(name = "bundle_4MiB")]
     Bundle4MiB,
@@ -136,7 +133,6 @@ pub enum BundleSizingPreset {
 impl BundleSizingPreset {
     pub fn cli_name(self) -> &'static str {
         match self {
-            Self::Auto => "auto",
             Self::Bundle4MiB => "bundle_4MiB",
             Self::Bundle8MiB => "bundle_8MiB",
             Self::Bundle16MiB => "bundle_16MiB",
@@ -202,16 +198,6 @@ impl ChunkSizingProfile {
     pub fn max_chunk_size_bytes(&self) -> u32 {
         self.max_chunk_bytes
     }
-
-    pub fn auto_preset_for_median_file_size_bytes(
-        _median_file_size_bytes: u64,
-    ) -> ArtifactSizingPreset {
-        ArtifactSizingPreset::Chunk128KiB
-    }
-
-    pub fn for_selection(preset: ArtifactSizingPreset, _median_file_size_bytes: u64) -> Self {
-        Self::for_preset(preset)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,7 +210,7 @@ pub struct BundleSizingProfile {
 impl BundleSizingProfile {
     pub fn for_preset(preset: BundleSizingPreset) -> Self {
         let (bundle_max_mib, bundle_preferred_mib) = match preset {
-            BundleSizingPreset::Auto | BundleSizingPreset::Bundle16MiB => (32, 16),
+            BundleSizingPreset::Bundle16MiB => (32, 16),
             BundleSizingPreset::Bundle4MiB => (8, 4),
             BundleSizingPreset::Bundle8MiB => (16, 8),
             BundleSizingPreset::Bundle32MiB => (64, 32),
@@ -245,22 +231,6 @@ impl BundleSizingProfile {
 
     pub fn bundle_preferred_size_bytes(&self) -> u64 {
         self.bundle_preferred_mib * 1024 * 1024
-    }
-
-    pub fn auto_preset_for_target_logical_size_bytes(
-        _target_logical_size_bytes: u64,
-    ) -> BundleSizingPreset {
-        BundleSizingPreset::Bundle16MiB
-    }
-
-    pub fn for_selection(preset: BundleSizingPreset, target_logical_size_bytes: u64) -> Self {
-        let resolved = match preset {
-            BundleSizingPreset::Auto => {
-                Self::auto_preset_for_target_logical_size_bytes(target_logical_size_bytes)
-            }
-            other => other,
-        };
-        Self::for_preset(resolved)
     }
 }
 

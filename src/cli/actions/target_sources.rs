@@ -5,9 +5,6 @@ use crate::cli::common::prompt_yes_no;
 use crate::cli::progress::CliProgressSink;
 use gutch as g;
 
-pub type TargetSourcesSyncOptions = CliTargetSourcesSyncOptions;
-pub type TargetSourcesSyncResult = g::TargetSourcesSyncResult;
-
 #[derive(Debug, Clone, Copy)]
 pub struct CliTargetSourcesSyncOptions {
     pub no_prune: bool,
@@ -41,7 +38,7 @@ pub fn sync_target_sources(
     repo: &Path,
     sources_path: &Path,
     options: CliTargetSourcesSyncOptions,
-) -> g::Result<TargetSourcesSyncResult> {
+) -> g::Result<g::TargetSourcesSyncResult> {
     let plan = g::plan_target_sources_sync(repo, Some(sources_path))?;
     if !plan.sources_ready {
         return Err(g::Error::manifest(

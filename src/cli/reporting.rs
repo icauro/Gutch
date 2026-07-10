@@ -174,8 +174,6 @@ fn accounted_timing_fields(
 #[derive(Debug, Serialize)]
 pub struct OptionalOutputPaths {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary_out: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub stats_json_out: Option<String>,
 }
 
@@ -501,12 +499,8 @@ pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummar
     }
 }
 
-pub fn optional_output_paths(
-    summary_out: &Option<PathBuf>,
-    stats_json_out: &Option<PathBuf>,
-) -> OptionalOutputPaths {
+pub fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> OptionalOutputPaths {
     OptionalOutputPaths {
-        summary_out: summary_out.as_ref().map(|path| path.display().to_string()),
         stats_json_out: stats_json_out
             .as_ref()
             .map(|path| path.display().to_string()),
@@ -535,25 +529,6 @@ pub fn write_stats_json_output<T: Serialize>(
     let json = serde_json::to_string_pretty(stats)?;
     std::fs::write(stats_json_out, json)?;
     Ok(())
-}
-
-pub fn format_bytes(bytes: u64) -> String {
-    const KIB: u64 = 1024;
-    const MIB: u64 = 1024 * KIB;
-    const GIB: u64 = 1024 * MIB;
-    const TIB: u64 = 1024 * GIB;
-
-    if bytes >= TIB {
-        format!("{:.2} TiB", bytes as f64 / TIB as f64)
-    } else if bytes >= GIB {
-        format!("{:.2} GiB", bytes as f64 / GIB as f64)
-    } else if bytes >= MIB {
-        format!("{:.2} MiB", bytes as f64 / MIB as f64)
-    } else if bytes >= KIB {
-        format!("{:.2} KiB", bytes as f64 / KIB as f64)
-    } else {
-        format!("{bytes} B")
-    }
 }
 
 pub fn print_build_timings(t: &g::BuildTimings) {

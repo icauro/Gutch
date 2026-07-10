@@ -71,6 +71,7 @@ pub struct TargetInstallVerifyFromRepoRequest {
     pub install_dir: PathBuf,
     pub verify_mode: VerifyMode,
     pub runtime_hints: RuntimeResourceHints,
+    pub progress: Option<Arc<dyn GutchProgressSink>>,
 }
 
 #[derive(Debug, Clone)]

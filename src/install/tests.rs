@@ -2,7 +2,7 @@ use super::*;
 use crate::hash::hash_hex;
 use crate::install::{
     GutchBundleDownload, TargetInstallFetchRequest, fetch_target_install_content,
-    repair_target_install_with_timings_and_hints, resolve_target_install_state,
+    repair_target_install_from_repo, resolve_target_install_state,
 };
 use crate::manifest::{self, FileManifest, TargetTagSet};
 use crate::runtime::RuntimeResourceHints;
@@ -27,6 +27,12 @@ fn test_target_manifest(files: Vec<(&str, &[u8])>) -> TargetManifest {
 
 fn test_hash(label: &str) -> String {
     hash_hex(&blake3::hash(label.as_bytes()))
+}
+
+fn write_repair_test_repo(root: &std::path::Path, manifest: &TargetManifest) {
+    let paths = GutchRepoPaths::from_repo_root(root);
+    crate::ensure_gutch_repo_layout(&paths, "test").unwrap();
+    crate::write_target_manifest_artifacts(&paths, manifest).unwrap();
 }
 
 #[test]
@@ -106,16 +112,18 @@ fn repair_target_install_keeps_added_files_when_requested() {
     std::fs::write(install_dir.join("game.dat"), b"").unwrap();
     std::fs::write(install_dir.join("mod.txt"), b"user data").unwrap();
     let manifest = test_target_manifest(vec![("game.dat", b"")]);
+    write_repair_test_repo(&root, &manifest);
 
-    let result = repair_target_install_with_timings_and_hints(
-        &manifest,
-        &[],
-        &install_dir,
-        &staging_dir,
-        false,
-        &RuntimeResourceHints::default(),
-    )
-    .unwrap();
+    let result = repair_target_install_from_repo(crate::TargetInstallRepairFromRepoRequest {
+        repo_path: root.clone(),
+        target_id: manifest.target_id.clone(),
+        install_dir: install_dir.clone(),
+        staging_dir: Some(staging_dir),
+        remove_added_files: false,
+        runtime_hints: RuntimeResourceHints::default(),
+    })
+    .unwrap()
+    .repair_result;
 
     assert_eq!(result.extra_file_count, 1);
     assert_eq!(result.removed_extra_file_count, 0);
@@ -133,16 +141,18 @@ fn repair_target_install_full_repair_deletes_added_files() {
     std::fs::write(install_dir.join("game.dat"), b"").unwrap();
     std::fs::write(install_dir.join("mods").join("mod.txt"), b"user data").unwrap();
     let manifest = test_target_manifest(vec![("game.dat", b"")]);
+    write_repair_test_repo(&root, &manifest);
 
-    let result = repair_target_install_with_timings_and_hints(
-        &manifest,
-        &[],
-        &install_dir,
-        &staging_dir,
-        true,
-        &RuntimeResourceHints::default(),
-    )
-    .unwrap();
+    let result = repair_target_install_from_repo(crate::TargetInstallRepairFromRepoRequest {
+        repo_path: root.clone(),
+        target_id: manifest.target_id.clone(),
+        install_dir: install_dir.clone(),
+        staging_dir: Some(staging_dir),
+        remove_added_files: true,
+        runtime_hints: RuntimeResourceHints::default(),
+    })
+    .unwrap()
+    .repair_result;
 
     assert_eq!(result.extra_file_count, 1);
     assert_eq!(result.removed_extra_file_count, 1);

@@ -1,14 +1,8 @@
 use std::path::Path;
 
-use crate::hash::{hash_file, hash_hex};
+use crate::hash::hash_hex;
 use crate::manifest::FileManifest;
 use crate::{Error, Result};
-
-pub fn compute_target_id_from_directory(dir: &Path) -> Result<String> {
-    Ok(compute_target_id_from_files(
-        &scan_directory_files_for_content_id(dir)?,
-    ))
-}
 
 pub fn source_modified_at_from_directory(dir: &Path) -> Result<String> {
     Ok(format_system_time_utc(max_file_modified_time(dir)?))
@@ -71,36 +65,6 @@ fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
             dir.display()
         ))
     })
-}
-
-fn scan_directory_files_for_content_id(dir: &Path) -> Result<Vec<FileManifest>> {
-    let mut file_manifests = Vec::new();
-    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file() {
-            continue;
-        }
-
-        let relative = entry
-            .path()
-            .strip_prefix(dir)
-            .map_err(|err| Error::PathError {
-                path: entry.path().to_path_buf(),
-                reason: err.to_string(),
-            })?;
-        let normalized_relative = relative.to_string_lossy().replace('\\', "/");
-        let metadata = entry.metadata()?;
-        let full_file_hash = hash_hex(&hash_file(entry.path())?);
-        file_manifests.push(FileManifest {
-            path: normalized_relative,
-            size: metadata.len(),
-            executable: false,
-            full_file_hash,
-            chunks: Vec::new(),
-        });
-    }
-
-    Ok(file_manifests)
 }
 
 pub fn compute_target_id_from_files(files: &[FileManifest]) -> String {

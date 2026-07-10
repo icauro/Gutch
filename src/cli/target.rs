@@ -2,11 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::cli::TargetCommands;
+use crate::cli::args::ArtifactBuildProfileArgs;
 use crate::cli::common::{
-    TargetExportStats, TargetInsertManyStats, TargetInsertStats, collect_input_sizing_stats,
-    count_required_bundles_for_build, count_required_bundles_from_chunk_index,
-    count_required_chunks, load_target_manifest_from_repo, prepare_input_path, prompt_yes_no,
-    write_bundles, write_loose_chunks, write_report, write_target_manifest,
+    TargetExportStats, TargetInsertManyStats, TargetInsertStats, count_required_bundles_for_build,
+    count_required_bundles_from_chunk_index, count_required_chunks, load_target_manifest_from_repo,
+    prepare_input_path, prompt_yes_no, write_bundles, write_loose_chunks, write_report,
+    write_target_manifest,
 };
 use crate::cli::progress::{CliBuildProgressSink, CliProgressSink};
 use crate::cli::reporting::{
@@ -51,14 +52,8 @@ struct InsertOneTargetRequest<'a> {
     repo_name: &'a str,
     rules: &'a g::manifest::TargetTagSchema,
     explicit_tags: &'a g::manifest::TargetTagSet,
-    chunk_profile: g::manifest::ArtifactSizingPreset,
-    bundle_profile: g::manifest::BundleSizingPreset,
-    compression_profile: g::manifest::CompressionPreset,
-    storage_mode: g::manifest::ArtifactStorageMode,
-    memory_mode: g::MemoryMode,
-    max_memory_mib: Option<u64>,
-    jobs: Option<usize>,
-    summary_out: &'a Option<PathBuf>,
+    build_profile: ArtifactBuildProfileArgs,
+    runtime_hints: g::RuntimeResourceHints,
     stats_json_out: &'a Option<PathBuf>,
     command_name: &'static str,
     yes: bool,
@@ -94,7 +89,6 @@ fn unchanged_target_insert_stats(
     required_chunk_count: usize,
     required_bundle_count: usize,
     timings: &g::BuildTimings,
-    summary_out: &Option<PathBuf>,
     stats_json_out: &Option<PathBuf>,
 ) -> TargetInsertStats {
     TargetInsertStats {
@@ -124,7 +118,7 @@ fn unchanged_target_insert_stats(
         reused_bundle_count: required_bundle_count,
         reused_bundle_percent: 100.0,
         timings: build_timings_summary(timings),
-        outputs: optional_output_paths(summary_out, stats_json_out),
+        outputs: optional_output_paths(stats_json_out),
     }
 }
 
@@ -183,11 +177,10 @@ fn run_insert_one_target(
                 os: insert_plan.os.clone(),
                 arch: insert_plan.arch.clone(),
             },
-            request.storage_mode,
+            request.build_profile.storage_mode,
             required_chunk_count,
             required_bundle_count,
             &g::BuildTimings::default(),
-            request.summary_out,
             request.stats_json_out,
         ));
     }
@@ -200,23 +193,17 @@ fn run_insert_one_target(
         request.rules,
         &context,
     )?;
-    let input_stats = collect_input_sizing_stats(&prepared_input.dir)?;
-
     let existing_chunk_ids = store_state
         .chunk_locations
         .keys()
         .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
         .collect::<g::Result<HashSet<_>>>()?;
-    let chunk_sizing_profile = g::manifest::ChunkSizingProfile::for_selection(
-        request.chunk_profile,
-        input_stats.median_file_size_bytes,
-    );
-    let bundle_sizing_profile = g::manifest::BundleSizingProfile::for_selection(
-        request.bundle_profile,
-        input_stats.target_logical_size_bytes,
-    );
+    let chunk_sizing_profile =
+        g::manifest::ChunkSizingProfile::for_preset(request.build_profile.chunk_profile);
+    let bundle_sizing_profile =
+        g::manifest::BundleSizingProfile::for_preset(request.build_profile.bundle_profile);
     let compression_profile =
-        g::manifest::CompressionProfile::for_preset(request.compression_profile);
+        g::manifest::CompressionProfile::for_preset(request.build_profile.compression_profile);
 
     let mut build_config =
         g::BuildConfig::with_ids(request.repo_name, "", &resolved_identity.target_tags)
@@ -226,12 +213,8 @@ fn run_insert_one_target(
             .with_chunk_profile(&chunk_sizing_profile)
             .with_bundle_profile(&bundle_sizing_profile)
             .with_compression_profile(&compression_profile);
-    build_config.storage_mode = request.storage_mode;
-    build_config.runtime_hints = g::RuntimeResourceHints {
-        memory_mode: request.memory_mode,
-        max_memory_mib: request.max_memory_mib,
-        jobs: request.jobs,
-    };
+    build_config.storage_mode = request.build_profile.storage_mode;
+    build_config.runtime_hints = request.runtime_hints.clone();
     let build_progress = CliBuildProgressSink::new();
     build_config.progress = Some(build_progress.as_build_sink());
 
@@ -268,11 +251,10 @@ fn run_insert_one_target(
                 request.repo_name,
                 &updated_manifest,
                 resolved_identity_strings(&resolved_identity.target_tags),
-                request.storage_mode,
+                request.build_profile.storage_mode,
                 required_chunk_count,
                 required_bundle_count,
                 &timings,
-                request.summary_out,
                 request.stats_json_out,
             ));
         }
@@ -352,7 +334,7 @@ fn run_insert_one_target(
         version_id: resolved_identity_strings.version_id,
         os: resolved_identity_strings.os,
         arch: resolved_identity_strings.arch,
-        storage_mode: request.storage_mode.cli_name().to_string(),
+        storage_mode: request.build_profile.storage_mode.cli_name().to_string(),
         file_count: result.target_manifest.files.len(),
         total_logical_size: result.target_manifest.total_logical_size,
         total_compressed_size_estimate: result.target_manifest.total_compressed_size_estimate,
@@ -368,7 +350,7 @@ fn run_insert_one_target(
         reused_bundle_count,
         reused_bundle_percent,
         timings: build_timings_summary(&timings),
-        outputs: optional_output_paths(request.summary_out, request.stats_json_out),
+        outputs: optional_output_paths(request.stats_json_out),
     };
 
     Ok(stats)
@@ -440,19 +422,12 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             dir,
             repo,
             tags,
-            chunk_profile,
-            bundle_profile,
-            compression_profile,
-            storage_mode,
-            memory_mode,
-            max_memory_mib,
-            jobs,
-            summary_out,
+            build_profile,
+            runtime,
             stats_json_out,
             yes,
         } => {
             let explicit_tags = parse_cli_tags(&tags)?;
-            let input_stats = collect_input_sizing_stats(&dir)?;
             let plan = g::plan_target_insert(repo.as_path(), dir.as_path(), &explicit_tags)?;
             if !yes {
                 println!("target insert plan:");
@@ -471,15 +446,11 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 repo_root: repo.clone(),
                 source_dir: dir.clone(),
                 explicit_tags,
-                chunk_profile,
-                bundle_profile,
-                compression_profile,
-                storage_mode,
-                runtime_hints: g::RuntimeResourceHints {
-                    memory_mode,
-                    max_memory_mib,
-                    jobs,
-                },
+                chunk_profile: build_profile.chunk_profile,
+                bundle_profile: build_profile.bundle_profile,
+                compression_profile: build_profile.compression_profile,
+                storage_mode: build_profile.storage_mode,
+                runtime_hints: runtime.hints(),
                 progress: Some(progress),
             })?;
             let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
@@ -494,7 +465,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 version_id: insert_result.version_id,
                 os: insert_result.os,
                 arch: insert_result.arch,
-                storage_mode: storage_mode.cli_name().to_string(),
+                storage_mode: build_profile.storage_mode.cli_name().to_string(),
                 file_count: insert_result.file_count,
                 total_logical_size: insert_result.total_logical_size,
                 total_compressed_size_estimate: insert_result.total_compressed_size_estimate,
@@ -521,22 +492,18 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     insert_result.required_bundle_count as u64,
                 ),
                 timings: build_timings_summary(&insert_result.build_timings),
-                outputs: optional_output_paths(&summary_out, &stats_json_out),
+                outputs: optional_output_paths(&stats_json_out),
             };
-            write_report(&summary_out, &stats_json_out, &stats)?;
+            write_report(&stats_json_out, &stats)?;
 
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-            repo_manifest.chunk_sizing_profile = g::manifest::ChunkSizingProfile::for_selection(
-                chunk_profile,
-                input_stats.median_file_size_bytes,
-            );
-            repo_manifest.bundle_sizing_profile = g::manifest::BundleSizingProfile::for_selection(
-                bundle_profile,
-                stats.total_logical_size,
-            );
+            repo_manifest.chunk_sizing_profile =
+                g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
+            repo_manifest.bundle_sizing_profile =
+                g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
             repo_manifest.compression_profile =
-                g::manifest::CompressionProfile::for_preset(compression_profile);
-            repo_manifest.storage_mode = storage_mode;
+                g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
+            repo_manifest.storage_mode = build_profile.storage_mode;
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
         }
 
@@ -545,14 +512,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             product_dir,
             dirs,
             tags,
-            chunk_profile,
-            bundle_profile,
-            compression_profile,
-            storage_mode,
-            memory_mode,
-            max_memory_mib,
-            jobs,
-            summary_out,
+            build_profile,
+            runtime,
             stats_json_out,
             yes,
         } => {
@@ -601,14 +562,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                         repo_name: &repo_name,
                         rules: &rules,
                         explicit_tags: &explicit_tags,
-                        chunk_profile,
-                        bundle_profile,
-                        compression_profile,
-                        storage_mode,
-                        memory_mode,
-                        max_memory_mib,
-                        jobs,
-                        summary_out: &empty_output,
+                        build_profile,
+                        runtime_hints: runtime.hints(),
                         stats_json_out: &empty_output,
                         command_name: "target insert-many",
                         yes,
@@ -660,18 +615,18 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 generated_chunk_bytes,
                 total_build_seconds,
                 targets: target_stats,
-                outputs: optional_output_paths(&summary_out, &stats_json_out),
+                outputs: optional_output_paths(&stats_json_out),
             };
 
             repo_manifest.chunk_sizing_profile =
-                g::manifest::ChunkSizingProfile::for_selection(chunk_profile, 0);
+                g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
             repo_manifest.bundle_sizing_profile =
-                g::manifest::BundleSizingProfile::for_selection(bundle_profile, total_logical_size);
+                g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
             repo_manifest.compression_profile =
-                g::manifest::CompressionProfile::for_preset(compression_profile);
-            repo_manifest.storage_mode = storage_mode;
+                g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
+            repo_manifest.storage_mode = build_profile.storage_mode;
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
-            write_report(&summary_out, &stats_json_out, &aggregate_stats)?;
+            write_report(&stats_json_out, &aggregate_stats)?;
         }
 
         TargetCommands::Delete { repo, target, yes } => {
@@ -699,11 +654,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             repo,
             target,
             output,
-            memory_mode,
-            max_memory_mib,
-            jobs,
+            runtime,
             restore_verify,
-            summary_out,
             stats_json_out,
         } => {
             let (repo_paths, repo_manifest, _manifest_path, tm) =
@@ -711,12 +663,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             let chunk_index = g::load_chunk_index(&repo_paths)?;
             let required_bundle_ids = g::repo::required_bundle_ids(&tm, &chunk_index);
 
-            let runtime_hints = g::RuntimeResourceHints {
-                memory_mode,
-                max_memory_mib,
-                jobs,
-            };
-            let (_, timings) = g::reconstruct_from_repo_paths_with_timings_and_hints_with_options(
+            let runtime_hints = runtime.hints();
+            let (_, timings) = g::reconstruct_from_repo(
                 &tm,
                 &repo_paths,
                 &repo_manifest.compression_profile,
@@ -745,9 +693,9 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 total_logical_size: tm.total_logical_size,
                 total_compressed_size_estimate: tm.total_compressed_size_estimate,
                 timings: reconstruct_timings_summary(&timings),
-                outputs: optional_output_paths(&summary_out, &stats_json_out),
+                outputs: optional_output_paths(&stats_json_out),
             };
-            write_report(&summary_out, &stats_json_out, &stats)?;
+            write_report(&stats_json_out, &stats)?;
         }
 
         TargetCommands::Estimate { dir, repo, tags } => {

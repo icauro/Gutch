@@ -52,6 +52,7 @@ impl GutchProgressSink for CliProgressSink {
             GutchOperation::SyncUp => "sync",
             GutchOperation::TargetSourcesSync => "sources",
             GutchOperation::Fetch => "fetch",
+            GutchOperation::Verify => "verify",
         };
 
         if event.total > 0 {

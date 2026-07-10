@@ -21,7 +21,6 @@ fn compare_identical_files() {
         &expected_dir,
         &actual_dir,
         OptionalOutputPaths {
-            summary_out: None,
             stats_json_out: None,
         },
     )
@@ -55,7 +54,6 @@ fn compare_mismatched_files() {
         &expected_dir,
         &actual_dir,
         OptionalOutputPaths {
-            summary_out: None,
             stats_json_out: None,
         },
     )
@@ -84,7 +82,6 @@ fn compare_missing_files() {
         &expected_dir,
         &actual_dir,
         OptionalOutputPaths {
-            summary_out: None,
             stats_json_out: None,
         },
     )
@@ -117,7 +114,6 @@ fn compare_extra_files() {
         &expected_dir,
         &actual_dir,
         OptionalOutputPaths {
-            summary_out: None,
             stats_json_out: None,
         },
     )
@@ -146,7 +142,6 @@ fn compare_single_files_identical() {
         &expected_file,
         &actual_file,
         OptionalOutputPaths {
-            summary_out: None,
             stats_json_out: None,
         },
     )

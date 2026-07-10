@@ -2,7 +2,6 @@ pub mod binary;
 mod content;
 pub mod gutch_repo;
 pub mod launch;
-mod plugin;
 mod profiles;
 pub mod runtime;
 pub mod schema_edit;
@@ -21,7 +20,6 @@ pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 pub use content::{
     BundleTableEntry, ChunkIndex, ChunkIndexEntry, ChunkRef, Estimate, FileManifest,
 };
-pub use plugin::{PluginDependency, PluginInfo, PluginOverride, PluginType, TagConstraint};
 pub use profiles::{
     ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, BundleSizingProfile,
     ChunkSizingProfile, CompressionKind, CompressionPreset, CompressionProfile, CompressionUnit,

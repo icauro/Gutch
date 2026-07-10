@@ -3,7 +3,6 @@ pub mod args;
 pub(crate) mod bundle;
 pub(crate) mod commands;
 pub(crate) mod common;
-pub(crate) mod interactive;
 pub(crate) mod path;
 pub(crate) mod path_compare;
 pub(crate) mod progress;
@@ -29,10 +28,6 @@ pub(crate) fn set_verbose_output_enabled(enabled: bool) {
 
 pub(crate) fn verbose_output_enabled() -> bool {
     VERBOSE_OUTPUT_ENABLED.load(Ordering::Relaxed)
-}
-
-pub fn run_from_env() -> crate::Result<()> {
-    run_from_args(std::env::args_os())
 }
 
 pub fn run_from_args<I, T>(args: I) -> crate::Result<()>

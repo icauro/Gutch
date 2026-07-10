@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::cli::common::{TargetInstallApplyStats, TargetInstallVerifyStats, write_report};
+use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::{
     optional_output_paths, print_reconstruct_timings, print_verify_timings, ratio_pct,
     reconstruct_timings_summary, verify_timings_summary,
@@ -15,10 +16,7 @@ pub(crate) struct ApplyCommand {
     pub(crate) staging_dir: Option<PathBuf>,
     pub(crate) source_target: Option<String>,
     pub(crate) source_dir: Option<PathBuf>,
-    pub(crate) memory_mode: g::MemoryMode,
-    pub(crate) max_memory_mib: Option<u64>,
-    pub(crate) jobs: Option<usize>,
-    pub(crate) summary_out: Option<PathBuf>,
+    pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
 }
 
@@ -27,19 +25,11 @@ pub(crate) struct VerifyCommand {
     pub(crate) target: String,
     pub(crate) dir: PathBuf,
     pub(crate) verify_mode: g::VerifyMode,
-    pub(crate) memory_mode: g::MemoryMode,
-    pub(crate) max_memory_mib: Option<u64>,
-    pub(crate) jobs: Option<usize>,
-    pub(crate) summary_out: Option<PathBuf>,
+    pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
 }
 
 pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
-    let runtime_hints = g::RuntimeResourceHints {
-        memory_mode: command.memory_mode,
-        max_memory_mib: command.max_memory_mib,
-        jobs: command.jobs,
-    };
     let execution = g::apply_target_install_from_repo(g::TargetInstallApplyFromRepoRequest {
         repo_path: command.repo.clone(),
         target_id: command.target.clone(),
@@ -47,7 +37,7 @@ pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
         staging_dir: command.staging_dir.clone(),
         source_target_id: command.source_target.clone(),
         source_dir: command.source_dir.clone(),
-        runtime_hints,
+        runtime_hints: command.runtime_hints,
     })?;
     let tm = execution.target_manifest;
     let result = execution.apply_result;
@@ -76,9 +66,9 @@ pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
         total_compressed_size_estimate: tm.total_compressed_size_estimate,
         reconstruct_timings: reconstruct_timings_summary(&result.reconstruct_timings),
         verify_timings: verify_timings_summary(&result.verify_timings),
-        outputs: optional_output_paths(&command.summary_out, &command.stats_json_out),
+        outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.summary_out, &command.stats_json_out, &stats)?;
+    write_report(&command.stats_json_out, &stats)?;
 
     if verbose_output_enabled() {
         println!(
@@ -98,17 +88,14 @@ pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
 }
 
 pub(crate) fn verify_install(command: VerifyCommand) -> g::Result<()> {
-    let runtime_hints = g::RuntimeResourceHints {
-        memory_mode: command.memory_mode,
-        max_memory_mib: command.max_memory_mib,
-        jobs: command.jobs,
-    };
+    let progress = CliProgressSink::new();
     let execution = g::verify_target_install_from_repo(g::TargetInstallVerifyFromRepoRequest {
         repo_path: command.repo.clone(),
         target_id: command.target.clone(),
         install_dir: command.dir.clone(),
         verify_mode: command.verify_mode,
-        runtime_hints,
+        runtime_hints: command.runtime_hints,
+        progress: Some(progress),
     })?;
     let repo_root = execution.repo_root;
     let tm = execution.target_manifest;
@@ -131,9 +118,9 @@ pub(crate) fn verify_install(command: VerifyCommand) -> g::Result<()> {
         verification_passed: errors.is_empty(),
         errors: errors.clone(),
         timings: verify_timings_summary(&timings),
-        outputs: optional_output_paths(&command.summary_out, &command.stats_json_out),
+        outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.summary_out, &command.stats_json_out, &stats)?;
+    write_report(&command.stats_json_out, &stats)?;
 
     if errors.is_empty() {
         if verbose_output_enabled() {

@@ -18,8 +18,6 @@ clap = { version = "4.6.1", features = ["derive"] }
 # CLI argument parsing (plctl gutch commands)
 walkdir = "2.5.0"
 # Recursive directory traversal
-anyhow = "1.0.102"
-# Ergonomic error handling with context
 chrono = "0.4.45"
 # Date/time (timestamps in manifests)
 thiserror = "2.0.18"
@@ -35,14 +33,10 @@ reqwest = { version = "0.13.4", features = [
     "rustls",
 ] }
 # HTTP client (bundle downloads from signed URLs) default-features = false,
-dialoguer = "0.12.0"
-# Interactive CLI prompts (user input)
 indicatif = "0.18.4"
 # CLI progress bars (download/install progress)
 dirs = "6.0.0"
 # Platform-specific directory paths
-rfd = "0.17.2"
-# Native file dialogs (GUI file picker)
 pl-auth = { path = "../pl-auth" }
 # Shared auth utilities (session tokens)
 smol_str = { version = "0.3.2", features = ["serde"] }

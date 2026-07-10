@@ -87,24 +87,6 @@ pub fn required_bundle_ids(
         .collect()
 }
 
-pub fn required_loose_chunk_hashes(
-    target_manifest: &TargetManifest,
-    chunk_index: &manifest::ChunkIndex,
-) -> HashSet<String> {
-    target_manifest
-        .files
-        .iter()
-        .flat_map(|file| file.chunks.iter())
-        .filter(|chunk_ref| {
-            chunk_index
-                .entries
-                .get(&chunk_ref.chunk_hash)
-                .is_some_and(|entry| entry.storage_mode == ArtifactStorageMode::LooseChunks)
-        })
-        .map(|chunk_ref| chunk_ref.chunk_hash.clone())
-        .collect()
-}
-
 pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStoreState> {
     let mut state = ExistingStoreState::default();
     let chunk_index = load_chunk_index(paths)?;
