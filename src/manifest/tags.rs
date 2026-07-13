@@ -419,17 +419,6 @@ impl TargetTagSchema {
             .iter()
             .find(|definition| definition.name == name)
     }
-
-    pub fn find_value_definition<'a>(
-        &'a self,
-        definition_name: &str,
-        token: &str,
-    ) -> Option<&'a TargetTagValueDefinition> {
-        self.find_definition(definition_name)?
-            .values
-            .iter()
-            .find(|value_definition| value_definition.matches_token(token))
-    }
 }
 
 impl Default for TargetTagSchema {

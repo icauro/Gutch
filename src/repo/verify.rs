@@ -71,10 +71,10 @@ pub fn verify_gutch_repo(
         .filter(|target| target_id.map(|id| id == target.target_id).unwrap_or(true))
         .collect();
 
-    if let Some(id) = target_id {
-        if selected_targets.is_empty() {
-            return Err(Error::manifest(format!("target not found in repo: {id}")));
-        }
+    if let Some(id) = target_id
+        && selected_targets.is_empty()
+    {
+        return Err(Error::manifest(format!("target not found in repo: {id}")));
     }
 
     let verify_start = Instant::now();

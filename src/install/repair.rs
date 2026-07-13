@@ -50,7 +50,7 @@ pub fn repair_target_install_from_repo(
         default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
     });
     let resolved_bundle_file_count = repair_plan.required_bundle_ids.len();
-    let repair_result = if repair_plan.needs_rebuild {
+    if repair_plan.needs_rebuild {
         let existing_bundle_ids = repair_plan
             .required_bundle_ids
             .iter()
@@ -76,24 +76,15 @@ pub fn repair_target_install_from_repo(
             None,
             None,
         )?;
-        finalize_repair_result_after_materialization(
-            &target_manifest,
-            &request.install_dir,
-            &staging_dir,
-            request.remove_added_files,
-            &request.runtime_hints,
-            &repair_plan,
-        )?
-    } else {
-        finalize_repair_result_after_materialization(
-            &target_manifest,
-            &request.install_dir,
-            &staging_dir,
-            request.remove_added_files,
-            &request.runtime_hints,
-            &repair_plan,
-        )?
-    };
+    }
+    let repair_result = finalize_repair_result_after_materialization(
+        &target_manifest,
+        &request.install_dir,
+        &staging_dir,
+        request.remove_added_files,
+        &request.runtime_hints,
+        &repair_plan,
+    )?;
 
     Ok(TargetInstallRepairFromRepoResult {
         repo_root: repo_paths.repo_root,

@@ -27,6 +27,20 @@ pub struct ReconstructTimings {
     pub total: Duration,
 }
 
+impl ReconstructTimings {
+    pub(super) fn accumulate(&mut self, other: &Self) {
+        self.bundle_read += other.bundle_read;
+        self.bundle_read_compressed_bytes += other.bundle_read_compressed_bytes;
+        self.bundle_read_decompressed_bytes += other.bundle_read_decompressed_bytes;
+        self.file_rebuild += other.file_rebuild;
+        self.file_rebuild_bytes += other.file_rebuild_bytes;
+        self.file_verify += other.file_verify;
+        self.file_verify_bytes += other.file_verify_bytes;
+        self.file_write += other.file_write;
+        self.file_write_bytes += other.file_write_bytes;
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct VerifiedSourceInstall<'a> {
     pub target_manifest: &'a TargetManifest,

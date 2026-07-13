@@ -61,7 +61,8 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
 
     let profile = ChunkSizingProfile::default();
     let in_memory = chunk_bytes(&data, &profile);
-    let (streaming, timings) = chunk_file_streaming(&path, &profile).unwrap();
+    let (scan, timings) = chunk_file_streaming_with_file_hash(&path, &profile).unwrap();
+    let streaming = scan.chunks;
 
     assert_eq!(in_memory.len(), streaming.len());
     assert_eq!(timings.boundary_scan_bytes, data.len() as u64);

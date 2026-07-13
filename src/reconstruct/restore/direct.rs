@@ -94,7 +94,7 @@ pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
 
     for result in bundle_results {
         let bundle_timings = result?;
-        accumulate_reconstruct_timings(timings, &bundle_timings);
+        timings.accumulate(&bundle_timings);
     }
 
     Ok(())
@@ -219,20 +219,4 @@ pub(in crate::reconstruct) fn slice_bundle_raw_payload<'a>(
         )));
     }
     Ok(&raw_payload[start..end])
-}
-
-// ---------------------------------------------------------------------------
-// Timing accumulation (duplicated locally to avoid cross-module coupling)
-// ---------------------------------------------------------------------------
-
-fn accumulate_reconstruct_timings(total: &mut ReconstructTimings, add: &ReconstructTimings) {
-    total.bundle_read += add.bundle_read;
-    total.bundle_read_compressed_bytes += add.bundle_read_compressed_bytes;
-    total.bundle_read_decompressed_bytes += add.bundle_read_decompressed_bytes;
-    total.file_rebuild += add.file_rebuild;
-    total.file_rebuild_bytes += add.file_rebuild_bytes;
-    total.file_verify += add.file_verify;
-    total.file_verify_bytes += add.file_verify_bytes;
-    total.file_write += add.file_write;
-    total.file_write_bytes += add.file_write_bytes;
 }

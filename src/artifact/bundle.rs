@@ -35,7 +35,6 @@ struct ChunkData {
     hash: ChunkHash,
     raw_size: u64,
     raw: Option<ChunkRawData>,
-    compressed: Option<Vec<u8>>,
 }
 
 enum ChunkRawData {
@@ -66,7 +65,6 @@ impl BundleBuilder {
             hash: chunk_hash,
             raw_size,
             raw: Some(ChunkRawData::Owned(raw_data)),
-            compressed: None,
         });
     }
 
@@ -76,21 +74,6 @@ impl BundleBuilder {
             hash: chunk_hash,
             raw_size,
             raw: Some(ChunkRawData::Shared(raw_data)),
-            compressed: None,
-        });
-    }
-
-    pub fn add_precompressed_chunk(
-        &mut self,
-        chunk_hash: ChunkHash,
-        raw_size: u64,
-        compressed_data: Vec<u8>,
-    ) {
-        self.chunks.push(ChunkData {
-            hash: chunk_hash,
-            raw_size,
-            raw: None,
-            compressed: Some(compressed_data),
         });
     }
 
@@ -100,35 +83,6 @@ impl BundleBuilder {
 
     pub fn chunk_count(&self) -> usize {
         self.chunks.len()
-    }
-
-    pub fn estimated_compressed_size(&self) -> u64 {
-        let is_uncompressed = self.profile.compression == CompressionKind::None;
-        self.chunks
-            .iter()
-            .map(|c| {
-                if let Some(compressed) = &c.compressed {
-                    compressed.len() as u64
-                } else if let Some(raw) = &c.raw {
-                    if is_uncompressed {
-                        raw.as_slice().len() as u64
-                    } else {
-                        let compressed: std::result::Result<Vec<u8>, _> =
-                            compress::compress_with_level(raw.as_slice(), self.profile.zstd_level);
-                        compressed
-                            .map(|v: Vec<u8>| v.len() as u64)
-                            .unwrap_or(u64::MAX)
-                    }
-                } else {
-                    u64::MAX
-                }
-            })
-            .sum::<u64>()
-            + self.estimate_overhead()
-    }
-
-    fn estimate_overhead(&self) -> u64 {
-        8 + (self.chunks.len() as u64 * 128) + 36
     }
 
     pub fn build(&self) -> Result<Vec<u8>> {

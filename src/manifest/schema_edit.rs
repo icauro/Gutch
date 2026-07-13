@@ -112,15 +112,15 @@ pub fn validate_editable_target_tag_schema(
                 }
             }
 
-            if let Some(default_value) = default_value {
-                if !allowed_values.contains(&default_value) {
-                    errors.push(TargetTagSchemaValidationError {
-                        field: format!("{field_prefix}.defaultValue"),
-                        message: String::from(
-                            "Default value must be one of the allowed values or aliases.",
-                        ),
-                    });
-                }
+            if let Some(default_value) = default_value
+                && !allowed_values.contains(&default_value)
+            {
+                errors.push(TargetTagSchemaValidationError {
+                    field: format!("{field_prefix}.defaultValue"),
+                    message: String::from(
+                        "Default value must be one of the allowed values or aliases.",
+                    ),
+                });
             }
         }
     }

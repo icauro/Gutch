@@ -426,10 +426,10 @@ pub fn build_with_config(
     for fm in &file_manifests {
         for chunk_ref in &fm.chunks {
             let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
-            if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash) {
-                if compressed_estimate_seen.insert(chunk_hash) {
-                    total_compressed += existing.compressed_size;
-                }
+            if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
+                && compressed_estimate_seen.insert(chunk_hash)
+            {
+                total_compressed += existing.compressed_size;
             }
         }
     }

@@ -296,7 +296,7 @@ fn reconstruct_files_from_locations_and_chunks(
 
     for result in per_file {
         let file_timings = result?;
-        accumulate_reconstruct_timings(timings, &file_timings);
+        timings.accumulate(&file_timings);
     }
 
     Ok(())
@@ -510,16 +510,4 @@ fn estimate_bundle_raw_payload_size(entries: &[crate::manifest::BundleTableEntry
         .map(|entry| entry.raw_offset.saturating_add(entry.raw_size))
         .max()
         .unwrap_or(0)
-}
-
-fn accumulate_reconstruct_timings(total: &mut ReconstructTimings, add: &ReconstructTimings) {
-    total.bundle_read += add.bundle_read;
-    total.bundle_read_compressed_bytes += add.bundle_read_compressed_bytes;
-    total.bundle_read_decompressed_bytes += add.bundle_read_decompressed_bytes;
-    total.file_rebuild += add.file_rebuild;
-    total.file_rebuild_bytes += add.file_rebuild_bytes;
-    total.file_verify += add.file_verify;
-    total.file_verify_bytes += add.file_verify_bytes;
-    total.file_write += add.file_write;
-    total.file_write_bytes += add.file_write_bytes;
 }

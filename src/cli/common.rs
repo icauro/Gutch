@@ -222,10 +222,10 @@ pub(crate) fn count_required_bundles_for_build(
         return generated_bundles.len();
     };
     for chunk_hash in required_chunks {
-        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash) {
-            if existing.storage_mode == g::manifest::ArtifactStorageMode::Bundled {
-                required_bundle_ids.insert(existing.bundle_id.clone());
-            }
+        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
+            && existing.storage_mode == g::manifest::ArtifactStorageMode::Bundled
+        {
+            required_bundle_ids.insert(existing.bundle_id.clone());
         }
     }
 

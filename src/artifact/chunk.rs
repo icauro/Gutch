@@ -83,14 +83,6 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
     }
 }
 
-pub fn chunk_file_streaming(
-    path: &std::path::Path,
-    profile: &ChunkSizingProfile,
-) -> Result<(Vec<ChunkResult>, ChunkScanTimings)> {
-    let (scan, timings) = chunk_file_streaming_with_file_hash(path, profile)?;
-    Ok((scan.chunks, timings))
-}
-
 pub fn chunk_file_streaming_with_file_hash(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,

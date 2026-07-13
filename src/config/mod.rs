@@ -67,12 +67,6 @@ impl GutchConfig {
         });
         self.repos.sort_by(|a, b| a.path.cmp(&b.path));
     }
-
-    pub fn remove_repo(&mut self, path: &str) {
-        let key = path.trim().to_ascii_lowercase();
-        self.repos
-            .retain(|repo| repo.path.trim().to_ascii_lowercase() != key);
-    }
 }
 
 /// Shared Launcher desktop data root used by the app, updater, and Gutch CLI.
