@@ -24,7 +24,7 @@ impl TaggingRuleTemplate {
 
     pub fn description(&self) -> &'static str {
         match self {
-            Self::Default => "version, os, arch",
+            Self::Default => "version, os, arch, released_at",
             Self::Minimal => "version only",
             Self::SubscriptionExample => "version, os, arch, variant, released_at",
         }
@@ -179,7 +179,7 @@ fn variant_tag() -> TargetTagDefinition {
 
 fn default_template() -> TargetTagSchema {
     TargetTagSchema {
-        target_tags: vec![version_tag(), os_tag(), arch_tag()],
+        target_tags: vec![version_tag(), os_tag(), arch_tag(), released_at_tag()],
     }
 }
 
@@ -229,10 +229,10 @@ mod tests {
     }
 
     #[test]
-    fn default_template_has_version_os_arch() {
+    fn default_template_has_standard_release_tags() {
         let schema = template_schema(TaggingRuleTemplate::Default);
         let names: Vec<&str> = schema.target_tags.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, vec!["version", "os", "arch"]);
+        assert_eq!(names, vec!["version", "os", "arch", "released_at"]);
         assert!(schema.target_tags[0].required);
     }
 

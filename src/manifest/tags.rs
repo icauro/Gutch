@@ -245,7 +245,7 @@ impl InferenceHandler {
 }
 
 fn parse_date_token(raw: &str) -> Option<String> {
-    let normalized = raw.replace('_', ".");
+    let normalized = raw.replace('_', ".").replace('-', ".");
     let parts: Vec<&str> = normalized.split('.').collect();
     if parts.len() != 3 {
         return None;
@@ -253,10 +253,38 @@ fn parse_date_token(raw: &str) -> Option<String> {
     let year: u32 = parts[0].parse().ok()?;
     let month: u32 = parts[1].parse().ok()?;
     let day: u32 = parts[2].parse().ok()?;
-    if year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31 {
+    if year < 1900 || year > 2100 {
         return None;
     }
-    Some(format!("{:04}.{:02}.{:02}", year, month, day))
+    let date = chrono::NaiveDate::from_ymd_opt(year as i32, month, day)?;
+    Some(date.format("%Y_%m_%d").to_string())
+}
+
+#[cfg(test)]
+mod date_tests {
+    use super::parse_date_token;
+
+    #[test]
+    fn date_handler_normalizes_supported_separators() {
+        assert_eq!(
+            parse_date_token("2026.07.14").as_deref(),
+            Some("2026_07_14")
+        );
+        assert_eq!(
+            parse_date_token("2026-07-14").as_deref(),
+            Some("2026_07_14")
+        );
+        assert_eq!(
+            parse_date_token("2026_07_14").as_deref(),
+            Some("2026_07_14")
+        );
+    }
+
+    #[test]
+    fn date_handler_rejects_invalid_calendar_dates() {
+        assert_eq!(parse_date_token("2026.02.31"), None);
+        assert_eq!(parse_date_token("2026.13.01"), None);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

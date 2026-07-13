@@ -647,7 +647,7 @@ mod tests {
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let new_source = source_root.join("game-v1.0.0-windows-x86_64-base");
+        let new_source = source_root.join("game-v1.0.0-windows-x86_64-base-2026_07_14");
         std::fs::create_dir_all(&new_source).unwrap();
         std::fs::write(new_source.join("game.exe"), b"old-content").unwrap();
 

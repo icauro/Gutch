@@ -398,7 +398,7 @@ mod tests {
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let source_dir = source_root.join("game-v2.0.0-windows-x86_64-base");
+        let source_dir = source_root.join("game-v2.0.0-windows-x86_64-base-2026_07_14");
         std::fs::create_dir_all(&source_dir).unwrap();
         let game_path = source_dir.join("game.exe");
         std::fs::write(&game_path, b"same-content").unwrap();
@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(plan.insertable_count, 0);
         assert_eq!(
             plan.to_refresh[0].folder_name,
-            "game-v2.0.0-windows-x86_64-base"
+            "game-v2.0.0-windows-x86_64-base-2026_07_14"
         );
     }
 }

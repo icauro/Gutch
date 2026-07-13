@@ -82,6 +82,7 @@ fn test_resolve_identity_explicit_overrides_inference() {
     let mut explicit = TargetTagSet::default();
     explicit.upsert_exclusive("version".to_string(), "2.0.0".to_string());
     explicit.upsert_exclusive("os".to_string(), "linux".to_string());
+    explicit.upsert_exclusive("released_at".to_string(), "2026_07_14".to_string());
 
     let resolved = resolve_target_identity(
         std::path::Path::new("game-v1.0.0-win-x64"),
@@ -135,7 +136,7 @@ fn test_resolve_custom_scoped_tags() {
         });
 
     let resolved = resolve_target_identity(
-        std::path::Path::new("mod-v1.0.0-win-x64-fabric"),
+        std::path::Path::new("mod-v1.0.0-win-x64-fabric-2026_07_14"),
         &TargetTagSet::default(),
         &rules,
         "test",
@@ -181,6 +182,7 @@ fn test_explicit_tags_dont_need_inference() {
     explicit.upsert_exclusive("version".to_string(), "1.0.0".to_string());
     explicit.upsert_exclusive("os".to_string(), "windows".to_string());
     explicit.upsert_exclusive("arch".to_string(), "x86_64".to_string());
+    explicit.upsert_exclusive("released_at".to_string(), "2026_07_14".to_string());
 
     let resolved = resolve_target_identity(
         std::path::Path::new("some-random-folder"),
