@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Arc;
 
 use crate::Result;
 
@@ -27,22 +26,7 @@ pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> 
     Ok(())
 }
 
-pub fn cleanup_orphan_bundles_in_repo(repo_root: &Path) -> Result<usize> {
-    cleanup_orphan_bundles_in_repo_with_control(repo_root, &crate::GutchOperationControl::default())
-}
-
-pub fn cleanup_orphan_bundles_in_repo_with_progress(
-    repo_root: &Path,
-    progress: &Option<Arc<dyn crate::progress::GutchProgressSink>>,
-) -> Result<usize> {
-    let control = progress
-        .as_ref()
-        .map(|sink| crate::GutchOperationControl::default().with_progress(sink.clone()))
-        .unwrap_or_default();
-    cleanup_orphan_bundles_in_repo_with_control(repo_root, &control)
-}
-
-pub fn cleanup_orphan_bundles_in_repo_with_control(
+pub fn cleanup_orphan_bundles_in_repo(
     repo_root: &Path,
     control: &crate::GutchOperationControl,
 ) -> Result<usize> {

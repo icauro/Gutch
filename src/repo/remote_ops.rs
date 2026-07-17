@@ -7,7 +7,7 @@ use crate::Result;
 use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressPhase};
 use crate::remote::backend::{
     CreatorRepoResponse, CreatorRepoTargetsResponse, CreatorReposResponse, CreatorTargetResponse,
-    UpsertTargetResponse, request_json_from_backend, upload_raw_file_with_control,
+    UpsertTargetResponse, request_json_from_backend, upload_raw_file,
 };
 use crate::repo::target_descriptor::summarize_target_tags;
 #[derive(Debug, Serialize)]
@@ -560,19 +560,6 @@ pub fn unlink_repo(
     Ok(())
 }
 
-pub fn sync_up_repo(
-    repo: PathBuf,
-    endpoint: String,
-    session_id: String,
-) -> Result<RepoSyncUpStats> {
-    sync_up_repo_with_progress(
-        repo,
-        endpoint,
-        session_id,
-        crate::GutchOperationControl::default(),
-    )
-}
-
 fn collect_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
@@ -607,7 +594,7 @@ struct ReconcileRepoBundlesResponse {
     deleted_bundle_ids: Vec<String>,
 }
 
-pub fn sync_up_repo_with_progress(
+pub fn sync_up_repo(
     repo: PathBuf,
     endpoint: String,
     session_id: String,
@@ -715,7 +702,7 @@ pub fn sync_up_repo_with_progress(
     );
     let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_manifest_path)?;
     let repo_manifest_uploaded = if plan.repo_manifest_changed {
-        upload_raw_file_with_control(
+        upload_raw_file(
             &client,
             &endpoint,
             &format!(
@@ -753,7 +740,7 @@ pub fn sync_up_repo_with_progress(
         let chunk_index = crate::load_chunk_index(&repo_paths)?;
         let chunk_index_bytes = serde_json::to_vec_pretty(&chunk_index)?;
         if plan.chunk_index_changed {
-            upload_raw_file_with_control(
+            upload_raw_file(
                 &client,
                 &endpoint,
                 &format!(
@@ -855,7 +842,7 @@ pub fn sync_up_repo_with_progress(
             }
         };
 
-        upload_raw_file_with_control(
+        upload_raw_file(
             &client,
             &endpoint,
             &format!(
@@ -889,7 +876,7 @@ pub fn sync_up_repo_with_progress(
             &repo_paths,
             &target.target_id,
         ))?;
-        upload_raw_file_with_control(
+        upload_raw_file(
             &client,
             &endpoint,
             &format!(
@@ -954,7 +941,7 @@ pub fn sync_up_repo_with_progress(
             },
         );
 
-        upload_raw_file_with_control(
+        upload_raw_file(
             &client,
             &endpoint,
             &format!(

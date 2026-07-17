@@ -39,20 +39,6 @@ pub fn reconstruct_from_target_manifest(
     target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
     output_dir: &Path,
-) -> Result<()> {
-    reconstruct_from_target_manifest_with_control(
-        target_manifest,
-        bundles,
-        output_dir,
-        &GutchOperationControl::default(),
-    )?;
-    Ok(())
-}
-
-pub fn reconstruct_from_target_manifest_with_control(
-    target_manifest: &TargetManifest,
-    bundles: &[Vec<u8>],
-    output_dir: &Path,
     control: &GutchOperationControl,
 ) -> Result<()> {
     let (_, _) = reconstruct_from_target_manifest_with_timings(
@@ -129,25 +115,6 @@ pub fn reconstruct_from_bundle_paths(
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
     options: ReconstructOptions,
-) -> Result<((), ReconstructTimings)> {
-    reconstruct_from_bundle_paths_with_control(
-        target_manifest,
-        bundle_paths,
-        verified_source,
-        output_dir,
-        runtime_hints,
-        options,
-        &GutchOperationControl::default(),
-    )
-}
-
-pub fn reconstruct_from_bundle_paths_with_control(
-    target_manifest: &TargetManifest,
-    bundle_paths: &[PathBuf],
-    verified_source: Option<VerifiedSourceInstall<'_>>,
-    output_dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    options: ReconstructOptions,
     control: &GutchOperationControl,
 ) -> Result<((), ReconstructTimings)> {
     let (needed_chunks, total_start, runtime_plan, timings) =
@@ -172,25 +139,6 @@ pub fn reconstruct_from_bundle_paths_with_control(
 }
 
 pub fn reconstruct_from_repo(
-    target_manifest: &TargetManifest,
-    repo_paths: &GutchRepoPaths,
-    compression_profile: &CompressionProfile,
-    output_dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    options: ReconstructOptions,
-) -> Result<((), ReconstructTimings)> {
-    reconstruct_from_repo_with_control(
-        target_manifest,
-        repo_paths,
-        compression_profile,
-        output_dir,
-        runtime_hints,
-        options,
-        &GutchOperationControl::default(),
-    )
-}
-
-pub fn reconstruct_from_repo_with_control(
     target_manifest: &TargetManifest,
     repo_paths: &GutchRepoPaths,
     compression_profile: &CompressionProfile,
@@ -259,8 +207,7 @@ mod tests {
         );
         let control = GutchOperationControl::default().with_cancellation(Arc::new(AlwaysCancelled));
 
-        let result =
-            reconstruct_from_target_manifest_with_control(&manifest, &[], &output_dir, &control);
+        let result = reconstruct_from_target_manifest(&manifest, &[], &output_dir, &control);
 
         assert!(matches!(result, Err(crate::Error::Cancelled)));
         assert!(!output_dir.exists());

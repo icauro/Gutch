@@ -99,22 +99,13 @@ pub fn sync_up_repo(
     repo: PathBuf,
     endpoint: String,
     session_override: Option<String>,
-) -> g::Result<g::RepoSyncUpStats> {
-    let session_id = session_id_for_cli(session_override)?;
-    g::sync_up_repo(repo, endpoint, session_id)
-}
-
-pub fn sync_up_repo_with_progress(
-    repo: PathBuf,
-    endpoint: String,
-    session_override: Option<String>,
     progress: Option<Arc<dyn g::GutchProgressSink>>,
 ) -> g::Result<g::RepoSyncUpStats> {
     let session_id = session_id_for_cli(session_override)?;
     let control = progress
         .map(|sink| g::GutchOperationControl::default().with_progress(sink))
         .unwrap_or_default();
-    g::sync_up_repo_with_progress(repo, endpoint, session_id, control)
+    g::sync_up_repo(repo, endpoint, session_id, control)
 }
 
 fn confirm_repo_init_stdio(assessment: &g::RepoInitAssessment) -> g::Result<bool> {

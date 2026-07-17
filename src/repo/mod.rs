@@ -34,7 +34,7 @@ pub use insert_plan::{
 pub use paths::*;
 pub use remote_ops::{
     RepoSyncPlan, RepoSyncTargetChange, RepoSyncUpStats, link_repo, plan_sync_up_repo,
-    sync_up_repo, sync_up_repo_with_progress, unlink_repo,
+    sync_up_repo, unlink_repo,
 };
 pub use source_identity::*;
 pub use target_manifests::*;

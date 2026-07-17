@@ -66,9 +66,7 @@ pub use progress::{
 };
 pub use reconstruct::{
     ReconstructOptions, ReconstructTimings, VerifiedSourceInstall, reconstruct_from_bundle_paths,
-    reconstruct_from_bundle_paths_with_control, reconstruct_from_repo,
-    reconstruct_from_repo_with_control, reconstruct_from_target_manifest,
-    reconstruct_from_target_manifest_with_control,
+    reconstruct_from_repo, reconstruct_from_target_manifest,
 };
 pub use repo::{
     GutchRepoPaths, REPO_INIT_NEEDS_CONFIRMATION, RepoCheckStatus, RepoCheckTargetStatus,
@@ -90,9 +88,9 @@ pub use repo::{
     plan_sync_up_repo, plan_target_insert, plan_target_sources_sync, preview_source_target_install,
     remove_target_from_repo, repo_init_needs_confirmation_error,
     serialize_target_manifest_for_remote, sync_target_sources, sync_up_repo,
-    sync_up_repo_with_progress, target_manifest_bin_path, target_manifest_path, unlink_repo,
-    update_gutch_repo_launch, update_gutch_repo_name, update_gutch_repo_schema,
-    update_gutch_target_launch, verify_gutch_repo, write_chunk_index, write_gutch_repo_manifest,
+    target_manifest_bin_path, target_manifest_path, unlink_repo, update_gutch_repo_launch,
+    update_gutch_repo_name, update_gutch_repo_schema, update_gutch_target_launch,
+    verify_gutch_repo, write_chunk_index, write_gutch_repo_manifest,
     write_target_manifest_artifacts,
 };
 pub use runtime::{

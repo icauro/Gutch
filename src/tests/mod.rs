@@ -66,7 +66,13 @@ fn test_build_and_reconstruct_roundtrip() {
     let _ = std::fs::remove_dir_all(&out_dir);
 
     let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
-    reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir).unwrap();
+    reconstruct_from_target_manifest(
+        &result.target_manifest,
+        &bundle_data,
+        &out_dir,
+        &GutchOperationControl::default(),
+    )
+    .unwrap();
 
     let verify_errors = verify_test_directory(&result.target_manifest, &out_dir);
 
@@ -107,7 +113,13 @@ fn test_apply_target_install_reuses_verified_source_install() {
         .iter()
         .map(|bundle| bundle.data.clone())
         .collect();
-    reconstruct_from_target_manifest(&v1.target_manifest, &v1_bundle_data, &install_dir).unwrap();
+    reconstruct_from_target_manifest(
+        &v1.target_manifest,
+        &v1_bundle_data,
+        &install_dir,
+        &GutchOperationControl::default(),
+    )
+    .unwrap();
     std::fs::write(install_dir.join("player.log"), b"local runtime log").unwrap();
 
     let repo_paths = GutchRepoPaths::from_repo_root(&repo_dir);
@@ -204,6 +216,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
             jobs: Some(1),
         },
         ReconstructOptions::default(),
+        &GutchOperationControl::default(),
     )
     .unwrap();
 
@@ -271,6 +284,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
             verify_chunks: false,
             verify_files: false,
         },
+        &GutchOperationControl::default(),
     )
     .unwrap();
 
@@ -485,7 +499,13 @@ fn test_large_game_build_200mb() {
     let out_dir = test_util::temp_path("gutch_test_200mb_reconstructed");
     let _ = std::fs::remove_dir_all(&out_dir);
     let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
-    reconstruct_from_target_manifest(&result.target_manifest, &bundle_data, &out_dir).unwrap();
+    reconstruct_from_target_manifest(
+        &result.target_manifest,
+        &bundle_data,
+        &out_dir,
+        &GutchOperationControl::default(),
+    )
+    .unwrap();
     let recon_ms = t2.elapsed().as_millis();
 
     let t3 = Instant::now();

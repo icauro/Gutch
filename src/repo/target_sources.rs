@@ -297,7 +297,7 @@ pub fn sync_target_sources(
         }
     }
 
-    let _ = crate::cleanup_orphan_bundles_in_repo(repo_root)?;
+    let _ = crate::cleanup_orphan_bundles_in_repo(repo_root, control)?;
 
     progress::emit_progress(
         control.progress(),

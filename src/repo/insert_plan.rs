@@ -151,7 +151,7 @@ pub fn delete_repo_target_and_cleanup(
     control: &crate::GutchOperationControl,
 ) -> Result<usize> {
     control.checkpoint()?;
-    // Total matches cleanup_orphan_bundles_in_repo_with_progress
+    // Total matches cleanup_orphan_bundles_in_repo.
     const TOTAL: usize = 1000;
 
     progress::emit_progress(
@@ -170,8 +170,7 @@ pub fn delete_repo_target_and_cleanup(
     );
     remove_target_from_repo(repo_root, target_id)?;
 
-    let orphan_count =
-        crate::repo::cleanup_orphan_bundles_in_repo_with_control(repo_root, control)?;
+    let orphan_count = crate::repo::cleanup_orphan_bundles_in_repo(repo_root, control)?;
 
     progress::emit_progress(
         control.progress(),
@@ -303,7 +302,8 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
             request.repo_root.as_path(),
             &insert_plan.replaced_target_ids,
         )?;
-        let _ = crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path());
+        let _ =
+            crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path(), &request.control);
     }
     if insert_plan.kind == TargetInsertKind::UpdateTags {
         request.control.checkpoint()?;

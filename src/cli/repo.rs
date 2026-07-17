@@ -216,12 +216,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 return Ok(());
             }
             let progress = crate::cli::progress::CliProgressSink::new();
-            let stats = actions::repo::sync_up_repo_with_progress(
-                repo,
-                endpoint,
-                session_id,
-                Some(progress),
-            )?;
+            let stats = actions::repo::sync_up_repo(repo, endpoint, session_id, Some(progress))?;
             println!(
                 "synced repo {} to product {} repo {}",
                 stats.repo_root, stats.product_id, stats.remote_repo_id

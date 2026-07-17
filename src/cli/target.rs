@@ -148,7 +148,10 @@ fn run_insert_one_target(
             request.repo_paths.repo_root.as_path(),
             &insert_plan.replaced_target_ids,
         )?;
-        let _ = g::cleanup_orphan_bundles_in_repo(request.repo_paths.repo_root.as_path());
+        let _ = g::cleanup_orphan_bundles_in_repo(
+            request.repo_paths.repo_root.as_path(),
+            &g::GutchOperationControl::default(),
+        );
     }
     if insert_plan.kind == g::TargetInsertKind::UpdateTags {
         let existing_manifest =
@@ -675,6 +678,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     verify_chunks: restore_verify,
                     verify_files: restore_verify,
                 },
+                &g::GutchOperationControl::default(),
             )?;
             if verbose_output_enabled() {
                 println!("reconstructed to: {}", output.display());
