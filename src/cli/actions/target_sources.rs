@@ -71,13 +71,14 @@ pub fn sync_target_sources(
     }
 
     let progress: Arc<dyn g::GutchProgressSink> = CliProgressSink::new();
+    let control = g::GutchOperationControl::default().with_progress(progress);
     let result = g::sync_target_sources(
         repo,
         sources_path,
         g::TargetSourcesSyncOptions {
             prune_removed_targets: prune,
         },
-        &Some(progress),
+        &control,
     )?;
 
     println!(

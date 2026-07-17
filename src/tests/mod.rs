@@ -19,7 +19,7 @@ fn verify_test_directory(manifest: &TargetManifest, dir: &Path) -> Vec<String> {
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        progress: None,
+        control: crate::GutchOperationControl::default(),
     })
     .unwrap()
     .0
@@ -31,7 +31,7 @@ fn classify_test_directory(manifest: &TargetManifest, dir: &Path) -> RepairClass
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        progress: None,
+        control: crate::GutchOperationControl::default(),
     })
     .unwrap()
     .0
@@ -129,6 +129,7 @@ fn test_apply_target_install_reuses_verified_source_install() {
         source_target_id: Some(v1.target_manifest.target_id.clone()),
         source_dir: Some(install_dir.clone()),
         runtime_hints: RuntimeResourceHints::default(),
+        control: GutchOperationControl::default(),
     })
     .unwrap()
     .apply_result;

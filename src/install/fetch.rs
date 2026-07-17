@@ -55,7 +55,8 @@ pub fn fetch_target_install_content_for_required_bundle_ids(
     request: &TargetInstallFetchRequest,
     required_bundle_ids_override: Option<&HashSet<String>>,
 ) -> Result<TargetInstallFetchResult> {
-    let progress = request.progress.clone();
+    request.control.checkpoint()?;
+    let progress = request.control.progress().clone();
     let download_client = build_download_client()?;
     let transfer_progress = Arc::new(FetchTransferProgress::default());
     let prepared =
@@ -99,7 +100,8 @@ pub fn fetch_target_install_content_for_required_bundle_ids(
 fn download_and_apply_unified_target_install(
     request: TargetInstallDownloadAndApplyRequest,
 ) -> Result<TargetInstallDownloadAndApplyResult> {
-    let progress = request.fetch_request.progress.clone();
+    request.fetch_request.control.checkpoint()?;
+    let progress = request.fetch_request.control.progress().clone();
     let download_client = build_download_client()?;
     let transfer_progress = Arc::new(FetchTransferProgress::default());
     let prepared = prepare_target_install_fetch(
@@ -121,6 +123,7 @@ fn download_and_apply_unified_target_install(
                 },
             ),
         &request.runtime_hints,
+        &request.fetch_request.control,
     )?;
 
     let pipeline_plan = build_install_pipeline_plan(
@@ -151,7 +154,7 @@ fn download_and_apply_unified_target_install(
             runtime_hints: &request.runtime_hints,
             existing_bundle_ids: &prepared.existing_bundle_ids,
             pending_bundle_downloads: &pending_bundle_downloads,
-            progress: &progress,
+            control: &request.fetch_request.control,
             download_client: Some(&download_client),
             transfer_progress: Some(&transfer_progress),
             session_id: request.fetch_request.session_id.as_deref(),
@@ -171,6 +174,7 @@ fn prepare_target_install_fetch(
     progress: &Option<Arc<dyn GutchProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<PreparedTargetInstallFetch> {
+    request.control.checkpoint()?;
     emit_progress(
         progress,
         GutchProgressEvent {
@@ -208,7 +212,7 @@ fn prepare_target_install_fetch(
             download_client,
             repo_manifest_url,
             request.session_id.as_deref(),
-            progress,
+            &request.control,
             transfer_progress,
             GutchProgressPhase::RepoManifest,
             "Downloading repo manifest",
@@ -243,7 +247,7 @@ fn prepare_target_install_fetch(
         download_client,
         &request.manifest_url,
         request.session_id.as_deref(),
-        progress,
+        &request.control,
         transfer_progress,
         GutchProgressPhase::TargetManifest,
         "Downloading target manifest",
@@ -276,7 +280,7 @@ fn prepare_target_install_fetch(
             download_client,
             chunk_index_url,
             request.session_id.as_deref(),
-            progress,
+            &request.control,
             transfer_progress,
             GutchProgressPhase::ChunkIndex,
             "Downloading chunk index",
@@ -291,6 +295,7 @@ fn prepare_target_install_fetch(
         crate::write_chunk_index(&repo_paths, &chunk_index)?;
     }
 
+    request.control.checkpoint()?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let required_bundle_ids = crate::repo::required_bundle_ids(&target_manifest, &chunk_index);
     let existing_bundle_ids = required_bundle_ids
@@ -411,6 +416,7 @@ fn download_pending_bundle_files(
             pending_bundle_downloads
                 .par_iter()
                 .map(|bundle_download| {
+                    request.control.checkpoint()?;
                     emit_progress(
                         progress,
                         GutchProgressEvent {
@@ -433,7 +439,7 @@ fn download_pending_bundle_files(
                         download_client,
                         bundle_download,
                         request.session_id.as_deref(),
-                        progress,
+                        &request.control,
                         transfer_progress,
                     )?;
                     emit_progress(

@@ -28,12 +28,23 @@ pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> 
 }
 
 pub fn cleanup_orphan_bundles_in_repo(repo_root: &Path) -> Result<usize> {
-    cleanup_orphan_bundles_in_repo_with_progress(repo_root, &None)
+    cleanup_orphan_bundles_in_repo_with_control(repo_root, &crate::GutchOperationControl::default())
 }
 
 pub fn cleanup_orphan_bundles_in_repo_with_progress(
     repo_root: &Path,
     progress: &Option<Arc<dyn crate::progress::GutchProgressSink>>,
+) -> Result<usize> {
+    let control = progress
+        .as_ref()
+        .map(|sink| crate::GutchOperationControl::default().with_progress(sink.clone()))
+        .unwrap_or_default();
+    cleanup_orphan_bundles_in_repo_with_control(repo_root, &control)
+}
+
+pub fn cleanup_orphan_bundles_in_repo_with_control(
+    repo_root: &Path,
+    control: &crate::GutchOperationControl,
 ) -> Result<usize> {
     use crate::progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase, emit_progress};
 
@@ -43,7 +54,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
     const SCAN_BUNDLES_END: usize = 900;
 
     emit_progress(
-        progress,
+        control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
             phase: GutchProgressPhase::ScanTargets,
@@ -63,10 +74,11 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
     let mut still_required_bundle_ids = HashSet::new();
     let target_count = remaining_targets.len().max(1);
     for (i, target_id) in remaining_targets.iter().enumerate() {
+        control.checkpoint()?;
         let progress_current =
             SCAN_TARGETS_END + (LOAD_MANIFESTS_END - SCAN_TARGETS_END) * i / target_count;
         emit_progress(
-            progress,
+            control.progress(),
             GutchProgressEvent {
                 operation: GutchOperation::TargetDelete,
                 phase: GutchProgressPhase::LoadManifests,
@@ -92,11 +104,12 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
     let bundle_count = bundle_files.len().max(1);
     let mut orphan_bundles = Vec::new();
     for (i, bundle_path) in bundle_files.iter().enumerate() {
+        control.checkpoint()?;
         if i % 50 == 0 || i == bundle_files.len() - 1 {
             let progress_current =
                 SCAN_BUNDLES_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / bundle_count;
             emit_progress(
-                progress,
+                control.progress(),
                 GutchProgressEvent {
                     operation: GutchOperation::TargetDelete,
                     phase: GutchProgressPhase::ScanBundles,
@@ -118,7 +131,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
     }
 
     emit_progress(
-        progress,
+        control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
             phase: GutchProgressPhase::DeleteOrphans,
@@ -132,6 +145,7 @@ pub fn cleanup_orphan_bundles_in_repo_with_progress(
         },
     );
     for orphan_path in &orphan_bundles {
+        control.checkpoint()?;
         std::fs::remove_file(orphan_path)?;
     }
     Ok(orphan_bundles.len())

@@ -451,7 +451,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 compression_profile: build_profile.compression_profile,
                 storage_mode: build_profile.storage_mode,
                 runtime_hints: runtime.hints(),
-                progress: Some(progress),
+                control: g::GutchOperationControl::default().with_progress(progress),
             })?;
             let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let stats = TargetInsertStats {
@@ -642,7 +642,8 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             }
 
             let progress = CliProgressSink::new();
-            let orphan_count = g::delete_repo_target_and_cleanup(&repo, &target, &Some(progress))?;
+            let control = g::GutchOperationControl::default().with_progress(progress);
+            let orphan_count = g::delete_repo_target_and_cleanup(&repo, &target, &control)?;
 
             println!(
                 "deleted target '{}': removed manifest, {} orphaned bundles cleaned up",

@@ -4,6 +4,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Operation cancelled")]
+    Cancelled,
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -66,6 +69,10 @@ impl From<zstd::zstd_safe::ErrorCode> for Error {
 }
 
 impl Error {
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled)
+    }
+
     pub fn bundle(msg: impl Into<String>) -> Self {
         Error::Bundle(msg.into())
     }

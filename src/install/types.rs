@@ -1,11 +1,9 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 use crate::manifest::launch::ResolvedLaunchConfiguration;
 use crate::manifest::target::TargetManifest;
-use crate::progress::GutchProgressSink;
+use crate::progress::GutchOperationControl;
 use crate::runtime::RuntimeResourceHints;
 use crate::verify::{RepairClassification, VerifyMode, VerifyTimings};
 
@@ -53,6 +51,7 @@ pub struct TargetInstallApplyFromRepoRequest {
     pub source_target_id: Option<String>,
     pub source_dir: Option<PathBuf>,
     pub runtime_hints: RuntimeResourceHints,
+    pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +70,7 @@ pub struct TargetInstallVerifyFromRepoRequest {
     pub install_dir: PathBuf,
     pub verify_mode: VerifyMode,
     pub runtime_hints: RuntimeResourceHints,
-    pub progress: Option<Arc<dyn GutchProgressSink>>,
+    pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +102,7 @@ pub struct TargetInstallRepairFromRepoRequest {
     pub staging_dir: Option<PathBuf>,
     pub remove_added_files: bool,
     pub runtime_hints: RuntimeResourceHints,
+    pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +112,7 @@ pub struct TargetInstallRepairPlanFromRepoRequest {
     pub install_dir: PathBuf,
     pub remove_added_files: bool,
     pub runtime_hints: RuntimeResourceHints,
+    pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -143,7 +144,7 @@ pub struct TargetInstallFetchRequest {
     pub bundle_downloads_endpoint: Option<String>,
     pub session_id: Option<String>,
     pub bundles: Vec<GutchBundleDownload>,
-    pub progress: Option<Arc<dyn GutchProgressSink>>,
+    pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]

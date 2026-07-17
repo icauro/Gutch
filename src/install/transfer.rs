@@ -10,7 +10,8 @@ use serde::Deserialize;
 use super::types::{GutchBundleDownload, TargetInstallFetchRequest};
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::progress::{
-    GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
+    GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
+    GutchProgressSink, emit_progress,
 };
 use crate::{Error, Result};
 
@@ -133,6 +134,7 @@ pub(super) fn fetch_bundle_urls(
     let response_bytes = download_json_bytes(
         &format!("{endpoint}{separator}ids={ids}"),
         request.session_id.as_deref(),
+        &request.control,
     )?;
     let response: GutchBundleUrlsResponse = crate::helpers::from_json_bytes(&response_bytes)?;
     for bundle in response.bundles {
@@ -191,9 +193,10 @@ pub(super) fn download_pending_bundle(
     download_client: &reqwest::blocking::Client,
     bundle_download: &PendingBundleDownload,
     session_id: Option<&str>,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<usize> {
+    control.checkpoint()?;
     if let Some(parent) = bundle_download.bundle_path.parent() {
         crate::helpers::create_dir_all(parent)?;
     }
@@ -202,7 +205,7 @@ pub(super) fn download_pending_bundle(
         &bundle_download.url,
         session_id,
         &bundle_download.bundle_path,
-        progress,
+        control,
         transfer_progress,
         GutchProgressPhase::Bundle,
         &format!(
@@ -223,19 +226,20 @@ pub(super) fn download_url(
     client: &reqwest::blocking::Client,
     url: &str,
     session_id: Option<&str>,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
     phase: GutchProgressPhase,
     message: &str,
     counters: TransferPhaseCounters,
     detail: Option<&str>,
 ) -> Result<Vec<u8>> {
+    control.checkpoint()?;
     let mut bytes = Vec::new();
     download_url_streaming(
         client,
         url,
         session_id,
-        progress,
+        control,
         transfer_progress,
         phase,
         message,
@@ -254,13 +258,14 @@ pub(super) fn download_url_to_path(
     url: &str,
     session_id: Option<&str>,
     path: &Path,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
     phase: GutchProgressPhase,
     message: &str,
     counters: TransferPhaseCounters,
     detail: Option<&str>,
 ) -> Result<()> {
+    control.checkpoint()?;
     let temporary_path = path.with_extension("downloading");
     if temporary_path.exists() {
         let _ = std::fs::remove_file(&temporary_path);
@@ -271,7 +276,7 @@ pub(super) fn download_url_to_path(
             client,
             url,
             session_id,
-            progress,
+            control,
             transfer_progress,
             phase,
             message,
@@ -284,6 +289,7 @@ pub(super) fn download_url_to_path(
         )?;
         file.flush()?;
         drop(file);
+        control.checkpoint()?;
         std::fs::rename(&temporary_path, path)?;
         Ok(())
     })();
@@ -298,7 +304,7 @@ fn download_url_streaming<F>(
     client: &reqwest::blocking::Client,
     url: &str,
     session_id: Option<&str>,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
     phase: GutchProgressPhase,
     message: &str,
@@ -309,6 +315,7 @@ fn download_url_streaming<F>(
 where
     F: FnMut(&[u8]) -> Result<()>,
 {
+    control.checkpoint()?;
     let mut request = client.get(url);
     if should_attach_bearer_session(url, session_id) {
         request = request.header(
@@ -332,6 +339,7 @@ where
     let mut buffer = [0u8; 64 * 1024];
     let mut emitted_chunk_bytes = 0u64;
     loop {
+        control.checkpoint()?;
         let read = response
             .read(&mut buffer)
             .map_err(|err| Error::manifest(format!("failed to read download response: {}", err)))?;
@@ -343,7 +351,7 @@ where
         emitted_chunk_bytes += read as u64;
         if emitted_chunk_bytes >= DOWNLOAD_PROGRESS_EMIT_BYTES {
             emit_transfer_progress(
-                progress,
+                control.progress(),
                 transfer_progress,
                 phase,
                 message,
@@ -355,7 +363,7 @@ where
         }
     }
     emit_progress(
-        progress,
+        control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase,
@@ -400,7 +408,11 @@ fn should_attach_bearer_session(url: &str, session_id: Option<&str>) -> bool {
     session_id.is_some() && !url.contains("X-Amz-Algorithm=") && !url.contains("sig=")
 }
 
-fn download_json_bytes(url: &str, session_id: Option<&str>) -> Result<Vec<u8>> {
+fn download_json_bytes(
+    url: &str,
+    session_id: Option<&str>,
+    control: &GutchOperationControl,
+) -> Result<Vec<u8>> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
         .build()
@@ -409,7 +421,7 @@ fn download_json_bytes(url: &str, session_id: Option<&str>) -> Result<Vec<u8>> {
         &client,
         url,
         session_id,
-        &None,
+        control,
         &Arc::new(FetchTransferProgress::default()),
         GutchProgressPhase::Json,
         "Downloading JSON",

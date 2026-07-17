@@ -8,6 +8,7 @@ use rayon::prelude::*;
 use crate::Result;
 use crate::bundle;
 use crate::hash::ChunkHash;
+use crate::progress::GutchOperationControl;
 use crate::runtime::{RuntimePlan, install_in_thread_pool};
 
 use super::super::types::{
@@ -24,7 +25,9 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
     bundle_scan_info: &HashMap<PathBuf, BundleScanInfo>,
     runtime_plan: &RuntimePlan,
     timings: &mut ReconstructTimings,
+    control: &GutchOperationControl,
 ) -> Result<BundleAccessPlan> {
+    control.checkpoint()?;
     let mut strategies = HashMap::new();
     let mut needed_bundle_paths: Vec<PathBuf> = locations
         .values()
@@ -35,6 +38,7 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
 
     let mut bundle_compressed_paths = Vec::new();
     for bundle_path in needed_bundle_paths {
+        control.checkpoint()?;
         let scan_info = bundle_scan_info.get(&bundle_path).ok_or_else(|| {
             crate::Error::Reconstruct(format!(
                 "missing bundle scan metadata for {}",
@@ -72,6 +76,7 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
             .par_iter()
             .enumerate()
             .map(|(index, bundle_path)| {
+                control.checkpoint()?;
                 stage_bundle_raw_payload(
                     bundle_path,
                     staging_dir.as_ref().map(|dir| dir.path()),
@@ -82,6 +87,7 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
     })?;
 
     for staged in staged_results {
+        control.checkpoint()?;
         let (bundle_path, staged_payload, compressed_size, staged_raw_size, stage_time) = staged?;
         timings.bundle_read += stage_time;
         timings.bundle_read_compressed_bytes += compressed_size;

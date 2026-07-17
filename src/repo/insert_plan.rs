@@ -52,7 +52,7 @@ pub struct RepoTargetInsertRequest {
     pub compression_profile: crate::manifest::CompressionPreset,
     pub storage_mode: crate::manifest::ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
-    pub progress: Option<Arc<dyn GutchProgressSink>>,
+    pub control: crate::GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -148,13 +148,14 @@ pub fn delete_repo_targets(repo_root: &Path, target_ids: &[String]) -> Result<()
 pub fn delete_repo_target_and_cleanup(
     repo_root: &Path,
     target_id: &str,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &crate::GutchOperationControl,
 ) -> Result<usize> {
+    control.checkpoint()?;
     // Total matches cleanup_orphan_bundles_in_repo_with_progress
     const TOTAL: usize = 1000;
 
     progress::emit_progress(
-        progress,
+        control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
             phase: GutchProgressPhase::RemoveManifest,
@@ -170,10 +171,10 @@ pub fn delete_repo_target_and_cleanup(
     remove_target_from_repo(repo_root, target_id)?;
 
     let orphan_count =
-        crate::repo::cleanup_orphan_bundles_in_repo_with_progress(repo_root, progress)?;
+        crate::repo::cleanup_orphan_bundles_in_repo_with_control(repo_root, control)?;
 
     progress::emit_progress(
-        progress,
+        control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::TargetDelete,
             phase: GutchProgressPhase::Done,
@@ -285,6 +286,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
 }
 
 pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTargetInsertResult> {
+    request.control.checkpoint()?;
     let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
     let rules = repo_manifest.target_schema.clone().unwrap_or_default();
     let insert_plan = plan_target_insert(
@@ -296,6 +298,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     let mut store_state =
         MutableInsertStoreState::from_existing(scan_existing_store_state(&repo_paths)?);
     if insert_plan.kind == TargetInsertKind::ReplaceSameTags {
+        request.control.checkpoint()?;
         delete_repo_targets(
             request.repo_root.as_path(),
             &insert_plan.replaced_target_ids,
@@ -303,6 +306,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         let _ = crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path());
     }
     if insert_plan.kind == TargetInsertKind::UpdateTags {
+        request.control.checkpoint()?;
         let existing_manifest =
             crate::load_target_manifest(&repo_paths, &insert_plan.content_target_id)?;
         let mut updated_manifest = existing_manifest;
@@ -361,7 +365,8 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
             .with_compression_profile(&compression_profile);
     build_config.storage_mode = request.storage_mode;
     build_config.runtime_hints = request.runtime_hints;
-    if let Some(ref sink) = request.progress {
+    build_config.control = request.control.clone();
+    if let Some(sink) = request.control.progress() {
         build_config.progress = Some(Arc::new(BuildProgressBridge {
             sink: sink.clone(),
             scanned_files: AtomicUsize::new(0),
@@ -372,6 +377,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     }
 
     let (result, timings) = crate::build_with_config(&prepared_input.dir, &build_config)?;
+    request.control.checkpoint()?;
     let mut result = result;
     let target_id = crate::compute_target_id_from_files(&result.target_manifest.files);
     result.target_manifest.target_id = target_id.clone();
@@ -427,6 +433,9 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         }
     }
 
+    // Artifact publication below is the insert commit. Check once before it and then complete the
+    // internally consistent manifest/bundle/index write set.
+    request.control.checkpoint()?;
     let (manifest_path, _) =
         crate::write_target_manifest_artifacts(&repo_paths, &result.target_manifest)?;
     write_bundles(&repo_paths.bundles_root, &result.bundles)?;
@@ -491,7 +500,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         new_chunk_count: required_chunk_count.saturating_sub(reused_chunk_count),
         build_timings: timings,
     };
-    insert_result.emit_done(&request.progress);
+    insert_result.emit_done(request.control.progress());
     Ok(insert_result)
 }
 

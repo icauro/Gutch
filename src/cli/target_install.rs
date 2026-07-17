@@ -27,7 +27,7 @@ pub(crate) fn run(command: TargetInstallCommands) -> g::Result<()> {
                 bundle_downloads_endpoint,
                 session_id,
                 bundles: parse_bundle_downloads(&bundles)?,
-                progress: Some(progress),
+                control: g::GutchOperationControl::default().with_progress(progress),
             })?;
 
             if verbose_output_enabled() {

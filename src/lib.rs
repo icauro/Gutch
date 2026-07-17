@@ -60,10 +60,15 @@ pub use manifest::{
     TargetTagSchemaValidationResult, sanitize_editable_target_tag_schema,
     validate_editable_target_tag_schema,
 };
-pub use progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink};
+pub use progress::{
+    GutchCancellationHook, GutchOperation, GutchOperationControl, GutchProgressEvent,
+    GutchProgressPhase, GutchProgressSink,
+};
 pub use reconstruct::{
     ReconstructOptions, ReconstructTimings, VerifiedSourceInstall, reconstruct_from_bundle_paths,
-    reconstruct_from_repo, reconstruct_from_target_manifest,
+    reconstruct_from_bundle_paths_with_control, reconstruct_from_repo,
+    reconstruct_from_repo_with_control, reconstruct_from_target_manifest,
+    reconstruct_from_target_manifest_with_control,
 };
 pub use repo::{
     GutchRepoPaths, REPO_INIT_NEEDS_CONFIRMATION, RepoCheckStatus, RepoCheckTargetStatus,

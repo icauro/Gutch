@@ -216,8 +216,9 @@ pub fn sync_target_sources(
     repo_root: &Path,
     sources_path: &Path,
     options: TargetSourcesSyncOptions,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &crate::GutchOperationControl,
 ) -> Result<TargetSourcesSyncResult> {
+    control.checkpoint()?;
     let plan = plan_target_sources_sync(repo_root, Some(sources_path))?;
     if !plan.sources_ready {
         return Err(crate::Error::manifest(
@@ -240,11 +241,12 @@ pub fn sync_target_sources(
 
     if options.prune_removed_targets {
         for target_id in &plan.to_remove {
+            control.checkpoint()?;
             crate::remove_target_from_repo(repo_root, target_id)?;
             removed_count += 1;
             current_step += 1;
             progress::emit_progress(
-                progress,
+                control.progress(),
                 GutchProgressEvent {
                     operation: GutchOperation::TargetSourcesSync,
                     phase: GutchProgressPhase::Prune,
@@ -269,9 +271,10 @@ pub fn sync_target_sources(
     let mut inserted_count = 0usize;
     let mut refreshed_count = 0usize;
     for candidate in &plan.to_apply {
+        control.checkpoint()?;
         current_step += 1;
         progress::emit_progress(
-            progress,
+            control.progress(),
             GutchProgressEvent {
                 operation: GutchOperation::TargetSourcesSync,
                 phase: GutchProgressPhase::Insert,
@@ -286,7 +289,7 @@ pub fn sync_target_sources(
         );
         removed_count +=
             crate::delete_repo_targets_with_matching_tags(repo_root, &candidate.target_tags)?.len();
-        insert_source_target_candidate(repo_root, candidate, progress)?;
+        insert_source_target_candidate(repo_root, candidate, control)?;
         if refresh_paths.contains(&candidate.path) {
             refreshed_count += 1;
         } else {
@@ -297,7 +300,7 @@ pub fn sync_target_sources(
     let _ = crate::cleanup_orphan_bundles_in_repo(repo_root)?;
 
     progress::emit_progress(
-        progress,
+        control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::TargetSourcesSync,
             phase: GutchProgressPhase::Done,
@@ -322,14 +325,16 @@ pub fn sync_target_sources(
 fn insert_source_target_candidate(
     repo_root: &Path,
     candidate: &SourceTargetInstallCandidate,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &crate::GutchOperationControl,
 ) -> Result<()> {
-    let candidate_progress = progress.as_ref().map(|sink| {
-        Arc::new(TargetSourcesCandidateProgress {
+    let candidate_control = if let Some(sink) = control.progress() {
+        control.with_replaced_progress(Arc::new(TargetSourcesCandidateProgress {
             sink: sink.clone(),
             folder_name: candidate.folder_name.clone(),
-        }) as Arc<dyn GutchProgressSink>
-    });
+        }))
+    } else {
+        control.clone()
+    };
     crate::insert_repo_target(crate::RepoTargetInsertRequest {
         repo_root: repo_root.to_path_buf(),
         source_dir: std::path::PathBuf::from(&candidate.path),
@@ -339,7 +344,7 @@ fn insert_source_target_candidate(
         compression_profile: crate::manifest::CompressionPreset::Zstd3,
         storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
         runtime_hints: crate::RuntimeResourceHints::default(),
-        progress: candidate_progress,
+        control: candidate_control,
     })
     .map(|_| ())
 }

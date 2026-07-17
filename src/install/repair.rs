@@ -36,6 +36,7 @@ fn manifest_paths_set(target_manifest: &TargetManifest) -> HashSet<&str> {
 pub fn repair_target_install_from_repo(
     request: TargetInstallRepairFromRepoRequest,
 ) -> Result<TargetInstallRepairFromRepoResult> {
+    request.control.checkpoint()?;
     let (repo_paths, target_manifest) =
         super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
@@ -45,6 +46,7 @@ pub fn repair_target_install_from_repo(
         &request.install_dir,
         request.remove_added_files,
         &request.runtime_hints,
+        &request.control,
     )?;
     let staging_dir = request.staging_dir.unwrap_or_else(|| {
         default_target_install_staging_dir(&request.install_dir, &target_manifest.target_id)
@@ -71,7 +73,7 @@ pub fn repair_target_install_from_repo(
             &request.runtime_hints,
             &existing_bundle_ids,
             &[],
-            &None,
+            &request.control,
             None,
             None,
             None,
@@ -84,6 +86,7 @@ pub fn repair_target_install_from_repo(
         request.remove_added_files,
         &request.runtime_hints,
         &repair_plan,
+        &request.control,
     )?;
 
     Ok(TargetInstallRepairFromRepoResult {
@@ -97,6 +100,7 @@ pub fn repair_target_install_from_repo(
 pub fn plan_repair_target_install_from_repo(
     request: TargetInstallRepairPlanFromRepoRequest,
 ) -> Result<TargetInstallRepairPlanFromRepoResult> {
+    request.control.checkpoint()?;
     let (repo_paths, target_manifest) =
         super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
@@ -106,6 +110,7 @@ pub fn plan_repair_target_install_from_repo(
         &request.install_dir,
         request.remove_added_files,
         &request.runtime_hints,
+        &request.control,
     )?;
 
     Ok(TargetInstallRepairPlanFromRepoResult {
@@ -125,13 +130,14 @@ fn plan_repair_target_install(
     install_dir: &Path,
     _remove_added_files: bool,
     runtime_hints: &RuntimeResourceHints,
+    control: &crate::GutchOperationControl,
 ) -> Result<PlannedRepair> {
     let (classification, _) = classify_directory(VerifyRequest {
         target_manifest,
         dir: install_dir,
         mode: crate::VerifyMode::Fast,
         runtime_hints,
-        progress: None,
+        control: control.clone(),
     })?;
     build_repair_plan_from_classification(target_manifest, chunk_index, classification)
 }
@@ -172,11 +178,15 @@ fn finalize_repair_result_after_materialization(
     remove_added_files: bool,
     runtime_hints: &RuntimeResourceHints,
     repair_plan: &PlannedRepair,
+    control: &crate::GutchOperationControl,
 ) -> Result<TargetInstallRepairResult> {
     let mut restored_extra_file_count = 0usize;
     let mut removed_extra_file_count = 0usize;
     let mut preserved_extra_dir = None;
 
+    // Everything below this checkpoint is one consistency-critical local commit. Cancellation
+    // arriving during promotion is observed by the caller only after a valid install is active.
+    control.checkpoint()?;
     if !remove_added_files && repair_plan.extra_file_count > 0 {
         preserved_extra_dir = Some(preserve_extra_files(
             install_dir,
@@ -207,7 +217,7 @@ fn finalize_repair_result_after_materialization(
         dir: install_dir,
         mode: crate::VerifyMode::Fast,
         runtime_hints,
-        progress: None,
+        control: crate::GutchOperationControl::default(),
     })?;
     if !final_classification.missing_files.is_empty()
         || !final_classification.corrupt_files.is_empty()

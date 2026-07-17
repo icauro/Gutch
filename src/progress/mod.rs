@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use serde::Serialize;
+
+use crate::{Error, Result};
 
 /// Identifies which gutch operation is emitting progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -107,6 +111,58 @@ pub trait GutchProgressSink: Send + Sync + std::fmt::Debug {
     fn emit(&self, event: GutchProgressEvent);
 }
 
+/// Read-only cancellation boundary implemented by the calling application.
+///
+/// Gutch deliberately does not own the mutable signal or depend on an async runtime. Long-running
+/// engine code observes this hook only at consistency-safe checkpoints.
+pub trait GutchCancellationHook: Send + Sync + std::fmt::Debug {
+    fn is_cancelled(&self) -> bool;
+}
+
+/// Cross-cutting controls propagated through one complete Gutch operation, including nested work.
+#[derive(Clone, Debug, Default)]
+pub struct GutchOperationControl {
+    progress: Option<Arc<dyn GutchProgressSink>>,
+    cancellation: Option<Arc<dyn GutchCancellationHook>>,
+}
+
+impl GutchOperationControl {
+    pub fn with_progress(mut self, progress: Arc<dyn GutchProgressSink>) -> Self {
+        self.progress = Some(progress);
+        self
+    }
+
+    pub fn with_cancellation(mut self, cancellation: Arc<dyn GutchCancellationHook>) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
+    /// Replaces only the progress adapter while retaining the operation's cancellation hook.
+    pub fn with_replaced_progress(&self, progress: Arc<dyn GutchProgressSink>) -> Self {
+        Self {
+            progress: Some(progress),
+            cancellation: self.cancellation.clone(),
+        }
+    }
+
+    pub fn progress(&self) -> &Option<Arc<dyn GutchProgressSink>> {
+        &self.progress
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation
+            .as_ref()
+            .is_some_and(|hook| hook.is_cancelled())
+    }
+
+    pub fn checkpoint(&self) -> Result<()> {
+        if self.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        Ok(())
+    }
+}
+
 /// Helper to emit if a sink is present.
 pub(crate) fn emit_progress(
     sink: &Option<std::sync::Arc<dyn GutchProgressSink>>,
@@ -114,5 +170,32 @@ pub(crate) fn emit_progress(
 ) {
     if let Some(s) = sink {
         s.emit(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::{GutchCancellationHook, GutchOperationControl};
+
+    #[derive(Debug)]
+    struct TestCancellation(AtomicBool);
+
+    impl GutchCancellationHook for TestCancellation {
+        fn is_cancelled(&self) -> bool {
+            self.0.load(Ordering::Acquire)
+        }
+    }
+
+    #[test]
+    fn operation_control_returns_typed_cancellation() {
+        let cancellation = Arc::new(TestCancellation(AtomicBool::new(false)));
+        let control = GutchOperationControl::default().with_cancellation(cancellation.clone());
+
+        assert!(control.checkpoint().is_ok());
+        cancellation.0.store(true, Ordering::Release);
+        assert!(matches!(control.checkpoint(), Err(crate::Error::Cancelled)));
     }
 }

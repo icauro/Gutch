@@ -121,6 +121,7 @@ fn repair_target_install_keeps_added_files_when_requested() {
         staging_dir: Some(staging_dir),
         remove_added_files: false,
         runtime_hints: RuntimeResourceHints::default(),
+        control: crate::GutchOperationControl::default(),
     })
     .unwrap()
     .repair_result;
@@ -150,6 +151,7 @@ fn repair_target_install_full_repair_deletes_added_files() {
         staging_dir: Some(staging_dir),
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
+        control: crate::GutchOperationControl::default(),
     })
     .unwrap()
     .repair_result;
@@ -232,6 +234,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             install_dir: install_dir.clone(),
             remove_added_files: false,
             runtime_hints: RuntimeResourceHints::default(),
+            control: crate::GutchOperationControl::default(),
         },
     )
     .unwrap();
@@ -354,7 +357,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         bundle_downloads_endpoint: Some(format!("http://{}/bundles", address)),
         session_id: Some("session-1".to_string()),
         bundles: Vec::new(),
-        progress: None,
+        control: crate::GutchOperationControl::default(),
     })
     .unwrap();
 

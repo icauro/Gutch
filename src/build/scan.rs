@@ -33,6 +33,7 @@ pub(crate) struct ScanDirectoryOptions<'a> {
     pub chunk_spool_root: Option<&'a Path>,
     pub worker_count: usize,
     pub progress: Option<Arc<dyn BuildProgressSink>>,
+    pub control: crate::GutchOperationControl,
 }
 
 pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileBuildEntry) {
@@ -52,6 +53,7 @@ pub(crate) fn collect_scanned_chunks(
     options: ScanDirectoryOptions<'_>,
     timings: &mut BuildTimings,
 ) -> Result<(Vec<FileManifest>, HashMap<ChunkHash, ChunkPayload>, u64)> {
+    let control = options.control.clone();
     let file_entries = scan_directory_into_file_entries(dir, options)?;
 
     let mut file_manifests = Vec::with_capacity(file_entries.len());
@@ -59,6 +61,7 @@ pub(crate) fn collect_scanned_chunks(
     let mut total_logical_size: u64 = 0;
 
     for entry in file_entries {
+        control.checkpoint()?;
         accumulate_entry_timings(timings, &entry);
         total_logical_size += entry.size;
         file_manifests.push(entry.manifest);
@@ -76,6 +79,7 @@ pub(crate) fn scan_directory_into_file_entries(
 ) -> Result<Vec<FileBuildEntry>> {
     let mut file_paths: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        options.control.checkpoint()?;
         let entry = entry?;
         if entry.path().is_file() {
             file_paths.push(entry.path().to_path_buf());
@@ -88,8 +92,10 @@ pub(crate) fn scan_directory_into_file_entries(
 
     let spool_root = options.chunk_spool_root.map(PathBuf::from);
     let progress_for_scan = options.progress.clone();
+    let control_for_scan = options.control.clone();
     let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
         let result = (|| -> Result<FileBuildEntry> {
+            control_for_scan.checkpoint()?;
             let relative = path.strip_prefix(dir).map_err(|e| Error::PathError {
                 path: path.to_path_buf(),
                 reason: e.to_string(),
@@ -98,7 +104,11 @@ pub(crate) fn scan_directory_into_file_entries(
 
             let scan_read = Duration::ZERO;
             let (chunk_scan, chunk_timings) =
-                crate::chunk::chunk_file_streaming_with_file_hash(path, options.chunking_profile)?;
+                crate::chunk::chunk_file_streaming_with_file_hash_and_control(
+                    path,
+                    options.chunking_profile,
+                    &control_for_scan,
+                )?;
             let file_size = chunk_scan.file_size;
             let full_file_hash = chunk_scan.full_file_hash;
             let file_hash = chunk_scan.full_file_hash_duration;
@@ -129,6 +139,7 @@ pub(crate) fn scan_directory_into_file_entries(
             let mut spill_path = None;
             let mut spill_offset: u64 = 0;
             for cr in chunk_scan.chunks {
+                control_for_scan.checkpoint()?;
                 let chunk_hash = ChunkHash::from_blake3(cr.hash);
                 chunk_refs.push(ChunkRef {
                     chunk_hash: chunk_hash.to_hex(),

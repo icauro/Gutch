@@ -15,7 +15,9 @@ use crate::{Error, Result};
 pub(super) fn resolve_verified_source_install<'a>(
     source: Option<TargetInstallApplySource<'a>>,
     runtime_hints: &RuntimeResourceHints,
+    control: &crate::GutchOperationControl,
 ) -> Result<Option<VerifiedSourceInstall<'a>>> {
+    control.checkpoint()?;
     match source {
         Some(source) => {
             let (source_classification, _) = classify_directory(VerifyRequest {
@@ -23,7 +25,7 @@ pub(super) fn resolve_verified_source_install<'a>(
                 dir: source.install_dir,
                 mode: crate::VerifyMode::Fast,
                 runtime_hints,
-                progress: None,
+                control: control.clone(),
             })?;
             if !source_classification.missing_files.is_empty()
                 || !source_classification.corrupt_files.is_empty()
@@ -61,6 +63,7 @@ pub fn default_target_install_staging_dir(install_dir: &Path, target_id: &str) -
 pub fn verify_target_install_from_repo(
     request: TargetInstallVerifyFromRepoRequest,
 ) -> Result<TargetInstallVerifyFromRepoResult> {
+    request.control.checkpoint()?;
     let (repo_paths, target_manifest) =
         super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
     let (classification, verify_timings) = classify_directory(VerifyRequest {
@@ -68,7 +71,7 @@ pub fn verify_target_install_from_repo(
         dir: &request.install_dir,
         mode: request.verify_mode,
         runtime_hints: &request.runtime_hints,
-        progress: request.progress,
+        control: request.control,
     })?;
 
     Ok(TargetInstallVerifyFromRepoResult {
@@ -82,6 +85,7 @@ pub fn verify_target_install_from_repo(
 pub fn apply_target_install_from_repo(
     request: TargetInstallApplyFromRepoRequest,
 ) -> Result<TargetInstallApplyFromRepoResult> {
+    request.control.checkpoint()?;
     let (repo_paths, target_manifest) =
         super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
@@ -109,7 +113,8 @@ pub fn apply_target_install_from_repo(
                 install_dir: source_install_dir,
             },
         );
-    let verified_source = resolve_verified_source_install(source, &request.runtime_hints)?;
+    let verified_source =
+        resolve_verified_source_install(source, &request.runtime_hints, &request.control)?;
     let pipeline_plan = super::pipeline::build_install_pipeline_plan(
         &target_manifest,
         &chunk_index,
@@ -117,7 +122,6 @@ pub fn apply_target_install_from_repo(
         &existing_bundle_ids,
         verified_source,
     )?;
-    let progress = None;
     super::pipeline::apply_install_pipeline(
         super::pipeline::InstallPipelineApplyRequest {
             repo_root: &repo_paths.repo_root,
@@ -128,7 +132,7 @@ pub fn apply_target_install_from_repo(
             runtime_hints: &request.runtime_hints,
             existing_bundle_ids: &existing_bundle_ids,
             pending_bundle_downloads: &[],
-            progress: &progress,
+            control: &request.control,
             download_client: None,
             transfer_progress: None,
             session_id: None,

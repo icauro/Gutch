@@ -1,16 +1,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use serde::Serialize;
 
 use crate::Result;
-use crate::progress::{
-    self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
-};
+use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressPhase};
 use crate::remote::backend::{
     CreatorRepoResponse, CreatorRepoTargetsResponse, CreatorReposResponse, CreatorTargetResponse,
-    UpsertTargetResponse, request_json_from_backend, upload_raw_file,
+    UpsertTargetResponse, request_json_from_backend, upload_raw_file_with_control,
 };
 use crate::repo::target_descriptor::summarize_target_tags;
 #[derive(Debug, Serialize)]
@@ -568,7 +565,12 @@ pub fn sync_up_repo(
     endpoint: String,
     session_id: String,
 ) -> Result<RepoSyncUpStats> {
-    sync_up_repo_with_progress(repo, endpoint, session_id, None)
+    sync_up_repo_with_progress(
+        repo,
+        endpoint,
+        session_id,
+        crate::GutchOperationControl::default(),
+    )
 }
 
 fn collect_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
@@ -609,11 +611,15 @@ pub fn sync_up_repo_with_progress(
     repo: PathBuf,
     endpoint: String,
     session_id: String,
-    progress: Option<Arc<dyn GutchProgressSink>>,
+    control: crate::GutchOperationControl,
 ) -> Result<RepoSyncUpStats> {
+    control.checkpoint()?;
+    let progress = control.progress().clone();
     let (product_id, remote_repo_id) = resolve_sync_binding(&repo)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(15 * 60))
         .build()
         .map_err(|err| crate::Error::manifest(format!("failed to create sync client: {}", err)))?;
 
@@ -633,6 +639,7 @@ pub fn sync_up_repo_with_progress(
     );
 
     let plan = plan_sync_up_repo(repo.clone(), endpoint.clone(), session_id.clone())?;
+    control.checkpoint()?;
     let (status, repo_paths, _) = collect_local_sync_targets(&repo)?;
     let mut remote_targets =
         fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
@@ -651,6 +658,7 @@ pub fn sync_up_repo_with_progress(
     let mut step = 0usize;
 
     for target in &plan.to_remove {
+        control.checkpoint()?;
         step += 1;
         progress::emit_progress(
             &progress,
@@ -690,6 +698,7 @@ pub fn sync_up_repo_with_progress(
     }
 
     step += 1;
+    control.checkpoint()?;
     progress::emit_progress(
         &progress,
         GutchProgressEvent {
@@ -706,7 +715,7 @@ pub fn sync_up_repo_with_progress(
     );
     let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_manifest_path)?;
     let repo_manifest_uploaded = if plan.repo_manifest_changed {
-        upload_raw_file(
+        upload_raw_file_with_control(
             &client,
             &endpoint,
             &format!(
@@ -716,6 +725,7 @@ pub fn sync_up_repo_with_progress(
             &session_id,
             repo_manifest_bytes,
             "application/json",
+            &control,
         )?;
         true
     } else {
@@ -724,6 +734,7 @@ pub fn sync_up_repo_with_progress(
 
     let mut chunk_index_uploaded = false;
     if repo_paths.chunk_index_path.exists() {
+        control.checkpoint()?;
         step += 1;
         progress::emit_progress(
             &progress,
@@ -742,7 +753,7 @@ pub fn sync_up_repo_with_progress(
         let chunk_index = crate::load_chunk_index(&repo_paths)?;
         let chunk_index_bytes = serde_json::to_vec_pretty(&chunk_index)?;
         if plan.chunk_index_changed {
-            upload_raw_file(
+            upload_raw_file_with_control(
                 &client,
                 &endpoint,
                 &format!(
@@ -752,6 +763,7 @@ pub fn sync_up_repo_with_progress(
                 &session_id,
                 chunk_index_bytes,
                 "application/json",
+                &control,
             )?;
             chunk_index_uploaded = true;
         }
@@ -770,6 +782,7 @@ pub fn sync_up_repo_with_progress(
         .iter()
         .filter(|target| target_ids_to_upload.contains(target.target_id.as_str()))
     {
+        control.checkpoint()?;
         step += 1;
         progress::emit_progress(
             &progress,
@@ -842,7 +855,7 @@ pub fn sync_up_repo_with_progress(
             }
         };
 
-        upload_raw_file(
+        upload_raw_file_with_control(
             &client,
             &endpoint,
             &format!(
@@ -852,9 +865,11 @@ pub fn sync_up_repo_with_progress(
             &session_id,
             manifest_bytes,
             "application/json",
+            &control,
         )?;
         target_manifest_uploaded_count += 1;
 
+        control.checkpoint()?;
         step += 1;
         progress::emit_progress(
             &progress,
@@ -874,7 +889,7 @@ pub fn sync_up_repo_with_progress(
             &repo_paths,
             &target.target_id,
         ))?;
-        upload_raw_file(
+        upload_raw_file_with_control(
             &client,
             &endpoint,
             &format!(
@@ -884,6 +899,7 @@ pub fn sync_up_repo_with_progress(
             &session_id,
             manifest_bin_bytes,
             "application/octet-stream",
+            &control,
         )?;
         target_manifest_bin_uploaded_count += 1;
     }
@@ -891,6 +907,7 @@ pub fn sync_up_repo_with_progress(
     let mut bundle_uploaded_count = 0usize;
     let mut bundle_skipped_count = 0usize;
     for bundle_path in bundle_paths {
+        control.checkpoint()?;
         step += 1;
         let Some(bundle_id) = crate::bundle_id_from_bundle_path(&bundle_path) else {
             continue;
@@ -937,7 +954,7 @@ pub fn sync_up_repo_with_progress(
             },
         );
 
-        upload_raw_file(
+        upload_raw_file_with_control(
             &client,
             &endpoint,
             &format!(
@@ -947,6 +964,7 @@ pub fn sync_up_repo_with_progress(
             &session_id,
             bundle_bytes,
             "application/octet-stream",
+            &control,
         )?;
         bundle_uploaded_count += 1;
         progress::emit_progress(
@@ -966,6 +984,7 @@ pub fn sync_up_repo_with_progress(
     }
 
     step += 1;
+    control.checkpoint()?;
     progress::emit_progress(
         &progress,
         GutchProgressEvent {

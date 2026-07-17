@@ -233,12 +233,15 @@ fn build_bundled_chunks(
     compression_profile: &manifest::CompressionProfile,
     runtime_worker_count: usize,
     progress: Option<&std::sync::Arc<dyn BuildProgressSink>>,
+    control: &crate::GutchOperationControl,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
+    control.checkpoint()?;
     if let Some(progress) = progress {
         progress.on_bundle_build_started(planned_bundle_groups.groups.len());
     }
     let compression_profile_for_work = compression_profile.clone();
     let progress_for_work = progress.cloned();
+    let control_for_work = control.clone();
     let bundle_worker_count =
         bundle_compression_worker_count(planned_bundle_groups.groups.len(), runtime_worker_count);
     let build_bundle_work = || {
@@ -246,10 +249,12 @@ fn build_bundled_chunks(
             .groups
             .into_par_iter()
             .map(|planned_bundle| {
+                control_for_work.checkpoint()?;
                 build_bundle_compressed_group(
                     planned_bundle,
                     &compression_profile_for_work,
                     progress_for_work.as_deref(),
+                    &control_for_work,
                 )
             })
             .collect::<Result<Vec<_>>>()
@@ -263,21 +268,26 @@ fn build_loose_chunks(
     compression_profile: &manifest::CompressionProfile,
     runtime_worker_count: usize,
     progress: Option<&std::sync::Arc<dyn BuildProgressSink>>,
+    control: &crate::GutchOperationControl,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
+    control.checkpoint()?;
     if let Some(progress) = progress {
         progress.on_bundle_build_started(chunks_to_compress.len());
     }
     let compression_profile_for_work = compression_profile.clone();
     let progress_for_work = progress.cloned();
+    let control_for_work = control.clone();
     let build_loose_work = || {
         chunks_to_compress
             .into_par_iter()
             .map(|(chunk_hash, payload)| {
+                control_for_work.checkpoint()?;
                 build_loose_chunk(
                     chunk_hash,
                     payload,
                     &compression_profile_for_work,
                     progress_for_work.as_deref(),
+                    &control_for_work,
                 )
             })
             .collect::<Result<Vec<_>>>()
@@ -299,7 +309,9 @@ fn build_loose_chunk(
     payload: ChunkPayload,
     compression_profile: &manifest::CompressionProfile,
     progress: Option<&dyn BuildProgressSink>,
+    control: &crate::GutchOperationControl,
 ) -> Result<BuiltLooseChunkResult> {
+    control.checkpoint()?;
     let load_start = Instant::now();
     let raw_size = payload.raw_size();
     let bytes = payload.load_bytes()?;
@@ -331,12 +343,15 @@ fn build_bundle_compressed_group(
     planned_bundle: Vec<(ChunkHash, ChunkPayload)>,
     compression_profile: &manifest::CompressionProfile,
     progress: Option<&dyn BuildProgressSink>,
+    control: &crate::GutchOperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
+    control.checkpoint()?;
     let mut builder = BundleBuilder::new(compression_profile.clone());
     let mut payload_load = std::time::Duration::ZERO;
     let mut payload_load_bytes: u64 = 0;
 
     for (hash, payload) in planned_bundle {
+        control.checkpoint()?;
         let load_start = Instant::now();
         match payload {
             ChunkPayload::InMemory { bytes } => {
@@ -384,6 +399,7 @@ pub fn build_with_config(
     dir: &Path,
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {
+    config.control.checkpoint()?;
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings::default();
@@ -417,6 +433,7 @@ pub fn build_with_config(
             chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
             worker_count: runtime_plan.worker_count,
             progress: config.progress.clone(),
+            control: config.control.clone(),
         },
         &mut timings,
     )?;
@@ -424,7 +441,9 @@ pub fn build_with_config(
     let mut total_compressed: u64 = 0;
     let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
     for fm in &file_manifests {
+        config.control.checkpoint()?;
         for chunk_ref in &fm.chunks {
+            config.control.checkpoint()?;
             let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
             if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
                 && compressed_estimate_seen.insert(chunk_hash)
@@ -438,6 +457,7 @@ pub fn build_with_config(
 
     let t = Instant::now();
     for (hash, payload) in unique_chunks {
+        config.control.checkpoint()?;
         let raw_size = payload.raw_size();
         timings.dedupe_lookup_bytes += raw_size;
 
@@ -487,9 +507,11 @@ pub fn build_with_config(
                 &compression_profile,
                 runtime_plan.worker_count,
                 config.progress.as_ref(),
+                &config.control,
             )?;
 
             for built_bundle in built_bundle_groups {
+                config.control.checkpoint()?;
                 timings.bundle_compressed_payload_load += built_bundle.payload_load;
                 timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
                 if !existing_bundle_ids.contains(&built_bundle.bundle_id) {
@@ -512,9 +534,11 @@ pub fn build_with_config(
                 &compression_profile,
                 runtime_plan.worker_count,
                 config.progress.as_ref(),
+                &config.control,
             )?;
 
             for built_chunk in built_chunks {
+                config.control.checkpoint()?;
                 timings.bundle_compressed_payload_load += built_chunk.payload_load;
                 timings.bundle_compressed_payload_load_bytes += built_chunk.payload_load_bytes;
                 timings.compression_output_bytes += built_chunk.chunk.compressed_size;

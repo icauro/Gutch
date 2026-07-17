@@ -3,6 +3,16 @@ use crate::hash::ChunkHash;
 use crate::manifest::{TargetTagSet, target::TargetManifest};
 use crate::test_util;
 use std::collections::HashSet;
+use std::sync::Arc;
+
+#[derive(Debug)]
+struct AlwaysCancelled;
+
+impl crate::GutchCancellationHook for AlwaysCancelled {
+    fn is_cancelled(&self) -> bool {
+        true
+    }
+}
 
 fn test_chunk_hash(label: &str) -> ChunkHash {
     ChunkHash::from_blake3(crate::hash::hash_chunk(label.as_bytes()))
@@ -27,7 +37,7 @@ fn verify_with<'a>(
         dir,
         mode,
         runtime_hints,
-        progress: None,
+        control: crate::GutchOperationControl::default(),
     })
 }
 
@@ -41,6 +51,23 @@ fn verify_fast(
         VerifyMode::Fast,
         default_runtime_hints(),
     )
+}
+
+#[test]
+fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
+    let missing_dir = test_util::temp_path("gutch_verify_pre_cancelled_missing");
+    let _ = std::fs::remove_dir_all(&missing_dir);
+    let result = verify_directory(VerifyRequest {
+        target_manifest: &empty_manifest(),
+        dir: &missing_dir,
+        mode: VerifyMode::Fast,
+        runtime_hints: default_runtime_hints(),
+        control: crate::GutchOperationControl::default()
+            .with_cancellation(Arc::new(AlwaysCancelled)),
+    });
+
+    assert!(matches!(result, Err(crate::Error::Cancelled)));
+    assert!(!missing_dir.exists());
 }
 
 #[test]

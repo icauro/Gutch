@@ -32,6 +32,7 @@ pub struct BuildConfig<'a> {
     pub storage_mode: ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
     pub progress: Option<Arc<dyn BuildProgressSink>>,
+    pub control: crate::GutchOperationControl,
 }
 
 impl<'a> BuildConfig<'a> {
@@ -53,6 +54,7 @@ impl<'a> BuildConfig<'a> {
             storage_mode: ArtifactStorageMode::default(),
             runtime_hints: RuntimeResourceHints::default(),
             progress: None,
+            control: crate::GutchOperationControl::default(),
         }
     }
 
@@ -91,6 +93,11 @@ impl<'a> BuildConfig<'a> {
 
     pub fn with_progress(mut self, progress: Arc<dyn BuildProgressSink>) -> Self {
         self.progress = Some(progress);
+        self
+    }
+
+    pub fn with_control(mut self, control: crate::GutchOperationControl) -> Self {
+        self.control = control;
         self
     }
 }

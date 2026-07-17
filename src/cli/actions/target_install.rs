@@ -38,6 +38,7 @@ pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
         source_target_id: command.source_target.clone(),
         source_dir: command.source_dir.clone(),
         runtime_hints: command.runtime_hints,
+        control: g::GutchOperationControl::default(),
     })?;
     let tm = execution.target_manifest;
     let result = execution.apply_result;
@@ -95,7 +96,7 @@ pub(crate) fn verify_install(command: VerifyCommand) -> g::Result<()> {
         install_dir: command.dir.clone(),
         verify_mode: command.verify_mode,
         runtime_hints: command.runtime_hints,
-        progress: Some(progress),
+        control: g::GutchOperationControl::default().with_progress(progress),
     })?;
     let repo_root = execution.repo_root;
     let tm = execution.target_manifest;

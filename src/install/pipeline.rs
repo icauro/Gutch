@@ -13,7 +13,7 @@ use super::transfer::{FetchTransferProgress, PendingBundleDownload, download_pen
 use super::types::TargetInstallApplyFromRepoResult;
 use crate::manifest::target::TargetManifest;
 use crate::progress::{
-    GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
+    GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase, emit_progress,
 };
 use crate::runtime::{RuntimeResourceHints, plan_reconstruct_runtime, plan_verify_runtime};
 use crate::{Error, Result};
@@ -37,7 +37,7 @@ pub(super) struct InstallPipelineApplyRequest<'a> {
     pub runtime_hints: &'a RuntimeResourceHints,
     pub existing_bundle_ids: &'a HashSet<String>,
     pub pending_bundle_downloads: &'a [PendingBundleDownload],
-    pub progress: &'a Option<Arc<dyn GutchProgressSink>>,
+    pub control: &'a GutchOperationControl,
     pub download_client: Option<&'a reqwest::blocking::Client>,
     pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
     pub session_id: Option<&'a str>,
@@ -88,14 +88,14 @@ struct SourceChunkLocation {
 
 enum BundlePipelineEvent {
     Ready(String),
-    Failed(String),
+    Failed(Error),
     WorkerDone,
 }
 
 enum InstallPipelineEvent {
     Bundle(BundlePipelineEvent),
     FileCompleted(crate::ReconstructTimings),
-    FileFailed(String),
+    FileFailed(Error),
     FileWorkerDone,
 }
 
@@ -234,6 +234,7 @@ pub(super) fn apply_install_pipeline(
     request: InstallPipelineApplyRequest<'_>,
     pipeline_plan: InstallPipelinePlan,
 ) -> Result<TargetInstallApplyFromRepoResult> {
+    request.control.checkpoint()?;
     let staging_dir = request
         .staging_dir
         .map(Path::to_path_buf)
@@ -267,11 +268,14 @@ pub(super) fn apply_install_pipeline(
             request.runtime_hints,
             request.existing_bundle_ids,
             request.pending_bundle_downloads,
-            request.progress,
+            request.control,
             request.download_client,
             request.transfer_progress,
             request.session_id,
         )?;
+        // Promotion is a short consistency-critical section. Observe cancellation immediately
+        // before it, then finish the swap without interruption.
+        request.control.checkpoint()?;
         let backup_dir = super::apply::promote_staging_install(
             request.install_dir,
             &staging_dir,
@@ -310,14 +314,17 @@ pub(super) fn execute_install_pipeline_materialization(
     runtime_hints: &RuntimeResourceHints,
     existing_bundle_ids: &HashSet<String>,
     pending_bundle_downloads: &[PendingBundleDownload],
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    control: &GutchOperationControl,
     download_client: Option<&reqwest::blocking::Client>,
     transfer_progress: Option<&Arc<FetchTransferProgress>>,
     session_id: Option<&str>,
 ) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
+    control.checkpoint()?;
     let reconstruct_started_at = Instant::now();
-    let mut reconstruct_timings = crate::ReconstructTimings::default();
-    reconstruct_timings.runtime_plan = Some(plan_reconstruct_runtime(runtime_hints));
+    let mut reconstruct_timings = crate::ReconstructTimings {
+        runtime_plan: Some(plan_reconstruct_runtime(runtime_hints)),
+        ..crate::ReconstructTimings::default()
+    };
     let mut verify_timings = crate::verify::VerifyTimings {
         verify_mode: crate::verify::VerifyMode::Fast,
         runtime_plan: Some(plan_verify_runtime(runtime_hints)),
@@ -340,7 +347,7 @@ pub(super) fn execute_install_pipeline_materialization(
     }
 
     emit_progress(
-        progress,
+        control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Restore,
@@ -372,7 +379,12 @@ pub(super) fn execute_install_pipeline_materialization(
     }
 
     let (pipeline_event_tx, pipeline_event_rx) = mpsc::channel::<InstallPipelineEvent>();
-    let bundle_task_receiver = Arc::new(Mutex::new(pending_bundle_downloads.to_vec().into_iter()));
+    let bundle_task_receiver = Arc::new(Mutex::new(
+        pending_bundle_downloads
+            .iter()
+            .cloned()
+            .collect::<VecDeque<_>>(),
+    ));
     let (file_task_tx, file_task_rx) = mpsc::channel::<usize>();
     let file_task_rx = Arc::new(Mutex::new(file_task_rx));
     let file_plans = Arc::new(pipeline_plan.files.clone());
@@ -381,19 +393,19 @@ pub(super) fn execute_install_pipeline_materialization(
         for _ in 0..bundle_worker_count {
             let event_tx = pipeline_event_tx.clone();
             let task_receiver = Arc::clone(&bundle_task_receiver);
-            let progress = progress.clone();
+            let control = control.clone();
             let transfer_progress = Arc::clone(transfer_progress);
             let download_client = download_client.clone();
             let session_id = session_id.map(str::to_string);
             bundle_worker_handles.push(thread::spawn(move || {
                 loop {
                     let next_task = match task_receiver.lock() {
-                        Ok(mut tasks) => tasks.next(),
+                        Ok(mut tasks) => tasks.pop_front(),
                         Err(_) => {
                             let _ = event_tx.send(InstallPipelineEvent::Bundle(
-                                BundlePipelineEvent::Failed(
-                                    "bundle task state is unavailable".to_string(),
-                                ),
+                                BundlePipelineEvent::Failed(Error::reconstruct(
+                                    "bundle task state is unavailable",
+                                )),
                             ));
                             return;
                         }
@@ -404,11 +416,17 @@ pub(super) fn execute_install_pipeline_materialization(
                         ));
                         return;
                     };
+                    if let Err(error) = control.checkpoint() {
+                        let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                            BundlePipelineEvent::Failed(error),
+                        ));
+                        return;
+                    }
                     let result = download_pending_bundle(
                         &download_client,
                         &bundle_download,
                         session_id.as_deref(),
-                        &progress,
+                        &control,
                         &transfer_progress,
                     );
                     match result {
@@ -419,7 +437,7 @@ pub(super) fn execute_install_pipeline_materialization(
                         }
                         Err(error) => {
                             let _ = event_tx.send(InstallPipelineEvent::Bundle(
-                                BundlePipelineEvent::Failed(error.to_string()),
+                                BundlePipelineEvent::Failed(error),
                             ));
                             return;
                         }
@@ -435,13 +453,14 @@ pub(super) fn execute_install_pipeline_materialization(
         let file_task_rx = Arc::clone(&file_task_rx);
         let staging_dir = staging_dir.to_path_buf();
         let file_plans = Arc::clone(&file_plans);
+        let control = control.clone();
         file_worker_handles.push(thread::spawn(move || {
             loop {
                 let next_file_index = match file_task_rx.lock() {
                     Ok(receiver) => receiver.recv(),
                     Err(_) => {
                         let _ = event_tx.send(InstallPipelineEvent::FileFailed(
-                            "file task state is unavailable".to_string(),
+                            Error::reconstruct("file task state is unavailable"),
                         ));
                         return;
                     }
@@ -453,12 +472,16 @@ pub(super) fn execute_install_pipeline_materialization(
                         return;
                     }
                 };
-                match materialize_pipeline_file(&file_plans[file_index], &staging_dir) {
+                if let Err(error) = control.checkpoint() {
+                    let _ = event_tx.send(InstallPipelineEvent::FileFailed(error));
+                    return;
+                }
+                match materialize_pipeline_file(&file_plans[file_index], &staging_dir, &control) {
                     Ok(file_timings) => {
                         let _ = event_tx.send(InstallPipelineEvent::FileCompleted(file_timings));
                     }
                     Err(error) => {
-                        let _ = event_tx.send(InstallPipelineEvent::FileFailed(error.to_string()));
+                        let _ = event_tx.send(InstallPipelineEvent::FileFailed(error));
                         return;
                     }
                 }
@@ -476,6 +499,10 @@ pub(super) fn execute_install_pipeline_materialization(
             .map_err(|_| Error::reconstruct("install pipeline file queue closed unexpectedly"))
     };
     while completed_file_count < pipeline_plan.files.len() {
+        if let Err(error) = control.checkpoint() {
+            pipeline_error = Some(error);
+            break;
+        }
         while let Some(file_index) = ready_files.pop_front() {
             if let Err(error) = queue_ready_file(file_index) {
                 pipeline_error = Some(error);
@@ -507,7 +534,7 @@ pub(super) fn execute_install_pipeline_materialization(
                 }
             }
             Ok(InstallPipelineEvent::Bundle(BundlePipelineEvent::Failed(error))) => {
-                pipeline_error = Some(Error::manifest(error));
+                pipeline_error = Some(error);
                 break;
             }
             Ok(InstallPipelineEvent::Bundle(BundlePipelineEvent::WorkerDone)) => {
@@ -533,7 +560,7 @@ pub(super) fn execute_install_pipeline_materialization(
                     &file_timings,
                 );
                 emit_progress(
-                    progress,
+                    control.progress(),
                     GutchProgressEvent {
                         operation: GutchOperation::Fetch,
                         phase: GutchProgressPhase::Restore,
@@ -552,7 +579,7 @@ pub(super) fn execute_install_pipeline_materialization(
                 );
             }
             Ok(InstallPipelineEvent::FileFailed(error)) => {
-                pipeline_error = Some(Error::reconstruct(error));
+                pipeline_error = Some(error);
                 break;
             }
             Ok(InstallPipelineEvent::FileWorkerDone) => {
@@ -599,13 +626,15 @@ pub(super) fn execute_install_pipeline_materialization(
 fn materialize_pipeline_file(
     file_plan: &InstallPipelineFile,
     staging_dir: &Path,
+    control: &GutchOperationControl,
 ) -> Result<crate::ReconstructTimings> {
+    control.checkpoint()?;
     match &file_plan.materialization {
         InstallPipelineMaterialization::CopyFromSource { source_path } => {
-            copy_pipeline_file_from_source(file_plan, source_path, staging_dir)
+            copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)
         }
         InstallPipelineMaterialization::ReconstructFromParts { chunks } => {
-            reconstruct_pipeline_file_from_parts(file_plan, chunks, staging_dir)
+            reconstruct_pipeline_file_from_parts(file_plan, chunks, staging_dir, control)
         }
     }
 }
@@ -614,6 +643,7 @@ fn copy_pipeline_file_from_source(
     file_plan: &InstallPipelineFile,
     source_path: &Path,
     staging_dir: &Path,
+    control: &GutchOperationControl,
 ) -> Result<crate::ReconstructTimings> {
     let mut timings = crate::ReconstructTimings::default();
     let output_path =
@@ -628,6 +658,7 @@ fn copy_pipeline_file_from_source(
     let mut written = 0u64;
 
     loop {
+        control.checkpoint()?;
         let rebuild_started_at = Instant::now();
         let read = std::io::Read::read(&mut input, &mut buffer)?;
         timings.file_rebuild += rebuild_started_at.elapsed();
@@ -671,6 +702,7 @@ fn reconstruct_pipeline_file_from_parts(
     file_plan: &InstallPipelineFile,
     chunks: &[InstallPipelineChunkInput],
     staging_dir: &Path,
+    control: &GutchOperationControl,
 ) -> Result<crate::ReconstructTimings> {
     let mut timings = crate::ReconstructTimings::default();
     let output_path =
@@ -688,6 +720,7 @@ fn reconstruct_pipeline_file_from_parts(
     let mut source_readers: HashMap<PathBuf, std::io::BufReader<File>> = HashMap::new();
 
     for chunk in chunks {
+        control.checkpoint()?;
         let chunk_bytes = match chunk {
             InstallPipelineChunkInput::Source {
                 chunk_hash,

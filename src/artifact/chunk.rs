@@ -87,6 +87,19 @@ pub fn chunk_file_streaming_with_file_hash(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
+    chunk_file_streaming_with_file_hash_and_control(
+        path,
+        profile,
+        &crate::GutchOperationControl::default(),
+    )
+}
+
+pub fn chunk_file_streaming_with_file_hash_and_control(
+    path: &std::path::Path,
+    profile: &ChunkSizingProfile,
+    control: &crate::GutchOperationControl,
+) -> Result<(ChunkFileScan, ChunkScanTimings)> {
+    control.checkpoint()?;
     let min = profile.min_chunk_size_bytes() as usize;
     let avg = profile.avg_chunk_size_bytes() as usize;
     let max = profile.max_chunk_size_bytes() as usize;
@@ -105,6 +118,7 @@ pub fn chunk_file_streaming_with_file_hash(
     let mut file_size = 0u64;
 
     loop {
+        control.checkpoint()?;
         let t = Instant::now();
         let next_chunk = chunker.next();
         boundary_scan += t.elapsed();

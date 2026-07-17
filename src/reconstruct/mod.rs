@@ -10,6 +10,7 @@ use crate::Result;
 use crate::bundle;
 use crate::hash::ChunkHash;
 use crate::manifest::{CompressionProfile, target::TargetManifest};
+use crate::progress::GutchOperationControl;
 use crate::repo::{GutchRepoPaths, required_bundle_ids, required_chunk_hashes_typed};
 use crate::runtime::RuntimeResourceHints;
 
@@ -39,8 +40,27 @@ pub fn reconstruct_from_target_manifest(
     bundles: &[Vec<u8>],
     output_dir: &Path,
 ) -> Result<()> {
-    let (_, _) =
-        reconstruct_from_target_manifest_with_timings(target_manifest, bundles, output_dir)?;
+    reconstruct_from_target_manifest_with_control(
+        target_manifest,
+        bundles,
+        output_dir,
+        &GutchOperationControl::default(),
+    )?;
+    Ok(())
+}
+
+pub fn reconstruct_from_target_manifest_with_control(
+    target_manifest: &TargetManifest,
+    bundles: &[Vec<u8>],
+    output_dir: &Path,
+    control: &GutchOperationControl,
+) -> Result<()> {
+    let (_, _) = reconstruct_from_target_manifest_with_timings(
+        target_manifest,
+        bundles,
+        output_dir,
+        control,
+    )?;
     Ok(())
 }
 
@@ -48,15 +68,18 @@ fn reconstruct_from_target_manifest_with_timings(
     target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
     output_dir: &Path,
+    control: &GutchOperationControl,
 ) -> Result<((), ReconstructTimings)> {
     let total_start = Instant::now();
     let mut timings = ReconstructTimings::default();
+    control.checkpoint()?;
     crate::helpers::create_dir_all(output_dir)?;
 
     let needed_chunks = required_chunk_hashes_typed(target_manifest)?;
     let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
 
     for bundle_data in bundles {
+        control.checkpoint()?;
         let t = Instant::now();
         let mut reader = bundle::read_bundle(bundle_data)?;
         let matching_indices: Vec<usize> = reader
@@ -75,6 +98,7 @@ fn reconstruct_from_target_manifest_with_timings(
 
         timings.bundle_read_compressed_bytes += bundle_data.len() as u64;
         for index in matching_indices {
+            control.checkpoint()?;
             let hash = reader.chunk_hashes()[index];
             let data = reader.read_chunk(index)?;
             timings.bundle_read_decompressed_bytes += data.len() as u64;
@@ -87,7 +111,13 @@ fn reconstruct_from_target_manifest_with_timings(
         }
     }
 
-    rebuild_files_from_chunks(target_manifest, &chunk_map, output_dir, &mut timings)?;
+    rebuild_files_from_chunks(
+        target_manifest,
+        &chunk_map,
+        output_dir,
+        &mut timings,
+        control,
+    )?;
     timings.total = total_start.elapsed();
     Ok(((), timings))
 }
@@ -100,11 +130,31 @@ pub fn reconstruct_from_bundle_paths(
     runtime_hints: &RuntimeResourceHints,
     options: ReconstructOptions,
 ) -> Result<((), ReconstructTimings)> {
+    reconstruct_from_bundle_paths_with_control(
+        target_manifest,
+        bundle_paths,
+        verified_source,
+        output_dir,
+        runtime_hints,
+        options,
+        &GutchOperationControl::default(),
+    )
+}
+
+pub fn reconstruct_from_bundle_paths_with_control(
+    target_manifest: &TargetManifest,
+    bundle_paths: &[PathBuf],
+    verified_source: Option<VerifiedSourceInstall<'_>>,
+    output_dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    options: ReconstructOptions,
+    control: &GutchOperationControl,
+) -> Result<((), ReconstructTimings)> {
     let (needed_chunks, total_start, runtime_plan, timings) =
-        prepare_reconstruct(target_manifest, output_dir, runtime_hints)?;
+        prepare_reconstruct(target_manifest, output_dir, runtime_hints, control)?;
 
     let local_chunks = match verified_source {
-        Some(source) => read_reusable_source_chunks(source, &needed_chunks)?,
+        Some(source) => read_reusable_source_chunks(source, &needed_chunks, control)?,
         None => HashMap::new(),
     };
     reconstruct_from_bundle_paths_and_local_chunks(
@@ -117,6 +167,7 @@ pub fn reconstruct_from_bundle_paths(
         total_start,
         timings,
         options,
+        control,
     )
 }
 
@@ -128,9 +179,30 @@ pub fn reconstruct_from_repo(
     runtime_hints: &RuntimeResourceHints,
     options: ReconstructOptions,
 ) -> Result<((), ReconstructTimings)> {
-    let (needed_chunks, total_start, runtime_plan, mut timings) =
-        prepare_reconstruct(target_manifest, output_dir, runtime_hints)?;
+    reconstruct_from_repo_with_control(
+        target_manifest,
+        repo_paths,
+        compression_profile,
+        output_dir,
+        runtime_hints,
+        options,
+        &GutchOperationControl::default(),
+    )
+}
 
+pub fn reconstruct_from_repo_with_control(
+    target_manifest: &TargetManifest,
+    repo_paths: &GutchRepoPaths,
+    compression_profile: &CompressionProfile,
+    output_dir: &Path,
+    runtime_hints: &RuntimeResourceHints,
+    options: ReconstructOptions,
+    control: &GutchOperationControl,
+) -> Result<((), ReconstructTimings)> {
+    let (needed_chunks, total_start, runtime_plan, mut timings) =
+        prepare_reconstruct(target_manifest, output_dir, runtime_hints, control)?;
+
+    control.checkpoint()?;
     let chunk_index = crate::repo::load_chunk_index(repo_paths)?;
     let local_chunks = read_loose_repo_chunks(
         repo_paths,
@@ -140,6 +212,7 @@ pub fn reconstruct_from_repo(
         options,
         runtime_plan.worker_count,
         &mut timings,
+        control,
     )?;
     let required_bundle_ids = required_bundle_ids(target_manifest, &chunk_index);
     let bundle_paths = required_bundle_ids
@@ -157,6 +230,7 @@ pub fn reconstruct_from_repo(
         total_start,
         timings,
         options,
+        control,
     )
 }
 
@@ -164,6 +238,33 @@ pub fn reconstruct_from_repo(
 mod tests {
     use super::*;
     use crate::runtime::{ChunkStorageMode, EffectiveMemoryMode, MemoryMode};
+    use std::sync::Arc;
+
+    #[derive(Debug)]
+    struct AlwaysCancelled;
+
+    impl crate::GutchCancellationHook for AlwaysCancelled {
+        fn is_cancelled(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn pre_cancelled_reconstruct_does_not_create_output() {
+        let output_dir = crate::test_util::temp_path("gutch_reconstruct_pre_cancelled");
+        let _ = std::fs::remove_dir_all(&output_dir);
+        let manifest = TargetManifest::new(
+            "cancelled-target".to_string(),
+            crate::manifest::TargetTagSet::default(),
+        );
+        let control = GutchOperationControl::default().with_cancellation(Arc::new(AlwaysCancelled));
+
+        let result =
+            reconstruct_from_target_manifest_with_control(&manifest, &[], &output_dir, &control);
+
+        assert!(matches!(result, Err(crate::Error::Cancelled)));
+        assert!(!output_dir.exists());
+    }
 
     fn runtime_plan(
         effective_memory_mode: EffectiveMemoryMode,

@@ -13,7 +13,8 @@ use crate::manifest::runtime::typed_file_manifest;
 use crate::manifest::{self, target::TargetManifest};
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::progress::{
-    GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
+    GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
+    GutchProgressSink, emit_progress,
 };
 use crate::runtime::{RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime};
 mod estimate;
@@ -29,7 +30,7 @@ pub use types::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, 
 struct VerifyOptions<'a> {
     mode: VerifyMode,
     hints: &'a RuntimeResourceHints,
-    progress: &'a Option<Arc<dyn GutchProgressSink>>,
+    control: &'a GutchOperationControl,
 }
 
 impl<'a> Default for VerifyOptions<'a> {
@@ -37,7 +38,7 @@ impl<'a> Default for VerifyOptions<'a> {
         Self {
             mode: VerifyMode::Fast,
             hints: default_runtime_hints(),
-            progress: no_progress(),
+            control: default_control(),
         }
     }
 }
@@ -53,8 +54,8 @@ impl<'a> VerifyOptions<'a> {
         self
     }
 
-    fn with_progress(mut self, progress: &'a Option<Arc<dyn GutchProgressSink>>) -> Self {
-        self.progress = progress;
+    fn with_control(mut self, control: &'a GutchOperationControl) -> Self {
+        self.control = control;
         self
     }
 }
@@ -64,7 +65,7 @@ pub struct VerifyRequest<'a> {
     pub dir: &'a Path,
     pub mode: VerifyMode,
     pub runtime_hints: &'a RuntimeResourceHints,
-    pub progress: Option<Arc<dyn GutchProgressSink>>,
+    pub control: GutchOperationControl,
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,7 @@ fn classify_inner(
     opts: &VerifyOptions,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
+    opts.control.checkpoint()?;
     let mut classification = RepairClassification::default();
     let runtime_plan = plan_verify_runtime(opts.hints);
     let mut timings = VerifyTimings {
@@ -90,16 +92,28 @@ fn classify_inner(
         .map(|fm| fm.path.as_str())
         .collect();
     let completed_files = AtomicUsize::new(0);
-    emit_verify_progress(opts.progress, 0, target_manifest.files.len(), false);
+    emit_verify_progress(
+        opts.control.progress(),
+        0,
+        target_manifest.files.len(),
+        false,
+    );
 
     let per_file_results = install_in_thread_pool(runtime_plan.worker_count, || {
         target_manifest
             .files
             .par_iter()
             .map(|fm| {
-                let result = verify_manifest_file(target_manifest, dir, fm, opts.mode);
+                opts.control.checkpoint()?;
+                let result =
+                    verify_manifest_file(target_manifest, dir, fm, opts.mode, opts.control);
                 let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
-                emit_verify_progress(opts.progress, current, target_manifest.files.len(), false);
+                emit_verify_progress(
+                    opts.control.progress(),
+                    current,
+                    target_manifest.files.len(),
+                    false,
+                );
                 result
             })
             .collect::<Vec<_>>()
@@ -115,6 +129,7 @@ fn classify_inner(
 
     // Detect extra files not in manifest
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        opts.control.checkpoint()?;
         let entry = entry?;
         if !entry.path().is_file() {
             continue;
@@ -135,7 +150,7 @@ fn classify_inner(
 
     timings.total = total_start.elapsed();
     emit_verify_progress(
-        opts.progress,
+        opts.control.progress(),
         target_manifest.files.len(),
         target_manifest.files.len(),
         true,
@@ -159,7 +174,7 @@ pub fn verify_directory(request: VerifyRequest<'_>) -> Result<(Vec<String>, Veri
         &VerifyOptions::default()
             .with_mode(request.mode)
             .with_hints(request.runtime_hints)
-            .with_progress(&request.progress),
+            .with_control(&request.control),
     )
 }
 
@@ -172,7 +187,7 @@ pub fn classify_directory(
         &VerifyOptions::default()
             .with_mode(request.mode)
             .with_hints(request.runtime_hints)
-            .with_progress(&request.progress),
+            .with_control(&request.control),
     )
 }
 
@@ -198,9 +213,9 @@ fn emit_verify_progress(
     );
 }
 
-fn no_progress() -> &'static Option<Arc<dyn GutchProgressSink>> {
-    static NO_PROGRESS: Option<Arc<dyn GutchProgressSink>> = None;
-    &NO_PROGRESS
+fn default_control() -> &'static GutchOperationControl {
+    static CONTROL: std::sync::OnceLock<GutchOperationControl> = std::sync::OnceLock::new();
+    CONTROL.get_or_init(GutchOperationControl::default)
 }
 
 fn default_runtime_hints() -> &'static RuntimeResourceHints {
@@ -228,7 +243,9 @@ fn verify_manifest_file(
     dir: &Path,
     fm: &manifest::FileManifest,
     verify_mode: VerifyMode,
+    control: &GutchOperationControl,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
+    control.checkpoint()?;
     let mut timings = VerifyTimings {
         verify_mode,
         ..VerifyTimings::default()
@@ -278,8 +295,9 @@ fn verify_manifest_file(
         ));
     }
 
-    match verify_file_streaming(fm, &file_path, verify_mode, &mut timings) {
+    match verify_file_streaming(fm, &file_path, verify_mode, &mut timings, control) {
         Ok(issues) => Ok((issues, timings)),
+        Err(crate::Error::Cancelled) => Err(crate::Error::Cancelled),
         Err(e) => Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
@@ -296,7 +314,8 @@ fn verify_file_streaming(
     file_path: &Path,
     verify_mode: VerifyMode,
     timings: &mut VerifyTimings,
-) -> std::io::Result<Vec<RepairIssue>> {
+    control: &GutchOperationControl,
+) -> Result<Vec<RepairIssue>> {
     let typed_file =
         typed_file_manifest(fm).map_err(|err| std::io::Error::other(err.to_string()))?;
     let file = std::fs::File::open(file_path)?;
@@ -307,6 +326,7 @@ fn verify_file_streaming(
     let mut chunk_offset = 0u64;
 
     for chunk_ref in &typed_file.chunks {
+        control.checkpoint()?;
         let chunk_size = chunk_ref.raw_size as usize;
         let start = chunk_offset;
         let end = start + chunk_ref.raw_size;
