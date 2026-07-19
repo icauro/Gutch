@@ -153,6 +153,39 @@ impl TargetTagSet {
         rendered
     }
 
+    pub fn update_family_key(&self, schema: Option<&TargetTagSchema>) -> Vec<String> {
+        let is_release_varying = |name: &str| {
+            schema
+                .and_then(|schema| schema.find_definition(name))
+                .is_some_and(|definition| {
+                    matches!(
+                        definition.inference_handler,
+                        InferenceHandler::Version | InferenceHandler::Date
+                    )
+                })
+        };
+        let mut rendered = Vec::new();
+        rendered.extend(
+            self.plain
+                .iter()
+                .filter(|value| !is_release_varying(value.as_str()))
+                .cloned(),
+        );
+        for (prefix, values) in &self.scoped {
+            if is_release_varying(prefix) {
+                continue;
+            }
+            rendered.extend(values.iter().map(|value| format!("{prefix}:{value}")));
+        }
+        for (prefix, value) in &self.exclusive {
+            if !is_release_varying(prefix) {
+                rendered.push(format!("{prefix}::{value}"));
+            }
+        }
+        rendered.sort();
+        rendered
+    }
+
     pub fn from_compact_strings(tag_values: &[String]) -> crate::Result<Self> {
         let mut parsed_tags = Self::default();
         for tag_value in tag_values {
@@ -212,6 +245,49 @@ impl TargetTagSet {
 
         self.insert_plain(trimmed.to_string());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod update_family_tests {
+    use super::*;
+
+    #[test]
+    fn update_family_excludes_version_and_date_handlers_but_keeps_unknown_tags() {
+        let schema = TargetTagSchema {
+            target_tags: vec![
+                TargetTagDefinition {
+                    name: "version".into(),
+                    kind: TargetTagKind::Exclusive,
+                    required: true,
+                    inference_prefixes: vec![],
+                    values: vec![],
+                    default_value: None,
+                    inference_handler: InferenceHandler::Version,
+                },
+                TargetTagDefinition {
+                    name: "released_at".into(),
+                    kind: TargetTagKind::Exclusive,
+                    required: true,
+                    inference_prefixes: vec![],
+                    values: vec![],
+                    default_value: None,
+                    inference_handler: InferenceHandler::Date,
+                },
+            ],
+        };
+        let tags = TargetTagSet::from_compact_strings(&[
+            "version::1.2.0".into(),
+            "released_at::2026_07_18".into(),
+            "os::windows".into(),
+            "tier::supporter".into(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            tags.update_family_key(Some(&schema)),
+            vec!["os::windows", "tier::supporter"]
+        );
     }
 }
 
