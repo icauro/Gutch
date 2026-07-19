@@ -16,10 +16,9 @@ pub struct FileBuildEntry {
     pub manifest: FileManifest,
     pub chunks: Vec<(ChunkHash, ChunkPayload)>,
     pub size: u64,
-    pub scan_read: Duration,
     pub file_hash: Duration,
-    pub chunking: Duration,
-    pub chunking_bytes: u64,
+    pub stream_chunk: Duration,
+    pub stream_chunk_bytes: u64,
     pub chunk_hash_judgment: Duration,
     pub chunk_hash_judgment_bytes: u64,
     pub metadata: Duration,
@@ -37,12 +36,11 @@ pub(crate) struct ScanDirectoryOptions<'a> {
 }
 
 pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileBuildEntry) {
-    timings.scan_read += entry.scan_read;
-    timings.scan_read_bytes += entry.size;
+    timings.logical_bytes += entry.size;
     timings.file_hash += entry.file_hash;
     timings.file_hash_bytes += entry.size;
-    timings.chunking += entry.chunking;
-    timings.chunking_bytes += entry.chunking_bytes;
+    timings.stream_chunk += entry.stream_chunk;
+    timings.stream_chunk_bytes += entry.stream_chunk_bytes;
     timings.chunk_hash_judgment += entry.chunk_hash_judgment;
     timings.chunk_hash_judgment_bytes += entry.chunk_hash_judgment_bytes;
     timings.metadata += entry.metadata;
@@ -102,7 +100,6 @@ pub(crate) fn scan_directory_into_file_entries(
             })?;
             let normalized_relative = relative.to_string_lossy().replace('\\', "/");
 
-            let scan_read = Duration::ZERO;
             let (chunk_scan, chunk_timings) =
                 crate::chunk::chunk_file_streaming_with_file_hash_and_control(
                     path,
@@ -121,17 +118,16 @@ pub(crate) fn scan_directory_into_file_entries(
                     manifest: previous.clone(),
                     chunks: Vec::new(),
                     size: file_size,
-                    scan_read,
                     file_hash,
-                    chunking: Duration::ZERO,
-                    chunking_bytes: 0,
+                    stream_chunk: Duration::ZERO,
+                    stream_chunk_bytes: 0,
                     chunk_hash_judgment: Duration::ZERO,
                     chunk_hash_judgment_bytes: 0,
                     metadata: Duration::ZERO,
                 });
             }
 
-            let chunking = chunk_timings.boundary_scan;
+            let stream_chunk = chunk_timings.boundary_scan;
 
             let mut chunk_refs = Vec::with_capacity(chunk_scan.chunks.len());
             let mut chunks = Vec::with_capacity(chunk_scan.chunks.len());
@@ -200,10 +196,9 @@ pub(crate) fn scan_directory_into_file_entries(
                 },
                 chunks,
                 size: file_size,
-                scan_read,
                 file_hash,
-                chunking,
-                chunking_bytes: chunk_timings.boundary_scan_bytes,
+                stream_chunk,
+                stream_chunk_bytes: chunk_timings.boundary_scan_bytes,
                 chunk_hash_judgment: chunk_timings.hash_judgment,
                 chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
                 metadata: metadata_dur,

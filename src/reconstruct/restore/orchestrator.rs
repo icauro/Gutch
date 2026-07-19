@@ -38,14 +38,15 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
     control: &GutchOperationControl,
 ) -> Result<(HashSet<ChunkHash>, Instant, RuntimePlan, ReconstructTimings)> {
     control.checkpoint()?;
-    let needed_chunks = crate::repo::required_chunk_hashes_typed(target_manifest)?;
     let total_start = Instant::now();
+    let needed_chunks = crate::repo::required_chunk_hashes_typed(target_manifest)?;
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
-    let timings = ReconstructTimings {
+    let mut timings = ReconstructTimings {
         runtime_plan: Some(runtime_plan.clone()),
         ..ReconstructTimings::default()
     };
     crate::helpers::create_dir_all(output_dir)?;
+    timings.prepare_wall = total_start.elapsed();
     Ok((needed_chunks, total_start, runtime_plan, timings))
 }
 
@@ -66,6 +67,8 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
     control: &GutchOperationControl,
 ) -> Result<((), ReconstructTimings)> {
     control.checkpoint()?;
+    timings.verify_chunks = options.verify_chunks;
+    timings.verify_files = options.verify_files;
     let missing_chunks: HashSet<ChunkHash> = needed_chunks
         .iter()
         .filter(|chunk_hash| !local_chunks.contains_key(*chunk_hash))
@@ -193,6 +196,10 @@ pub(in crate::reconstruct) fn read_loose_repo_chunks(
         timings.bundle_read += loaded_chunk.read_duration;
         timings.bundle_read_compressed_bytes += loaded_chunk.compressed_bytes;
         timings.bundle_read_decompressed_bytes += loaded_chunk.decompressed_bytes;
+        timings.chunk_verify += loaded_chunk.chunk_verify_duration;
+        if options.verify_chunks {
+            timings.chunk_verify_bytes += loaded_chunk.decompressed_bytes;
+        }
         chunk_map.insert(loaded_chunk.chunk_hash, loaded_chunk.data);
     }
     Ok(chunk_map)
@@ -210,13 +217,20 @@ fn read_loose_repo_chunk(
     let stored = crate::helpers::read(&path)?;
     let read_duration = read_start.elapsed();
     let chunk_data = decompress_data(&stored, compression_profile.compression)?;
+    let verify_started_at = Instant::now();
     verify_chunk_hash(&chunk_data, *chunk_hash, options)?;
+    let chunk_verify_duration = if options.verify_chunks {
+        verify_started_at.elapsed()
+    } else {
+        std::time::Duration::ZERO
+    };
     Ok(LoadedChunk {
         chunk_hash: *chunk_hash,
         compressed_bytes: stored.len() as u64,
         decompressed_bytes: chunk_data.len() as u64,
         data: chunk_data,
         read_duration,
+        chunk_verify_duration,
     })
 }
 
@@ -233,7 +247,6 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
 ) -> Result<()> {
     for fm in &target_manifest.files {
         control.checkpoint()?;
-        let t = Instant::now();
         let mut file_data = Vec::with_capacity(fm.size as usize);
 
         for chunk_ref in typed_chunk_refs(fm)? {
@@ -245,9 +258,6 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
 
             file_data.extend_from_slice(chunk_data);
         }
-        timings.file_rebuild += t.elapsed();
-        timings.file_rebuild_bytes += file_data.len() as u64;
-
         if file_data.len() != fm.size as usize {
             return Err(Error::Reconstruct(format!(
                 "reconstructed size {} does not match expected {} for {}",
@@ -426,7 +436,12 @@ fn reconstruct_manifest_file(
                 staged_file.read_exact(&mut staged_chunk_buffer)?;
                 timings.bundle_read += t.elapsed();
                 timings.bundle_read_decompressed_bytes += location.raw_size;
-                verify_chunk_hash(&staged_chunk_buffer, chunk_hash, options)?;
+                verify_chunk_hash_with_timings(
+                    &staged_chunk_buffer,
+                    chunk_hash,
+                    options,
+                    &mut timings,
+                )?;
                 write_reconstructed_chunk(
                     &mut output,
                     &staged_chunk_buffer,
@@ -458,7 +473,6 @@ fn reconstruct_manifest_file(
         let t = Instant::now();
         let actual_hash = hash_hex(&hasher.finalize());
         timings.file_verify += t.elapsed();
-        timings.file_verify_bytes += written;
         if actual_hash != fm.full_file_hash {
             return Err(Error::HashMismatch {
                 expected: fm.full_file_hash.clone(),
@@ -479,11 +493,11 @@ fn read_staged_memory_chunk_for_reconstruct<'a>(
 ) -> Result<&'a [u8]> {
     use super::direct::slice_bundle_raw_payload;
 
-    let chunk_data = slice_bundle_raw_payload(raw_payload, location, "staged")?;
     let t = Instant::now();
+    let chunk_data = slice_bundle_raw_payload(raw_payload, location, "staged")?;
     timings.bundle_read += t.elapsed();
     timings.bundle_read_decompressed_bytes += location.raw_size;
-    verify_chunk_hash(chunk_data, expected_chunk_hash, options)?;
+    verify_chunk_hash_with_timings(chunk_data, expected_chunk_hash, options, timings)?;
     Ok(chunk_data)
 }
 
@@ -510,6 +524,22 @@ pub(in crate::reconstruct) fn verify_chunk_hash(
     Ok(())
 }
 
+pub(in crate::reconstruct) fn verify_chunk_hash_with_timings(
+    chunk_data: &[u8],
+    expected_chunk_hash: ChunkHash,
+    options: ReconstructOptions,
+    timings: &mut ReconstructTimings,
+) -> Result<()> {
+    if !options.verify_chunks {
+        return Ok(());
+    }
+    let started_at = Instant::now();
+    verify_chunk_hash(chunk_data, expected_chunk_hash, options)?;
+    timings.chunk_verify += started_at.elapsed();
+    timings.chunk_verify_bytes += chunk_data.len() as u64;
+    Ok(())
+}
+
 fn write_reconstructed_chunk(
     output: &mut BufWriter<std::fs::File>,
     chunk_data: &[u8],
@@ -522,10 +552,12 @@ fn write_reconstructed_chunk(
     timings.file_write += t.elapsed();
     timings.file_write_bytes += chunk_data.len() as u64;
     if let Some(hasher) = hasher {
+        let verify_started_at = Instant::now();
         hasher.update(chunk_data);
+        timings.file_verify += verify_started_at.elapsed();
+        timings.file_verify_bytes += chunk_data.len() as u64;
     }
     *written += chunk_data.len() as u64;
-    timings.file_rebuild_bytes += chunk_data.len() as u64;
     Ok(())
 }
 

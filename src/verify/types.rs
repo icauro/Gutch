@@ -26,6 +26,9 @@ impl VerifyMode {
 pub struct VerifyTimings {
     pub verify_mode: VerifyMode,
     pub runtime_plan: Option<RuntimePlan>,
+    pub prepare_wall: Duration,
+    pub verify_files_wall: Duration,
+    pub extra_file_scan_wall: Duration,
     pub stat: Duration,
     pub file_read: Duration,
     pub file_read_bytes: u64,

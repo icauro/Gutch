@@ -359,6 +359,10 @@ fn verify_with_hints_records_runtime_plan() {
         timings.runtime_plan.as_ref().map(|plan| plan.worker_count),
         Some(1)
     );
+    assert!(
+        timings.total
+            >= timings.prepare_wall + timings.verify_files_wall + timings.extra_file_scan_wall
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -190,7 +190,14 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
     let mut config = BuildConfig::with_ids("base", "300", &tags);
     config.compression_profile =
         manifest::CompressionProfile::for_preset(manifest::CompressionPreset::Zstd3);
-    let result = build_with_config(&input_dir, &config).unwrap().0;
+    let (result, build_timings) = build_with_config(&input_dir, &config).unwrap();
+    assert!(
+        build_timings.total
+            >= build_timings.scan_chunk_wall
+                + build_timings.dedupe_plan_wall
+                + build_timings.artifact_encode_wall
+                + build_timings.manifest_finalize_wall
+    );
 
     for bundle in &result.bundles {
         std::fs::write(
@@ -230,6 +237,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
         timings.runtime_plan.as_ref().map(|plan| plan.worker_count),
         Some(1)
     );
+    assert!(timings.total >= timings.prepare_wall + timings.restore_wall);
 
     let _ = std::fs::remove_dir_all(&root);
 }

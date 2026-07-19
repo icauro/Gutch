@@ -323,6 +323,7 @@ pub(super) fn execute_install_pipeline_materialization(
     let reconstruct_started_at = Instant::now();
     let mut reconstruct_timings = crate::ReconstructTimings {
         runtime_plan: Some(plan_reconstruct_runtime(runtime_hints)),
+        verify_files: true,
         ..crate::ReconstructTimings::default()
     };
     let mut verify_timings = crate::verify::VerifyTimings {
@@ -618,8 +619,10 @@ pub(super) fn execute_install_pipeline_materialization(
         return Err(error);
     }
 
-    reconstruct_timings.total = reconstruct_started_at.elapsed();
-    verify_timings.total = reconstruct_timings.file_verify;
+    reconstruct_timings.restore_wall = reconstruct_started_at.elapsed();
+    reconstruct_timings.total = reconstruct_timings.restore_wall;
+    verify_timings.verify_files_wall = reconstruct_timings.restore_wall;
+    verify_timings.total = reconstruct_timings.restore_wall;
     Ok((reconstruct_timings, verify_timings))
 }
 
@@ -670,7 +673,10 @@ fn copy_pipeline_file_from_source(
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes += read as u64;
         timings.file_rebuild_bytes += read as u64;
+        let verify_started_at = Instant::now();
         hasher.update(&buffer[..read]);
+        timings.file_verify += verify_started_at.elapsed();
+        timings.file_verify_bytes += read as u64;
         written += read as u64;
     }
 
@@ -687,7 +693,6 @@ fn copy_pipeline_file_from_source(
     let verify_started_at = Instant::now();
     let actual_hash = crate::hash::hash_hex(&hasher.finalize());
     timings.file_verify += verify_started_at.elapsed();
-    timings.file_verify_bytes += written;
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {
             expected: file_plan.full_file_hash.clone(),
@@ -739,7 +744,10 @@ fn reconstruct_pipeline_file_from_parts(
                 let mut chunk_bytes = vec![0u8; *raw_size as usize];
                 reader.read_exact(&mut chunk_bytes)?;
                 timings.file_rebuild += read_started_at.elapsed();
+                let verify_started_at = Instant::now();
                 let actual_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&chunk_bytes));
+                timings.chunk_verify += verify_started_at.elapsed();
+                timings.chunk_verify_bytes += chunk_bytes.len() as u64;
                 if actual_hash != *chunk_hash {
                     return Err(Error::HashMismatch {
                         expected: chunk_hash.clone(),
@@ -785,7 +793,10 @@ fn reconstruct_pipeline_file_from_parts(
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes += chunk_bytes.len() as u64;
         timings.file_rebuild_bytes += chunk_bytes.len() as u64;
+        let verify_started_at = Instant::now();
         file_hasher.update(&chunk_bytes);
+        timings.file_verify += verify_started_at.elapsed();
+        timings.file_verify_bytes += chunk_bytes.len() as u64;
         written += chunk_bytes.len() as u64;
     }
 
@@ -802,7 +813,6 @@ fn reconstruct_pipeline_file_from_parts(
     let verify_started_at = Instant::now();
     let actual_hash = crate::hash::hash_hex(&file_hasher.finalize());
     timings.file_verify += verify_started_at.elapsed();
-    timings.file_verify_bytes += written;
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {
             expected: file_plan.full_file_hash.clone(),
@@ -846,6 +856,8 @@ fn accumulate_pipeline_timings(
     reconstruct_timings.bundle_read_compressed_bytes += file_timings.bundle_read_compressed_bytes;
     reconstruct_timings.bundle_read_decompressed_bytes +=
         file_timings.bundle_read_decompressed_bytes;
+    reconstruct_timings.chunk_verify += file_timings.chunk_verify;
+    reconstruct_timings.chunk_verify_bytes += file_timings.chunk_verify_bytes;
     reconstruct_timings.file_rebuild += file_timings.file_rebuild;
     reconstruct_timings.file_rebuild_bytes += file_timings.file_rebuild_bytes;
     reconstruct_timings.file_verify += file_timings.file_verify;

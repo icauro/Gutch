@@ -18,7 +18,7 @@ use super::super::types::{
     BundleScanInfo, ChunkLocation, ChunkWriteTarget, ReconstructOptions, ReconstructTimings,
     typed_chunk_refs,
 };
-use super::orchestrator::verify_chunk_hash;
+use super::orchestrator::verify_chunk_hash_with_timings;
 
 // ---------------------------------------------------------------------------
 // Direct bundle-to-file restore strategy (currently disabled by default)
@@ -201,7 +201,6 @@ fn direct_reconstruct_one_bundle(
             output.write_all(chunk_data)?;
             timings.file_write += t.elapsed();
             timings.file_write_bytes += chunk_data.len() as u64;
-            timings.file_rebuild_bytes += chunk_data.len() as u64;
         }
     }
 
@@ -215,10 +214,10 @@ fn direct_bundle_chunk_slice<'a>(
     timings: &mut ReconstructTimings,
     options: ReconstructOptions,
 ) -> Result<&'a [u8]> {
-    let chunk_data = slice_bundle_raw_payload(raw_payload, location, "direct")?;
     let t = Instant::now();
+    let chunk_data = slice_bundle_raw_payload(raw_payload, location, "direct")?;
     timings.bundle_read += t.elapsed();
-    verify_chunk_hash(chunk_data, expected_chunk_hash, options)?;
+    verify_chunk_hash_with_timings(chunk_data, expected_chunk_hash, options, timings)?;
     Ok(chunk_data)
 }
 

@@ -99,6 +99,8 @@ fn classify_inner(
         false,
     );
 
+    timings.prepare_wall = total_start.elapsed();
+    let verify_files_start = Instant::now();
     let per_file_results = install_in_thread_pool(runtime_plan.worker_count, || {
         target_manifest
             .files
@@ -126,8 +128,10 @@ fn classify_inner(
             classification.push(issue);
         }
     }
+    timings.verify_files_wall = verify_files_start.elapsed();
 
     // Detect extra files not in manifest
+    let extra_file_scan_start = Instant::now();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
         opts.control.checkpoint()?;
         let entry = entry?;
@@ -147,6 +151,7 @@ fn classify_inner(
             detail: format!("extra file: {}", relative),
         });
     }
+    timings.extra_file_scan_wall = extra_file_scan_start.elapsed();
 
     timings.total = total_start.elapsed();
     emit_verify_progress(

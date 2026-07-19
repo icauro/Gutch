@@ -13,83 +13,121 @@ fn ratio_pct_half() {
 }
 
 #[test]
-fn ratio_pct_full() {
-    assert!((ratio_pct(100, 100) - 100.0).abs() < f64::EPSILON);
-}
-
-#[test]
-fn ratio_pct_zero() {
-    assert!((ratio_pct(0, 100) - 0.0).abs() < f64::EPSILON);
-}
-
-#[test]
-fn build_timings_summary_reports_accounted_and_ratio_fields() {
+fn build_summary_separates_wall_phases_from_worker_details() {
     let timings = g::BuildTimings {
-        scan_read: Duration::from_secs(2),
-        scan_read_bytes: 20 * 1024 * 1024,
-        file_hash: Duration::from_secs(1),
-        file_hash_bytes: 10 * 1024 * 1024,
-        chunking: Duration::from_secs(1),
-        chunking_bytes: 10 * 1024 * 1024,
+        storage_mode: g::manifest::ArtifactStorageMode::Bundled,
+        scan_chunk_wall: Duration::from_secs(4),
+        logical_bytes: 20 * 1024 * 1024,
+        stream_chunk: Duration::from_secs(6),
+        stream_chunk_bytes: 20 * 1024 * 1024,
+        file_hash: Duration::from_secs(2),
+        file_hash_bytes: 20 * 1024 * 1024,
         chunk_hash_judgment: Duration::from_secs(1),
-        chunk_hash_judgment_bytes: 10 * 1024 * 1024,
-        metadata: Duration::from_secs(1),
-        dedupe_lookup: Duration::from_secs(1),
-        dedupe_lookup_bytes: 10 * 1024 * 1024,
-        compression: Duration::from_secs(2),
+        chunk_hash_judgment_bytes: 20 * 1024 * 1024,
+        dedupe_plan_wall: Duration::from_secs(1),
+        dedupe_lookup: Duration::from_millis(500),
+        dedupe_lookup_bytes: 20 * 1024 * 1024,
+        artifact_encode_wall: Duration::from_secs(3),
         compression_input_bytes: 20 * 1024 * 1024,
         compression_output_bytes: 5 * 1024 * 1024,
-        total_compressed_bytes: 5 * 1024 * 1024,
         bundle_compressed_sort: Duration::from_millis(400),
         bundle_compressed_sort_bytes: 20 * 1024 * 1024,
-        bundle_compressed_ratio_probe: Duration::from_millis(200),
-        bundle_compressed_ratio_probe_bytes: 8 * 1024 * 1024,
-        bundle_compressed_payload_load: Duration::from_millis(500),
-        bundle_compressed_payload_load_bytes: 10 * 1024 * 1024,
-        bundle_compressed_payload_assembly: Duration::from_millis(250),
-        bundle_compressed_payload_assembly_bytes: 10 * 1024 * 1024,
-        bundle_compressed_stream_compression: Duration::from_secs(2),
+        bundle_compressed_stream_compression: Duration::from_secs(5),
         bundle_compressed_stream_input_bytes: 20 * 1024 * 1024,
         bundle_compressed_stream_output_bytes: 5 * 1024 * 1024,
-        bundle_compressed_serialization: Duration::from_millis(200),
-        bundle_compressed_serialization_bytes: 6 * 1024 * 1024,
-        bundle_build: Duration::from_secs(1),
-        bundle_build_bytes: 5 * 1024 * 1024,
-        target_manifest_finalize: Duration::from_secs(1),
-        total: Duration::from_secs(12),
-        runtime_plan: None,
+        manifest_finalize_wall: Duration::from_secs(1),
+        total: Duration::from_secs(10),
+        ..g::BuildTimings::default()
     };
 
     let summary = build_timings_summary(&timings);
-    assert!((summary.compression_ratio_percent - 25.0).abs() < f64::EPSILON);
-    assert!((summary.accounted_seconds - 11.0).abs() < f64::EPSILON);
+
+    assert_eq!(summary.schema_version, 1);
     assert!((summary.unaccounted_seconds - 1.0).abs() < f64::EPSILON);
-    assert!((summary.accounted_percent_of_total - (11.0 / 12.0 * 100.0)).abs() < 1e-9);
-    assert!((summary.scan_read_mib_per_second - 10.0).abs() < f64::EPSILON);
-    assert!((summary.bundle_compressed_sort_mib_per_second - 50.0).abs() < f64::EPSILON);
-    assert!((summary.bundle_compressed_ratio_probe_mib_per_second - 40.0).abs() < f64::EPSILON);
-    assert!((summary.bundle_compressed_payload_load_mib_per_second - 20.0).abs() < f64::EPSILON);
-    assert!((summary.bundle_compressed_stream_ratio_percent - 25.0).abs() < f64::EPSILON);
+    assert_eq!(summary.phases.scan_chunk.wall_seconds, 4.0);
+    assert_eq!(
+        summary
+            .phases
+            .scan_chunk
+            .details
+            .stream_chunk_worker_seconds,
+        6.0
+    );
+    assert_eq!(
+        summary
+            .phases
+            .artifact_encode
+            .details
+            .compression_ratio_percent,
+        25.0
+    );
+    assert_eq!(
+        summary
+            .phases
+            .artifact_encode
+            .details
+            .bundle_sort_worker_seconds,
+        Some(0.4)
+    );
+
+    let json = serde_json::to_value(&summary).expect("serialize build timing summary");
+    assert!(json.get("accounted_seconds").is_none());
+    assert!(json.get("scan_read_seconds").is_none());
+    assert!(json["phases"]["scan_chunk"]["wall_seconds"].is_number());
 }
 
 #[test]
-fn verify_timings_summary_reports_accounted_fields() {
+fn reconstruct_summary_uses_null_for_disabled_verification() {
+    let timings = g::ReconstructTimings {
+        prepare_wall: Duration::from_secs(1),
+        restore_wall: Duration::from_secs(7),
+        bundle_read: Duration::from_secs(9),
+        file_write: Duration::from_secs(11),
+        total: Duration::from_secs(9),
+        ..g::ReconstructTimings::default()
+    };
+
+    let summary = reconstruct_timings_summary(&timings);
+    let json = serde_json::to_value(&summary).expect("serialize reconstruct timing summary");
+
+    assert_eq!(summary.unaccounted_seconds, 1.0);
+    assert_eq!(summary.phases.restore.wall_seconds, 7.0);
+    assert!(json["phases"]["restore"]["details"]["chunk_verify_worker_seconds"].is_null());
+    assert!(json["phases"]["restore"]["details"]["file_hash_worker_seconds"].is_null());
+}
+
+#[test]
+fn verify_summary_reports_wall_phases_and_strict_worker_details() {
     let timings = g::VerifyTimings {
         verify_mode: g::VerifyMode::Strict,
-        runtime_plan: None,
-        stat: Duration::from_secs(1),
-        file_read: Duration::from_secs(2),
-        file_read_bytes: 8 * 1024 * 1024,
-        file_hash: Duration::from_secs(1),
-        file_hash_bytes: 8 * 1024 * 1024,
+        prepare_wall: Duration::from_secs(1),
+        verify_files_wall: Duration::from_secs(4),
+        extra_file_scan_wall: Duration::from_millis(500),
+        stat: Duration::from_secs(2),
+        file_read: Duration::from_secs(3),
+        file_read_bytes: 12 * 1024 * 1024,
+        file_hash: Duration::from_secs(2),
+        file_hash_bytes: 12 * 1024 * 1024,
         chunk_hash: Duration::from_secs(1),
-        chunk_hash_bytes: 8 * 1024 * 1024,
+        chunk_hash_bytes: 12 * 1024 * 1024,
         total: Duration::from_secs(6),
+        ..g::VerifyTimings::default()
     };
 
     let summary = verify_timings_summary(&timings);
+
     assert_eq!(summary.verify_mode, "strict");
-    assert!((summary.file_read_mib_per_second - 4.0).abs() < f64::EPSILON);
-    assert!((summary.accounted_seconds - 5.0).abs() < f64::EPSILON);
-    assert!((summary.unaccounted_seconds - 1.0).abs() < f64::EPSILON);
+    assert_eq!(summary.unaccounted_seconds, 0.5);
+    assert_eq!(
+        summary.phases.verify_files.details.file_read_mib_per_second,
+        4.0
+    );
+    assert_eq!(
+        summary
+            .phases
+            .verify_files
+            .details
+            .chunk_hash_worker_seconds,
+        Some(1.0)
+    );
 }

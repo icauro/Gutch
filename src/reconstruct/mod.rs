@@ -57,12 +57,17 @@ fn reconstruct_from_target_manifest_with_timings(
     control: &GutchOperationControl,
 ) -> Result<((), ReconstructTimings)> {
     let total_start = Instant::now();
-    let mut timings = ReconstructTimings::default();
+    let mut timings = ReconstructTimings {
+        verify_files: true,
+        ..ReconstructTimings::default()
+    };
     control.checkpoint()?;
     crate::helpers::create_dir_all(output_dir)?;
 
     let needed_chunks = required_chunk_hashes_typed(target_manifest)?;
     let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
+    timings.prepare_wall = total_start.elapsed();
+    let restore_start = Instant::now();
 
     for bundle_data in bundles {
         control.checkpoint()?;
@@ -104,6 +109,7 @@ fn reconstruct_from_target_manifest_with_timings(
         &mut timings,
         control,
     )?;
+    timings.restore_wall = restore_start.elapsed();
     timings.total = total_start.elapsed();
     Ok(((), timings))
 }
@@ -120,11 +126,12 @@ pub fn reconstruct_from_bundle_paths(
     let (needed_chunks, total_start, runtime_plan, timings) =
         prepare_reconstruct(target_manifest, output_dir, runtime_hints, control)?;
 
+    let restore_start = Instant::now();
     let local_chunks = match verified_source {
         Some(source) => read_reusable_source_chunks(source, &needed_chunks, control)?,
         None => HashMap::new(),
     };
-    reconstruct_from_bundle_paths_and_local_chunks(
+    let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
         target_manifest,
         bundle_paths,
         &needed_chunks,
@@ -135,7 +142,10 @@ pub fn reconstruct_from_bundle_paths(
         timings,
         options,
         control,
-    )
+    )?;
+    timings.restore_wall = restore_start.elapsed();
+    timings.total = total_start.elapsed();
+    Ok((result, timings))
 }
 
 pub fn reconstruct_from_repo(
@@ -150,6 +160,7 @@ pub fn reconstruct_from_repo(
     let (needed_chunks, total_start, runtime_plan, mut timings) =
         prepare_reconstruct(target_manifest, output_dir, runtime_hints, control)?;
 
+    let restore_start = Instant::now();
     control.checkpoint()?;
     let chunk_index = crate::repo::load_chunk_index(repo_paths)?;
     let local_chunks = read_loose_repo_chunks(
@@ -168,7 +179,7 @@ pub fn reconstruct_from_repo(
         .map(|bundle_id| crate::repo::bundle_path(repo_paths, bundle_id))
         .collect::<Vec<_>>();
 
-    reconstruct_from_bundle_paths_and_local_chunks(
+    let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
         target_manifest,
         &bundle_paths,
         &needed_chunks,
@@ -179,7 +190,10 @@ pub fn reconstruct_from_repo(
         timings,
         options,
         control,
-    )
+    )?;
+    timings.restore_wall = restore_start.elapsed();
+    timings.total = total_start.elapsed();
+    Ok((result, timings))
 }
 
 #[cfg(test)]

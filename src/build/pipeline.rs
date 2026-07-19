@@ -402,7 +402,10 @@ pub fn build_with_config(
     config.control.checkpoint()?;
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
-    let mut timings = BuildTimings::default();
+    let mut timings = BuildTimings {
+        storage_mode: config.storage_mode,
+        ..BuildTimings::default()
+    };
     let runtime_plan =
         plan_build_runtime(&config.runtime_hints, compression_profile.compression_unit);
     timings.runtime_plan = Some(runtime_plan.clone());
@@ -423,6 +426,7 @@ pub fn build_with_config(
         .existing_bundle_ids
         .unwrap_or(&empty_existing_bundle_ids);
 
+    let scan_chunk_start = Instant::now();
     let (mut file_manifests, unique_chunks, total_logical_size) = collect_scanned_chunks(
         dir,
         ScanDirectoryOptions {
@@ -437,7 +441,9 @@ pub fn build_with_config(
         },
         &mut timings,
     )?;
+    timings.scan_chunk_wall = scan_chunk_start.elapsed();
 
+    let dedupe_plan_start = Instant::now();
     let mut total_compressed: u64 = 0;
     let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
     for fm in &file_manifests {
@@ -470,13 +476,14 @@ pub fn build_with_config(
         }
     }
     timings.dedupe_lookup += t.elapsed();
+    timings.dedupe_plan_wall = dedupe_plan_start.elapsed();
 
     timings.compression_input_bytes = chunks_to_compress
         .iter()
         .map(|(_, payload)| payload.raw_size())
         .sum();
 
-    let t = Instant::now();
+    let artifact_encode_start = Instant::now();
     let mut bundles = Vec::new();
     let mut loose_chunks = Vec::new();
     let bundle_target_size_policy = BundleSizingPolicy::new(
@@ -548,22 +555,21 @@ pub fn build_with_config(
         }
     }
 
-    timings.compression += t.elapsed();
+    timings.artifact_encode_wall = artifact_encode_start.elapsed();
     timings.total_compressed_bytes = total_compressed;
-    timings.bundle_build += t.elapsed();
-    timings.bundle_build_bytes = bundles.iter().map(|b| b.data.len() as u64).sum::<u64>()
+    timings.artifact_output_bytes = bundles.iter().map(|b| b.data.len() as u64).sum::<u64>()
         + loose_chunks
             .iter()
             .map(|chunk| chunk.data.len() as u64)
             .sum::<u64>();
 
-    let t = Instant::now();
+    let manifest_finalize_start = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
     let mut vm = TargetManifest::new(config.target_id.clone(), config.target_tags.clone());
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
     vm.files = file_manifests;
-    timings.target_manifest_finalize += t.elapsed();
+    timings.manifest_finalize_wall = manifest_finalize_start.elapsed();
     timings.total = total_start.elapsed();
 
     Ok((

@@ -15,9 +15,15 @@ use crate::runtime::RuntimePlan;
 #[derive(Debug, Clone, Default)]
 pub struct ReconstructTimings {
     pub runtime_plan: Option<RuntimePlan>,
+    pub verify_chunks: bool,
+    pub verify_files: bool,
+    pub prepare_wall: Duration,
+    pub restore_wall: Duration,
     pub bundle_read: Duration,
     pub bundle_read_compressed_bytes: u64,
     pub bundle_read_decompressed_bytes: u64,
+    pub chunk_verify: Duration,
+    pub chunk_verify_bytes: u64,
     pub file_rebuild: Duration,
     pub file_rebuild_bytes: u64,
     pub file_verify: Duration,
@@ -32,6 +38,8 @@ impl ReconstructTimings {
         self.bundle_read += other.bundle_read;
         self.bundle_read_compressed_bytes += other.bundle_read_compressed_bytes;
         self.bundle_read_decompressed_bytes += other.bundle_read_decompressed_bytes;
+        self.chunk_verify += other.chunk_verify;
+        self.chunk_verify_bytes += other.chunk_verify_bytes;
         self.file_rebuild += other.file_rebuild;
         self.file_rebuild_bytes += other.file_rebuild_bytes;
         self.file_verify += other.file_verify;
@@ -106,6 +114,7 @@ pub(super) struct LoadedChunk {
     pub chunk_hash: ChunkHash,
     pub data: Vec<u8>,
     pub read_duration: Duration,
+    pub chunk_verify_duration: Duration,
     pub compressed_bytes: u64,
     pub decompressed_bytes: u64,
 }
