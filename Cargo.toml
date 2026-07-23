@@ -15,7 +15,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 # JSON parsing (manifests, configs)
 clap = { version = "4.6.1", features = ["derive"] }
-# CLI argument parsing (plctl gutch commands)
+# CLI argument parsing (pl-cli gutch commands)
 walkdir = "2.5.0"
 # Recursive directory traversal
 chrono = "0.4.45"

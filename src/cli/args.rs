@@ -37,7 +37,7 @@ pub struct ArtifactBuildProfileArgs {
 
 #[derive(Parser)]
 #[command(
-    name = "plctl gutch",
+    name = "pl-cli gutch",
     version,
     about = "Launcher artifact engine"
 )]
