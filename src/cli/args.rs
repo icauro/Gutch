@@ -3,6 +3,15 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args, Parser, Subcommand};
 use gutch as g;
 
+fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(value.trim());
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err(String::from("path must be absolute"))
+    }
+}
+
 #[derive(Debug, Clone, Copy, Args)]
 pub struct RuntimeArgs {
     #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
@@ -77,45 +86,45 @@ pub enum Commands {
 #[derive(Subcommand)]
 pub enum RepoCommands {
     Init {
-        #[arg(long = "path", default_value = ".")]
+        #[arg(long = "path", value_parser = parse_absolute_path)]
         path: PathBuf,
-        #[arg(long = "schema")]
+        #[arg(long = "schema", value_parser = parse_absolute_path)]
         schema: Option<PathBuf>,
         #[arg(long = "force")]
         force: bool,
     },
     #[command(name = "schema-set")]
     SchemaSet {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
-        #[arg(long = "schema")]
+        #[arg(long = "schema", value_parser = parse_absolute_path)]
         schema: Option<PathBuf>,
         #[arg(long = "clear")]
         clear: bool,
     },
     #[command(name = "launch-set")]
     LaunchSet {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
-        #[arg(long = "launch")]
+        #[arg(long = "launch", value_parser = parse_absolute_path)]
         launch: Option<PathBuf>,
         #[arg(long = "clear")]
         clear: bool,
     },
     Check {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
-        #[arg(long = "json-out")]
+        #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
     },
     Verify {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: Option<String>,
         #[arg(long = "strict")]
         strict: bool,
-        #[arg(long = "json-out")]
+        #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
     },
     #[command(name = "target-sources")]
@@ -125,14 +134,14 @@ pub enum RepoCommands {
     },
     #[command(name = "list")]
     List {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
-        #[arg(long = "json-out")]
+        #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
     },
     #[command(name = "sync-up")]
     SyncUp {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
         endpoint: String,
@@ -142,7 +151,7 @@ pub enum RepoCommands {
         yes: bool,
     },
     Link {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
         endpoint: String,
@@ -152,7 +161,7 @@ pub enum RepoCommands {
         product_id: Option<i64>,
     },
     Unlink {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "delete-remote")]
         delete_remote: bool,
@@ -166,15 +175,15 @@ pub enum RepoCommands {
 #[derive(Subcommand)]
 pub enum TargetSourcesCommands {
     Sync {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
-        #[arg(long = "root")]
+        #[arg(long = "root", value_parser = parse_absolute_path)]
         root: PathBuf,
         #[arg(long = "no-prune")]
         no_prune: bool,
         #[arg(long = "yes")]
         yes: bool,
-        #[arg(long = "json-out")]
+        #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
     },
 }
@@ -183,19 +192,19 @@ pub enum TargetSourcesCommands {
 pub enum TargetCommands {
     #[command(name = "launch-set")]
     LaunchSet {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
-        #[arg(long = "launch")]
+        #[arg(long = "launch", value_parser = parse_absolute_path)]
         launch: Option<PathBuf>,
         #[arg(long = "clear")]
         clear: bool,
     },
     Insert {
-        #[arg(short, long, default_value = ".")]
+        #[arg(short, long, value_parser = parse_absolute_path)]
         dir: PathBuf,
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "tag")]
         tags: Vec<String>,
@@ -203,18 +212,18 @@ pub enum TargetCommands {
         build_profile: ArtifactBuildProfileArgs,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out")]
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
     },
     #[command(name = "insert-many")]
     InsertMany {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
-        #[arg(long = "product-dir")]
+        #[arg(long = "product-dir", value_parser = parse_absolute_path)]
         product_dir: Option<PathBuf>,
-        #[arg(long = "dir")]
+        #[arg(long = "dir", value_parser = parse_absolute_path)]
         dirs: Vec<PathBuf>,
         #[arg(long = "tag")]
         tags: Vec<String>,
@@ -222,13 +231,13 @@ pub enum TargetCommands {
         build_profile: ArtifactBuildProfileArgs,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out")]
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
     },
     Delete {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
@@ -236,23 +245,23 @@ pub enum TargetCommands {
         yes: bool,
     },
     Extract {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = parse_absolute_path)]
         output: PathBuf,
         #[command(flatten)]
         runtime: RuntimeArgs,
         #[arg(long = "no-restore-verify", action = ArgAction::SetFalse, default_value_t = true)]
         restore_verify: bool,
-        #[arg(long = "stats-json-out")]
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
     },
     Estimate {
-        #[arg(short, long, default_value = ".")]
+        #[arg(short, long, value_parser = parse_absolute_path)]
         dir: PathBuf,
-        #[arg(long = "repo")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: Option<PathBuf>,
         #[arg(long = "tag")]
         tags: Vec<String>,
@@ -262,7 +271,7 @@ pub enum TargetCommands {
 #[derive(Subcommand)]
 pub enum TargetInstallCommands {
     Fetch {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
@@ -280,35 +289,35 @@ pub enum TargetInstallCommands {
         bundles: Vec<String>,
     },
     Apply {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = parse_absolute_path)]
         dir: PathBuf,
-        #[arg(long = "staging-dir")]
+        #[arg(long = "staging-dir", value_parser = parse_absolute_path)]
         staging_dir: Option<PathBuf>,
         #[arg(long = "source-target")]
         source_target: Option<String>,
-        #[arg(long = "source-dir")]
+        #[arg(long = "source-dir", value_parser = parse_absolute_path)]
         source_dir: Option<PathBuf>,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out")]
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
     },
     Verify {
-        #[arg(long = "repo", default_value = ".")]
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = parse_absolute_path)]
         dir: PathBuf,
         #[arg(long = "strict")]
         strict: bool,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out")]
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
     },
 }
@@ -316,7 +325,7 @@ pub enum TargetInstallCommands {
 #[derive(Subcommand)]
 pub enum BundleCommands {
     Inspect {
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = parse_absolute_path)]
         bundle: PathBuf,
     },
 }
@@ -324,11 +333,42 @@ pub enum BundleCommands {
 #[derive(Subcommand)]
 pub enum PathCommands {
     Compare {
-        #[arg(long = "expected")]
+        #[arg(long = "expected", value_parser = parse_absolute_path)]
         expected: PathBuf,
-        #[arg(long = "actual")]
+        #[arg(long = "actual", value_parser = parse_absolute_path)]
         actual: PathBuf,
-        #[arg(long = "stats-json-out")]
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn cli_rejects_relative_filesystem_paths() {
+        let error = Cli::try_parse_from([
+            "pl-cli gutch",
+            "repo",
+            "check",
+            "--repo",
+            "relative/repo",
+        ])
+        .err()
+        .expect("relative repository path must be rejected");
+        assert!(error.to_string().contains("path must be absolute"));
+    }
+
+    #[test]
+    fn cli_accepts_absolute_filesystem_paths() {
+        let repo = if cfg!(windows) {
+            r"D:\Repos\game"
+        } else {
+            "/repos/game"
+        };
+        Cli::try_parse_from(["pl-cli gutch", "repo", "check", "--repo", repo])
+            .expect("absolute repository path");
+    }
 }

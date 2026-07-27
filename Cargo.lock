@@ -872,10 +872,10 @@ dependencies = [
  "blake3",
  "chrono",
  "clap",
- "dirs",
  "fastcdc",
  "indicatif",
  "pl-auth",
+ "pl-common",
  "rayon",
  "reqwest",
  "serde",
@@ -1581,6 +1581,14 @@ dependencies = [
  "serde",
  "serde_json",
  "webbrowser",
+]
+
+[[package]]
+name = "pl-common"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -11,11 +11,14 @@ Canonical documentation lives in [`docs/blueprint/gutch/`](../../docs/blueprint/
 
 ## Quick start
 
+All filesystem arguments are required and absolute. The examples use Linux
+paths; Windows callers use absolute drive paths such as `D:\Repos\my-repo`.
+
 ```sh
-pl-cli gutch repo init --path ./my-repo
-pl-cli gutch target insert --dir ./builds/1.0.0-windows-x86_64-base --repo ./my-repo
-pl-cli gutch repo link --repo ./my-repo --product-id 42
-pl-cli gutch repo sync-up --repo ./my-repo --yes
+pl-cli gutch repo init --path /home/patron/repos/my-repo
+pl-cli gutch target insert --dir /home/patron/builds/1.0.0-windows-x86_64-base --repo /home/patron/repos/my-repo
+pl-cli gutch repo link --repo /home/patron/repos/my-repo --product-id 42
+pl-cli gutch repo sync-up --repo /home/patron/repos/my-repo --yes
 ```
 
 Automation and CI: pass `--yes` on `target insert`, `insert-many`, and `target-sources sync`. To preview a plan without applying it, run the command and answer `n` at the prompt.
@@ -23,10 +26,10 @@ Automation and CI: pass `--yes` on `target insert`, `insert-many`, and `target-s
 ## Launch options
 
 ```sh
-pl-cli gutch repo launch-set --repo ./my-repo --launch ./repo-launch.json
-pl-cli gutch repo launch-set --repo ./my-repo --clear
-pl-cli gutch target launch-set --repo ./my-repo --target 1.0.0-windows-x86_64 --launch ./target-launch.json
-pl-cli gutch target launch-set --repo ./my-repo --target 1.0.0-windows-x86_64 --clear
+pl-cli gutch repo launch-set --repo /home/patron/repos/my-repo --launch /home/patron/repo-launch.json
+pl-cli gutch repo launch-set --repo /home/patron/repos/my-repo --clear
+pl-cli gutch target launch-set --repo /home/patron/repos/my-repo --target 1.0.0-windows-x86_64 --launch /home/patron/target-launch.json
+pl-cli gutch target launch-set --repo /home/patron/repos/my-repo --target 1.0.0-windows-x86_64 --clear
 ```
 
 The JSON formats and inheritance behavior are defined in
