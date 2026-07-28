@@ -349,15 +349,10 @@ mod tests {
 
     #[test]
     fn cli_rejects_relative_filesystem_paths() {
-        let error = Cli::try_parse_from([
-            "pl-cli gutch",
-            "repo",
-            "check",
-            "--repo",
-            "relative/repo",
-        ])
-        .err()
-        .expect("relative repository path must be rejected");
+        let error =
+            Cli::try_parse_from(["pl-cli gutch", "repo", "check", "--repo", "relative/repo"])
+                .err()
+                .expect("relative repository path must be rejected");
         assert!(error.to_string().contains("path must be absolute"));
     }
 

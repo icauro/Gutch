@@ -107,8 +107,20 @@ pub struct SourceTargetInstallCandidate {
     pub os: String,
     pub arch: String,
     pub target_tags: manifest::TargetTagSet,
+    #[serde(default)]
+    pub disposition: SourceTargetInstallDisposition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceTargetInstallDisposition {
+    #[default]
+    Unchanged,
+    Insert,
+    Refresh,
+    Invalid,
 }
 
 pub fn ensure_gutch_repo_tracked(repo_path: &str) -> Result<()> {
@@ -144,7 +156,7 @@ pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStat
     let load_config_ms = config_start.elapsed().as_millis() as u64;
 
     let sources_start = std::time::Instant::now();
-    let source_target_installs = match target_sources_path.as_deref() {
+    let mut source_target_installs = match target_sources_path.as_deref() {
         Some(path) if repo_status.is_repo => {
             discover_source_target_installs(repo_root, Path::new(path))?
         }
@@ -164,6 +176,27 @@ pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStat
     } else {
         None
     };
+    if let Some(plan) = target_sources_plan.as_ref() {
+        for candidate in &mut source_target_installs {
+            candidate.disposition = if candidate.error.is_some() {
+                SourceTargetInstallDisposition::Invalid
+            } else if plan
+                .to_insert
+                .iter()
+                .any(|entry| entry.path == candidate.path)
+            {
+                SourceTargetInstallDisposition::Insert
+            } else if plan
+                .to_refresh
+                .iter()
+                .any(|entry| entry.path == candidate.path)
+            {
+                SourceTargetInstallDisposition::Refresh
+            } else {
+                SourceTargetInstallDisposition::Unchanged
+            };
+        }
+    }
     let plan_sources_ms = plan_start.elapsed().as_millis() as u64;
 
     let total_ms = total_start.elapsed().as_millis() as u64;
@@ -301,6 +334,7 @@ pub fn discover_source_target_installs(
                         os: String::new(),
                         arch: String::new(),
                         target_tags: manifest::TargetTagSet::default(),
+                        disposition: SourceTargetInstallDisposition::Invalid,
                         error: Some(err.to_string()),
                     });
                 }
@@ -462,6 +496,7 @@ pub(crate) fn build_source_target_install_candidate(
         os: summary.os,
         arch: summary.arch,
         target_tags: resolved.target_tags,
+        disposition: SourceTargetInstallDisposition::Unchanged,
         error: None,
     })
 }

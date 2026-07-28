@@ -16,8 +16,9 @@ mod verify;
 pub use crate::Result;
 pub use check::{
     RepoCheckStatus, RepoCheckTargetStatus, RepoCheckTimings, SourceTargetInstallCandidate,
-    TrackedRepoCheckStatus, TrackedRepoCheckTimings, check_gutch_repo, check_tracked_gutch_repo,
-    discover_source_target_installs, ensure_gutch_repo_tracked, preview_source_target_install,
+    SourceTargetInstallDisposition, TrackedRepoCheckStatus, TrackedRepoCheckTimings,
+    check_gutch_repo, check_tracked_gutch_repo, discover_source_target_installs,
+    ensure_gutch_repo_tracked, preview_source_target_install,
 };
 pub use chunk_index::*;
 pub use cleanup::*;
