@@ -62,6 +62,24 @@ pub fn validate_editable_target_tag_schema(
         }
         if name == "version" {
             has_version = true;
+            if index != 0 {
+                errors.push(TargetTagSchemaValidationError {
+                    field: format!("{field_prefix}.name"),
+                    message: String::from("Version tag must be first."),
+                });
+            }
+            if tag.kind != TargetTagKind::Exclusive {
+                errors.push(TargetTagSchemaValidationError {
+                    field: format!("{field_prefix}.kind"),
+                    message: String::from("Version tag must be exclusive."),
+                });
+            }
+            if tag.inference_handler != InferenceHandler::Version {
+                errors.push(TargetTagSchemaValidationError {
+                    field: format!("{field_prefix}.inferenceHandler"),
+                    message: String::from("Version tag must use the version inference handler."),
+                });
+            }
         }
 
         if tag.kind == TargetTagKind::Plain {
@@ -190,7 +208,12 @@ pub fn sanitize_editable_target_tag_schema(
                 name,
                 kind: tag.kind,
                 required: true,
-                inference_prefixes: tag.inference_prefixes,
+                inference_prefixes: tag
+                    .inference_prefixes
+                    .into_iter()
+                    .map(|prefix| prefix.trim().to_string())
+                    .filter(|prefix| !prefix.is_empty())
+                    .collect(),
                 values: canonical_values
                     .into_iter()
                     .map(|value| TargetTagValueDefinition {
@@ -254,5 +277,62 @@ mod tests {
                 .iter()
                 .any(|error| error.field == "targetTags")
         );
+    }
+
+    #[test]
+    fn version_tag_is_fixed_and_first() {
+        let result = validate_editable_target_tag_schema(vec![
+            EditableTargetTagDefinition {
+                name: String::from("os"),
+                kind: TargetTagKind::Exclusive,
+                inference_prefixes: vec![String::from("-")],
+                values: vec![String::from("windows")],
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+            EditableTargetTagDefinition {
+                name: String::from("version"),
+                kind: TargetTagKind::Scoped,
+                inference_prefixes: vec![String::from("-v")],
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+        ]);
+
+        assert!(!result.valid);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.message == "Version tag must be first.")
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.message == "Version tag must be exclusive.")
+        );
+        assert!(result.errors.iter().any(|error| {
+            error.message == "Version tag must use the version inference handler."
+        }));
+    }
+
+    #[test]
+    fn sanitization_trims_inference_prefixes() {
+        let schema = sanitize_editable_target_tag_schema(vec![EditableTargetTagDefinition {
+            name: String::from("version"),
+            kind: TargetTagKind::Exclusive,
+            inference_prefixes: vec![String::from(" -v "), String::new()],
+            values: Vec::new(),
+            aliases: BTreeMap::new(),
+            default_value: None,
+            inference_handler: InferenceHandler::Version,
+        }])
+        .expect("schema");
+
+        assert_eq!(schema.target_tags[0].inference_prefixes, vec!["-v"]);
     }
 }
