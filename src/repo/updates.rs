@@ -67,6 +67,16 @@ pub fn update_gutch_repo_launch(
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)
 }
 
+pub fn update_gutch_repo_external_product_dependencies(
+    repo_root: &Path,
+    dependencies: Vec<manifest::ExternalProductDependencyRequirement>,
+) -> Result<()> {
+    manifest::validate_external_product_dependency_requirements(&dependencies)?;
+    let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    repo_manifest.external_product_dependencies = dependencies;
+    write_gutch_repo_manifest(&repo_paths, &repo_manifest)
+}
+
 pub fn bind_gutch_repo_remote(
     repo_root: &Path,
     product_id: i64,

@@ -1,5 +1,6 @@
 pub mod binary;
 mod content;
+pub mod external_dependency;
 pub mod gutch_repo;
 pub mod launch;
 mod profiles;
@@ -19,6 +20,9 @@ pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
 
 pub use content::{
     BundleTableEntry, ChunkIndex, ChunkIndexEntry, ChunkRef, Estimate, FileManifest,
+};
+pub use external_dependency::{
+    ExternalProductDependencyRequirement, validate_external_product_dependency_requirements,
 };
 pub use profiles::{
     ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, BundleSizingProfile,

@@ -29,5 +29,6 @@ pub fn resolve_target_install_state(
         target_id: target_manifest.target_id,
         manifest_hash,
         launch,
+        external_product_dependencies: repo_manifest.external_product_dependencies,
     })
 }

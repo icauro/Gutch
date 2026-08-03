@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::manifest::ExternalProductDependencyRequirement;
 use crate::manifest::launch::ResolvedLaunchConfiguration;
 use crate::manifest::target::TargetManifest;
 use crate::progress::GutchOperationControl;
@@ -21,6 +22,8 @@ pub struct ResolvedTargetInstallState {
     pub manifest_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<ResolvedLaunchConfiguration>,
+    #[serde(default)]
+    pub external_product_dependencies: Vec<ExternalProductDependencyRequirement>,
 }
 
 #[derive(Debug, Clone)]

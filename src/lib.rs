@@ -56,9 +56,9 @@ pub use manifest::template::{
     TaggingRuleTemplate, list_templates, template_by_name, template_schema,
 };
 pub use manifest::{
-    EditableTargetTagDefinition, InferenceHandler, TargetTagSchemaValidationError,
-    TargetTagSchemaValidationResult, sanitize_editable_target_tag_schema,
-    validate_editable_target_tag_schema,
+    EditableTargetTagDefinition, ExternalProductDependencyRequirement, InferenceHandler,
+    TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
+    sanitize_editable_target_tag_schema, validate_editable_target_tag_schema,
 };
 pub use progress::{
     GutchCancellationHook, GutchOperation, GutchOperationControl, GutchProgressEvent,
@@ -88,7 +88,8 @@ pub use repo::{
     plan_sync_up_repo, plan_target_insert, plan_target_sources_sync, preview_source_target_install,
     remove_target_from_repo, repo_init_needs_confirmation_error,
     serialize_target_manifest_for_remote, sync_target_sources, sync_up_repo,
-    target_manifest_bin_path, target_manifest_path, unlink_repo, update_gutch_repo_launch,
+    target_manifest_bin_path, target_manifest_path, unlink_repo,
+    update_gutch_repo_external_product_dependencies, update_gutch_repo_launch,
     update_gutch_repo_name, update_gutch_repo_schema, update_gutch_target_launch,
     verify_gutch_repo, write_chunk_index, write_gutch_repo_manifest,
     write_target_manifest_artifacts,
