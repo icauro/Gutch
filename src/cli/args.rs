@@ -48,7 +48,7 @@ pub struct ArtifactBuildProfileArgs {
 #[command(
     name = "pl-cli gutch",
     version,
-    about = "Launcher artifact engine"
+    about = pl_common::GUTCH_ABOUT
 )]
 pub struct Cli {
     #[arg(long, short = 'v', global = true)]

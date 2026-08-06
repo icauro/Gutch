@@ -1577,6 +1577,7 @@ name = "pl-auth"
 version = "0.1.0"
 dependencies = [
  "keyring",
+ "pl-common",
  "reqwest",
  "serde",
  "serde_json",
@@ -1588,6 +1589,8 @@ name = "pl-common"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "serde",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
