@@ -47,9 +47,9 @@ impl GutchProgressSink for CliProgressSink {
         }
 
         let label = match event.operation {
-            GutchOperation::TargetInsert => "insert",
+            GutchOperation::TargetInsert => "add",
             GutchOperation::TargetDelete => "delete",
-            GutchOperation::SyncUp => "sync",
+            GutchOperation::SyncUp => "push",
             GutchOperation::TargetSourcesSync => "sources",
             GutchOperation::Fetch => "fetch",
             GutchOperation::Verify => "verify",

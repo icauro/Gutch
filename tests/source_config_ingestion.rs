@@ -1,5 +1,5 @@
 //! End-to-end tests for the source-root ingestion config (`.gutch_source_config.json`)
-//! flowing through the `target insert-many` CLI path.
+//! flowing through the `target add-many` CLI path.
 
 use std::path::Path;
 
@@ -36,7 +36,7 @@ fn insert_many_auto_mode_skips_ignored_folders() {
     run_from_args([
         "pl-cli",
         "target",
-        "insert-many",
+        "add-many",
         "--product-dir",
         product_dir.to_str().unwrap(),
         "--repo",
@@ -89,7 +89,7 @@ fn insert_many_explicit_mode_uses_nested_targets_and_declared_tags() {
     run_from_args([
         "pl-cli",
         "target",
-        "insert-many",
+        "add-many",
         "--product-dir",
         product_dir.to_str().unwrap(),
         "--repo",
@@ -137,7 +137,7 @@ fn insert_many_explicit_mode_errors_when_declared_version_is_missing() {
     let result = run_from_args([
         "pl-cli",
         "target",
-        "insert-many",
+        "add-many",
         "--product-dir",
         product_dir.to_str().unwrap(),
         "--repo",
@@ -162,7 +162,7 @@ fn insert_many_auto_creates_skeleton_config_on_first_use() {
     run_from_args([
         "pl-cli",
         "target",
-        "insert-many",
+        "add-many",
         "--product-dir",
         product_dir.to_str().unwrap(),
         "--repo",

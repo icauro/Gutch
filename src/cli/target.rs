@@ -134,7 +134,7 @@ fn run_insert_one_target(
         request.allow_name_inference,
     )?;
     if !request.yes && !request.skip_confirmation {
-        println!("target insert plan:");
+        println!("target add plan:");
         println!("  {}", g::describe_target_insert_plan(&insert_plan));
         if insert_plan.invalidates_existing_installs {
             println!(
@@ -142,7 +142,7 @@ fn run_insert_one_target(
             );
         }
         if !prompt_yes_no("Proceed?", false)? {
-            return Err(g::Error::manifest("target insert cancelled"));
+            return Err(g::Error::manifest("target add cancelled"));
         }
     }
     if insert_plan.kind == g::TargetInsertKind::ReplaceSameTags {
@@ -191,7 +191,7 @@ fn run_insert_one_target(
     }
 
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
-    let context = format!("target insert input '{}'", request.input_dir.display());
+    let context = format!("target add input '{}'", request.input_dir.display());
     let resolved_identity = g::core::target_identity::resolve_target_identity_with_inference(
         request.input_dir,
         request.explicit_tags,
@@ -390,7 +390,7 @@ fn collect_insert_many_sources(
     sources.dedup_by(|left, right| left.path == right.path);
     if sources.is_empty() {
         return Err(g::Error::manifest(
-            "target insert-many requires at least one --dir or --product-dir with target folders",
+            "target add-many requires at least one --dir or --product-dir with target folders",
         ));
     }
 
@@ -468,7 +468,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             g::update_gutch_target_launch(&repo, &target, configuration)?;
             println!("updated target launch configuration");
         }
-        TargetCommands::Insert {
+        TargetCommands::Add {
             dir,
             repo,
             tags,
@@ -490,7 +490,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 allow_name_inference,
             )?;
             if !yes {
-                println!("target insert plan:");
+                println!("target add plan:");
                 println!("  {}", g::describe_target_insert_plan(&plan));
                 if plan.invalidates_existing_installs {
                     println!(
@@ -498,7 +498,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     );
                 }
                 if !prompt_yes_no("Proceed?", false)? {
-                    return Err(g::Error::manifest("target insert cancelled"));
+                    return Err(g::Error::manifest("target add cancelled"));
                 }
             }
             let progress = CliProgressSink::new();
@@ -516,7 +516,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             })?;
             let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let stats = TargetInsertStats {
-                command: "target insert",
+                command: "target add",
                 repo_root: insert_result.repo_root.display().to_string(),
                 input_path: dir.display().to_string(),
                 target_id: insert_result.target_id,
@@ -568,7 +568,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
         }
 
-        TargetCommands::InsertMany {
+        TargetCommands::AddMany {
             repo,
             product_dir,
             dirs,
@@ -599,7 +599,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 })
                 .collect::<g::Result<_>>()?;
             if !yes {
-                println!("target insert-many plan:");
+                println!("target add-many plan:");
                 for plan in &insert_plans {
                     println!("  {}", g::describe_target_insert_plan(plan));
                 }
@@ -612,7 +612,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     );
                 }
                 if !prompt_yes_no("Proceed?", false)? {
-                    return Err(g::Error::manifest("target insert-many cancelled"));
+                    return Err(g::Error::manifest("target add-many cancelled"));
                 }
             }
             let mut store_state: MutableInsertStoreState =
@@ -636,7 +636,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                         build_profile,
                         runtime_hints: runtime.hints(),
                         stats_json_out: &empty_output,
-                        command_name: "target insert-many",
+                        command_name: "target add-many",
                         yes,
                         skip_confirmation: true,
                     },
@@ -675,7 +675,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 .map(|stats| stats.timings.total_seconds)
                 .sum();
             let aggregate_stats = TargetInsertManyStats {
-                command: "target insert-many",
+                command: "target add-many",
                 repo_root: repo_paths.repo_root.display().to_string(),
                 target_count: target_stats.len(),
                 total_logical_size,

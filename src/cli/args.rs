@@ -139,8 +139,8 @@ pub enum RepoCommands {
         #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
     },
-    #[command(name = "sync-up")]
-    SyncUp {
+    #[command(name = "push")]
+    Push {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
@@ -201,7 +201,8 @@ pub enum TargetCommands {
         #[arg(long = "clear")]
         clear: bool,
     },
-    Insert {
+    #[command(name = "add")]
+    Add {
         #[arg(short, long, value_parser = parse_absolute_path)]
         dir: PathBuf,
         #[arg(long = "repo", value_parser = parse_absolute_path)]
@@ -217,8 +218,8 @@ pub enum TargetCommands {
         #[arg(long = "yes")]
         yes: bool,
     },
-    #[command(name = "insert-many")]
-    InsertMany {
+    #[command(name = "add-many")]
+    AddMany {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "product-dir", value_parser = parse_absolute_path)]

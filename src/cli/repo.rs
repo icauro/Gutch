@@ -199,7 +199,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             println!("bundles: {}", status.bundle_count);
         }
 
-        RepoCommands::SyncUp {
+        RepoCommands::Push {
             repo,
             endpoint,
             session_id,
@@ -212,7 +212,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             )?;
             print_sync_plan(&plan);
             if !yes && !prompt_yes_no("Proceed?", true)? {
-                println!("sync-up cancelled");
+                println!("push cancelled");
                 return Ok(());
             }
             let progress = crate::cli::progress::CliProgressSink::new();

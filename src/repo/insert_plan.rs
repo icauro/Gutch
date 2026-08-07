@@ -354,7 +354,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         &request.explicit_tags,
         &rules,
         request.allow_name_inference,
-        &format!("target insert input '{}'", request.source_dir.display()),
+        &format!("target add input '{}'", request.source_dir.display()),
     )?;
 
     let existing_chunk_ids = store_state

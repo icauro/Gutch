@@ -1,7 +1,7 @@
 //! Source-root ingestion config (`.gutch_source_config.json`).
 //!
 //! A source root is the directory passed as `--product-dir` to
-//! `target insert-many` or as the sources root to `target-sources sync` —
+//! `target add-many` or as the sources root to `target-sources sync` —
 //! the directory whose (possibly nested) subdirectories are target sources.
 //!
 //! The config selects an ingestion mode:

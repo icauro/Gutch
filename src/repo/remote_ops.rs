@@ -1017,7 +1017,7 @@ pub fn sync_up_repo(
     );
 
     Ok(RepoSyncUpStats {
-        command: "repo sync-up",
+        command: "repo push",
         repo_root: repo_paths.repo_root.display().to_string(),
         product_id,
         remote_repo_id,
