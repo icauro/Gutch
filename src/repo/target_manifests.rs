@@ -5,12 +5,15 @@ use crate::{Result, helpers};
 
 use super::GutchRepoPaths;
 
+pub const TARGET_METADATA_FILE: &str = "target_metadata.json";
+pub const TARGET_BLUEPRINT_FILE: &str = "target_blueprint.bin";
+
 pub fn target_manifest_path(paths: &GutchRepoPaths, target_id: &str) -> PathBuf {
-    paths.targets_root.join(format!("{target_id}.json"))
+    paths.targets_root.join(target_id).join(TARGET_METADATA_FILE)
 }
 
 pub fn target_manifest_bin_path(paths: &GutchRepoPaths, target_id: &str) -> PathBuf {
-    paths.targets_root.join(format!("{target_id}.bin"))
+    paths.targets_root.join(target_id).join(TARGET_BLUEPRINT_FILE)
 }
 
 pub fn load_target_manifest(paths: &GutchRepoPaths, target_id: &str) -> Result<TargetManifest> {
@@ -28,6 +31,7 @@ pub fn write_target_manifest_artifacts(
     target_manifest: &TargetManifest,
 ) -> Result<(PathBuf, u64)> {
     helpers::create_dir_all(&paths.targets_root)?;
+    helpers::create_dir_all(&paths.targets_root.join(&target_manifest.target_id))?;
 
     let manifest_path = target_manifest_path(paths, &target_manifest.target_id);
     let bin_path = target_manifest_bin_path(paths, &target_manifest.target_id);

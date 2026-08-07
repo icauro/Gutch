@@ -37,7 +37,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             println!(
                 "updated repo schema at {}",
-                repo_paths.repo_manifest_path.display()
+                repo_paths.repo_metadata_path.display()
             );
         }
 

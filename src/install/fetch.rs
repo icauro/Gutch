@@ -225,7 +225,7 @@ fn prepare_target_install_fetch(
         let repo_manifest: GutchRepoManifest =
             crate::helpers::from_json_bytes(&repo_manifest_bytes)?;
         write_repo_manifest(&repo_paths, &repo_manifest)?;
-    } else if !repo_paths.repo_manifest_path.exists() {
+    } else if !repo_paths.repo_metadata_path.exists() {
         write_repo_manifest(&repo_paths, &GutchRepoManifest::new("download".to_string()))?;
     }
 

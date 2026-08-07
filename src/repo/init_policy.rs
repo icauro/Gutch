@@ -90,7 +90,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
         .count();
     let paths = GutchRepoPaths::from_repo_root(repo_root);
 
-    if paths.repo_manifest_path.exists() {
+    if paths.repo_metadata_path.exists() {
         let status = check_gutch_repo(repo_root)?;
         if status.is_repo {
             return Ok(RepoInitAssessment {
@@ -206,7 +206,7 @@ fn invalid_manifest_risk(error: Option<&str>) -> RepoInitRisk {
     RepoInitRisk {
         code: "invalid_manifest".to_string(),
         message: format!(
-            "This path contains repo_manifest.json but it is not a valid Gutch repo{detail}. Continuing will delete all Gutch repo files and create a new repo."
+            "This path contains repo_metadata.json but it is not a valid Gutch repo{detail}. Continuing will delete all Gutch repo files and create a new repo."
         ),
     }
 }
@@ -238,11 +238,11 @@ pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
             crate::helpers::remove_dir_all(dir)?;
         }
     }
-    if paths.repo_manifest_path.exists() {
-        crate::helpers::remove_file(&paths.repo_manifest_path)?;
+    if paths.repo_metadata_path.exists() {
+        crate::helpers::remove_file(&paths.repo_metadata_path)?;
     }
-    if paths.chunk_index_path.exists() {
-        crate::helpers::remove_file(&paths.chunk_index_path)?;
+    if paths.chunk_map_path.exists() {
+        crate::helpers::remove_file(&paths.chunk_map_path)?;
     }
     Ok(())
 }

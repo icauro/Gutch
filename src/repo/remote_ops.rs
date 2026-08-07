@@ -143,12 +143,12 @@ fn repo_file_hash(bytes: &[u8]) -> String {
 
 fn local_repo_manifest_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
     Ok(repo_file_hash(&crate::helpers::read(
-        &repo_paths.repo_manifest_path,
+        &repo_paths.repo_metadata_path,
     )?))
 }
 
 fn local_chunk_index_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
-    if !repo_paths.chunk_index_path.exists() {
+    if !repo_paths.chunk_map_path.exists() {
         return Ok(String::new());
     }
     let chunk_index = crate::load_chunk_index(repo_paths)?;
@@ -633,7 +633,7 @@ pub fn sync_up_repo(
 
     let bundle_paths = collect_bundle_paths(&repo_paths.bundles_root)?;
     let required_bundle_ids = collect_required_bundle_ids(&repo_paths, &status)?;
-    let chunk_index_steps = usize::from(repo_paths.chunk_index_path.exists());
+    let chunk_index_steps = usize::from(repo_paths.chunk_map_path.exists());
     let target_upload_count = plan.to_add.len() + plan.to_update.len();
     let total_steps = plan.to_remove.len()
         + 1
@@ -700,7 +700,7 @@ pub fn sync_up_repo(
             done: false,
         },
     );
-    let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_manifest_path)?;
+    let repo_manifest_bytes = crate::helpers::read(&repo_paths.repo_metadata_path)?;
     let repo_manifest_uploaded = if plan.repo_manifest_changed {
         upload_raw_file(
             &client,
@@ -720,7 +720,7 @@ pub fn sync_up_repo(
     };
 
     let mut chunk_index_uploaded = false;
-    if repo_paths.chunk_index_path.exists() {
+    if repo_paths.chunk_map_path.exists() {
         control.checkpoint()?;
         step += 1;
         progress::emit_progress(

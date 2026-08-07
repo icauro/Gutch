@@ -363,7 +363,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
 
     assert_eq!(result.required_bundle_count, 1);
     assert_eq!(result.downloaded_bundle_count, 1);
-    assert!(repo_path.join("repo_manifest.json").exists() || repo_path.join("repo.json").exists());
+    assert!(repo_path.join("repo_metadata.json").exists() || repo_path.join("repo.json").exists());
     assert!(
         repo_path
             .join("targets")

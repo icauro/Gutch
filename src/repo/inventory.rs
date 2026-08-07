@@ -13,13 +13,16 @@ pub(crate) fn list_repo_target_ids(paths: &GutchRepoPaths) -> Result<Vec<String>
     let mut target_ids = std::fs::read_dir(&paths.targets_root)?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.path().is_file()
-                && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+            entry.path().is_dir()
+                && entry
+                    .path()
+                    .join(super::target_manifests::TARGET_METADATA_FILE)
+                    .is_file()
         })
         .filter_map(|entry| {
             entry
                 .path()
-                .file_stem()
+                .file_name()
                 .and_then(|value| value.to_str())
                 .map(str::to_string)
         })

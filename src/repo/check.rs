@@ -9,7 +9,7 @@ use super::{
     GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
     required_bundle_ids, source_modified_at_from_directory, target_sources,
 };
-use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
+use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::{self};
 use crate::{Error, Result};
 
@@ -235,12 +235,12 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         ));
     }
 
-    let repo_manifest_path = repo_path.join(CONTENT_REPO_MANIFEST_FILE);
-    if !repo_manifest_path.exists() {
+    let repo_metadata_path = repo_path.join(REPO_METADATA_FILE);
+    if !repo_metadata_path.exists() {
         return Ok(empty_repo_check_status(
             repo_path_display,
             true,
-            Some("repo_manifest.json was not found.".to_string()),
+            Some("repo_metadata.json was not found.".to_string()),
         ));
     }
 
@@ -419,7 +419,7 @@ fn check_target_manifests(
     let manifests_start = std::time::Instant::now();
     let mut targets = Vec::new();
     for target_id in list_repo_target_ids(repo_paths)? {
-        let manifest_path = targets_root.join(format!("{target_id}.json"));
+        let manifest_path = crate::target_manifest_path(repo_paths, &target_id);
         let manifest = load_target_manifest(repo_paths, &target_id)?;
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids

@@ -36,8 +36,8 @@ fn empty_chunk_index() -> manifest::ChunkIndex {
 }
 
 pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
-    if paths.chunk_index_path.exists() {
-        return binary::load_chunk_index_binary(&paths.chunk_index_path);
+    if paths.chunk_map_path.exists() {
+        return binary::load_chunk_index_binary(&paths.chunk_map_path);
     }
     Ok(empty_chunk_index())
 }
@@ -113,12 +113,17 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
     for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file()
-            || entry.path().extension().and_then(|value| value.to_str()) != Some("json")
+            || entry.file_name() != super::target_manifests::TARGET_METADATA_FILE
         {
             continue;
         }
 
-        let Some(target_id) = entry.path().file_stem().and_then(|value| value.to_str()) else {
+        let Some(target_id) = entry
+            .path()
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|value| value.to_str())
+        else {
             continue;
         };
         let manifest = load_target_manifest(paths, target_id)?;
@@ -234,5 +239,5 @@ pub fn add_built_loose_chunks_to_chunk_index(
 }
 
 pub fn write_chunk_index(paths: &GutchRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
-    binary::write_chunk_index_binary(&paths.chunk_index_path, index)
+    binary::write_chunk_index_binary(&paths.chunk_map_path, index)
 }

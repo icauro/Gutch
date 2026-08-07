@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use crate::manifest::CONTENT_REPO_MANIFEST_FILE;
+use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct GutchRepoPaths {
     pub repo_root: PathBuf,
-    pub repo_manifest_path: PathBuf,
-    pub chunk_index_path: PathBuf,
+    pub repo_metadata_path: PathBuf,
+    pub chunk_map_path: PathBuf,
     pub targets_root: PathBuf,
     pub bundles_root: PathBuf,
     pub chunks_root: PathBuf,
@@ -23,8 +23,8 @@ impl GutchRepoPaths {
     pub fn from_repo_root(repo_root: &Path) -> Self {
         Self {
             repo_root: repo_root.to_path_buf(),
-            repo_manifest_path: repo_root.join(CONTENT_REPO_MANIFEST_FILE),
-            chunk_index_path: repo_root.join("chunk_index.bin"),
+            repo_metadata_path: repo_root.join(REPO_METADATA_FILE),
+            chunk_map_path: repo_root.join("chunk_map.bin"),
             targets_root: repo_root.join("targets"),
             bundles_root: repo_root.join("bundles"),
             chunks_root: repo_root.join("chunks"),
@@ -37,12 +37,12 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
     crate::helpers::create_dir_all(&paths.bundles_root)?;
     crate::helpers::create_dir_all(&paths.chunks_root)?;
 
-    let repo_manifest = if paths.repo_manifest_path.exists() {
-        let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
+    let repo_manifest = if paths.repo_metadata_path.exists() {
+        let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
         crate::helpers::from_json_str(&repo_manifest_json)?
     } else {
         let repo_manifest = GutchRepoManifest::new(name.to_string());
-        crate::helpers::write_json(&paths.repo_manifest_path, &repo_manifest)?;
+        crate::helpers::write_json(&paths.repo_metadata_path, &repo_manifest)?;
         repo_manifest
     };
 
@@ -51,14 +51,14 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
 
 pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
     let paths = GutchRepoPaths::from_repo_root(repo_root);
-    if !paths.repo_manifest_path.exists() {
+    if !paths.repo_metadata_path.exists() {
         return Err(Error::manifest(format!(
             "gutch repo manifest not found at {}",
-            paths.repo_manifest_path.display()
+            paths.repo_metadata_path.display()
         )));
     }
 
-    let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_manifest_path)?;
+    let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
     let repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
     Ok((paths, repo_manifest))
 }
@@ -67,7 +67,7 @@ pub fn write_gutch_repo_manifest(
     paths: &GutchRepoPaths,
     repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
-    crate::helpers::write_json(&paths.repo_manifest_path, repo_manifest)
+    crate::helpers::write_json(&paths.repo_metadata_path, repo_manifest)
 }
 
 pub fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> PathBuf {

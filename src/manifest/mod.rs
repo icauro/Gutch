@@ -16,7 +16,7 @@ pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const COMPRESSION_ZSTD: &str = "zstd";
 pub const COMPRESSION_UNIT_BUNDLE: &str = "bundle";
 pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
-pub const CONTENT_REPO_MANIFEST_FILE: &str = "repo_manifest.json";
+pub const REPO_METADATA_FILE: &str = "repo_metadata.json";
 
 pub use content::{
     BundleTableEntry, ChunkIndex, ChunkIndexEntry, ChunkRef, Estimate, FileManifest,

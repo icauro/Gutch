@@ -318,8 +318,8 @@ fn test_gutch_repo_paths_from_store_root() {
             .join("base")
     );
     assert_eq!(
-        paths.repo_manifest_path,
-        paths.repo_root.join("repo_manifest.json")
+        paths.repo_metadata_path,
+        paths.repo_root.join("repo_metadata.json")
     );
     assert_eq!(paths.targets_root, paths.repo_root.join("targets"));
     assert_eq!(paths.bundles_root, paths.repo_root.join("bundles"));
@@ -334,7 +334,7 @@ fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
     let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
 
     assert_eq!(repo_manifest.name, "base");
-    assert!(paths.repo_manifest_path.exists());
+    assert!(paths.repo_metadata_path.exists());
     assert!(paths.targets_root.exists());
     assert!(paths.bundles_root.exists());
 

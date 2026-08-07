@@ -23,6 +23,10 @@ pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> 
             std::fs::remove_file(path)?;
         }
     }
+    // Remove the per-target folder once its files are gone.
+    if let Some(target_dir) = manifest_path.parent() {
+        let _ = std::fs::remove_dir(target_dir);
+    }
     Ok(())
 }
 

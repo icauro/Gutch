@@ -25,13 +25,27 @@ fn gutch_repo_paths_from_repo_root() {
     let root = PathBuf::from("/test/repo");
     let paths = GutchRepoPaths::from_repo_root(&root);
     assert_eq!(paths.repo_root, root);
-    assert_eq!(paths.repo_manifest_path, root.join("repo_manifest.json"));
-    assert_eq!(paths.chunk_index_path, root.join("chunk_index.bin"));
+    assert_eq!(paths.repo_metadata_path, root.join("repo_metadata.json"));
+    assert_eq!(paths.chunk_map_path, root.join("chunk_map.bin"));
     assert_eq!(paths.targets_root, root.join("targets"));
     assert_eq!(paths.bundles_root, root.join("bundles"));
     assert_eq!(paths.chunks_root, root.join("chunks"));
 }
 
+#[test]
+fn target_manifest_files_live_in_per_target_folder() {
+    let root = PathBuf::from("/test/repo");
+    let paths = GutchRepoPaths::from_repo_root(&root);
+    let target_id = "0123456789abcdef";
+    assert_eq!(
+        crate::target_manifest_path(&paths, target_id),
+        root.join("targets").join(target_id).join("target_metadata.json")
+    );
+    assert_eq!(
+        crate::target_manifest_bin_path(&paths, target_id),
+        root.join("targets").join(target_id).join("target_blueprint.bin")
+    );
+}
 #[test]
 fn gutch_repo_paths_from_store_root() {
     let root = PathBuf::from("/test/store");
@@ -39,7 +53,7 @@ fn gutch_repo_paths_from_store_root() {
     assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
     assert!(
         paths
-            .repo_manifest_path
+            .repo_metadata_path
             .to_string_lossy()
             .contains("my-repo")
     );
@@ -208,7 +222,7 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
         ..GutchRepoManifest::new("mods".to_string())
     };
     std::fs::write(
-        &repo_paths.repo_manifest_path,
+        &repo_paths.repo_metadata_path,
         serde_json::to_string_pretty(&repo_manifest).unwrap(),
     )
     .unwrap();
@@ -287,7 +301,7 @@ fn chunk_index_write_and_load_roundtrip() {
         entries,
     };
     write_chunk_index(&paths, &index).unwrap();
-    assert!(paths.chunk_index_path.exists());
+    assert!(paths.chunk_map_path.exists());
 
     let loaded = load_chunk_index(&paths).unwrap();
     assert_eq!(loaded.format_version, "1.0.0");
