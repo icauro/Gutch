@@ -338,7 +338,8 @@ fn insert_source_target_candidate(
     crate::insert_repo_target(crate::RepoTargetInsertRequest {
         repo_root: repo_root.to_path_buf(),
         source_dir: std::path::PathBuf::from(&candidate.path),
-        explicit_tags: TargetTagSet::default(),
+        explicit_tags: candidate.target_tags.clone(),
+        allow_name_inference: true,
         chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
         bundle_profile: crate::manifest::BundleSizingPreset::Bundle16MiB,
         compression_profile: crate::manifest::CompressionPreset::Zstd3,

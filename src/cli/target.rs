@@ -17,7 +17,7 @@ use crate::cli::reporting::{
 use crate::cli::verbose_output_enabled;
 use crate::hash::ChunkHash;
 use g::core::target_identity::{
-    apply_resolved_target_identity, parse_cli_tags, resolve_target_identity,
+    apply_resolved_target_identity, parse_cli_tags,
 };
 use g::repo::scan_existing_store_state;
 use gutch as g;
@@ -52,6 +52,7 @@ struct InsertOneTargetRequest<'a> {
     repo_name: &'a str,
     rules: &'a g::manifest::TargetTagSchema,
     explicit_tags: &'a g::manifest::TargetTagSet,
+    allow_name_inference: bool,
     build_profile: ArtifactBuildProfileArgs,
     runtime_hints: g::RuntimeResourceHints,
     stats_json_out: &'a Option<PathBuf>,
@@ -130,6 +131,7 @@ fn run_insert_one_target(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
         request.explicit_tags,
+        request.allow_name_inference,
     )?;
     if !request.yes && !request.skip_confirmation {
         println!("target insert plan:");
@@ -190,10 +192,11 @@ fn run_insert_one_target(
 
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
     let context = format!("target insert input '{}'", request.input_dir.display());
-    let resolved_identity = resolve_target_identity(
+    let resolved_identity = g::core::target_identity::resolve_target_identity_with_inference(
         request.input_dir,
         request.explicit_tags,
         request.rules,
+        request.allow_name_inference,
         &context,
     )?;
     let existing_chunk_ids = store_state
@@ -359,11 +362,11 @@ fn run_insert_one_target(
     Ok(stats)
 }
 
-fn collect_insert_many_dirs(
+fn collect_insert_many_sources(
     product_dir: Option<PathBuf>,
     explicit_dirs: Vec<PathBuf>,
-) -> g::Result<Vec<PathBuf>> {
-    let mut target_dirs = explicit_dirs;
+) -> g::Result<Vec<g::source_config::ResolvedSourceTarget>> {
+    let mut sources: Vec<g::source_config::ResolvedSourceTarget> = Vec::new();
     if let Some(product_dir) = product_dir {
         if !product_dir.is_dir() {
             return Err(g::Error::manifest(format!(
@@ -371,29 +374,73 @@ fn collect_insert_many_dirs(
                 product_dir.display()
             )));
         }
-
-        for entry in std::fs::read_dir(&product_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let is_hidden = path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value.starts_with('.'));
-            if path.is_dir() && !is_hidden {
-                target_dirs.push(path);
-            }
-        }
+        let config = g::source_config::SourceConfig::load_or_create(&product_dir)?;
+        sources.extend(config.discover_target_sources(&product_dir)?);
+    }
+    for dir in explicit_dirs {
+        sources.push(g::source_config::ResolvedSourceTarget {
+            path: dir.clone(),
+            relative_path: dir,
+            config_tags: None,
+            allow_name_inference: true,
+        });
     }
 
-    target_dirs.sort();
-    target_dirs.dedup();
-    if target_dirs.is_empty() {
+    sources.sort_by(|left, right| left.path.cmp(&right.path));
+    sources.dedup_by(|left, right| left.path == right.path);
+    if sources.is_empty() {
         return Err(g::Error::manifest(
             "target insert-many requires at least one --dir or --product-dir with target folders",
         ));
     }
 
-    Ok(target_dirs)
+    Ok(sources)
+}
+
+/// Resolve the config contribution for a single `insert --dir` target.
+/// The config is read from the directory's parent when present; it is never
+/// auto-created for a single insert. Returns the entry tags (explicit mode)
+/// and whether name inference is allowed.
+fn single_insert_source_resolution(
+    dir: &Path,
+) -> g::Result<(Option<g::manifest::TargetTagSet>, bool)> {
+    let parent = dir.parent().ok_or_else(|| {
+        g::Error::manifest(format!("target input has no parent directory: {}", dir.display()))
+    })?;
+    let Some(config) = g::source_config::SourceConfig::load(parent)? else {
+        return Ok((None, true));
+    };
+    let Some(name) = dir.file_name().and_then(|value| value.to_str()) else {
+        return Err(g::Error::manifest(format!(
+            "target input has no usable folder name: {}",
+            dir.display()
+        )));
+    };
+    match config.ingestion_mode {
+        g::source_config::IngestionMode::Auto => Ok((None, true)),
+        g::source_config::IngestionMode::Explicit => {
+            let entry = config.explicit_rules.targets.iter().find(|rule| {
+                g::source_config::normalize_relative_path(&rule.path)
+                    .ok()
+                    .as_deref()
+                    == Some(name)
+            });
+            match entry {
+                Some(rule) => {
+                    let tags = g::manifest::TargetTagSet::from_compact_strings(&rule.tags).map_err(
+                        |err| {
+                            g::Error::manifest(format!(
+                                "invalid tags for explicit target '{}': {err}",
+                                rule.path
+                            ))
+                        },
+                    )?;
+                    Ok((Some(tags), false))
+                }
+                None => Ok((None, false)),
+            }
+        }
+    }
 }
 
 pub fn run(command: TargetCommands) -> g::Result<()> {
@@ -430,8 +477,18 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             stats_json_out,
             yes,
         } => {
-            let explicit_tags = parse_cli_tags(&tags)?;
-            let plan = g::plan_target_insert(repo.as_path(), dir.as_path(), &explicit_tags)?;
+            let cli_tags = parse_cli_tags(&tags)?;
+            let (config_tags, allow_name_inference) = single_insert_source_resolution(&dir)?;
+            let mut explicit_tags = cli_tags;
+            if let Some(config_tags) = config_tags {
+                explicit_tags.extend_missing_from(&config_tags);
+            }
+            let plan = g::plan_target_insert(
+                repo.as_path(),
+                dir.as_path(),
+                &explicit_tags,
+                allow_name_inference,
+            )?;
             if !yes {
                 println!("target insert plan:");
                 println!("  {}", g::describe_target_insert_plan(&plan));
@@ -449,6 +506,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 repo_root: repo.clone(),
                 source_dir: dir.clone(),
                 explicit_tags,
+                allow_name_inference,
                 chunk_profile: build_profile.chunk_profile,
                 bundle_profile: build_profile.bundle_profile,
                 compression_profile: build_profile.compression_profile,
@@ -520,18 +578,23 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             stats_json_out,
             yes,
         } => {
-            let target_dirs = collect_insert_many_dirs(product_dir, dirs)?;
+            let sources = collect_insert_many_sources(product_dir, dirs)?;
             let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
             let rules = repo_manifest.target_schema.clone().unwrap_or_default();
-            let explicit_tags = parse_cli_tags(&tags)?;
+            let cli_tags = parse_cli_tags(&tags)?;
             let repo_name = repo_manifest.name.clone();
-            let insert_plans: Vec<g::TargetInsertPlan> = target_dirs
+            let insert_plans: Vec<g::TargetInsertPlan> = sources
                 .iter()
-                .map(|target_dir| {
+                .map(|source| {
+                    let mut effective_tags = cli_tags.clone();
+                    if let Some(config_tags) = &source.config_tags {
+                        effective_tags.extend_missing_from(config_tags);
+                    }
                     g::plan_target_insert(
                         repo_paths.repo_root.as_path(),
-                        target_dir,
-                        &explicit_tags,
+                        &source.path,
+                        &effective_tags,
+                        source.allow_name_inference,
                     )
                 })
                 .collect::<g::Result<_>>()?;
@@ -556,15 +619,20 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 scan_existing_store_state(&repo_paths)?.into();
             let empty_output = None;
 
-            let mut target_stats = Vec::with_capacity(target_dirs.len());
-            for target_dir in &target_dirs {
+            let mut target_stats = Vec::with_capacity(sources.len());
+            for source in &sources {
+                let mut effective_tags = cli_tags.clone();
+                if let Some(config_tags) = &source.config_tags {
+                    effective_tags.extend_missing_from(config_tags);
+                }
                 target_stats.push(run_insert_one_target(
                     InsertOneTargetRequest {
-                        input_dir: target_dir,
+                        input_dir: &source.path,
                         repo_paths: &repo_paths,
                         repo_name: &repo_name,
                         rules: &rules,
-                        explicit_tags: &explicit_tags,
+                        explicit_tags: &effective_tags,
+                        allow_name_inference: source.allow_name_inference,
                         build_profile,
                         runtime_hints: runtime.hints(),
                         stats_json_out: &empty_output,

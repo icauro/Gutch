@@ -27,6 +27,7 @@ pub use artifact::{bundle, chunk, compress, hash};
 pub use build::scan as build_scan;
 pub use build::types as build_types;
 pub use target::path_guard;
+pub use target::source_config;
 
 pub use build::types::{
     BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
@@ -100,7 +101,7 @@ pub use runtime::{
 };
 pub use target::identity::{
     ResolvedTargetIdentity, parse_cli_tags, resolve_target_identity,
-    resolve_target_identity_from_rules,
+    resolve_target_identity_from_rules, resolve_target_identity_with_inference,
 };
 pub use target::path_guard::{
     ExistingInstallPathKind, resolve_existing_install_path, validate_manifest_relative_path,

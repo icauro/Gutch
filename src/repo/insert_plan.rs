@@ -47,6 +47,9 @@ pub struct RepoTargetInsertRequest {
     pub repo_root: PathBuf,
     pub source_dir: PathBuf,
     pub explicit_tags: TargetTagSet,
+    /// Whether name-based tag inference may fill tags missing from
+    /// `explicit_tags`. False in explicit ingestion mode.
+    pub allow_name_inference: bool,
     pub chunk_profile: crate::manifest::ArtifactSizingPreset,
     pub bundle_profile: crate::manifest::BundleSizingPreset,
     pub compression_profile: crate::manifest::CompressionPreset,
@@ -107,11 +110,17 @@ pub fn plan_target_insert(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &TargetTagSet,
+    allow_name_inference: bool,
 ) -> Result<TargetInsertPlan> {
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(repo_root)?;
     let rules = repo_manifest.target_schema.clone().unwrap_or_default();
 
-    let candidate = build_source_target_install_candidate(source_dir, &rules, explicit_tags)?;
+    let candidate = build_source_target_install_candidate(
+        source_dir,
+        &rules,
+        explicit_tags,
+        allow_name_inference,
+    )?;
     let status = check_gutch_repo(repo_root)?;
 
     let replaced_target_ids: Vec<String> = status
@@ -292,6 +301,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         request.repo_root.as_path(),
         request.source_dir.as_path(),
         &request.explicit_tags,
+        request.allow_name_inference,
     )?;
 
     let mut store_state =
@@ -339,10 +349,11 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     }
 
     let prepared_input = prepare_input_path(&request.source_dir)?;
-    let resolved_identity = crate::resolve_target_identity(
+    let resolved_identity = crate::resolve_target_identity_with_inference(
         request.source_dir.as_path(),
         &request.explicit_tags,
         &rules,
+        request.allow_name_inference,
         &format!("target insert input '{}'", request.source_dir.display()),
     )?;
 
@@ -666,6 +677,7 @@ mod tests {
             &new_source,
             &rules,
             &manifest::TargetTagSet::default(),
+            true,
         )
         .unwrap();
         let old_files = vec![manifest::FileManifest {
@@ -687,8 +699,9 @@ mod tests {
 
         std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
-        let plan = plan_target_insert(&repo_root, &new_source, &manifest::TargetTagSet::default())
-            .unwrap();
+        let plan =
+            plan_target_insert(&repo_root, &new_source, &manifest::TargetTagSet::default(), true)
+                .unwrap();
         assert_eq!(plan.kind, TargetInsertKind::ReplaceSameTags);
         assert_eq!(plan.replaced_target_ids, vec![old_content_id]);
         assert!(plan.invalidates_existing_installs);

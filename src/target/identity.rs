@@ -18,9 +18,24 @@ pub fn resolve_target_identity(
     rules: &TargetTagSchema,
     context: &str,
 ) -> Result<ResolvedTargetIdentity> {
-    let inferred_tags = infer_tags_from_path(input_path, rules);
+    resolve_target_identity_with_inference(input_path, explicit_tags, rules, true, context)
+}
+
+/// Like [`resolve_target_identity`], but name-based tag inference can be
+/// disabled (explicit ingestion mode). Explicit tags still win over inferred
+/// tags; inference only fills values missing from the explicit set.
+pub fn resolve_target_identity_with_inference(
+    input_path: &std::path::Path,
+    explicit_tags: &TargetTagSet,
+    rules: &TargetTagSchema,
+    allow_name_inference: bool,
+    context: &str,
+) -> Result<ResolvedTargetIdentity> {
     let mut target_tags = explicit_tags.clone();
-    target_tags.extend_missing_from(&inferred_tags);
+    if allow_name_inference {
+        let inferred_tags = infer_tags_from_path(input_path, rules);
+        target_tags.extend_missing_from(&inferred_tags);
+    }
 
     apply_schema_defaults(&mut target_tags, rules);
 

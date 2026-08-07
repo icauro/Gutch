@@ -306,26 +306,33 @@ pub fn discover_source_target_installs(
 
     let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let rules = repo_manifest.target_schema.unwrap_or_default();
+    let config = crate::target::source_config::SourceConfig::load_or_default(source_targets_root)?;
     let mut candidates = Vec::new();
 
-    for entry in std::fs::read_dir(source_targets_root)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-
-        match infer_source_target_candidate(&path, &rules) {
+    for target in config.discover_target_sources(source_targets_root)? {
+        let explicit_tags = target.config_tags.clone().unwrap_or_default();
+        match build_source_target_install_candidate(
+            &target.path,
+            &rules,
+            &explicit_tags,
+            target.allow_name_inference,
+        ) {
             Ok(candidate) => candidates.push(candidate),
             Err(err) => {
-                let folder_name = path
+                if !target.allow_name_inference {
+                    // A declared explicit target that cannot resolve its tags is
+                    // a hard error rather than a skipped folder.
+                    return Err(err);
+                }
+                let folder_name = target
+                    .path
                     .file_name()
                     .and_then(|value| value.to_str())
                     .unwrap_or("")
                     .to_string();
                 if !folder_name.is_empty() {
                     candidates.push(SourceTargetInstallCandidate {
-                        path: path.display().to_string(),
+                        path: target.path.display().to_string(),
                         folder_name,
                         target_id: String::new(),
                         content_target_id: String::new(),
@@ -365,7 +372,12 @@ pub fn preview_source_target_install(
 
     let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let rules = repo_manifest.target_schema.unwrap_or_default();
-    build_source_target_install_candidate(source_dir, &rules, &manifest::TargetTagSet::default())
+    build_source_target_install_candidate(
+        source_dir,
+        &rules,
+        &manifest::TargetTagSet::default(),
+        true,
+    )
 }
 
 fn empty_repo_check_status(
@@ -460,22 +472,22 @@ struct TargetManifestCheckTimings {
     load_target_manifests_ms: u64,
 }
 
-fn infer_source_target_candidate(
-    path: &Path,
-    rules: &manifest::TargetTagSchema,
-) -> Result<SourceTargetInstallCandidate> {
-    build_source_target_install_candidate(path, rules, &manifest::TargetTagSet::default())
-}
-
 pub(crate) fn build_source_target_install_candidate(
     path: &Path,
     rules: &manifest::TargetTagSchema,
     explicit_tags: &manifest::TargetTagSet,
+    allow_name_inference: bool,
 ) -> Result<SourceTargetInstallCandidate> {
-    use crate::core::target_identity::resolve_target_identity;
+    use crate::core::target_identity::resolve_target_identity_with_inference;
 
     let context = format!("source target '{}'", path.display());
-    let resolved = resolve_target_identity(path, explicit_tags, rules, &context)?;
+    let resolved = resolve_target_identity_with_inference(
+        path,
+        explicit_tags,
+        rules,
+        allow_name_inference,
+        &context,
+    )?;
 
     let folder_name = path
         .file_name()
