@@ -1,4 +1,4 @@
-//! End-to-end tests for the source-root ingestion config (`.gutch_config.json`)
+//! End-to-end tests for the source-root ingestion config (`.gutch_source_config.json`)
 //! flowing through the `target insert-many` CLI path.
 
 use std::path::Path;
@@ -28,7 +28,7 @@ fn insert_many_auto_mode_skips_ignored_folders() {
     write_source_root_files(&product_dir, "v1.0.0-linux-x86_64-2026_07_14/app", b"linux-app");
     write_source_root_files(&product_dir, ".archives/old.zip", b"ignored");
     std::fs::write(
-        product_dir.join(".gutch_config.json"),
+        product_dir.join(".gutch_source_config.json"),
         r#"{"ingestion_mode":"auto","auto_rules":{"ignore_paths":[".archives"]}}"#,
     )
     .unwrap();
@@ -73,7 +73,7 @@ fn insert_many_explicit_mode_uses_nested_targets_and_declared_tags() {
     // A nested folder that is NOT declared must be ignored by discovery.
     write_source_root_files(&product_dir, "versions/4.7-stable/macos-universal/Godot.app", b"x");
     std::fs::write(
-        product_dir.join(".gutch_config.json"),
+        product_dir.join(".gutch_source_config.json"),
         r#"{
             "ingestion_mode": "explicit",
             "explicit_rules": {
@@ -122,7 +122,7 @@ fn insert_many_explicit_mode_errors_when_declared_version_is_missing() {
     let product_dir = temp.path().join("product");
     write_source_root_files(&product_dir, "some-folder/app.exe", b"app");
     std::fs::write(
-        product_dir.join(".gutch_config.json"),
+        product_dir.join(".gutch_source_config.json"),
         r#"{
             "ingestion_mode": "explicit",
             "explicit_rules": {
@@ -157,7 +157,7 @@ fn insert_many_auto_creates_skeleton_config_on_first_use() {
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
     write_source_root_files(&product_dir, "v1.0.0-windows-x86_64-2026_07_14/app.exe", b"app");
-    assert!(!product_dir.join(".gutch_config.json").exists());
+    assert!(!product_dir.join(".gutch_source_config.json").exists());
 
     run_from_args([
         "pl-cli",
@@ -171,7 +171,7 @@ fn insert_many_auto_creates_skeleton_config_on_first_use() {
     ])
     .unwrap();
 
-    assert!(product_dir.join(".gutch_config.json").is_file());
+    assert!(product_dir.join(".gutch_source_config.json").is_file());
     let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
     assert_eq!(status.targets.len(), 1);
 }

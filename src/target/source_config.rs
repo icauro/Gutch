@@ -1,4 +1,4 @@
-//! Source-root ingestion config (`.gutch_config.json`).
+//! Source-root ingestion config (`.gutch_source_config.json`).
 //!
 //! A source root is the directory passed as `--product-dir` to
 //! `target insert-many` or as the sources root to `target-sources sync` —
@@ -13,7 +13,7 @@
 //!   paths at any depth, with tags declared per entry. Folder names are
 //!   irrelevant and name inference is disabled.
 //!
-//! `.gutch_config.json` itself is always ignored: it is a file at the source
+//! `.gutch_source_config.json` itself is always ignored: it is a file at the source
 //! root, so target discovery (which only picks directories) never sees it,
 //! and it sits outside every target source tree.
 
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use crate::manifest::TargetTagSet;
 use crate::{Error, Result};
 
-pub const SOURCE_CONFIG_FILE_NAME: &str = ".gutch_config.json";
+pub const SOURCE_CONFIG_FILE_NAME: &str = ".gutch_source_config.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
