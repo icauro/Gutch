@@ -37,7 +37,7 @@ fn commit_many_auto_mode_skips_ignored_folders() {
     write_source_root_files(&product_dir, ".archives/old.zip", b"ignored");
     std::fs::write(
         product_dir.join(".gutch_source_config.json"),
-        r#"{"ingestion_mode":"auto","auto_rules":{"ignore_paths":[".archives"]}}"#,
+        r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":[".archives"]}}"#,
     )
     .unwrap();
 
@@ -92,7 +92,7 @@ fn commit_many_explicit_mode_uses_nested_targets_and_declared_tags() {
         product_dir.join(".gutch_source_config.json"),
         r#"{
             "ingestion_mode": "explicit",
-            "explicit_rules": {
+            "explicit_ingestion_rules": {
                 "targets": [
                     {"path": "versions/4.6-stable/windows-x86_64", "tags": ["version::4.6-stable", "os::windows", "arch::x86_64", "released_at::2026_07_14"]},
                     {"path": "./versions/4.6-stable/linux-x86_64", "tags": ["version::4.6-stable", "os::linux", "arch::x86_64", "released_at::2026_07_14"]}
@@ -144,7 +144,7 @@ fn commit_many_explicit_mode_errors_when_declared_version_is_missing() {
         product_dir.join(".gutch_source_config.json"),
         r#"{
             "ingestion_mode": "explicit",
-            "explicit_rules": {
+            "explicit_ingestion_rules": {
                 "targets": [
                     {"path": "some-folder", "tags": ["os::windows", "arch::x86_64"]}
                 ]

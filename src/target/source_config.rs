@@ -8,9 +8,9 @@
 //! The config selects an ingestion mode:
 //!
 //! - `auto` (default): target sources are the immediate subdirectories of the
-//!   source root, filtered by `auto_rules.ignore_paths` (plain folder-name
+//!   source root, filtered by `auto_ingestion_rules.ignore_paths` (plain folder-name
 //!   fnmatch). Tags come from folder names plus CLI tags.
-//! - `explicit`: target sources are exactly the `explicit_rules.targets`
+//! - `explicit`: target sources are exactly the `explicit_ingestion_rules.targets`
 //!   paths at any depth, with tags declared per entry. Folder names are
 //!   irrelevant and name inference is disabled.
 //!
@@ -38,7 +38,7 @@ pub enum IngestionMode {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
-pub struct AutoRules {
+pub struct AutoIngestionRules {
     /// Plain folder names matched against immediate subdirectory names during
     /// `auto` discovery (simple fnmatch: `*` and `?`; no separators allowed).
     pub ignore_paths: Vec<String>,
@@ -46,7 +46,7 @@ pub struct AutoRules {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
-pub struct ExplicitRules {
+pub struct ExplicitIngestionRules {
     pub targets: Vec<TargetRule>,
 }
 
@@ -64,8 +64,8 @@ pub struct TargetRule {
 #[serde(rename_all = "snake_case", default)]
 pub struct SourceConfig {
     pub ingestion_mode: IngestionMode,
-    pub auto_rules: AutoRules,
-    pub explicit_rules: ExplicitRules,
+    pub auto_ingestion_rules: AutoIngestionRules,
+    pub explicit_ingestion_rules: ExplicitIngestionRules,
 }
 
 /// A target source resolved from the config (or from an explicit `--dir`).
@@ -136,10 +136,10 @@ impl SourceConfig {
     }
 
     fn discover_auto(&self, source_root: &Path) -> Result<Vec<ResolvedSourceTarget>> {
-        for pattern in &self.auto_rules.ignore_paths {
+        for pattern in &self.auto_ingestion_rules.ignore_paths {
             if pattern.is_empty() || pattern.contains('/') || pattern.contains('\\') {
                 return Err(Error::manifest(format!(
-                    "auto_rules.ignore_paths entries must be plain folder names, got '{}'",
+                    "auto_ingestion_rules.ignore_paths entries must be plain folder names, got '{}'",
                     pattern
                 )));
             }
@@ -165,7 +165,7 @@ impl SourceConfig {
                     Error::manifest(format!("invalid source folder name: {}", path.display()))
                 })?;
             if self
-                .auto_rules
+                .auto_ingestion_rules
                 .ignore_paths
                 .iter()
                 .any(|pattern| fnmatch_name(&name, pattern))
@@ -184,14 +184,14 @@ impl SourceConfig {
     }
 
     fn discover_explicit(&self, source_root: &Path) -> Result<Vec<ResolvedSourceTarget>> {
-        if self.explicit_rules.targets.is_empty() {
+        if self.explicit_ingestion_rules.targets.is_empty() {
             return Err(Error::manifest(
-                "explicit ingestion mode requires at least one target in explicit_rules.targets",
+                "explicit ingestion mode requires at least one target in explicit_ingestion_rules.targets",
             ));
         }
         let mut seen: HashSet<String> = HashSet::new();
         let mut targets = Vec::new();
-        for rule in &self.explicit_rules.targets {
+        for rule in &self.explicit_ingestion_rules.targets {
             let normalized = normalize_relative_path(&rule.path)?;
             if !seen.insert(normalized.clone()) {
                 return Err(Error::manifest(format!(
@@ -305,8 +305,8 @@ mod tests {
     fn default_skeleton_is_auto_mode() {
         let config = SourceConfig::default_skeleton();
         assert_eq!(config.ingestion_mode, IngestionMode::Auto);
-        assert!(config.auto_rules.ignore_paths.is_empty());
-        assert!(config.explicit_rules.targets.is_empty());
+        assert!(config.auto_ingestion_rules.ignore_paths.is_empty());
+        assert!(config.explicit_ingestion_rules.targets.is_empty());
     }
 
     #[test]
@@ -357,7 +357,7 @@ mod tests {
         std::fs::write(temp.path().join("notes.txt"), b"x").unwrap();
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"auto","auto_rules":{"ignore_paths":[".archives"]}}"#,
+            r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":[".archives"]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
 
@@ -380,7 +380,7 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[{"path":"./versions/4.6-stable/linux-x86_64","tags":["version::4.6-stable","os::linux","arch::x86_64"]}]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[{"path":"./versions/4.6-stable/linux-x86_64","tags":["version::4.6-stable","os::linux","arch::x86_64"]}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
 
@@ -403,7 +403,7 @@ mod tests {
         std::fs::create_dir(temp.path().join("game-win")).unwrap();
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[{"path":"game-win"},{"path":"./game-win"}]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[{"path":"game-win"},{"path":"./game-win"}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
@@ -416,7 +416,7 @@ mod tests {
 
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[{"path":"missing-dir"}]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[{"path":"missing-dir"}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
@@ -429,7 +429,7 @@ mod tests {
 
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
@@ -446,7 +446,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"auto","auto_rules":{"ignore_paths":["deep/nested"]}}"#,
+            r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":["deep/nested"]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
@@ -466,7 +466,7 @@ mod tests {
         // empty targets, which must be ignored because it is dormant.
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"auto","auto_rules":{"ignore_paths":[]},"explicit_rules":{"targets":[]}}"#,
+            r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":[]},"explicit_ingestion_rules":{"targets":[]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         let targets = config.discover_target_sources(temp.path()).unwrap();

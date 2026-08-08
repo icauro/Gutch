@@ -420,7 +420,7 @@ fn single_insert_source_resolution(
     match config.ingestion_mode {
         g::source_config::IngestionMode::Auto => Ok((None, true)),
         g::source_config::IngestionMode::Explicit => {
-            let entry = config.explicit_rules.targets.iter().find(|rule| {
+            let entry = config.explicit_ingestion_rules.targets.iter().find(|rule| {
                 g::source_config::normalize_relative_path(&rule.path)
                     .ok()
                     .as_deref()
