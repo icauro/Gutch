@@ -16,9 +16,7 @@ use crate::cli::reporting::{
 };
 use crate::cli::verbose_output_enabled;
 use crate::hash::ChunkHash;
-use g::core::target_identity::{
-    apply_resolved_target_identity, parse_cli_tags,
-};
+use g::core::target_identity::{apply_resolved_target_identity, parse_cli_tags};
 use g::repo::scan_existing_store_state;
 use gutch as g;
 
@@ -134,7 +132,7 @@ fn run_insert_one_target(
         request.allow_name_inference,
     )?;
     if !request.yes && !request.skip_confirmation {
-        println!("target add plan:");
+        println!("target commit plan:");
         println!("  {}", g::describe_target_insert_plan(&insert_plan));
         if insert_plan.invalidates_existing_installs {
             println!(
@@ -142,7 +140,7 @@ fn run_insert_one_target(
             );
         }
         if !prompt_yes_no("Proceed?", false)? {
-            return Err(g::Error::manifest("target add cancelled"));
+            return Err(g::Error::manifest("target commit cancelled"));
         }
     }
     if insert_plan.kind == g::TargetInsertKind::ReplaceSameTags {
@@ -191,7 +189,7 @@ fn run_insert_one_target(
     }
 
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
-    let context = format!("target add input '{}'", request.input_dir.display());
+    let context = format!("target commit input '{}'", request.input_dir.display());
     let resolved_identity = g::core::target_identity::resolve_target_identity_with_inference(
         request.input_dir,
         request.explicit_tags,
@@ -390,7 +388,7 @@ fn collect_insert_many_sources(
     sources.dedup_by(|left, right| left.path == right.path);
     if sources.is_empty() {
         return Err(g::Error::manifest(
-            "target add-many requires at least one --dir or --product-dir with target folders",
+            "target commit requires at least one --dir or --product-dir with target folders",
         ));
     }
 
@@ -405,7 +403,10 @@ fn single_insert_source_resolution(
     dir: &Path,
 ) -> g::Result<(Option<g::manifest::TargetTagSet>, bool)> {
     let parent = dir.parent().ok_or_else(|| {
-        g::Error::manifest(format!("target input has no parent directory: {}", dir.display()))
+        g::Error::manifest(format!(
+            "target input has no parent directory: {}",
+            dir.display()
+        ))
     })?;
     let Some(config) = g::source_config::SourceConfig::load(parent)? else {
         return Ok((None, true));
@@ -427,14 +428,13 @@ fn single_insert_source_resolution(
             });
             match entry {
                 Some(rule) => {
-                    let tags = g::manifest::TargetTagSet::from_compact_strings(&rule.tags).map_err(
-                        |err| {
+                    let tags = g::manifest::TargetTagSet::from_compact_strings(&rule.tags)
+                        .map_err(|err| {
                             g::Error::manifest(format!(
                                 "invalid tags for explicit target '{}': {err}",
                                 rule.path
                             ))
-                        },
-                    )?;
+                        })?;
                     Ok((Some(tags), false))
                 }
                 None => Ok((None, false)),
@@ -468,236 +468,229 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             g::update_gutch_target_launch(&repo, &target, configuration)?;
             println!("updated target launch configuration");
         }
-        TargetCommands::Add {
+        TargetCommands::Commit {
             dir,
-            repo,
-            tags,
-            build_profile,
-            runtime,
-            stats_json_out,
-            yes,
-        } => {
-            let cli_tags = parse_cli_tags(&tags)?;
-            let (config_tags, allow_name_inference) = single_insert_source_resolution(&dir)?;
-            let mut explicit_tags = cli_tags;
-            if let Some(config_tags) = config_tags {
-                explicit_tags.extend_missing_from(&config_tags);
-            }
-            let plan = g::plan_target_insert(
-                repo.as_path(),
-                dir.as_path(),
-                &explicit_tags,
-                allow_name_inference,
-            )?;
-            if !yes {
-                println!("target add plan:");
-                println!("  {}", g::describe_target_insert_plan(&plan));
-                if plan.invalidates_existing_installs {
-                    println!(
-                        "  Patron installs pinned to replaced content ids become invalid until updated."
-                    );
-                }
-                if !prompt_yes_no("Proceed?", false)? {
-                    return Err(g::Error::manifest("target add cancelled"));
-                }
-            }
-            let progress = CliProgressSink::new();
-            let insert_result = g::insert_repo_target(g::RepoTargetInsertRequest {
-                repo_root: repo.clone(),
-                source_dir: dir.clone(),
-                explicit_tags,
-                allow_name_inference,
-                chunk_profile: build_profile.chunk_profile,
-                bundle_profile: build_profile.bundle_profile,
-                compression_profile: build_profile.compression_profile,
-                storage_mode: build_profile.storage_mode,
-                runtime_hints: runtime.hints(),
-                control: g::GutchOperationControl::default().with_progress(progress),
-            })?;
-            let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-            let stats = TargetInsertStats {
-                command: "target add",
-                repo_root: insert_result.repo_root.display().to_string(),
-                input_path: dir.display().to_string(),
-                target_id: insert_result.target_id,
-                manifest_path: insert_result.manifest_path.display().to_string(),
-                product_id: repo_manifest.name.clone(),
-                remote_repo_id: repo_manifest.name.clone(),
-                version_id: insert_result.version_id,
-                os: insert_result.os,
-                arch: insert_result.arch,
-                storage_mode: build_profile.storage_mode.cli_name().to_string(),
-                file_count: insert_result.file_count,
-                total_logical_size: insert_result.total_logical_size,
-                total_compressed_size_estimate: insert_result.total_compressed_size_estimate,
-                required_chunk_count: insert_result.required_chunk_count,
-                required_bundle_count: insert_result.required_bundle_count,
-                generated_bundle_count: insert_result.generated_bundle_count,
-                generated_bundle_bytes: 0,
-                generated_chunk_count: insert_result.generated_chunk_count,
-                generated_chunk_bytes: 0,
-                reused_chunk_count: insert_result.reused_chunk_count,
-                new_chunk_count: insert_result.new_chunk_count,
-                reused_chunk_percent: ratio_pct(
-                    insert_result.reused_chunk_count as u64,
-                    insert_result.required_chunk_count as u64,
-                ),
-                reused_bundle_count: insert_result
-                    .required_bundle_count
-                    .saturating_sub(insert_result.generated_bundle_count),
-                reused_bundle_percent: ratio_pct(
-                    insert_result
-                        .required_bundle_count
-                        .saturating_sub(insert_result.generated_bundle_count)
-                        as u64,
-                    insert_result.required_bundle_count as u64,
-                ),
-                timings: build_timings_summary(&insert_result.build_timings),
-                outputs: optional_output_paths(&stats_json_out),
-            };
-            write_report(&stats_json_out, &stats)?;
-
-            let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-            repo_manifest.chunk_sizing_profile =
-                g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
-            repo_manifest.bundle_sizing_profile =
-                g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
-            repo_manifest.compression_profile =
-                g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
-            repo_manifest.storage_mode = build_profile.storage_mode;
-            g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
-        }
-
-        TargetCommands::AddMany {
-            repo,
             product_dir,
-            dirs,
+            repo,
             tags,
             build_profile,
             runtime,
             stats_json_out,
             yes,
         } => {
-            let sources = collect_insert_many_sources(product_dir, dirs)?;
-            let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-            let rules = repo_manifest.target_schema.clone().unwrap_or_default();
+            let sources = collect_insert_many_sources(product_dir.clone(), dir)?;
             let cli_tags = parse_cli_tags(&tags)?;
-            let repo_name = repo_manifest.name.clone();
-            let insert_plans: Vec<g::TargetInsertPlan> = sources
-                .iter()
-                .map(|source| {
+            if sources.len() == 1 && product_dir.is_none() {
+                let source = &sources[0];
+                let (config_tags, allow_name_inference) =
+                    single_insert_source_resolution(&source.path)?;
+                let mut explicit_tags = cli_tags.clone();
+                if let Some(config_tags) = config_tags {
+                    explicit_tags.extend_missing_from(&config_tags);
+                }
+                let plan = g::plan_target_insert(
+                    repo.as_path(),
+                    &source.path,
+                    &explicit_tags,
+                    allow_name_inference,
+                )?;
+                if !yes {
+                    println!("target commit plan:");
+                    println!("  {}", g::describe_target_insert_plan(&plan));
+                    if plan.invalidates_existing_installs {
+                        println!(
+                            "  Patron installs pinned to replaced content ids become invalid until updated."
+                        );
+                    }
+                    if !prompt_yes_no("Proceed?", false)? {
+                        return Err(g::Error::manifest("target commit cancelled"));
+                    }
+                }
+                let progress = CliProgressSink::new();
+                let insert_result = g::insert_repo_target(g::RepoTargetInsertRequest {
+                    repo_root: repo.clone(),
+                    source_dir: source.path.clone(),
+                    explicit_tags,
+                    allow_name_inference,
+                    chunk_profile: build_profile.chunk_profile,
+                    bundle_profile: build_profile.bundle_profile,
+                    compression_profile: build_profile.compression_profile,
+                    storage_mode: build_profile.storage_mode,
+                    runtime_hints: runtime.hints(),
+                    control: g::GutchOperationControl::default().with_progress(progress),
+                })?;
+                let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
+                let stats = TargetInsertStats {
+                    command: "target commit",
+                    repo_root: insert_result.repo_root.display().to_string(),
+                    input_path: source.path.display().to_string(),
+                    target_id: insert_result.target_id,
+                    manifest_path: insert_result.manifest_path.display().to_string(),
+                    product_id: repo_manifest.name.clone(),
+                    remote_repo_id: repo_manifest.name.clone(),
+                    version_id: insert_result.version_id,
+                    os: insert_result.os,
+                    arch: insert_result.arch,
+                    storage_mode: build_profile.storage_mode.cli_name().to_string(),
+                    file_count: insert_result.file_count,
+                    total_logical_size: insert_result.total_logical_size,
+                    total_compressed_size_estimate: insert_result.total_compressed_size_estimate,
+                    required_chunk_count: insert_result.required_chunk_count,
+                    required_bundle_count: insert_result.required_bundle_count,
+                    generated_bundle_count: insert_result.generated_bundle_count,
+                    generated_bundle_bytes: 0,
+                    generated_chunk_count: insert_result.generated_chunk_count,
+                    generated_chunk_bytes: 0,
+                    reused_chunk_count: insert_result.reused_chunk_count,
+                    new_chunk_count: insert_result.new_chunk_count,
+                    reused_chunk_percent: ratio_pct(
+                        insert_result.reused_chunk_count as u64,
+                        insert_result.required_chunk_count as u64,
+                    ),
+                    reused_bundle_count: insert_result
+                        .required_bundle_count
+                        .saturating_sub(insert_result.generated_bundle_count),
+                    reused_bundle_percent: ratio_pct(
+                        insert_result
+                            .required_bundle_count
+                            .saturating_sub(insert_result.generated_bundle_count)
+                            as u64,
+                        insert_result.required_bundle_count as u64,
+                    ),
+                    timings: build_timings_summary(&insert_result.build_timings),
+                    outputs: optional_output_paths(&stats_json_out),
+                };
+                write_report(&stats_json_out, &stats)?;
+
+                let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
+                repo_manifest.chunk_sizing_profile =
+                    g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
+                repo_manifest.bundle_sizing_profile =
+                    g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
+                repo_manifest.compression_profile =
+                    g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
+                repo_manifest.storage_mode = build_profile.storage_mode;
+                g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
+            } else {
+                let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
+                let rules = repo_manifest.target_schema.clone().unwrap_or_default();
+                let repo_name = repo_manifest.name.clone();
+                let insert_plans: Vec<g::TargetInsertPlan> = sources
+                    .iter()
+                    .map(|source| {
+                        let mut effective_tags = cli_tags.clone();
+                        if let Some(config_tags) = &source.config_tags {
+                            effective_tags.extend_missing_from(config_tags);
+                        }
+                        g::plan_target_insert(
+                            repo_paths.repo_root.as_path(),
+                            &source.path,
+                            &effective_tags,
+                            source.allow_name_inference,
+                        )
+                    })
+                    .collect::<g::Result<_>>()?;
+                if !yes {
+                    println!("target commit plan:");
+                    for plan in &insert_plans {
+                        println!("  {}", g::describe_target_insert_plan(plan));
+                    }
+                    if insert_plans
+                        .iter()
+                        .any(|plan| plan.invalidates_existing_installs)
+                    {
+                        println!(
+                            "  Patron installs pinned to replaced content ids become invalid until updated."
+                        );
+                    }
+                    if !prompt_yes_no("Proceed?", false)? {
+                        return Err(g::Error::manifest("target commit cancelled"));
+                    }
+                }
+                let mut store_state: MutableInsertStoreState =
+                    scan_existing_store_state(&repo_paths)?.into();
+                let empty_output = None;
+
+                let mut target_stats = Vec::with_capacity(sources.len());
+                for source in &sources {
                     let mut effective_tags = cli_tags.clone();
                     if let Some(config_tags) = &source.config_tags {
                         effective_tags.extend_missing_from(config_tags);
                     }
-                    g::plan_target_insert(
-                        repo_paths.repo_root.as_path(),
-                        &source.path,
-                        &effective_tags,
-                        source.allow_name_inference,
-                    )
-                })
-                .collect::<g::Result<_>>()?;
-            if !yes {
-                println!("target add-many plan:");
-                for plan in &insert_plans {
-                    println!("  {}", g::describe_target_insert_plan(plan));
+                    target_stats.push(run_insert_one_target(
+                        InsertOneTargetRequest {
+                            input_dir: &source.path,
+                            repo_paths: &repo_paths,
+                            repo_name: &repo_name,
+                            rules: &rules,
+                            explicit_tags: &effective_tags,
+                            allow_name_inference: source.allow_name_inference,
+                            build_profile,
+                            runtime_hints: runtime.hints(),
+                            stats_json_out: &empty_output,
+                            command_name: "target commit",
+                            yes,
+                            skip_confirmation: true,
+                        },
+                        &mut store_state,
+                    )?);
                 }
-                if insert_plans
+
+                g::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
+
+                let total_logical_size = target_stats
                     .iter()
-                    .any(|plan| plan.invalidates_existing_installs)
-                {
-                    println!(
-                        "  Patron installs pinned to replaced content ids become invalid until updated."
-                    );
-                }
-                if !prompt_yes_no("Proceed?", false)? {
-                    return Err(g::Error::manifest("target add-many cancelled"));
-                }
+                    .map(|stats| stats.total_logical_size)
+                    .sum();
+                let total_compressed_size_estimate = target_stats
+                    .iter()
+                    .map(|stats| stats.total_compressed_size_estimate)
+                    .sum();
+                let generated_bundle_count = target_stats
+                    .iter()
+                    .map(|stats| stats.generated_bundle_count)
+                    .sum();
+                let generated_bundle_bytes = target_stats
+                    .iter()
+                    .map(|stats| stats.generated_bundle_bytes)
+                    .sum();
+                let generated_chunk_count = target_stats
+                    .iter()
+                    .map(|stats| stats.generated_chunk_count)
+                    .sum();
+                let generated_chunk_bytes = target_stats
+                    .iter()
+                    .map(|stats| stats.generated_chunk_bytes)
+                    .sum();
+                let total_build_seconds = target_stats
+                    .iter()
+                    .map(|stats| stats.timings.total_seconds)
+                    .sum();
+                let aggregate_stats = TargetInsertManyStats {
+                    command: "target commit",
+                    repo_root: repo_paths.repo_root.display().to_string(),
+                    target_count: target_stats.len(),
+                    total_logical_size,
+                    total_compressed_size_estimate,
+                    generated_bundle_count,
+                    generated_bundle_bytes,
+                    generated_chunk_count,
+                    generated_chunk_bytes,
+                    total_build_seconds,
+                    targets: target_stats,
+                    outputs: optional_output_paths(&stats_json_out),
+                };
+
+                repo_manifest.chunk_sizing_profile =
+                    g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
+                repo_manifest.bundle_sizing_profile =
+                    g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
+                repo_manifest.compression_profile =
+                    g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
+                repo_manifest.storage_mode = build_profile.storage_mode;
+                g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
+                write_report(&stats_json_out, &aggregate_stats)?;
             }
-            let mut store_state: MutableInsertStoreState =
-                scan_existing_store_state(&repo_paths)?.into();
-            let empty_output = None;
-
-            let mut target_stats = Vec::with_capacity(sources.len());
-            for source in &sources {
-                let mut effective_tags = cli_tags.clone();
-                if let Some(config_tags) = &source.config_tags {
-                    effective_tags.extend_missing_from(config_tags);
-                }
-                target_stats.push(run_insert_one_target(
-                    InsertOneTargetRequest {
-                        input_dir: &source.path,
-                        repo_paths: &repo_paths,
-                        repo_name: &repo_name,
-                        rules: &rules,
-                        explicit_tags: &effective_tags,
-                        allow_name_inference: source.allow_name_inference,
-                        build_profile,
-                        runtime_hints: runtime.hints(),
-                        stats_json_out: &empty_output,
-                        command_name: "target add-many",
-                        yes,
-                        skip_confirmation: true,
-                    },
-                    &mut store_state,
-                )?);
-            }
-
-            g::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
-
-            let total_logical_size = target_stats
-                .iter()
-                .map(|stats| stats.total_logical_size)
-                .sum();
-            let total_compressed_size_estimate = target_stats
-                .iter()
-                .map(|stats| stats.total_compressed_size_estimate)
-                .sum();
-            let generated_bundle_count = target_stats
-                .iter()
-                .map(|stats| stats.generated_bundle_count)
-                .sum();
-            let generated_bundle_bytes = target_stats
-                .iter()
-                .map(|stats| stats.generated_bundle_bytes)
-                .sum();
-            let generated_chunk_count = target_stats
-                .iter()
-                .map(|stats| stats.generated_chunk_count)
-                .sum();
-            let generated_chunk_bytes = target_stats
-                .iter()
-                .map(|stats| stats.generated_chunk_bytes)
-                .sum();
-            let total_build_seconds = target_stats
-                .iter()
-                .map(|stats| stats.timings.total_seconds)
-                .sum();
-            let aggregate_stats = TargetInsertManyStats {
-                command: "target add-many",
-                repo_root: repo_paths.repo_root.display().to_string(),
-                target_count: target_stats.len(),
-                total_logical_size,
-                total_compressed_size_estimate,
-                generated_bundle_count,
-                generated_bundle_bytes,
-                generated_chunk_count,
-                generated_chunk_bytes,
-                total_build_seconds,
-                targets: target_stats,
-                outputs: optional_output_paths(&stats_json_out),
-            };
-
-            repo_manifest.chunk_sizing_profile =
-                g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
-            repo_manifest.bundle_sizing_profile =
-                g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
-            repo_manifest.compression_profile =
-                g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
-            repo_manifest.storage_mode = build_profile.storage_mode;
-            g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
-            write_report(&stats_json_out, &aggregate_stats)?;
         }
 
         TargetCommands::Delete { repo, target, yes } => {

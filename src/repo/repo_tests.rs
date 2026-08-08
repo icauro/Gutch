@@ -39,11 +39,15 @@ fn target_manifest_files_live_in_per_target_folder() {
     let target_id = "0123456789abcdef";
     assert_eq!(
         crate::target_manifest_path(&paths, target_id),
-        root.join("targets").join(target_id).join("target_metadata.json")
+        root.join("targets")
+            .join(target_id)
+            .join("target_metadata.json")
     );
     assert_eq!(
         crate::target_manifest_bin_path(&paths, target_id),
-        root.join("targets").join(target_id).join("target_blueprint.bin")
+        root.join("targets")
+            .join(target_id)
+            .join("target_blueprint.bin")
     );
 }
 #[test]

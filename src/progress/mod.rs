@@ -72,7 +72,7 @@ impl GutchProgressPhase {
             GutchProgressPhase::UploadTargetManifestBin => "upload_target_manifest_bin",
             GutchProgressPhase::UploadBundle => "upload_bundle",
             GutchProgressPhase::Prune => "prune",
-            GutchProgressPhase::Insert => "add",
+            GutchProgressPhase::Insert => "commit",
             GutchProgressPhase::Verify => "verify",
         }
     }

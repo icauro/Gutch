@@ -354,7 +354,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         &request.explicit_tags,
         &rules,
         request.allow_name_inference,
-        &format!("target add input '{}'", request.source_dir.display()),
+        &format!("target commit input '{}'", request.source_dir.display()),
     )?;
 
     let existing_chunk_ids = store_state
@@ -699,9 +699,13 @@ mod tests {
 
         std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
-        let plan =
-            plan_target_insert(&repo_root, &new_source, &manifest::TargetTagSet::default(), true)
-                .unwrap();
+        let plan = plan_target_insert(
+            &repo_root,
+            &new_source,
+            &manifest::TargetTagSet::default(),
+            true,
+        )
+        .unwrap();
         assert_eq!(plan.kind, TargetInsertKind::ReplaceSameTags);
         assert_eq!(plan.replaced_target_ids, vec![old_content_id]);
         assert!(plan.invalidates_existing_installs);

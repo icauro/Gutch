@@ -9,11 +9,17 @@ pub const TARGET_METADATA_FILE: &str = "target_metadata.json";
 pub const TARGET_BLUEPRINT_FILE: &str = "target_blueprint.bin";
 
 pub fn target_manifest_path(paths: &GutchRepoPaths, target_id: &str) -> PathBuf {
-    paths.targets_root.join(target_id).join(TARGET_METADATA_FILE)
+    paths
+        .targets_root
+        .join(target_id)
+        .join(TARGET_METADATA_FILE)
 }
 
 pub fn target_manifest_bin_path(paths: &GutchRepoPaths, target_id: &str) -> PathBuf {
-    paths.targets_root.join(target_id).join(TARGET_BLUEPRINT_FILE)
+    paths
+        .targets_root
+        .join(target_id)
+        .join(TARGET_BLUEPRINT_FILE)
 }
 
 pub fn load_target_manifest(paths: &GutchRepoPaths, target_id: &str) -> Result<TargetManifest> {

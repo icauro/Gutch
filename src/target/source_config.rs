@@ -1,7 +1,8 @@
 //! Source-root ingestion config (`.gutch_source_config.json`).
 //!
 //! A source root is the directory passed as `--product-dir` to
-//! `target add-many` or as the sources root to `target-sources sync` —
+//! `target commit` (with `--product-dir`) or as the sources root to
+//! `target-sources sync` —
 //! the directory whose (possibly nested) subdirectories are target sources.
 //!
 //! The config selects an ingestion mode:
@@ -163,7 +164,12 @@ impl SourceConfig {
                 .ok_or_else(|| {
                     Error::manifest(format!("invalid source folder name: {}", path.display()))
                 })?;
-            if self.auto_rules.ignore_paths.iter().any(|pattern| fnmatch_name(&name, pattern)) {
+            if self
+                .auto_rules
+                .ignore_paths
+                .iter()
+                .any(|pattern| fnmatch_name(&name, pattern))
+            {
                 continue;
             }
             targets.push(ResolvedSourceTarget {
@@ -275,10 +281,15 @@ pub fn fnmatch_name(name: &str, pattern: &str) -> bool {
                 (0..=name.len()).any(|index| match_here(&name[index..], &pattern[pattern_index..]))
             }
             '?' => !name.is_empty() && match_here(&name[1..], &pattern[1..]),
-            expected => !name.is_empty() && name[0] == expected && match_here(&name[1..], &pattern[1..]),
+            expected => {
+                !name.is_empty() && name[0] == expected && match_here(&name[1..], &pattern[1..])
+            }
         }
     }
-    match_here(&name.chars().collect::<Vec<_>>(), &pattern.chars().collect::<Vec<_>>())
+    match_here(
+        &name.chars().collect::<Vec<_>>(),
+        &pattern.chars().collect::<Vec<_>>(),
+    )
 }
 
 #[cfg(test)]
@@ -361,7 +372,11 @@ mod tests {
     #[test]
     fn explicit_discovery_resolves_nested_paths_with_tags() {
         let temp = tempfile::tempdir().unwrap();
-        let nested = temp.path().join("versions").join("4.6-stable").join("linux-x86_64");
+        let nested = temp
+            .path()
+            .join("versions")
+            .join("4.6-stable")
+            .join("linux-x86_64");
         std::fs::create_dir_all(&nested).unwrap();
         write_config(
             temp.path(),
@@ -372,7 +387,10 @@ mod tests {
         let targets = config.discover_target_sources(temp.path()).unwrap();
 
         assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].relative_path, PathBuf::from("versions/4.6-stable/linux-x86_64"));
+        assert_eq!(
+            targets[0].relative_path,
+            PathBuf::from("versions/4.6-stable/linux-x86_64")
+        );
         assert!(!targets[0].allow_name_inference);
         let tags = targets[0].config_tags.as_ref().unwrap();
         assert_eq!(tags.get_exclusive("version").unwrap(), "4.6-stable");
@@ -388,18 +406,39 @@ mod tests {
             r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[{"path":"game-win"},{"path":"./game-win"}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
-        assert!(config.discover_target_sources(temp.path()).unwrap_err().to_string().contains("duplicate"));
+        assert!(
+            config
+                .discover_target_sources(temp.path())
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate")
+        );
 
         write_config(
             temp.path(),
             r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[{"path":"missing-dir"}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
-        assert!(config.discover_target_sources(temp.path()).unwrap_err().to_string().contains("does not exist"));
+        assert!(
+            config
+                .discover_target_sources(temp.path())
+                .unwrap_err()
+                .to_string()
+                .contains("does not exist")
+        );
 
-        write_config(temp.path(), r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[]}}"#);
+        write_config(
+            temp.path(),
+            r#"{"ingestion_mode":"explicit","explicit_rules":{"targets":[]}}"#,
+        );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
-        assert!(config.discover_target_sources(temp.path()).unwrap_err().to_string().contains("requires at least one"));
+        assert!(
+            config
+                .discover_target_sources(temp.path())
+                .unwrap_err()
+                .to_string()
+                .contains("requires at least one")
+        );
     }
 
     #[test]
@@ -410,7 +449,13 @@ mod tests {
             r#"{"ingestion_mode":"auto","auto_rules":{"ignore_paths":["deep/nested"]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
-        assert!(config.discover_target_sources(temp.path()).unwrap_err().to_string().contains("plain folder names"));
+        assert!(
+            config
+                .discover_target_sources(temp.path())
+                .unwrap_err()
+                .to_string()
+                .contains("plain folder names")
+        );
     }
 
     #[test]

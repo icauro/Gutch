@@ -201,31 +201,14 @@ pub enum TargetCommands {
         #[arg(long = "clear")]
         clear: bool,
     },
-    #[command(name = "add")]
-    Add {
+    #[command(name = "commit")]
+    Commit {
         #[arg(short, long, value_parser = parse_absolute_path)]
-        dir: PathBuf,
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-        #[command(flatten)]
-        build_profile: ArtifactBuildProfileArgs,
-        #[command(flatten)]
-        runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
-        stats_json_out: Option<PathBuf>,
-        #[arg(long = "yes")]
-        yes: bool,
-    },
-    #[command(name = "add-many")]
-    AddMany {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
+        dir: Vec<PathBuf>,
         #[arg(long = "product-dir", value_parser = parse_absolute_path)]
         product_dir: Option<PathBuf>,
-        #[arg(long = "dir", value_parser = parse_absolute_path)]
-        dirs: Vec<PathBuf>,
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
         #[arg(long = "tag")]
         tags: Vec<String>,
         #[command(flatten)]
