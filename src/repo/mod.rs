@@ -5,6 +5,7 @@ mod init_policy;
 mod insert_plan;
 mod inventory;
 mod paths;
+mod pull;
 mod remote_ops;
 mod source_identity;
 mod target_descriptor;
@@ -33,6 +34,7 @@ pub use insert_plan::{
     describe_target_insert_plan, insert_repo_target, plan_target_insert,
 };
 pub use paths::*;
+pub use pull::*;
 pub use remote_ops::{
     RepoSyncPlan, RepoSyncTargetChange, RepoSyncUpStats, link_repo, plan_sync_up_repo,
     sync_up_repo, unlink_repo,

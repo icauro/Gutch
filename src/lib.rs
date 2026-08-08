@@ -10,7 +10,8 @@ pub mod config;
 pub mod core;
 pub mod error;
 pub mod helpers;
-pub mod install;
+mod install;
+pub(crate) use install::target_manifest_from_download;
 pub mod manifest;
 mod progress;
 pub mod reconstruct;
@@ -70,10 +71,11 @@ pub use reconstruct::{
     reconstruct_from_repo, reconstruct_from_target_manifest,
 };
 pub use repo::{
-    GutchRepoPaths, REPO_INIT_NEEDS_CONFIRMATION, RepoCheckStatus, RepoCheckTargetStatus,
-    RepoCheckTimings, RepoInitAssessment, RepoInitOptions, RepoInitPathKind, RepoInitRisk,
-    RepoSyncPlan, RepoSyncTargetChange, RepoSyncUpStats, RepoTargetInsertRequest,
-    RepoTargetInsertResult, RepoVerifyResult, RepoVerifyTimings, SourceTargetInstallCandidate,
+    GutchRepoPaths, PullConflictPolicy, REPO_INIT_NEEDS_CONFIRMATION, RemoteRepoEntry,
+    RepoCheckStatus, RepoCheckTargetStatus, RepoCheckTimings, RepoInitAssessment, RepoInitOptions,
+    RepoInitPathKind, RepoInitRisk, RepoPullPlan, RepoPullStats, RepoSyncPlan,
+    RepoSyncTargetChange, RepoSyncUpStats, RepoTargetInsertRequest, RepoTargetInsertResult,
+    RepoVerifyResult, RepoVerifyTimings, SourceTargetInstallCandidate,
     SourceTargetInstallDisposition, TargetInsertKind, TargetInsertPlan, TargetSourcesRefresh,
     TargetSourcesSyncOptions, TargetSourcesSyncPlan, TargetSourcesSyncResult, TargetVerifyResult,
     TrackedRepoCheckStatus, TrackedRepoCheckTimings, add_built_bundles_to_chunk_index,
@@ -84,9 +86,10 @@ pub use repo::{
     delete_repo_targets_with_matching_tags, describe_target_insert_plan,
     describe_target_sources_sync_plan, discover_source_target_installs, ensure_gutch_repo_layout,
     ensure_gutch_repo_tracked, initialize_tracked_gutch_repo,
-    initialize_tracked_gutch_repo_with_options, insert_repo_target, link_repo, load_chunk_index,
-    load_gutch_repo_manifest, load_target_manifest, parse_repo_init_needs_confirmation_error,
-    plan_sync_up_repo, plan_target_insert, plan_target_sources_sync, preview_source_target_install,
+    initialize_tracked_gutch_repo_with_options, insert_repo_target, link_repo, list_remote_repos,
+    load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
+    parse_repo_init_needs_confirmation_error, plan_repo_pull, plan_sync_up_repo,
+    plan_target_insert, plan_target_sources_sync, preview_source_target_install, pull_repo,
     remove_target_from_repo, repo_init_needs_confirmation_error,
     serialize_target_manifest_for_remote, sync_target_sources, sync_up_repo,
     target_manifest_bin_path, target_manifest_path, unlink_repo,

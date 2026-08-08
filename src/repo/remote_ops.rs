@@ -349,11 +349,11 @@ pub fn plan_sync_up_repo(
         fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
     let repo_manifest_changed = hashes_differ(
         &local_repo_manifest_hash_b3(&repo_paths)?,
-        &remote_repo.repo_manifest_hash_b3,
+        &remote_repo.repo_metadata_hash_b3,
     );
     let chunk_index_changed = hashes_differ(
         &local_chunk_index_hash_b3(&repo_paths)?,
-        &remote_repo.chunk_index_hash_b3,
+        &remote_repo.chunk_map_hash_b3,
     );
 
     let mut to_add = Vec::new();
@@ -836,6 +836,8 @@ pub fn sync_up_repo(
                         artifact_state: String::from("pending"),
                         target_manifest_hash_b3: String::new(),
                         target_bin_hash_b3: String::new(),
+                        uploaded_at: String::new(),
+                        created_at: String::new(),
                     },
                 );
                 created.id

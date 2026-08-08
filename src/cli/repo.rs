@@ -240,6 +240,88 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             );
         }
 
+        RepoCommands::Pull {
+            repo,
+            remote,
+            endpoint,
+            session_id,
+            on_conflict,
+            prune,
+            yes,
+        } => {
+            let policy = g::PullConflictPolicy::parse(&on_conflict)?;
+            let plan = actions::repo::plan_repo_pull(
+                repo.clone(),
+                remote.clone(),
+                endpoint.clone(),
+                session_id.clone(),
+                policy,
+            )?;
+            print_pull_plan(&plan);
+            if !yes && !prompt_yes_no("Proceed?", true)? {
+                println!("pull cancelled");
+                return Ok(());
+            }
+            let progress = crate::cli::progress::CliProgressSink::new();
+            let stats = actions::repo::pull_repo(
+                repo,
+                remote,
+                endpoint,
+                session_id,
+                policy,
+                prune,
+                Some(progress),
+            )?;
+            println!(
+                "pulled repo {} from product {} repo {} ({})",
+                stats.repo_root,
+                stats.product_id,
+                stats.remote_repo_id,
+                if prune { "with prune" } else { "no prune" }
+            );
+            println!(
+                "targets downloaded: {}, skipped: {}, bundles downloaded: {}, bundles skipped: {}",
+                stats.target_downloaded_count,
+                stats.target_skipped_count,
+                stats.bundle_downloaded_count,
+                stats.bundle_skipped_count
+            );
+            if stats.repo_manifest_downloaded {
+                println!("repo manifest downloaded");
+            }
+            if stats.chunk_map_downloaded {
+                println!("chunk map downloaded");
+            }
+            if stats.kept_newer_local_count > 0 {
+                println!("kept newer local: {}", stats.kept_newer_local_count);
+            }
+            if stats.local_only_targets_kept > 0 {
+                println!("kept local-only targets: {}", stats.local_only_targets_kept);
+            }
+            if stats.pruned_target_count > 0 || stats.pruned_bundle_count > 0 {
+                println!(
+                    "pruned targets: {}, bundles: {}",
+                    stats.pruned_target_count, stats.pruned_bundle_count
+                );
+            }
+        }
+
+        RepoCommands::Remote {
+            command:
+                crate::cli::RemoteCommands::List {
+                    endpoint,
+                    session_id,
+                },
+        } => {
+            let entries = actions::repo::list_remote_repos(endpoint, session_id)?;
+            for entry in &entries {
+                println!("{}/{}", entry.product_name, entry.repo_name);
+            }
+            if entries.is_empty() {
+                println!("no remote repos found");
+            }
+        }
+
         RepoCommands::Link {
             repo,
             endpoint,
@@ -267,6 +349,44 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_pull_plan(plan: &g::RepoPullPlan) {
+    println!("{SECTION_SEPARATOR}");
+    println!("Pull plan");
+    println!("repo: {}", plan.repo_root);
+    println!(
+        "remote: product {} repo {} ({})",
+        plan.product_id, plan.remote_repo_id, plan.remote_repo_name
+    );
+    println!(
+        "changes: repo_manifest={} chunk_map={} targets_download={} targets_skip={} local_only={} kept_newer_local={}",
+        plan.repo_manifest_needed,
+        plan.chunk_map_needed,
+        plan.targets_to_download.len(),
+        plan.targets_to_skip.len(),
+        plan.local_only_targets.len(),
+        plan.kept_newer_local_targets.len()
+    );
+    print_pull_section("Download", &plan.targets_to_download);
+    print_pull_section("Local only", &plan.local_only_targets);
+    if !plan.kept_newer_local_targets.is_empty() {
+        println!("kept newer local:");
+        for target_id in &plan.kept_newer_local_targets {
+            println!("  {}", target_id);
+        }
+    }
+}
+
+fn print_pull_section(label: &str, target_ids: &[String]) {
+    if target_ids.is_empty() {
+        return;
+    }
+    println!("{SECTION_SEPARATOR}");
+    println!("{}", label);
+    for target_id in target_ids {
+        println!("{}", target_id);
+    }
 }
 
 fn print_sync_plan(plan: &g::RepoSyncPlan) {

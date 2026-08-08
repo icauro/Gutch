@@ -163,7 +163,7 @@ pub(super) fn write_repo_manifest(
     crate::write_gutch_repo_manifest(repo_paths, repo_manifest)
 }
 
-pub(super) fn target_manifest_from_download(
+pub(crate) fn target_manifest_from_download(
     repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
     manifest_bytes: &[u8],

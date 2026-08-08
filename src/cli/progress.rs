@@ -50,6 +50,7 @@ impl GutchProgressSink for CliProgressSink {
             GutchOperation::TargetInsert => "commit",
             GutchOperation::TargetDelete => "delete",
             GutchOperation::SyncUp => "push",
+            GutchOperation::Pull => "pull",
             GutchOperation::TargetSourcesSync => "sources",
             GutchOperation::Fetch => "fetch",
             GutchOperation::Verify => "verify",

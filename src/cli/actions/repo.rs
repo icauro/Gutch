@@ -14,6 +14,41 @@ pub fn plan_sync_up_repo(
     g::plan_sync_up_repo(repo, endpoint, session_id)
 }
 
+pub fn list_remote_repos(
+    endpoint: String,
+    session_override: Option<String>,
+) -> g::Result<Vec<g::RemoteRepoEntry>> {
+    let session_id = session_id_for_cli(session_override)?;
+    g::list_remote_repos(&endpoint, &session_id)
+}
+
+pub fn plan_repo_pull(
+    repo: PathBuf,
+    remote: Option<String>,
+    endpoint: String,
+    session_override: Option<String>,
+    policy: g::PullConflictPolicy,
+) -> g::Result<g::RepoPullPlan> {
+    let session_id = session_id_for_cli(session_override)?;
+    g::plan_repo_pull(&repo, remote.as_deref(), &endpoint, &session_id, policy)
+}
+
+pub fn pull_repo(
+    repo: PathBuf,
+    remote: Option<String>,
+    endpoint: String,
+    session_override: Option<String>,
+    policy: g::PullConflictPolicy,
+    prune: bool,
+    progress: Option<Arc<dyn g::GutchProgressSink>>,
+) -> g::Result<g::RepoPullStats> {
+    let session_id = session_id_for_cli(session_override)?;
+    let control = progress
+        .map(|sink| g::GutchOperationControl::default().with_progress(sink))
+        .unwrap_or_default();
+    g::pull_repo(repo, remote, endpoint, session_id, policy, prune, control)
+}
+
 pub fn init_repo(path: &Path, schema: Option<&PathBuf>, force: bool) -> g::Result<()> {
     let assessment = g::assess_repo_init_path(path)?;
     let mut proceed_force = force;

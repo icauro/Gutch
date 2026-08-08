@@ -221,7 +221,51 @@ fn commit_single_dir_matches_the_plain_dir_flow() {
     let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
     assert_eq!(status.targets.len(), 1);
     assert_eq!(
-        status.targets[0].target_tags.get_exclusive("version").unwrap(),
+        status.targets[0]
+            .target_tags
+            .get_exclusive("version")
+            .unwrap(),
         "2.0.0"
     );
+}
+
+#[test]
+fn pull_and_remote_list_commands_parse() {
+    use clap::Parser;
+    use gutch::cli::Cli;
+
+    let pull = Cli::try_parse_from([
+        "pl-cli gutch",
+        "repo",
+        "pull",
+        "--repo",
+        if cfg!(windows) {
+            r"D:\Repos\restore"
+        } else {
+            "/repos/restore"
+        },
+        "--remote",
+        "Skyforge/windows-x86_64",
+        "--on-conflict",
+        "keep-local",
+        "--prune",
+        "--yes",
+    ])
+    .expect("repo pull args should parse");
+
+    match pull.command {
+        gutch::cli::Commands::Repo {
+            command: gutch::cli::RepoCommands::Pull { .. },
+        } => {}
+        _ => panic!("expected repo pull"),
+    }
+
+    let list = Cli::try_parse_from(["pl-cli gutch", "repo", "remote", "list"])
+        .expect("repo remote list args should parse");
+    match list.command {
+        gutch::cli::Commands::Repo {
+            command: gutch::cli::RepoCommands::Remote { .. },
+        } => {}
+        _ => panic!("expected repo remote list"),
+    }
 }

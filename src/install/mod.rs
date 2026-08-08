@@ -5,6 +5,8 @@ mod repair;
 mod repo_target;
 pub mod state;
 mod transfer;
+
+pub(crate) use transfer::target_manifest_from_download;
 pub mod types;
 
 pub use apply::{

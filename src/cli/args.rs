@@ -150,6 +150,28 @@ pub enum RepoCommands {
         #[arg(long = "yes")]
         yes: bool,
     },
+    #[command(name = "pull")]
+    Pull {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "remote")]
+        remote: Option<String>,
+        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
+        endpoint: String,
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+        #[arg(long = "on-conflict", default_value = "keep-newer")]
+        on_conflict: String,
+        #[arg(long = "prune")]
+        prune: bool,
+        #[arg(long = "yes")]
+        yes: bool,
+    },
+    #[command(name = "remote")]
+    Remote {
+        #[command(subcommand)]
+        command: RemoteCommands,
+    },
     Link {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
@@ -185,6 +207,16 @@ pub enum TargetSourcesCommands {
         yes: bool,
         #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RemoteCommands {
+    List {
+        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
+        endpoint: String,
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
     },
 }
 

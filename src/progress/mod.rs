@@ -11,6 +11,7 @@ pub enum GutchOperation {
     TargetInsert,
     TargetDelete,
     SyncUp,
+    Pull,
     TargetSourcesSync,
     Fetch,
     Verify,

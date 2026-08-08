@@ -13,7 +13,7 @@ pub(crate) mod target_install;
 pub mod target_sources;
 
 pub use args::{
-    BundleCommands, Cli, Commands, PathCommands, RepoCommands, TargetCommands,
+    BundleCommands, Cli, Commands, PathCommands, RemoteCommands, RepoCommands, TargetCommands,
     TargetInstallCommands, TargetSourcesCommands,
 };
 
