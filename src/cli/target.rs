@@ -136,7 +136,7 @@ fn run_insert_one_target(
         println!("  {}", g::describe_target_insert_plan(&insert_plan));
         if insert_plan.invalidates_existing_installs {
             println!(
-                "  Patron installs pinned to replaced content ids become invalid until updated."
+                "  User installs pinned to replaced content ids become invalid until updated."
             );
         }
         if !prompt_yes_no("Proceed?", false)? {
@@ -499,7 +499,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     println!("  {}", g::describe_target_insert_plan(&plan));
                     if plan.invalidates_existing_installs {
                         println!(
-                            "  Patron installs pinned to replaced content ids become invalid until updated."
+                            "  User installs pinned to replaced content ids become invalid until updated."
                         );
                     }
                     if !prompt_yes_no("Proceed?", false)? {
@@ -600,7 +600,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                         .any(|plan| plan.invalidates_existing_installs)
                     {
                         println!(
-                            "  Patron installs pinned to replaced content ids become invalid until updated."
+                            "  User installs pinned to replaced content ids become invalid until updated."
                         );
                     }
                     if !prompt_yes_no("Proceed?", false)? {

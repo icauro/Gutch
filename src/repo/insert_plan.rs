@@ -641,7 +641,7 @@ pub fn describe_target_insert_plan(plan: &TargetInsertPlan) -> String {
             plan.content_target_id, plan.folder_name
         ),
         TargetInsertKind::ReplaceSameTags => format!(
-            "Replace target slot for {} ({}): same tags, new content id {}. Removes repo target(s) {}. Patron installs pinned to the old content id become invalid until updated.",
+            "Replace target slot for {} ({}): same tags, new content id {}. Removes repo target(s) {}. User installs pinned to the old content id become invalid until updated.",
             plan.folder_name,
             plan.version_id,
             plan.content_target_id,

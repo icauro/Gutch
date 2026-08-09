@@ -30,7 +30,7 @@ fn print_target_sources_sync_plan(plan: &g::TargetSourcesSyncPlan, prune: bool) 
         println!("  {line}");
     }
     if plan.refresh_count > 0 {
-        println!("  Patron installs pinned to replaced content ids become invalid until updated.");
+        println!("  User installs pinned to replaced content ids become invalid until updated.");
     }
 }
 
