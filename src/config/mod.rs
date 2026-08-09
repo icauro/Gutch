@@ -67,13 +67,13 @@ impl GutchConfig {
 }
 
 fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
-    pl_common::paths::resolve_launcher_paths()
+    hostapp_common::paths::resolve_launcher_paths()
         .map(|paths| paths.gutch_config_dir())
         .map_err(|error| crate::Error::manifest(error.to_string()))
 }
 
 fn gutch_config_path() -> Result<PathBuf, crate::Error> {
-    pl_common::paths::resolve_launcher_paths()
+    hostapp_common::paths::resolve_launcher_paths()
         .map(|paths| paths.gutch_config_file())
         .map_err(|error| crate::Error::manifest(error.to_string()))
 }
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn gutch_config_dir_lives_under_shared_root() {
-        let paths = pl_common::paths::resolve_launcher_paths().expect("launcher paths");
+        let paths = hostapp_common::paths::resolve_launcher_paths().expect("launcher paths");
         assert_eq!(
             gutch_config_dir().expect("gutch config dir"),
             paths.gutch_config_dir()

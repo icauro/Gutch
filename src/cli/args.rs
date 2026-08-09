@@ -46,9 +46,9 @@ pub struct ArtifactBuildProfileArgs {
 
 #[derive(Parser)]
 #[command(
-    name = "pl-cli gutch",
+    name = "hostapp-cli gutch",
     version,
-    about = pl_common::GUTCH_ABOUT
+    about = hostapp_common::GUTCH_ABOUT
 )]
 pub struct Cli {
     #[arg(long, short = 'v', global = true)]
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn cli_rejects_relative_filesystem_paths() {
         let error =
-            Cli::try_parse_from(["pl-cli gutch", "repo", "check", "--repo", "relative/repo"])
+            Cli::try_parse_from(["hostapp-cli gutch", "repo", "check", "--repo", "relative/repo"])
                 .err()
                 .expect("relative repository path must be rejected");
         assert!(error.to_string().contains("path must be absolute"));
@@ -379,7 +379,7 @@ mod tests {
         } else {
             "/repos/game"
         };
-        Cli::try_parse_from(["pl-cli gutch", "repo", "check", "--repo", repo])
+        Cli::try_parse_from(["hostapp-cli gutch", "repo", "check", "--repo", repo])
             .expect("absolute repository path");
     }
 }

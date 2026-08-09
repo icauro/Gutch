@@ -268,7 +268,7 @@ pub(crate) fn session_id_for_cli(session_override: Option<String>) -> g::Result<
         .or(g::remote::auth::shared_session_id().map_err(g::Error::manifest)?)
         .ok_or_else(|| {
             g::Error::manifest(
-                "authentication required. Run `pl-cli auth login` or pass --session-id.",
+                "authentication required. Run `hostapp-cli auth login` or pass --session-id.",
             )
         })
 }

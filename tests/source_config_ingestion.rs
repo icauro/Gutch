@@ -42,7 +42,7 @@ fn commit_many_auto_mode_skips_ignored_folders() {
     .unwrap();
 
     run_from_args([
-        "pl-cli",
+        "hostapp-cli",
         "target",
         "commit",
         "--product-dir",
@@ -103,7 +103,7 @@ fn commit_many_explicit_mode_uses_nested_targets_and_declared_tags() {
     .unwrap();
 
     run_from_args([
-        "pl-cli",
+        "hostapp-cli",
         "target",
         "commit",
         "--product-dir",
@@ -154,7 +154,7 @@ fn commit_many_explicit_mode_errors_when_declared_version_is_missing() {
     .unwrap();
 
     let result = run_from_args([
-        "pl-cli",
+        "hostapp-cli",
         "target",
         "commit",
         "--product-dir",
@@ -183,7 +183,7 @@ fn commit_many_auto_creates_skeleton_config_on_first_use() {
     assert!(!product_dir.join(".gutch_source_config.json").exists());
 
     run_from_args([
-        "pl-cli",
+        "hostapp-cli",
         "target",
         "commit",
         "--product-dir",
@@ -207,7 +207,7 @@ fn commit_single_dir_matches_the_plain_dir_flow() {
     write_source_root_files(&source_dir, "app.exe", b"app-v2");
 
     run_from_args([
-        "pl-cli",
+        "hostapp-cli",
         "target",
         "commit",
         "--dir",
@@ -235,7 +235,7 @@ fn pull_and_remote_list_commands_parse() {
     use gutch::cli::Cli;
 
     let pull = Cli::try_parse_from([
-        "pl-cli gutch",
+        "hostapp-cli gutch",
         "repo",
         "pull",
         "--repo",
@@ -260,7 +260,7 @@ fn pull_and_remote_list_commands_parse() {
         _ => panic!("expected repo pull"),
     }
 
-    let list = Cli::try_parse_from(["pl-cli gutch", "repo", "remote", "list"])
+    let list = Cli::try_parse_from(["hostapp-cli gutch", "repo", "remote", "list"])
         .expect("repo remote list args should parse");
     match list.command {
         gutch::cli::Commands::Repo {

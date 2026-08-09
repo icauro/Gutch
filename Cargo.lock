@@ -874,8 +874,6 @@ dependencies = [
  "clap",
  "fastcdc",
  "indicatif",
- "pl-auth",
- "pl-common",
  "rayon",
  "reqwest",
  "serde",
@@ -884,6 +882,8 @@ dependencies = [
  "tempfile",
  "thiserror",
  "walkdir",
+ "hostapp-auth",
+ "hostapp-common",
  "zstd",
 ]
 
@@ -1571,28 +1571,6 @@ name = "pkg-config"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
-
-[[package]]
-name = "pl-auth"
-version = "0.1.0"
-dependencies = [
- "keyring",
- "pl-common",
- "reqwest",
- "serde",
- "serde_json",
- "webbrowser",
-]
-
-[[package]]
-name = "pl-common"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "serde",
- "serde_json",
- "windows-sys 0.61.2",
-]
 
 [[package]]
 name = "polling"
@@ -3032,6 +3010,28 @@ dependencies = [
  "serde",
  "winnow",
  "zvariant",
+]
+
+[[package]]
+name = "hostapp-auth"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "webbrowser",
+ "hostapp-common",
+]
+
+[[package]]
+name = "hostapp-common"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
