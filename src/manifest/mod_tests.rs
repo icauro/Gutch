@@ -102,28 +102,37 @@ fn test_file_manifest_serialization() {
 }
 
 #[test]
-fn test_structured_version_parses_semver() {
+fn test_structured_version_parses_three_parts() {
     let version = StructuredVersion::parse("v1.2.3").unwrap();
-    assert_eq!(version.scheme, VersionScheme::Semver);
-    assert_eq!(version.major_or_year, 1);
-    assert_eq!(version.minor_or_month, 2);
-    assert_eq!(version.patch_or_day, 3);
-    assert_eq!(version.micro, 0);
+    assert_eq!(version.major, 1);
+    assert_eq!(version.minor, 2);
+    assert_eq!(version.patch, 3);
+    assert_eq!(version.revision, 0);
     assert_eq!(version.canonical_string(), "1.2.3");
 }
 
 #[test]
-fn test_structured_version_parses_calver() {
+fn test_structured_version_parses_revision() {
     let version = StructuredVersion::parse("2025.05.30.1").unwrap();
-    assert_eq!(version.scheme, VersionScheme::Calver);
-    assert_eq!(version.major_or_year, 2025);
-    assert_eq!(version.minor_or_month, 5);
-    assert_eq!(version.patch_or_day, 30);
-    assert_eq!(version.micro, 1);
-    assert_eq!(version.canonical_string(), "2025.05.30.1");
+    assert_eq!(version.major, 2025);
+    assert_eq!(version.minor, 5);
+    assert_eq!(version.patch, 30);
+    assert_eq!(version.revision, 1);
+    assert_eq!(version.canonical_string(), "2025.5.30.1");
 }
 
 #[test]
-fn test_structured_version_rejects_invalid_four_part_semver() {
-    assert!(StructuredVersion::parse("1.2.3.4").is_err());
+fn test_structured_version_accepts_generic_revision_and_omits_zero() {
+    assert_eq!(
+        StructuredVersion::parse("1.2.3.4")
+            .unwrap()
+            .canonical_string(),
+        "1.2.3.4"
+    );
+    assert_eq!(
+        StructuredVersion::parse("1.2.3.0")
+            .unwrap()
+            .canonical_string(),
+        "1.2.3"
+    );
 }

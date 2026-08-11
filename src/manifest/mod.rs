@@ -34,7 +34,7 @@ pub use schema_edit::{
 };
 pub use tags::{
     AutoTaggingRules, InferenceHandler, StructuredVersion, TargetTagDefinition, TargetTagKind,
-    TargetTagSchema, TargetTagSet, TargetTagValueDefinition, VersionScheme,
+    TargetTagSchema, TargetTagSet, TargetTagValueDefinition,
 };
 
 #[cfg(test)]

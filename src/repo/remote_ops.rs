@@ -822,9 +822,10 @@ pub fn sync_up_repo(
                         .json(&serde_json::json!({
                             "targetId": manifest.target_id,
                             "targetTags": manifest.target_tags,
-                            "versionMajor": structured_version.major_or_year,
-                            "versionMinor": structured_version.minor_or_month,
-                            "versionPatch": structured_version.patch_or_day,
+                            "versionMajor": structured_version.major,
+                            "versionMinor": structured_version.minor,
+                            "versionPatch": structured_version.patch,
+                            "versionRevision": structured_version.revision,
                         })),
                 )?;
                 remote_targets.insert(

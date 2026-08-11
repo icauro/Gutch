@@ -36,7 +36,7 @@ fn test_version_handler_strips_v_prefix() {
     );
     assert_eq!(
         InferenceHandler::Version.parse_token("2025.05.30.1"),
-        Some("2025.05.30.1".to_string())
+        Some("2025.5.30.1".to_string())
     );
     assert_eq!(InferenceHandler::Version.parse_token("version-1"), None);
 }
@@ -67,11 +67,11 @@ fn test_infer_tags_from_path_requires_dash_prefix_segments() {
 }
 
 #[test]
-fn test_infer_calver_from_prefixed_segment() {
+fn test_infer_four_part_version_from_prefixed_segment() {
     let rules = test_rules();
     let tags = infer_tags_from_path(std::path::Path::new("game-v2025.05.30.1-win-x64"), &rules);
 
-    assert_eq!(tags.get_exclusive("version"), Some("2025.05.30.1"));
+    assert_eq!(tags.get_exclusive("version"), Some("2025.5.30.1"));
     assert_eq!(tags.get_exclusive("os"), Some("windows"));
     assert_eq!(tags.get_exclusive("arch"), Some("x86_64"));
 }

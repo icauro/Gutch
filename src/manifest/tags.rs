@@ -363,20 +363,12 @@ mod date_tests {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum VersionScheme {
-    Semver,
-    Calver,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructuredVersion {
-    pub scheme: VersionScheme,
-    pub major_or_year: u32,
-    pub minor_or_month: u32,
-    pub patch_or_day: u32,
-    pub micro: u32,
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+    pub revision: u32,
 }
 
 impl StructuredVersion {
@@ -391,7 +383,7 @@ impl StructuredVersion {
             .or_else(|| trimmed.strip_prefix('V'))
             .unwrap_or(trimmed);
         let parts: Vec<&str> = candidate.split('.').collect();
-        if parts.is_empty()
+        if parts.len() < 3
             || parts.len() > 4
             || parts.iter().any(|part| {
                 part.is_empty() || !part.chars().all(|character| character.is_ascii_digit())
@@ -408,69 +400,22 @@ impl StructuredVersion {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        if parsed_parts.len() == 3 {
-            if parts[0].len() == 4
-                && parsed_parts[1] >= 1
-                && parsed_parts[1] <= 12
-                && parsed_parts[2] >= 1
-                && parsed_parts[2] <= 31
-            {
-                return Ok(Self {
-                    scheme: VersionScheme::Calver,
-                    major_or_year: parsed_parts[0],
-                    minor_or_month: parsed_parts[1],
-                    patch_or_day: parsed_parts[2],
-                    micro: 0,
-                });
-            }
-
-            return Ok(Self {
-                scheme: VersionScheme::Semver,
-                major_or_year: parsed_parts[0],
-                minor_or_month: parsed_parts[1],
-                patch_or_day: parsed_parts[2],
-                micro: 0,
-            });
-        }
-
-        if parsed_parts.len() == 4
-            && parts[0].len() == 4
-            && parsed_parts[1] >= 1
-            && parsed_parts[1] <= 12
-            && parsed_parts[2] >= 1
-            && parsed_parts[2] <= 31
-        {
-            return Ok(Self {
-                scheme: VersionScheme::Calver,
-                major_or_year: parsed_parts[0],
-                minor_or_month: parsed_parts[1],
-                patch_or_day: parsed_parts[2],
-                micro: parsed_parts[3],
-            });
-        }
-
-        Err(crate::Error::manifest(format!("invalid version '{}'", raw)))
+        Ok(Self {
+            major: parsed_parts[0],
+            minor: parsed_parts[1],
+            patch: parsed_parts[2],
+            revision: parsed_parts.get(3).copied().unwrap_or(0),
+        })
     }
 
     pub fn canonical_string(&self) -> String {
-        match self.scheme {
-            VersionScheme::Semver => format!(
-                "{}.{}.{}",
-                self.major_or_year, self.minor_or_month, self.patch_or_day
-            ),
-            VersionScheme::Calver => {
-                if self.micro == 0 {
-                    format!(
-                        "{:04}.{:02}.{:02}",
-                        self.major_or_year, self.minor_or_month, self.patch_or_day
-                    )
-                } else {
-                    format!(
-                        "{:04}.{:02}.{:02}.{}",
-                        self.major_or_year, self.minor_or_month, self.patch_or_day, self.micro
-                    )
-                }
-            }
+        if self.revision == 0 {
+            format!("{}.{}.{}", self.major, self.minor, self.patch)
+        } else {
+            format!(
+                "{}.{}.{}.{}",
+                self.major, self.minor, self.patch, self.revision
+            )
         }
     }
 }
