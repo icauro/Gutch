@@ -968,7 +968,7 @@ pub fn pull_repo(
             target_id,
         )?;
         let bytes = download_json(&client, &url)?;
-        let manifest = crate::target_manifest_from_download(&repo_paths, target_id, &bytes)?;
+        let manifest = crate::target_manifest_from_download(target_id, &bytes)?;
         crate::write_target_manifest_artifacts(&repo_paths, &manifest)?;
         stats.target_downloaded_count += 1;
     }

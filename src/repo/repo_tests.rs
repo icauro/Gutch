@@ -442,6 +442,10 @@ fn target_manifest_bin_roundtrip_preserves_hash_fields() {
     });
 
     write_target_manifest_artifacts(&paths, &manifest).unwrap();
+    let local_json = std::fs::read_to_string(target_manifest_path(&paths, "target-a")).unwrap();
+    let local_value: serde_json::Value = serde_json::from_str(&local_json).unwrap();
+    assert!(local_value.get("source_modified_at").is_some());
+    assert!(local_value.get("files").is_some());
     let loaded = load_target_manifest(&paths, "target-a").unwrap();
 
     assert_eq!(loaded.files.len(), 1);

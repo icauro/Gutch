@@ -25,7 +25,7 @@ pub fn target_manifest_bin_path(paths: &GutchRepoPaths, target_id: &str) -> Path
 pub fn load_target_manifest(paths: &GutchRepoPaths, target_id: &str) -> Result<TargetManifest> {
     let manifest_path = target_manifest_path(paths, target_id);
     let manifest_json = helpers::read_to_string(&manifest_path)?;
-    load_target_manifest_from_json_text(paths, target_id, &manifest_json)
+    load_target_manifest_from_json_text(target_id, &manifest_json)
 }
 
 pub fn serialize_target_manifest_for_remote(target_manifest: &TargetManifest) -> Result<Vec<u8>> {
@@ -42,8 +42,11 @@ pub fn write_target_manifest_artifacts(
     let manifest_path = target_manifest_path(paths, &target_manifest.target_id);
     let bin_path = target_manifest_bin_path(paths, &target_manifest.target_id);
 
-    let shell = binary::target_manifest_shell_from_manifest(target_manifest);
-    let manifest_json = serde_json::to_vec_pretty(&shell)?;
+    // target_metadata.json is the canonical metadata representation for both
+    // local repositories and synchronized/remote targets. The binary file is
+    // retained only as an internal transfer/cache optimization for the file
+    // blueprint.
+    let manifest_json = serde_json::to_vec_pretty(target_manifest)?;
     helpers::write(&manifest_path, &manifest_json)?;
     binary::write_target_manifest_files_binary(&bin_path, target_manifest)?;
 
@@ -52,25 +55,12 @@ pub fn write_target_manifest_artifacts(
 }
 
 pub(crate) fn load_target_manifest_from_json_text(
-    paths: &GutchRepoPaths,
     target_id: &str,
     manifest_json: &str,
 ) -> Result<TargetManifest> {
-    let value: serde_json::Value = serde_json::from_str(manifest_json)?;
-    if value.get("files").is_some() {
-        let mut manifest: TargetManifest = serde_json::from_value(value)?;
-        if manifest.target_id.trim().is_empty() {
-            manifest.target_id = target_id.to_string();
-        }
-        return Ok(manifest);
+    let mut manifest: TargetManifest = serde_json::from_str(manifest_json)?;
+    if manifest.target_id.trim().is_empty() {
+        manifest.target_id = target_id.to_string();
     }
-
-    let shell: binary::TargetManifestShell = serde_json::from_value(value)?;
-    let bin_path = target_manifest_bin_path(paths, target_id);
-    let files = binary::load_target_manifest_files_binary(&bin_path)?;
-    Ok(binary::target_manifest_from_shell(
-        shell,
-        target_id.to_string(),
-        files,
-    ))
+    Ok(manifest)
 }

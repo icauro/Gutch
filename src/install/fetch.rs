@@ -258,7 +258,7 @@ fn prepare_target_install_fetch(
         Some(request.target_id.as_str()),
     )?;
     let target_manifest =
-        target_manifest_from_download(&repo_paths, &request.target_id, &target_manifest_bytes)?;
+        target_manifest_from_download(&request.target_id, &target_manifest_bytes)?;
     crate::write_target_manifest_artifacts(&repo_paths, &target_manifest)?;
 
     if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {

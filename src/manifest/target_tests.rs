@@ -42,3 +42,12 @@ fn test_manifest_serialization_roundtrip() {
     assert_eq!(m.target_tags, m2.target_tags);
     assert_eq!(m.launch, m2.launch);
 }
+
+#[test]
+fn target_metadata_requires_source_modified_at() {
+    let manifest = TargetManifest::new("abc123def".into(), TargetTagSet::default());
+    let mut value = serde_json::to_value(manifest).unwrap();
+    value.as_object_mut().unwrap().remove("source_modified_at");
+
+    assert!(serde_json::from_value::<TargetManifest>(value).is_err());
+}

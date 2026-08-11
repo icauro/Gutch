@@ -164,28 +164,16 @@ pub(super) fn write_repo_manifest(
 }
 
 pub(crate) fn target_manifest_from_download(
-    repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
     manifest_bytes: &[u8],
 ) -> Result<crate::manifest::target::TargetManifest> {
     let manifest_json = std::str::from_utf8(manifest_bytes)
         .map_err(|err| Error::manifest(format!("target manifest is not valid UTF-8: {}", err)))?;
-    let manifest_value: serde_json::Value = serde_json::from_str(manifest_json)?;
-    let mut manifest = if manifest_value.get("files").is_some() {
-        serde_json::from_value::<crate::manifest::target::TargetManifest>(manifest_value)?
-    } else {
-        let shell: crate::manifest::binary::TargetManifestShell =
-            serde_json::from_str(manifest_json)?;
-        crate::manifest::binary::target_manifest_from_shell(
-            shell,
-            target_id.to_string(),
-            Vec::new(),
-        )
-    };
+    let mut manifest =
+        serde_json::from_str::<crate::manifest::target::TargetManifest>(manifest_json)?;
     if manifest.target_id.trim().is_empty() || manifest.target_id != target_id {
         manifest.target_id = target_id.to_string();
     }
-    let _ = repo_paths;
     Ok(manifest)
 }
 

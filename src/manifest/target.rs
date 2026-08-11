@@ -9,7 +9,6 @@ pub struct TargetManifest {
     pub target_id: String,
     pub inserted_at: String,
     /// Max source file mtime (UTC) recorded when this target was last synced from a source folder.
-    #[serde(default)]
     pub source_modified_at: String,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,

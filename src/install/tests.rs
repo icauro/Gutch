@@ -308,6 +308,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                     ],
                     "target_tags": ["version:1.0.0"],
                     "manifest_version": "1.0.0",
+                    "source_modified_at": "",
                     "chunk_sizing_profile": manifest::ChunkSizingProfile::default(),
                     "compression_profile": manifest::CompressionProfile::default(),
                     "bundle_sizing_profile": manifest::BundleSizingProfile::default(),

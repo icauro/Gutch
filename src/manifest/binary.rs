@@ -2,32 +2,14 @@ use std::collections::BTreeMap;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
 use crate::hash::ChunkHash;
-use crate::manifest::{self, FileManifest, target::TargetManifest};
+use crate::manifest::{self, target::TargetManifest};
 use crate::{Error, Result};
 
 const CHUNK_INDEX_BINARY_MAGIC: &[u8; 8] = b"GTCIDX1\0";
 const CHUNK_INDEX_BINARY_VERSION: u16 = 1;
 const TARGET_FILES_BINARY_MAGIC: &[u8; 8] = b"GTCTGT1\0";
 const TARGET_FILES_BINARY_VERSION: u16 = 1;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct TargetManifestShell {
-    pub manifest_version: String,
-    pub inserted_at: String,
-    pub total_logical_size: u64,
-    pub total_compressed_size_estimate: u64,
-    #[serde(
-        default,
-        serialize_with = "crate::manifest::target::serialize_target_tags_as_compact_strings",
-        deserialize_with = "crate::manifest::target::deserialize_target_tags_from_compact_strings"
-    )]
-    pub target_tags: manifest::TargetTagSet,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
-}
 
 fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
     let mut buffer = [0u8; N];
@@ -118,14 +100,6 @@ fn write_u32_array(writer: &mut impl Write, values: &[u32]) -> Result<()> {
     Ok(())
 }
 
-fn read_u32_array(reader: &mut impl Read, count: usize) -> Result<Vec<u32>> {
-    let mut values = Vec::with_capacity(count);
-    for _ in 0..count {
-        values.push(read_u32(reader)?);
-    }
-    Ok(values)
-}
-
 fn write_u8_array(writer: &mut impl Write, values: &[u8]) -> Result<()> {
     for value in values {
         write_u8(writer, *value)?;
@@ -171,50 +145,11 @@ fn read_chunk_hash_array(reader: &mut impl Read, count: usize) -> Result<Vec<Chu
     Ok(values)
 }
 
-fn read_bool_array(reader: &mut impl Read, count: usize) -> Result<Vec<bool>> {
-    let mut values = Vec::with_capacity(count);
-    for _ in 0..count {
-        values.push(read_exact_array::<1>(reader)?[0] != 0);
-    }
-    Ok(values)
-}
-
 fn write_bool_array(writer: &mut impl Write, values: &[bool]) -> Result<()> {
     for value in values {
         writer.write_all(&[u8::from(*value)])?;
     }
     Ok(())
-}
-
-pub(crate) fn target_manifest_shell_from_manifest(
-    target_manifest: &TargetManifest,
-) -> TargetManifestShell {
-    TargetManifestShell {
-        manifest_version: target_manifest.manifest_version.clone(),
-        inserted_at: target_manifest.inserted_at.clone(),
-        total_logical_size: target_manifest.total_logical_size,
-        total_compressed_size_estimate: target_manifest.total_compressed_size_estimate,
-        target_tags: target_manifest.target_tags.clone(),
-        launch: target_manifest.launch.clone(),
-    }
-}
-
-pub(crate) fn target_manifest_from_shell(
-    shell: TargetManifestShell,
-    target_id: String,
-    files: Vec<FileManifest>,
-) -> TargetManifest {
-    TargetManifest {
-        manifest_version: shell.manifest_version,
-        target_id,
-        inserted_at: shell.inserted_at,
-        source_modified_at: String::new(),
-        total_logical_size: shell.total_logical_size,
-        total_compressed_size_estimate: shell.total_compressed_size_estimate,
-        target_tags: shell.target_tags,
-        launch: shell.launch,
-        files,
-    }
 }
 
 pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkIndex> {
@@ -359,72 +294,4 @@ pub(crate) fn write_target_manifest_files_binary(
     write_u64_array(&mut writer, &chunk_raw_sizes)?;
     writer.flush()?;
     Ok(())
-}
-
-pub(crate) fn load_target_manifest_files_binary(path: &Path) -> Result<Vec<FileManifest>> {
-    let file = std::fs::File::open(path)?;
-    let mut reader = BufReader::new(file);
-    let magic = read_exact_array::<8>(&mut reader)?;
-    if &magic != TARGET_FILES_BINARY_MAGIC {
-        return Err(Error::manifest(format!(
-            "invalid target files binary header in {}",
-            path.display()
-        )));
-    }
-
-    let version = read_u16(&mut reader)?;
-    if version != TARGET_FILES_BINARY_VERSION {
-        return Err(Error::manifest(format!(
-            "unsupported target files binary version {} in {}",
-            version,
-            path.display()
-        )));
-    }
-
-    let _reserved = read_u16(&mut reader)?;
-    let file_count = read_u32(&mut reader)? as usize;
-    let chunk_ref_count = read_u64(&mut reader)? as usize;
-    let paths = read_len_prefixed_string_array(&mut reader, file_count)?;
-    let sizes = read_u64_array(&mut reader, file_count)?;
-    let executables = read_bool_array(&mut reader, file_count)?;
-    let full_file_hashes = read_chunk_hash_array(&mut reader, file_count)?;
-    let chunk_counts = read_u32_array(&mut reader, file_count)?;
-    let chunk_hashes = read_chunk_hash_array(&mut reader, chunk_ref_count)?;
-    let chunk_raw_sizes = read_u64_array(&mut reader, chunk_ref_count)?;
-
-    let mut files = Vec::with_capacity(file_count);
-    let mut chunk_start = 0usize;
-    for file_index in 0..file_count {
-        let chunk_count = chunk_counts[file_index] as usize;
-        let chunk_end = chunk_start + chunk_count;
-        if chunk_end > chunk_ref_count {
-            return Err(Error::manifest(format!(
-                "target files chunk range out of bounds in {}",
-                path.display()
-            )));
-        }
-        let mut chunks = Vec::with_capacity(chunk_count);
-        for chunk_index in chunk_start..chunk_end {
-            chunks.push(manifest::ChunkRef {
-                chunk_hash: chunk_hashes[chunk_index].to_hex(),
-                raw_size: chunk_raw_sizes[chunk_index],
-            });
-        }
-        files.push(FileManifest {
-            path: paths[file_index].clone(),
-            size: sizes[file_index],
-            executable: executables[file_index],
-            full_file_hash: full_file_hashes[file_index].to_hex(),
-            chunks,
-        });
-        chunk_start = chunk_end;
-    }
-    if chunk_start != chunk_ref_count {
-        return Err(Error::manifest(format!(
-            "target files chunk count mismatch in {}",
-            path.display()
-        )));
-    }
-
-    Ok(files)
 }
