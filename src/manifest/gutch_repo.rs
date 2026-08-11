@@ -2,6 +2,53 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArtifactProfile {
+    pub chunk: ArtifactSizingPreset,
+    pub compression: CompressionPreset,
+    pub bundle: BundleSizingPreset,
+    pub storage: ArtifactStorageMode,
+}
+
+impl Default for ArtifactProfile {
+    fn default() -> Self {
+        Self {
+            chunk: ArtifactSizingPreset::default(),
+            compression: CompressionPreset::default(),
+            bundle: BundleSizingPreset::default(),
+            storage: ArtifactStorageMode::default(),
+        }
+    }
+}
+
+impl ArtifactProfile {
+    pub fn for_presets(
+        chunk: ArtifactSizingPreset,
+        compression: CompressionPreset,
+        bundle: BundleSizingPreset,
+        storage: ArtifactStorageMode,
+    ) -> Self {
+        Self {
+            chunk,
+            compression,
+            bundle,
+            storage,
+        }
+    }
+
+    pub fn chunk_sizing_profile(&self) -> ChunkSizingProfile {
+        ChunkSizingProfile::for_preset(self.chunk)
+    }
+
+    pub fn compression_profile(&self) -> CompressionProfile {
+        CompressionProfile::for_preset(self.compression)
+    }
+
+    pub fn bundle_sizing_profile(&self) -> BundleSizingProfile {
+        BundleSizingProfile::for_preset(self.bundle)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GutchRepoManifest {
     pub format: String,
@@ -20,14 +67,7 @@ pub struct GutchRepoManifest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub external_product_dependencies:
         Vec<external_dependency::ExternalProductDependencyRequirement>,
-    #[serde(default)]
-    pub chunk_sizing_profile: ChunkSizingProfile,
-    #[serde(default)]
-    pub compression_profile: CompressionProfile,
-    #[serde(default)]
-    pub bundle_sizing_profile: BundleSizingProfile,
-    #[serde(default)]
-    pub storage_mode: ArtifactStorageMode,
+    pub artifact_profile: ArtifactProfile,
 }
 
 impl GutchRepoManifest {
@@ -42,11 +82,22 @@ impl GutchRepoManifest {
             target_schema: None,
             launch: None,
             external_product_dependencies: Vec::new(),
-            chunk_sizing_profile: ChunkSizingProfile::default(),
-            compression_profile: CompressionProfile::default(),
-            bundle_sizing_profile: BundleSizingProfile::default(),
-            storage_mode: ArtifactStorageMode::default(),
+            artifact_profile: ArtifactProfile::default(),
         }
+    }
+
+    pub fn set_artifact_profile(
+        &mut self,
+        chunk: ArtifactSizingPreset,
+        compression: CompressionPreset,
+        bundle: BundleSizingPreset,
+        storage: ArtifactStorageMode,
+    ) {
+        self.artifact_profile = ArtifactProfile::for_presets(chunk, compression, bundle, storage);
+    }
+
+    pub fn compression_profile(&self) -> CompressionProfile {
+        self.artifact_profile.compression_profile()
     }
 
     pub fn is_linked(&self) -> bool {

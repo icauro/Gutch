@@ -563,13 +563,12 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 write_report(&stats_json_out, &stats)?;
 
                 let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-                repo_manifest.chunk_sizing_profile =
-                    g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
-                repo_manifest.bundle_sizing_profile =
-                    g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
-                repo_manifest.compression_profile =
-                    g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
-                repo_manifest.storage_mode = build_profile.storage_mode;
+                repo_manifest.set_artifact_profile(
+                    build_profile.chunk_profile,
+                    build_profile.compression_profile,
+                    build_profile.bundle_profile,
+                    build_profile.storage_mode,
+                );
                 g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             } else {
                 let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
@@ -681,13 +680,12 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     outputs: optional_output_paths(&stats_json_out),
                 };
 
-                repo_manifest.chunk_sizing_profile =
-                    g::manifest::ChunkSizingProfile::for_preset(build_profile.chunk_profile);
-                repo_manifest.bundle_sizing_profile =
-                    g::manifest::BundleSizingProfile::for_preset(build_profile.bundle_profile);
-                repo_manifest.compression_profile =
-                    g::manifest::CompressionProfile::for_preset(build_profile.compression_profile);
-                repo_manifest.storage_mode = build_profile.storage_mode;
+                repo_manifest.set_artifact_profile(
+                    build_profile.chunk_profile,
+                    build_profile.compression_profile,
+                    build_profile.bundle_profile,
+                    build_profile.storage_mode,
+                );
                 g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
                 write_report(&stats_json_out, &aggregate_stats)?;
             }
@@ -732,7 +730,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             let (_, timings) = g::reconstruct_from_repo(
                 &tm,
                 &repo_paths,
-                &repo_manifest.compression_profile,
+                &repo_manifest.compression_profile(),
                 &output,
                 &runtime_hints,
                 g::ReconstructOptions {
