@@ -79,85 +79,59 @@ fn read_len_prefixed_string(reader: &mut impl Read) -> Result<String> {
 }
 
 fn write_len_prefixed_string_array(writer: &mut impl Write, values: &[String]) -> Result<()> {
-    for value in values {
-        write_len_prefixed_string(writer, value)?;
-    }
-    Ok(())
+    values
+        .iter()
+        .try_for_each(|value| write_len_prefixed_string(writer, value))
 }
 
 fn read_len_prefixed_string_array(reader: &mut impl Read, count: usize) -> Result<Vec<String>> {
-    let mut values = Vec::with_capacity(count);
-    for _ in 0..count {
-        values.push(read_len_prefixed_string(reader)?);
-    }
-    Ok(values)
+    (0..count)
+        .map(|_| read_len_prefixed_string(reader))
+        .collect()
 }
 
 fn write_u32_array(writer: &mut impl Write, values: &[u32]) -> Result<()> {
-    for value in values {
-        write_u32(writer, *value)?;
-    }
-    Ok(())
+    values
+        .iter()
+        .try_for_each(|value| write_u32(writer, *value))
 }
 
 fn read_u32_array(reader: &mut impl Read, count: usize) -> Result<Vec<u32>> {
-    let mut values = Vec::with_capacity(count);
-    for _ in 0..count {
-        values.push(read_u32(reader)?);
-    }
-    Ok(values)
+    (0..count).map(|_| read_u32(reader)).collect()
 }
 
 fn write_u8_array(writer: &mut impl Write, values: &[u8]) -> Result<()> {
-    for value in values {
-        write_u8(writer, *value)?;
-    }
-    Ok(())
+    values.iter().try_for_each(|value| write_u8(writer, *value))
 }
 
 fn read_u8_array(reader: &mut impl Read, count: usize) -> Result<Vec<u8>> {
-    let mut values = Vec::with_capacity(count);
-    for _ in 0..count {
-        values.push(read_u8(reader)?);
-    }
-    Ok(values)
+    (0..count).map(|_| read_u8(reader)).collect()
 }
 
 fn write_u64_array(writer: &mut impl Write, values: &[u64]) -> Result<()> {
-    for value in values {
-        write_u64(writer, *value)?;
-    }
-    Ok(())
+    values
+        .iter()
+        .try_for_each(|value| write_u64(writer, *value))
 }
 
 fn read_u64_array(reader: &mut impl Read, count: usize) -> Result<Vec<u64>> {
-    let mut values = Vec::with_capacity(count);
-    for _ in 0..count {
-        values.push(read_u64(reader)?);
-    }
-    Ok(values)
+    (0..count).map(|_| read_u64(reader)).collect()
 }
 
 fn write_chunk_hash_array(writer: &mut impl Write, values: &[ChunkHash]) -> Result<()> {
-    for value in values {
-        write_chunk_hash(writer, *value)?;
-    }
-    Ok(())
+    values
+        .iter()
+        .try_for_each(|value| write_chunk_hash(writer, *value))
 }
 
 fn read_chunk_hash_array(reader: &mut impl Read, count: usize) -> Result<Vec<ChunkHash>> {
-    let mut values = Vec::with_capacity(count);
-    for _ in 0..count {
-        values.push(read_chunk_hash(reader)?);
-    }
-    Ok(values)
+    (0..count).map(|_| read_chunk_hash(reader)).collect()
 }
 
 fn write_bool_array(writer: &mut impl Write, values: &[bool]) -> Result<()> {
-    for value in values {
-        writer.write_all(&[u8::from(*value)])?;
-    }
-    Ok(())
+    values
+        .iter()
+        .try_for_each(|value| write_u8(writer, u8::from(*value)))
 }
 
 pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkIndex> {
