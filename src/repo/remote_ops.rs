@@ -698,8 +698,8 @@ pub fn sync_up_repo(
         &progress,
         GutchProgressEvent {
             operation: GutchOperation::SyncUp,
-            phase: GutchProgressPhase::UploadRepoManifest,
-            message: "Uploading repo manifest".to_string(),
+            phase: GutchProgressPhase::UploadRepoMetadata,
+            message: "Uploading repo metadata".to_string(),
             current: step,
             total: total_steps,
             transferred_bytes: 0,
@@ -714,7 +714,7 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/manifest",
+                "/v1/users/me/creator/products/{}/repos/{}/metadata",
                 product_id, remote_repo_id
             ),
             &session_id,
@@ -783,8 +783,8 @@ pub fn sync_up_repo(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: GutchProgressPhase::UploadTargetManifest,
-                message: "Uploading target manifests".to_string(),
+                phase: GutchProgressPhase::UploadTargetMetadata,
+                message: "Uploading target metadata".to_string(),
                 current: step,
                 total: total_steps,
                 transferred_bytes: 0,
@@ -857,7 +857,7 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest",
+                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/metadata",
                 product_id, remote_repo_id, remote_target_id
             ),
             &session_id,

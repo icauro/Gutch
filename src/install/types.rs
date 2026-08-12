@@ -141,8 +141,8 @@ pub struct TargetInstallRepairFromRepoResult {
 pub struct TargetInstallFetchRequest {
     pub repo_path: PathBuf,
     pub target_id: String,
-    pub repo_manifest_url: Option<String>,
-    pub manifest_url: String,
+    pub repo_metadata_url: Option<String>,
+    pub metadata_url: String,
     pub blueprint_url: String,
     pub chunk_index_url: Option<String>,
     pub bundle_downloads_endpoint: Option<String>,

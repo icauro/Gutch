@@ -284,7 +284,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                 .unwrap_or("/");
 
             let (status, body, content_type) = match path {
-                "/manifest" => (
+                "/metadata" => (
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
                     "target_metadata_version": "1.0.0",
@@ -333,8 +333,8 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     let result = fetch_target_install_content(&TargetInstallFetchRequest {
         repo_path: repo_path.clone(),
         target_id: "1.0.0-windows-x86_64-base".to_string(),
-        repo_manifest_url: None,
-        manifest_url: format!("http://{}/manifest", address),
+        repo_metadata_url: None,
+        metadata_url: format!("http://{}/metadata", address),
         blueprint_url: format!("http://{}/blueprint", address),
         chunk_index_url: None,
         bundle_downloads_endpoint: Some(format!("http://{}/bundles", address)),

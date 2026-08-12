@@ -282,12 +282,12 @@ pub enum TargetInstallCommands {
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
-        #[arg(long = "manifest-url")]
-        manifest_url: String,
+        #[arg(long = "metadata-url")]
+        metadata_url: String,
         #[arg(long = "blueprint-url")]
         blueprint_url: String,
-        #[arg(long = "repo-manifest-url")]
-        repo_manifest_url: Option<String>,
+        #[arg(long = "repo-metadata-url")]
+        repo_metadata_url: Option<String>,
         #[arg(long = "chunk-index-url")]
         chunk_index_url: Option<String>,
         #[arg(long = "bundle-downloads-endpoint")]

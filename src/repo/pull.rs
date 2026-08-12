@@ -675,7 +675,7 @@ fn request_json_authed<T: for<'de> serde::Deserialize<'de>>(
     )
 }
 
-fn fetch_repo_manifest_url(
+fn fetch_repo_metadata_url(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: &str,
@@ -683,20 +683,20 @@ fn fetch_repo_manifest_url(
     remote_repo_id: i64,
 ) -> Result<String> {
     #[derive(serde::Deserialize)]
-    struct RepoManifestResponse {
-        manifest_url: String,
+    struct RepoMetadataResponse {
+        metadata_url: String,
     }
-    let response: RepoManifestResponse = request_json_authed(
+    let response: RepoMetadataResponse = request_json_authed(
         client,
         &format!(
-            "{}/v1/products/{}/repos/{}/manifest",
+            "{}/v1/products/{}/repos/{}/metadata",
             base_endpoint(endpoint),
             product_id,
             remote_repo_id
         ),
         session_id,
     )?;
-    Ok(response.manifest_url)
+    Ok(response.metadata_url)
 }
 
 fn fetch_chunk_map_url(
@@ -723,7 +723,7 @@ fn fetch_chunk_map_url(
     Ok(response.chunk_index_url)
 }
 
-fn fetch_target_manifest_url(
+fn fetch_target_metadata_url(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: &str,
@@ -732,14 +732,14 @@ fn fetch_target_manifest_url(
     target_id: &str,
 ) -> Result<(String, String)> {
     #[derive(serde::Deserialize)]
-    struct TargetManifestResponse {
-        manifest_url: String,
+    struct TargetMetadataResponse {
+        metadata_url: String,
         blueprint_url: String,
     }
-    let response: TargetManifestResponse = request_json_authed(
+    let response: TargetMetadataResponse = request_json_authed(
         client,
         &format!(
-            "{}/v1/products/{}/repos/{}/targets/{}/manifest",
+            "{}/v1/products/{}/repos/{}/targets/{}/metadata",
             base_endpoint(endpoint),
             product_id,
             remote_repo_id,
@@ -747,7 +747,7 @@ fn fetch_target_manifest_url(
         ),
         session_id,
     )?;
-    Ok((response.manifest_url, response.blueprint_url))
+    Ok((response.metadata_url, response.blueprint_url))
 }
 
 fn url_encode_path_segment(value: &str) -> String {
@@ -920,14 +920,14 @@ pub fn pull_repo(
         emit(
             &progress,
             GutchOperation::Pull,
-            GutchProgressPhase::RepoManifest,
-            "Downloading repo manifest".to_string(),
+            GutchProgressPhase::RepoMetadata,
+            "Downloading repo metadata".to_string(),
             step,
             total_steps,
             None,
             false,
         );
-        let url = fetch_repo_manifest_url(
+        let url = fetch_repo_metadata_url(
             &client,
             &endpoint,
             &session_id,
@@ -980,9 +980,9 @@ pub fn pull_repo(
         emit(
             &progress,
             GutchOperation::Pull,
-            GutchProgressPhase::TargetManifest,
+            GutchProgressPhase::TargetMetadata,
             format!(
-                "Downloading target manifests ({}/{})",
+                "Downloading target metadata ({}/{})",
                 step - target_start,
                 plan.targets_to_download.len().max(1)
             ),
@@ -991,7 +991,7 @@ pub fn pull_repo(
             Some(target_id.clone()),
             false,
         );
-        let (metadata_url, blueprint_url) = fetch_target_manifest_url(
+        let (metadata_url, blueprint_url) = fetch_target_metadata_url(
             &client,
             &endpoint,
             &session_id,

@@ -10,7 +10,7 @@ fn test_target_manifest_new() {
     let m = TargetManifest::new("abc123def".into(), tags.clone());
     assert_eq!(m.target_id, "abc123def");
     assert_eq!(m.target_tags.get_exclusive("os"), Some("windows"));
-    assert_eq!(m.manifest_version, "1.0.0");
+    assert_eq!(m.metadata_version, "1.0.0");
     assert!(m.inserted_at.len() > 0);
 }
 

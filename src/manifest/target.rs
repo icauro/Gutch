@@ -230,7 +230,7 @@ pub fn current_host_tags() -> TargetTagSet {
 #[serde(deny_unknown_fields)]
 pub struct TargetManifest {
     #[serde(rename = "target_metadata_version")]
-    pub manifest_version: String,
+    pub metadata_version: String,
     #[serde(skip)]
     pub target_id: String,
     #[serde(rename = "inserted_at")]
@@ -259,7 +259,7 @@ pub struct TargetManifest {
 impl TargetManifest {
     pub fn new(target_id: String, target_tags: TargetTagSet) -> Self {
         TargetManifest {
-            manifest_version: FORMAT_VERSION.to_string(),
+            metadata_version: FORMAT_VERSION.to_string(),
             target_id,
             inserted_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             source_modified_at: String::new(),

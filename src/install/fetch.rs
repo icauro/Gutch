@@ -193,13 +193,13 @@ fn prepare_target_install_fetch(
     let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_path);
     crate::ensure_gutch_repo_layout(&repo_paths, "download")?;
 
-    if let Some(repo_manifest_url) = request.repo_manifest_url.as_deref() {
+    if let Some(repo_metadata_url) = request.repo_metadata_url.as_deref() {
         emit_progress(
             progress,
             GutchProgressEvent {
                 operation: GutchOperation::Fetch,
-                phase: GutchProgressPhase::RepoManifest,
-                message: "Downloading repo manifest".to_string(),
+                phase: GutchProgressPhase::RepoMetadata,
+                message: "Downloading repo metadata".to_string(),
                 current: 0,
                 total: 1,
                 transferred_bytes: 0,
@@ -210,12 +210,12 @@ fn prepare_target_install_fetch(
         );
         let repo_manifest_bytes = download_url(
             download_client,
-            repo_manifest_url,
+            repo_metadata_url,
             request.session_id.as_deref(),
             &request.control,
             transfer_progress,
-            GutchProgressPhase::RepoManifest,
-            "Downloading repo manifest",
+            GutchProgressPhase::RepoMetadata,
+            "Downloading repo metadata",
             TransferPhaseCounters {
                 current: 0,
                 total: 1,
@@ -233,8 +233,8 @@ fn prepare_target_install_fetch(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::TargetManifest,
-            message: "Downloading target manifest".to_string(),
+            phase: GutchProgressPhase::TargetMetadata,
+            message: "Downloading target metadata".to_string(),
             current: 0,
             total: 1,
             transferred_bytes: 0,
@@ -245,12 +245,12 @@ fn prepare_target_install_fetch(
     );
     let target_manifest_bytes = download_url(
         download_client,
-        &request.manifest_url,
+        &request.metadata_url,
         request.session_id.as_deref(),
         &request.control,
         transfer_progress,
-        GutchProgressPhase::TargetManifest,
-        "Downloading target manifest",
+        GutchProgressPhase::TargetMetadata,
+        "Downloading target metadata",
         TransferPhaseCounters {
             current: 0,
             total: 1,
@@ -267,7 +267,7 @@ fn prepare_target_install_fetch(
         request.session_id.as_deref(),
         &request.control,
         transfer_progress,
-        GutchProgressPhase::TargetManifest,
+        GutchProgressPhase::TargetMetadata,
         "Downloading target blueprint",
         TransferPhaseCounters {
             current: 0,
