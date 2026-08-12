@@ -54,6 +54,7 @@ pub struct RepoTargetInsertRequest {
     pub bundle_profile: crate::manifest::BundleSizingPreset,
     pub compression_profile: crate::manifest::CompressionPreset,
     pub storage_mode: crate::manifest::ArtifactStorageMode,
+    pub experimental_prehash_reuse: bool,
     pub runtime_hints: RuntimeResourceHints,
     pub control: crate::GutchOperationControl,
 }
@@ -371,6 +372,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
             .with_existing_chunks(&store_state.chunk_locations)
             .with_existing_bundles(&store_state.bundle_ids)
             .with_previous_manifests(&store_state.previous_file_manifests)
+            .with_experimental_prehash_reuse(request.experimental_prehash_reuse)
             .with_chunk_profile(&chunk_profile)
             .with_bundle_profile(&bundle_profile)
             .with_compression_profile(&compression_profile);
@@ -463,9 +465,15 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     store_state.chunk_locations =
         crate::repo::existing_chunk_locations_from_index(&store_state.chunk_index, &repo_paths);
     for file in &result.target_manifest.files {
-        store_state
+        let candidates = store_state
             .previous_file_manifests
-            .insert(file.path.clone(), file.clone());
+            .entry(file.path.clone())
+            .or_default();
+        if !candidates.iter().any(|candidate| {
+            candidate.size == file.size && candidate.full_file_hash == file.full_file_hash
+        }) {
+            candidates.push(file.clone());
+        }
     }
     crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
 
@@ -539,7 +547,7 @@ struct MutableInsertStoreState {
     bundle_ids: HashSet<String>,
     chunk_index: crate::manifest::ChunkIndex,
     chunk_locations: HashMap<String, crate::ExistingChunkLocation>,
-    previous_file_manifests: HashMap<String, crate::manifest::FileManifest>,
+    previous_file_manifests: HashMap<String, Vec<crate::manifest::FileManifest>>,
 }
 
 impl MutableInsertStoreState {

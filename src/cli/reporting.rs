@@ -152,6 +152,7 @@ pub struct OptionalOutputPaths {
 #[derive(Debug, Serialize)]
 pub struct BuildTimingsSummary {
     pub schema_version: u32,
+    pub scan_strategy: String,
     pub runtime_plan: RuntimePlanSummary,
     pub total_seconds: f64,
     pub unaccounted_seconds: f64,
@@ -175,6 +176,13 @@ pub struct BuildScanChunkPhaseSummary {
 #[derive(Debug, Serialize)]
 pub struct BuildScanChunkDetailsSummary {
     pub logical_bytes: u64,
+    pub prehash_worker_seconds: f64,
+    pub prehash_bytes: u64,
+    pub prehash_mib_per_second: f64,
+    pub prehash_candidate_file_count: usize,
+    pub prehash_reused_file_count: usize,
+    pub prehash_reused_bytes: u64,
+    pub prehash_mismatch_file_count: usize,
     pub stream_chunk_worker_seconds: f64,
     pub stream_chunk_bytes: u64,
     pub stream_chunk_mib_per_second: f64,
@@ -330,6 +338,12 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
 
     BuildTimingsSummary {
         schema_version: 1,
+        scan_strategy: if timings.experimental_prehash_reuse {
+            "experimental_prehash_reuse"
+        } else {
+            "single_pass"
+        }
+        .to_string(),
         runtime_plan,
         total_seconds,
         unaccounted_seconds,
@@ -338,6 +352,13 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
                 wall_seconds: secs(timings.scan_chunk_wall),
                 details: BuildScanChunkDetailsSummary {
                     logical_bytes: timings.logical_bytes,
+                    prehash_worker_seconds: secs(timings.prehash),
+                    prehash_bytes: timings.prehash_bytes,
+                    prehash_mib_per_second: mib_per_s(timings.prehash_bytes, timings.prehash),
+                    prehash_candidate_file_count: timings.prehash_candidate_file_count,
+                    prehash_reused_file_count: timings.prehash_reused_file_count,
+                    prehash_reused_bytes: timings.prehash_reused_bytes,
+                    prehash_mismatch_file_count: timings.prehash_mismatch_file_count,
                     stream_chunk_worker_seconds: secs(timings.stream_chunk),
                     stream_chunk_bytes: timings.stream_chunk_bytes,
                     stream_chunk_mib_per_second: mib_per_s(
@@ -616,6 +637,24 @@ pub fn print_build_timings(t: &g::BuildTimings) {
     print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
     print_table_row("total", 0, Some(secs(t.total)), None, None);
 
+    if t.experimental_prehash_reuse {
+        print_blank_line();
+        print_section_title("Experimental Prehash Reuse");
+        println!(
+            "candidates: {}, reused: {} ({:.2} MiB), mismatched: {}",
+            t.prehash_candidate_file_count,
+            t.prehash_reused_file_count,
+            mib(t.prehash_reused_bytes),
+            t.prehash_mismatch_file_count
+        );
+        println!(
+            "prehash read: {:.2} MiB in {:.3}s; total scan reads: {:.2} MiB",
+            mib(t.prehash_bytes),
+            secs(t.prehash),
+            mib(t.prehash_bytes + t.stream_chunk_bytes)
+        );
+    }
+
     if !super::verbose_output_enabled() {
         return;
     }
@@ -623,6 +662,18 @@ pub fn print_build_timings(t: &g::BuildTimings) {
     print_blank_line();
     print_section_title("Build Worker Timing Details");
     print_table_header();
+    if t.experimental_prehash_reuse {
+        print_table_row(
+            "prehash",
+            0,
+            Some(secs(t.prehash)),
+            Some(format!("{:.2} MiB", mib(t.prehash_bytes))),
+            Some(format!(
+                "{:.2} MiB/s",
+                mib_per_s(t.prehash_bytes, t.prehash)
+            )),
+        );
+    }
     print_table_row(
         "file hashing",
         0,

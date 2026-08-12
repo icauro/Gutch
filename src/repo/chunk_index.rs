@@ -13,7 +13,7 @@ pub struct ExistingStoreState {
     pub bundle_ids: HashSet<String>,
     pub chunk_index: manifest::ChunkIndex,
     pub chunk_locations: std::collections::HashMap<String, crate::ExistingChunkLocation>,
-    pub previous_file_manifests: std::collections::HashMap<String, FileManifest>,
+    pub previous_file_manifests: std::collections::HashMap<String, Vec<FileManifest>>,
 }
 
 impl Default for ExistingStoreState {
@@ -128,10 +128,15 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
         };
         let manifest = load_target_manifest(paths, target_id)?;
         for file in manifest.files {
-            state
+            let candidates = state
                 .previous_file_manifests
                 .entry(file.path.clone())
-                .or_insert(file);
+                .or_default();
+            if !candidates.iter().any(|candidate| {
+                candidate.size == file.size && candidate.full_file_hash == file.full_file_hash
+            }) {
+                candidates.push(file);
+            }
         }
     }
 

@@ -21,6 +21,32 @@ fn test_hash(label: &str) -> String {
 }
 
 #[test]
+fn existing_store_keeps_same_path_manifests_from_multiple_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
+
+    for (target_id, content_label) in [("target-a", "content-a"), ("target-b", "content-b")] {
+        let mut manifest =
+            TargetManifest::new(target_id.to_string(), manifest::TargetTagSet::default());
+        manifest.files.push(manifest::FileManifest {
+            path: "game.bin".to_string(),
+            size: 9,
+            executable: false,
+            full_file_hash: test_hash(content_label),
+            chunks: Vec::new(),
+        });
+        write_target_manifest_artifacts(&paths, &manifest).unwrap();
+    }
+
+    let state = scan_existing_store_state(&paths).unwrap();
+    let candidates = state.previous_file_manifests.get("game.bin").unwrap();
+
+    assert_eq!(candidates.len(), 2);
+    assert_ne!(candidates[0].full_file_hash, candidates[1].full_file_hash);
+}
+
+#[test]
 fn gutch_repo_paths_from_repo_root() {
     let root = PathBuf::from("/test/repo");
     let paths = GutchRepoPaths::from_repo_root(&root);

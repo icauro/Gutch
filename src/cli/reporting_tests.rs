@@ -43,6 +43,7 @@ fn build_summary_separates_wall_phases_from_worker_details() {
     let summary = build_timings_summary(&timings);
 
     assert_eq!(summary.schema_version, 1);
+    assert_eq!(summary.scan_strategy, "single_pass");
     assert!((summary.unaccounted_seconds - 1.0).abs() < f64::EPSILON);
     assert_eq!(summary.phases.scan_chunk.wall_seconds, 4.0);
     assert_eq!(
@@ -74,6 +75,30 @@ fn build_summary_separates_wall_phases_from_worker_details() {
     assert!(json.get("accounted_seconds").is_none());
     assert!(json.get("scan_read_seconds").is_none());
     assert!(json["phases"]["scan_chunk"]["wall_seconds"].is_number());
+}
+
+#[test]
+fn build_summary_reports_experimental_prehash_comparison_fields() {
+    let timings = g::BuildTimings {
+        experimental_prehash_reuse: true,
+        prehash: Duration::from_secs(2),
+        prehash_bytes: 8 * 1024 * 1024,
+        prehash_reused_bytes: 6 * 1024 * 1024,
+        prehash_candidate_file_count: 3,
+        prehash_reused_file_count: 2,
+        prehash_mismatch_file_count: 1,
+        ..g::BuildTimings::default()
+    };
+
+    let summary = build_timings_summary(&timings);
+    let details = &summary.phases.scan_chunk.details;
+
+    assert_eq!(summary.scan_strategy, "experimental_prehash_reuse");
+    assert_eq!(details.prehash_candidate_file_count, 3);
+    assert_eq!(details.prehash_reused_file_count, 2);
+    assert_eq!(details.prehash_mismatch_file_count, 1);
+    assert_eq!(details.prehash_reused_bytes, 6 * 1024 * 1024);
+    assert_eq!(details.prehash_mib_per_second, 4.0);
 }
 
 #[test]
