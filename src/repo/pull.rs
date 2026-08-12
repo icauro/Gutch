@@ -94,8 +94,8 @@ struct RemoteRepoRecord {
 
 struct RemoteTargetRecord {
     target_id: String,
-    target_manifest_hash_b3: String,
-    target_bin_hash_b3: String,
+    target_metadata_hash_b3: String,
+    target_blueprint_hash_b3: String,
     uploaded_at: String,
     created_at: String,
 }
@@ -264,14 +264,14 @@ fn fetch_creator_targets(
 fn remote_target_record(target: CreatorTargetResponse) -> RemoteTargetRecord {
     RemoteTargetRecord {
         target_id: target.target_id,
-        target_manifest_hash_b3: target.target_manifest_hash_b3,
-        target_bin_hash_b3: target.target_bin_hash_b3,
+        target_metadata_hash_b3: target.target_metadata_hash_b3,
+        target_blueprint_hash_b3: target.target_blueprint_hash_b3,
         uploaded_at: target.uploaded_at,
         created_at: target.created_at,
     }
 }
 
-fn local_repo_manifest_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
+fn local_repo_metadata_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
     if !repo_paths.repo_metadata_path.exists() {
         return Ok(String::new());
     }
@@ -288,7 +288,7 @@ fn local_chunk_map_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String>
     Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
 }
 
-fn local_target_manifest_hash_b3(
+fn local_target_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
 ) -> Result<String> {
@@ -303,7 +303,10 @@ fn local_target_manifest_hash_b3(
     ))
 }
 
-fn local_target_bin_hash_b3(repo_paths: &crate::GutchRepoPaths, target_id: &str) -> Result<String> {
+fn local_target_blueprint_hash_b3(
+    repo_paths: &crate::GutchRepoPaths,
+    target_id: &str,
+) -> Result<String> {
     let blueprint_path = crate::target_blueprint_path(repo_paths, target_id);
     if !blueprint_path.exists() {
         return Ok(String::new());
@@ -457,7 +460,7 @@ fn compute_pull_plan(
 ) -> Result<RepoPullPlan> {
     let repo_manifest_needed = decide_artifact(
         repo_paths.repo_metadata_path.exists(),
-        local_repo_manifest_hash_b3(repo_paths)?,
+        local_repo_metadata_hash_b3(repo_paths)?,
         &record.repo_metadata_hash_b3,
         &record.updated_at,
         local_file_mtime(&repo_paths.repo_metadata_path),
@@ -484,16 +487,16 @@ fn compute_pull_plan(
         let manifest_path = crate::target_manifest_path(repo_paths, &target.target_id);
         let decision = decide_artifact(
             manifest_path.exists(),
-            local_target_manifest_hash_b3(repo_paths, &target.target_id)?,
-            &target.target_manifest_hash_b3,
+            local_target_metadata_hash_b3(repo_paths, &target.target_id)?,
+            &target.target_metadata_hash_b3,
             updated_at,
             local_file_mtime(&manifest_path),
             policy,
         );
         let decision = if decision == ArtifactDecision::Identical
             && hashes_differ(
-                &local_target_bin_hash_b3(repo_paths, &target.target_id)?,
-                &target.target_bin_hash_b3,
+                &local_target_blueprint_hash_b3(repo_paths, &target.target_id)?,
+                &target.target_blueprint_hash_b3,
             ) {
             ArtifactDecision::Fetch
         } else {

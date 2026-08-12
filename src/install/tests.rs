@@ -76,7 +76,7 @@ fn resolved_install_state_uses_target_product_runtime() {
     crate::write_target_manifest_artifacts(&paths, &target).unwrap();
     let resolved = resolve_target_install_state(&root, "target").unwrap();
     assert_eq!(resolved.launch.unwrap().actions[0].arguments, ["--target"]);
-    assert!(!resolved.manifest_hash.is_empty());
+    assert!(!resolved.target_metadata_hash_b3.is_empty());
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -266,8 +266,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         }],
     });
     let blueprint_path = root.join("fixture-target-blueprint.bin");
-    manifest::binary::write_target_blueprint_binary(&blueprint_path, &blueprint_manifest)
-        .unwrap();
+    manifest::binary::write_target_blueprint_binary(&blueprint_path, &blueprint_manifest).unwrap();
     let blueprint_bytes = std::fs::read(&blueprint_path).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -295,7 +294,11 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                     .unwrap(),
                     "application/json",
                 ),
-                "/blueprint" => ("200 OK", blueprint_bytes.clone(), "application/octet-stream"),
+                "/blueprint" => (
+                    "200 OK",
+                    blueprint_bytes.clone(),
+                    "application/octet-stream",
+                ),
                 "/bundle-a" => (
                     "200 OK",
                     b"bundle-a-bytes".to_vec(),

@@ -304,9 +304,7 @@ pub(crate) fn write_target_blueprint_binary(
     Ok(())
 }
 
-pub(crate) fn read_target_blueprint_binary(
-    path: &Path,
-) -> Result<Vec<manifest::FileManifest>> {
+pub(crate) fn read_target_blueprint_binary(path: &Path) -> Result<Vec<manifest::FileManifest>> {
     let file = std::fs::File::open(path)?;
     let mut reader = BufReader::new(file);
     let magic = read_exact_array::<8>(&mut reader)?;

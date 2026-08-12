@@ -19,7 +19,7 @@ pub struct GutchBundleDownload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedTargetInstallState {
     pub target_id: String,
-    pub manifest_hash: String,
+    pub target_metadata_hash_b3: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<ResolvedLaunchConfiguration>,
     #[serde(default)]

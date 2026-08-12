@@ -11,7 +11,7 @@ pub fn resolve_target_install_state(
     let launch = target_manifest.launch.clone();
 
     let manifest_bytes = crate::serialize_target_manifest_for_remote(&target_manifest)?;
-    let manifest_hash = crate::hash::hash_hex(&blake3::hash(&manifest_bytes));
+    let target_metadata_hash_b3 = crate::hash::hash_hex(&blake3::hash(&manifest_bytes));
 
     if target_manifest.target_id.trim().is_empty() {
         return Err(Error::manifest("target manifest is missing target_id"));
@@ -19,7 +19,7 @@ pub fn resolve_target_install_state(
 
     Ok(ResolvedTargetInstallState {
         target_id: target_manifest.target_id,
-        manifest_hash,
+        target_metadata_hash_b3,
         launch,
         external_product_dependencies: target_manifest
             .product_metadata

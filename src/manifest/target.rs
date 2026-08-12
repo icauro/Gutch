@@ -78,7 +78,10 @@ impl TargetProductMetadata {
                         ));
                     }
                     if variant.host_tag_requirements.is_empty()
-                        || variant.host_tag_requirements.iter().any(|tag| tag.trim().is_empty())
+                        || variant
+                            .host_tag_requirements
+                            .iter()
+                            .any(|tag| tag.trim().is_empty())
                     {
                         return Err(crate::Error::manifest(
                             "target product metadata host_tag_requirements must not be empty",
@@ -122,7 +125,9 @@ impl TargetProductMetadata {
     ) -> Option<launch::ResolvedLaunchConfiguration> {
         let launch_actions = match &self.runtime {
             TargetRuntimeMetadata::Direct(runtime) => &runtime.launch_actions,
-            TargetRuntimeMetadata::HostVariants(_) => &self.matching_host_variant(host_tags)?.launch_actions,
+            TargetRuntimeMetadata::HostVariants(_) => {
+                &self.matching_host_variant(host_tags)?.launch_actions
+            }
         };
         Some(launch::ResolvedLaunchConfiguration {
             primary: launch_actions
@@ -195,9 +200,9 @@ fn is_runtime_identifier(value: &str) -> bool {
     let mut characters = value.chars();
     matches!(characters.next(), Some(first) if first.is_ascii_lowercase())
         && value.len() <= 64
-        && characters.all(|character| character.is_ascii_lowercase()
-            || character.is_ascii_digit()
-            || character == '-')
+        && characters.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
 }
 
 /// Returns the launcher host capabilities used by target product host variants.

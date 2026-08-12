@@ -65,8 +65,8 @@ struct SyncTargetSnapshot {
     os: String,
     arch: String,
     tags: Vec<String>,
-    target_manifest_hash_b3: String,
-    target_bin_hash_b3: String,
+    target_metadata_hash_b3: String,
+    target_blueprint_hash_b3: String,
 }
 
 fn sync_target_change(
@@ -130,8 +130,8 @@ fn remote_sync_target_snapshot(
                 .cloned()
                 .unwrap_or_default(),
             tags: remote_target_tags(target),
-            target_manifest_hash_b3: target.target_manifest_hash_b3.clone(),
-            target_bin_hash_b3: target.target_bin_hash_b3.clone(),
+            target_metadata_hash_b3: target.target_metadata_hash_b3.clone(),
+            target_blueprint_hash_b3: target.target_blueprint_hash_b3.clone(),
         },
         Some(target.artifact_state.clone()),
     )
@@ -141,7 +141,7 @@ fn repo_file_hash(bytes: &[u8]) -> String {
     crate::hash::hash_hex(&blake3::hash(bytes))
 }
 
-fn local_repo_manifest_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
+fn local_repo_metadata_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
     Ok(repo_file_hash(&crate::helpers::read(
         &repo_paths.repo_metadata_path,
     )?))
@@ -155,7 +155,7 @@ fn local_chunk_index_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<Strin
     Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
 }
 
-fn local_target_manifest_hash_b3(
+fn local_target_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
 ) -> Result<String> {
@@ -165,7 +165,10 @@ fn local_target_manifest_hash_b3(
     ))
 }
 
-fn local_target_bin_hash_b3(repo_paths: &crate::GutchRepoPaths, target_id: &str) -> Result<String> {
+fn local_target_blueprint_hash_b3(
+    repo_paths: &crate::GutchRepoPaths,
+    target_id: &str,
+) -> Result<String> {
     let hash = crate::hash::hash_file(&crate::target_blueprint_path(repo_paths, target_id))?;
     Ok(crate::hash::hash_hex(&hash))
 }
@@ -321,11 +324,14 @@ fn collect_local_sync_targets(
             os: summary.os,
             arch: summary.arch,
             tags: summary.canonical_tags,
-            target_manifest_hash_b3: local_target_manifest_hash_b3(
+            target_metadata_hash_b3: local_target_metadata_hash_b3(
                 &repo_paths,
                 &manifest.target_id,
             )?,
-            target_bin_hash_b3: local_target_bin_hash_b3(&repo_paths, &manifest.target_id)?,
+            target_blueprint_hash_b3: local_target_blueprint_hash_b3(
+                &repo_paths,
+                &manifest.target_id,
+            )?,
         });
     }
     Ok((status, repo_paths, local_targets))
@@ -348,7 +354,7 @@ pub fn plan_sync_up_repo(
     let remote_targets =
         fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
     let repo_manifest_changed = hashes_differ(
-        &local_repo_manifest_hash_b3(&repo_paths)?,
+        &local_repo_metadata_hash_b3(&repo_paths)?,
         &remote_repo.repo_metadata_hash_b3,
     );
     let chunk_index_changed = hashes_differ(
@@ -365,18 +371,18 @@ pub fn plan_sync_up_repo(
             Some(remote_target) => {
                 let tag_mismatch = local_target.tags != remote_target_tags(remote_target);
                 let needs_state_update = remote_target.artifact_state != "ready";
-                let manifest_hash_changed = hashes_differ(
-                    &local_target.target_manifest_hash_b3,
-                    &remote_target.target_manifest_hash_b3,
+                let metadata_hash_changed = hashes_differ(
+                    &local_target.target_metadata_hash_b3,
+                    &remote_target.target_metadata_hash_b3,
                 );
-                let target_bin_hash_changed = hashes_differ(
-                    &local_target.target_bin_hash_b3,
-                    &remote_target.target_bin_hash_b3,
+                let target_blueprint_hash_changed = hashes_differ(
+                    &local_target.target_blueprint_hash_b3,
+                    &remote_target.target_blueprint_hash_b3,
                 );
                 if tag_mismatch
                     || needs_state_update
-                    || manifest_hash_changed
-                    || target_bin_hash_changed
+                    || metadata_hash_changed
+                    || target_blueprint_hash_changed
                 {
                     let mut reasons = Vec::new();
                     if tag_mismatch {
@@ -385,10 +391,10 @@ pub fn plan_sync_up_repo(
                     if needs_state_update {
                         reasons.push("remote artifact state is not ready");
                     }
-                    if manifest_hash_changed {
-                        reasons.push("target manifest hash differs");
+                    if metadata_hash_changed {
+                        reasons.push("target metadata hash differs");
                     }
-                    if target_bin_hash_changed {
+                    if target_blueprint_hash_changed {
                         reasons.push("target blueprint hash differs");
                     }
                     to_update.push(sync_target_change(
@@ -837,8 +843,8 @@ pub fn sync_up_repo(
                         target_id: manifest.target_id.clone(),
                         target_tags: Default::default(),
                         artifact_state: String::from("pending"),
-                        target_manifest_hash_b3: String::new(),
-                        target_bin_hash_b3: String::new(),
+                        target_metadata_hash_b3: String::new(),
+                        target_blueprint_hash_b3: String::new(),
                         uploaded_at: String::new(),
                         created_at: String::new(),
                     },
