@@ -257,9 +257,29 @@ fn prepare_target_install_fetch(
         },
         Some(request.target_id.as_str()),
     )?;
-    let target_manifest =
+    let target_metadata =
         target_manifest_from_download(&request.target_id, &target_manifest_bytes)?;
-    crate::write_target_manifest_artifacts(&repo_paths, &target_manifest)?;
+    crate::repo::write_target_metadata_only(&repo_paths, &target_metadata)?;
+
+    let blueprint_bytes = download_url(
+        download_client,
+        &request.blueprint_url,
+        request.session_id.as_deref(),
+        &request.control,
+        transfer_progress,
+        GutchProgressPhase::TargetManifest,
+        "Downloading target blueprint",
+        TransferPhaseCounters {
+            current: 0,
+            total: 1,
+        },
+        Some(request.target_id.as_str()),
+    )?;
+    crate::helpers::write(
+        &crate::target_blueprint_path(&repo_paths, &request.target_id),
+        &blueprint_bytes,
+    )?;
+    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
 
     if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
         emit_progress(

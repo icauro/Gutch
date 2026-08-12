@@ -41,27 +41,6 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             );
         }
 
-        RepoCommands::LaunchSet {
-            repo,
-            launch,
-            clear,
-        } => {
-            if clear == launch.is_some() {
-                return Err(g::Error::manifest(
-                    "provide either --launch <path> or --clear",
-                ));
-            }
-            let configuration = if clear {
-                None
-            } else {
-                let path = launch.as_ref().expect("launch path checked");
-                let json = crate::helpers::read_to_string(path)?;
-                Some(serde_json::from_str::<g::RepoLaunchConfiguration>(&json)?)
-            };
-            g::update_gutch_repo_launch(&repo, configuration)?;
-            println!("updated repo launch configuration");
-        }
-
         RepoCommands::Check { repo, json_out } => {
             let tracked = g::check_tracked_gutch_repo(&repo)?;
             let status = tracked.repo_status.clone();

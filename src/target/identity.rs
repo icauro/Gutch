@@ -125,7 +125,7 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
 
     for segment in identity_segments(raw_name) {
         for definition in &rules.target_tags {
-            if definition.kind == TargetTagKind::Plain {
+            if definition.kind != TargetTagKind::Exclusive {
                 continue;
             }
             if definition.kind == TargetTagKind::Exclusive && tags.has_exclusive(&definition.name) {

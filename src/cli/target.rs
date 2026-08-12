@@ -465,7 +465,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     &json,
                 )?)
             };
-            g::update_gutch_target_launch(&repo, &target, configuration)?;
+            g::update_gutch_target_launch(&repo, &target, configuration, Vec::new())?;
             println!("updated target launch configuration");
         }
         TargetCommands::Commit {

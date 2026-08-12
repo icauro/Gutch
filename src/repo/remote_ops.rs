@@ -19,7 +19,7 @@ pub struct RepoSyncUpStats {
     pub repo_manifest_uploaded: bool,
     pub chunk_index_uploaded: bool,
     pub target_manifest_uploaded_count: usize,
-    pub target_manifest_bin_uploaded_count: usize,
+    pub target_blueprint_uploaded_count: usize,
     pub bundle_uploaded_count: usize,
     pub bundle_skipped_count: usize,
     pub remote_bundle_deleted_count: usize,
@@ -166,7 +166,7 @@ fn local_target_manifest_hash_b3(
 }
 
 fn local_target_bin_hash_b3(repo_paths: &crate::GutchRepoPaths, target_id: &str) -> Result<String> {
-    let hash = crate::hash::hash_file(&crate::target_manifest_bin_path(repo_paths, target_id))?;
+    let hash = crate::hash::hash_file(&crate::target_blueprint_path(repo_paths, target_id))?;
     Ok(crate::hash::hash_hex(&hash))
 }
 
@@ -389,7 +389,7 @@ pub fn plan_sync_up_repo(
                         reasons.push("target manifest hash differs");
                     }
                     if target_bin_hash_changed {
-                        reasons.push("target manifest bin hash differs");
+                        reasons.push("target blueprint hash differs");
                     }
                     to_update.push(sync_target_change(
                         local_target,
@@ -493,6 +493,7 @@ pub fn link_repo(repo: &Path, product_id: i64, endpoint: &str, session_id: Strin
 
     manifest.remote_repo_id = remote_repo_id.to_string();
     manifest.product_id = product_id.to_string();
+    manifest.sync_product_metadata_from_binding();
     crate::write_gutch_repo_manifest(&paths, &manifest)?;
 
     Ok(())
@@ -555,6 +556,7 @@ pub fn unlink_repo(
 
     manifest.remote_repo_id = String::new();
     manifest.product_id = String::new();
+    manifest.product_metadata = None;
     crate::write_gutch_repo_manifest(&paths, &manifest)?;
 
     Ok(())
@@ -757,7 +759,7 @@ pub fn sync_up_repo(
     }
 
     let mut target_manifest_uploaded_count = 0usize;
-    let mut target_manifest_bin_uploaded_count = 0usize;
+    let mut target_blueprint_uploaded_count = 0usize;
     let target_ids_to_upload = plan
         .to_add
         .iter()
@@ -865,8 +867,8 @@ pub fn sync_up_repo(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: GutchProgressPhase::UploadTargetManifestBin,
-                message: "Uploading target manifest bins".to_string(),
+                phase: GutchProgressPhase::UploadTargetBlueprint,
+                message: "Uploading target blueprints".to_string(),
                 current: step,
                 total: total_steps,
                 transferred_bytes: 0,
@@ -875,7 +877,7 @@ pub fn sync_up_repo(
                 done: false,
             },
         );
-        let manifest_bin_bytes = crate::helpers::read(&crate::target_manifest_bin_path(
+        let blueprint_bytes = crate::helpers::read(&crate::target_blueprint_path(
             &repo_paths,
             &target.target_id,
         ))?;
@@ -883,15 +885,15 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/manifest-bin",
+                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/blueprint",
                 product_id, remote_repo_id, remote_target_id
             ),
             &session_id,
-            manifest_bin_bytes,
+            blueprint_bytes,
             "application/octet-stream",
             &control,
         )?;
-        target_manifest_bin_uploaded_count += 1;
+        target_blueprint_uploaded_count += 1;
     }
 
     let mut bundle_uploaded_count = 0usize;
@@ -1027,7 +1029,7 @@ pub fn sync_up_repo(
         repo_manifest_uploaded,
         chunk_index_uploaded,
         target_manifest_uploaded_count,
-        target_manifest_bin_uploaded_count,
+        target_blueprint_uploaded_count,
         bundle_uploaded_count,
         bundle_skipped_count,
         remote_bundle_deleted_count: reconcile.deleted_bundle_ids.len(),

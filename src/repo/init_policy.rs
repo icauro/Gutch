@@ -179,7 +179,7 @@ pub fn initialize_tracked_gutch_repo_with_options(
         .unwrap_or("base");
     let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
     let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
-    repo_manifest.target_schema = target_schema;
+    repo_manifest.target_schema = Some(target_schema.unwrap_or_default());
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
     let mut config = crate::config::load_config()?;

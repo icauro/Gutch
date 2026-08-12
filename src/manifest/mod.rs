@@ -36,6 +36,10 @@ pub use tags::{
     AutoTaggingRules, InferenceHandler, StructuredVersion, TargetTagDefinition, TargetTagKind,
     TargetTagSchema, TargetTagSet, TargetTagValueDefinition,
 };
+pub use target::{
+    TargetDirectRuntimeMetadata, TargetHostVariant, TargetHostVariantRuntimeMetadata,
+    TargetLaunchAction, TargetProductMetadata, TargetRuntimeMetadata, current_host_tags,
+};
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

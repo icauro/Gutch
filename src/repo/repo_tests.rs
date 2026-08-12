@@ -44,7 +44,7 @@ fn target_manifest_files_live_in_per_target_folder() {
             .join("target_metadata.json")
     );
     assert_eq!(
-        crate::target_manifest_bin_path(&paths, target_id),
+        crate::target_blueprint_path(&paths, target_id),
         root.join("targets")
             .join(target_id)
             .join("target_blueprint.bin")
@@ -251,15 +251,7 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
         candidates[1].disposition,
         SourceTargetInstallDisposition::Invalid
     );
-    assert_eq!(
-        candidates[0]
-            .target_tags
-            .scoped
-            .get("loader")
-            .and_then(|values| values.iter().next())
-            .map(String::as_str),
-        Some("fabric")
-    );
+    assert!(candidates[0].target_tags.scoped.get("loader").is_none());
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -412,8 +404,8 @@ fn inspect_repo_shows_target_tags() {
 }
 
 #[test]
-fn target_manifest_bin_roundtrip_preserves_hash_fields() {
-    let root = std::env::temp_dir().join("gutch_target_manifest_bin_roundtrip");
+fn target_blueprint_roundtrip_preserves_hash_fields() {
+    let root = std::env::temp_dir().join("gutch_target_blueprint_roundtrip");
     let _ = std::fs::remove_dir_all(&root);
     let paths = GutchRepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
@@ -444,8 +436,9 @@ fn target_manifest_bin_roundtrip_preserves_hash_fields() {
     write_target_manifest_artifacts(&paths, &manifest).unwrap();
     let local_json = std::fs::read_to_string(target_manifest_path(&paths, "target-a")).unwrap();
     let local_value: serde_json::Value = serde_json::from_str(&local_json).unwrap();
-    assert!(local_value.get("source_modified_at").is_some());
-    assert!(local_value.get("files").is_some());
+    assert!(local_value.get("source_modified_at").is_none());
+    assert!(local_value.get("files").is_none());
+    assert!(target_blueprint_path(&paths, "target-a").is_file());
     let loaded = load_target_manifest(&paths, "target-a").unwrap();
 
     assert_eq!(loaded.files.len(), 1);

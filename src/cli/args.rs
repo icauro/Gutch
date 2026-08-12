@@ -102,15 +102,6 @@ pub enum RepoCommands {
         #[arg(long = "clear")]
         clear: bool,
     },
-    #[command(name = "launch-set")]
-    LaunchSet {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "launch", value_parser = parse_absolute_path)]
-        launch: Option<PathBuf>,
-        #[arg(long = "clear")]
-        clear: bool,
-    },
     Check {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
@@ -293,6 +284,8 @@ pub enum TargetInstallCommands {
         target: String,
         #[arg(long = "manifest-url")]
         manifest_url: String,
+        #[arg(long = "blueprint-url")]
+        blueprint_url: String,
         #[arg(long = "repo-manifest-url")]
         repo_manifest_url: Option<String>,
         #[arg(long = "chunk-index-url")]
@@ -365,10 +358,15 @@ mod tests {
 
     #[test]
     fn cli_rejects_relative_filesystem_paths() {
-        let error =
-            Cli::try_parse_from(["hostapp-cli gutch", "repo", "check", "--repo", "relative/repo"])
-                .err()
-                .expect("relative repository path must be rejected");
+        let error = Cli::try_parse_from([
+            "hostapp-cli gutch",
+            "repo",
+            "check",
+            "--repo",
+            "relative/repo",
+        ])
+        .err()
+        .expect("relative repository path must be rejected");
         assert!(error.to_string().contains("path must be absolute"));
     }
 

@@ -95,6 +95,7 @@ struct RemoteRepoRecord {
 struct RemoteTargetRecord {
     target_id: String,
     target_manifest_hash_b3: String,
+    target_bin_hash_b3: String,
     uploaded_at: String,
     created_at: String,
 }
@@ -264,6 +265,7 @@ fn remote_target_record(target: CreatorTargetResponse) -> RemoteTargetRecord {
     RemoteTargetRecord {
         target_id: target.target_id,
         target_manifest_hash_b3: target.target_manifest_hash_b3,
+        target_bin_hash_b3: target.target_bin_hash_b3,
         uploaded_at: target.uploaded_at,
         created_at: target.created_at,
     }
@@ -290,13 +292,25 @@ fn local_target_manifest_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
 ) -> Result<String> {
-    if !crate::target_manifest_path(repo_paths, target_id).exists() {
+    if !crate::target_manifest_path(repo_paths, target_id).exists()
+        || !crate::target_blueprint_path(repo_paths, target_id).exists()
+    {
         return Ok(String::new());
     }
     let manifest = crate::load_target_manifest(repo_paths, target_id)?;
     Ok(repo_file_hash(
         &crate::serialize_target_manifest_for_remote(&manifest)?,
     ))
+}
+
+fn local_target_bin_hash_b3(repo_paths: &crate::GutchRepoPaths, target_id: &str) -> Result<String> {
+    let blueprint_path = crate::target_blueprint_path(repo_paths, target_id);
+    if !blueprint_path.exists() {
+        return Ok(String::new());
+    }
+    Ok(crate::hash::hash_hex(&crate::hash::hash_file(
+        &blueprint_path,
+    )?))
 }
 
 fn remote_repo_record(repo: &CreatorRepoResponse, product_id: i64) -> RemoteRepoRecord {
@@ -476,6 +490,15 @@ fn compute_pull_plan(
             local_file_mtime(&manifest_path),
             policy,
         );
+        let decision = if decision == ArtifactDecision::Identical
+            && hashes_differ(
+                &local_target_bin_hash_b3(repo_paths, &target.target_id)?,
+                &target.target_bin_hash_b3,
+            ) {
+            ArtifactDecision::Fetch
+        } else {
+            decision
+        };
         match decision {
             ArtifactDecision::Identical => targets_to_skip.push(target.target_id.clone()),
             ArtifactDecision::Fetch => targets_to_download.push(target.target_id.clone()),
@@ -590,6 +613,10 @@ fn download_json(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8
         .map_err(|err| Error::manifest(format!("failed to read download body: {}", err)))
 }
 
+fn download_binary(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>> {
+    download_json(client, url)
+}
+
 fn download_to_path(
     client: &reqwest::blocking::Client,
     url: &str,
@@ -700,10 +727,11 @@ fn fetch_target_manifest_url(
     product_id: i64,
     remote_repo_id: i64,
     target_id: &str,
-) -> Result<String> {
+) -> Result<(String, String)> {
     #[derive(serde::Deserialize)]
     struct TargetManifestResponse {
         manifest_url: String,
+        blueprint_url: String,
     }
     let response: TargetManifestResponse = request_json_authed(
         client,
@@ -716,7 +744,7 @@ fn fetch_target_manifest_url(
         ),
         session_id,
     )?;
-    Ok(response.manifest_url)
+    Ok((response.manifest_url, response.blueprint_url))
 }
 
 fn url_encode_path_segment(value: &str) -> String {
@@ -908,6 +936,7 @@ pub fn pull_repo(
             crate::helpers::from_json_bytes(&bytes)?;
         manifest.product_id = record.product_id.to_string();
         manifest.remote_repo_id = record.remote_repo_id.to_string();
+        manifest.sync_product_metadata_from_binding();
         crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
         stats.repo_manifest_downloaded = true;
     }
@@ -959,7 +988,7 @@ pub fn pull_repo(
             Some(target_id.clone()),
             false,
         );
-        let url = fetch_target_manifest_url(
+        let (metadata_url, blueprint_url) = fetch_target_manifest_url(
             &client,
             &endpoint,
             &session_id,
@@ -967,9 +996,14 @@ pub fn pull_repo(
             record.remote_repo_id,
             target_id,
         )?;
-        let bytes = download_json(&client, &url)?;
-        let manifest = crate::target_manifest_from_download(target_id, &bytes)?;
-        crate::write_target_manifest_artifacts(&repo_paths, &manifest)?;
+        let metadata_bytes = download_json(&client, &metadata_url)?;
+        let metadata = crate::target_manifest_from_download(target_id, &metadata_bytes)?;
+        crate::repo::write_target_metadata_only(&repo_paths, &metadata)?;
+        let blueprint_bytes = download_binary(&client, &blueprint_url)?;
+        crate::helpers::write(
+            &crate::target_blueprint_path(&repo_paths, target_id),
+            &blueprint_bytes,
+        )?;
         stats.target_downloaded_count += 1;
     }
 

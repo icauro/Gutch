@@ -8,6 +8,7 @@ use crate::{Error, Result};
 pub struct GutchRepoPaths {
     pub repo_root: PathBuf,
     pub repo_metadata_path: PathBuf,
+    pub repo_binding_path: PathBuf,
     pub chunk_map_path: PathBuf,
     pub targets_root: PathBuf,
     pub bundles_root: PathBuf,
@@ -24,6 +25,7 @@ impl GutchRepoPaths {
         Self {
             repo_root: repo_root.to_path_buf(),
             repo_metadata_path: repo_root.join(REPO_METADATA_FILE),
+            repo_binding_path: repo_root.join("repo_binding.json"),
             chunk_map_path: repo_root.join("chunk_map.bin"),
             targets_root: repo_root.join("targets"),
             bundles_root: repo_root.join("bundles"),
@@ -39,7 +41,9 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
 
     let repo_manifest = if paths.repo_metadata_path.exists() {
         let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
-        crate::helpers::from_json_str(&repo_manifest_json)?
+        let mut manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
+        apply_repo_binding(paths, &mut manifest)?;
+        manifest
     } else {
         let repo_manifest = GutchRepoManifest::new(name.to_string());
         crate::helpers::write_json(&paths.repo_metadata_path, &repo_manifest)?;
@@ -59,7 +63,8 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
     }
 
     let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
-    let repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
+    let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
+    apply_repo_binding(&paths, &mut repo_manifest)?;
     Ok((paths, repo_manifest))
 }
 
@@ -67,7 +72,40 @@ pub fn write_gutch_repo_manifest(
     paths: &GutchRepoPaths,
     repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
-    crate::helpers::write_json(&paths.repo_metadata_path, repo_manifest)
+    crate::helpers::write_json(&paths.repo_metadata_path, repo_manifest)?;
+    if repo_manifest.remote_repo_id.is_empty() && repo_manifest.product_id.is_empty() {
+        if paths.repo_binding_path.exists() {
+            std::fs::remove_file(&paths.repo_binding_path)?;
+        }
+    } else {
+        crate::helpers::write_json(
+            &paths.repo_binding_path,
+            &serde_json::json!({
+                "product_id": repo_manifest.product_id,
+                "remote_repo_id": repo_manifest.remote_repo_id,
+            }),
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_repo_binding(paths: &GutchRepoPaths, manifest: &mut GutchRepoManifest) -> Result<()> {
+    if !paths.repo_binding_path.exists() {
+        return Ok(());
+    }
+    let binding: serde_json::Value =
+        crate::helpers::from_json_str(&crate::helpers::read_to_string(&paths.repo_binding_path)?)?;
+    manifest.product_id = binding
+        .get("product_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    manifest.remote_repo_id = binding
+        .get("remote_repo_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(())
 }
 
 pub fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> PathBuf {

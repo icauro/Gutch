@@ -100,6 +100,14 @@ fn write_u32_array(writer: &mut impl Write, values: &[u32]) -> Result<()> {
     Ok(())
 }
 
+fn read_u32_array(reader: &mut impl Read, count: usize) -> Result<Vec<u32>> {
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_u32(reader)?);
+    }
+    Ok(values)
+}
+
 fn write_u8_array(writer: &mut impl Write, values: &[u8]) -> Result<()> {
     for value in values {
         write_u8(writer, *value)?;
@@ -248,7 +256,7 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex
     Ok(())
 }
 
-pub(crate) fn write_target_manifest_files_binary(
+pub(crate) fn write_target_blueprint_binary(
     path: &Path,
     target_manifest: &TargetManifest,
 ) -> Result<()> {
@@ -294,4 +302,92 @@ pub(crate) fn write_target_manifest_files_binary(
     write_u64_array(&mut writer, &chunk_raw_sizes)?;
     writer.flush()?;
     Ok(())
+}
+
+pub(crate) fn read_target_blueprint_binary(
+    path: &Path,
+) -> Result<Vec<manifest::FileManifest>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let magic = read_exact_array::<8>(&mut reader)?;
+    if &magic != TARGET_FILES_BINARY_MAGIC {
+        return Err(Error::manifest(format!(
+            "invalid target blueprint binary header in {}",
+            path.display()
+        )));
+    }
+
+    let version = read_u16(&mut reader)?;
+    if version != TARGET_FILES_BINARY_VERSION {
+        return Err(Error::manifest(format!(
+            "unsupported target blueprint binary version {} in {}",
+            version,
+            path.display()
+        )));
+    }
+
+    let _reserved = read_u16(&mut reader)?;
+    let file_count = read_u32(&mut reader)? as usize;
+    let chunk_ref_count = read_u64(&mut reader)? as usize;
+    let paths = read_len_prefixed_string_array(&mut reader, file_count)?;
+    let sizes = read_u64_array(&mut reader, file_count)?;
+    let executables = read_u8_array(&mut reader, file_count)?;
+    let full_file_hashes = read_chunk_hash_array(&mut reader, file_count)?;
+    let chunk_counts = read_u32_array(&mut reader, file_count)?;
+    let chunk_hashes = read_chunk_hash_array(&mut reader, chunk_ref_count)?;
+    let chunk_raw_sizes = read_u64_array(&mut reader, chunk_ref_count)?;
+
+    let mut chunk_offset = 0usize;
+    let mut files = Vec::with_capacity(file_count);
+    for index in 0..file_count {
+        crate::validate_manifest_relative_path(&paths[index], false)?;
+        let chunk_count = chunk_counts[index] as usize;
+        let end = chunk_offset
+            .checked_add(chunk_count)
+            .ok_or_else(|| Error::manifest("target blueprint chunk count overflow"))?;
+        if end > chunk_hashes.len() {
+            return Err(Error::manifest(
+                "target blueprint chunk count exceeds payload",
+            ));
+        }
+        if executables[index] > 1 {
+            return Err(Error::manifest(
+                "target blueprint executable flags must be 0 or 1",
+            ));
+        }
+        let chunks: Vec<manifest::ChunkRef> = (chunk_offset..end)
+            .map(|chunk_index| manifest::ChunkRef {
+                chunk_hash: chunk_hashes[chunk_index].to_hex(),
+                raw_size: chunk_raw_sizes[chunk_index],
+            })
+            .collect();
+        let chunk_bytes = chunks.iter().map(|chunk| chunk.raw_size).sum::<u64>();
+        // A local manifest can be staged before chunking completes. Treat an
+        // empty chunk list as that intermediate state; completed blueprints
+        // still have to account for the full file size.
+        if chunk_count > 0 && chunk_bytes != sizes[index] {
+            return Err(Error::manifest(format!(
+                "target blueprint file '{}' size does not match its chunk references",
+                paths[index]
+            )));
+        }
+        chunk_offset = end;
+        files.push(manifest::FileManifest {
+            path: paths[index].clone(),
+            size: sizes[index],
+            executable: executables[index] != 0,
+            full_file_hash: full_file_hashes[index].to_hex(),
+            chunks,
+        });
+    }
+    if chunk_offset != chunk_ref_count {
+        return Err(Error::manifest(
+            "target blueprint contains unreferenced chunk records",
+        ));
+    }
+    let mut trailing = [0u8; 1];
+    if reader.read(&mut trailing)? != 0 {
+        return Err(Error::manifest("target blueprint contains trailing bytes"));
+    }
+    Ok(files)
 }

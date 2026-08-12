@@ -143,6 +143,7 @@ pub struct TargetInstallFetchRequest {
     pub target_id: String,
     pub repo_manifest_url: Option<String>,
     pub manifest_url: String,
+    pub blueprint_url: String,
     pub chunk_index_url: Option<String>,
     pub bundle_downloads_endpoint: Option<String>,
     pub session_id: Option<String>,

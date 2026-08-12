@@ -90,6 +90,9 @@ pub struct RepoCheckTargetStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
     #[serde(default)]
+    pub external_product_dependencies:
+        Vec<manifest::external_dependency::ExternalProductDependencyRequirement>,
+    #[serde(default)]
     pub file_paths: Vec<String>,
 }
 
@@ -253,12 +256,8 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         scan_bundle_inventory(&repo_paths.bundles_root)?;
     let scan_bundles_ms = scan_start.elapsed().as_millis() as u64;
 
-    let (targets, target_check_timings) = check_target_manifests(
-        &repo_paths,
-        &repo_paths.targets_root,
-        &available_bundle_ids,
-        repo_manifest.launch.as_ref(),
-    )?;
+    let (targets, target_check_timings) =
+        check_target_manifests(&repo_paths, &repo_paths.targets_root, &available_bundle_ids)?;
     let target_count = targets.len();
 
     let total_ms = total_start.elapsed().as_millis() as u64;
@@ -406,7 +405,6 @@ fn check_target_manifests(
     repo_paths: &GutchRepoPaths,
     targets_root: &Path,
     available_bundle_ids: &HashSet<String>,
-    repo_launch: Option<&manifest::launch::RepoLaunchConfiguration>,
 ) -> Result<(Vec<RepoCheckTargetStatus>, TargetManifestCheckTimings)> {
     if !targets_root.exists() {
         return Ok((Vec::new(), TargetManifestCheckTimings::default()));
@@ -430,10 +428,15 @@ fn check_target_manifests(
             manifest::launch::validate_resolved_launch_for_target(launch, &manifest)?;
             Some(launch.clone())
         } else {
-            repo_launch
-                .map(|launch| manifest::launch::resolve_repo_launch_for_target(launch, &manifest))
-                .transpose()?
+            None
         };
+        let external_product_dependencies = manifest
+            .product_metadata
+            .as_ref()
+            .map(|metadata| {
+                metadata.external_dependencies_for_host_tags(&manifest::current_host_tags())
+            })
+            .unwrap_or_default();
 
         let summary = summarize_target_tags(&manifest.target_tags, None);
         targets.push(RepoCheckTargetStatus {
@@ -450,6 +453,7 @@ fn check_target_manifests(
             target_tags: manifest.target_tags,
             launch: manifest.launch,
             resolved_launch,
+            external_product_dependencies,
             file_paths: manifest.files.into_iter().map(|file| file.path).collect(),
         });
     }

@@ -6,14 +6,14 @@ use crate::Result;
 use super::inventory::{list_repo_bundle_paths, list_repo_target_ids};
 use super::{
     load_chunk_index, load_gutch_repo_manifest, load_target_manifest, required_bundle_ids,
-    target_manifest_bin_path, target_manifest_path,
+    target_blueprint_path, target_manifest_path,
 };
 
 pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> {
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
     let manifest_path = target_manifest_path(&repo_paths, target_id);
-    let manifest_bin_path = target_manifest_bin_path(&repo_paths, target_id);
-    for path in [&manifest_path, &manifest_bin_path] {
+    let blueprint_path = target_blueprint_path(&repo_paths, target_id);
+    for path in [&manifest_path, &blueprint_path] {
         if !path.exists() {
             continue;
         }

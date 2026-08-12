@@ -421,10 +421,11 @@ impl StructuredVersion {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub struct TargetTagValueDefinition {
     pub value: String,
-    #[serde(default)]
+    #[serde(skip)]
     pub aliases: Vec<String>,
 }
 
@@ -439,27 +440,76 @@ impl TargetTagValueDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub struct TargetTagDefinition {
+    #[serde(rename = "tag_name")]
     pub name: String,
+    #[serde(rename = "tag_kind")]
     pub kind: TargetTagKind,
-    #[serde(default)]
+    #[serde(rename = "is_required", default)]
     pub required: bool,
     #[serde(default)]
     pub inference_prefixes: Vec<String>,
-    #[serde(default)]
+    #[serde(
+        rename = "allowed_values",
+        default,
+        serialize_with = "serialize_allowed_values",
+        deserialize_with = "deserialize_allowed_values"
+    )]
     pub values: Vec<TargetTagValueDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<String>,
-    #[serde(default)]
+    #[serde(
+        default,
+        skip_serializing_if = "is_default_inference_handler",
+        rename = "inference_strategy"
+    )]
     pub inference_handler: InferenceHandler,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub struct TargetTagSchema {
-    #[serde(default)]
+    #[serde(rename = "tag_definitions", default)]
     pub target_tags: Vec<TargetTagDefinition>,
+}
+
+fn is_default_inference_handler(handler: &InferenceHandler) -> bool {
+    *handler == InferenceHandler::Default
+}
+
+fn serialize_allowed_values<S>(
+    values: &[TargetTagValueDefinition],
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    values
+        .iter()
+        .map(|value| value.value.as_str())
+        .collect::<Vec<_>>()
+        .serialize(serializer)
+}
+
+fn deserialize_allowed_values<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<TargetTagValueDefinition>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values = Vec::<String>::deserialize(deserializer)?;
+    values
+        .into_iter()
+        .map(|value| {
+            Ok(TargetTagValueDefinition {
+                value,
+                aliases: Vec::new(),
+            })
+        })
+        .collect()
 }
 
 impl TargetTagSchema {

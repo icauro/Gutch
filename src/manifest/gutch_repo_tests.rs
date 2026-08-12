@@ -6,7 +6,7 @@ fn test_gutch_repo_manifest_new() {
     assert_eq!(repo.format, CONTENT_REPO_FORMAT);
     assert_eq!(repo.format_version, "1.0.0");
     assert_eq!(repo.name, "base");
-    assert!(repo.launch.is_none());
+    assert!(repo.product_metadata.is_none());
     assert_eq!(
         repo.artifact_profile.chunk,
         ArtifactSizingPreset::Chunk128KiB
@@ -41,16 +41,22 @@ fn artifact_profile_expands_presets_for_the_engine() {
 fn repo_manifest_serializes_the_compact_artifact_profile() {
     let json = serde_json::to_value(GutchRepoManifest::new("base".into())).unwrap();
     let artifact_profile = json
-        .get("artifact_profile")
+        .get("content_packaging_profile")
         .and_then(serde_json::Value::as_object)
         .expect("artifact_profile must be serialized as an object");
 
-    assert_eq!(artifact_profile.get("chunk").unwrap(), "chunk_128KiB");
-    assert_eq!(artifact_profile.get("compression").unwrap(), "zstd_3");
-    assert_eq!(artifact_profile.get("bundle").unwrap(), "bundle_16MiB");
-    assert_eq!(artifact_profile.get("storage").unwrap(), "bundled");
-    assert!(json.get("chunk_sizing_profile").is_none());
-    assert!(json.get("compression_profile").is_none());
-    assert!(json.get("bundle_sizing_profile").is_none());
-    assert!(json.get("storage_mode").is_none());
+    assert_eq!(
+        artifact_profile.get("chunk_size_profile").unwrap(),
+        "chunk_128KiB"
+    );
+    assert_eq!(
+        artifact_profile.get("compression_profile").unwrap(),
+        "zstd_3"
+    );
+    assert_eq!(
+        artifact_profile.get("bundle_size_profile").unwrap(),
+        "bundle_16MiB"
+    );
+    assert_eq!(artifact_profile.get("storage_mode").unwrap(), "bundled");
+    assert!(json.get("artifact_profile").is_none());
 }

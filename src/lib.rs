@@ -50,9 +50,8 @@ pub use install::{
     repair_target_install_from_repo, resolve_target_install_state, verify_target_install_from_repo,
 };
 pub use manifest::launch::{
-    LaunchPlatform, RepoLaunchAction, RepoLaunchCommand, RepoLaunchConfiguration,
-    ResolvedLaunchAction, ResolvedLaunchConfiguration, resolve_repo_launch_for_target,
-    validate_launch_path, validate_repo_launch_configuration, validate_resolved_launch_for_target,
+    ResolvedLaunchAction, ResolvedLaunchConfiguration, validate_launch_path,
+    validate_resolved_launch_for_target,
 };
 pub use manifest::template::{
     TaggingRuleTemplate, list_templates, template_by_name, template_schema,
@@ -92,11 +91,9 @@ pub use repo::{
     plan_target_insert, plan_target_sources_sync, preview_source_target_install, pull_repo,
     remove_target_from_repo, repo_init_needs_confirmation_error,
     serialize_target_manifest_for_remote, sync_target_sources, sync_up_repo,
-    target_manifest_bin_path, target_manifest_path, unlink_repo,
-    update_gutch_repo_external_product_dependencies, update_gutch_repo_launch,
-    update_gutch_repo_name, update_gutch_repo_schema, update_gutch_target_launch,
-    verify_gutch_repo, write_chunk_index, write_gutch_repo_manifest,
-    write_target_manifest_artifacts,
+    target_blueprint_path, target_manifest_path, unlink_repo, update_gutch_repo_name,
+    update_gutch_repo_schema, update_gutch_target_launch, verify_gutch_repo, write_chunk_index,
+    write_gutch_repo_manifest, write_target_manifest_artifacts,
 };
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,

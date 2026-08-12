@@ -146,8 +146,24 @@ fn test_resolve_custom_scoped_tags() {
     assert_eq!(resolved.target_tags.get_exclusive("version"), Some("1.0.0"));
     assert_eq!(resolved.target_tags.get_exclusive("os"), Some("windows"));
     assert_eq!(resolved.target_tags.get_exclusive("arch"), Some("x86_64"));
+    assert!(resolved.target_tags.scoped.get("loader").is_none());
+
+    let mut explicit_tags = TargetTagSet::default();
+    explicit_tags.upsert_exclusive("version", "1.0.0");
+    explicit_tags.upsert_exclusive("os", "windows");
+    explicit_tags.upsert_exclusive("arch", "x86_64");
+    explicit_tags.upsert_exclusive("released_at", "2026_07_14");
+    explicit_tags.insert_scoped("loader".to_string(), "fabric".to_string());
+    let explicitly_tagged = resolve_target_identity_with_inference(
+        std::path::Path::new("mod-v1.0.0-win-x64-fabric-2026_07_14"),
+        &explicit_tags,
+        &rules,
+        false,
+        "test",
+    )
+    .unwrap();
     assert!(
-        resolved
+        explicitly_tagged
             .target_tags
             .scoped
             .get("loader")

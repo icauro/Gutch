@@ -46,26 +46,11 @@ fn gutch_bundle_download_deserializes_backend_bundle_downloads_response() {
 }
 
 #[test]
-fn resolved_install_state_uses_repo_inheritance_and_target_override() {
+fn resolved_install_state_uses_target_product_runtime() {
     let root = crate::test_util::temp_path("gutch_resolved_install_launch_state");
     let _ = std::fs::remove_dir_all(&root);
     let paths = GutchRepoPaths::from_repo_root(&root);
     crate::ensure_gutch_repo_layout(&paths, "test").unwrap();
-    let (_, mut repo_manifest) = crate::load_gutch_repo_manifest(&root).unwrap();
-    repo_manifest.launch = Some(crate::RepoLaunchConfiguration {
-        primary: None,
-        actions: vec![crate::RepoLaunchAction {
-            name: "Play".into(),
-            commands: vec![crate::RepoLaunchCommand {
-                platform: None,
-                executable: "Game.exe".into(),
-                arguments: vec!["--repo".into()],
-                working_directory: None,
-            }],
-        }],
-    });
-    crate::write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
-
     let mut tags = TargetTagSet::default();
     tags.upsert_exclusive("os", "windows");
     tags.upsert_exclusive("arch", "x86_64");
@@ -79,10 +64,6 @@ fn resolved_install_state_uses_repo_inheritance_and_target_override() {
     });
     crate::write_target_manifest_artifacts(&paths, &target).unwrap();
 
-    let inherited = resolve_target_install_state(&root, "target").unwrap();
-    assert_eq!(inherited.launch.unwrap().actions[0].arguments, ["--repo"]);
-    assert!(!inherited.manifest_hash.is_empty());
-
     target.launch = Some(crate::ResolvedLaunchConfiguration {
         primary: None,
         actions: vec![crate::ResolvedLaunchAction {
@@ -93,11 +74,9 @@ fn resolved_install_state_uses_repo_inheritance_and_target_override() {
         }],
     });
     crate::write_target_manifest_artifacts(&paths, &target).unwrap();
-    let overridden = resolve_target_install_state(&root, "target").unwrap();
-    assert_eq!(
-        overridden.launch.unwrap().actions[0].arguments,
-        ["--target"]
-    );
+    let resolved = resolve_target_install_state(&root, "target").unwrap();
+    assert_eq!(resolved.launch.unwrap().actions[0].arguments, ["--target"]);
+    assert!(!resolved.manifest_hash.is_empty());
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -272,11 +251,29 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     };
     let paths = GutchRepoPaths::from_repo_root(&repo_path);
     write_chunk_index(&paths, &chunk_index).unwrap();
+    let mut blueprint_manifest = TargetManifest::new(
+        "1.0.0-windows-x86_64-base".to_string(),
+        TargetTagSet::from_compact_strings(&["version::1.0.0".to_string()]).unwrap(),
+    );
+    blueprint_manifest.files.push(FileManifest {
+        path: "game.exe".to_string(),
+        size: 100,
+        executable: true,
+        full_file_hash: test_hash("game.exe"),
+        chunks: vec![manifest::ChunkRef {
+            chunk_hash: test_hash("chunk-a"),
+            raw_size: 100,
+        }],
+    });
+    let blueprint_path = root.join("fixture-target-blueprint.bin");
+    manifest::binary::write_target_blueprint_binary(&blueprint_path, &blueprint_manifest)
+        .unwrap();
+    let blueprint_bytes = std::fs::read(&blueprint_path).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for _ in 0..3 {
+        for _ in 0..4 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0u8; 4096];
             let bytes_read = stream.read(&mut buffer).unwrap();
@@ -291,33 +288,14 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                 "/manifest" => (
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
-                    "version_id": "1.0.0",
-                    "os": "windows",
-                    "arch": "x86_64",
+                    "target_metadata_version": "1.0.0",
                     "inserted_at": "2026-05-11T00:00:00Z",
-                    "files": [
-                        {
-                            "path": "game.exe",
-                            "size": 100,
-                                                                "executable": true,
-                                                                "full_file_hash": test_hash("game.exe"),
-                            "chunks": [
-                                { "chunk_hash": test_hash("chunk-a"), "raw_size": 100 }
-                            ]
-                        }
-                    ],
-                    "target_tags": ["version:1.0.0"],
-                    "manifest_version": "1.0.0",
-                    "source_modified_at": "",
-                    "chunk_sizing_profile": manifest::ChunkSizingProfile::default(),
-                    "compression_profile": manifest::CompressionProfile::default(),
-                    "bundle_sizing_profile": manifest::BundleSizingProfile::default(),
-                    "total_logical_size": 0,
-                    "total_compressed_size_estimate": 0,
+                    "target_tags": ["version::1.0.0"],
                                             }))
                     .unwrap(),
                     "application/json",
                 ),
+                "/blueprint" => ("200 OK", blueprint_bytes.clone(), "application/octet-stream"),
                 "/bundle-a" => (
                     "200 OK",
                     b"bundle-a-bytes".to_vec(),
@@ -354,6 +332,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         target_id: "1.0.0-windows-x86_64-base".to_string(),
         repo_manifest_url: None,
         manifest_url: format!("http://{}/manifest", address),
+        blueprint_url: format!("http://{}/blueprint", address),
         chunk_index_url: None,
         bundle_downloads_endpoint: Some(format!("http://{}/bundles", address)),
         session_id: Some("session-1".to_string()),
@@ -368,13 +347,15 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     assert!(
         repo_path
             .join("targets")
-            .join("1.0.0-windows-x86_64-base.json")
+            .join("1.0.0-windows-x86_64-base")
+            .join("target_metadata.json")
             .exists()
     );
     assert!(
         repo_path
             .join("targets")
-            .join("1.0.0-windows-x86_64-base.bin")
+            .join("1.0.0-windows-x86_64-base")
+            .join("target_blueprint.bin")
             .exists()
     );
     assert!(repo_path.join("targets").exists());
