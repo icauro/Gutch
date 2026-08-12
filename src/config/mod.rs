@@ -19,32 +19,24 @@ pub struct TrackedRepo {
 
 impl GutchConfig {
     pub fn find_repo(&self, path: &str) -> Option<&TrackedRepo> {
-        let key = path.trim().to_ascii_lowercase();
         self.repos
             .iter()
-            .find(|repo| repo.path.trim().to_ascii_lowercase() == key)
+            .find(|repo| repo_paths_match(&repo.path, path))
     }
 
     pub fn find_repo_mut(&mut self, path: &str) -> Option<&mut TrackedRepo> {
-        let key = path.trim().to_ascii_lowercase();
         self.repos
             .iter_mut()
-            .find(|repo| repo.path.trim().to_ascii_lowercase() == key)
+            .find(|repo| repo_paths_match(&repo.path, path))
     }
 
     pub fn upsert_repo(&mut self, repo: TrackedRepo) {
-        let key = repo.path.trim().to_ascii_lowercase();
-        if let Some(existing) = self
-            .repos
-            .iter_mut()
-            .find(|r| r.path.trim().to_ascii_lowercase() == key)
-        {
+        if let Some(existing) = self.find_repo_mut(&repo.path) {
             if repo.target_sources_path.is_some() {
                 existing.target_sources_path = repo.target_sources_path;
             }
         } else {
-            self.repos.push(repo);
-            self.repos.sort_by(|a, b| a.path.cmp(&b.path));
+            self.insert_repo(repo);
         }
     }
 
@@ -58,12 +50,20 @@ impl GutchConfig {
             return;
         }
 
-        self.repos.push(TrackedRepo {
+        self.insert_repo(TrackedRepo {
             path: path.to_string(),
             target_sources_path,
         });
+    }
+
+    fn insert_repo(&mut self, repo: TrackedRepo) {
+        self.repos.push(repo);
         self.repos.sort_by(|a, b| a.path.cmp(&b.path));
     }
+}
+
+fn repo_paths_match(left: &str, right: &str) -> bool {
+    left.trim().eq_ignore_ascii_case(right.trim())
 }
 
 fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
@@ -141,7 +141,7 @@ mod tests {
             }],
         };
 
-        config.set_repo_target_sources_path("D:\\Repos\\game", None);
+        config.set_repo_target_sources_path("  d:\\repos\\GAME  ", None);
 
         let tracked = config.find_repo("D:\\Repos\\game").unwrap();
         assert_eq!(tracked.target_sources_path, None);
@@ -170,5 +170,20 @@ mod tests {
             config.repos[0].target_sources_path,
             Some("D:\\Builds\\game-v2".to_string())
         );
+    }
+
+    #[test]
+    fn inserted_repos_remain_sorted_by_path() {
+        let mut config = GutchConfig { repos: vec![] };
+
+        for path in ["D:\\Repos\\game", "C:\\Repos\\game"] {
+            config.upsert_repo(TrackedRepo {
+                path: path.to_string(),
+                target_sources_path: None,
+            });
+        }
+
+        assert_eq!(config.repos[0].path, "C:\\Repos\\game");
+        assert_eq!(config.repos[1].path, "D:\\Repos\\game");
     }
 }
