@@ -78,30 +78,6 @@ fn build_summary_separates_wall_phases_from_worker_details() {
 }
 
 #[test]
-fn build_summary_reports_experimental_prehash_comparison_fields() {
-    let timings = g::BuildTimings {
-        experimental_prehash_reuse: true,
-        prehash: Duration::from_secs(2),
-        prehash_bytes: 8 * 1024 * 1024,
-        prehash_reused_bytes: 6 * 1024 * 1024,
-        prehash_candidate_file_count: 3,
-        prehash_reused_file_count: 2,
-        prehash_mismatch_file_count: 1,
-        ..g::BuildTimings::default()
-    };
-
-    let summary = build_timings_summary(&timings);
-    let details = &summary.phases.scan_chunk.details;
-
-    assert_eq!(summary.scan_strategy, "experimental_prehash_reuse");
-    assert_eq!(details.prehash_candidate_file_count, 3);
-    assert_eq!(details.prehash_reused_file_count, 2);
-    assert_eq!(details.prehash_mismatch_file_count, 1);
-    assert_eq!(details.prehash_reused_bytes, 6 * 1024 * 1024);
-    assert_eq!(details.prehash_mib_per_second, 4.0);
-}
-
-#[test]
 fn reconstruct_summary_uses_null_for_disabled_verification() {
     let timings = g::ReconstructTimings {
         prepare_wall: Duration::from_secs(1),

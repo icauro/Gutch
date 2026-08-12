@@ -53,7 +53,6 @@ struct InsertOneTargetRequest<'a> {
     allow_name_inference: bool,
     build_profile: ArtifactBuildProfileArgs,
     runtime_hints: g::RuntimeResourceHints,
-    experimental_prehash_reuse: bool,
     stats_json_out: &'a Option<PathBuf>,
     command_name: &'static str,
     yes: bool,
@@ -215,7 +214,6 @@ fn run_insert_one_target(
             .with_existing_chunks(&store_state.chunk_locations)
             .with_existing_bundles(&store_state.bundle_ids)
             .with_previous_manifests(&store_state.previous_file_manifests)
-            .with_experimental_prehash_reuse(request.experimental_prehash_reuse)
             .with_chunk_profile(&chunk_sizing_profile)
             .with_bundle_profile(&bundle_sizing_profile)
             .with_compression_profile(&compression_profile);
@@ -483,7 +481,6 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             tags,
             build_profile,
             runtime,
-            experimental_prehash_reuse,
             stats_json_out,
             yes,
         } => {
@@ -525,13 +522,9 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     bundle_profile: build_profile.bundle_profile,
                     compression_profile: build_profile.compression_profile,
                     storage_mode: build_profile.storage_mode,
-                    experimental_prehash_reuse,
                     runtime_hints: runtime.hints(),
                     control: g::GutchOperationControl::default().with_progress(progress),
                 })?;
-                if experimental_prehash_reuse {
-                    print_build_timings(&insert_result.build_timings);
-                }
                 let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
                 let stats = TargetInsertStats {
                     command: "target commit",
@@ -639,7 +632,6 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                             allow_name_inference: source.allow_name_inference,
                             build_profile,
                             runtime_hints: runtime.hints(),
-                            experimental_prehash_reuse,
                             stats_json_out: &empty_output,
                             command_name: "target commit",
                             yes,

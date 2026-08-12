@@ -54,7 +54,6 @@ pub struct RepoTargetInsertRequest {
     pub bundle_profile: crate::manifest::BundleSizingPreset,
     pub compression_profile: crate::manifest::CompressionPreset,
     pub storage_mode: crate::manifest::ArtifactStorageMode,
-    pub experimental_prehash_reuse: bool,
     pub runtime_hints: RuntimeResourceHints,
     pub control: crate::GutchOperationControl,
 }
@@ -372,7 +371,6 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
             .with_existing_chunks(&store_state.chunk_locations)
             .with_existing_bundles(&store_state.bundle_ids)
             .with_previous_manifests(&store_state.previous_file_manifests)
-            .with_experimental_prehash_reuse(request.experimental_prehash_reuse)
             .with_chunk_profile(&chunk_profile)
             .with_bundle_profile(&bundle_profile)
             .with_compression_profile(&compression_profile);

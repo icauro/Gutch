@@ -344,7 +344,6 @@ fn insert_source_target_candidate(
         bundle_profile: crate::manifest::BundleSizingPreset::Bundle16MiB,
         compression_profile: crate::manifest::CompressionPreset::Zstd3,
         storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-        experimental_prehash_reuse: false,
         runtime_hints: crate::RuntimeResourceHints::default(),
         control: candidate_control,
     })

@@ -26,7 +26,6 @@ pub struct BuildConfig<'a> {
     pub existing_chunk_locations: Option<&'a HashMap<String, ExistingChunkLocation>>,
     pub existing_bundle_ids: Option<&'a HashSet<String>>,
     pub previous_file_manifests: Option<&'a HashMap<String, Vec<FileManifest>>>,
-    pub experimental_prehash_reuse: bool,
     pub chunk_profile: ChunkSizingProfile,
     pub bundle_profile: BundleSizingProfile,
     pub compression_profile: CompressionProfile,
@@ -49,7 +48,6 @@ impl<'a> BuildConfig<'a> {
             existing_chunk_locations: None,
             existing_bundle_ids: None,
             previous_file_manifests: None,
-            experimental_prehash_reuse: false,
             chunk_profile: ChunkSizingProfile::default(),
             bundle_profile: BundleSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
@@ -78,11 +76,6 @@ impl<'a> BuildConfig<'a> {
         manifests: &'a HashMap<String, Vec<FileManifest>>,
     ) -> Self {
         self.previous_file_manifests = Some(manifests);
-        self
-    }
-
-    pub fn with_experimental_prehash_reuse(mut self, enabled: bool) -> Self {
-        self.experimental_prehash_reuse = enabled;
         self
     }
 
@@ -198,15 +191,8 @@ impl ChunkPayload {
 #[derive(Debug, Clone, Default)]
 pub struct BuildTimings {
     pub storage_mode: ArtifactStorageMode,
-    pub experimental_prehash_reuse: bool,
     pub scan_chunk_wall: Duration,
     pub logical_bytes: u64,
-    pub prehash: Duration,
-    pub prehash_bytes: u64,
-    pub prehash_reused_bytes: u64,
-    pub prehash_candidate_file_count: usize,
-    pub prehash_reused_file_count: usize,
-    pub prehash_mismatch_file_count: usize,
     pub file_hash: Duration,
     pub file_hash_bytes: u64,
     pub stream_chunk: Duration,

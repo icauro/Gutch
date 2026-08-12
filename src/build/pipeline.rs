@@ -404,7 +404,6 @@ pub fn build_with_config(
     let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings {
         storage_mode: config.storage_mode,
-        experimental_prehash_reuse: config.experimental_prehash_reuse,
         ..BuildTimings::default()
     };
     let runtime_plan =
@@ -432,7 +431,6 @@ pub fn build_with_config(
         dir,
         ScanDirectoryOptions {
             previous_file_manifests,
-            experimental_prehash_reuse: config.experimental_prehash_reuse,
             chunking_profile: &config.chunk_profile,
             existing_chunk_locations: &existing_chunk_locations_by_hash,
             chunk_storage_mode: runtime_plan.chunk_storage_mode,

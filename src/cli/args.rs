@@ -238,10 +238,6 @@ pub enum TargetCommands {
         build_profile: ArtifactBuildProfileArgs,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        /// Hash same-path, same-size files before chunking so unchanged files can reuse a
-        /// previous manifest. Changed candidates are read again during normal chunking.
-        #[arg(long = "experimental-prehash-reuse")]
-        experimental_prehash_reuse: bool,
         #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
@@ -357,7 +353,7 @@ pub enum PathCommands {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, TargetCommands};
+    use super::Cli;
     use clap::Parser;
 
     #[test]
@@ -383,40 +379,5 @@ mod tests {
         };
         Cli::try_parse_from(["hostapp-cli gutch", "repo", "check", "--repo", repo])
             .expect("absolute repository path");
-    }
-
-    #[test]
-    fn target_commit_accepts_experimental_prehash_reuse() {
-        let repo = if cfg!(windows) {
-            r"D:\Repos\game"
-        } else {
-            "/repos/game"
-        };
-        let source = if cfg!(windows) {
-            r"D:\Builds\game-1.0.0"
-        } else {
-            "/builds/game-1.0.0"
-        };
-        let cli = Cli::try_parse_from([
-            "hostapp-cli gutch",
-            "target",
-            "commit",
-            "--dir",
-            source,
-            "--repo",
-            repo,
-            "--experimental-prehash-reuse",
-        ])
-        .expect("experimental prehash flag should parse");
-
-        assert!(matches!(
-            cli.command,
-            Commands::Target {
-                command: TargetCommands::Commit {
-                    experimental_prehash_reuse: true,
-                    ..
-                }
-            }
-        ));
     }
 }

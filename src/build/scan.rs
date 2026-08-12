@@ -16,12 +16,6 @@ pub struct FileBuildEntry {
     pub manifest: FileManifest,
     pub chunks: Vec<(ChunkHash, ChunkPayload)>,
     pub size: u64,
-    pub prehash: Duration,
-    pub prehash_bytes: u64,
-    pub prehash_reused_bytes: u64,
-    pub prehash_candidate_file_count: usize,
-    pub prehash_reused_file_count: usize,
-    pub prehash_mismatch_file_count: usize,
     pub file_hash: Duration,
     pub file_hash_bytes: u64,
     pub stream_chunk: Duration,
@@ -33,7 +27,6 @@ pub struct FileBuildEntry {
 
 pub(crate) struct ScanDirectoryOptions<'a> {
     pub previous_file_manifests: &'a HashMap<String, Vec<FileManifest>>,
-    pub experimental_prehash_reuse: bool,
     pub chunking_profile: &'a manifest::ChunkSizingProfile,
     pub existing_chunk_locations: &'a HashMap<ChunkHash, ExistingChunkLocation>,
     pub chunk_storage_mode: ChunkStorageMode,
@@ -45,12 +38,6 @@ pub(crate) struct ScanDirectoryOptions<'a> {
 
 pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileBuildEntry) {
     timings.logical_bytes += entry.size;
-    timings.prehash += entry.prehash;
-    timings.prehash_bytes += entry.prehash_bytes;
-    timings.prehash_reused_bytes += entry.prehash_reused_bytes;
-    timings.prehash_candidate_file_count += entry.prehash_candidate_file_count;
-    timings.prehash_reused_file_count += entry.prehash_reused_file_count;
-    timings.prehash_mismatch_file_count += entry.prehash_mismatch_file_count;
     timings.file_hash += entry.file_hash;
     timings.file_hash_bytes += entry.file_hash_bytes;
     timings.stream_chunk += entry.stream_chunk;
@@ -115,7 +102,7 @@ pub(crate) fn scan_directory_into_file_entries(
             let normalized_relative = relative.to_string_lossy().replace('\\', "/");
 
             let metadata_started_at = std::time::Instant::now();
-            let file_metadata = std::fs::metadata(path)?;
+            std::fs::metadata(path)?;
             let metadata = metadata_started_at.elapsed();
             let previous_candidates = options
                 .previous_file_manifests
@@ -123,64 +110,15 @@ pub(crate) fn scan_directory_into_file_entries(
                 .map(Vec::as_slice)
                 .unwrap_or_default();
 
-            if options.experimental_prehash_reuse
-                && previous_candidates
-                    .iter()
-                    .any(|candidate| candidate.size == file_metadata.len())
-            {
-                let (prehash, prehash_bytes, prehash_duration) =
-                    crate::hash::hash_file_streaming_with_control(path, &control_for_scan)?;
-                let prehash_hex = crate::hash::hash_hex(&prehash);
-                if let Some(previous) = previous_candidates.iter().find(|candidate| {
-                    candidate.size == prehash_bytes && candidate.full_file_hash == prehash_hex
-                }) {
-                    return Ok(FileBuildEntry {
-                        manifest: previous.clone(),
-                        chunks: Vec::new(),
-                        size: prehash_bytes,
-                        prehash: prehash_duration,
-                        prehash_bytes,
-                        prehash_reused_bytes: prehash_bytes,
-                        prehash_candidate_file_count: 1,
-                        prehash_reused_file_count: 1,
-                        prehash_mismatch_file_count: 0,
-                        file_hash: Duration::ZERO,
-                        file_hash_bytes: 0,
-                        stream_chunk: Duration::ZERO,
-                        stream_chunk_bytes: 0,
-                        chunk_hash_judgment: Duration::ZERO,
-                        chunk_hash_judgment_bytes: 0,
-                        metadata,
-                    });
-                }
-
-                return scan_changed_file(
-                    path,
-                    relative,
-                    normalized_relative,
-                    metadata,
-                    prehash_duration,
-                    prehash_bytes,
-                    previous_candidates,
-                    &options,
-                    &control_for_scan,
-                    spool_root.as_ref(),
-                    true,
-                );
-            }
-
             scan_changed_file(
                 path,
                 relative,
                 normalized_relative,
                 metadata,
-                Duration::ZERO,
-                0,
                 previous_candidates,
                 &options,
                 &control_for_scan,
                 spool_root.as_ref(),
-                false,
             )
         })();
 
@@ -211,13 +149,10 @@ fn scan_changed_file(
     relative: &Path,
     normalized_relative: String,
     metadata: Duration,
-    prehash: Duration,
-    prehash_bytes: u64,
     previous_candidates: &[FileManifest],
     options: &ScanDirectoryOptions<'_>,
     control: &crate::GutchOperationControl,
     spool_root: Option<&PathBuf>,
-    prehash_mismatch: bool,
 ) -> Result<FileBuildEntry> {
     let (chunk_scan, chunk_timings) =
         crate::chunk::chunk_file_streaming_with_file_hash_and_control(
@@ -237,12 +172,6 @@ fn scan_changed_file(
             manifest: previous.clone(),
             chunks: Vec::new(),
             size: file_size,
-            prehash,
-            prehash_bytes,
-            prehash_reused_bytes: 0,
-            prehash_candidate_file_count: usize::from(prehash_mismatch),
-            prehash_reused_file_count: 0,
-            prehash_mismatch_file_count: usize::from(prehash_mismatch),
             file_hash,
             file_hash_bytes: file_size,
             stream_chunk: chunk_timings.boundary_scan,
@@ -316,12 +245,6 @@ fn scan_changed_file(
         },
         chunks,
         size: file_size,
-        prehash,
-        prehash_bytes,
-        prehash_reused_bytes: 0,
-        prehash_candidate_file_count: usize::from(prehash_mismatch),
-        prehash_reused_file_count: 0,
-        prehash_mismatch_file_count: usize::from(prehash_mismatch),
         file_hash,
         file_hash_bytes: file_size,
         stream_chunk,
