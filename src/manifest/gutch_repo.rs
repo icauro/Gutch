@@ -7,10 +7,10 @@ use super::*;
 pub struct ArtifactProfile {
     #[serde(rename = "chunk_size_profile")]
     pub chunk: ArtifactSizingPreset,
-    #[serde(rename = "compression_profile")]
-    pub compression: CompressionPreset,
     #[serde(rename = "bundle_size_profile")]
     pub bundle: BundleSizingPreset,
+    #[serde(rename = "compression_profile")]
+    pub compression: CompressionPreset,
     #[serde(rename = "storage_mode")]
     pub storage: ArtifactStorageMode,
 }
@@ -19,8 +19,8 @@ impl Default for ArtifactProfile {
     fn default() -> Self {
         Self {
             chunk: ArtifactSizingPreset::default(),
-            compression: CompressionPreset::default(),
             bundle: BundleSizingPreset::default(),
+            compression: CompressionPreset::default(),
             storage: ArtifactStorageMode::default(),
         }
     }
@@ -35,8 +35,8 @@ impl ArtifactProfile {
     ) -> Self {
         Self {
             chunk,
-            compression,
             bundle,
+            compression,
             storage,
         }
     }
@@ -64,13 +64,7 @@ pub struct GutchRepoManifest {
     #[serde(rename = "repository_name")]
     #[serde(default)]
     pub name: String,
-    #[serde(skip)]
-    pub remote_repo_id: String,
-    #[serde(skip)]
-    pub product_id: String,
     pub created_at: String,
-    #[serde(rename = "target_tag_schema")]
-    pub target_schema: Option<TargetTagSchema>,
     #[serde(rename = "content_packaging_profile")]
     pub artifact_profile: ArtifactProfile,
     #[serde(
@@ -79,6 +73,12 @@ pub struct GutchRepoManifest {
         skip_serializing_if = "Option::is_none"
     )]
     pub product_metadata: Option<RepoProductMetadata>,
+    #[serde(rename = "target_tag_schema")]
+    pub target_schema: Option<TargetTagSchema>,
+    #[serde(skip)]
+    pub remote_repo_id: String,
+    #[serde(skip)]
+    pub product_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -95,12 +95,12 @@ impl GutchRepoManifest {
             format: CONTENT_REPO_FORMAT.to_string(),
             format_version: FORMAT_VERSION.to_string(),
             name,
-            remote_repo_id: String::new(),
-            product_id: String::new(),
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            target_schema: Some(TargetTagSchema::default()),
             artifact_profile: ArtifactProfile::default(),
             product_metadata: None,
+            target_schema: Some(TargetTagSchema::default()),
+            remote_repo_id: String::new(),
+            product_id: String::new(),
         }
     }
 
