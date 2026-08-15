@@ -529,7 +529,7 @@ impl RepoTargetInsertResult {
             GutchProgressEvent {
                 operation: GutchOperation::TargetInsert,
                 phase: GutchProgressPhase::Done,
-                message: "Target insert complete".to_string(),
+                message: "Target commit complete".to_string(),
                 current: 1,
                 total: 1,
                 transferred_bytes: 0,
@@ -639,7 +639,7 @@ struct PreparedInputPath {
 pub fn describe_target_insert_plan(plan: &TargetInsertPlan) -> String {
     match plan.kind {
         TargetInsertKind::InsertNew => format!(
-            "Insert new target slot {} ({})",
+            "Commit new target slot {} ({})",
             plan.folder_name, plan.version_id
         ),
         TargetInsertKind::UpdateTags => format!(

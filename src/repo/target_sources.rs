@@ -278,7 +278,7 @@ pub fn sync_target_sources(
             GutchProgressEvent {
                 operation: GutchOperation::TargetSourcesSync,
                 phase: GutchProgressPhase::Insert,
-                message: format!("Syncing target '{}'", candidate.folder_name),
+                message: format!("Committing target '{}'", candidate.folder_name),
                 current: current_step,
                 total: total_steps,
                 transferred_bytes: 0,

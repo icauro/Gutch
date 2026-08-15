@@ -102,7 +102,8 @@ pub enum RepoCommands {
         #[arg(long = "clear")]
         clear: bool,
     },
-    Check {
+    #[command(name = "status")]
+    Status {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "json-out", value_parser = parse_absolute_path)]
@@ -361,7 +362,7 @@ mod tests {
         let error = Cli::try_parse_from([
             "hostapp-cli gutch",
             "repo",
-            "check",
+            "status",
             "--repo",
             "relative/repo",
         ])
@@ -377,7 +378,7 @@ mod tests {
         } else {
             "/repos/game"
         };
-        Cli::try_parse_from(["hostapp-cli gutch", "repo", "check", "--repo", repo])
+        Cli::try_parse_from(["hostapp-cli gutch", "repo", "status", "--repo", repo])
             .expect("absolute repository path");
     }
 }

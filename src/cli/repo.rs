@@ -41,7 +41,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             );
         }
 
-        RepoCommands::Check { repo, json_out } => {
+        RepoCommands::Status { repo, json_out } => {
             let tracked = g::check_tracked_gutch_repo(&repo)?;
             let status = tracked.repo_status.clone();
             if let Some(json_out) = json_out.as_ref() {
@@ -96,9 +96,9 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                     print_repo_check_timings(repo_timings);
                 }
             } else if let Some(error) = status.error.as_deref() {
-                println!("check status: {}", error);
+                println!("status: {}", error);
             } else {
-                println!("check status: no gutch repo found at {}", status.repo_path);
+                println!("status: no gutch repo found at {}", status.repo_path);
             }
         }
 
