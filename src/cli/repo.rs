@@ -45,7 +45,7 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             );
         }
 
-        RepoCommands::Status { repo, json_out } => {
+        RepoCommands::Refresh { repo, json_out } => {
             let tracked = g::check_tracked_gutch_repo(&repo)?;
             let status = tracked.repo_status.clone();
             if let Some(json_out) = json_out.as_ref() {

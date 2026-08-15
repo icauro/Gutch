@@ -101,7 +101,7 @@ impl SourceConfig {
     }
 
     /// Load the config or fall back to the default `auto` skeleton without
-    /// creating a file (used by read-only consumers such as repo status reads).
+    /// creating a file (used by read-only consumers such as repo refresh reads).
     pub fn load_or_default(source_root: &Path) -> Result<Self> {
         Ok(Self::load(source_root)?.unwrap_or_else(Self::default_skeleton))
     }
