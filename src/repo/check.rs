@@ -86,6 +86,8 @@ pub struct RepoCheckTargetStatus {
     pub source_modified_at: String,
     pub target_tags: manifest::TargetTagSet,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_metadata: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
@@ -419,6 +421,11 @@ fn check_target_manifests(
     for target_id in list_repo_target_ids(repo_paths)? {
         let manifest_path = crate::target_manifest_path(repo_paths, &target_id);
         let manifest = load_target_manifest(repo_paths, &target_id)?;
+        let target_metadata = Some(
+            serde_json::to_value(&manifest).map_err(|error| {
+                Error::manifest(format!("failed to serialize target metadata: {error}"))
+            })?,
+        );
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()
@@ -451,6 +458,7 @@ fn check_target_manifests(
             missing_bundle_count,
             source_modified_at: manifest.source_modified_at.clone(),
             target_tags: manifest.target_tags,
+            target_metadata,
             launch: manifest.launch,
             resolved_launch,
             external_product_dependencies,
