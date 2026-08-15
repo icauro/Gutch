@@ -93,6 +93,13 @@ pub enum RepoCommands {
         #[arg(long = "force")]
         force: bool,
     },
+    #[command(name = "rename")]
+    Rename {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "name")]
+        name: String,
+    },
     #[command(name = "schema-set")]
     SchemaSet {
         #[arg(long = "repo", value_parser = parse_absolute_path)]

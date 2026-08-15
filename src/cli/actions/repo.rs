@@ -77,6 +77,12 @@ pub fn init_repo(path: &Path, schema: Option<&PathBuf>, force: bool) -> g::Resul
     Ok(())
 }
 
+pub fn rename_repo(repo: &Path, name: &str) -> g::Result<()> {
+    g::update_gutch_repo_name(repo, name)?;
+    println!("renamed repo '{}' to '{}'", repo.display(), name.trim());
+    Ok(())
+}
+
 pub fn link_repo(
     repo: &Path,
     product_id: i64,

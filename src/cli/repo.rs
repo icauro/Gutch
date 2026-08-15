@@ -17,6 +17,10 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             actions::repo::init_repo(&path, schema.as_ref(), force)?;
         }
 
+        RepoCommands::Rename { repo, name } => {
+            actions::repo::rename_repo(&repo, &name)?;
+        }
+
         RepoCommands::SchemaSet {
             repo,
             schema,
