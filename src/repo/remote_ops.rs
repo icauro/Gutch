@@ -17,6 +17,7 @@ pub struct RepoSyncUpStats {
     pub product_id: i64,
     pub remote_repo_id: i64,
     pub repo_manifest_uploaded: bool,
+    pub target_launch_profiles_uploaded: bool,
     pub chunk_index_uploaded: bool,
     pub target_manifest_uploaded_count: usize,
     pub target_blueprint_uploaded_count: usize,
@@ -49,6 +50,7 @@ pub struct RepoSyncPlan {
     pub product_id: i64,
     pub remote_repo_id: i64,
     pub repo_manifest_changed: bool,
+    pub target_launch_profiles_changed: bool,
     pub chunk_index_changed: bool,
     pub target_count: usize,
     pub remote_target_count: usize,
@@ -147,6 +149,12 @@ fn local_repo_metadata_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<Str
     )?))
 }
 
+fn local_target_launch_profiles_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
+    Ok(repo_file_hash(&crate::helpers::read(
+        &repo_paths.target_launch_profiles_path,
+    )?))
+}
+
 fn local_chunk_index_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
     if !repo_paths.chunk_map_path.exists() {
         return Ok(String::new());
@@ -159,7 +167,7 @@ fn local_target_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
 ) -> Result<String> {
-    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
+    let manifest = crate::materialize_target_runtime(repo_paths, target_id)?;
     Ok(repo_file_hash(
         &crate::serialize_target_manifest_for_remote(&manifest)?,
     ))
@@ -357,6 +365,10 @@ pub fn plan_sync_up_repo(
         &local_repo_metadata_hash_b3(&repo_paths)?,
         &remote_repo.repo_metadata_hash_b3,
     );
+    let target_launch_profiles_changed = hashes_differ(
+        &local_target_launch_profiles_hash_b3(&repo_paths)?,
+        &remote_repo.target_launch_profiles_hash_b3,
+    );
     let chunk_index_changed = hashes_differ(
         &local_chunk_index_hash_b3(&repo_paths)?,
         &remote_repo.chunk_map_hash_b3,
@@ -383,6 +395,7 @@ pub fn plan_sync_up_repo(
                     || needs_state_update
                     || metadata_hash_changed
                     || target_blueprint_hash_changed
+                    || target_launch_profiles_changed
                 {
                     let mut reasons = Vec::new();
                     if tag_mismatch {
@@ -396,6 +409,9 @@ pub fn plan_sync_up_repo(
                     }
                     if target_blueprint_hash_changed {
                         reasons.push("target blueprint hash differs");
+                    }
+                    if target_launch_profiles_changed {
+                        reasons.push("target launch profile changed");
                     }
                     to_update.push(sync_target_change(
                         local_target,
@@ -433,6 +449,7 @@ pub fn plan_sync_up_repo(
         product_id,
         remote_repo_id,
         repo_manifest_changed,
+        target_launch_profiles_changed,
         chunk_index_changed,
         target_count: status.targets.len(),
         remote_target_count: remote_targets.len(),
@@ -645,6 +662,7 @@ pub fn sync_up_repo(
     let target_upload_count = plan.to_add.len() + plan.to_update.len();
     let total_steps = plan.to_remove.len()
         + 1
+        + 1
         + chunk_index_steps
         + target_upload_count
         + target_upload_count
@@ -793,7 +811,7 @@ pub fn sync_up_repo(
                 done: false,
             },
         );
-        let manifest = crate::load_target_manifest(&repo_paths, &target.target_id)?;
+        let manifest = crate::materialize_target_runtime(&repo_paths, &target.target_id)?;
         let manifest_bytes = crate::serialize_target_manifest_for_remote(&manifest)?;
         let version = manifest
             .target_tags
@@ -901,6 +919,40 @@ pub fn sync_up_repo(
         )?;
         target_blueprint_uploaded_count += 1;
     }
+
+    step += 1;
+    control.checkpoint()?;
+    progress::emit_progress(
+        &progress,
+        GutchProgressEvent {
+            operation: GutchOperation::SyncUp,
+            phase: GutchProgressPhase::UploadTargetLaunchProfiles,
+            message: "Uploading target launch profiles".to_string(),
+            current: step,
+            total: total_steps,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        },
+    );
+    let target_launch_profiles_uploaded = if plan.target_launch_profiles_changed {
+        upload_raw_file(
+            &client,
+            &endpoint,
+            &format!(
+                "/v1/users/me/creator/products/{}/repos/{}/target-launch-profiles",
+                product_id, remote_repo_id
+            ),
+            &session_id,
+            crate::helpers::read(&repo_paths.target_launch_profiles_path)?,
+            "application/json",
+            &control,
+        )?;
+        true
+    } else {
+        false
+    };
 
     let mut bundle_uploaded_count = 0usize;
     let mut bundle_skipped_count = 0usize;
@@ -1033,6 +1085,7 @@ pub fn sync_up_repo(
         product_id,
         remote_repo_id,
         repo_manifest_uploaded,
+        target_launch_profiles_uploaded,
         chunk_index_uploaded,
         target_manifest_uploaded_count,
         target_blueprint_uploaded_count,

@@ -6,27 +6,34 @@ use crate::Result;
 use super::inventory::{list_repo_bundle_paths, list_repo_target_ids};
 use super::{
     load_chunk_index, load_gutch_repo_manifest, load_target_manifest, required_bundle_ids,
-    target_blueprint_path, target_manifest_path,
+    target_manifest_path,
 };
 
 pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> {
+    crate::manifest::target_launch_profiles::validate_target_id(target_id)?;
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
     let manifest_path = target_manifest_path(&repo_paths, target_id);
-    let blueprint_path = target_blueprint_path(&repo_paths, target_id);
-    for path in [&manifest_path, &blueprint_path] {
-        if !path.exists() {
-            continue;
-        }
-        if path.is_dir() {
-            std::fs::remove_dir_all(path)?;
-        } else {
-            std::fs::remove_file(path)?;
-        }
+    let Some(target_dir) = manifest_path.parent() else {
+        return Ok(());
+    };
+    if !target_dir.exists() {
+        return Ok(());
     }
-    // Remove the per-target folder once its files are gone.
-    if let Some(target_dir) = manifest_path.parent() {
-        let _ = std::fs::remove_dir(target_dir);
+    let staged_target_dir = repo_paths
+        .repo_root
+        .join(format!(".deleting-target-{target_id}"));
+    if staged_target_dir.exists() {
+        return Err(crate::Error::manifest(format!(
+            "staged target deletion already exists at {}",
+            staged_target_dir.display()
+        )));
     }
+    std::fs::rename(target_dir, &staged_target_dir)?;
+    if let Err(error) = super::remove_target_assignment(&repo_paths, target_id) {
+        let _ = std::fs::rename(&staged_target_dir, target_dir);
+        return Err(error);
+    }
+    std::fs::remove_dir_all(staged_target_dir)?;
     Ok(())
 }
 

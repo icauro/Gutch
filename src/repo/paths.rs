@@ -1,13 +1,16 @@
 use std::path::{Path, PathBuf};
 
-use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::gutch_repo::GutchRepoManifest;
+use crate::manifest::{
+    REPO_METADATA_FILE, TARGET_LAUNCH_PROFILES_FILE, TargetLaunchProfilesDocument,
+};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct GutchRepoPaths {
     pub repo_root: PathBuf,
     pub repo_metadata_path: PathBuf,
+    pub target_launch_profiles_path: PathBuf,
     pub repo_binding_path: PathBuf,
     pub chunk_map_path: PathBuf,
     pub targets_root: PathBuf,
@@ -25,6 +28,7 @@ impl GutchRepoPaths {
         Self {
             repo_root: repo_root.to_path_buf(),
             repo_metadata_path: repo_root.join(REPO_METADATA_FILE),
+            target_launch_profiles_path: repo_root.join(TARGET_LAUNCH_PROFILES_FILE),
             repo_binding_path: repo_root.join("repo_binding.json"),
             chunk_map_path: repo_root.join("chunk_map.bin"),
             targets_root: repo_root.join("targets"),
@@ -50,6 +54,13 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
         repo_manifest
     };
 
+    if !paths.target_launch_profiles_path.exists() {
+        crate::helpers::write_json(
+            &paths.target_launch_profiles_path,
+            &TargetLaunchProfilesDocument::default(),
+        )?;
+    }
+
     Ok(repo_manifest)
 }
 
@@ -59,6 +70,12 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
         return Err(Error::manifest(format!(
             "gutch repo manifest not found at {}",
             paths.repo_metadata_path.display()
+        )));
+    }
+    if !paths.target_launch_profiles_path.exists() {
+        return Err(Error::manifest(format!(
+            "target launch profiles not found at {}",
+            paths.target_launch_profiles_path.display()
         )));
     }
 

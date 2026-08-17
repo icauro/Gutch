@@ -59,7 +59,7 @@ impl TargetProductMetadata {
         }
         match &self.runtime {
             TargetRuntimeMetadata::Direct(runtime) => {
-                validate_runtime_actions(&runtime.launch_actions)?;
+                validate_runtime_actions(&runtime.launch_actions, true)?;
                 validate_external_product_dependency_requirements(&runtime.external_dependencies)?;
             }
             TargetRuntimeMetadata::HostVariants(runtime) => {
@@ -87,7 +87,7 @@ impl TargetProductMetadata {
                             "target product metadata host_tag_requirements must not be empty",
                         ));
                     }
-                    validate_runtime_actions(&variant.launch_actions)?;
+                    validate_runtime_actions(&variant.launch_actions, true)?;
                     validate_external_product_dependency_requirements(
                         &variant.external_dependencies,
                     )?;
@@ -177,8 +177,11 @@ impl TargetProductMetadata {
     }
 }
 
-fn validate_runtime_actions(actions: &[TargetLaunchAction]) -> crate::Result<()> {
-    if actions.is_empty() {
+pub(crate) fn validate_runtime_actions(
+    actions: &[TargetLaunchAction],
+    require_actions: bool,
+) -> crate::Result<()> {
+    if require_actions && actions.is_empty() {
         return Err(crate::Error::manifest(
             "target product metadata launch_actions must not be empty",
         ));

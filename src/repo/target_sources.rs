@@ -413,7 +413,8 @@ mod tests {
         assert_eq!(candidate.len(), 1);
 
         let tags = candidate[0].target_tags.clone();
-        let mut manifest = TargetManifest::new("existing-content-id".into(), tags);
+        let target_id = test_hash("existing-content-id");
+        let mut manifest = TargetManifest::new(target_id.clone(), tags);
         manifest.source_modified_at =
             format_system_time_utc(SystemTime::now() - Duration::from_secs(3600));
         manifest.files = vec![manifest::FileManifest {
@@ -424,6 +425,7 @@ mod tests {
             chunks: Vec::new(),
         }];
         write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
+        crate::repo::assign_new_target_to_default(&repo_paths, &target_id).unwrap();
 
         std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&game_path, b"new-content").unwrap();

@@ -9,6 +9,7 @@ mod pull;
 mod remote_ops;
 mod source_identity;
 mod target_descriptor;
+mod target_launch_profiles;
 mod target_manifests;
 mod target_sources;
 mod updates;
@@ -40,6 +41,7 @@ pub use remote_ops::{
     sync_up_repo, unlink_repo,
 };
 pub use source_identity::*;
+pub use target_launch_profiles::*;
 pub use target_manifests::*;
 pub use target_sources::{
     TargetSourcesRefresh, TargetSourcesSyncOptions, TargetSourcesSyncPlan, TargetSourcesSyncResult,

@@ -8,6 +8,7 @@ pub mod runtime;
 pub mod schema_edit;
 mod tags;
 pub mod target;
+pub mod target_launch_profiles;
 pub mod template;
 
 pub const FORMAT_VERSION: &str = "1.0.0";
@@ -39,6 +40,10 @@ pub use tags::{
 pub use target::{
     TargetDirectRuntimeMetadata, TargetHostVariant, TargetHostVariantRuntimeMetadata,
     TargetLaunchAction, TargetProductMetadata, TargetRuntimeMetadata, current_host_tags,
+};
+pub use target_launch_profiles::{
+    DEFAULT_TARGET_LAUNCH_PROFILE_ID, TARGET_LAUNCH_PROFILES_DOCUMENT_TYPE,
+    TARGET_LAUNCH_PROFILES_FILE, TargetLaunchProfile, TargetLaunchProfilesDocument,
 };
 
 #[cfg(test)]

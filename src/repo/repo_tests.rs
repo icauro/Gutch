@@ -154,8 +154,9 @@ fn check_gutch_repo_reports_targets() {
     let _ = std::fs::remove_dir_all(&root);
 
     ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    let target_id = test_hash("target-one");
     let mut manifest = TargetManifest::new(
-        "1".to_string(),
+        target_id.clone(),
         exclusive_tags("1.0.0", "windows", "x86_64", "base"),
     );
     manifest.files.push(manifest::FileManifest {
@@ -167,6 +168,7 @@ fn check_gutch_repo_reports_targets() {
     });
 
     write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
+    assign_new_target_to_default(&repo_paths, &target_id).unwrap();
     std::fs::write(repo_paths.bundles_root.join("bundle-a"), b"bundle-a").unwrap();
 
     let status = check_gutch_repo(&repo_root).unwrap();
@@ -176,7 +178,7 @@ fn check_gutch_repo_reports_targets() {
     assert_eq!(status.name, "base");
     assert_eq!(status.bundle_count, 1);
     assert_eq!(status.targets.len(), 1);
-    assert_eq!(status.targets[0].target_id, "1");
+    assert_eq!(status.targets[0].target_id, target_id);
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -407,8 +409,9 @@ fn inspect_repo_shows_target_tags() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
+    let target_id = test_hash("target-two");
     let mut manifest = TargetManifest::new(
-        "2".to_string(),
+        target_id.clone(),
         exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
     );
     manifest.files.push(manifest::FileManifest {
@@ -419,10 +422,11 @@ fn inspect_repo_shows_target_tags() {
         chunks: vec![],
     });
     write_target_manifest_artifacts(&paths, &manifest).unwrap();
+    assign_new_target_to_default(&paths, &target_id).unwrap();
 
     let status = check_gutch_repo(&root).unwrap();
     assert_eq!(status.targets.len(), 1);
-    assert_eq!(status.targets[0].target_id, "2");
+    assert_eq!(status.targets[0].target_id, target_id);
     assert_eq!(status.targets[0].version_id, "2.0.0");
     assert_eq!(status.targets[0].os, "linux");
 

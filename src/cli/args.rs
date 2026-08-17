@@ -221,16 +221,14 @@ pub enum RemoteCommands {
 
 #[derive(Subcommand)]
 pub enum TargetCommands {
-    #[command(name = "launch-set")]
-    LaunchSet {
+    #[command(name = "launch-profile-assign")]
+    LaunchProfileAssign {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "target")]
         target: String,
-        #[arg(long = "launch", value_parser = parse_absolute_path)]
-        launch: Option<PathBuf>,
-        #[arg(long = "clear")]
-        clear: bool,
+        #[arg(long = "profile")]
+        profile: String,
     },
     #[command(name = "commit")]
     Commit {

@@ -3,10 +3,7 @@ use std::path::Path;
 use crate::Result;
 use crate::manifest;
 
-use super::{
-    load_gutch_repo_manifest, load_target_manifest, write_gutch_repo_manifest,
-    write_target_manifest_artifacts,
-};
+use super::{load_gutch_repo_manifest, write_gutch_repo_manifest};
 
 pub fn initialize_tracked_gutch_repo(
     repo_root: &Path,
@@ -67,26 +64,4 @@ pub fn bind_gutch_repo_remote(
     repo_manifest.remote_repo_id = remote_repo_id.to_string();
     repo_manifest.sync_product_metadata_from_binding();
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)
-}
-
-pub fn update_gutch_target_launch(
-    repo_root: &Path,
-    target_id: &str,
-    launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
-    external_product_dependencies: Vec<manifest::ExternalProductDependencyRequirement>,
-) -> Result<()> {
-    let (repo_paths, _repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    let mut target = load_target_manifest(&repo_paths, target_id)?;
-    if let Some(configuration) = launch.as_ref() {
-        manifest::launch::validate_resolved_launch_for_target(configuration, &target)?;
-    }
-    target.launch = launch;
-    target.product_metadata = target.launch.as_ref().map(|configuration| {
-        manifest::target::TargetProductMetadata::from_launch(
-            configuration,
-            external_product_dependencies,
-        )
-    });
-    write_target_manifest_artifacts(&repo_paths, &target)?;
-    Ok(())
 }

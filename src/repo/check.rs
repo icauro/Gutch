@@ -26,6 +26,8 @@ pub struct RepoCheckStatus {
     pub target_schema: Option<manifest::TargetTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_manifest: Option<manifest::gutch_repo::GutchRepoManifest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_launch_profiles: Option<manifest::TargetLaunchProfilesDocument>,
     pub targets: Vec<RepoCheckTargetStatus>,
     #[serde(default)]
     pub bundle_count: usize,
@@ -96,6 +98,10 @@ pub struct RepoCheckTargetStatus {
         Vec<manifest::external_dependency::ExternalProductDependencyRequirement>,
     #[serde(default)]
     pub file_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned_target_launch_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_readiness_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,8 +264,18 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         scan_bundle_inventory(&repo_paths.bundles_root)?;
     let scan_bundles_ms = scan_start.elapsed().as_millis() as u64;
 
-    let (targets, target_check_timings) =
+    let (mut targets, target_check_timings) =
         check_target_manifests(&repo_paths, &repo_paths.targets_root, &available_bundle_ids)?;
+    let target_launch_profiles = super::load_target_launch_profiles(&repo_paths)?;
+    for target in &mut targets {
+        target.assigned_target_launch_profile_id = target_launch_profiles
+            .assigned_profile_id(&target.target_id)
+            .map(str::to_string);
+        target.launch_readiness_error =
+            super::materialize_target_runtime(&repo_paths, &target.target_id)
+                .err()
+                .map(|error| error.to_string());
+    }
     let target_count = targets.len();
 
     let total_ms = total_start.elapsed().as_millis() as u64;
@@ -273,6 +289,7 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         product_id: repo_manifest.product_id.clone(),
         target_schema: repo_manifest.target_schema.clone(),
         repo_manifest: Some(repo_manifest),
+        target_launch_profiles: Some(target_launch_profiles),
         targets,
         bundle_count,
         bundle_bytes,
@@ -395,6 +412,7 @@ fn empty_repo_check_status(
         product_id: String::new(),
         target_schema: None,
         repo_manifest: None,
+        target_launch_profiles: None,
         targets: Vec::new(),
         bundle_count: 0,
         bundle_bytes: 0,
@@ -421,11 +439,9 @@ fn check_target_manifests(
     for target_id in list_repo_target_ids(repo_paths)? {
         let manifest_path = crate::target_manifest_path(repo_paths, &target_id);
         let manifest = load_target_manifest(repo_paths, &target_id)?;
-        let target_metadata = Some(
-            serde_json::to_value(&manifest).map_err(|error| {
-                Error::manifest(format!("failed to serialize target metadata: {error}"))
-            })?,
-        );
+        let target_metadata = Some(serde_json::to_value(&manifest).map_err(|error| {
+            Error::manifest(format!("failed to serialize target metadata: {error}"))
+        })?);
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()
@@ -463,6 +479,8 @@ fn check_target_manifests(
             resolved_launch,
             external_product_dependencies,
             file_paths: manifest.files.into_iter().map(|file| file.path).collect(),
+            assigned_target_launch_profile_id: None,
+            launch_readiness_error: None,
         });
     }
 

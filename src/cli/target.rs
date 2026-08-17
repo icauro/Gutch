@@ -265,6 +265,7 @@ fn run_insert_one_target(
     }
 
     let (manifest_path, _) = write_target_manifest(request.repo_paths, &result.target_manifest)?;
+    g::repo::assign_new_target_to_default(request.repo_paths, &target_id)?;
     write_bundles(&request.repo_paths.bundles_root, &result.bundles)?;
     write_loose_chunks(&request.repo_paths.chunks_root, &result.loose_chunks)?;
     g::add_built_bundles_to_chunk_index(&mut store_state.chunk_index, &result.bundles)?;
@@ -451,28 +452,13 @@ fn single_insert_source_resolution(
 
 pub fn run(command: TargetCommands) -> g::Result<()> {
     match command {
-        TargetCommands::LaunchSet {
+        TargetCommands::LaunchProfileAssign {
             repo,
             target,
-            launch,
-            clear,
+            profile,
         } => {
-            if clear == launch.is_some() {
-                return Err(g::Error::manifest(
-                    "provide either --launch <path> or --clear",
-                ));
-            }
-            let configuration = if clear {
-                None
-            } else {
-                let path = launch.as_ref().expect("launch path checked");
-                let json = crate::helpers::read_to_string(path)?;
-                Some(serde_json::from_str::<g::ResolvedLaunchConfiguration>(
-                    &json,
-                )?)
-            };
-            g::update_gutch_target_launch(&repo, &target, configuration, Vec::new())?;
-            println!("updated target launch configuration");
+            g::assign_target_launch_profile(&repo, &target, &profile)?;
+            println!("assigned target launch profile");
         }
         TargetCommands::Commit {
             dir,
