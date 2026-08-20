@@ -241,9 +241,6 @@ pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
     if paths.repo_metadata_path.exists() {
         crate::helpers::remove_file(&paths.repo_metadata_path)?;
     }
-    if paths.target_launch_profiles_path.exists() {
-        crate::helpers::remove_file(&paths.target_launch_profiles_path)?;
-    }
     if paths.chunk_map_path.exists() {
         crate::helpers::remove_file(&paths.chunk_map_path)?;
     }
@@ -318,7 +315,6 @@ mod tests {
             chunks: vec![],
         });
         write_target_manifest_artifacts(&repo_paths, &target_manifest).unwrap();
-        crate::repo::assign_new_target_to_default(&repo_paths, &target_id).unwrap();
         std::fs::write(repo_paths.bundles_root.join("bundle-a"), b"bundle").unwrap();
 
         initialize_tracked_gutch_repo_with_options(

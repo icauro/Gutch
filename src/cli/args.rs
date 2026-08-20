@@ -221,15 +221,6 @@ pub enum RemoteCommands {
 
 #[derive(Subcommand)]
 pub enum TargetCommands {
-    #[command(name = "launch-profile-assign")]
-    LaunchProfileAssign {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "target")]
-        target: String,
-        #[arg(long = "profile")]
-        profile: String,
-    },
     #[command(name = "commit")]
     Commit {
         #[arg(short, long, value_parser = parse_absolute_path)]
@@ -290,6 +281,8 @@ pub enum TargetInstallCommands {
         target: String,
         #[arg(long = "metadata-url")]
         metadata_url: String,
+        #[arg(long = "product-metadata-url")]
+        product_metadata_url: Option<String>,
         #[arg(long = "blueprint-url")]
         blueprint_url: String,
         #[arg(long = "repo-metadata-url")]

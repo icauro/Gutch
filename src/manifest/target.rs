@@ -253,7 +253,7 @@ pub struct TargetManifest {
     pub target_tags: TargetTagSet,
     #[serde(skip)]
     pub launch: Option<launch::ResolvedLaunchConfiguration>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
     pub product_metadata: Option<TargetProductMetadata>,
     #[serde(skip)]
     pub files: Vec<FileManifest>,

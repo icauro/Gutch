@@ -425,7 +425,6 @@ mod tests {
             chunks: Vec::new(),
         }];
         write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
-        crate::repo::assign_new_target_to_default(&repo_paths, &target_id).unwrap();
 
         std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&game_path, b"new-content").unwrap();

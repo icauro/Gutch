@@ -6,11 +6,11 @@ use crate::Result;
 use super::inventory::{list_repo_bundle_paths, list_repo_target_ids};
 use super::{
     load_chunk_index, load_gutch_repo_manifest, load_target_manifest, required_bundle_ids,
-    target_manifest_path,
+    target_manifest_path, validate_target_id,
 };
 
 pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> {
-    crate::manifest::target_launch_profiles::validate_target_id(target_id)?;
+    validate_target_id(target_id)?;
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
     let manifest_path = target_manifest_path(&repo_paths, target_id);
     let Some(target_dir) = manifest_path.parent() else {
@@ -29,10 +29,6 @@ pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> 
         )));
     }
     std::fs::rename(target_dir, &staged_target_dir)?;
-    if let Err(error) = super::remove_target_assignment(&repo_paths, target_id) {
-        let _ = std::fs::rename(&staged_target_dir, target_dir);
-        return Err(error);
-    }
     std::fs::remove_dir_all(staged_target_dir)?;
     Ok(())
 }

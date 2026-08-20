@@ -183,7 +183,6 @@ fn check_gutch_repo_reports_targets() {
     });
 
     write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
-    assign_new_target_to_default(&repo_paths, &target_id).unwrap();
     std::fs::write(
         repo_paths
             .bundles_root
@@ -448,7 +447,6 @@ fn inspect_repo_shows_target_tags() {
         chunks: vec![],
     });
     write_target_manifest_artifacts(&paths, &manifest).unwrap();
-    assign_new_target_to_default(&paths, &target_id).unwrap();
 
     let status = check_gutch_repo(&root).unwrap();
     assert_eq!(status.targets.len(), 1);

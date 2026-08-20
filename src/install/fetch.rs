@@ -263,6 +263,33 @@ fn prepare_target_install_fetch(
         target_manifest_from_download(&request.target_id, &target_manifest_bytes)?;
     crate::repo::write_target_metadata_only(&repo_paths, &target_metadata)?;
 
+    if let Some(product_metadata_url) = request.product_metadata_url.as_deref() {
+        let product_metadata_bytes = download_url(
+            download_client,
+            product_metadata_url,
+            request.session_id.as_deref(),
+            &request.control,
+            transfer_progress,
+            GutchProgressPhase::TargetMetadata,
+            "Downloading target product metadata",
+            TransferPhaseCounters {
+                current: 0,
+                total: 1,
+            },
+            Some(request.target_id.as_str()),
+        )?;
+        let product_metadata: crate::manifest::TargetProductMetadata =
+            crate::helpers::from_json_bytes(&product_metadata_bytes)?;
+        product_metadata.validate_structure()?;
+        crate::repo::write_target_product_metadata(
+            &repo_paths,
+            &request.target_id,
+            Some(&product_metadata),
+        )?;
+    } else {
+        crate::repo::write_target_product_metadata(&repo_paths, &request.target_id, None)?;
+    }
+
     let blueprint_bytes = download_url(
         download_client,
         &request.blueprint_url,

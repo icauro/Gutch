@@ -335,6 +335,7 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         target_id: "1.0.0-windows-x86_64-base".to_string(),
         repo_metadata_url: None,
         metadata_url: format!("http://{}/metadata", address),
+        product_metadata_url: None,
         blueprint_url: format!("http://{}/blueprint", address),
         chunk_index_url: None,
         bundle_downloads_endpoint: Some(format!("http://{}/bundles", address)),

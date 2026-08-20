@@ -50,7 +50,6 @@ pub struct RepoPullStats {
     pub product_id: i64,
     pub remote_repo_id: i64,
     pub repo_manifest_downloaded: bool,
-    pub target_launch_profiles_downloaded: bool,
     pub chunk_map_downloaded: bool,
     pub target_downloaded_count: usize,
     pub target_skipped_count: usize,
@@ -69,7 +68,6 @@ pub struct RepoPullPlan {
     pub remote_repo_id: i64,
     pub remote_repo_name: String,
     pub repo_manifest_needed: bool,
-    pub target_launch_profiles_needed: bool,
     pub chunk_map_needed: bool,
     pub targets_to_download: Vec<String>,
     pub targets_to_skip: Vec<String>,
@@ -90,7 +88,6 @@ struct RemoteRepoRecord {
     remote_repo_id: i64,
     name: String,
     repo_metadata_hash_b3: String,
-    target_launch_profiles_hash_b3: String,
     chunk_map_hash_b3: String,
     updated_at: String,
 }
@@ -98,6 +95,7 @@ struct RemoteRepoRecord {
 struct RemoteTargetRecord {
     target_id: String,
     target_metadata_hash_b3: String,
+    target_product_metadata_hash_b3: String,
     target_blueprint_hash_b3: String,
     uploaded_at: String,
     created_at: String,
@@ -268,6 +266,7 @@ fn remote_target_record(target: CreatorTargetResponse) -> RemoteTargetRecord {
     RemoteTargetRecord {
         target_id: target.target_id,
         target_metadata_hash_b3: target.target_metadata_hash_b3,
+        target_product_metadata_hash_b3: target.target_product_metadata_hash_b3,
         target_blueprint_hash_b3: target.target_blueprint_hash_b3,
         uploaded_at: target.uploaded_at,
         created_at: target.created_at,
@@ -291,15 +290,6 @@ fn local_chunk_map_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String>
     Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
 }
 
-fn local_target_launch_profiles_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
-    if !repo_paths.target_launch_profiles_path.exists() {
-        return Ok(String::new());
-    }
-    Ok(repo_file_hash(&crate::helpers::read(
-        &repo_paths.target_launch_profiles_path,
-    )?))
-}
-
 fn local_target_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
@@ -313,6 +303,22 @@ fn local_target_metadata_hash_b3(
     Ok(repo_file_hash(
         &crate::serialize_target_manifest_for_remote(&manifest)?,
     ))
+}
+
+fn local_target_product_metadata_hash_b3(
+    repo_paths: &crate::GutchRepoPaths,
+    target_id: &str,
+) -> Result<String> {
+    if !crate::target_manifest_path(repo_paths, target_id).exists()
+        || !crate::target_blueprint_path(repo_paths, target_id).exists()
+    {
+        return Ok(String::new());
+    }
+    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
+    let Some(bytes) = crate::serialize_target_product_metadata_for_remote(&manifest)? else {
+        return Ok(String::new());
+    };
+    Ok(repo_file_hash(&bytes))
 }
 
 fn local_target_blueprint_hash_b3(
@@ -334,7 +340,6 @@ fn remote_repo_record(repo: &CreatorRepoResponse, product_id: i64) -> RemoteRepo
         remote_repo_id: repo.id,
         name: repo.name.clone(),
         repo_metadata_hash_b3: repo.repo_metadata_hash_b3.clone(),
-        target_launch_profiles_hash_b3: repo.target_launch_profiles_hash_b3.clone(),
         chunk_map_hash_b3: repo.chunk_map_hash_b3.clone(),
         updated_at: repo.updated_at.clone(),
     }
@@ -487,15 +492,6 @@ fn compute_pull_plan(
         local_file_mtime(&repo_paths.chunk_map_path),
         policy,
     ) != ArtifactDecision::Identical;
-    let target_launch_profiles_needed = decide_artifact(
-        repo_paths.target_launch_profiles_path.exists(),
-        local_target_launch_profiles_hash_b3(repo_paths)?,
-        &record.target_launch_profiles_hash_b3,
-        &record.updated_at,
-        local_file_mtime(&repo_paths.target_launch_profiles_path),
-        policy,
-    ) != ArtifactDecision::Identical;
-
     let mut targets_to_download = Vec::new();
     let mut targets_to_skip = Vec::new();
     let mut kept_newer_local_targets = Vec::new();
@@ -522,6 +518,23 @@ fn compute_pull_plan(
             ArtifactDecision::Fetch
         } else {
             decision
+        };
+        let product_metadata_path =
+            crate::target_product_metadata_path(repo_paths, &target.target_id);
+        let product_metadata_decision = decide_artifact(
+            product_metadata_path.exists(),
+            local_target_product_metadata_hash_b3(repo_paths, &target.target_id)?,
+            &target.target_product_metadata_hash_b3,
+            updated_at,
+            local_file_mtime(&product_metadata_path),
+            policy,
+        );
+        let decision = match (decision, product_metadata_decision) {
+            (ArtifactDecision::Fetch, _) | (_, ArtifactDecision::Fetch) => ArtifactDecision::Fetch,
+            (ArtifactDecision::KeepLocalNewer, _) | (_, ArtifactDecision::KeepLocalNewer) => {
+                ArtifactDecision::KeepLocalNewer
+            }
+            _ => ArtifactDecision::Identical,
         };
         match decision {
             ArtifactDecision::Identical => targets_to_skip.push(target.target_id.clone()),
@@ -566,7 +579,6 @@ fn compute_pull_plan(
         remote_repo_id: record.remote_repo_id,
         remote_repo_name: record.name.clone(),
         repo_manifest_needed,
-        target_launch_profiles_needed,
         chunk_map_needed,
         targets_to_download,
         targets_to_skip,
@@ -721,31 +733,6 @@ fn fetch_repo_metadata_url(
     Ok(response.metadata_url)
 }
 
-fn fetch_target_launch_profiles_url(
-    client: &reqwest::blocking::Client,
-    endpoint: &str,
-    session_id: &str,
-    product_id: i64,
-    remote_repo_id: i64,
-) -> Result<String> {
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct TargetLaunchProfilesResponse {
-        target_launch_profiles_url: String,
-    }
-    let response: TargetLaunchProfilesResponse = request_json_authed(
-        client,
-        &format!(
-            "{}/v1/users/me/creator/products/{}/repos/{}/target-launch-profiles",
-            base_endpoint(endpoint),
-            product_id,
-            remote_repo_id
-        ),
-        session_id,
-    )?;
-    Ok(response.target_launch_profiles_url)
-}
-
 fn fetch_chunk_map_url(
     client: &reqwest::blocking::Client,
     endpoint: &str,
@@ -777,11 +764,14 @@ fn fetch_target_metadata_url(
     product_id: i64,
     remote_repo_id: i64,
     target_id: &str,
-) -> Result<(String, String)> {
+) -> Result<(String, String, Option<String>)> {
     #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct TargetMetadataResponse {
         metadata_url: String,
         blueprint_url: String,
+        #[serde(default)]
+        target_product_metadata_url: Option<String>,
     }
     let response: TargetMetadataResponse = request_json_authed(
         client,
@@ -794,7 +784,11 @@ fn fetch_target_metadata_url(
         ),
         session_id,
     )?;
-    Ok((response.metadata_url, response.blueprint_url))
+    Ok((
+        response.metadata_url,
+        response.blueprint_url,
+        response.target_product_metadata_url,
+    ))
 }
 
 fn url_encode_path_segment(value: &str) -> String {
@@ -943,7 +937,6 @@ pub fn pull_repo(
         product_id: record.product_id,
         remote_repo_id: record.remote_repo_id,
         repo_manifest_downloaded: false,
-        target_launch_profiles_downloaded: false,
         chunk_map_downloaded: false,
         target_downloaded_count: 0,
         target_skipped_count: plan.targets_to_skip.len(),
@@ -957,7 +950,6 @@ pub fn pull_repo(
 
     let total_steps = 1
         + usize::from(plan.repo_manifest_needed)
-        + usize::from(plan.target_launch_profiles_needed)
         + usize::from(plan.chunk_map_needed)
         + plan.targets_to_download.len()
         + 2;
@@ -991,34 +983,6 @@ pub fn pull_repo(
         manifest.sync_product_metadata_from_binding();
         crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
         stats.repo_manifest_downloaded = true;
-    }
-
-    if plan.target_launch_profiles_needed {
-        control.checkpoint()?;
-        step += 1;
-        emit(
-            &progress,
-            GutchOperation::Pull,
-            GutchProgressPhase::RepoMetadata,
-            "Downloading target launch profiles".to_string(),
-            step,
-            total_steps,
-            None,
-            false,
-        );
-        let url = fetch_target_launch_profiles_url(
-            &client,
-            &endpoint,
-            &session_id,
-            record.product_id,
-            record.remote_repo_id,
-        )?;
-        let bytes = download_json(&client, &url)?;
-        let document: crate::TargetLaunchProfilesDocument =
-            crate::helpers::from_json_bytes(&bytes)?;
-        document.validate()?;
-        crate::helpers::write(&repo_paths.target_launch_profiles_path, bytes)?;
-        stats.target_launch_profiles_downloaded = true;
     }
 
     if plan.chunk_map_needed {
@@ -1068,7 +1032,7 @@ pub fn pull_repo(
             Some(target_id.clone()),
             false,
         );
-        let (metadata_url, blueprint_url) = fetch_target_metadata_url(
+        let (metadata_url, blueprint_url, product_metadata_url) = fetch_target_metadata_url(
             &client,
             &endpoint,
             &session_id,
@@ -1079,6 +1043,19 @@ pub fn pull_repo(
         let metadata_bytes = download_json(&client, &metadata_url)?;
         let metadata = crate::target_manifest_from_download(target_id, &metadata_bytes)?;
         crate::repo::write_target_metadata_only(&repo_paths, &metadata)?;
+        if let Some(product_metadata_url) = product_metadata_url {
+            let product_metadata_bytes = download_json(&client, &product_metadata_url)?;
+            let product_metadata: crate::manifest::TargetProductMetadata =
+                crate::helpers::from_json_bytes(&product_metadata_bytes)?;
+            product_metadata.validate_structure()?;
+            crate::repo::write_target_product_metadata(
+                &repo_paths,
+                target_id,
+                Some(&product_metadata),
+            )?;
+        } else {
+            crate::repo::write_target_product_metadata(&repo_paths, target_id, None)?;
+        }
         let blueprint_bytes = download_binary(&client, &blueprint_url)?;
         crate::helpers::write(
             &crate::target_blueprint_path(&repo_paths, target_id),

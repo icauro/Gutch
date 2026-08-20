@@ -265,7 +265,6 @@ fn run_insert_one_target(
     }
 
     let (manifest_path, _) = write_target_manifest(request.repo_paths, &result.target_manifest)?;
-    g::repo::assign_new_target_to_default(request.repo_paths, &target_id)?;
     write_bundles(&request.repo_paths.bundles_root, &result.bundles)?;
     write_loose_chunks(&request.repo_paths.chunks_root, &result.loose_chunks)?;
     let compression_profile =
@@ -458,14 +457,6 @@ fn single_insert_source_resolution(
 
 pub fn run(command: TargetCommands) -> g::Result<()> {
     match command {
-        TargetCommands::LaunchProfileAssign {
-            repo,
-            target,
-            profile,
-        } => {
-            g::assign_target_launch_profile(&repo, &target, &profile)?;
-            println!("assigned target launch profile");
-        }
         TargetCommands::Commit {
             dir,
             product_dir,

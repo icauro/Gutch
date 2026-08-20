@@ -35,14 +35,14 @@ fn test_manifest_serialization_roundtrip() {
     let json = serde_json::to_string_pretty(&m).unwrap();
     assert!(json.contains("\"target_tags\": ["));
     assert!(json.contains("\"arch::x86_64\""));
-    assert!(json.contains("\"executable_path\": \"Game.exe\""));
+    assert!(!json.contains("\"executable_path\": \"Game.exe\""));
     assert!(!json.contains("\"exclusive\""));
     assert!(!json.contains("\"files\""));
     let m2: TargetManifest = serde_json::from_str(&json).unwrap();
     assert!(m2.target_id.is_empty());
     assert_eq!(m.inserted_at, m2.inserted_at);
     assert_eq!(m.target_tags, m2.target_tags);
-    assert_eq!(m.product_metadata, m2.product_metadata);
+    assert!(m2.product_metadata.is_none());
 }
 
 #[test]

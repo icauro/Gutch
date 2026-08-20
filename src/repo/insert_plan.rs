@@ -478,8 +478,6 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         }
     }
     crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
-    crate::repo::assign_new_target_to_default(&repo_paths, &target_id)?;
-
     let required_chunks = crate::repo::required_chunk_hashes_typed(&result.target_manifest)?;
     let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
@@ -707,7 +705,6 @@ mod tests {
             crate::repo::source_modified_at_from_directory(&new_source).unwrap();
         old_manifest.files = old_files;
         write_target_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
-        crate::repo::assign_new_target_to_default(&repo_paths, &old_content_id).unwrap();
 
         std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 

@@ -17,9 +17,9 @@ pub struct RepoSyncUpStats {
     pub product_id: i64,
     pub remote_repo_id: i64,
     pub repo_manifest_uploaded: bool,
-    pub target_launch_profiles_uploaded: bool,
     pub chunk_index_uploaded: bool,
     pub target_manifest_uploaded_count: usize,
+    pub target_product_metadata_uploaded_count: usize,
     pub target_blueprint_uploaded_count: usize,
     pub bundle_uploaded_count: usize,
     pub bundle_skipped_count: usize,
@@ -50,7 +50,6 @@ pub struct RepoSyncPlan {
     pub product_id: i64,
     pub remote_repo_id: i64,
     pub repo_manifest_changed: bool,
-    pub target_launch_profiles_changed: bool,
     pub chunk_index_changed: bool,
     pub target_count: usize,
     pub remote_target_count: usize,
@@ -68,6 +67,7 @@ struct SyncTargetSnapshot {
     arch: String,
     tags: Vec<String>,
     target_metadata_hash_b3: String,
+    target_product_metadata_hash_b3: String,
     target_blueprint_hash_b3: String,
 }
 
@@ -133,6 +133,7 @@ fn remote_sync_target_snapshot(
                 .unwrap_or_default(),
             tags: remote_target_tags(target),
             target_metadata_hash_b3: target.target_metadata_hash_b3.clone(),
+            target_product_metadata_hash_b3: target.target_product_metadata_hash_b3.clone(),
             target_blueprint_hash_b3: target.target_blueprint_hash_b3.clone(),
         },
         Some(target.artifact_state.clone()),
@@ -149,12 +150,6 @@ fn local_repo_metadata_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<Str
     )?))
 }
 
-fn local_target_launch_profiles_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
-    Ok(repo_file_hash(&crate::helpers::read(
-        &repo_paths.target_launch_profiles_path,
-    )?))
-}
-
 fn local_chunk_index_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String> {
     if !repo_paths.chunk_map_path.exists() {
         return Ok(String::new());
@@ -167,10 +162,21 @@ fn local_target_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     target_id: &str,
 ) -> Result<String> {
-    let manifest = crate::materialize_target_runtime(repo_paths, target_id)?;
+    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
     Ok(repo_file_hash(
         &crate::serialize_target_manifest_for_remote(&manifest)?,
     ))
+}
+
+fn local_target_product_metadata_hash_b3(
+    repo_paths: &crate::GutchRepoPaths,
+    target_id: &str,
+) -> Result<String> {
+    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
+    let Some(bytes) = crate::serialize_target_product_metadata_for_remote(&manifest)? else {
+        return Ok(String::new());
+    };
+    Ok(repo_file_hash(&bytes))
 }
 
 fn local_target_blueprint_hash_b3(
@@ -336,6 +342,10 @@ fn collect_local_sync_targets(
                 &repo_paths,
                 &manifest.target_id,
             )?,
+            target_product_metadata_hash_b3: local_target_product_metadata_hash_b3(
+                &repo_paths,
+                &manifest.target_id,
+            )?,
             target_blueprint_hash_b3: local_target_blueprint_hash_b3(
                 &repo_paths,
                 &manifest.target_id,
@@ -365,10 +375,6 @@ pub fn plan_sync_up_repo(
         &local_repo_metadata_hash_b3(&repo_paths)?,
         &remote_repo.repo_metadata_hash_b3,
     );
-    let target_launch_profiles_changed = hashes_differ(
-        &local_target_launch_profiles_hash_b3(&repo_paths)?,
-        &remote_repo.target_launch_profiles_hash_b3,
-    );
     let chunk_index_changed = hashes_differ(
         &local_chunk_index_hash_b3(&repo_paths)?,
         &remote_repo.chunk_map_hash_b3,
@@ -391,11 +397,15 @@ pub fn plan_sync_up_repo(
                     &local_target.target_blueprint_hash_b3,
                     &remote_target.target_blueprint_hash_b3,
                 );
+                let target_product_metadata_hash_changed = hashes_differ(
+                    &local_target.target_product_metadata_hash_b3,
+                    &remote_target.target_product_metadata_hash_b3,
+                );
                 if tag_mismatch
                     || needs_state_update
                     || metadata_hash_changed
                     || target_blueprint_hash_changed
-                    || target_launch_profiles_changed
+                    || target_product_metadata_hash_changed
                 {
                     let mut reasons = Vec::new();
                     if tag_mismatch {
@@ -410,8 +420,8 @@ pub fn plan_sync_up_repo(
                     if target_blueprint_hash_changed {
                         reasons.push("target blueprint hash differs");
                     }
-                    if target_launch_profiles_changed {
-                        reasons.push("target launch profile changed");
+                    if target_product_metadata_hash_changed {
+                        reasons.push("target product metadata hash differs");
                     }
                     to_update.push(sync_target_change(
                         local_target,
@@ -449,7 +459,6 @@ pub fn plan_sync_up_repo(
         product_id,
         remote_repo_id,
         repo_manifest_changed,
-        target_launch_profiles_changed,
         chunk_index_changed,
         target_count: status.targets.len(),
         remote_target_count: remote_targets.len(),
@@ -666,6 +675,7 @@ pub fn sync_up_repo(
         + chunk_index_steps
         + target_upload_count
         + target_upload_count
+        + target_upload_count
         + bundle_paths.len()
         + 1;
     let mut step = 0usize;
@@ -783,6 +793,7 @@ pub fn sync_up_repo(
     }
 
     let mut target_manifest_uploaded_count = 0usize;
+    let mut target_product_metadata_uploaded_count = 0usize;
     let mut target_blueprint_uploaded_count = 0usize;
     let target_ids_to_upload = plan
         .to_add
@@ -811,7 +822,7 @@ pub fn sync_up_repo(
                 done: false,
             },
         );
-        let manifest = crate::materialize_target_runtime(&repo_paths, &target.target_id)?;
+        let manifest = crate::load_target_manifest(&repo_paths, &target.target_id)?;
         let manifest_bytes = crate::serialize_target_manifest_for_remote(&manifest)?;
         let version = manifest
             .target_tags
@@ -863,6 +874,7 @@ pub fn sync_up_repo(
                         artifact_state: String::from("pending"),
                         target_metadata_hash_b3: String::new(),
                         target_blueprint_hash_b3: String::new(),
+                        target_product_metadata_hash_b3: String::new(),
                         uploaded_at: String::new(),
                         created_at: String::new(),
                     },
@@ -918,41 +930,63 @@ pub fn sync_up_repo(
             &control,
         )?;
         target_blueprint_uploaded_count += 1;
-    }
 
-    step += 1;
-    control.checkpoint()?;
-    progress::emit_progress(
-        &progress,
-        GutchProgressEvent {
-            operation: GutchOperation::SyncUp,
-            phase: GutchProgressPhase::UploadTargetLaunchProfiles,
-            message: "Uploading target launch profiles".to_string(),
-            current: step,
-            total: total_steps,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        },
-    );
-    let target_launch_profiles_uploaded = if plan.target_launch_profiles_changed {
-        upload_raw_file(
-            &client,
-            &endpoint,
-            &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/target-launch-profiles",
-                product_id, remote_repo_id
-            ),
-            &session_id,
-            crate::helpers::read(&repo_paths.target_launch_profiles_path)?,
-            "application/json",
-            &control,
-        )?;
-        true
-    } else {
-        false
-    };
+        control.checkpoint()?;
+        step += 1;
+        progress::emit_progress(
+            &progress,
+            GutchProgressEvent {
+                operation: GutchOperation::SyncUp,
+                phase: GutchProgressPhase::UploadTargetMetadata,
+                message: "Uploading target product metadata".to_string(),
+                current: step,
+                total: total_steps,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                detail: Some(target.target_id.clone()),
+                done: false,
+            },
+        );
+        let product_metadata_path = format!(
+            "/v1/users/me/creator/products/{}/repos/{}/targets/{}/product-metadata",
+            product_id, remote_repo_id, remote_target_id
+        );
+        if let Some(product_metadata_bytes) =
+            crate::serialize_target_product_metadata_for_remote(&manifest)?
+        {
+            upload_raw_file(
+                &client,
+                &endpoint,
+                &product_metadata_path,
+                &session_id,
+                product_metadata_bytes,
+                "application/json",
+                &control,
+            )?;
+            target_product_metadata_uploaded_count += 1;
+        } else if remote_targets
+            .get(&manifest.target_id)
+            .is_some_and(|remote| !remote.target_product_metadata_hash_b3.trim().is_empty())
+        {
+            let response = client
+                .delete(format!(
+                    "{}{}",
+                    endpoint.trim_end_matches('/'),
+                    product_metadata_path
+                ))
+                .header("Accept", "application/json")
+                .header("Authorization", format!("Bearer {}", session_id))
+                .send()
+                .map_err(|error| {
+                    crate::Error::manifest(format!("backend request failed: {error}"))
+                })?;
+            if !response.status().is_success() {
+                return Err(crate::Error::manifest(
+                    crate::remote::backend::parse_backend_error_response(response),
+                ));
+            }
+        }
+    }
 
     let mut bundle_uploaded_count = 0usize;
     let mut bundle_skipped_count = 0usize;
@@ -1085,9 +1119,9 @@ pub fn sync_up_repo(
         product_id,
         remote_repo_id,
         repo_manifest_uploaded,
-        target_launch_profiles_uploaded,
         chunk_index_uploaded,
         target_manifest_uploaded_count,
+        target_product_metadata_uploaded_count,
         target_blueprint_uploaded_count,
         bundle_uploaded_count,
         bundle_skipped_count,
