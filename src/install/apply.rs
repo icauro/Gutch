@@ -88,6 +88,7 @@ pub fn apply_target_install_from_repo(
     request.control.checkpoint()?;
     let (repo_paths, target_manifest) =
         super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
+    let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let existing_bundle_ids = crate::repo::required_bundle_ids(&target_manifest, &chunk_index)
         .into_iter()
@@ -125,6 +126,7 @@ pub fn apply_target_install_from_repo(
     super::pipeline::apply_install_pipeline(
         super::pipeline::InstallPipelineApplyRequest {
             repo_root: &repo_paths.repo_root,
+            compression_profile: repo_manifest.compression_profile(),
             target_manifest: &target_manifest,
             install_dir: &request.install_dir,
             staging_dir: request.staging_dir.as_deref(),

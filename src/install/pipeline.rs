@@ -30,6 +30,7 @@ pub(super) struct InstallPipelinePlan {
 
 pub(super) struct InstallPipelineApplyRequest<'a> {
     pub repo_root: &'a Path,
+    pub compression_profile: crate::manifest::CompressionProfile,
     pub target_manifest: &'a TargetManifest,
     pub install_dir: &'a Path,
     pub staging_dir: Option<&'a Path>,
@@ -265,6 +266,7 @@ pub(super) fn apply_install_pipeline(
             pipeline_plan,
             &staging_dir,
             &request.target_manifest.target_id,
+            &request.compression_profile,
             request.runtime_hints,
             request.existing_bundle_ids,
             request.pending_bundle_downloads,
@@ -311,6 +313,7 @@ pub(super) fn execute_install_pipeline_materialization(
     mut pipeline_plan: InstallPipelinePlan,
     staging_dir: &Path,
     target_id: &str,
+    compression_profile: &crate::manifest::CompressionProfile,
     runtime_hints: &RuntimeResourceHints,
     existing_bundle_ids: &HashSet<String>,
     pending_bundle_downloads: &[PendingBundleDownload],
@@ -449,7 +452,9 @@ pub(super) fn execute_install_pipeline_materialization(
     }
 
     let mut file_worker_handles = Vec::new();
+    let compression_profile = compression_profile.clone();
     for _ in 0..reconstruct_worker_count {
+        let compression_profile = compression_profile.clone();
         let event_tx = pipeline_event_tx.clone();
         let file_task_rx = Arc::clone(&file_task_rx);
         let staging_dir = staging_dir.to_path_buf();
@@ -477,7 +482,12 @@ pub(super) fn execute_install_pipeline_materialization(
                     let _ = event_tx.send(InstallPipelineEvent::FileFailed(error));
                     return;
                 }
-                match materialize_pipeline_file(&file_plans[file_index], &staging_dir, &control) {
+                match materialize_pipeline_file(
+                    &file_plans[file_index],
+                    &staging_dir,
+                    &compression_profile,
+                    &control,
+                ) {
                     Ok(file_timings) => {
                         let _ = event_tx.send(InstallPipelineEvent::FileCompleted(file_timings));
                     }
@@ -629,6 +639,7 @@ pub(super) fn execute_install_pipeline_materialization(
 fn materialize_pipeline_file(
     file_plan: &InstallPipelineFile,
     staging_dir: &Path,
+    compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<crate::ReconstructTimings> {
     control.checkpoint()?;
@@ -637,7 +648,13 @@ fn materialize_pipeline_file(
             copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)
         }
         InstallPipelineMaterialization::ReconstructFromParts { chunks } => {
-            reconstruct_pipeline_file_from_parts(file_plan, chunks, staging_dir, control)
+            reconstruct_pipeline_file_from_parts(
+                file_plan,
+                chunks,
+                staging_dir,
+                compression_profile,
+                control,
+            )
         }
     }
 }
@@ -707,6 +724,7 @@ fn reconstruct_pipeline_file_from_parts(
     file_plan: &InstallPipelineFile,
     chunks: &[InstallPipelineChunkInput],
     staging_dir: &Path,
+    compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<crate::ReconstructTimings> {
     let mut timings = crate::ReconstructTimings::default();
@@ -761,7 +779,7 @@ fn reconstruct_pipeline_file_from_parts(
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         let file = File::open(&chunk.bundle_path)?;
-                        let reader = crate::bundle::BundleReader::open(file)?;
+                        let reader = crate::bundle::BundleReader::open(file, compression_profile)?;
                         let chunk_index = reader.chunk_index();
                         entry.insert((reader, chunk_index))
                     }

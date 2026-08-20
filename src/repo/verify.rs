@@ -61,7 +61,7 @@ pub fn verify_gutch_repo(
     }
 
     let load_start = Instant::now();
-    let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let chunk_index = load_chunk_index(&repo_paths)?;
     let load_ms = load_start.elapsed().as_millis() as u64;
 
@@ -83,6 +83,7 @@ pub fn verify_gutch_repo(
         targets.push(verify_target_bundles(
             &repo_paths,
             &chunk_index,
+            &repo_manifest.compression_profile(),
             &target.target_id,
             mode,
         )?);
@@ -109,6 +110,7 @@ pub fn verify_gutch_repo(
 fn verify_target_bundles(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::manifest::ChunkIndex,
+    compression_profile: &crate::manifest::CompressionProfile,
     target_id: &str,
     mode: VerifyMode,
 ) -> Result<TargetVerifyResult> {
@@ -124,7 +126,7 @@ fn verify_target_bundles(
             missing.push(bundle_id.clone());
             continue;
         }
-        if let Err(err) = verify_bundle_file(&path, mode) {
+        if let Err(err) = verify_bundle_file(&path, compression_profile, mode) {
             corrupt.push(format!("{bundle_id}: {err}"));
         }
     }
@@ -144,9 +146,13 @@ fn verify_target_bundles(
     })
 }
 
-fn verify_bundle_file(path: &Path, mode: VerifyMode) -> Result<()> {
+fn verify_bundle_file(
+    path: &Path,
+    compression_profile: &crate::manifest::CompressionProfile,
+    mode: VerifyMode,
+) -> Result<()> {
     let data = std::fs::read(path)?;
-    let mut reader = bundle::read_bundle(&data)?;
+    let mut reader = bundle::read_bundle(&data, compression_profile)?;
     if mode == VerifyMode::Strict {
         reader.verify()?;
     }

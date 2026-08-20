@@ -38,12 +38,14 @@ use types::BundleScanInfo;
 pub fn reconstruct_from_target_manifest(
     target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
+    compression_profile: &CompressionProfile,
     output_dir: &Path,
     control: &GutchOperationControl,
 ) -> Result<()> {
     let (_, _) = reconstruct_from_target_manifest_with_timings(
         target_manifest,
         bundles,
+        compression_profile,
         output_dir,
         control,
     )?;
@@ -53,6 +55,7 @@ pub fn reconstruct_from_target_manifest(
 fn reconstruct_from_target_manifest_with_timings(
     target_manifest: &TargetManifest,
     bundles: &[Vec<u8>],
+    compression_profile: &CompressionProfile,
     output_dir: &Path,
     control: &GutchOperationControl,
 ) -> Result<((), ReconstructTimings)> {
@@ -72,7 +75,7 @@ fn reconstruct_from_target_manifest_with_timings(
     for bundle_data in bundles {
         control.checkpoint()?;
         let t = Instant::now();
-        let mut reader = bundle::read_bundle(bundle_data)?;
+        let mut reader = bundle::read_bundle(bundle_data, compression_profile)?;
         let matching_indices: Vec<usize> = reader
             .entries()
             .iter()
@@ -117,6 +120,7 @@ fn reconstruct_from_target_manifest_with_timings(
 pub fn reconstruct_from_bundle_paths(
     target_manifest: &TargetManifest,
     bundle_paths: &[PathBuf],
+    compression_profile: &CompressionProfile,
     verified_source: Option<VerifiedSourceInstall<'_>>,
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
@@ -134,6 +138,7 @@ pub fn reconstruct_from_bundle_paths(
     let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
         target_manifest,
         bundle_paths,
+        compression_profile,
         &needed_chunks,
         local_chunks,
         output_dir,
@@ -182,6 +187,7 @@ pub fn reconstruct_from_repo(
     let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
         target_manifest,
         &bundle_paths,
+        compression_profile,
         &needed_chunks,
         local_chunks,
         output_dir,
@@ -221,7 +227,13 @@ mod tests {
         );
         let control = GutchOperationControl::default().with_cancellation(Arc::new(AlwaysCancelled));
 
-        let result = reconstruct_from_target_manifest(&manifest, &[], &output_dir, &control);
+        let result = reconstruct_from_target_manifest(
+            &manifest,
+            &[],
+            &CompressionProfile::default(),
+            &output_dir,
+            &control,
+        );
 
         assert!(matches!(result, Err(crate::Error::Cancelled)));
         assert!(!output_dir.exists());
@@ -243,7 +255,8 @@ mod tests {
 
     #[test]
     fn high_memory_reconstruct_stages_small_bundle_payloads_in_memory() {
-        let bundle_path = TestPathBuf::from("bundle-a.bundle");
+        let bundle_path =
+            TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         let bundle_paths = vec![bundle_path.clone()];
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
@@ -262,7 +275,8 @@ mod tests {
 
     #[test]
     fn balanced_reconstruct_keeps_temp_staging() {
-        let bundle_path = TestPathBuf::from("bundle-a.bundle");
+        let bundle_path =
+            TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         let bundle_paths = vec![bundle_path.clone()];
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
@@ -281,7 +295,8 @@ mod tests {
 
     #[test]
     fn high_memory_reconstruct_keeps_temp_staging_when_payload_exceeds_budget() {
-        let bundle_path = TestPathBuf::from("bundle-a.bundle");
+        let bundle_path =
+            TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         let bundle_paths = vec![bundle_path.clone()];
         let bundle_scan_info = TestHashMap::from([(
             bundle_path,
@@ -301,7 +316,7 @@ mod tests {
     #[test]
     fn high_memory_no_verify_restore_uses_direct_bundle_to_file_path() {
         let bundle_scan_info = TestHashMap::from([(
-            TestPathBuf::from("bundle-a.bundle"),
+            TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             BundleScanInfo {
                 compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,
@@ -322,7 +337,7 @@ mod tests {
     #[test]
     fn experimental_high_memory_no_verify_restore_can_use_direct_bundle_to_file_path() {
         let bundle_scan_info = TestHashMap::from([(
-            TestPathBuf::from("bundle-a.bundle"),
+            TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             BundleScanInfo {
                 compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,
@@ -343,7 +358,7 @@ mod tests {
     #[test]
     fn restore_with_file_verify_keeps_staged_reconstruct_path() {
         let bundle_scan_info = TestHashMap::from([(
-            TestPathBuf::from("bundle-a.bundle"),
+            TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             BundleScanInfo {
                 compression_unit: crate::manifest::CompressionUnit::Bundle,
                 raw_payload_size: 64 * 1024 * 1024,

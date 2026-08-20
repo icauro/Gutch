@@ -451,7 +451,11 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         crate::write_target_manifest_artifacts(&repo_paths, &result.target_manifest)?;
     write_bundles(&repo_paths.bundles_root, &result.bundles)?;
     write_loose_chunks(&repo_paths.chunks_root, &result.loose_chunks)?;
-    crate::add_built_bundles_to_chunk_index(&mut store_state.chunk_index, &result.bundles)?;
+    crate::add_built_bundles_to_chunk_index(
+        &mut store_state.chunk_index,
+        &result.bundles,
+        &compression_profile,
+    )?;
     crate::add_built_loose_chunks_to_chunk_index(
         &mut store_state.chunk_index,
         &result.loose_chunks,

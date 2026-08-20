@@ -1,6 +1,6 @@
 use super::*;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::hash::hash_hex;
 use crate::manifest;
@@ -52,10 +52,25 @@ fn gutch_repo_paths_from_repo_root() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     assert_eq!(paths.repo_root, root);
     assert_eq!(paths.repo_metadata_path, root.join("repo_metadata.json"));
-    assert_eq!(paths.chunk_map_path, root.join("chunk_map.bin"));
+    assert_eq!(paths.chunk_map_path, root.join("chunk_map.gtcbin"));
     assert_eq!(paths.targets_root, root.join("targets"));
     assert_eq!(paths.bundles_root, root.join("bundles"));
     assert_eq!(paths.chunks_root, root.join("chunks"));
+}
+
+#[test]
+fn payload_paths_are_extensionless_and_bundle_names_are_hashes() {
+    let root = PathBuf::from("/test/repo");
+    let chunk_hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    assert_eq!(
+        crate::chunk_path_in_root(&root.join("chunks"), chunk_hash),
+        root.join("chunks").join("ab").join(chunk_hash)
+    );
+    assert_eq!(
+        crate::bundle_id_from_bundle_path(Path::new(chunk_hash)),
+        Some(chunk_hash.to_string())
+    );
+    assert!(crate::bundle_id_from_bundle_path(Path::new("bundle.bundle")).is_none());
 }
 
 #[test]
@@ -73,7 +88,7 @@ fn target_manifest_files_live_in_per_target_folder() {
         crate::target_blueprint_path(&paths, target_id),
         root.join("targets")
             .join(target_id)
-            .join("target_blueprint.bin")
+            .join("target_blueprint.gtcbin")
     );
 }
 #[test]
@@ -169,7 +184,13 @@ fn check_gutch_repo_reports_targets() {
 
     write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
     assign_new_target_to_default(&repo_paths, &target_id).unwrap();
-    std::fs::write(repo_paths.bundles_root.join("bundle-a"), b"bundle-a").unwrap();
+    std::fs::write(
+        repo_paths
+            .bundles_root
+            .join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        b"bundle-a",
+    )
+    .unwrap();
 
     let status = check_gutch_repo(&repo_root).unwrap();
 
@@ -384,11 +405,16 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
         updated_at: String::new(),
         entries: BTreeMap::new(),
     };
-    add_built_bundles_to_chunk_index(&mut incremental, std::slice::from_ref(&built_bundle))
-        .unwrap();
+    add_built_bundles_to_chunk_index(
+        &mut incremental,
+        std::slice::from_ref(&built_bundle),
+        &manifest::CompressionProfile::default(),
+    )
+    .unwrap();
 
     std::fs::write(bundle_path(&paths, &bundle_id), &built_bundle.data).unwrap();
-    let rebuilt = rebuild_chunk_index_from_bundles(&paths).unwrap();
+    let rebuilt =
+        rebuild_chunk_index_from_bundles(&paths, &manifest::CompressionProfile::default()).unwrap();
 
     assert_eq!(incremental.entries, rebuilt.entries);
     assert_eq!(

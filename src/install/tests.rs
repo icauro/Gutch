@@ -358,11 +358,16 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         repo_path
             .join("targets")
             .join("1.0.0-windows-x86_64-base")
-            .join("target_blueprint.bin")
+            .join("target_blueprint.gtcbin")
             .exists()
     );
     assert!(repo_path.join("targets").exists());
-    assert!(repo_path.join("bundles").join("bundle-a").exists());
+    assert!(
+        repo_path
+            .join("bundles")
+            .join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .exists()
+    );
 
     server.join().unwrap();
     let _ = std::fs::remove_dir_all(&root);

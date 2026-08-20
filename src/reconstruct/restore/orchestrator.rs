@@ -57,6 +57,7 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
 pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
     target_manifest: &TargetManifest,
     bundle_paths: &[std::path::PathBuf],
+    compression_profile: &CompressionProfile,
     needed_chunks: &HashSet<ChunkHash>,
     local_chunks: HashMap<ChunkHash, Vec<u8>>,
     output_dir: &Path,
@@ -82,7 +83,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
     for bundle_path in bundle_paths {
         control.checkpoint()?;
         let file = std::fs::File::open(bundle_path)?;
-        let reader = bundle::BundleReader::open(file)?;
+        let reader = bundle::BundleReader::open(file, compression_profile)?;
         bundle_scan_info.insert(
             bundle_path.clone(),
             super::super::types::BundleScanInfo {
@@ -121,6 +122,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
             target_manifest,
             &locations,
             output_dir,
+            compression_profile,
             &mut timings,
             runtime_plan.worker_count,
             options,
@@ -134,6 +136,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
         &locations,
         &bundle_scan_info,
         &runtime_plan,
+        compression_profile,
         &mut timings,
         control,
     )?;
@@ -143,6 +146,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
         &locations,
         &access_plan,
         &local_chunks,
+        compression_profile,
         output_dir,
         &mut timings,
         runtime_plan.worker_count,
@@ -300,6 +304,7 @@ fn reconstruct_files_from_locations_and_chunks(
     locations: &HashMap<ChunkHash, ChunkLocation>,
     access_plan: &BundleAccessPlan,
     local_chunks: &HashMap<ChunkHash, Vec<u8>>,
+    compression_profile: &CompressionProfile,
     output_dir: &Path,
     timings: &mut ReconstructTimings,
     worker_count: usize,
@@ -317,6 +322,7 @@ fn reconstruct_files_from_locations_and_chunks(
                     locations,
                     access_plan,
                     local_chunks,
+                    compression_profile,
                     output_dir,
                     options,
                     control,
@@ -339,6 +345,7 @@ fn reconstruct_manifest_file(
     locations: &HashMap<ChunkHash, ChunkLocation>,
     access_plan: &BundleAccessPlan,
     local_chunks: &HashMap<ChunkHash, Vec<u8>>,
+    compression_profile: &CompressionProfile,
     output_dir: &Path,
     options: ReconstructOptions,
     control: &GutchOperationControl,
@@ -403,7 +410,7 @@ fn reconstruct_manifest_file(
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         let file = std::fs::File::open(&location.bundle_path)?;
-                        entry.insert(bundle::BundleReader::open(file)?)
+                        entry.insert(bundle::BundleReader::open(file, compression_profile)?)
                     }
                 };
 

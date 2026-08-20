@@ -2,11 +2,13 @@ use std::path::PathBuf;
 
 use gutch as g;
 
-pub(crate) fn inspect(bundle: PathBuf) -> g::Result<()> {
+pub(crate) fn inspect(bundle: PathBuf, repo: PathBuf) -> g::Result<()> {
     let data = crate::helpers::read(&bundle)?;
-    let reader = g::bundle::read_bundle(&data)?;
+    let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
+    let reader = g::bundle::read_bundle(&data, &repo_manifest.compression_profile())?;
 
     println!("bundle: {}", bundle.display());
+    println!("repo: {}", repo.display());
     println!("  chunks: {}", reader.chunk_count());
     for entry in reader.entries() {
         println!(

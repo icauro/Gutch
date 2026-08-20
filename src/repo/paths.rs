@@ -30,7 +30,7 @@ impl GutchRepoPaths {
             repo_metadata_path: repo_root.join(REPO_METADATA_FILE),
             target_launch_profiles_path: repo_root.join(TARGET_LAUNCH_PROFILES_FILE),
             repo_binding_path: repo_root.join("repo_binding.json"),
-            chunk_map_path: repo_root.join("chunk_map.bin"),
+            chunk_map_path: repo_root.join("chunk_map.gtcbin"),
             targets_root: repo_root.join("targets"),
             bundles_root: repo_root.join("bundles"),
             chunks_root: repo_root.join("chunks"),
@@ -135,7 +135,7 @@ pub fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> PathBuf {
 
 pub fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> PathBuf {
     let prefix = chunk_hash.get(0..2).unwrap_or("xx");
-    chunks_root.join(prefix).join(format!("{chunk_hash}.chunk"))
+    chunks_root.join(prefix).join(chunk_hash)
 }
 
 pub fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> PathBuf {
@@ -143,16 +143,7 @@ pub fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> PathBuf {
 }
 
 pub fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
-    if path.extension().and_then(|value| value.to_str()) == Some("bundle") {
-        return path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string);
-    }
-
-    path.file_name()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty() && !value.contains('.'))
-        .map(ToString::to_string)
+    let bundle_id = path.file_name().and_then(|value| value.to_str())?;
+    crate::ChunkHash::parse_hex(bundle_id).ok()?;
+    Some(bundle_id.to_string())
 }

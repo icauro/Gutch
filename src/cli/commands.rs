@@ -7,7 +7,7 @@ pub(crate) fn run(cli: Cli) -> g::Result<()> {
         Commands::Target { command } => crate::cli::target::run(command),
         Commands::TargetInstall { command } => crate::cli::target_install::run(command),
         Commands::Bundle { command } => match command {
-            crate::cli::BundleCommands::Inspect { bundle } => bundle::inspect(bundle),
+            crate::cli::BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
         },
         Commands::Path { command } => match command {
             crate::cli::PathCommands::Compare {

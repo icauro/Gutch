@@ -268,7 +268,13 @@ fn run_insert_one_target(
     g::repo::assign_new_target_to_default(request.repo_paths, &target_id)?;
     write_bundles(&request.repo_paths.bundles_root, &result.bundles)?;
     write_loose_chunks(&request.repo_paths.chunks_root, &result.loose_chunks)?;
-    g::add_built_bundles_to_chunk_index(&mut store_state.chunk_index, &result.bundles)?;
+    let compression_profile =
+        g::manifest::CompressionProfile::for_preset(request.build_profile.compression_profile);
+    g::add_built_bundles_to_chunk_index(
+        &mut store_state.chunk_index,
+        &result.bundles,
+        &compression_profile,
+    )?;
     g::add_built_loose_chunks_to_chunk_index(&mut store_state.chunk_index, &result.loose_chunks)?;
 
     for bundle in &result.bundles {

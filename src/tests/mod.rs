@@ -69,6 +69,7 @@ fn test_build_and_reconstruct_roundtrip() {
     reconstruct_from_target_manifest(
         &result.target_manifest,
         &bundle_data,
+        &manifest::CompressionProfile::default(),
         &out_dir,
         &GutchOperationControl::default(),
     )
@@ -116,6 +117,7 @@ fn test_apply_target_install_reuses_verified_source_install() {
     reconstruct_from_target_manifest(
         &v1.target_manifest,
         &v1_bundle_data,
+        &manifest::CompressionProfile::default(),
         &install_dir,
         &GutchOperationControl::default(),
     )
@@ -130,7 +132,12 @@ fn test_apply_target_install_reuses_verified_source_install() {
         std::fs::write(bundle_path(&repo_paths, &bundle.bundle_id), &bundle.data).unwrap();
     }
     let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
-    add_built_bundles_to_chunk_index(&mut chunk_index, &v2.bundles).unwrap();
+    add_built_bundles_to_chunk_index(
+        &mut chunk_index,
+        &v2.bundles,
+        &manifest::CompressionProfile::default(),
+    )
+    .unwrap();
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
     let result = apply_target_install_from_repo(TargetInstallApplyFromRepoRequest {
@@ -215,6 +222,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
     let (_, timings) = reconstruct_from_bundle_paths(
         &result.target_manifest,
         &bundle_paths,
+        &manifest::CompressionProfile::default(),
         None,
         &out_dir,
         &crate::runtime::RuntimeResourceHints {
@@ -281,6 +289,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
     reconstruct_from_bundle_paths(
         &result.target_manifest,
         &bundle_paths,
+        &manifest::CompressionProfile::default(),
         None,
         &out_dir,
         &crate::runtime::RuntimeResourceHints {
@@ -510,6 +519,7 @@ fn test_large_game_build_200mb() {
     reconstruct_from_target_manifest(
         &result.target_manifest,
         &bundle_data,
+        &manifest::CompressionProfile::default(),
         &out_dir,
         &GutchOperationControl::default(),
     )

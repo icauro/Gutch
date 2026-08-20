@@ -6,9 +6,9 @@ use crate::hash::ChunkHash;
 use crate::manifest::{self, target::TargetManifest};
 use crate::{Error, Result};
 
-const CHUNK_INDEX_BINARY_MAGIC: &[u8; 8] = b"GTCIDX1\0";
+const CHUNK_INDEX_BINARY_MAGIC: &[u8; 4] = b"GTCI";
 const CHUNK_INDEX_BINARY_VERSION: u16 = 1;
-const TARGET_FILES_BINARY_MAGIC: &[u8; 8] = b"GTCTGT1\0";
+const TARGET_FILES_BINARY_MAGIC: &[u8; 4] = b"GTCT";
 const TARGET_FILES_BINARY_VERSION: u16 = 1;
 
 fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
@@ -137,7 +137,7 @@ fn write_bool_array(writer: &mut impl Write, values: &[bool]) -> Result<()> {
 pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkIndex> {
     let file = std::fs::File::open(path)?;
     let mut reader = BufReader::new(file);
-    let magic = read_exact_array::<8>(&mut reader)?;
+    let magic = read_exact_array::<4>(&mut reader)?;
     if &magic != CHUNK_INDEX_BINARY_MAGIC {
         return Err(Error::manifest(format!(
             "invalid chunk index binary header in {}",
@@ -281,7 +281,7 @@ pub(crate) fn write_target_blueprint_binary(
 pub(crate) fn read_target_blueprint_binary(path: &Path) -> Result<Vec<manifest::FileManifest>> {
     let file = std::fs::File::open(path)?;
     let mut reader = BufReader::new(file);
-    let magic = read_exact_array::<8>(&mut reader)?;
+    let magic = read_exact_array::<4>(&mut reader)?;
     if &magic != TARGET_FILES_BINARY_MAGIC {
         return Err(Error::manifest(format!(
             "invalid target blueprint binary header in {}",

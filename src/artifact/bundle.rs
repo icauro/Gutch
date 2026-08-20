@@ -8,11 +8,6 @@ use crate::hash::{self, ChunkHash};
 use crate::manifest::{BundleTableEntry, CompressionKind, CompressionProfile, CompressionUnit};
 use std::time::{Duration, Instant};
 
-const MAGIC: &[u8; 4] = b"GCHB";
-const FORMAT_VERSION: u8 = 1;
-const COMPRESSION_NONE_CODE: u8 = 0;
-const COMPRESSION_ZSTD_CODE: u8 = 1;
-const COMPRESSION_UNIT_BUNDLE_CODE: u8 = 0;
 const BUNDLE_TABLE_ENTRY_SIZE: usize = 32 + (8 * 4);
 
 #[derive(Debug, Clone, Default)]
@@ -184,10 +179,6 @@ impl BundleBuilder {
 
         let chunk_count = entries.len() as u32;
         let mut header = Vec::new();
-        header.extend_from_slice(MAGIC);
-        header.push(FORMAT_VERSION);
-        header.push(compression_code(self.profile.compression));
-        header.push(compression_unit_code(self.profile.compression_unit));
         header.extend_from_slice(&chunk_count.to_le_bytes());
         header.extend_from_slice(&0u32.to_le_bytes());
         let table_len = (entries.len() * BUNDLE_TABLE_ENTRY_SIZE) as u32;
@@ -235,32 +226,12 @@ pub struct BundleReader<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> BundleReader<R> {
-    pub fn open(mut reader: R) -> Result<Self> {
-        let mut magic = [0u8; 4];
-        reader.read_exact(&mut magic)?;
-        if &magic != MAGIC {
+    pub fn open(mut reader: R, compression_profile: &CompressionProfile) -> Result<Self> {
+        if compression_profile.compression_unit != CompressionUnit::Bundle {
             return Err(crate::error::Error::InvalidBundle(
-                "invalid magic bytes".into(),
+                "gutch only supports bundle-compressed bundles".into(),
             ));
         }
-
-        let mut version = [0u8; 1];
-        reader.read_exact(&mut version)?;
-        if version[0] != FORMAT_VERSION {
-            return Err(crate::error::Error::InvalidBundle(format!(
-                "unsupported version: {}",
-                version[0]
-            )));
-        }
-
-        let mut compression_code_buf = [0u8; 1];
-        reader.read_exact(&mut compression_code_buf)?;
-        let compression = compression_label_from_code(compression_code_buf[0])?;
-
-        let mut compression_unit_code_buf = [0u8; 1];
-        reader.read_exact(&mut compression_unit_code_buf)?;
-        let compression_unit = compression_unit_from_code(compression_unit_code_buf[0])?;
-
         let mut count_buf = [0u8; 4];
         reader.read_exact(&mut count_buf)?;
         let chunk_count = u32::from_le_bytes(count_buf) as usize;
@@ -287,8 +258,8 @@ impl<R: Read + Seek> BundleReader<R> {
             chunk_index_by_hash,
             data_start,
             payload_size,
-            compression,
-            compression_unit,
+            compression: compression_profile.compression,
+            compression_unit: compression_profile.compression_unit,
             bundle_raw_cache: None,
             reader,
         })
@@ -464,43 +435,12 @@ fn read_u64(reader: &mut impl Read) -> Result<u64> {
     Ok(u64::from_le_bytes(read_exact_array(reader)?))
 }
 
-fn compression_code(compression: CompressionKind) -> u8 {
-    match compression {
-        CompressionKind::None => COMPRESSION_NONE_CODE,
-        CompressionKind::Zstd => COMPRESSION_ZSTD_CODE,
-    }
-}
-
-fn compression_label_from_code(code: u8) -> Result<CompressionKind> {
-    match code {
-        COMPRESSION_NONE_CODE => Ok(CompressionKind::None),
-        COMPRESSION_ZSTD_CODE => Ok(CompressionKind::Zstd),
-        other => Err(crate::error::Error::InvalidBundle(format!(
-            "unsupported bundle compression code {}",
-            other
-        ))),
-    }
-}
-
-fn compression_unit_code(compression_unit: CompressionUnit) -> u8 {
-    match compression_unit {
-        CompressionUnit::Bundle => COMPRESSION_UNIT_BUNDLE_CODE,
-    }
-}
-
-fn compression_unit_from_code(code: u8) -> Result<CompressionUnit> {
-    match code {
-        COMPRESSION_UNIT_BUNDLE_CODE => Ok(CompressionUnit::Bundle),
-        other => Err(crate::error::Error::InvalidBundle(format!(
-            "unsupported bundle compression unit code {}",
-            other
-        ))),
-    }
-}
-
-pub fn read_bundle(data: &[u8]) -> Result<BundleReader<std::io::Cursor<&[u8]>>> {
+pub fn read_bundle<'a>(
+    data: &'a [u8],
+    compression_profile: &CompressionProfile,
+) -> Result<BundleReader<std::io::Cursor<&'a [u8]>>> {
     let cursor = std::io::Cursor::new(data);
-    BundleReader::open(cursor)
+    BundleReader::open(cursor, compression_profile)
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ use rayon::prelude::*;
 use crate::Result;
 use crate::bundle;
 use crate::hash::ChunkHash;
+use crate::manifest::CompressionProfile;
 use crate::progress::GutchOperationControl;
 use crate::runtime::{RuntimePlan, install_in_thread_pool};
 
@@ -24,6 +25,7 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
     locations: &HashMap<ChunkHash, ChunkLocation>,
     bundle_scan_info: &HashMap<PathBuf, BundleScanInfo>,
     runtime_plan: &RuntimePlan,
+    compression_profile: &CompressionProfile,
     timings: &mut ReconstructTimings,
     control: &GutchOperationControl,
 ) -> Result<BundleAccessPlan> {
@@ -81,6 +83,7 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
                     bundle_path,
                     staging_dir.as_ref().map(|dir| dir.path()),
                     index,
+                    compression_profile,
                 )
             })
             .collect::<Vec<_>>()
@@ -113,10 +116,11 @@ fn stage_bundle_raw_payload(
     bundle_path: &Path,
     staging_root: Option<&Path>,
     index: usize,
+    compression_profile: &CompressionProfile,
 ) -> Result<(PathBuf, StagedBundlePayload, u64, u64, Duration)> {
     let stage_start = Instant::now();
     let file = std::fs::File::open(bundle_path)?;
-    let mut reader = bundle::BundleReader::open(file)?;
+    let mut reader = bundle::BundleReader::open(file, compression_profile)?;
     let payload = if let Some(staging_root) = staging_root {
         let bundle_stem = bundle_path
             .file_stem()

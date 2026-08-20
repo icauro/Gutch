@@ -39,6 +39,7 @@ pub fn repair_target_install_from_repo(
     request.control.checkpoint()?;
     let (repo_paths, target_manifest) =
         super::repo_target::load_repo_target_manifest(&request.repo_path, &request.target_id)?;
+    let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let repair_plan = plan_repair_target_install(
         &target_manifest,
@@ -70,6 +71,7 @@ pub fn repair_target_install_from_repo(
             pipeline_plan,
             &staging_dir,
             &target_manifest.target_id,
+            &repo_manifest.compression_profile(),
             &request.runtime_hints,
             &existing_bundle_ids,
             &[],

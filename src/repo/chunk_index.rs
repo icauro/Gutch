@@ -90,6 +90,8 @@ pub fn required_bundle_ids(
 pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStoreState> {
     let mut state = ExistingStoreState::default();
     let chunk_index = load_chunk_index(paths)?;
+    let (_, repo_manifest) = super::load_gutch_repo_manifest(&paths.repo_root)?;
+    let compression_profile = repo_manifest.compression_profile();
 
     for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
         let entry = entry?;
@@ -104,7 +106,7 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
     }
 
     state.chunk_index = if chunk_index.entries.is_empty() {
-        rebuild_chunk_index_from_bundles(paths)?
+        rebuild_chunk_index_from_bundles(paths, &compression_profile)?
     } else {
         chunk_index
     };
@@ -168,7 +170,10 @@ pub fn existing_chunk_locations_from_index(
         .collect()
 }
 
-pub fn rebuild_chunk_index_from_bundles(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
+pub fn rebuild_chunk_index_from_bundles(
+    paths: &GutchRepoPaths,
+    compression_profile: &crate::manifest::CompressionProfile,
+) -> Result<manifest::ChunkIndex> {
     let mut entries = BTreeMap::new();
     for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
         let entry = entry?;
@@ -180,7 +185,7 @@ pub fn rebuild_chunk_index_from_bundles(paths: &GutchRepoPaths) -> Result<manife
             continue;
         };
         let file = std::fs::File::open(entry.path())?;
-        let reader = crate::bundle::BundleReader::open(file)?;
+        let reader = crate::bundle::BundleReader::open(file, compression_profile)?;
         for chunk in reader.entries() {
             entries.insert(
                 chunk.chunk_hash.clone(),
@@ -204,9 +209,13 @@ pub fn rebuild_chunk_index_from_bundles(paths: &GutchRepoPaths) -> Result<manife
 pub fn add_built_bundles_to_chunk_index(
     chunk_index: &mut manifest::ChunkIndex,
     bundles: &[crate::BuiltBundle],
+    compression_profile: &crate::manifest::CompressionProfile,
 ) -> Result<()> {
     for bundle in bundles {
-        let reader = crate::bundle::BundleReader::open(Cursor::new(bundle.data.as_slice()))?;
+        let reader = crate::bundle::BundleReader::open(
+            Cursor::new(bundle.data.as_slice()),
+            compression_profile,
+        )?;
         for chunk in reader.entries() {
             chunk_index.entries.insert(
                 chunk.chunk_hash.clone(),

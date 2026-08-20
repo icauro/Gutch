@@ -8,6 +8,7 @@ use rayon::prelude::*;
 
 use crate::bundle;
 use crate::hash::ChunkHash;
+use crate::manifest::CompressionProfile;
 use crate::manifest::target::TargetManifest;
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::progress::GutchOperationControl;
@@ -67,6 +68,7 @@ pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
     target_manifest: &TargetManifest,
     locations: &HashMap<ChunkHash, ChunkLocation>,
     output_dir: &Path,
+    compression_profile: &CompressionProfile,
     timings: &mut ReconstructTimings,
     worker_count: usize,
     options: ReconstructOptions,
@@ -96,6 +98,7 @@ pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
                     bundle_path,
                     chunk_locations,
                     &write_targets,
+                    compression_profile,
                     options,
                     control,
                 )
@@ -160,6 +163,7 @@ fn direct_reconstruct_one_bundle(
     bundle_path: &Path,
     chunk_locations: &[(ChunkHash, ChunkLocation)],
     write_targets: &HashMap<ChunkHash, Vec<ChunkWriteTarget>>,
+    compression_profile: &CompressionProfile,
     options: ReconstructOptions,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
@@ -167,7 +171,7 @@ fn direct_reconstruct_one_bundle(
     let mut timings = ReconstructTimings::default();
     let stage_start = Instant::now();
     let file = std::fs::File::open(bundle_path)?;
-    let mut reader = bundle::BundleReader::open(file)?;
+    let mut reader = bundle::BundleReader::open(file, compression_profile)?;
     let mut raw_payload = Vec::new();
     let staged_raw_size = reader.stage_bundle_payload_to(&mut raw_payload)?;
     timings.bundle_read += stage_start.elapsed();

@@ -342,6 +342,8 @@ pub enum BundleCommands {
     Inspect {
         #[arg(short, long, value_parser = parse_absolute_path)]
         bundle: PathBuf,
+        #[arg(short, long, value_parser = parse_absolute_path)]
+        repo: PathBuf,
     },
 }
 

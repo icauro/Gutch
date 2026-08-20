@@ -1,4 +1,8 @@
 use super::*;
+
+fn profile() -> CompressionProfile {
+    CompressionProfile::default()
+}
 use crate::hash::{self, ChunkHash};
 
 #[test]
@@ -15,7 +19,7 @@ fn test_build_and_read_bundle() {
 
     let (_bundle_id, bundle_data) = builder.build_with_id().unwrap();
 
-    let mut reader = read_bundle(&bundle_data).unwrap();
+    let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
     assert_eq!(reader.chunk_count(), 2);
 
     let read1 = reader.read_chunk_by_hash(&hash1.to_string()).unwrap();
@@ -31,7 +35,7 @@ fn test_empty_bundle() {
     assert!(builder.is_empty());
     assert_eq!(builder.chunk_count(), 0);
     let bundle_data = builder.build().unwrap();
-    let reader = read_bundle(&bundle_data).unwrap();
+    let reader = read_bundle(&bundle_data, &profile()).unwrap();
     assert_eq!(reader.chunk_count(), 0);
 }
 
@@ -44,7 +48,7 @@ fn test_single_chunk_bundle() {
     builder.add_chunk(hash.clone(), data.to_vec());
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data).unwrap();
+    let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
     assert_eq!(reader.chunk_count(), 1);
 
     let result = reader.read_chunk(0).unwrap();
@@ -67,7 +71,7 @@ fn test_verify_bundle() {
     );
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data).unwrap();
+    let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
     assert!(reader.verify().unwrap());
 }
 
@@ -79,7 +83,7 @@ fn test_build_and_read_bundle_compressed_stream() {
     let mut profile = CompressionProfile::default();
     profile.compression_unit = CompressionUnit::Bundle;
 
-    let mut builder = BundleBuilder::new(profile);
+    let mut builder = BundleBuilder::new(profile.clone());
     builder.add_chunk(
         ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
         chunk1.to_vec(),
@@ -90,7 +94,7 @@ fn test_build_and_read_bundle_compressed_stream() {
     );
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data).unwrap();
+    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
 
     assert_eq!(reader.read_chunk(0).unwrap(), chunk1.to_vec());
     assert_eq!(reader.read_chunk(1).unwrap(), chunk2.to_vec());
@@ -102,7 +106,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     let chunk2 = b"plain uncompressed payload".to_vec();
 
     let profile = CompressionProfile::for_preset(crate::manifest::CompressionPreset::Uncompressed);
-    let mut builder = BundleBuilder::new(profile);
+    let mut builder = BundleBuilder::new(profile.clone());
     builder.add_chunk(
         ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
         chunk1.clone(),
@@ -113,7 +117,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     );
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data).unwrap();
+    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
 
     assert_eq!(reader.compression_unit(), CompressionUnit::Bundle);
     assert_eq!(reader.read_chunk(0).unwrap(), chunk1);
@@ -157,8 +161,8 @@ fn test_bundle_id_depends_on_final_bundle_bytes() {
 }
 
 #[test]
-fn test_invalid_magic() {
-    let result = read_bundle(b"XXXX extra data to read");
+fn test_invalid_bundle_table() {
+    let result = read_bundle(b"XXXX extra data to read", &profile());
     assert!(
         matches!(result, Err(crate::error::Error::InvalidBundle(_))),
         "should reject invalid magic"

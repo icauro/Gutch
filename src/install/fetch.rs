@@ -27,6 +27,7 @@ use crate::{Error, Result};
 
 struct PreparedTargetInstallFetch {
     repo_paths: crate::GutchRepoPaths,
+    compression_profile: crate::manifest::CompressionProfile,
     target_manifest: TargetManifest,
     chunk_index: crate::manifest::ChunkIndex,
     required_bundle_ids: HashSet<String>,
@@ -147,6 +148,7 @@ fn download_and_apply_unified_target_install(
     let apply_result = apply_install_pipeline(
         InstallPipelineApplyRequest {
             repo_root: &prepared.repo_paths.repo_root,
+            compression_profile: prepared.compression_profile.clone(),
             target_manifest: &prepared.target_manifest,
             install_dir: &request.install_dir,
             staging_dir: request.staging_dir.as_deref(),
@@ -317,6 +319,8 @@ fn prepare_target_install_fetch(
 
     request.control.checkpoint()?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
+    let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
+    let compression_profile = repo_manifest.compression_profile();
     let required_bundle_ids = crate::repo::required_bundle_ids(&target_manifest, &chunk_index);
     let existing_bundle_ids = required_bundle_ids
         .iter()
@@ -333,6 +337,7 @@ fn prepare_target_install_fetch(
 
     Ok(PreparedTargetInstallFetch {
         repo_paths,
+        compression_profile,
         target_manifest,
         chunk_index,
         required_bundle_ids,

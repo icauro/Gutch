@@ -6,7 +6,7 @@ use crate::{Result, helpers};
 use super::GutchRepoPaths;
 
 pub const TARGET_METADATA_FILE: &str = "target_metadata.json";
-pub const TARGET_BLUEPRINT_FILE: &str = "target_blueprint.bin";
+pub const TARGET_BLUEPRINT_FILE: &str = "target_blueprint.gtcbin";
 
 pub fn target_manifest_path(paths: &GutchRepoPaths, target_id: &str) -> PathBuf {
     paths
@@ -70,7 +70,7 @@ pub fn write_target_manifest_artifacts(
     let bin_path = target_blueprint_path(paths, &target_manifest.target_id);
 
     // target_metadata.json is the canonical metadata index. The sibling
-    // target_blueprint.bin owns the file and chunk records.
+    // target_blueprint.gtcbin owns the file and chunk records.
     let mut metadata = target_manifest.clone();
     metadata.sync_product_metadata_from_launch();
     if let Some(product_metadata) = metadata.product_metadata.as_ref() {
