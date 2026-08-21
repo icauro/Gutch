@@ -644,14 +644,26 @@ fn download_json(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8
             crate::remote::backend::parse_backend_error_response(response),
         ));
     }
-    response
-        .bytes()
-        .map(|bytes| bytes.to_vec())
-        .map_err(|err| Error::manifest(format!("failed to read download body: {}", err)))
+    crate::remote::backend::read_bounded_response(
+        response,
+        crate::remote::backend::MAX_BACKEND_JSON_BYTES,
+    )
 }
 
 fn download_binary(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>> {
-    download_json(client, url)
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|err| Error::manifest(format!("download request failed: {}", err)))?;
+    if !response.status().is_success() {
+        return Err(Error::manifest(
+            crate::remote::backend::parse_backend_error_response(response),
+        ));
+    }
+    crate::remote::backend::read_bounded_response(
+        response,
+        crate::remote::backend::MAX_BACKEND_BINARY_BYTES,
+    )
 }
 
 fn download_to_path(
