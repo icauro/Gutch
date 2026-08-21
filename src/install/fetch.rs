@@ -9,9 +9,10 @@ use super::pipeline::{
     InstallPipelineApplyRequest, apply_install_pipeline, build_install_pipeline_plan,
 };
 use super::transfer::{
-    FetchTransferProgress, PendingBundleDownload, TransferPhaseCounters, build_download_client,
-    bundle_download_worker_count, download_pending_bundle, download_url, fetch_bundle_urls,
-    target_manifest_from_download, write_repo_manifest,
+    FetchTransferProgress, MAX_INSTALL_BLUEPRINT_BYTES, MAX_INSTALL_CHUNK_INDEX_BYTES,
+    MAX_INSTALL_METADATA_BYTES, PendingBundleDownload, TransferPhaseCounters,
+    build_download_client, bundle_download_worker_count, download_pending_bundle,
+    download_url_bounded, fetch_bundle_urls, target_manifest_from_download, write_repo_manifest,
 };
 use super::types::{
     TargetInstallApplySource, TargetInstallDownloadAndApplyRequest,
@@ -210,7 +211,7 @@ fn prepare_target_install_fetch(
                 done: false,
             },
         );
-        let repo_manifest_bytes = download_url(
+        let repo_manifest_bytes = download_url_bounded(
             download_client,
             repo_metadata_url,
             request.session_id.as_deref(),
@@ -223,6 +224,7 @@ fn prepare_target_install_fetch(
                 total: 1,
             },
             None,
+            MAX_INSTALL_METADATA_BYTES,
         )?;
         let repo_manifest: GutchRepoManifest =
             crate::helpers::from_json_bytes(&repo_manifest_bytes)?;
@@ -245,7 +247,7 @@ fn prepare_target_install_fetch(
             done: false,
         },
     );
-    let target_manifest_bytes = download_url(
+    let target_manifest_bytes = download_url_bounded(
         download_client,
         &request.metadata_url,
         request.session_id.as_deref(),
@@ -258,13 +260,14 @@ fn prepare_target_install_fetch(
             total: 1,
         },
         Some(request.target_id.as_str()),
+        MAX_INSTALL_METADATA_BYTES,
     )?;
     let target_metadata =
         target_manifest_from_download(&request.target_id, &target_manifest_bytes)?;
     crate::repo::write_target_metadata_only(&repo_paths, &target_metadata)?;
 
     if let Some(product_metadata_url) = request.product_metadata_url.as_deref() {
-        let product_metadata_bytes = download_url(
+        let product_metadata_bytes = download_url_bounded(
             download_client,
             product_metadata_url,
             request.session_id.as_deref(),
@@ -277,6 +280,7 @@ fn prepare_target_install_fetch(
                 total: 1,
             },
             Some(request.target_id.as_str()),
+            MAX_INSTALL_METADATA_BYTES,
         )?;
         let product_metadata: crate::manifest::TargetProductMetadata =
             crate::helpers::from_json_bytes(&product_metadata_bytes)?;
@@ -290,7 +294,7 @@ fn prepare_target_install_fetch(
         crate::repo::write_target_product_metadata(&repo_paths, &request.target_id, None)?;
     }
 
-    let blueprint_bytes = download_url(
+    let blueprint_bytes = download_url_bounded(
         download_client,
         &request.blueprint_url,
         request.session_id.as_deref(),
@@ -303,6 +307,7 @@ fn prepare_target_install_fetch(
             total: 1,
         },
         Some(request.target_id.as_str()),
+        MAX_INSTALL_BLUEPRINT_BYTES,
     )?;
     crate::helpers::write(
         &crate::target_blueprint_path(&repo_paths, &request.target_id),
@@ -325,7 +330,7 @@ fn prepare_target_install_fetch(
                 done: false,
             },
         );
-        let chunk_index_bytes = download_url(
+        let chunk_index_bytes = download_url_bounded(
             download_client,
             chunk_index_url,
             request.session_id.as_deref(),
@@ -338,6 +343,7 @@ fn prepare_target_install_fetch(
                 total: 1,
             },
             None,
+            MAX_INSTALL_CHUNK_INDEX_BYTES,
         )?;
         let chunk_index: crate::manifest::ChunkIndex =
             crate::helpers::from_json_bytes(&chunk_index_bytes)?;

@@ -17,6 +17,9 @@ use crate::{Error, Result};
 
 const DOWNLOAD_PROGRESS_EMIT_BYTES: u64 = 256 * 1024;
 const MAX_PARALLEL_BUNDLE_DOWNLOADS: usize = 4;
+pub(super) const MAX_INSTALL_METADATA_BYTES: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_INSTALL_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
+pub(super) const MAX_INSTALL_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -210,7 +213,7 @@ pub(super) fn download_pending_bundle(
     Ok(transfer_progress.mark_bundle_completed())
 }
 
-pub(super) fn download_url(
+pub(super) fn download_url_bounded(
     client: &reqwest::blocking::Client,
     url: &str,
     session_id: Option<&str>,
@@ -220,6 +223,33 @@ pub(super) fn download_url(
     message: &str,
     counters: TransferPhaseCounters,
     detail: Option<&str>,
+    maximum_bytes: u64,
+) -> Result<Vec<u8>> {
+    download_url_with_limit(
+        client,
+        url,
+        session_id,
+        control,
+        transfer_progress,
+        phase,
+        message,
+        counters,
+        detail,
+        Some(maximum_bytes),
+    )
+}
+
+fn download_url_with_limit(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    session_id: Option<&str>,
+    control: &GutchOperationControl,
+    transfer_progress: &Arc<FetchTransferProgress>,
+    phase: GutchProgressPhase,
+    message: &str,
+    counters: TransferPhaseCounters,
+    detail: Option<&str>,
+    maximum_bytes: Option<u64>,
 ) -> Result<Vec<u8>> {
     control.checkpoint()?;
     let mut bytes = Vec::new();
@@ -233,7 +263,13 @@ pub(super) fn download_url(
         message,
         counters,
         detail,
+        maximum_bytes,
         |chunk| {
+            if let Some(maximum) = maximum_bytes
+                && bytes.len().saturating_add(chunk.len()) as u64 > maximum
+            {
+                return Err(Error::manifest("download exceeded the allowed size"));
+            }
             bytes.extend_from_slice(chunk);
             Ok(())
         },
@@ -270,6 +306,7 @@ pub(super) fn download_url_to_path(
             message,
             counters,
             detail,
+            None,
             |chunk| {
                 file.write_all(chunk)?;
                 Ok(())
@@ -298,6 +335,7 @@ fn download_url_streaming<F>(
     message: &str,
     counters: TransferPhaseCounters,
     detail: Option<&str>,
+    maximum_bytes: Option<u64>,
     mut on_chunk: F,
 ) -> Result<()>
 where
@@ -320,11 +358,19 @@ where
             response.status()
         )));
     }
+    if maximum_bytes.is_some_and(|maximum| {
+        response
+            .content_length()
+            .is_some_and(|length| length > maximum)
+    }) {
+        return Err(Error::manifest("download exceeded the allowed size"));
+    }
     if let Some(content_length) = response.content_length() {
         transfer_progress.add_total_bytes(content_length);
     }
     let mut response = response;
     let mut buffer = [0u8; 64 * 1024];
+    let mut downloaded_bytes = 0_u64;
     let mut emitted_chunk_bytes = 0u64;
     loop {
         control.checkpoint()?;
@@ -333,6 +379,10 @@ where
             .map_err(|err| Error::manifest(format!("failed to read download response: {}", err)))?;
         if read == 0 {
             break;
+        }
+        downloaded_bytes = downloaded_bytes.saturating_add(read as u64);
+        if maximum_bytes.is_some_and(|maximum| downloaded_bytes > maximum) {
+            return Err(Error::manifest("download exceeded the allowed size"));
         }
         on_chunk(&buffer[..read])?;
         transfer_progress.add_transferred_bytes(read as u64);
@@ -405,7 +455,7 @@ fn download_json_bytes(
         .user_agent("Gutch CLI")
         .build()
         .map_err(|err| Error::manifest(format!("failed to create download client: {}", err)))?;
-    download_url(
+    download_url_bounded(
         &client,
         url,
         session_id,
@@ -418,6 +468,7 @@ fn download_json_bytes(
             total: 1,
         },
         None,
+        MAX_INSTALL_METADATA_BYTES,
     )
 }
 
