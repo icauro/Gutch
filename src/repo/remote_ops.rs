@@ -228,7 +228,7 @@ fn fetch_creator_snapshots(
     let creator_snapshots: CreatorRepoSnapshotsResponse = request_json_from_backend(
         client
             .get(format!(
-                "{}/v1/users/me/creator/products/{}/repos/{}/targets",
+                "{}/v1/users/me/creator/products/{}/repos/{}/snapshots",
                 endpoint.trim_end_matches('/'),
                 product_id,
                 remote_repo_id
@@ -700,7 +700,7 @@ pub fn sync_up_repo(
         if let Some(remote_snapshot) = remote_snapshots.remove(&snapshot.snapshot_id) {
             let response = client
                 .delete(format!(
-                    "{}/v1/users/me/creator/products/{}/repos/{}/targets/{}",
+                    "{}/v1/users/me/creator/products/{}/repos/{}/snapshots/{}",
                     endpoint.trim_end_matches('/'),
                     product_id,
                     remote_repo_id,
@@ -849,7 +849,7 @@ pub fn sync_up_repo(
                 let created: UpsertSnapshotResponse = request_json_from_backend(
                     client
                         .post(format!(
-                            "{}/v1/users/me/creator/products/{}/repos/{}/targets",
+                            "{}/v1/users/me/creator/products/{}/repos/{}/snapshots",
                             endpoint.trim_end_matches('/'),
                             product_id,
                             remote_repo_id
@@ -857,8 +857,8 @@ pub fn sync_up_repo(
                         .header("Accept", "application/json")
                         .header("Authorization", format!("Bearer {}", session_id))
                         .json(&serde_json::json!({
-                            "targetId": manifest.snapshot_id,
-                            "targetTags": manifest.snapshot_tags,
+                            "snapshotId": manifest.snapshot_id,
+                            "snapshotTags": manifest.snapshot_tags,
                             "versionMajor": structured_version.major,
                             "versionMinor": structured_version.minor,
                             "versionPatch": structured_version.patch,
@@ -887,7 +887,7 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-            "/v1/users/me/creator/products/{}/repos/{}/targets/{}/metadata",
+            "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/metadata",
                 product_id, remote_repo_id, remote_snapshot_id
             ),
             &session_id,
@@ -921,7 +921,7 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-            "/v1/users/me/creator/products/{}/repos/{}/targets/{}/blueprint",
+            "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/blueprint",
                 product_id, remote_repo_id, remote_snapshot_id
             ),
             &session_id,
@@ -948,7 +948,7 @@ pub fn sync_up_repo(
             },
         );
         let product_metadata_path = format!(
-            "/v1/users/me/creator/products/{}/repos/{}/targets/{}/product-metadata",
+            "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/product-metadata",
             product_id, remote_repo_id, remote_snapshot_id
         );
         if let Some(product_metadata_bytes) =
