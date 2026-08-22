@@ -117,17 +117,16 @@ pub(super) fn build_reconstruct_pipeline_plan(
     existing_bundle_ids: &HashSet<String>,
     verified_source: Option<crate::reconstruct::VerifiedSourceTree<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
-    let mut files = Vec::with_capacity(snapshot_manifest.files.len());
+    let mut files = Vec::with_capacity(snapshot_manifest.file_count());
     let mut bundle_to_file_indices: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut remaining_bundle_dependencies = Vec::with_capacity(snapshot_manifest.files.len());
+    let mut remaining_bundle_dependencies = Vec::with_capacity(snapshot_manifest.file_count());
     let mut required_bundle_ids = HashSet::new();
     let mut reused_source_chunk_count = 0usize;
     let source_files_by_path = verified_source
         .map(|source| {
             source
                 .snapshot_manifest
-                .files
-                .iter()
+                .files()
                 .map(|file| (file.path.as_str(), file))
                 .collect::<HashMap<_, _>>()
         })
@@ -137,7 +136,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
         .transpose()?
         .unwrap_or_default();
 
-    for file_manifest in &snapshot_manifest.files {
+    for file_manifest in snapshot_manifest.files() {
         if let Some(source_file) = source_files_by_path.get(file_manifest.path.as_str())
             && source_file.full_file_hash == file_manifest.full_file_hash
             && source_file.size == file_manifest.size
@@ -225,8 +224,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
         required_bundle_ids: required_bundle_ids.clone(),
         required_bundle_count: required_bundle_ids.len(),
         required_chunk_count: snapshot_manifest
-            .files
-            .iter()
+            .files()
             .map(|file| file.chunks.len())
             .sum(),
         reused_source_chunk_count,
@@ -261,6 +259,7 @@ pub(super) fn apply_reconstruct_pipeline(
     }
 
     let main_result = (|| -> Result<SnapshotReconstructFromRepoResult> {
+        crate::reconstruct::prepare_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
         let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
@@ -277,6 +276,7 @@ pub(super) fn apply_reconstruct_pipeline(
             request.transfer_progress,
             request.session_id,
         )?;
+        crate::reconstruct::finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
         request.control.checkpoint()?;
@@ -848,7 +848,7 @@ fn build_source_chunk_locations(
     source: crate::reconstruct::VerifiedSourceTree<'_>,
 ) -> Result<HashMap<String, SourceChunkLocation>> {
     let mut chunk_locations = HashMap::new();
-    for file_manifest in &source.snapshot_manifest.files {
+    for file_manifest in source.snapshot_manifest.files() {
         let typed_file = crate::manifest::runtime::typed_file_manifest(file_manifest)?;
         let source_path = crate::path_guard::resolve_manifest_relative_path(
             source.destination_dir,
@@ -911,10 +911,11 @@ mod tests {
     ) -> SnapshotManifest {
         let mut manifest =
             SnapshotManifest::new(snapshot_id.to_string(), SnapshotTagSet::default());
-        manifest.files.push(FileManifest {
+        manifest.push_file(FileManifest {
             path: "game.exe".to_string(),
             size: 4,
             executable: true,
+            read_only: false,
             full_file_hash: full_file_hash.to_string(),
             chunks: vec![ChunkRef {
                 chunk_hash,
@@ -926,7 +927,7 @@ mod tests {
 
     fn bundled_chunk_index() -> crate::manifest::ChunkIndex {
         crate::manifest::ChunkIndex {
-            format_version: "1.0.0".to_string(),
+            format_version: "1".to_string(),
             updated_at: String::new(),
             entries: std::collections::BTreeMap::from([(
                 test_hash(b"game"),
@@ -948,10 +949,11 @@ mod tests {
     ) -> SnapshotManifest {
         let mut manifest =
             SnapshotManifest::new(snapshot_id.to_string(), SnapshotTagSet::default());
-        manifest.files.push(FileManifest {
+        manifest.push_file(FileManifest {
             path: "game.exe".to_string(),
             size: 8,
             executable: true,
+            read_only: false,
             full_file_hash: full_file_hash.to_string(),
             chunks: vec![
                 ChunkRef {
@@ -1065,7 +1067,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&repo_root);
         let repo_paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
         let chunk_index = crate::manifest::ChunkIndex {
-            format_version: "1.0.0".to_string(),
+            format_version: "1".to_string(),
             updated_at: String::new(),
             entries: std::collections::BTreeMap::from([(
                 snapshot_only_chunk_hash,

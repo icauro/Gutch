@@ -83,10 +83,11 @@ fn estimate_build_no_missing_chunks() {
 #[test]
 fn estimate_build_missing_chunks_counted() {
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "game.exe".into(),
         size: 1000,
         executable: true,
+        read_only: false,
         full_file_hash: test_file_hash("game.exe"),
         chunks: vec![
             crate::manifest::ChunkRef {
@@ -108,10 +109,11 @@ fn estimate_build_missing_chunks_counted() {
 #[test]
 fn estimate_build_all_chunks_available() {
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "data.bin".into(),
         size: 200,
         executable: false,
+        read_only: false,
         full_file_hash: test_file_hash("data.bin"),
         chunks: vec![
             crate::manifest::ChunkRef {
@@ -153,10 +155,11 @@ fn verify_contiguous_chunks_detects_corruption() {
     std::fs::write(dir.join("data.bin"), &full_file).unwrap();
 
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "data.bin".into(),
         size: full_file.len() as u64,
         executable: false,
+        read_only: false,
         full_file_hash: file_hash,
         chunks: vec![
             crate::manifest::ChunkRef {
@@ -193,10 +196,11 @@ fn verify_contiguous_chunks_single_chunk() {
     std::fs::write(dir.join("single.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "single.bin".into(),
         size: data.len() as u64,
         executable: false,
+        read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
             chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
@@ -219,10 +223,11 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
     std::fs::write(dir.join("fast.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "fast.bin".into(),
         size: data.len() as u64,
         executable: false,
+        read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
             chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
@@ -253,10 +258,11 @@ fn verify_strict_mode_checks_chunk_hashing() {
     std::fs::write(dir.join("strict.bin"), &full_file).unwrap();
 
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "strict.bin".into(),
         size: full_file.len() as u64,
         executable: false,
+        read_only: false,
         full_file_hash: file_hash,
         chunks: vec![
             crate::manifest::ChunkRef {
@@ -308,10 +314,11 @@ fn verify_rejects_manifest_path_traversal() {
     test_util::recreate_dir(&dir);
 
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "../escape.txt".into(),
         size: 1,
         executable: false,
+        read_only: false,
         full_file_hash: "hash".into(),
         chunks: vec![],
     });
@@ -332,10 +339,11 @@ fn verify_with_hints_records_runtime_plan() {
     std::fs::write(dir.join("runtime.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
-    manifest.files.push(crate::manifest::FileManifest {
+    manifest.push_file(crate::manifest::FileManifest {
         path: "runtime.bin".into(),
         size: data.len() as u64,
         executable: false,
+        read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
             chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),

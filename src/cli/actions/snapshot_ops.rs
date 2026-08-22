@@ -57,7 +57,7 @@ pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()>
             .source_destination_dir
             .as_ref()
             .map(|path| path.display().to_string()),
-        file_count: tm.files.len(),
+        file_count: tm.file_count(),
         required_chunk_count: result.required_chunk_count,
         required_bundle_count: result.required_bundle_count,
         resolved_bundle_file_count: execution.resolved_bundle_file_count,
@@ -112,7 +112,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
         snapshot_id: tm.snapshot_id.clone(),
         destination_dir: command.destination.display().to_string(),
         verify_mode: command.verify_mode.as_str().to_string(),
-        expected_file_count: tm.files.len(),
+        expected_file_count: tm.file_count(),
         missing_file_count,
         corrupt_file_count,
         extra_file_count,

@@ -68,7 +68,7 @@ pub use repo::{
     add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index, assess_repo_init_path,
     bind_gutch_repo_remote, bundle_id_from_bundle_path, bundle_path, bundle_path_in_root,
     check_gutch_repo, check_tracked_gutch_repo, chunk_path, chunk_path_in_root,
-    cleanup_orphan_bundles_in_repo, compute_snapshot_id_from_files, create_repo_snapshot,
+    cleanup_orphan_bundles_in_repo, compute_snapshot_id_from_entries, create_repo_snapshot,
     delete_repo_snapshot_and_cleanup, delete_repo_snapshots,
     delete_repo_snapshots_with_matching_tags, describe_snapshot_create_plan,
     describe_snapshot_sources_sync_plan, discover_source_snapshot_operations,

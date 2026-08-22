@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::manifest::snapshot::SnapshotManifest;
+use crate::manifest::{SnapshotEntry, snapshot::SnapshotManifest};
 use crate::runtime::RuntimeResourceHints;
 use crate::verify::{RepairClassification, RepairIssue, VerifyRequest, classify_directory};
 use crate::{Error, Result};
@@ -28,9 +28,9 @@ struct PlannedRepair {
 
 fn manifest_paths_set(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
     snapshot_manifest
-        .files
+        .entries
         .iter()
-        .map(|file| file.path.as_str())
+        .map(|entry| entry.path())
         .collect()
 }
 
@@ -309,17 +309,31 @@ fn subset_manifest_for_issues(
         .map(|issue| issue.path.as_str())
         .collect::<HashSet<_>>();
     let mut subset = snapshot_manifest.clone();
-    subset.files = snapshot_manifest
-        .files
+    let mut required_paths = affected_paths.clone();
+    loop {
+        let previous_len = required_paths.len();
+        for entry in &snapshot_manifest.entries {
+            if required_paths.contains(entry.path()) {
+                if let SnapshotEntry::Symlink(link) = entry {
+                    required_paths.insert(link.target_path.as_str());
+                }
+            }
+        }
+        if required_paths.len() == previous_len {
+            break;
+        }
+    }
+    subset.entries = snapshot_manifest
+        .entries
         .iter()
-        .filter(|file| affected_paths.contains(file.path.as_str()))
+        .filter(|entry| required_paths.contains(entry.path()))
         .cloned()
         .collect();
-    subset.total_logical_size = subset.files.iter().map(|file| file.size).sum();
+    subset.total_logical_size = subset.files().map(|file| file.size).sum();
     subset.total_compressed_size_estimate = subset.total_logical_size / 2;
-    if !affected_paths.is_empty() && subset.files.is_empty() {
+    if !affected_paths.is_empty() && subset.entries.is_empty() {
         return Err(Error::verify(
-            "repair classification referenced files that are not present in the snapshot manifest",
+            "repair classification referenced entries that are not present in the snapshot manifest",
         ));
     }
     Ok(subset)
@@ -330,18 +344,66 @@ fn promote_repaired_files(
     destination_dir: &Path,
     staging_dir: &Path,
 ) -> Result<()> {
-    for file in &repaired_manifest.files {
-        let source = crate::path_guard::resolve_manifest_relative_path(staging_dir, &file.path)?;
-        let dest = crate::path_guard::resolve_manifest_relative_path(destination_dir, &file.path)?;
+    let mut directories = repaired_manifest
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            SnapshotEntry::Directory(directory) => Some(directory),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    directories.sort_by_key(|directory| directory.path.matches('/').count());
+    for directory in &directories {
+        let dest =
+            crate::path_guard::resolve_manifest_relative_path(destination_dir, &directory.path)?;
+        let is_existing_directory = fs::symlink_metadata(&dest)
+            .map(|metadata| {
+                metadata.file_type().is_dir() && !metadata.file_type().is_symlink()
+            })
+            .unwrap_or(false);
+        if !is_existing_directory {
+            remove_existing_entry(&dest)?;
+        }
+        crate::helpers::create_dir_all(&dest)?;
+    }
+
+    for entry in &repaired_manifest.entries {
+        let path = match entry {
+            SnapshotEntry::File(file) => &file.path,
+            SnapshotEntry::Symlink(link) => &link.path,
+            SnapshotEntry::Directory(_) => continue,
+        };
+        let source = crate::path_guard::resolve_manifest_relative_path(staging_dir, path)?;
+        let dest = crate::path_guard::resolve_manifest_relative_path(destination_dir, path)?;
         if let Some(parent) = dest.parent() {
             crate::helpers::create_dir_all(parent)?;
         }
-        if dest.exists() {
-            crate::helpers::remove_file(&dest)?;
-        }
+        remove_existing_entry(&dest)?;
         fs::rename(&source, &dest)?;
     }
+
+    directories.sort_by_key(|directory| std::cmp::Reverse(directory.path.matches('/').count()));
+    for directory in directories {
+        let dest =
+            crate::path_guard::resolve_manifest_relative_path(destination_dir, &directory.path)?;
+        let mut permissions = fs::metadata(&dest)?.permissions();
+        permissions.set_readonly(directory.read_only);
+        fs::set_permissions(dest, permissions)?;
+    }
     Ok(())
+}
+
+fn remove_existing_entry(path: &Path) -> Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+        crate::helpers::remove_dir_all(path)
+    } else {
+        crate::helpers::remove_file(path)
+    }
 }
 
 fn reconstruct_preserved_extra_files(
@@ -386,13 +448,15 @@ fn remove_extra_files(
     let manifest_paths = manifest_paths_set(snapshot_manifest);
     let mut removed = 0usize;
 
-    for issue in extra_files {
+    let mut paths = extra_files.iter().collect::<Vec<_>>();
+    paths.sort_by_key(|issue| std::cmp::Reverse(issue.path.matches('/').count()));
+    for issue in paths {
         if manifest_paths.contains(issue.path.as_str()) {
             continue;
         }
         let path = crate::path_guard::resolve_manifest_relative_path(destination_dir, &issue.path)?;
-        if path.is_file() {
-            crate::helpers::remove_file(&path)?;
+        if fs::symlink_metadata(&path).is_ok() {
+            remove_existing_entry(&path)?;
             removed += 1;
             remove_empty_parent_dirs(destination_dir, path.parent());
         }

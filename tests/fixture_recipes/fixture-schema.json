@@ -1,0 +1,33 @@
+{
+  "tag_definitions": [
+    {
+      "tag_name": "version",
+      "tag_kind": "exclusive",
+      "is_required": true,
+      "inference_prefixes": ["-v"],
+      "allowed_values": [],
+      "inference_strategy": "version"
+    },
+    {
+      "tag_name": "os",
+      "tag_kind": "exclusive",
+      "is_required": true,
+      "inference_prefixes": ["-"],
+      "allowed_values": ["windows", "linux", "macos"]
+    },
+    {
+      "tag_name": "arch",
+      "tag_kind": "exclusive",
+      "is_required": true,
+      "inference_prefixes": ["-"],
+      "allowed_values": ["x86", "x86_64", "x86_32", "arm64"]
+    },
+    {
+      "tag_name": "access",
+      "tag_kind": "exclusive",
+      "is_required": true,
+      "inference_prefixes": ["-"],
+      "allowed_values": ["public", "supporter"]
+    }
+  ]
+}

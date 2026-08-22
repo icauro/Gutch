@@ -17,7 +17,7 @@ pub(super) fn read_reusable_source_chunks(
     let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::new();
     let mut skip_buffer = Vec::new();
 
-    for fm in &source.snapshot_manifest.files {
+    for fm in source.snapshot_manifest.files() {
         control.checkpoint()?;
         let typed_chunks = typed_chunk_refs(fm)?;
         if typed_chunks

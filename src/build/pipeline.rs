@@ -15,7 +15,7 @@ use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
 use crate::hash::ChunkHash;
 use crate::manifest::{self, ArtifactStorageMode, SnapshotTagSet, snapshot::SnapshotManifest};
-use crate::runtime::{ChunkStorageMode, run_in_thread_pool, plan_build_runtime};
+use crate::runtime::{ChunkStorageMode, plan_build_runtime, run_in_thread_pool};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
@@ -149,8 +149,7 @@ fn plan_bundle_compressed_groups(
     let new_raw_bytes = sort_bytes;
     let estimated_total_compressed_bytes =
         ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
-    let bundle_compressed_size =
-        bundle_policy.snapshot_size_for(estimated_total_compressed_bytes);
+    let bundle_compressed_size = bundle_policy.snapshot_size_for(estimated_total_compressed_bytes);
     let bundle_raw_size_size = raw_size_size_for_bundle_compression(
         bundle_compressed_size,
         bundle_compression_ratio,
@@ -427,7 +426,7 @@ pub fn build_with_config(
         .unwrap_or(&empty_existing_bundle_ids);
 
     let scan_chunk_start = Instant::now();
-    let (mut file_manifests, unique_chunks, total_logical_size) = collect_scanned_chunks(
+    let (mut snapshot_entries, unique_chunks, total_logical_size) = collect_scanned_chunks(
         dir,
         ScanDirectoryOptions {
             previous_file_manifests,
@@ -446,7 +445,10 @@ pub fn build_with_config(
     let dedupe_plan_start = Instant::now();
     let mut total_compressed: u64 = 0;
     let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
-    for fm in &file_manifests {
+    for fm in snapshot_entries
+        .iter()
+        .filter_map(manifest::SnapshotEntry::as_file)
+    {
         config.control.checkpoint()?;
         for chunk_ref in &fm.chunks {
             config.control.checkpoint()?;
@@ -564,11 +566,11 @@ pub fn build_with_config(
             .sum::<u64>();
 
     let manifest_finalize_start = Instant::now();
-    file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
+    snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
     let mut vm = SnapshotManifest::new(config.snapshot_id.clone(), config.snapshot_tags.clone());
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
-    vm.files = file_manifests;
+    vm.entries = snapshot_entries;
     timings.manifest_finalize_wall = manifest_finalize_start.elapsed();
     timings.total = total_start.elapsed();
 

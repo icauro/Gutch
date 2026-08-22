@@ -46,8 +46,7 @@ pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> 
 
 pub fn required_chunk_hashes(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
     snapshot_manifest
-        .files
-        .iter()
+        .files()
         .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.as_str()))
         .collect()
 }
@@ -56,8 +55,7 @@ pub fn required_chunk_hashes_typed(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<HashSet<ChunkHash>> {
     snapshot_manifest
-        .files
-        .iter()
+        .files()
         .flat_map(|file| file.chunks.iter())
         .map(|chunk| ChunkHash::parse_hex(&chunk.chunk_hash))
         .collect()
@@ -78,8 +76,7 @@ pub fn required_bundle_ids(
     chunk_index: &manifest::ChunkIndex,
 ) -> HashSet<String> {
     snapshot_manifest
-        .files
-        .iter()
+        .files()
         .flat_map(|file| file.chunks.iter())
         .filter_map(|chunk_ref| {
             chunk_index
@@ -133,7 +130,7 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
             continue;
         };
         let manifest = load_snapshot_manifest(paths, snapshot_id)?;
-        for file in manifest.files {
+        for file in manifest.files() {
             let candidates = state
                 .previous_file_manifests
                 .entry(file.path.clone())
@@ -141,7 +138,7 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
             if !candidates.iter().any(|candidate| {
                 candidate.size == file.size && candidate.full_file_hash == file.full_file_hash
             }) {
-                candidates.push(file);
+                candidates.push(file.clone());
             }
         }
     }

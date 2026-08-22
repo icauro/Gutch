@@ -418,13 +418,14 @@ mod tests {
         let mut manifest = SnapshotManifest::new(snapshot_id.clone(), tags);
         manifest.source_modified_at =
             format_system_time_utc(SystemTime::now() - Duration::from_secs(3600));
-        manifest.files = vec![manifest::FileManifest {
+        manifest.set_files(vec![manifest::FileManifest {
             path: "game.exe".into(),
             size: 12,
             executable: false,
+            read_only: false,
             full_file_hash: test_hash("game.exe"),
             chunks: Vec::new(),
-        }];
+        }]);
         write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
 
         std::thread::sleep(Duration::from_millis(1100));

@@ -342,7 +342,7 @@ pub fn create_repo_snapshot(
             version_id: create_plan.version_id,
             os: create_plan.os,
             arch: create_plan.arch,
-            file_count: updated_manifest.files.len(),
+            file_count: updated_manifest.file_count(),
             total_logical_size: updated_manifest.total_logical_size,
             total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
             required_chunk_count: crate::repo::required_chunk_hashes(&updated_manifest).len(),
@@ -401,7 +401,7 @@ pub fn create_repo_snapshot(
     let (result, timings) = crate::build_with_config(&prepared_input.dir, &build_config)?;
     request.control.checkpoint()?;
     let mut result = result;
-    let snapshot_id = crate::compute_snapshot_id_from_files(&result.snapshot_manifest.files);
+    let snapshot_id = crate::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
         crate::repo::source_modified_at_from_directory(request.source_dir.as_path())?;
@@ -442,7 +442,7 @@ pub fn create_repo_snapshot(
                     .get_exclusive("arch")
                     .unwrap_or_default()
                     .to_string(),
-                file_count: updated_manifest.files.len(),
+                file_count: updated_manifest.file_count(),
                 total_logical_size: updated_manifest.total_logical_size,
                 total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
                 required_chunk_count,
@@ -478,7 +478,7 @@ pub fn create_repo_snapshot(
     }
     store_state.chunk_locations =
         crate::repo::existing_chunk_locations_from_index(&store_state.chunk_index, &repo_paths);
-    for file in &result.snapshot_manifest.files {
+    for file in result.snapshot_manifest.files() {
         let candidates = store_state
             .previous_file_manifests
             .entry(file.path.clone())
@@ -521,7 +521,7 @@ pub fn create_repo_snapshot(
             .get_exclusive("arch")
             .unwrap_or_default()
             .to_string(),
-        file_count: result.snapshot_manifest.files.len(),
+        file_count: result.snapshot_manifest.file_count(),
         total_logical_size: result.snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: result.snapshot_manifest.total_compressed_size_estimate,
         required_chunk_count,
@@ -677,7 +677,8 @@ mod tests {
     use crate::GutchRepoPaths;
     use crate::manifest::{self, snapshot::SnapshotManifest};
     use crate::repo::{
-        compute_snapshot_id_from_files, ensure_gutch_repo_layout, write_snapshot_manifest_artifacts,
+        compute_snapshot_id_from_entries, ensure_gutch_repo_layout,
+        write_snapshot_manifest_artifacts,
     };
 
     #[test]
@@ -708,17 +709,23 @@ mod tests {
             path: "game.exe".into(),
             size: 11,
             executable: false,
+            read_only: false,
             full_file_hash: crate::hash::hash_hex(
                 &crate::hash::hash_file(new_source.join("game.exe").as_path()).unwrap(),
             ),
             chunks: Vec::new(),
         }];
-        let old_snapshot_id = compute_snapshot_id_from_files(&old_files);
+        let old_entries = old_files
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        let old_snapshot_id = compute_snapshot_id_from_entries(&old_entries);
         let mut old_manifest =
             SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
         old_manifest.source_modified_at =
             crate::repo::source_modified_at_from_directory(&new_source).unwrap();
-        old_manifest.files = old_files;
+        old_manifest.set_files(old_files);
         write_snapshot_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
 
         std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();

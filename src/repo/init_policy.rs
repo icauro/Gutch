@@ -314,10 +314,11 @@ mod tests {
             snapshot_id.clone(),
             exclusive_tags("1.0.0", "windows", "x86_64", "base"),
         );
-        snapshot_manifest.files.push(manifest::FileManifest {
+        snapshot_manifest.push_file(manifest::FileManifest {
             path: "game.exe".to_string(),
             size: 4,
             executable: true,
+            read_only: false,
             full_file_hash: test_hash("game.exe"),
             chunks: vec![],
         });

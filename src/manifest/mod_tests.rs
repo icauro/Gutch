@@ -83,6 +83,7 @@ fn test_file_manifest_serialization() {
         path: "game.exe".to_string(),
         size: 12345,
         executable: true,
+        read_only: false,
         full_file_hash: "abc123".to_string(),
         chunks: vec![
             ChunkRef {

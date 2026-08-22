@@ -8,7 +8,9 @@ use rayon::prelude::*;
 
 use crate::build::types::{BuildProgressSink, BuildTimings, ChunkPayload, ExistingChunkLocation};
 use crate::hash::ChunkHash;
-use crate::manifest::{self, ChunkRef, FileManifest};
+use crate::manifest::{
+    self, ChunkRef, DirectoryManifest, FileManifest, SnapshotEntry, SymlinkManifest,
+};
 use crate::runtime::{ChunkStorageMode, run_in_thread_pool};
 use crate::{Error, Result};
 
@@ -51,11 +53,12 @@ pub(crate) fn collect_scanned_chunks(
     dir: &Path,
     options: ScanDirectoryOptions<'_>,
     timings: &mut BuildTimings,
-) -> Result<(Vec<FileManifest>, HashMap<ChunkHash, ChunkPayload>, u64)> {
+) -> Result<(Vec<SnapshotEntry>, HashMap<ChunkHash, ChunkPayload>, u64)> {
     let control = options.control.clone();
+    let metadata_entries = scan_metadata_entries(dir, &options.control)?;
     let file_entries = scan_directory_into_file_entries(dir, options)?;
 
-    let mut file_manifests = Vec::with_capacity(file_entries.len());
+    let mut entries = metadata_entries;
     let mut unique_chunks = HashMap::new();
     let mut total_logical_size: u64 = 0;
 
@@ -63,13 +66,99 @@ pub(crate) fn collect_scanned_chunks(
         control.checkpoint()?;
         accumulate_entry_timings(timings, &entry);
         total_logical_size += entry.size;
-        file_manifests.push(entry.manifest);
+        entries.push(SnapshotEntry::File(entry.manifest));
         for (hash, data) in entry.chunks {
             unique_chunks.entry(hash).or_insert(data);
         }
     }
 
-    Ok((file_manifests, unique_chunks, total_logical_size))
+    entries.sort_by(|left, right| left.path().cmp(right.path()));
+    manifest::validate_snapshot_entries(&entries)?;
+    Ok((entries, unique_chunks, total_logical_size))
+}
+
+fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
+    let relative = path.strip_prefix(root).map_err(|error| Error::PathError {
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
+    Ok(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Result<String> {
+    if raw_target.is_absolute() {
+        return Err(Error::manifest(format!(
+            "symbolic link '{}' has an absolute target",
+            link_path.display()
+        )));
+    }
+    let link_relative = link_path
+        .strip_prefix(root)
+        .map_err(|error| Error::PathError {
+            path: link_path.to_path_buf(),
+            reason: error.to_string(),
+        })?;
+    let combined = link_relative
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(raw_target);
+    let mut parts = Vec::new();
+    for component in combined.components() {
+        match component {
+            std::path::Component::Normal(part) => parts.push(part.to_os_string()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if parts.pop().is_none() {
+                    return Err(Error::manifest(format!(
+                        "symbolic link '{}' escapes the snapshot root",
+                        link_path.display()
+                    )));
+                }
+            }
+            _ => return Err(Error::manifest("symbolic link target is not relative")),
+        }
+    }
+    let normalized = parts.iter().collect::<PathBuf>();
+    let normalized = normalized.to_string_lossy().replace('\\', "/");
+    crate::validate_manifest_relative_path(&normalized, false)?;
+    Ok(normalized)
+}
+
+fn scan_metadata_entries(
+    root: &Path,
+    control: &crate::GutchOperationControl,
+) -> Result<Vec<SnapshotEntry>> {
+    let mut entries = Vec::new();
+    for entry in walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .sort_by_file_name()
+    {
+        control.checkpoint()?;
+        let entry = entry?;
+        if entry.depth() == 0 || entry.file_type().is_file() {
+            continue;
+        }
+        let path = normalized_relative(root, entry.path())?;
+        let metadata = std::fs::symlink_metadata(entry.path())?;
+        if entry.file_type().is_dir() {
+            entries.push(SnapshotEntry::Directory(DirectoryManifest {
+                path,
+                read_only: metadata.permissions().readonly(),
+            }));
+        } else if entry.file_type().is_symlink() {
+            let raw_target = std::fs::read_link(entry.path())?;
+            entries.push(SnapshotEntry::Symlink(SymlinkManifest {
+                path,
+                target_path: normalize_link_target(entry.path(), &raw_target, root)?,
+            }));
+        } else {
+            return Err(Error::manifest(format!(
+                "unsupported filesystem object '{}'",
+                entry.path().display()
+            )));
+        }
+    }
+    Ok(entries)
 }
 
 pub(crate) fn scan_directory_into_file_entries(
@@ -80,8 +169,13 @@ pub(crate) fn scan_directory_into_file_entries(
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
         options.control.checkpoint()?;
         let entry = entry?;
-        if entry.path().is_file() {
+        if entry.file_type().is_file() {
             file_paths.push(entry.path().to_path_buf());
+        } else if !entry.file_type().is_dir() && !entry.file_type().is_symlink() {
+            return Err(Error::manifest(format!(
+                "unsupported filesystem object '{}'",
+                entry.path().display()
+            )));
         }
     }
 
@@ -102,7 +196,7 @@ pub(crate) fn scan_directory_into_file_entries(
             let normalized_relative = relative.to_string_lossy().replace('\\', "/");
 
             let metadata_started_at = std::time::Instant::now();
-            std::fs::metadata(path)?;
+            let source_metadata = std::fs::symlink_metadata(path)?;
             let metadata = metadata_started_at.elapsed();
             let previous_candidates = options
                 .previous_file_manifests
@@ -114,6 +208,7 @@ pub(crate) fn scan_directory_into_file_entries(
                 path,
                 relative,
                 normalized_relative,
+                &source_metadata,
                 metadata,
                 previous_candidates,
                 &options,
@@ -148,12 +243,21 @@ fn scan_changed_file(
     path: &Path,
     relative: &Path,
     normalized_relative: String,
+    source_metadata: &std::fs::Metadata,
     metadata: Duration,
     previous_candidates: &[FileManifest],
     options: &ScanDirectoryOptions<'_>,
     control: &crate::GutchOperationControl,
     spool_root: Option<&PathBuf>,
 ) -> Result<FileBuildEntry> {
+    let read_only = source_metadata.permissions().readonly();
+    #[cfg(unix)]
+    let executable = {
+        use std::os::unix::fs::PermissionsExt;
+        source_metadata.permissions().mode() & 0o111 != 0
+    };
+    #[cfg(not(unix))]
+    let executable = false;
     let (chunk_scan, chunk_timings) =
         crate::chunk::chunk_file_streaming_with_file_hash_and_control(
             path,
@@ -164,10 +268,12 @@ fn scan_changed_file(
     let full_file_hash = chunk_scan.full_file_hash;
     let file_hash = chunk_scan.full_file_hash_duration;
 
-    if let Some(previous) = previous_candidates
-        .iter()
-        .find(|candidate| candidate.size == file_size && candidate.full_file_hash == full_file_hash)
-    {
+    if let Some(previous) = previous_candidates.iter().find(|candidate| {
+        candidate.size == file_size
+            && candidate.full_file_hash == full_file_hash
+            && candidate.executable == executable
+            && candidate.read_only == read_only
+    }) {
         return Ok(FileBuildEntry {
             manifest: previous.clone(),
             chunks: Vec::new(),
@@ -239,7 +345,8 @@ fn scan_changed_file(
         manifest: FileManifest {
             path: normalized_relative,
             size: file_size,
-            executable: false,
+            executable,
+            read_only,
             full_file_hash,
             chunks: chunk_refs,
         },

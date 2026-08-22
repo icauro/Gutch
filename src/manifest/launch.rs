@@ -41,8 +41,7 @@ pub fn validate_resolved_launch_for_snapshot(
         .get_exclusive("os")
         .unwrap_or_default();
     let manifest_paths = snapshot
-        .files
-        .iter()
+        .files()
         .map(|file| file.path.as_str())
         .collect::<HashSet<_>>();
 

@@ -87,24 +87,87 @@ fn classify_inner(
         ..VerifyTimings::default()
     };
     let manifest_paths: HashSet<&str> = snapshot_manifest
-        .files
+        .entries
         .iter()
-        .map(|fm| fm.path.as_str())
+        .map(crate::manifest::SnapshotEntry::path)
         .collect();
     let completed_files = AtomicUsize::new(0);
     emit_verify_progress(
         opts.control.progress(),
         0,
-        snapshot_manifest.files.len(),
+        snapshot_manifest.file_count(),
         false,
     );
 
     timings.prepare_wall = total_start.elapsed();
+    for entry in &snapshot_manifest.entries {
+        match entry {
+            manifest::SnapshotEntry::File(_) => {}
+            manifest::SnapshotEntry::Directory(directory) => {
+                let path = resolve_manifest_relative_path(dir, &directory.path)?;
+                match std::fs::symlink_metadata(&path) {
+                    Ok(metadata) if metadata.file_type().is_dir() => {
+                        if metadata.permissions().readonly() != directory.read_only {
+                            classification.push(RepairIssue {
+                                kind: RepairIssueKind::Corrupt,
+                                path: directory.path.clone(),
+                                detail: format!(
+                                    "read-only mismatch for directory: {}",
+                                    directory.path
+                                ),
+                            });
+                        }
+                    }
+                    Ok(_) => classification.push(RepairIssue {
+                        kind: RepairIssueKind::Corrupt,
+                        path: directory.path.clone(),
+                        detail: format!("entry type mismatch for directory: {}", directory.path),
+                    }),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => classification
+                        .push(RepairIssue {
+                            kind: RepairIssueKind::Missing,
+                            path: directory.path.clone(),
+                            detail: format!("missing directory: {}", directory.path),
+                        }),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            manifest::SnapshotEntry::Symlink(link) => {
+                let path = resolve_manifest_relative_path(dir, &link.path)?;
+                match std::fs::symlink_metadata(&path) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        let raw_target = std::fs::read_link(&path)?;
+                        let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
+                        if actual_target != link.target_path {
+                            classification.push(RepairIssue {
+                                kind: RepairIssueKind::Corrupt,
+                                path: link.path.clone(),
+                                detail: format!("symbolic-link target mismatch for {}", link.path),
+                            });
+                        }
+                    }
+                    Ok(_) => classification.push(RepairIssue {
+                        kind: RepairIssueKind::Corrupt,
+                        path: link.path.clone(),
+                        detail: format!("entry type mismatch for symbolic link: {}", link.path),
+                    }),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => classification
+                        .push(RepairIssue {
+                            kind: RepairIssueKind::Missing,
+                            path: link.path.clone(),
+                            detail: format!("missing symbolic link: {}", link.path),
+                        }),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+    }
     let verify_files_start = Instant::now();
     let per_file_results = run_in_thread_pool(runtime_plan.worker_count, || {
         snapshot_manifest
-            .files
+            .entries
             .par_iter()
+            .filter_map(crate::manifest::SnapshotEntry::as_file)
             .map(|fm| {
                 opts.control.checkpoint()?;
                 let result =
@@ -113,7 +176,7 @@ fn classify_inner(
                 emit_verify_progress(
                     opts.control.progress(),
                     current,
-                    snapshot_manifest.files.len(),
+                    snapshot_manifest.file_count(),
                     false,
                 );
                 result
@@ -130,12 +193,12 @@ fn classify_inner(
     }
     timings.verify_files_wall = verify_files_start.elapsed();
 
-    // Detect extra files not in manifest
+    // Detect extra filesystem entries without following symbolic links.
     let extra_file_scan_start = Instant::now();
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
         opts.control.checkpoint()?;
         let entry = entry?;
-        if !entry.path().is_file() {
+        if entry.depth() == 0 {
             continue;
         }
         let Ok(relative_path) = entry.path().strip_prefix(dir) else {
@@ -148,7 +211,7 @@ fn classify_inner(
         classification.push(RepairIssue {
             kind: RepairIssueKind::Extra,
             path: relative.clone(),
-            detail: format!("extra file: {}", relative),
+            detail: format!("extra filesystem entry: {}", relative),
         });
     }
     timings.extra_file_scan_wall = extra_file_scan_start.elapsed();
@@ -156,11 +219,35 @@ fn classify_inner(
     timings.total = total_start.elapsed();
     emit_verify_progress(
         opts.control.progress(),
-        snapshot_manifest.files.len(),
-        snapshot_manifest.files.len(),
+        snapshot_manifest.file_count(),
+        snapshot_manifest.file_count(),
         true,
     );
     Ok((classification, timings))
+}
+
+fn normalize_actual_link_target(link_path: &str, raw_target: &Path) -> Result<String> {
+    if raw_target.is_absolute() {
+        return Err(crate::Error::verify("symbolic-link target is absolute"));
+    }
+    let combined = Path::new(link_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(raw_target);
+    let mut normalized = std::path::PathBuf::new();
+    for component in combined.components() {
+        match component {
+            std::path::Component::Normal(value) => normalized.push(value),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(crate::Error::verify("symbolic-link target escapes root"));
+                }
+            }
+            _ => return Err(crate::Error::verify("symbolic-link target is invalid")),
+        }
+    }
+    Ok(normalized.to_string_lossy().replace('\\', "/"))
 }
 
 fn verify_inner(
@@ -257,12 +344,26 @@ fn verify_manifest_file(
     };
     let file_path = resolve_manifest_relative_path(dir, &fm.path)?;
 
-    if !file_path.exists() {
+    let source_metadata = match std::fs::symlink_metadata(&file_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((
+                vec![RepairIssue {
+                    kind: RepairIssueKind::Missing,
+                    path: fm.path.clone(),
+                    detail: format!("missing file: {}", fm.path),
+                }],
+                timings,
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if !source_metadata.file_type().is_file() {
         return Ok((
             vec![RepairIssue {
-                kind: RepairIssueKind::Missing,
+                kind: RepairIssueKind::Corrupt,
                 path: fm.path.clone(),
-                detail: format!("missing file: {}", fm.path),
+                detail: format!("entry type mismatch for file: {}", fm.path),
             }],
             timings,
         ));
@@ -283,6 +384,31 @@ fn verify_manifest_file(
         }
     };
     timings.stat += t.elapsed();
+
+    if metadata.permissions().readonly() != fm.read_only {
+        return Ok((
+            vec![RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!("read-only mismatch for file: {}", fm.path),
+            }],
+            timings,
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if (metadata.permissions().mode() & 0o111 != 0) != fm.executable {
+            return Ok((
+                vec![RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: fm.path.clone(),
+                    detail: format!("executable mismatch for file: {}", fm.path),
+                }],
+                timings,
+            ));
+        }
+    }
 
     if metadata.len() != fm.size {
         return Ok((

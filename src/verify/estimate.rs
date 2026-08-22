@@ -13,7 +13,7 @@ pub fn estimate_build(
     let mut missing_chunks: HashSet<ChunkHash> = HashSet::new();
     let mut missing_logical: u64 = 0;
 
-    for file_manifest in &snapshot_manifest.files {
+    for file_manifest in snapshot_manifest.files() {
         let typed_file_manifest = typed_file_manifest(file_manifest)?;
         for chunk_ref in &typed_file_manifest.chunks {
             if !available_chunks.contains(&chunk_ref.hash) {

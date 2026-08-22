@@ -105,7 +105,7 @@ fn unchanged_snapshot_create_stats(
         os: identity.os,
         arch: identity.arch,
         storage_mode: storage_mode.cli_name().to_string(),
-        file_count: snapshot_manifest.files.len(),
+        file_count: snapshot_manifest.file_count(),
         total_logical_size: snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
         required_chunk_count,
@@ -225,7 +225,7 @@ fn run_create_one_snapshot(
 
     let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
     let mut result = result;
-    let snapshot_id = g::compute_snapshot_id_from_files(&result.snapshot_manifest.files);
+    let snapshot_id = g::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
     apply_resolved_snapshot_identity(&mut result.snapshot_manifest, &resolved_identity);
 
@@ -284,7 +284,7 @@ fn run_create_one_snapshot(
     }
     store_state.chunk_locations =
         g::repo::existing_chunk_locations_from_index(&store_state.chunk_index, request.repo_paths);
-    for file in &result.snapshot_manifest.files {
+    for file in result.snapshot_manifest.files() {
         let candidates = store_state
             .previous_file_manifests
             .entry(file.path.clone())
@@ -299,7 +299,7 @@ fn run_create_one_snapshot(
     if verbose_output_enabled() {
         println!(
             "done. {} files in manifest, total logical: {} bytes",
-            result.snapshot_manifest.files.len(),
+            result.snapshot_manifest.file_count(),
             result.snapshot_manifest.total_logical_size
         );
 
@@ -354,7 +354,7 @@ fn run_create_one_snapshot(
         os: resolved_identity_strings.os,
         arch: resolved_identity_strings.arch,
         storage_mode: request.build_profile.storage_mode.cli_name().to_string(),
-        file_count: result.snapshot_manifest.files.len(),
+        file_count: result.snapshot_manifest.file_count(),
         total_logical_size: result.snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: result.snapshot_manifest.total_compressed_size_estimate,
         required_chunk_count,
@@ -831,7 +831,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             )?;
 
             println!("fresh reconstruction estimate:");
-            println!("  files: {}", result.snapshot_manifest.files.len());
+            println!("  files: {}", result.snapshot_manifest.file_count());
             println!(
                 "  logical size:  {:.2} MiB",
                 result.snapshot_manifest.total_logical_size as f64 / (1024.0 * 1024.0)

@@ -21,6 +21,22 @@ use pipeline::{
 use source::read_reusable_source_chunks;
 pub use types::{ReconstructOptions, ReconstructTimings, VerifiedSourceTree};
 
+pub(crate) fn prepare_snapshot_entries(
+    snapshot_manifest: &SnapshotManifest,
+    output_dir: &Path,
+) -> Result<()> {
+    crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
+    crate::helpers::create_dir_all(output_dir)?;
+    pipeline::create_snapshot_directories(snapshot_manifest, output_dir)
+}
+
+pub(crate) fn finalize_snapshot_entries(
+    snapshot_manifest: &SnapshotManifest,
+    output_dir: &Path,
+) -> Result<()> {
+    pipeline::finalize_snapshot_entries(snapshot_manifest, output_dir)
+}
+
 #[cfg(test)]
 use crate::runtime::RuntimePlan;
 #[cfg(test)]
@@ -65,7 +81,9 @@ fn reconstruct_from_snapshot_manifest_with_timings(
         ..ReconstructTimings::default()
     };
     control.checkpoint()?;
+    crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
     crate::helpers::create_dir_all(output_dir)?;
+    pipeline::create_snapshot_directories(snapshot_manifest, output_dir)?;
 
     let needed_chunks = required_chunk_hashes_typed(snapshot_manifest)?;
     let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
@@ -374,5 +392,49 @@ mod tests {
                 verify_files: true,
             },
         ));
+    }
+
+    #[test]
+    fn reconstructs_empty_directory_and_safe_internal_symlink() {
+        let output = crate::test_util::temp_path("gutch_entry_reconstruct");
+        let _ = std::fs::remove_dir_all(&output);
+        let mut manifest =
+            SnapshotManifest::new("entries".into(), crate::manifest::SnapshotTagSet::default());
+        manifest.entries = vec![
+            crate::manifest::SnapshotEntry::Directory(crate::manifest::DirectoryManifest {
+                path: "empty".into(),
+                read_only: false,
+            }),
+            crate::manifest::SnapshotEntry::Symlink(crate::manifest::SymlinkManifest {
+                path: "current".into(),
+                target_path: "empty".into(),
+            }),
+        ];
+        let result = reconstruct_from_snapshot_manifest(
+            &manifest,
+            &[],
+            &CompressionProfile::default(),
+            &output,
+            &GutchOperationControl::default(),
+        );
+        #[cfg(unix)]
+        assert!(result.is_ok(), "{result:?}");
+        #[cfg(windows)]
+        if let Err(error) = &result {
+            assert!(
+                error.to_string().contains("Developer Mode")
+                    || error.to_string().contains("symbolic-link privilege")
+            );
+        }
+        if result.is_ok() {
+            assert!(output.join("empty").is_dir());
+            assert!(
+                std::fs::symlink_metadata(output.join("current"))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+        }
+        let _ = std::fs::remove_dir_all(output);
     }
 }

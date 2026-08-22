@@ -248,7 +248,7 @@ pub struct SnapshotMetadata {
 
 #[derive(Debug, Clone)]
 pub struct SnapshotBlueprint {
-    pub files: Vec<FileManifest>,
+    pub entries: Vec<SnapshotEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -263,7 +263,7 @@ pub struct SnapshotManifest {
     pub snapshot_tags: SnapshotTagSet,
     pub launch: Option<launch::ResolvedLaunchConfiguration>,
     pub product_metadata: Option<SnapshotProductMetadata>,
-    pub files: Vec<FileManifest>,
+    pub entries: Vec<SnapshotEntry>,
 }
 
 impl SnapshotManifest {
@@ -278,7 +278,7 @@ impl SnapshotManifest {
             snapshot_tags,
             launch: None,
             product_metadata: None,
-            files: Vec::new(),
+            entries: Vec::new(),
         }
     }
 
@@ -293,7 +293,7 @@ impl SnapshotManifest {
 
     pub fn blueprint(&self) -> SnapshotBlueprint {
         SnapshotBlueprint {
-            files: self.files.clone(),
+            entries: self.entries.clone(),
         }
     }
 
@@ -308,7 +308,7 @@ impl SnapshotManifest {
             snapshot_tags: metadata.snapshot_tags,
             launch: None,
             product_metadata: None,
-            files: Vec::new(),
+            entries: Vec::new(),
         }
     }
 
@@ -327,6 +327,22 @@ impl SnapshotManifest {
             .product_metadata
             .as_ref()
             .and_then(|metadata| metadata.launch_for_host_tags(&host_tags));
+    }
+
+    pub fn files(&self) -> impl Iterator<Item = &FileManifest> {
+        self.entries.iter().filter_map(SnapshotEntry::as_file)
+    }
+
+    pub fn file_count(&self) -> usize {
+        self.files().count()
+    }
+
+    pub fn push_file(&mut self, file: FileManifest) {
+        self.entries.push(SnapshotEntry::File(file));
+    }
+
+    pub fn set_files(&mut self, files: Vec<FileManifest>) {
+        self.entries = files.into_iter().map(SnapshotEntry::File).collect();
     }
 }
 

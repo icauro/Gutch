@@ -4,7 +4,8 @@ mod staging;
 
 // Re-export everything reconstruct/mod.rs needs.
 pub(super) use orchestrator::{
-    prepare_reconstruct, read_loose_repo_chunks, rebuild_files_from_chunks,
+    create_snapshot_directories, finalize_snapshot_entries, prepare_reconstruct,
+    read_loose_repo_chunks, rebuild_files_from_chunks,
     reconstruct_from_bundle_paths_and_local_chunks, verify_chunk_hash,
 };
 

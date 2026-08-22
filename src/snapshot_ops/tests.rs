@@ -13,16 +13,19 @@ use std::net::TcpListener;
 fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
     let mut manifest =
         SnapshotManifest::new("repair-snapshot".to_string(), SnapshotTagSet::default());
-    manifest.files = files
-        .into_iter()
-        .map(|(path, bytes)| FileManifest {
-            path: path.to_string(),
-            size: bytes.len() as u64,
-            executable: false,
-            full_file_hash: hash_hex(&blake3::hash(bytes)),
-            chunks: Vec::new(),
-        })
-        .collect();
+    manifest.set_files(
+        files
+            .into_iter()
+            .map(|(path, bytes)| FileManifest {
+                path: path.to_string(),
+                size: bytes.len() as u64,
+                executable: false,
+                read_only: false,
+                full_file_hash: hash_hex(&blake3::hash(bytes)),
+                chunks: Vec::new(),
+            })
+            .collect(),
+    );
     manifest
 }
 
@@ -56,10 +59,11 @@ fn resolved_snapshot_state_uses_product_runtime() {
     tags.upsert_exclusive("os", "windows");
     tags.upsert_exclusive("arch", "x86_64");
     let mut snapshot = SnapshotManifest::new("snapshot".into(), tags);
-    snapshot.files.push(FileManifest {
+    snapshot.push_file(FileManifest {
         path: "Game.exe".into(),
         size: 1,
         executable: true,
+        read_only: false,
         full_file_hash: test_hash("Game.exe"),
         chunks: Vec::new(),
     });
@@ -139,7 +143,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
     .unwrap()
     .repair_result;
 
-    assert_eq!(result.extra_file_count, 1);
+    assert_eq!(result.extra_file_count, 2);
     assert_eq!(result.removed_extra_file_count, 1);
     assert!(!destination_dir.join("mods").join("mod.txt").exists());
     let _ = std::fs::remove_dir_all(&root);
@@ -155,7 +159,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     let chunk_a = test_hash("chunk-a");
     let chunk_b = test_hash("chunk-b");
     let chunk_index = manifest::ChunkIndex {
-        format_version: "1.0.0".to_string(),
+        format_version: "1".to_string(),
         updated_at: String::new(),
         entries: std::collections::BTreeMap::from([
             (
@@ -181,11 +185,12 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     write_chunk_index(&paths, &chunk_index).unwrap();
 
     let mut manifest = SnapshotManifest::new("snapshot".to_string(), SnapshotTagSet::default());
-    manifest.files = vec![
+    manifest.set_files(vec![
         FileManifest {
             path: "game.exe".to_string(),
             size: 4,
             executable: true,
+            read_only: false,
             full_file_hash: test_hash("game"),
             chunks: vec![manifest::ChunkRef {
                 chunk_hash: chunk_a,
@@ -196,13 +201,14 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             path: "data.bin".to_string(),
             size: 4,
             executable: false,
+            read_only: false,
             full_file_hash: test_hash("data"),
             chunks: vec![manifest::ChunkRef {
                 chunk_hash: chunk_b,
                 raw_size: 4,
             }],
         },
-    ];
+    ]);
     crate::write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
 
     let destination_dir = root.join("destination");
@@ -239,7 +245,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&repo_path).unwrap();
     let chunk_index = manifest::ChunkIndex {
-        format_version: "1.0.0".to_string(),
+        format_version: "1".to_string(),
         updated_at: String::new(),
         entries: std::collections::BTreeMap::from([(
             test_hash("chunk-a"),
@@ -257,10 +263,11 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
         "1.0.0-windows-x86_64-base".to_string(),
         SnapshotTagSet::from_compact_strings(&["version::1.0.0".to_string()]).unwrap(),
     );
-    blueprint_manifest.files.push(FileManifest {
+    blueprint_manifest.push_file(FileManifest {
         path: "game.exe".to_string(),
         size: 100,
         executable: true,
+        read_only: false,
         full_file_hash: test_hash("game.exe"),
         chunks: vec![manifest::ChunkRef {
             chunk_hash: test_hash("chunk-a"),
@@ -293,7 +300,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
                 "/metadata" => (
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
-                    "snapshot_metadata_version": "1.0.0",
+                    "snapshot_metadata_version": "1",
                     "inserted_at": "2026-05-11T00:00:00Z",
                     "snapshot_tags": ["version::1.0.0"],
                                             }))

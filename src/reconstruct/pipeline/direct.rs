@@ -121,7 +121,7 @@ fn build_chunk_write_snapshots(
     control: &GutchOperationControl,
 ) -> Result<HashMap<ChunkHash, Vec<ChunkWriteSnapshot>>> {
     let mut write_snapshots: HashMap<ChunkHash, Vec<ChunkWriteSnapshot>> = HashMap::new();
-    for fm in &snapshot_manifest.files {
+    for fm in snapshot_manifest.files() {
         control.checkpoint()?;
         let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         let mut file_offset = 0u64;
@@ -147,7 +147,7 @@ fn prepare_direct_output_files(
     output_dir: &Path,
     control: &GutchOperationControl,
 ) -> Result<()> {
-    for fm in &snapshot_manifest.files {
+    for fm in snapshot_manifest.files() {
         control.checkpoint()?;
         let output_path = resolve_manifest_relative_path(output_dir, &fm.path)?;
         if let Some(parent) = output_path.parent() {

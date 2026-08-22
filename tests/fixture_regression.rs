@@ -15,6 +15,7 @@ const FIXTURE_ROOTS: &[&str] = &[
 
 #[derive(Debug, Deserialize)]
 struct TestManifest {
+    schema_version: u64,
     generator: GeneratorSettings,
     snapshots: Vec<ExpectedSnapshot>,
 }
@@ -27,14 +28,37 @@ struct GeneratorSettings {
 #[derive(Debug, Deserialize)]
 struct ExpectedSnapshot {
     path: String,
-    files: Vec<ExpectedFile>,
+    entries: Vec<ExpectedEntry>,
 }
 
 #[derive(Debug, Deserialize)]
-struct ExpectedFile {
-    path: String,
-    size_bytes: u64,
-    blake3: String,
+#[serde(tag = "entry_type", rename_all = "snake_case")]
+enum ExpectedEntry {
+    File {
+        path: String,
+        size_bytes: u64,
+        blake3: String,
+        executable: bool,
+        read_only: bool,
+    },
+    Directory {
+        path: String,
+        read_only: bool,
+    },
+    Symlink {
+        path: String,
+        target_path: String,
+    },
+}
+
+impl ExpectedEntry {
+    fn path(&self) -> &str {
+        match self {
+            Self::File { path, .. } | Self::Directory { path, .. } | Self::Symlink { path, .. } => {
+                path
+            }
+        }
+    }
 }
 
 fn fixture_root(relative_path: &str) -> PathBuf {
@@ -50,11 +74,11 @@ fn load_test_manifest(original_root: &Path) -> TestManifest {
     .unwrap_or_else(|error| panic!("parse {}: {error}", manifest_path.display()))
 }
 
-fn file_paths(root: &Path) -> BTreeSet<String> {
+fn entry_paths(root: &Path) -> BTreeSet<String> {
     walkdir::WalkDir::new(root)
         .into_iter()
         .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.depth() > 0)
         .map(|entry| {
             entry
                 .path()
@@ -72,46 +96,65 @@ fn assert_snapshot_matches_expected(
     reconstructed_snapshot_root: &Path,
 ) {
     let expected_paths: BTreeSet<String> = expected_snapshot
-        .files
+        .entries
         .iter()
-        .map(|file| file.path.clone())
+        .map(|entry| entry.path().to_string())
         .collect();
     assert_eq!(
         expected_paths,
-        file_paths(original_snapshot_root),
+        entry_paths(original_snapshot_root),
         "original snapshot tree differs from its test manifest: {}",
         expected_snapshot.path
     );
     assert_eq!(
         expected_paths,
-        file_paths(reconstructed_snapshot_root),
+        entry_paths(reconstructed_snapshot_root),
         "reconstructed snapshot tree differs from its test manifest: {}",
         expected_snapshot.path
     );
 
-    for expected_file in &expected_snapshot.files {
+    for expected_entry in &expected_snapshot.entries {
         for root in [original_snapshot_root, reconstructed_snapshot_root] {
-            let path = root.join(&expected_file.path);
-            assert_eq!(
-                std::fs::metadata(&path)
-                    .unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
-                    .len(),
-                expected_file.size_bytes,
-                "size mismatch for {} in {}",
-                expected_file.path,
-                root.display()
-            );
-            let hash = gutch::hash::hash_hex(
-                &gutch::hash::hash_file(&path)
-                    .unwrap_or_else(|error| panic!("hash {}: {error}", path.display())),
-            );
-            assert_eq!(
-                hash,
-                expected_file.blake3,
-                "BLAKE3 mismatch for {} in {}",
-                expected_file.path,
-                root.display()
-            );
+            let path = root.join(expected_entry.path());
+            let metadata = std::fs::symlink_metadata(&path)
+                .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+            match expected_entry {
+                ExpectedEntry::File {
+                    size_bytes,
+                    blake3,
+                    executable,
+                    read_only,
+                    ..
+                } => {
+                    assert!(metadata.file_type().is_file());
+                    assert_eq!(metadata.len(), *size_bytes);
+                    assert_eq!(metadata.permissions().readonly(), *read_only);
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        assert_eq!(metadata.permissions().mode() & 0o111 != 0, *executable);
+                    }
+                    #[cfg(not(unix))]
+                    let _ = executable;
+                    let hash = gutch::hash::hash_hex(&gutch::hash::hash_file(&path).unwrap());
+                    assert_eq!(&hash, blake3);
+                }
+                ExpectedEntry::Directory { read_only, .. } => {
+                    assert!(metadata.file_type().is_dir());
+                    assert_eq!(metadata.permissions().readonly(), *read_only);
+                }
+                ExpectedEntry::Symlink { target_path, .. } => {
+                    assert!(metadata.file_type().is_symlink());
+                    let resolved = path
+                        .parent()
+                        .unwrap()
+                        .join(std::fs::read_link(&path).unwrap());
+                    assert_eq!(
+                        resolved.canonicalize().unwrap(),
+                        root.join(target_path).canonicalize().unwrap()
+                    );
+                }
+            }
         }
     }
 }
@@ -131,6 +174,7 @@ fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
         };
 
         assert_eq!(test_manifest.generator.seed, expected_seed);
+        assert_eq!(test_manifest.schema_version, 1);
         assert!(!test_manifest.snapshots.is_empty());
 
         let repo_status = gutch::check_gutch_repo(&repo_root).expect("fixture repo should load");

@@ -6,6 +6,19 @@ use serde::Serialize;
 
 use crate::cli::reporting::OptionalOutputPaths;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComparableKind {
+    File,
+    Directory,
+    Symlink,
+}
+
+#[derive(Debug, Clone)]
+struct ComparableEntry {
+    path: PathBuf,
+    kind: ComparableKind,
+}
+
 #[derive(Debug, Serialize)]
 pub struct PathCompareStats {
     pub command: &'static str,
@@ -30,29 +43,27 @@ pub fn compare_paths(
     outputs: OptionalOutputPaths,
 ) -> g::Result<PathCompareStats> {
     let expected_files = collect_comparable_files(expected)?;
-    let actual_files = collect_comparable_files(actual)?;
-    let actual_file_map: HashMap<String, PathBuf> = actual_files.into_iter().collect();
+    let mut actual_files = collect_comparable_files(actual)?;
+    if expected.is_file()
+        && actual.is_file()
+        && expected_files.len() == 1
+        && actual_files.len() == 1
+    {
+        actual_files[0].0 = expected_files[0].0.clone();
+    }
+    let actual_file_map: HashMap<String, ComparableEntry> = actual_files.into_iter().collect();
     let mut matched_files = Vec::new();
     let mut mismatched_files = Vec::new();
     let mut missing_files = Vec::new();
     let mut seen_actual_relative_paths = HashSet::new();
 
-    for (relative_path, expected_file_path) in &expected_files {
-        let actual_file_path = resolve_actual_file_path(expected, actual, relative_path)?;
-        if !actual_file_path.exists() || !actual_file_path.is_file() {
+    for (relative_path, expected_entry) in &expected_files {
+        let actual_entry = actual_file_map.get(relative_path);
+        let Some(actual_entry) = actual_entry else {
             missing_files.push(relative_path.clone());
             continue;
-        }
-
-        let expected_metadata = std::fs::metadata(expected_file_path)?;
-        let actual_metadata = std::fs::metadata(&actual_file_path)?;
-        let is_match = if expected_metadata.len() != actual_metadata.len() {
-            false
-        } else {
-            let expected_hash = g::hash::hash_file(expected_file_path)?;
-            let actual_hash = g::hash::hash_file(&actual_file_path)?;
-            expected_hash == actual_hash
         };
+        let is_match = entries_match(expected_entry, actual_entry, relative_path)?;
 
         if is_match {
             matched_files.push(relative_path.clone());
@@ -99,7 +110,7 @@ pub fn compare_paths(
     })
 }
 
-fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, PathBuf)>> {
+fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, ComparableEntry)>> {
     if root_path.is_file() {
         let file_name = root_path.file_name().ok_or_else(|| g::Error::PathError {
             path: root_path.to_path_buf(),
@@ -107,7 +118,10 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, PathBuf)
         })?;
         return Ok(vec![(
             file_name.to_string_lossy().to_string(),
-            root_path.to_path_buf(),
+            ComparableEntry {
+                path: root_path.to_path_buf(),
+                kind: ComparableKind::File,
+            },
         )]);
     }
 
@@ -115,7 +129,7 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, PathBuf)
         let mut files = Vec::new();
         for entry in walkdir::WalkDir::new(root_path).sort_by_file_name() {
             let entry = entry?;
-            if !entry.path().is_file() {
+            if entry.depth() == 0 {
                 continue;
             }
             let relative_path = entry
@@ -127,7 +141,25 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, PathBuf)
                 })?
                 .to_string_lossy()
                 .replace('\\', "/");
-            files.push((relative_path, entry.path().to_path_buf()));
+            let kind = if entry.file_type().is_file() {
+                ComparableKind::File
+            } else if entry.file_type().is_dir() {
+                ComparableKind::Directory
+            } else if entry.file_type().is_symlink() {
+                ComparableKind::Symlink
+            } else {
+                return Err(g::Error::PathError {
+                    path: entry.path().to_path_buf(),
+                    reason: "unsupported filesystem entry".to_string(),
+                });
+            };
+            files.push((
+                relative_path,
+                ComparableEntry {
+                    path: entry.path().to_path_buf(),
+                    kind,
+                },
+            ));
         }
         return Ok(files);
     }
@@ -138,25 +170,70 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, PathBuf)
     })
 }
 
+fn entries_match(
+    expected: &ComparableEntry,
+    actual: &ComparableEntry,
+    relative_path: &str,
+) -> g::Result<bool> {
+    if expected.kind != actual.kind {
+        return Ok(false);
+    }
+    let expected_metadata = std::fs::symlink_metadata(&expected.path)?;
+    let actual_metadata = std::fs::symlink_metadata(&actual.path)?;
+    if expected_metadata.permissions().readonly() != actual_metadata.permissions().readonly() {
+        return Ok(false);
+    }
+    match expected.kind {
+        ComparableKind::Directory => Ok(true),
+        ComparableKind::Symlink => Ok(normalized_link_target(relative_path, &expected.path)?
+            == normalized_link_target(relative_path, &actual.path)?),
+        ComparableKind::File => {
+            if expected_metadata.len() != actual_metadata.len() {
+                return Ok(false);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if (expected_metadata.permissions().mode() & 0o111)
+                    != (actual_metadata.permissions().mode() & 0o111)
+                {
+                    return Ok(false);
+                }
+            }
+            Ok(g::hash::hash_file(&expected.path)? == g::hash::hash_file(&actual.path)?)
+        }
+    }
+}
+
+fn normalized_link_target(relative_path: &str, link_path: &Path) -> g::Result<String> {
+    let target = std::fs::read_link(link_path)?;
+    if target.is_absolute() {
+        return Err(g::Error::PathError {
+            path: link_path.to_path_buf(),
+            reason: "absolute symbolic-link target".into(),
+        });
+    }
+    let combined = Path::new(relative_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(target);
+    let mut normalized = PathBuf::new();
+    for component in combined.components() {
+        match component {
+            std::path::Component::Normal(part) => normalized.push(part),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir if normalized.pop() => {}
+            _ => {
+                return Err(g::Error::PathError {
+                    path: link_path.to_path_buf(),
+                    reason: "symbolic-link target escapes root".into(),
+                });
+            }
+        }
+    }
+    Ok(normalized.to_string_lossy().replace('\\', "/"))
+}
+
 #[cfg(test)]
 #[path = "path_compare_tests.rs"]
 mod tests;
-
-fn resolve_actual_file_path(
-    expected_root: &Path,
-    actual_root: &Path,
-    relative_path: &str,
-) -> g::Result<PathBuf> {
-    if expected_root.is_file() && actual_root.is_file() {
-        return Ok(actual_root.to_path_buf());
-    }
-
-    if actual_root.is_dir() {
-        return Ok(actual_root.join(relative_path));
-    }
-
-    Err(g::Error::PathError {
-        path: actual_root.to_path_buf(),
-        reason: "actual path must be a directory when expected path is a directory".to_string(),
-    })
-}

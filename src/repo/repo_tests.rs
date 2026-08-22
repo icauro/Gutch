@@ -29,10 +29,11 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
     for (snapshot_id, content_label) in [("snapshot-a", "content-a"), ("snapshot-b", "content-b")] {
         let mut manifest =
             SnapshotManifest::new(snapshot_id.to_string(), manifest::SnapshotTagSet::default());
-        manifest.files.push(manifest::FileManifest {
+        manifest.push_file(manifest::FileManifest {
             path: "game.bin".to_string(),
             size: 9,
             executable: false,
+            read_only: false,
             full_file_hash: test_hash(content_label),
             chunks: Vec::new(),
         });
@@ -74,14 +75,10 @@ fn local_repo_config_contains_only_the_remote_link() {
     repo_manifest.sync_product_metadata_from_product_id();
     write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
 
-    let local_config: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(&paths.local_repo_config_path).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        local_config,
-        serde_json::json!({"remote_repo_id": "99"})
-    );
+    let local_config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&paths.local_repo_config_path).unwrap())
+            .unwrap();
+    assert_eq!(local_config, serde_json::json!({"remote_repo_id": "99"}));
 
     let repo_metadata: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&paths.repo_metadata_path).unwrap()).unwrap();
@@ -141,10 +138,11 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
         "1.0.0-windows-x86_64-base".into(),
         manifest::SnapshotTagSet::default(),
     );
-    manifest.files.push(manifest::FileManifest {
+    manifest.push_file(manifest::FileManifest {
         path: "game.exe".into(),
         size: 200,
         executable: true,
+        read_only: false,
         full_file_hash: "hash".into(),
         chunks: vec![
             manifest::ChunkRef {
@@ -159,7 +157,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
     });
 
     let chunk_index = manifest::ChunkIndex {
-        format_version: "1.0.0".into(),
+        format_version: "1".into(),
         updated_at: String::new(),
         entries: BTreeMap::from([
             (
@@ -205,10 +203,11 @@ fn check_gutch_repo_reports_snapshots() {
         snapshot_id.clone(),
         exclusive_tags("1.0.0", "windows", "x86_64", "base"),
     );
-    manifest.files.push(manifest::FileManifest {
+    manifest.push_file(manifest::FileManifest {
         path: "game.exe".to_string(),
         size: 42,
         executable: true,
+        read_only: false,
         full_file_hash: test_hash("game.exe"),
         chunks: Vec::new(),
     });
@@ -371,7 +370,7 @@ fn chunk_index_write_and_load_roundtrip() {
         },
     );
     let index = manifest::ChunkIndex {
-        format_version: "1.0.0".to_string(),
+        format_version: "1".to_string(),
         updated_at: "2026-05-14T00:00:00Z".to_string(),
         entries,
     };
@@ -379,7 +378,7 @@ fn chunk_index_write_and_load_roundtrip() {
     assert!(paths.chunk_map_path.exists());
 
     let loaded = load_chunk_index(&paths).unwrap();
-    assert_eq!(loaded.format_version, "1.0.0");
+    assert_eq!(loaded.format_version, "1");
     assert_eq!(loaded.entries.len(), 3);
     assert_eq!(
         loaded
@@ -409,7 +408,7 @@ fn chunk_index_load_empty_when_file_missing() {
 
     let loaded = load_chunk_index(&paths).unwrap();
     assert!(loaded.entries.is_empty());
-    assert_eq!(loaded.format_version, "1.0.0");
+    assert_eq!(loaded.format_version, "1");
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -470,10 +469,11 @@ fn inspect_repo_shows_snapshot_tags() {
         snapshot_id.clone(),
         exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
     );
-    manifest.files.push(manifest::FileManifest {
+    manifest.push_file(manifest::FileManifest {
         path: "game.bin".to_string(),
         size: 100,
         executable: true,
+        read_only: false,
         full_file_hash: test_hash("game.bin"),
         chunks: vec![],
     });
@@ -501,10 +501,11 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         "snapshot-a".to_string(),
         exclusive_tags("1.0.0", "windows", "x86_64", "base"),
     );
-    manifest.files.push(manifest::FileManifest {
+    manifest.push_file(manifest::FileManifest {
         path: "game.exe".to_string(),
         size: 300,
         executable: true,
+        read_only: false,
         full_file_hash: test_hash("game.exe"),
         chunks: vec![
             manifest::ChunkRef {
@@ -526,13 +527,19 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
     assert!(snapshot_blueprint_path(&paths, "snapshot-a").is_file());
     let loaded = load_snapshot_manifest(&paths, "snapshot-a").unwrap();
 
-    assert_eq!(loaded.files.len(), 1);
+    assert_eq!(loaded.file_count(), 1);
     assert_eq!(
-        loaded.files[0].full_file_hash,
-        manifest.files[0].full_file_hash
+        loaded.files().next().unwrap().full_file_hash,
+        manifest.files().next().unwrap().full_file_hash
     );
-    assert_eq!(loaded.files[0].chunks[0].chunk_hash, chunk_one);
-    assert_eq!(loaded.files[0].chunks[1].chunk_hash, chunk_two);
+    assert_eq!(
+        loaded.files().next().unwrap().chunks[0].chunk_hash,
+        chunk_one
+    );
+    assert_eq!(
+        loaded.files().next().unwrap().chunks[1].chunk_hash,
+        chunk_two
+    );
 
     let _ = std::fs::remove_dir_all(&root);
 }

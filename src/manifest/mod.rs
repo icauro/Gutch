@@ -10,7 +10,7 @@ pub mod snapshot;
 mod tags;
 pub mod template;
 
-pub const FORMAT_VERSION: &str = "1.0.0";
+pub const FORMAT_VERSION: &str = "1";
 pub const CHUNKER_FASTCDC: &str = "fastcdc-v2020";
 pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const COMPRESSION_ZSTD: &str = "zstd";
@@ -19,7 +19,8 @@ pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const REPO_METADATA_FILE: &str = "repo_metadata.json";
 
 pub use content::{
-    BundleTableEntry, ChunkIndex, ChunkIndexEntry, ChunkRef, Estimate, FileManifest,
+    BundleTableEntry, ChunkIndex, ChunkIndexEntry, ChunkRef, DirectoryManifest, Estimate,
+    FileManifest, SnapshotEntry, SymlinkManifest, validate_snapshot_entries,
 };
 pub use external_dependency::{
     ExternalProductDependencyRequirement, validate_external_product_dependency_requirements,

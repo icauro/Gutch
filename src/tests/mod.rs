@@ -60,7 +60,7 @@ fn test_build_and_reconstruct_roundtrip() {
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
 
-    assert!(!result.snapshot_manifest.files.is_empty());
+    assert!(result.snapshot_manifest.file_count() > 0);
 
     let out_dir = test_util::temp_path("gutch_test_output");
     let _ = std::fs::remove_dir_all(&out_dir);
@@ -359,13 +359,14 @@ fn test_verify_directory_missing_file() {
         path: "nonexistent.txt".to_string(),
         size: 10,
         executable: false,
+        read_only: false,
         full_file_hash: "abc".to_string(),
         chunks: vec![],
     };
 
     let tags = exclusive_tags("v", "win", "x64", "base");
     let mut vm = SnapshotManifest::new("1".into(), tags);
-    vm.files.push(fm);
+    vm.push_file(fm);
     let errors = verify_test_directory(&vm, &dir);
     assert!(!errors.is_empty());
     assert!(errors[0].contains("missing"));
@@ -385,12 +386,16 @@ fn test_verify_directory_reports_extra_file() {
     let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
 
     let mut manifest = result.snapshot_manifest.clone();
-    manifest.files.retain(|file| file.path == "expected.txt");
+    manifest
+        .entries
+        .retain(|entry| entry.path() == "expected.txt");
     manifest.total_logical_size = b"hello world".len() as u64;
 
     let errors = verify_test_directory(&manifest, &dir);
     assert!(
-        errors.iter().any(|error| error == "extra file: extra.log"),
+        errors
+            .iter()
+            .any(|error| error == "extra filesystem entry: extra.log"),
         "expected extra file error, got {:?}",
         errors
     );
@@ -544,7 +549,7 @@ fn test_large_game_build_200mb() {
     println!("=== 200 MB mock game build ===");
     println!(
         "  files:           {}",
-        result.snapshot_manifest.files.len()
+        result.snapshot_manifest.file_count()
     );
     println!(
         "  total logical:   {:.1} MB",
@@ -563,8 +568,7 @@ fn test_large_game_build_200mb() {
         "  unique chunks:   {}",
         result
             .snapshot_manifest
-            .files
-            .iter()
+            .files()
             .flat_map(|f| f.chunks.iter())
             .count()
     );

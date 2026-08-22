@@ -64,8 +64,8 @@ pub fn load_snapshot_manifest(
             blueprint_path.display()
         )));
     }
-    manifest.files = binary::read_snapshot_blueprint_binary(&blueprint_path)?;
-    manifest.total_logical_size = manifest.files.iter().map(|file| file.size).sum();
+    manifest.entries = binary::read_snapshot_blueprint_binary(&blueprint_path)?;
+    manifest.total_logical_size = manifest.files().map(|file| file.size).sum();
     manifest.sync_launch_from_product_metadata();
     if manifest.product_metadata.is_some() && manifest.launch.is_none() {
         return Err(crate::Error::manifest(

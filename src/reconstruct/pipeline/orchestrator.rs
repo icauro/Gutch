@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::BufWriter;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use rayon::prelude::*;
@@ -14,7 +14,7 @@ use crate::path_guard::resolve_manifest_relative_path;
 use crate::progress::GutchOperationControl;
 use crate::repo::{GutchRepoPaths, chunk_path};
 use crate::runtime::{
-    RuntimePlan, RuntimeResourceHints, run_in_thread_pool, plan_reconstruct_runtime,
+    RuntimePlan, RuntimeResourceHints, plan_reconstruct_runtime, run_in_thread_pool,
 };
 use crate::{Error, Result};
 
@@ -38,6 +38,7 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
     control: &GutchOperationControl,
 ) -> Result<(HashSet<ChunkHash>, Instant, RuntimePlan, ReconstructTimings)> {
     control.checkpoint()?;
+    crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
     let total_start = Instant::now();
     let needed_chunks = crate::repo::required_chunk_hashes_typed(snapshot_manifest)?;
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
@@ -46,8 +47,119 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
         ..ReconstructTimings::default()
     };
     crate::helpers::create_dir_all(output_dir)?;
+    create_snapshot_directories(snapshot_manifest, output_dir)?;
     timings.prepare_wall = total_start.elapsed();
     Ok((needed_chunks, total_start, runtime_plan, timings))
+}
+
+pub(in crate::reconstruct) fn create_snapshot_directories(
+    snapshot_manifest: &SnapshotManifest,
+    output_dir: &Path,
+) -> Result<()> {
+    let mut directories = snapshot_manifest
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            crate::manifest::SnapshotEntry::Directory(directory) => Some(directory),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    directories.sort_by_key(|directory| directory.path.matches('/').count());
+    for directory in directories {
+        let path = resolve_manifest_relative_path(output_dir, &directory.path)?;
+        crate::helpers::create_dir_all(&path)?;
+    }
+    Ok(())
+}
+
+fn relative_link_text(link_path: &str, target_path: &str) -> PathBuf {
+    let parent = Path::new(link_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    let parent_parts = parent.components().collect::<Vec<_>>();
+    let target_parts = Path::new(target_path).components().collect::<Vec<_>>();
+    let mut common = 0usize;
+    while common < parent_parts.len()
+        && common < target_parts.len()
+        && parent_parts[common] == target_parts[common]
+    {
+        common += 1;
+    }
+    let mut relative = PathBuf::new();
+    for _ in common..parent_parts.len() {
+        relative.push("..");
+    }
+    for component in &target_parts[common..] {
+        relative.push(component.as_os_str());
+    }
+    relative
+}
+
+pub(in crate::reconstruct) fn finalize_snapshot_entries(
+    snapshot_manifest: &SnapshotManifest,
+    output_dir: &Path,
+) -> Result<()> {
+    for entry in &snapshot_manifest.entries {
+        let crate::manifest::SnapshotEntry::Symlink(link) = entry else {
+            continue;
+        };
+        let link_path = resolve_manifest_relative_path(output_dir, &link.path)?;
+        let link_text = relative_link_text(&link.path, &link.target_path);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&link_text, &link_path).map_err(|error| {
+            Error::Reconstruct(format!(
+                "failed to create symbolic link '{}': {error}",
+                link.path
+            ))
+        })?;
+        #[cfg(windows)]
+        {
+            let target_is_directory = snapshot_manifest.entries.iter().any(|target| {
+                target.path() == link.target_path
+                    && matches!(target, crate::manifest::SnapshotEntry::Directory(_))
+            });
+            let result = if target_is_directory {
+                std::os::windows::fs::symlink_dir(&link_text, &link_path)
+            } else {
+                std::os::windows::fs::symlink_file(&link_text, &link_path)
+            };
+            result.map_err(|error| Error::Reconstruct(format!(
+                "failed to create symbolic link '{}'; enable Windows Developer Mode or grant symbolic-link privilege: {error}",
+                link.path
+            )))?;
+        }
+    }
+
+    for file in snapshot_manifest.files() {
+        let path = resolve_manifest_relative_path(output_dir, &file.path)?;
+        #[cfg(unix)]
+        if file.executable {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&path)?.permissions();
+            permissions.set_mode(permissions.mode() | 0o111);
+            std::fs::set_permissions(&path, permissions)?;
+        }
+        let mut permissions = std::fs::metadata(&path)?.permissions();
+        permissions.set_readonly(file.read_only);
+        std::fs::set_permissions(&path, permissions)?;
+    }
+
+    let mut directories = snapshot_manifest
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            crate::manifest::SnapshotEntry::Directory(directory) => Some(directory),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    directories.sort_by_key(|directory| std::cmp::Reverse(directory.path.matches('/').count()));
+    for directory in directories {
+        let path = resolve_manifest_relative_path(output_dir, &directory.path)?;
+        let mut permissions = std::fs::metadata(&path)?.permissions();
+        permissions.set_readonly(directory.read_only);
+        std::fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +240,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
             options,
             control,
         )?;
+        finalize_snapshot_entries(snapshot_manifest, output_dir)?;
         timings.total = total_start.elapsed();
         return Ok(((), timings));
     }
@@ -153,6 +266,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
         options,
         control,
     )?;
+    finalize_snapshot_entries(snapshot_manifest, output_dir)?;
     timings.total = total_start.elapsed();
     Ok(((), timings))
 }
@@ -249,7 +363,7 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
     timings: &mut ReconstructTimings,
     control: &GutchOperationControl,
 ) -> Result<()> {
-    for fm in &snapshot_manifest.files {
+    for fm in snapshot_manifest.files() {
         control.checkpoint()?;
         let mut file_data = Vec::with_capacity(fm.size as usize);
 
@@ -292,7 +406,7 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
         timings.file_write_bytes += file_data.len() as u64;
     }
 
-    Ok(())
+    finalize_snapshot_entries(snapshot_manifest, output_dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -313,8 +427,9 @@ fn reconstruct_files_from_locations_and_chunks(
 ) -> Result<()> {
     let per_file = run_in_thread_pool(worker_count, || {
         snapshot_manifest
-            .files
+            .entries
             .par_iter()
+            .filter_map(crate::manifest::SnapshotEntry::as_file)
             .map(|fm| {
                 control.checkpoint()?;
                 reconstruct_manifest_file(
