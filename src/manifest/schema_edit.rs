@@ -43,7 +43,9 @@ pub fn validate_editable_snapshot_tag_schema(
 ) -> SnapshotTagSchemaValidationResult {
     let mut errors = Vec::new();
     let mut seen_names = BTreeSet::new();
+    let mut seen_prefixes = BTreeSet::new();
     let mut has_version = false;
+    let mut reached_scoped_tags = false;
 
     for (index, tag) in definitions.iter().enumerate() {
         let field_prefix = format!("snapshotTags[{index}]");
@@ -89,6 +91,48 @@ pub fn validate_editable_snapshot_tag_schema(
                 message: String::from("Plain tags are not allowed. Use exclusive or scoped."),
             });
             continue;
+        }
+
+        if tag.kind == SnapshotTagKind::Scoped {
+            reached_scoped_tags = true;
+        } else if reached_scoped_tags {
+            errors.push(SnapshotTagSchemaValidationError {
+                field: format!("{field_prefix}.kind"),
+                message: String::from("Exclusive tags must appear before scoped tags."),
+            });
+        }
+
+        let prefixes = tag
+            .inference_prefixes
+            .iter()
+            .map(|prefix| prefix.trim())
+            .filter(|prefix| !prefix.is_empty())
+            .collect::<Vec<_>>();
+        if tag.kind == SnapshotTagKind::Scoped && prefixes.is_empty() {
+            errors.push(SnapshotTagSchemaValidationError {
+                field: format!("{field_prefix}.inferencePrefixes"),
+                message: String::from("Scoped tags require a named prefix such as '-loader-'."),
+            });
+        }
+        for prefix in prefixes {
+            if !prefix.starts_with('-') {
+                errors.push(SnapshotTagSchemaValidationError {
+                    field: format!("{field_prefix}.inferencePrefixes"),
+                    message: format!("Inference prefix '{prefix}' must start with '-'."),
+                });
+            }
+            if tag.kind == SnapshotTagKind::Scoped && !is_named_scoped_prefix(prefix) {
+                errors.push(SnapshotTagSchemaValidationError {
+                    field: format!("{field_prefix}.inferencePrefixes"),
+                    message: format!("Scoped prefix '{prefix}' must use the named form '-name-'."),
+                });
+            }
+            if prefix != "-" && !seen_prefixes.insert(prefix.to_string()) {
+                errors.push(SnapshotTagSchemaValidationError {
+                    field: format!("{field_prefix}.inferencePrefixes"),
+                    message: format!("Inference prefix '{prefix}' is already used by another tag."),
+                });
+            }
         }
 
         {
@@ -157,10 +201,43 @@ pub fn validate_editable_snapshot_tag_schema(
     }
 }
 
+pub fn validate_snapshot_tag_schema(
+    schema: &SnapshotTagSchema,
+) -> SnapshotTagSchemaValidationResult {
+    validate_editable_snapshot_tag_schema(
+        schema
+            .snapshot_tags
+            .iter()
+            .map(|definition| EditableSnapshotTagDefinition {
+                name: definition.name.clone(),
+                kind: definition.kind.clone(),
+                inference_prefixes: definition.inference_prefixes.clone(),
+                values: definition
+                    .values
+                    .iter()
+                    .map(|value| value.value.clone())
+                    .collect(),
+                aliases: definition
+                    .values
+                    .iter()
+                    .flat_map(|value| {
+                        value
+                            .aliases
+                            .iter()
+                            .map(|alias| (alias.clone(), value.value.clone()))
+                    })
+                    .collect(),
+                default_value: definition.default_value.clone(),
+                inference_handler: definition.inference_handler,
+            })
+            .collect(),
+    )
+}
+
 pub fn sanitize_editable_snapshot_tag_schema(
     definitions: Vec<EditableSnapshotTagDefinition>,
 ) -> Option<SnapshotTagSchema> {
-    let snapshot_tags = definitions
+    let mut snapshot_tags = definitions
         .into_iter()
         .filter_map(|tag| {
             let name = tag.name.trim().to_string();
@@ -228,11 +305,33 @@ pub fn sanitize_editable_snapshot_tag_schema(
         })
         .collect::<Vec<_>>();
 
+    snapshot_tags.sort_by_key(|definition| match definition.kind {
+        SnapshotTagKind::Exclusive => 0,
+        SnapshotTagKind::Scoped => 1,
+        SnapshotTagKind::Plain => 2,
+    });
+
     if snapshot_tags.is_empty() {
         None
     } else {
         Some(SnapshotTagSchema { snapshot_tags })
     }
+}
+
+fn is_named_scoped_prefix(prefix: &str) -> bool {
+    let Some(name) = prefix
+        .strip_prefix('-')
+        .and_then(|value| value.strip_suffix('-'))
+    else {
+        return false;
+    };
+    let mut characters = name.chars();
+    characters
+        .next()
+        .is_some_and(|character| character.is_ascii_lowercase())
+        && characters.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        })
 }
 
 #[cfg(test)]
@@ -335,5 +434,83 @@ mod tests {
         .expect("schema");
 
         assert_eq!(schema.snapshot_tags[0].inference_prefixes, vec!["-v"]);
+    }
+
+    #[test]
+    fn requires_named_scoped_prefixes_and_exclusive_first_order() {
+        let result = validate_editable_snapshot_tag_schema(vec![
+            EditableSnapshotTagDefinition {
+                name: String::from("version"),
+                kind: SnapshotTagKind::Exclusive,
+                inference_prefixes: vec![String::from("-v")],
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Version,
+            },
+            EditableSnapshotTagDefinition {
+                name: String::from("loader"),
+                kind: SnapshotTagKind::Scoped,
+                inference_prefixes: vec![String::from("-")],
+                values: vec![String::from("fabric")],
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+            EditableSnapshotTagDefinition {
+                name: String::from("os"),
+                kind: SnapshotTagKind::Exclusive,
+                inference_prefixes: vec![String::from("os-")],
+                values: vec![String::from("windows")],
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+        ]);
+
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|error| {
+            error.message == "Scoped prefix '-' must use the named form '-name-'."
+        }));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| { error.message == "Exclusive tags must appear before scoped tags." })
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.message == "Inference prefix 'os-' must start with '-'.")
+        );
+    }
+
+    #[test]
+    fn sanitization_places_exclusive_tags_before_scoped_tags() {
+        let schema = sanitize_editable_snapshot_tag_schema(vec![
+            EditableSnapshotTagDefinition {
+                name: String::from("loader"),
+                kind: SnapshotTagKind::Scoped,
+                inference_prefixes: vec![String::from("-loader-")],
+                values: vec![String::from("fabric")],
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+            EditableSnapshotTagDefinition {
+                name: String::from("version"),
+                kind: SnapshotTagKind::Exclusive,
+                inference_prefixes: vec![String::from("-v")],
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Version,
+            },
+        ])
+        .expect("schema");
+
+        assert_eq!(schema.snapshot_tags[0].name, "version");
+        assert_eq!(schema.snapshot_tags[1].name, "loader");
     }
 }

@@ -334,7 +334,7 @@ fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
                     name: "loader".to_string(),
                     kind: manifest::SnapshotTagKind::Scoped,
                     required: false,
-                    inference_prefixes: vec!["-".to_string()],
+                    inference_prefixes: vec!["-loader-".to_string()],
                     values: vec![
                         manifest::SnapshotTagValueDefinition {
                             value: "fabric".to_string(),
@@ -356,7 +356,7 @@ fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
                     name: "mc".to_string(),
                     kind: manifest::SnapshotTagKind::Scoped,
                     required: false,
-                    inference_prefixes: vec!["-".to_string()],
+                    inference_prefixes: vec!["-mc-".to_string()],
                     values: vec![
                         manifest::SnapshotTagValueDefinition {
                             value: "1.20.1".to_string(),
@@ -380,14 +380,17 @@ fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
     )
     .unwrap();
 
-    std::fs::create_dir_all(source_root.join("ae2-v15.4.10-fabric-1.21")).unwrap();
+    std::fs::create_dir_all(source_root.join("ae2-v15.4.10-loader-fabric-mc-1.21")).unwrap();
     std::fs::create_dir_all(source_root.join("not-a-snapshot-folder")).unwrap();
 
     let candidates = discover_source_snapshot_operations(&repo_root, &source_root).unwrap();
 
     assert_eq!(candidates.len(), 2);
     // First is the matched folder (sorted by path)
-    assert_eq!(candidates[0].folder_name, "ae2-v15.4.10-fabric-1.21");
+    assert_eq!(
+        candidates[0].folder_name,
+        "ae2-v15.4.10-loader-fabric-mc-1.21"
+    );
     assert_eq!(candidates[0].version_id, "15.4.10");
     assert_eq!(
         candidates[0].disposition,
@@ -400,7 +403,20 @@ fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
         candidates[1].disposition,
         SourceSnapshotOperationDisposition::Invalid
     );
-    assert!(candidates[0].snapshot_tags.scoped.get("loader").is_none());
+    assert!(
+        candidates[0]
+            .snapshot_tags
+            .scoped
+            .get("loader")
+            .is_some_and(|values| values.contains("fabric"))
+    );
+    assert!(
+        candidates[0]
+            .snapshot_tags
+            .scoped
+            .get("mc")
+            .is_some_and(|values| values.contains("1.21"))
+    );
 
     let _ = std::fs::remove_dir_all(&root);
 }

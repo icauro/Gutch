@@ -53,6 +53,7 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
         repo_manifest
     };
 
+    validate_repo_snapshot_tag_schema(&repo_manifest)?;
     Ok(repo_manifest)
 }
 
@@ -66,6 +67,7 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
     }
     let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
     let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
+    validate_repo_snapshot_tag_schema(&repo_manifest)?;
     repo_manifest.sync_product_id_from_metadata();
     apply_local_repo_config(&paths, &mut repo_manifest)?;
     Ok((paths, repo_manifest))
@@ -75,6 +77,7 @@ pub fn write_gutch_repo_manifest(
     paths: &GutchRepoPaths,
     repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
+    validate_repo_snapshot_tag_schema(repo_manifest)?;
     crate::helpers::write_json(&paths.repo_metadata_path, repo_manifest)?;
     if repo_manifest.remote_repo_id.is_empty() {
         if paths.local_repo_config_path.exists() {
@@ -87,6 +90,20 @@ pub fn write_gutch_repo_manifest(
                 remote_repo_id: repo_manifest.remote_repo_id.clone(),
             },
         )?;
+    }
+    Ok(())
+}
+
+fn validate_repo_snapshot_tag_schema(repo_manifest: &GutchRepoManifest) -> Result<()> {
+    let Some(schema) = repo_manifest.snapshot_tag_schema.as_ref() else {
+        return Ok(());
+    };
+    let validation = crate::manifest::validate_snapshot_tag_schema(schema);
+    if let Some(error) = validation.errors.first() {
+        return Err(Error::manifest(format!(
+            "invalid snapshot tag schema at {}: {}",
+            error.field, error.message
+        )));
     }
     Ok(())
 }

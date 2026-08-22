@@ -32,7 +32,7 @@ pub use profiles::{
 pub use schema_edit::{
     EditableSnapshotTagDefinition, SnapshotTagSchemaValidationError,
     SnapshotTagSchemaValidationResult, sanitize_editable_snapshot_tag_schema,
-    validate_editable_snapshot_tag_schema,
+    validate_editable_snapshot_tag_schema, validate_snapshot_tag_schema,
 };
 pub use snapshot::{
     SnapshotBlueprint, SnapshotDirectRuntimeMetadata, SnapshotHostVariant,

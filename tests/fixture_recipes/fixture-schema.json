@@ -28,6 +28,13 @@
       "is_required": true,
       "inference_prefixes": ["-"],
       "allowed_values": ["public", "supporter"]
+    },
+    {
+      "tag_name": "loader",
+      "tag_kind": "scoped",
+      "is_required": false,
+      "inference_prefixes": ["-loader-"],
+      "allowed_values": ["fabric", "forge", "neoforge"]
     }
   ]
 }

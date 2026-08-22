@@ -120,10 +120,24 @@ fn test_resolve_custom_scoped_tags() {
     rules
         .snapshot_tags
         .push(gutch::manifest::SnapshotTagDefinition {
+            name: "channel".to_string(),
+            kind: SnapshotTagKind::Exclusive,
+            required: false,
+            inference_prefixes: vec!["-".to_string()],
+            values: vec![gutch::manifest::SnapshotTagValueDefinition {
+                value: "loader".to_string(),
+                aliases: Vec::new(),
+            }],
+            default_value: None,
+            inference_handler: gutch::manifest::InferenceHandler::Default,
+        });
+    rules
+        .snapshot_tags
+        .push(gutch::manifest::SnapshotTagDefinition {
             name: "loader".to_string(),
             kind: SnapshotTagKind::Scoped,
             required: false,
-            inference_prefixes: vec!["-".to_string()],
+            inference_prefixes: vec!["-loader-".to_string()],
             values: vec![
                 gutch::manifest::SnapshotTagValueDefinition {
                     value: "fabric".to_string(),
@@ -139,7 +153,7 @@ fn test_resolve_custom_scoped_tags() {
         });
 
     let resolved = resolve_snapshot_identity(
-        std::path::Path::new("mod-v1.0.0-win-x64-fabric-2026_07_14"),
+        std::path::Path::new("mod-v1.0.0-win-x64-loader-fabric-loader-forge-2026_07_14"),
         &SnapshotTagSet::default(),
         &rules,
         "test",
@@ -152,7 +166,14 @@ fn test_resolve_custom_scoped_tags() {
     );
     assert_eq!(resolved.snapshot_tags.get_exclusive("os"), Some("windows"));
     assert_eq!(resolved.snapshot_tags.get_exclusive("arch"), Some("x86_64"));
-    assert!(resolved.snapshot_tags.scoped.get("loader").is_none());
+    assert_eq!(resolved.snapshot_tags.get_exclusive("channel"), None);
+    assert!(
+        resolved
+            .snapshot_tags
+            .scoped
+            .get("loader")
+            .is_some_and(|values| values.contains("fabric") && values.contains("forge"))
+    );
 
     let mut explicit_tags = SnapshotTagSet::default();
     explicit_tags.upsert_exclusive("version", "1.0.0");

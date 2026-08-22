@@ -86,12 +86,27 @@ fn identity_segments(name: &str) -> Vec<String> {
         .collect()
 }
 
-fn segment_candidate_for_prefix<'a>(segment: &'a str, prefix: &str) -> Option<&'a str> {
+fn segment_candidate_for_prefix<'a>(
+    segments: &'a [String],
+    segment_index: usize,
+    prefix: &str,
+) -> Option<(&'a str, usize)> {
+    let segment = segments.get(segment_index)?;
     if prefix == "-" {
-        return Some(segment);
+        return Some((segment, 1));
     }
     let required_prefix = prefix.strip_prefix('-')?;
-    segment.strip_prefix(required_prefix)
+    if let Some(marker) = required_prefix.strip_suffix('-') {
+        if segment == marker {
+            return segments
+                .get(segment_index + 1)
+                .map(|candidate| (candidate.as_str(), 2));
+        }
+        return None;
+    }
+    segment
+        .strip_prefix(required_prefix)
+        .map(|candidate| (candidate, 1))
 }
 
 fn definition_matches_token(definition: &SnapshotTagDefinition, token: &str) -> bool {
@@ -124,9 +139,28 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &SnapshotTagSchema) -> Sn
 
     let mut tags = SnapshotTagSet::default();
 
-    for segment in identity_segments(raw_name) {
-        for definition in &rules.snapshot_tags {
-            if definition.kind != SnapshotTagKind::Exclusive {
+    let segments = identity_segments(raw_name);
+    let mut consumed_segments = std::collections::BTreeSet::new();
+
+    for segment_index in 0..segments.len() {
+        if consumed_segments.contains(&segment_index) {
+            continue;
+        }
+        // Named scoped markers are exact namespace declarations. Resolve them
+        // before catch-all exclusive value matching so a marker can never be
+        // mistaken for an exclusive value.
+        for definition in rules
+            .snapshot_tags
+            .iter()
+            .filter(|definition| definition.kind == SnapshotTagKind::Scoped)
+            .chain(
+                rules
+                    .snapshot_tags
+                    .iter()
+                    .filter(|definition| definition.kind == SnapshotTagKind::Exclusive),
+            )
+        {
+            if definition.kind == SnapshotTagKind::Plain {
                 continue;
             }
             if definition.kind == SnapshotTagKind::Exclusive && tags.has_exclusive(&definition.name)
@@ -137,8 +171,8 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &SnapshotTagSchema) -> Sn
             let candidate = definition
                 .inference_prefixes
                 .iter()
-                .find_map(|prefix| segment_candidate_for_prefix(&segment, prefix));
-            let Some(candidate) = candidate else {
+                .find_map(|prefix| segment_candidate_for_prefix(&segments, segment_index, prefix));
+            let Some((candidate, consumed_count)) = candidate else {
                 continue;
             };
 
@@ -154,6 +188,7 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &SnapshotTagSchema) -> Sn
                         .map(|v| v.value.as_str())
                     {
                         insert_tag(&mut tags, definition, canonical.to_string());
+                        consumed_segments.extend(segment_index..segment_index + consumed_count);
                         break;
                     }
                     // Handler accepted but no value match - skip
@@ -166,6 +201,7 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &SnapshotTagSchema) -> Sn
                     continue;
                 }
                 insert_tag(&mut tags, definition, normalized);
+                consumed_segments.extend(segment_index..segment_index + consumed_count);
                 break;
             }
         }
