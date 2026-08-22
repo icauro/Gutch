@@ -6,12 +6,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ExistingStoreState, Result, SourceTargetInstallCandidate,
-    check::build_source_target_install_candidate, check_gutch_repo, remove_target_from_repo,
+    ExistingStoreState, Result, SourceSnapshotOperationCandidate,
+    check::build_source_snapshot_ops_candidate, check_gutch_repo, remove_snapshot_from_repo,
     scan_existing_store_state,
 };
 use crate::hash::ChunkHash;
-use crate::manifest::TargetTagSet;
+use crate::manifest::SnapshotTagSet;
 use crate::progress::{
     self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
 };
@@ -19,34 +19,34 @@ use crate::runtime::RuntimeResourceHints;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum TargetInsertKind {
-    InsertNew,
-    UpdateTags,
-    ReplaceSameTags,
+pub enum SnapshotCreateKind {
+    CreateNew,
+    Relabel,
+    ReplaceSlot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetInsertPlan {
-    pub kind: TargetInsertKind,
-    pub content_target_id: String,
+pub struct SnapshotCreatePlan {
+    pub kind: SnapshotCreateKind,
+    pub snapshot_id: String,
     pub folder_name: String,
     pub path: String,
     pub version_id: String,
     pub os: String,
     pub arch: String,
-    pub target_tags: TargetTagSet,
+    pub snapshot_tags: SnapshotTagSet,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_tags: Option<TargetTagSet>,
-    pub replaced_target_ids: Vec<String>,
-    pub invalidates_existing_installs: bool,
+    pub from_tags: Option<SnapshotTagSet>,
+    pub replaced_snapshot_ids: Vec<String>,
+    pub replaces_existing_slots: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct RepoTargetInsertRequest {
+pub struct RepoSnapshotCreateRequest {
     pub repo_root: PathBuf,
     pub source_dir: PathBuf,
-    pub explicit_tags: TargetTagSet,
+    pub explicit_tags: SnapshotTagSet,
     /// Whether name-based tag inference may fill tags missing from
     /// `explicit_tags`. False in explicit ingestion mode.
     pub allow_name_inference: bool,
@@ -59,9 +59,9 @@ pub struct RepoTargetInsertRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct RepoTargetInsertResult {
+pub struct RepoSnapshotCreateResult {
     pub repo_root: PathBuf,
-    pub target_id: String,
+    pub snapshot_id: String,
     pub manifest_path: PathBuf,
     pub version_id: String,
     pub os: String,
@@ -78,26 +78,26 @@ pub struct RepoTargetInsertResult {
     pub build_timings: crate::BuildTimings,
 }
 
-impl TargetInsertPlan {
+impl SnapshotCreatePlan {
     pub fn from_candidate(
-        candidate: SourceTargetInstallCandidate,
-        kind: TargetInsertKind,
-        from_tags: Option<TargetTagSet>,
-        replaced_target_ids: Vec<String>,
+        candidate: SourceSnapshotOperationCandidate,
+        kind: SnapshotCreateKind,
+        from_tags: Option<SnapshotTagSet>,
+        replaced_snapshot_ids: Vec<String>,
     ) -> Self {
-        let invalidates_existing_installs = kind == TargetInsertKind::ReplaceSameTags;
+        let replaces_existing_slots = kind == SnapshotCreateKind::ReplaceSlot;
         Self {
             kind,
-            content_target_id: candidate.content_target_id,
+            snapshot_id: candidate.snapshot_id,
             folder_name: candidate.folder_name,
             path: candidate.path,
             version_id: candidate.version_id,
             os: candidate.os,
             arch: candidate.arch,
-            target_tags: candidate.target_tags,
+            snapshot_tags: candidate.snapshot_tags,
             from_tags,
-            replaced_target_ids,
-            invalidates_existing_installs,
+            replaced_snapshot_ids,
+            replaces_existing_slots,
         }
     }
 
@@ -106,16 +106,19 @@ impl TargetInsertPlan {
     }
 }
 
-pub fn plan_target_insert(
+pub fn plan_snapshot_create(
     repo_root: &Path,
     source_dir: &Path,
-    explicit_tags: &TargetTagSet,
+    explicit_tags: &SnapshotTagSet,
     allow_name_inference: bool,
-) -> Result<TargetInsertPlan> {
+) -> Result<SnapshotCreatePlan> {
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(repo_root)?;
-    let rules = repo_manifest.target_schema.clone().unwrap_or_default();
+    let rules = repo_manifest
+        .snapshot_tag_schema
+        .clone()
+        .unwrap_or_default();
 
-    let candidate = build_source_target_install_candidate(
+    let candidate = build_source_snapshot_ops_candidate(
         source_dir,
         &rules,
         explicit_tags,
@@ -123,40 +126,40 @@ pub fn plan_target_insert(
     )?;
     let status = check_gutch_repo(repo_root)?;
 
-    let replaced_target_ids: Vec<String> = status
-        .targets
+    let replaced_snapshot_ids: Vec<String> = status
+        .snapshots
         .iter()
-        .filter(|target| target.target_tags == candidate.target_tags)
-        .map(|target| target.target_id.clone())
+        .filter(|snapshot| snapshot.snapshot_tags == candidate.snapshot_tags)
+        .map(|snapshot| snapshot.snapshot_id.clone())
         .collect();
 
-    if !replaced_target_ids.is_empty() {
-        return Ok(TargetInsertPlan::from_candidate(
+    if !replaced_snapshot_ids.is_empty() {
+        return Ok(SnapshotCreatePlan::from_candidate(
             candidate,
-            TargetInsertKind::ReplaceSameTags,
+            SnapshotCreateKind::ReplaceSlot,
             None,
-            replaced_target_ids,
+            replaced_snapshot_ids,
         ));
     }
 
-    Ok(TargetInsertPlan::from_candidate(
+    Ok(SnapshotCreatePlan::from_candidate(
         candidate,
-        TargetInsertKind::InsertNew,
+        SnapshotCreateKind::CreateNew,
         None,
         Vec::new(),
     ))
 }
 
-pub fn delete_repo_targets(repo_root: &Path, target_ids: &[String]) -> Result<()> {
-    for target_id in target_ids {
-        remove_target_from_repo(repo_root, target_id)?;
+pub fn delete_repo_snapshots(repo_root: &Path, snapshot_ids: &[String]) -> Result<()> {
+    for snapshot_id in snapshot_ids {
+        remove_snapshot_from_repo(repo_root, snapshot_id)?;
     }
     Ok(())
 }
 
-pub fn delete_repo_target_and_cleanup(
+pub fn delete_repo_snapshot_and_cleanup(
     repo_root: &Path,
-    target_id: &str,
+    snapshot_id: &str,
     control: &crate::GutchOperationControl,
 ) -> Result<usize> {
     control.checkpoint()?;
@@ -166,27 +169,30 @@ pub fn delete_repo_target_and_cleanup(
     progress::emit_progress(
         control.progress(),
         GutchProgressEvent {
-            operation: GutchOperation::TargetDelete,
+            operation: GutchOperation::SnapshotDelete,
             phase: GutchProgressPhase::RemoveManifest,
-            message: format!("Removing target '{}'", target_id),
+            message: format!("Removing snapshot '{}'", snapshot_id),
             current: 0,
             total: TOTAL,
             transferred_bytes: 0,
             total_bytes: 0,
-            detail: Some(target_id.to_string()),
+            detail: Some(snapshot_id.to_string()),
             done: false,
         },
     );
-    remove_target_from_repo(repo_root, target_id)?;
+    remove_snapshot_from_repo(repo_root, snapshot_id)?;
 
     let orphan_count = crate::repo::cleanup_orphan_bundles_in_repo(repo_root, control)?;
 
     progress::emit_progress(
         control.progress(),
         GutchProgressEvent {
-            operation: GutchOperation::TargetDelete,
+            operation: GutchOperation::SnapshotDelete,
             phase: GutchProgressPhase::Done,
-            message: format!("Deleted target, removed {} orphan bundle(s)", orphan_count),
+            message: format!(
+                "Deleted snapshot, removed {} orphan bundle(s)",
+                orphan_count
+            ),
             current: TOTAL,
             total: TOTAL,
             transferred_bytes: 0,
@@ -198,18 +204,18 @@ pub fn delete_repo_target_and_cleanup(
     Ok(orphan_count)
 }
 
-pub fn delete_repo_targets_with_matching_tags(
+pub fn delete_repo_snapshots_with_matching_tags(
     repo_root: &Path,
-    target_tags: &TargetTagSet,
+    snapshot_tags: &SnapshotTagSet,
 ) -> Result<Vec<String>> {
     let status = check_gutch_repo(repo_root)?;
     let mut removed = Vec::new();
-    for target in status.targets {
-        if target.target_tags != *target_tags {
+    for snapshot in status.snapshots {
+        if snapshot.snapshot_tags != *snapshot_tags {
             continue;
         }
-        remove_target_from_repo(repo_root, &target.target_id)?;
-        removed.push(target.target_id);
+        remove_snapshot_from_repo(repo_root, &snapshot.snapshot_id)?;
+        removed.push(snapshot.snapshot_id);
     }
     Ok(removed)
 }
@@ -234,7 +240,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         self.scanned_files.store(0, Ordering::Relaxed);
         self.total_files.store(total_files, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::TargetInsert,
+            operation: GutchOperation::SnapshotCreate,
             phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current: 0,
@@ -249,7 +255,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     fn on_file_scanned(&self) {
         let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::TargetInsert,
+            operation: GutchOperation::SnapshotCreate,
             phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current,
@@ -265,7 +271,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         self.built_bundles.store(0, Ordering::Relaxed);
         self.total_bundles.store(total_bundles, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::TargetInsert,
+            operation: GutchOperation::SnapshotCreate,
             phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current: 0,
@@ -280,7 +286,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     fn on_bundle_built(&self) {
         let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::TargetInsert,
+            operation: GutchOperation::SnapshotCreate,
             phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current,
@@ -293,11 +299,14 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     }
 }
 
-pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTargetInsertResult> {
+pub fn create_repo_snapshot(request: RepoSnapshotCreateRequest) -> Result<RepoSnapshotCreateResult> {
     request.control.checkpoint()?;
     let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
-    let rules = repo_manifest.target_schema.clone().unwrap_or_default();
-    let insert_plan = plan_target_insert(
+    let rules = repo_manifest
+        .snapshot_tag_schema
+        .clone()
+        .unwrap_or_default();
+    let create_plan = plan_snapshot_create(
         request.repo_root.as_path(),
         request.source_dir.as_path(),
         &request.explicit_tags,
@@ -305,32 +314,32 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     )?;
 
     let mut store_state =
-        MutableInsertStoreState::from_existing(scan_existing_store_state(&repo_paths)?);
-    if insert_plan.kind == TargetInsertKind::ReplaceSameTags {
+        MutableCreateStoreState::from_existing(scan_existing_store_state(&repo_paths)?);
+    if create_plan.kind == SnapshotCreateKind::ReplaceSlot {
         request.control.checkpoint()?;
-        delete_repo_targets(
+        delete_repo_snapshots(
             request.repo_root.as_path(),
-            &insert_plan.replaced_target_ids,
+            &create_plan.replaced_snapshot_ids,
         )?;
         let _ =
             crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path(), &request.control);
     }
-    if insert_plan.kind == TargetInsertKind::UpdateTags {
+    if create_plan.kind == SnapshotCreateKind::Relabel {
         request.control.checkpoint()?;
         let existing_manifest =
-            crate::load_target_manifest(&repo_paths, &insert_plan.content_target_id)?;
+            crate::load_snapshot_manifest(&repo_paths, &create_plan.snapshot_id)?;
         let mut updated_manifest = existing_manifest;
-        updated_manifest.target_tags = insert_plan.target_tags.clone();
+        updated_manifest.snapshot_tags = create_plan.snapshot_tags.clone();
         let (manifest_path, _) =
-            crate::write_target_manifest_artifacts(&repo_paths, &updated_manifest)?;
+            crate::write_snapshot_manifest_artifacts(&repo_paths, &updated_manifest)?;
         let chunk_index = crate::load_chunk_index(&repo_paths)?;
-        return Ok(RepoTargetInsertResult {
+        return Ok(RepoSnapshotCreateResult {
             repo_root: repo_paths.repo_root,
-            target_id: updated_manifest.target_id.clone(),
+            snapshot_id: updated_manifest.snapshot_id.clone(),
             manifest_path,
-            version_id: insert_plan.version_id,
-            os: insert_plan.os,
-            arch: insert_plan.arch,
+            version_id: create_plan.version_id,
+            os: create_plan.os,
+            arch: create_plan.arch,
             file_count: updated_manifest.files.len(),
             total_logical_size: updated_manifest.total_logical_size,
             total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
@@ -349,12 +358,12 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     }
 
     let prepared_input = prepare_input_path(&request.source_dir)?;
-    let resolved_identity = crate::resolve_target_identity_with_inference(
+    let resolved_identity = crate::resolve_snapshot_identity_with_inference(
         request.source_dir.as_path(),
         &request.explicit_tags,
         &rules,
         request.allow_name_inference,
-        &format!("target commit input '{}'", request.source_dir.display()),
+        &format!("snapshot create input '{}'", request.source_dir.display()),
     )?;
 
     let existing_chunk_ids = store_state
@@ -367,7 +376,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     let compression_profile =
         crate::manifest::CompressionProfile::for_preset(request.compression_profile);
     let mut build_config =
-        crate::BuildConfig::with_ids(&repo_manifest.name, "", &resolved_identity.target_tags)
+        crate::BuildConfig::with_ids(&repo_manifest.name, "", &resolved_identity.snapshot_tags)
             .with_existing_chunks(&store_state.chunk_locations)
             .with_existing_bundles(&store_state.bundle_ids)
             .with_previous_manifests(&store_state.previous_file_manifests)
@@ -390,43 +399,44 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     let (result, timings) = crate::build_with_config(&prepared_input.dir, &build_config)?;
     request.control.checkpoint()?;
     let mut result = result;
-    let target_id = crate::compute_target_id_from_files(&result.target_manifest.files);
-    result.target_manifest.target_id = target_id.clone();
-    result.target_manifest.source_modified_at =
+    let snapshot_id = crate::compute_snapshot_id_from_files(&result.snapshot_manifest.files);
+    result.snapshot_manifest.snapshot_id = snapshot_id.clone();
+    result.snapshot_manifest.source_modified_at =
         crate::repo::source_modified_at_from_directory(request.source_dir.as_path())?;
-    crate::core::target_identity::apply_resolved_target_identity(
-        &mut result.target_manifest,
+    crate::core::snapshot_identity::apply_resolved_snapshot_identity(
+        &mut result.snapshot_manifest,
         &resolved_identity,
     );
 
-    let existing_manifest_path = crate::target_manifest_path(&repo_paths, &target_id);
+    let existing_manifest_path = crate::snapshot_manifest_path(&repo_paths, &snapshot_id);
     if existing_manifest_path.exists() {
-        let existing_manifest = crate::load_target_manifest(&repo_paths, &target_id)?;
-        if existing_manifest.target_tags != result.target_manifest.target_tags {
+        let existing_manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot_id)?;
+        if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
             let mut updated_manifest = existing_manifest;
-            updated_manifest.target_tags = result.target_manifest.target_tags.clone();
-            updated_manifest.source_modified_at = result.target_manifest.source_modified_at.clone();
+            updated_manifest.snapshot_tags = result.snapshot_manifest.snapshot_tags.clone();
+            updated_manifest.source_modified_at =
+                result.snapshot_manifest.source_modified_at.clone();
             let (manifest_path, _) =
-                crate::write_target_manifest_artifacts(&repo_paths, &updated_manifest)?;
+                crate::write_snapshot_manifest_artifacts(&repo_paths, &updated_manifest)?;
             let required_chunk_count = crate::repo::required_chunk_hashes(&updated_manifest).len();
             let required_bundle_count =
                 crate::repo::required_bundle_ids(&updated_manifest, &store_state.chunk_index).len();
-            return Ok(RepoTargetInsertResult {
+            return Ok(RepoSnapshotCreateResult {
                 repo_root: repo_paths.repo_root,
-                target_id: updated_manifest.target_id.clone(),
+                snapshot_id: updated_manifest.snapshot_id.clone(),
                 manifest_path,
                 version_id: resolved_identity
-                    .target_tags
+                    .snapshot_tags
                     .get_exclusive("version")
                     .unwrap_or_default()
                     .to_string(),
                 os: resolved_identity
-                    .target_tags
+                    .snapshot_tags
                     .get_exclusive("os")
                     .unwrap_or_default()
                     .to_string(),
                 arch: resolved_identity
-                    .target_tags
+                    .snapshot_tags
                     .get_exclusive("arch")
                     .unwrap_or_default()
                     .to_string(),
@@ -444,11 +454,11 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         }
     }
 
-    // Artifact publication below is the insert commit. Check once before it and then complete the
+    // Artifact publication below creates the snapshot. Check once before it and then complete the
     // internally consistent manifest/bundle/index write set.
     request.control.checkpoint()?;
     let (manifest_path, _) =
-        crate::write_target_manifest_artifacts(&repo_paths, &result.target_manifest)?;
+        crate::write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest)?;
     write_bundles(&repo_paths.bundles_root, &result.bundles)?;
     write_loose_chunks(&repo_paths.chunks_root, &result.loose_chunks)?;
     crate::add_built_bundles_to_chunk_index(
@@ -466,7 +476,7 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
     }
     store_state.chunk_locations =
         crate::repo::existing_chunk_locations_from_index(&store_state.chunk_index, &repo_paths);
-    for file in &result.target_manifest.files {
+    for file in &result.snapshot_manifest.files {
         let candidates = store_state
             .previous_file_manifests
             .entry(file.path.clone())
@@ -478,10 +488,10 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         }
     }
     crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
-    let required_chunks = crate::repo::required_chunk_hashes_typed(&result.target_manifest)?;
+    let required_chunks = crate::repo::required_chunk_hashes_typed(&result.snapshot_manifest)?;
     let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
-        &result.target_manifest,
+        &result.snapshot_manifest,
         &store_state.chunk_locations,
         &result.bundles,
     );
@@ -490,28 +500,28 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
         .count();
 
-    let insert_result = RepoTargetInsertResult {
+    let create_result = RepoSnapshotCreateResult {
         repo_root: repo_paths.repo_root,
-        target_id: result.target_manifest.target_id.clone(),
+        snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         manifest_path,
         version_id: resolved_identity
-            .target_tags
+            .snapshot_tags
             .get_exclusive("version")
             .unwrap_or_default()
             .to_string(),
         os: resolved_identity
-            .target_tags
+            .snapshot_tags
             .get_exclusive("os")
             .unwrap_or_default()
             .to_string(),
         arch: resolved_identity
-            .target_tags
+            .snapshot_tags
             .get_exclusive("arch")
             .unwrap_or_default()
             .to_string(),
-        file_count: result.target_manifest.files.len(),
-        total_logical_size: result.target_manifest.total_logical_size,
-        total_compressed_size_estimate: result.target_manifest.total_compressed_size_estimate,
+        file_count: result.snapshot_manifest.files.len(),
+        total_logical_size: result.snapshot_manifest.total_logical_size,
+        total_compressed_size_estimate: result.snapshot_manifest.total_compressed_size_estimate,
         required_chunk_count,
         required_bundle_count,
         generated_bundle_count: result.bundles.len(),
@@ -520,38 +530,38 @@ pub fn insert_repo_target(request: RepoTargetInsertRequest) -> Result<RepoTarget
         new_chunk_count: required_chunk_count.saturating_sub(reused_chunk_count),
         build_timings: timings,
     };
-    insert_result.emit_done(request.control.progress());
-    Ok(insert_result)
+    create_result.emit_done(request.control.progress());
+    Ok(create_result)
 }
 
-impl RepoTargetInsertResult {
+impl RepoSnapshotCreateResult {
     /// Emit a done event if a progress sink was provided.
     pub(crate) fn emit_done(&self, progress: &Option<Arc<dyn GutchProgressSink>>) {
         progress::emit_progress(
             progress,
             GutchProgressEvent {
-                operation: GutchOperation::TargetInsert,
+                operation: GutchOperation::SnapshotCreate,
                 phase: GutchProgressPhase::Done,
-                message: "Target commit complete".to_string(),
+                message: "Snapshot create complete".to_string(),
                 current: 1,
                 total: 1,
                 transferred_bytes: 0,
                 total_bytes: 0,
-                detail: Some(format!("target_id={}", self.target_id)),
+                detail: Some(format!("snapshot_id={}", self.snapshot_id)),
                 done: true,
             },
         );
     }
 }
 
-struct MutableInsertStoreState {
+struct MutableCreateStoreState {
     bundle_ids: HashSet<String>,
     chunk_index: crate::manifest::ChunkIndex,
     chunk_locations: HashMap<String, crate::ExistingChunkLocation>,
     previous_file_manifests: HashMap<String, Vec<crate::manifest::FileManifest>>,
 }
 
-impl MutableInsertStoreState {
+impl MutableCreateStoreState {
     fn from_existing(state: ExistingStoreState) -> Self {
         Self {
             bundle_ids: state.bundle_ids,
@@ -608,7 +618,7 @@ fn write_loose_chunks(chunks_root: &Path, chunks: &[crate::BuiltLooseChunk]) -> 
 }
 
 fn count_required_bundles_for_build(
-    target_manifest: &crate::manifest::target::TargetManifest,
+    snapshot_manifest: &crate::manifest::snapshot::SnapshotManifest,
     existing_chunk_locations: &HashMap<String, crate::ExistingChunkLocation>,
     generated_bundles: &[crate::BuiltBundle],
 ) -> usize {
@@ -621,7 +631,7 @@ fn count_required_bundles_for_build(
         })
         .collect::<HashMap<_, _>>();
     let mut required_bundle_ids = HashSet::new();
-    let Ok(required_chunks) = crate::repo::required_chunk_hashes_typed(target_manifest) else {
+    let Ok(required_chunks) = crate::repo::required_chunk_hashes_typed(snapshot_manifest) else {
         return generated_bundles.len();
     };
     for chunk_hash in required_chunks {
@@ -639,22 +649,22 @@ struct PreparedInputPath {
     _tempdir: Option<tempfile::TempDir>,
 }
 
-pub fn describe_target_insert_plan(plan: &TargetInsertPlan) -> String {
+pub fn describe_snapshot_create_plan(plan: &SnapshotCreatePlan) -> String {
     match plan.kind {
-        TargetInsertKind::InsertNew => format!(
-            "Commit new target slot {} ({})",
+        SnapshotCreateKind::CreateNew => format!(
+            "Commit new snapshot slot {} ({})",
             plan.folder_name, plan.version_id
         ),
-        TargetInsertKind::UpdateTags => format!(
-            "Update tags for existing content {} ({}): folder rename or tag inference changed; content unchanged",
-            plan.content_target_id, plan.folder_name
+        SnapshotCreateKind::Relabel => format!(
+            "Update tags for existing snapshot {} ({}): folder rename or tag inference changed; snapshot unchanged",
+            plan.snapshot_id, plan.folder_name
         ),
-        TargetInsertKind::ReplaceSameTags => format!(
-            "Replace target slot for {} ({}): same tags, new content id {}. Removes repo target(s) {}. User installs pinned to the old content id become invalid until updated.",
+        SnapshotCreateKind::ReplaceSlot => format!(
+            "Replace snapshot slot for {} ({}): same tags, new snapshot id {}. Removes repo snapshot(s) {}. Existing snapshot references to the old snapshot id must be updated.",
             plan.folder_name,
             plan.version_id,
-            plan.content_target_id,
-            plan.replaced_target_ids.join(", ")
+            plan.snapshot_id,
+            plan.replaced_snapshot_ids.join(", ")
         ),
     }
 }
@@ -663,13 +673,13 @@ pub fn describe_target_insert_plan(plan: &TargetInsertPlan) -> String {
 mod tests {
     use super::*;
     use crate::GutchRepoPaths;
-    use crate::manifest::{self, target::TargetManifest};
+    use crate::manifest::{self, snapshot::SnapshotManifest};
     use crate::repo::{
-        compute_target_id_from_files, ensure_gutch_repo_layout, write_target_manifest_artifacts,
+        compute_snapshot_id_from_files, ensure_gutch_repo_layout, write_snapshot_manifest_artifacts,
     };
 
     #[test]
-    fn plan_target_insert_detects_replace_same_tags() {
+    fn plan_snapshot_create_detects_replace_same_tags() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
@@ -681,11 +691,14 @@ mod tests {
         std::fs::write(new_source.join("game.exe"), b"old-content").unwrap();
 
         let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
-        let rules = repo_manifest.target_schema.clone().unwrap_or_default();
-        let old_candidate = build_source_target_install_candidate(
+        let rules = repo_manifest
+            .snapshot_tag_schema
+            .clone()
+            .unwrap_or_default();
+        let old_candidate = build_source_snapshot_ops_candidate(
             &new_source,
             &rules,
-            &manifest::TargetTagSet::default(),
+            &manifest::SnapshotTagSet::default(),
             true,
         )
         .unwrap();
@@ -698,25 +711,25 @@ mod tests {
             ),
             chunks: Vec::new(),
         }];
-        let old_content_id = compute_target_id_from_files(&old_files);
+        let old_snapshot_id = compute_snapshot_id_from_files(&old_files);
         let mut old_manifest =
-            TargetManifest::new(old_content_id.clone(), old_candidate.target_tags.clone());
+            SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
         old_manifest.source_modified_at =
             crate::repo::source_modified_at_from_directory(&new_source).unwrap();
         old_manifest.files = old_files;
-        write_target_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
+        write_snapshot_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
 
         std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
-        let plan = plan_target_insert(
+        let plan = plan_snapshot_create(
             &repo_root,
             &new_source,
-            &manifest::TargetTagSet::default(),
+            &manifest::SnapshotTagSet::default(),
             true,
         )
         .unwrap();
-        assert_eq!(plan.kind, TargetInsertKind::ReplaceSameTags);
-        assert_eq!(plan.replaced_target_ids, vec![old_content_id]);
-        assert!(plan.invalidates_existing_installs);
+        assert_eq!(plan.kind, SnapshotCreateKind::ReplaceSlot);
+        assert_eq!(plan.replaced_snapshot_ids, vec![old_snapshot_id]);
+        assert!(plan.replaces_existing_slots);
     }
 }

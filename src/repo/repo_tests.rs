@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 use crate::hash::hash_hex;
 use crate::manifest;
 use crate::manifest::gutch_repo::GutchRepoManifest;
-use crate::manifest::target::TargetManifest;
+use crate::manifest::snapshot::SnapshotManifest;
 
-fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::TargetTagSet {
-    let mut tags = manifest::TargetTagSet::default();
+fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
+    let mut tags = manifest::SnapshotTagSet::default();
     tags.upsert_exclusive("version", version);
     tags.upsert_exclusive("os", os);
     tags.upsert_exclusive("arch", arch);
@@ -21,14 +21,14 @@ fn test_hash(label: &str) -> String {
 }
 
 #[test]
-fn existing_store_keeps_same_path_manifests_from_multiple_targets() {
+fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
     let temp = tempfile::tempdir().unwrap();
     let paths = GutchRepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
 
-    for (target_id, content_label) in [("target-a", "content-a"), ("target-b", "content-b")] {
+    for (snapshot_id, content_label) in [("snapshot-a", "content-a"), ("snapshot-b", "content-b")] {
         let mut manifest =
-            TargetManifest::new(target_id.to_string(), manifest::TargetTagSet::default());
+            SnapshotManifest::new(snapshot_id.to_string(), manifest::SnapshotTagSet::default());
         manifest.files.push(manifest::FileManifest {
             path: "game.bin".to_string(),
             size: 9,
@@ -36,7 +36,7 @@ fn existing_store_keeps_same_path_manifests_from_multiple_targets() {
             full_file_hash: test_hash(content_label),
             chunks: Vec::new(),
         });
-        write_target_manifest_artifacts(&paths, &manifest).unwrap();
+        write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
     }
 
     let state = scan_existing_store_state(&paths).unwrap();
@@ -53,7 +53,7 @@ fn gutch_repo_paths_from_repo_root() {
     assert_eq!(paths.repo_root, root);
     assert_eq!(paths.repo_metadata_path, root.join("repo_metadata.json"));
     assert_eq!(paths.chunk_map_path, root.join("chunk_map.gtcbin"));
-    assert_eq!(paths.targets_root, root.join("targets"));
+    assert_eq!(paths.snapshots_root, root.join("snapshots"));
     assert_eq!(paths.bundles_root, root.join("bundles"));
     assert_eq!(paths.chunks_root, root.join("chunks"));
 }
@@ -74,21 +74,21 @@ fn payload_paths_are_extensionless_and_bundle_names_are_hashes() {
 }
 
 #[test]
-fn target_manifest_files_live_in_per_target_folder() {
+fn snapshot_manifest_files_live_in_per_snapshot_folder() {
     let root = PathBuf::from("/test/repo");
     let paths = GutchRepoPaths::from_repo_root(&root);
-    let target_id = "0123456789abcdef";
+    let snapshot_id = "0123456789abcdef";
     assert_eq!(
-        crate::target_manifest_path(&paths, target_id),
-        root.join("targets")
-            .join(target_id)
-            .join("target_metadata.json")
+        crate::snapshot_manifest_path(&paths, snapshot_id),
+        root.join("snapshots")
+            .join(snapshot_id)
+            .join("snapshot_index.json")
     );
     assert_eq!(
-        crate::target_blueprint_path(&paths, target_id),
-        root.join("targets")
-            .join(target_id)
-            .join("target_blueprint.gtcbin")
+        crate::snapshot_blueprint_path(&paths, snapshot_id),
+        root.join("snapshots")
+            .join(snapshot_id)
+            .join("snapshot_blueprint.gtcbin")
     );
 }
 #[test]
@@ -106,9 +106,9 @@ fn gutch_repo_paths_from_store_root() {
 
 #[test]
 fn required_bundle_ids_uses_chunk_index_mapping() {
-    let mut manifest = TargetManifest::new(
+    let mut manifest = SnapshotManifest::new(
         "1.0.0-windows-x86_64-base".into(),
-        manifest::TargetTagSet::default(),
+        manifest::SnapshotTagSet::default(),
     );
     manifest.files.push(manifest::FileManifest {
         path: "game.exe".into(),
@@ -158,7 +158,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
 }
 
 #[test]
-fn check_gutch_repo_reports_targets() {
+fn check_gutch_repo_reports_snapshots() {
     let root = std::env::temp_dir().join(format!(
         "gutch_repo_inspect_test_{}_{}",
         std::process::id(),
@@ -169,9 +169,9 @@ fn check_gutch_repo_reports_targets() {
     let _ = std::fs::remove_dir_all(&root);
 
     ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
-    let target_id = test_hash("target-one");
-    let mut manifest = TargetManifest::new(
-        target_id.clone(),
+    let snapshot_id = test_hash("snapshot-one");
+    let mut manifest = SnapshotManifest::new(
+        snapshot_id.clone(),
         exclusive_tags("1.0.0", "windows", "x86_64", "base"),
     );
     manifest.files.push(manifest::FileManifest {
@@ -182,7 +182,7 @@ fn check_gutch_repo_reports_targets() {
         chunks: Vec::new(),
     });
 
-    write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
+    write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
     std::fs::write(
         repo_paths
             .bundles_root
@@ -197,53 +197,53 @@ fn check_gutch_repo_reports_targets() {
     assert!(status.is_repo);
     assert_eq!(status.name, "base");
     assert_eq!(status.bundle_count, 1);
-    assert_eq!(status.targets.len(), 1);
-    assert_eq!(status.targets[0].target_id, target_id);
+    assert_eq!(status.snapshots.len(), 1);
+    assert_eq!(status.snapshots[0].snapshot_id, snapshot_id);
 
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
-fn discover_source_target_installs_returns_matching_subfolders_only() {
+fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
     let root = std::env::temp_dir().join(format!(
         "gutch_source_discover_test_{}_{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
     let repo_root = root.join("repo");
-    let source_root = root.join("source-targets");
+    let source_root = root.join("source-snapshots");
     let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
     let _ = std::fs::remove_dir_all(&root);
 
     ensure_gutch_repo_layout(&repo_paths, "mods").unwrap();
 
     let repo_manifest = GutchRepoManifest {
-        target_schema: Some(manifest::TargetTagSchema {
-            target_tags: vec![
-                manifest::TargetTagDefinition {
+        snapshot_tag_schema: Some(manifest::SnapshotTagSchema {
+            snapshot_tags: vec![
+                manifest::SnapshotTagDefinition {
                     name: "version".to_string(),
-                    kind: manifest::TargetTagKind::Exclusive,
+                    kind: manifest::SnapshotTagKind::Exclusive,
                     required: true,
                     inference_prefixes: vec!["-".to_string(), "-v".to_string()],
                     values: Vec::new(),
                     default_value: None,
                     inference_handler: manifest::InferenceHandler::Version,
                 },
-                manifest::TargetTagDefinition {
+                manifest::SnapshotTagDefinition {
                     name: "loader".to_string(),
-                    kind: manifest::TargetTagKind::Scoped,
+                    kind: manifest::SnapshotTagKind::Scoped,
                     required: false,
                     inference_prefixes: vec!["-".to_string()],
                     values: vec![
-                        manifest::TargetTagValueDefinition {
+                        manifest::SnapshotTagValueDefinition {
                             value: "fabric".to_string(),
                             aliases: Vec::new(),
                         },
-                        manifest::TargetTagValueDefinition {
+                        manifest::SnapshotTagValueDefinition {
                             value: "forge".to_string(),
                             aliases: Vec::new(),
                         },
-                        manifest::TargetTagValueDefinition {
+                        manifest::SnapshotTagValueDefinition {
                             value: "neoforge".to_string(),
                             aliases: Vec::new(),
                         },
@@ -251,17 +251,17 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
                     default_value: None,
                     inference_handler: manifest::InferenceHandler::Default,
                 },
-                manifest::TargetTagDefinition {
+                manifest::SnapshotTagDefinition {
                     name: "mc".to_string(),
-                    kind: manifest::TargetTagKind::Scoped,
+                    kind: manifest::SnapshotTagKind::Scoped,
                     required: false,
                     inference_prefixes: vec!["-".to_string()],
                     values: vec![
-                        manifest::TargetTagValueDefinition {
+                        manifest::SnapshotTagValueDefinition {
                             value: "1.20.1".to_string(),
                             aliases: Vec::new(),
                         },
-                        manifest::TargetTagValueDefinition {
+                        manifest::SnapshotTagValueDefinition {
                             value: "1.21".to_string(),
                             aliases: Vec::new(),
                         },
@@ -280,9 +280,9 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
     .unwrap();
 
     std::fs::create_dir_all(source_root.join("ae2-v15.4.10-fabric-1.21")).unwrap();
-    std::fs::create_dir_all(source_root.join("not-a-target-folder")).unwrap();
+    std::fs::create_dir_all(source_root.join("not-a-snapshot-folder")).unwrap();
 
-    let candidates = discover_source_target_installs(&repo_root, &source_root).unwrap();
+    let candidates = discover_source_snapshot_operations(&repo_root, &source_root).unwrap();
 
     assert_eq!(candidates.len(), 2);
     // First is the matched folder (sorted by path)
@@ -290,16 +290,16 @@ fn discover_source_target_installs_returns_matching_subfolders_only() {
     assert_eq!(candidates[0].version_id, "15.4.10");
     assert_eq!(
         candidates[0].disposition,
-        SourceTargetInstallDisposition::Unchanged
+        SourceSnapshotOperationDisposition::Unchanged
     );
     // Second is the unmatched folder (included but with empty fields)
-    assert_eq!(candidates[1].folder_name, "not-a-target-folder");
-    assert_eq!(candidates[1].target_id, "");
+    assert_eq!(candidates[1].folder_name, "not-a-snapshot-folder");
+    assert_eq!(candidates[1].snapshot_id, "");
     assert_eq!(
         candidates[1].disposition,
-        SourceTargetInstallDisposition::Invalid
+        SourceSnapshotOperationDisposition::Invalid
     );
-    assert!(candidates[0].target_tags.scoped.get("loader").is_none());
+    assert!(candidates[0].snapshot_tags.scoped.get("loader").is_none());
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -428,15 +428,15 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
 }
 
 #[test]
-fn inspect_repo_shows_target_tags() {
+fn inspect_repo_shows_snapshot_tags() {
     let root = std::env::temp_dir().join("gutch_inspect_tags_test");
     let _ = std::fs::remove_dir_all(&root);
     let paths = GutchRepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    let target_id = test_hash("target-two");
-    let mut manifest = TargetManifest::new(
-        target_id.clone(),
+    let snapshot_id = test_hash("snapshot-two");
+    let mut manifest = SnapshotManifest::new(
+        snapshot_id.clone(),
         exclusive_tags("2.0.0", "linux", "x86_64", "premium"),
     );
     manifest.files.push(manifest::FileManifest {
@@ -446,28 +446,28 @@ fn inspect_repo_shows_target_tags() {
         full_file_hash: test_hash("game.bin"),
         chunks: vec![],
     });
-    write_target_manifest_artifacts(&paths, &manifest).unwrap();
+    write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
 
     let status = check_gutch_repo(&root).unwrap();
-    assert_eq!(status.targets.len(), 1);
-    assert_eq!(status.targets[0].target_id, target_id);
-    assert_eq!(status.targets[0].version_id, "2.0.0");
-    assert_eq!(status.targets[0].os, "linux");
+    assert_eq!(status.snapshots.len(), 1);
+    assert_eq!(status.snapshots[0].snapshot_id, snapshot_id);
+    assert_eq!(status.snapshots[0].version_id, "2.0.0");
+    assert_eq!(status.snapshots[0].os, "linux");
 
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
-fn target_blueprint_roundtrip_preserves_hash_fields() {
-    let root = std::env::temp_dir().join("gutch_target_blueprint_roundtrip");
+fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
+    let root = std::env::temp_dir().join("gutch_snapshot_blueprint_roundtrip");
     let _ = std::fs::remove_dir_all(&root);
     let paths = GutchRepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
     let chunk_one = test_hash("chunk-one");
     let chunk_two = test_hash("chunk-two");
-    let mut manifest = TargetManifest::new(
-        "target-a".to_string(),
+    let mut manifest = SnapshotManifest::new(
+        "snapshot-a".to_string(),
         exclusive_tags("1.0.0", "windows", "x86_64", "base"),
     );
     manifest.files.push(manifest::FileManifest {
@@ -487,13 +487,13 @@ fn target_blueprint_roundtrip_preserves_hash_fields() {
         ],
     });
 
-    write_target_manifest_artifacts(&paths, &manifest).unwrap();
-    let local_json = std::fs::read_to_string(target_manifest_path(&paths, "target-a")).unwrap();
+    write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
+    let local_json = std::fs::read_to_string(snapshot_manifest_path(&paths, "snapshot-a")).unwrap();
     let local_value: serde_json::Value = serde_json::from_str(&local_json).unwrap();
     assert!(local_value.get("source_modified_at").is_none());
     assert!(local_value.get("files").is_none());
-    assert!(target_blueprint_path(&paths, "target-a").is_file());
-    let loaded = load_target_manifest(&paths, "target-a").unwrap();
+    assert!(snapshot_blueprint_path(&paths, "snapshot-a").is_file());
+    let loaded = load_snapshot_manifest(&paths, "snapshot-a").unwrap();
 
     assert_eq!(loaded.files.len(), 1);
     assert_eq!(

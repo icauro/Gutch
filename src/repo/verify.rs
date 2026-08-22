@@ -9,7 +9,7 @@ use crate::{Error, Result};
 
 use super::{
     GutchRepoPaths, bundle_path, check_gutch_repo, load_chunk_index, load_gutch_repo_manifest,
-    load_target_manifest, required_bundle_ids,
+    load_snapshot_manifest, required_bundle_ids,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,9 +17,9 @@ use super::{
 pub struct RepoVerifyResult {
     pub ok: bool,
     pub mode: String,
-    pub target_count: usize,
-    pub targets_ok: usize,
-    pub targets: Vec<TargetVerifyResult>,
+    pub snapshot_count: usize,
+    pub snapshots_ok: usize,
+    pub snapshots: Vec<SnapshotVerifyResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timings: Option<RepoVerifyTimings>,
 }
@@ -34,8 +34,8 @@ pub struct RepoVerifyTimings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetVerifyResult {
-    pub target_id: String,
+pub struct SnapshotVerifyResult {
+    pub snapshot_id: String,
     pub ok: bool,
     pub check_passed: bool,
     pub required_bundle_count: usize,
@@ -45,10 +45,10 @@ pub struct TargetVerifyResult {
     pub corrupt_bundles: Vec<String>,
 }
 
-/// Verify repo bundle integrity. When `target_id` is None, all repo targets are verified.
+/// Verify repo bundle integrity. When `snapshot_id` is None, all repo snapshots are verified.
 pub fn verify_gutch_repo(
     repo_root: &Path,
-    target_id: Option<&str>,
+    snapshot_id: Option<&str>,
     mode: VerifyMode,
 ) -> Result<RepoVerifyResult> {
     let total_start = Instant::now();
@@ -65,40 +65,44 @@ pub fn verify_gutch_repo(
     let chunk_index = load_chunk_index(&repo_paths)?;
     let load_ms = load_start.elapsed().as_millis() as u64;
 
-    let selected_targets: Vec<_> = check
-        .targets
+    let selected_snapshots: Vec<_> = check
+        .snapshots
         .iter()
-        .filter(|target| target_id.map(|id| id == target.target_id).unwrap_or(true))
+        .filter(|snapshot| {
+            snapshot_id
+                .map(|id| id == snapshot.snapshot_id)
+                .unwrap_or(true)
+        })
         .collect();
 
-    if let Some(id) = target_id
-        && selected_targets.is_empty()
+    if let Some(id) = snapshot_id
+        && selected_snapshots.is_empty()
     {
-        return Err(Error::manifest(format!("target not found in repo: {id}")));
+        return Err(Error::manifest(format!("snapshot not found in repo: {id}")));
     }
 
     let verify_start = Instant::now();
-    let mut targets = Vec::new();
-    for target in selected_targets {
-        targets.push(verify_target_bundles(
+    let mut snapshots = Vec::new();
+    for snapshot in selected_snapshots {
+        snapshots.push(verify_snapshot_bundles(
             &repo_paths,
             &chunk_index,
             &repo_manifest.compression_profile(),
-            &target.target_id,
+            &snapshot.snapshot_id,
             mode,
         )?);
     }
     let verify_bundles_ms = verify_start.elapsed().as_millis() as u64;
 
-    let targets_ok = targets.iter().filter(|target| target.ok).count();
-    let ok = targets_ok == targets.len();
+    let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
+    let ok = snapshots_ok == snapshots.len();
 
     Ok(RepoVerifyResult {
         ok,
         mode: mode.as_str().to_string(),
-        target_count: targets.len(),
-        targets_ok,
-        targets,
+        snapshot_count: snapshots.len(),
+        snapshots_ok,
+        snapshots,
         timings: Some(RepoVerifyTimings {
             load_ms,
             verify_bundles_ms,
@@ -107,15 +111,15 @@ pub fn verify_gutch_repo(
     })
 }
 
-fn verify_target_bundles(
+fn verify_snapshot_bundles(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::manifest::ChunkIndex,
     compression_profile: &crate::manifest::CompressionProfile,
-    target_id: &str,
+    snapshot_id: &str,
     mode: VerifyMode,
-) -> Result<TargetVerifyResult> {
-    let target_manifest = load_target_manifest(repo_paths, target_id)?;
-    let required = required_bundle_ids(&target_manifest, chunk_index);
+) -> Result<SnapshotVerifyResult> {
+    let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
+    let required = required_bundle_ids(&snapshot_manifest, chunk_index);
 
     let mut missing = Vec::new();
     let mut corrupt = Vec::new();
@@ -134,8 +138,8 @@ fn verify_target_bundles(
     let check_passed = missing.is_empty();
     let ok = check_passed && corrupt.is_empty();
 
-    Ok(TargetVerifyResult {
-        target_id: target_id.to_string(),
+    Ok(SnapshotVerifyResult {
+        snapshot_id: snapshot_id.to_string(),
         ok,
         check_passed,
         required_bundle_count: required.len(),

@@ -6,10 +6,10 @@ use serde::Serialize;
 use crate::Result;
 use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressPhase};
 use crate::remote::backend::{
-    CreatorRepoResponse, CreatorRepoTargetsResponse, CreatorReposResponse, CreatorTargetResponse,
-    UpsertTargetResponse, request_json_from_backend, upload_raw_file,
+    CreatorRepoResponse, CreatorRepoSnapshotsResponse, CreatorReposResponse,
+    CreatorSnapshotResponse, UpsertSnapshotResponse, request_json_from_backend, upload_raw_file,
 };
-use crate::repo::target_descriptor::summarize_target_tags;
+use crate::repo::snapshot_descriptor::summarize_snapshot_tags;
 #[derive(Debug, Serialize)]
 pub struct RepoSyncUpStats {
     pub command: &'static str,
@@ -18,23 +18,23 @@ pub struct RepoSyncUpStats {
     pub remote_repo_id: i64,
     pub repo_manifest_uploaded: bool,
     pub chunk_index_uploaded: bool,
-    pub target_manifest_uploaded_count: usize,
-    pub target_product_metadata_uploaded_count: usize,
-    pub target_blueprint_uploaded_count: usize,
+    pub snapshot_manifest_uploaded_count: usize,
+    pub product_metadata_uploaded_count: usize,
+    pub snapshot_blueprint_uploaded_count: usize,
     pub bundle_uploaded_count: usize,
     pub bundle_skipped_count: usize,
     pub remote_bundle_deleted_count: usize,
-    pub target_count: usize,
+    pub snapshot_count: usize,
     pub bundle_count: usize,
-    pub target_added_count: usize,
-    pub target_removed_count: usize,
-    pub target_updated_count: usize,
-    pub target_unchanged_count: usize,
+    pub snapshot_added_count: usize,
+    pub snapshot_removed_count: usize,
+    pub snapshot_updated_count: usize,
+    pub snapshot_unchanged_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct RepoSyncTargetChange {
-    pub target_id: String,
+pub struct RepoSyncSnapshotChange {
+    pub snapshot_id: String,
     pub version: String,
     pub os: String,
     pub arch: String,
@@ -51,92 +51,92 @@ pub struct RepoSyncPlan {
     pub remote_repo_id: i64,
     pub repo_manifest_changed: bool,
     pub chunk_index_changed: bool,
-    pub target_count: usize,
-    pub remote_target_count: usize,
-    pub to_add: Vec<RepoSyncTargetChange>,
-    pub to_remove: Vec<RepoSyncTargetChange>,
-    pub to_update: Vec<RepoSyncTargetChange>,
-    pub unchanged: Vec<RepoSyncTargetChange>,
+    pub snapshot_count: usize,
+    pub remote_snapshot_count: usize,
+    pub to_add: Vec<RepoSyncSnapshotChange>,
+    pub to_remove: Vec<RepoSyncSnapshotChange>,
+    pub to_update: Vec<RepoSyncSnapshotChange>,
+    pub unchanged: Vec<RepoSyncSnapshotChange>,
 }
 
 #[derive(Debug, Clone)]
-struct SyncTargetSnapshot {
-    target_id: String,
+struct SyncSnapshotRecord {
+    snapshot_id: String,
     version: String,
     os: String,
     arch: String,
     tags: Vec<String>,
-    target_metadata_hash_b3: String,
-    target_product_metadata_hash_b3: String,
-    target_blueprint_hash_b3: String,
+    snapshot_index_hash_b3: String,
+    product_metadata_hash_b3: String,
+    snapshot_blueprint_hash_b3: String,
 }
 
-fn sync_target_change(
-    target: &SyncTargetSnapshot,
+fn sync_snapshot_change(
+    snapshot: &SyncSnapshotRecord,
     artifact_state: Option<String>,
     update_reason: Option<String>,
-) -> RepoSyncTargetChange {
-    RepoSyncTargetChange {
-        target_id: target.target_id.clone(),
-        version: target.version.clone(),
-        os: target.os.clone(),
-        arch: target.arch.clone(),
+) -> RepoSyncSnapshotChange {
+    RepoSyncSnapshotChange {
+        snapshot_id: snapshot.snapshot_id.clone(),
+        version: snapshot.version.clone(),
+        os: snapshot.os.clone(),
+        arch: snapshot.arch.clone(),
         artifact_state,
-        tags: target.tags.clone(),
+        tags: snapshot.tags.clone(),
         update_reason,
     }
 }
 
-fn remote_target_change(target: &CreatorTargetResponse) -> RepoSyncTargetChange {
-    let (target_snapshot, artifact_state) = remote_sync_target_snapshot(target);
-    sync_target_change(&target_snapshot, artifact_state, None)
+fn remote_snapshot_change(snapshot: &CreatorSnapshotResponse) -> RepoSyncSnapshotChange {
+    let (snapshot_record, artifact_state) = remote_sync_snapshot(snapshot);
+    sync_snapshot_change(&snapshot_record, artifact_state, None)
 }
 
-fn remote_target_tags(target: &CreatorTargetResponse) -> Vec<String> {
+fn remote_snapshot_tags(snapshot: &CreatorSnapshotResponse) -> Vec<String> {
     let mut values = Vec::new();
-    values.extend(target.target_tags.plain.iter().cloned());
-    for (key, scoped_values) in &target.target_tags.scoped {
+    values.extend(snapshot.snapshot_tags.plain.iter().cloned());
+    for (key, scoped_values) in &snapshot.snapshot_tags.scoped {
         for value in scoped_values {
             values.push(format!("{}:{}", key, value));
         }
     }
-    for (key, value) in &target.target_tags.exclusive {
+    for (key, value) in &snapshot.snapshot_tags.exclusive {
         values.push(format!("{}::{}", key, value));
     }
     values.sort();
     values
 }
 
-fn remote_sync_target_snapshot(
-    target: &CreatorTargetResponse,
-) -> (SyncTargetSnapshot, Option<String>) {
+fn remote_sync_snapshot(
+    snapshot: &CreatorSnapshotResponse,
+) -> (SyncSnapshotRecord, Option<String>) {
     (
-        SyncTargetSnapshot {
-            target_id: target.target_id.clone(),
-            version: target
-                .target_tags
+        SyncSnapshotRecord {
+            snapshot_id: snapshot.snapshot_id.clone(),
+            version: snapshot
+                .snapshot_tags
                 .exclusive
                 .get("version")
                 .cloned()
                 .unwrap_or_default(),
-            os: target
-                .target_tags
+            os: snapshot
+                .snapshot_tags
                 .exclusive
                 .get("os")
                 .cloned()
                 .unwrap_or_default(),
-            arch: target
-                .target_tags
+            arch: snapshot
+                .snapshot_tags
                 .exclusive
                 .get("arch")
                 .cloned()
                 .unwrap_or_default(),
-            tags: remote_target_tags(target),
-            target_metadata_hash_b3: target.target_metadata_hash_b3.clone(),
-            target_product_metadata_hash_b3: target.target_product_metadata_hash_b3.clone(),
-            target_blueprint_hash_b3: target.target_blueprint_hash_b3.clone(),
+            tags: remote_snapshot_tags(snapshot),
+            snapshot_index_hash_b3: snapshot.snapshot_index_hash_b3.clone(),
+            product_metadata_hash_b3: snapshot.product_metadata_hash_b3.clone(),
+            snapshot_blueprint_hash_b3: snapshot.snapshot_blueprint_hash_b3.clone(),
         },
-        Some(target.artifact_state.clone()),
+        Some(snapshot.artifact_state.clone()),
     )
 }
 
@@ -158,32 +158,32 @@ fn local_chunk_index_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<Strin
     Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
 }
 
-fn local_target_metadata_hash_b3(
+fn local_snapshot_index_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> Result<String> {
-    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
+    let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
     Ok(repo_file_hash(
-        &crate::serialize_target_manifest_for_remote(&manifest)?,
+        &crate::serialize_snapshot_manifest_for_remote(&manifest)?,
     ))
 }
 
-fn local_target_product_metadata_hash_b3(
+fn local_product_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> Result<String> {
-    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
-    let Some(bytes) = crate::serialize_target_product_metadata_for_remote(&manifest)? else {
+    let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
+    let Some(bytes) = crate::serialize_product_metadata_for_remote(&manifest)? else {
         return Ok(String::new());
     };
     Ok(repo_file_hash(&bytes))
 }
 
-fn local_target_blueprint_hash_b3(
+fn local_snapshot_blueprint_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> Result<String> {
-    let hash = crate::hash::hash_file(&crate::target_blueprint_path(repo_paths, target_id))?;
+    let hash = crate::hash::hash_file(&crate::snapshot_blueprint_path(repo_paths, snapshot_id))?;
     Ok(crate::hash::hash_hex(&hash))
 }
 
@@ -218,14 +218,14 @@ fn resolve_sync_binding(repo: &Path) -> Result<(i64, i64)> {
     Ok((product_id, remote_repo_id))
 }
 
-fn fetch_creator_targets(
+fn fetch_creator_snapshots(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: &str,
     product_id: i64,
     remote_repo_id: i64,
-) -> Result<HashMap<String, CreatorTargetResponse>> {
-    let creator_targets: CreatorRepoTargetsResponse = request_json_from_backend(
+) -> Result<HashMap<String, CreatorSnapshotResponse>> {
+    let creator_snapshots: CreatorRepoSnapshotsResponse = request_json_from_backend(
         client
             .get(format!(
                 "{}/v1/users/me/creator/products/{}/repos/{}/targets",
@@ -237,19 +237,19 @@ fn fetch_creator_targets(
             .header("Authorization", format!("Bearer {}", session_id)),
     )?;
 
-    let mut remote_targets = HashMap::new();
-    if !creator_targets.targets.is_empty() {
-        for target in creator_targets.targets {
-            remote_targets.insert(target.target_id.clone(), target);
+    let mut remote_snapshots = HashMap::new();
+    if !creator_snapshots.snapshots.is_empty() {
+        for snapshot in creator_snapshots.snapshots {
+            remote_snapshots.insert(snapshot.snapshot_id.clone(), snapshot);
         }
     } else {
-        for tier in creator_targets.tier_labels {
-            for target in tier.targets {
-                remote_targets.insert(target.target_id.clone(), target);
+        for tier in creator_snapshots.tier_labels {
+            for snapshot in tier.snapshots {
+                remote_snapshots.insert(snapshot.snapshot_id.clone(), snapshot);
             }
         }
     }
-    Ok(remote_targets)
+    Ok(remote_snapshots)
 }
 
 fn fetch_creator_repo(
@@ -313,12 +313,12 @@ fn remote_bundle_exists(
     Ok(true)
 }
 
-fn collect_local_sync_targets(
+fn collect_local_sync_snapshots(
     repo: &Path,
 ) -> Result<(
     crate::RepoCheckStatus,
     crate::GutchRepoPaths,
-    Vec<SyncTargetSnapshot>,
+    Vec<SyncSnapshotRecord>,
 )> {
     let status = crate::check_gutch_repo(repo)?;
     if !status.is_repo {
@@ -328,31 +328,31 @@ fn collect_local_sync_targets(
         )));
     }
     let (repo_paths, _) = crate::load_gutch_repo_manifest(repo)?;
-    let mut local_targets = Vec::with_capacity(status.targets.len());
-    for target in &status.targets {
-        let manifest = crate::load_target_manifest(&repo_paths, &target.target_id)?;
-        let summary = summarize_target_tags(&manifest.target_tags, None);
-        local_targets.push(SyncTargetSnapshot {
-            target_id: manifest.target_id.clone(),
+    let mut local_snapshots = Vec::with_capacity(status.snapshots.len());
+    for snapshot in &status.snapshots {
+        let manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
+        let summary = summarize_snapshot_tags(&manifest.snapshot_tags, None);
+        local_snapshots.push(SyncSnapshotRecord {
+            snapshot_id: manifest.snapshot_id.clone(),
             version: summary.version_id,
             os: summary.os,
             arch: summary.arch,
             tags: summary.canonical_tags,
-            target_metadata_hash_b3: local_target_metadata_hash_b3(
+            snapshot_index_hash_b3: local_snapshot_index_hash_b3(
                 &repo_paths,
-                &manifest.target_id,
+                &manifest.snapshot_id,
             )?,
-            target_product_metadata_hash_b3: local_target_product_metadata_hash_b3(
+            product_metadata_hash_b3: local_product_metadata_hash_b3(
                 &repo_paths,
-                &manifest.target_id,
+                &manifest.snapshot_id,
             )?,
-            target_blueprint_hash_b3: local_target_blueprint_hash_b3(
+            snapshot_blueprint_hash_b3: local_snapshot_blueprint_hash_b3(
                 &repo_paths,
-                &manifest.target_id,
+                &manifest.snapshot_id,
             )?,
         });
     }
-    Ok((status, repo_paths, local_targets))
+    Ok((status, repo_paths, local_snapshots))
 }
 
 pub fn plan_sync_up_repo(
@@ -366,11 +366,11 @@ pub fn plan_sync_up_repo(
         .build()
         .map_err(|err| crate::Error::manifest(format!("failed to create sync client: {}", err)))?;
 
-    let (status, repo_paths, local_targets) = collect_local_sync_targets(&repo)?;
+    let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(&repo)?;
     let remote_repo =
         fetch_creator_repo(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
-    let remote_targets =
-        fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
+    let remote_snapshots =
+        fetch_creator_snapshots(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
     let repo_manifest_changed = hashes_differ(
         &local_repo_metadata_hash_b3(&repo_paths)?,
         &remote_repo.repo_metadata_hash_b3,
@@ -383,55 +383,55 @@ pub fn plan_sync_up_repo(
     let mut to_add = Vec::new();
     let mut to_update = Vec::new();
     let mut unchanged = Vec::new();
-    for local_target in &local_targets {
-        match remote_targets.get(&local_target.target_id) {
-            None => to_add.push(sync_target_change(local_target, None, None)),
-            Some(remote_target) => {
-                let tag_mismatch = local_target.tags != remote_target_tags(remote_target);
-                let needs_state_update = remote_target.artifact_state != "ready";
+    for local_snapshot in &local_snapshots {
+        match remote_snapshots.get(&local_snapshot.snapshot_id) {
+            None => to_add.push(sync_snapshot_change(local_snapshot, None, None)),
+            Some(remote_snapshot) => {
+                let tag_mismatch = local_snapshot.tags != remote_snapshot_tags(remote_snapshot);
+                let needs_state_update = remote_snapshot.artifact_state != "ready";
                 let metadata_hash_changed = hashes_differ(
-                    &local_target.target_metadata_hash_b3,
-                    &remote_target.target_metadata_hash_b3,
+                    &local_snapshot.snapshot_index_hash_b3,
+                    &remote_snapshot.snapshot_index_hash_b3,
                 );
-                let target_blueprint_hash_changed = hashes_differ(
-                    &local_target.target_blueprint_hash_b3,
-                    &remote_target.target_blueprint_hash_b3,
+                let snapshot_blueprint_hash_changed = hashes_differ(
+                    &local_snapshot.snapshot_blueprint_hash_b3,
+                    &remote_snapshot.snapshot_blueprint_hash_b3,
                 );
-                let target_product_metadata_hash_changed = hashes_differ(
-                    &local_target.target_product_metadata_hash_b3,
-                    &remote_target.target_product_metadata_hash_b3,
+                let product_metadata_hash_changed = hashes_differ(
+                    &local_snapshot.product_metadata_hash_b3,
+                    &remote_snapshot.product_metadata_hash_b3,
                 );
                 if tag_mismatch
                     || needs_state_update
                     || metadata_hash_changed
-                    || target_blueprint_hash_changed
-                    || target_product_metadata_hash_changed
+                    || snapshot_blueprint_hash_changed
+                    || product_metadata_hash_changed
                 {
                     let mut reasons = Vec::new();
                     if tag_mismatch {
-                        reasons.push("target tags differ from remote");
+                        reasons.push("snapshot tags differ from remote");
                     }
                     if needs_state_update {
                         reasons.push("remote artifact state is not ready");
                     }
                     if metadata_hash_changed {
-                        reasons.push("target metadata hash differs");
+                        reasons.push("snapshot metadata hash differs");
                     }
-                    if target_blueprint_hash_changed {
-                        reasons.push("target blueprint hash differs");
+                    if snapshot_blueprint_hash_changed {
+                        reasons.push("snapshot blueprint hash differs");
                     }
-                    if target_product_metadata_hash_changed {
-                        reasons.push("target product metadata hash differs");
+                    if product_metadata_hash_changed {
+                        reasons.push("snapshot product metadata hash differs");
                     }
-                    to_update.push(sync_target_change(
-                        local_target,
-                        Some(remote_target.artifact_state.clone()),
+                    to_update.push(sync_snapshot_change(
+                        local_snapshot,
+                        Some(remote_snapshot.artifact_state.clone()),
                         Some(format!("{}.", reasons.join("; "))),
                     ));
                 } else {
-                    unchanged.push(sync_target_change(
-                        local_target,
-                        Some(remote_target.artifact_state.clone()),
+                    unchanged.push(sync_snapshot_change(
+                        local_snapshot,
+                        Some(remote_snapshot.artifact_state.clone()),
                         None,
                     ));
                 }
@@ -440,19 +440,19 @@ pub fn plan_sync_up_repo(
     }
 
     let mut to_remove = Vec::new();
-    for remote_target in remote_targets.values() {
-        if !local_targets
+    for remote_snapshot in remote_snapshots.values() {
+        if !local_snapshots
             .iter()
-            .any(|local_target| local_target.target_id == remote_target.target_id)
+            .any(|local_snapshot| local_snapshot.snapshot_id == remote_snapshot.snapshot_id)
         {
-            to_remove.push(remote_target_change(remote_target));
+            to_remove.push(remote_snapshot_change(remote_snapshot));
         }
     }
 
-    to_add.sort_by(|left, right| left.target_id.cmp(&right.target_id));
-    to_update.sort_by(|left, right| left.target_id.cmp(&right.target_id));
-    unchanged.sort_by(|left, right| left.target_id.cmp(&right.target_id));
-    to_remove.sort_by(|left, right| left.target_id.cmp(&right.target_id));
+    to_add.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
+    to_update.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
+    unchanged.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
+    to_remove.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
 
     Ok(RepoSyncPlan {
         repo_root: repo_paths.repo_root.display().to_string(),
@@ -460,8 +460,8 @@ pub fn plan_sync_up_repo(
         remote_repo_id,
         repo_manifest_changed,
         chunk_index_changed,
-        target_count: status.targets.len(),
-        remote_target_count: remote_targets.len(),
+        snapshot_count: status.snapshots.len(),
+        remote_snapshot_count: remote_snapshots.len(),
         to_add,
         to_remove,
         to_update,
@@ -614,8 +614,8 @@ fn collect_required_bundle_ids(
 ) -> Result<Vec<String>> {
     let chunk_index = crate::load_chunk_index(repo_paths)?;
     let mut required = std::collections::BTreeSet::new();
-    for target in &status.targets {
-        let manifest = crate::load_target_manifest(repo_paths, &target.target_id)?;
+    for snapshot in &status.snapshots {
+        let manifest = crate::load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)?;
         required.extend(crate::repo::required_bundle_ids(&manifest, &chunk_index));
     }
     Ok(required.into_iter().collect())
@@ -661,50 +661,50 @@ pub fn sync_up_repo(
 
     let plan = plan_sync_up_repo(repo.clone(), endpoint.clone(), session_id.clone())?;
     control.checkpoint()?;
-    let (status, repo_paths, _) = collect_local_sync_targets(&repo)?;
-    let mut remote_targets =
-        fetch_creator_targets(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
+    let (status, repo_paths, _) = collect_local_sync_snapshots(&repo)?;
+    let mut remote_snapshots =
+        fetch_creator_snapshots(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
 
     let bundle_paths = collect_bundle_paths(&repo_paths.bundles_root)?;
     let required_bundle_ids = collect_required_bundle_ids(&repo_paths, &status)?;
     let chunk_index_steps = usize::from(repo_paths.chunk_map_path.exists());
-    let target_upload_count = plan.to_add.len() + plan.to_update.len();
+    let snapshot_upload_count = plan.to_add.len() + plan.to_update.len();
     let total_steps = plan.to_remove.len()
         + 1
         + 1
         + chunk_index_steps
-        + target_upload_count
-        + target_upload_count
-        + target_upload_count
+        + snapshot_upload_count
+        + snapshot_upload_count
+        + snapshot_upload_count
         + bundle_paths.len()
         + 1;
     let mut step = 0usize;
 
-    for target in &plan.to_remove {
+    for snapshot in &plan.to_remove {
         control.checkpoint()?;
         step += 1;
         progress::emit_progress(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: GutchProgressPhase::RemoveTargets,
-                message: "Removing remote targets".to_string(),
+                phase: GutchProgressPhase::RemoveSnapshots,
+                message: "Removing remote snapshots".to_string(),
                 current: step,
                 total: total_steps,
                 transferred_bytes: 0,
                 total_bytes: 0,
-                detail: Some(target.target_id.clone()),
+                detail: Some(snapshot.snapshot_id.clone()),
                 done: false,
             },
         );
-        if let Some(remote_target) = remote_targets.remove(&target.target_id) {
+        if let Some(remote_snapshot) = remote_snapshots.remove(&snapshot.snapshot_id) {
             let response = client
                 .delete(format!(
                     "{}/v1/users/me/creator/products/{}/repos/{}/targets/{}",
                     endpoint.trim_end_matches('/'),
                     product_id,
                     remote_repo_id,
-                    remote_target.id
+                    remote_snapshot.id
                 ))
                 .header("Accept", "application/json")
                 .header("Authorization", format!("Bearer {}", session_id))
@@ -792,19 +792,19 @@ pub fn sync_up_repo(
         }
     }
 
-    let mut target_manifest_uploaded_count = 0usize;
-    let mut target_product_metadata_uploaded_count = 0usize;
-    let mut target_blueprint_uploaded_count = 0usize;
-    let target_ids_to_upload = plan
+    let mut snapshot_manifest_uploaded_count = 0usize;
+    let mut product_metadata_uploaded_count = 0usize;
+    let mut snapshot_blueprint_uploaded_count = 0usize;
+    let snapshot_ids_to_upload = plan
         .to_add
         .iter()
         .chain(plan.to_update.iter())
-        .map(|change| change.target_id.as_str())
+        .map(|change| change.snapshot_id.as_str())
         .collect::<std::collections::HashSet<_>>();
-    for target in status
-        .targets
+    for snapshot in status
+        .snapshots
         .iter()
-        .filter(|target| target_ids_to_upload.contains(target.target_id.as_str()))
+        .filter(|snapshot| snapshot_ids_to_upload.contains(snapshot.snapshot_id.as_str()))
     {
         control.checkpoint()?;
         step += 1;
@@ -812,41 +812,41 @@ pub fn sync_up_repo(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: GutchProgressPhase::UploadTargetMetadata,
-                message: "Uploading target metadata".to_string(),
+                phase: GutchProgressPhase::UploadSnapshotMetadata,
+                message: "Uploading snapshot metadata".to_string(),
                 current: step,
                 total: total_steps,
                 transferred_bytes: 0,
                 total_bytes: 0,
-                detail: Some(target.target_id.clone()),
+                detail: Some(snapshot.snapshot_id.clone()),
                 done: false,
             },
         );
-        let manifest = crate::load_target_manifest(&repo_paths, &target.target_id)?;
-        let manifest_bytes = crate::serialize_target_manifest_for_remote(&manifest)?;
+        let manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
+        let manifest_bytes = crate::serialize_snapshot_manifest_for_remote(&manifest)?;
         let version = manifest
-            .target_tags
+            .snapshot_tags
             .get_exclusive("version")
             .ok_or_else(|| {
                 crate::Error::manifest(format!(
-                    "target '{}' is missing version tag",
-                    manifest.target_id
+                    "snapshot '{}' is missing version tag",
+                    manifest.snapshot_id
                 ))
             })?;
         let structured_version =
             crate::manifest::StructuredVersion::parse(version).map_err(|_| {
                 crate::Error::manifest(format!(
-                    "target '{}' has invalid version '{}'",
-                    manifest.target_id, version
+                    "snapshot '{}' has invalid version '{}'",
+                    manifest.snapshot_id, version
                 ))
             })?;
-        let remote_target_id = match remote_targets
-            .get(&manifest.target_id)
-            .map(|target| target.id)
+        let remote_snapshot_id = match remote_snapshots
+            .get(&manifest.snapshot_id)
+            .map(|snapshot| snapshot.id)
         {
             Some(id) => id,
             None => {
-                let created: UpsertTargetResponse = request_json_from_backend(
+                let created: UpsertSnapshotResponse = request_json_from_backend(
                     client
                         .post(format!(
                             "{}/v1/users/me/creator/products/{}/repos/{}/targets",
@@ -857,24 +857,24 @@ pub fn sync_up_repo(
                         .header("Accept", "application/json")
                         .header("Authorization", format!("Bearer {}", session_id))
                         .json(&serde_json::json!({
-                            "targetId": manifest.target_id,
-                            "targetTags": manifest.target_tags,
+                            "targetId": manifest.snapshot_id,
+                            "targetTags": manifest.snapshot_tags,
                             "versionMajor": structured_version.major,
                             "versionMinor": structured_version.minor,
                             "versionPatch": structured_version.patch,
                             "versionRevision": structured_version.revision,
                         })),
                 )?;
-                remote_targets.insert(
-                    manifest.target_id.clone(),
-                    CreatorTargetResponse {
+                remote_snapshots.insert(
+                    manifest.snapshot_id.clone(),
+                    CreatorSnapshotResponse {
                         id: created.id,
-                        target_id: manifest.target_id.clone(),
-                        target_tags: Default::default(),
+                        snapshot_id: manifest.snapshot_id.clone(),
+                        snapshot_tags: Default::default(),
                         artifact_state: String::from("pending"),
-                        target_metadata_hash_b3: String::new(),
-                        target_blueprint_hash_b3: String::new(),
-                        target_product_metadata_hash_b3: String::new(),
+                        snapshot_index_hash_b3: String::new(),
+                        snapshot_blueprint_hash_b3: String::new(),
+                        product_metadata_hash_b3: String::new(),
                         uploaded_at: String::new(),
                         created_at: String::new(),
                     },
@@ -887,15 +887,15 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/metadata",
-                product_id, remote_repo_id, remote_target_id
+            "/v1/users/me/creator/products/{}/repos/{}/targets/{}/metadata",
+                product_id, remote_repo_id, remote_snapshot_id
             ),
             &session_id,
             manifest_bytes,
             "application/json",
             &control,
         )?;
-        target_manifest_uploaded_count += 1;
+        snapshot_manifest_uploaded_count += 1;
 
         control.checkpoint()?;
         step += 1;
@@ -903,33 +903,33 @@ pub fn sync_up_repo(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: GutchProgressPhase::UploadTargetBlueprint,
-                message: "Uploading target blueprints".to_string(),
+                phase: GutchProgressPhase::UploadSnapshotBlueprint,
+                message: "Uploading snapshot blueprints".to_string(),
                 current: step,
                 total: total_steps,
                 transferred_bytes: 0,
                 total_bytes: 0,
-                detail: Some(target.target_id.clone()),
+                detail: Some(snapshot.snapshot_id.clone()),
                 done: false,
             },
         );
-        let blueprint_bytes = crate::helpers::read(&crate::target_blueprint_path(
+        let blueprint_bytes = crate::helpers::read(&crate::snapshot_blueprint_path(
             &repo_paths,
-            &target.target_id,
+            &snapshot.snapshot_id,
         ))?;
         upload_raw_file(
             &client,
             &endpoint,
             &format!(
-                "/v1/users/me/creator/products/{}/repos/{}/targets/{}/blueprint",
-                product_id, remote_repo_id, remote_target_id
+            "/v1/users/me/creator/products/{}/repos/{}/targets/{}/blueprint",
+                product_id, remote_repo_id, remote_snapshot_id
             ),
             &session_id,
             blueprint_bytes,
             "application/octet-stream",
             &control,
         )?;
-        target_blueprint_uploaded_count += 1;
+        snapshot_blueprint_uploaded_count += 1;
 
         control.checkpoint()?;
         step += 1;
@@ -937,22 +937,22 @@ pub fn sync_up_repo(
             &progress,
             GutchProgressEvent {
                 operation: GutchOperation::SyncUp,
-                phase: GutchProgressPhase::UploadTargetMetadata,
-                message: "Uploading target product metadata".to_string(),
+                phase: GutchProgressPhase::UploadSnapshotMetadata,
+                message: "Uploading snapshot product metadata".to_string(),
                 current: step,
                 total: total_steps,
                 transferred_bytes: 0,
                 total_bytes: 0,
-                detail: Some(target.target_id.clone()),
+                detail: Some(snapshot.snapshot_id.clone()),
                 done: false,
             },
         );
         let product_metadata_path = format!(
             "/v1/users/me/creator/products/{}/repos/{}/targets/{}/product-metadata",
-            product_id, remote_repo_id, remote_target_id
+            product_id, remote_repo_id, remote_snapshot_id
         );
         if let Some(product_metadata_bytes) =
-            crate::serialize_target_product_metadata_for_remote(&manifest)?
+            crate::serialize_product_metadata_for_remote(&manifest)?
         {
             upload_raw_file(
                 &client,
@@ -963,10 +963,10 @@ pub fn sync_up_repo(
                 "application/json",
                 &control,
             )?;
-            target_product_metadata_uploaded_count += 1;
-        } else if remote_targets
-            .get(&manifest.target_id)
-            .is_some_and(|remote| !remote.target_product_metadata_hash_b3.trim().is_empty())
+            product_metadata_uploaded_count += 1;
+        } else if remote_snapshots
+            .get(&manifest.snapshot_id)
+            .is_some_and(|remote| !remote.product_metadata_hash_b3.trim().is_empty())
         {
             let response = client
                 .delete(format!(
@@ -1120,17 +1120,17 @@ pub fn sync_up_repo(
         remote_repo_id,
         repo_manifest_uploaded,
         chunk_index_uploaded,
-        target_manifest_uploaded_count,
-        target_product_metadata_uploaded_count,
-        target_blueprint_uploaded_count,
+        snapshot_manifest_uploaded_count,
+        product_metadata_uploaded_count,
+        snapshot_blueprint_uploaded_count,
         bundle_uploaded_count,
         bundle_skipped_count,
         remote_bundle_deleted_count: reconcile.deleted_bundle_ids.len(),
-        target_count: status.targets.len(),
+        snapshot_count: status.snapshots.len(),
         bundle_count: status.bundle_count,
-        target_added_count: plan.to_add.len(),
-        target_removed_count: plan.to_remove.len(),
-        target_updated_count: plan.to_update.len(),
-        target_unchanged_count: plan.unchanged.len(),
+        snapshot_added_count: plan.to_add.len(),
+        snapshot_removed_count: plan.to_remove.len(),
+        snapshot_updated_count: plan.to_update.len(),
+        snapshot_unchanged_count: plan.unchanged.len(),
     })
 }

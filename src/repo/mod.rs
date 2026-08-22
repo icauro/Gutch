@@ -2,24 +2,24 @@ mod check;
 mod chunk_index;
 mod cleanup;
 mod init_policy;
-mod insert_plan;
+mod create_plan;
 mod inventory;
 mod paths;
 mod pull;
 mod remote_ops;
+mod snapshot_descriptor;
+mod snapshot_manifests;
+mod snapshot_sources;
 mod source_identity;
-mod target_descriptor;
-mod target_manifests;
-mod target_sources;
 mod updates;
 mod verify;
 
 pub use crate::Result;
 pub use check::{
-    RepoCheckStatus, RepoCheckTargetStatus, RepoCheckTimings, SourceTargetInstallCandidate,
-    SourceTargetInstallDisposition, TrackedRepoCheckStatus, TrackedRepoCheckTimings,
-    check_gutch_repo, check_tracked_gutch_repo, discover_source_target_installs,
-    ensure_gutch_repo_tracked, preview_source_target_install,
+    RepoCheckSnapshotStatus, RepoCheckStatus, RepoCheckTimings, SourceSnapshotOperationCandidate,
+    SourceSnapshotOperationDisposition, TrackedRepoCheckStatus, TrackedRepoCheckTimings,
+    check_gutch_repo, check_tracked_gutch_repo, discover_source_snapshot_operations,
+    ensure_gutch_repo_tracked, preview_source_snapshot_ops,
 };
 pub use chunk_index::*;
 pub use cleanup::*;
@@ -28,25 +28,26 @@ pub use init_policy::{
     RepoInitRisk, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
     parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error,
 };
-pub use insert_plan::{
-    RepoTargetInsertRequest, RepoTargetInsertResult, TargetInsertKind, TargetInsertPlan,
-    delete_repo_target_and_cleanup, delete_repo_targets, delete_repo_targets_with_matching_tags,
-    describe_target_insert_plan, insert_repo_target, plan_target_insert,
+pub use create_plan::{
+    RepoSnapshotCreateRequest, RepoSnapshotCreateResult, SnapshotCreateKind, SnapshotCreatePlan,
+    delete_repo_snapshot_and_cleanup, delete_repo_snapshots, delete_repo_snapshots_with_matching_tags,
+    describe_snapshot_create_plan, create_repo_snapshot, plan_snapshot_create,
 };
 pub use paths::*;
 pub use pull::*;
 pub use remote_ops::{
-    RepoSyncPlan, RepoSyncTargetChange, RepoSyncUpStats, link_repo, plan_sync_up_repo,
+    RepoSyncPlan, RepoSyncSnapshotChange, RepoSyncUpStats, link_repo, plan_sync_up_repo,
     sync_up_repo, unlink_repo,
 };
-pub use source_identity::*;
-pub use target_manifests::*;
-pub use target_sources::{
-    TargetSourcesRefresh, TargetSourcesSyncOptions, TargetSourcesSyncPlan, TargetSourcesSyncResult,
-    describe_target_sources_sync_plan, plan_target_sources_sync, sync_target_sources,
+pub use snapshot_manifests::*;
+pub use snapshot_sources::{
+    SnapshotSourcesRefresh, SnapshotSourcesSyncOptions, SnapshotSourcesSyncPlan,
+    SnapshotSourcesSyncResult, describe_snapshot_sources_sync_plan, plan_snapshot_sources_sync,
+    sync_snapshot_sources,
 };
+pub use source_identity::*;
 pub use updates::*;
-pub use verify::{RepoVerifyResult, RepoVerifyTimings, TargetVerifyResult, verify_gutch_repo};
+pub use verify::{RepoVerifyResult, RepoVerifyTimings, SnapshotVerifyResult, verify_gutch_repo};
 
 #[cfg(test)]
 #[path = "repo_tests.rs"]

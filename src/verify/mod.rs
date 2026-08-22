@@ -10,13 +10,13 @@ use rayon::prelude::*;
 use crate::Result;
 use crate::hash::ChunkHash;
 use crate::manifest::runtime::typed_file_manifest;
-use crate::manifest::{self, target::TargetManifest};
+use crate::manifest::{self, snapshot::SnapshotManifest};
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
     GutchProgressSink, emit_progress,
 };
-use crate::runtime::{RuntimeResourceHints, install_in_thread_pool, plan_verify_runtime};
+use crate::runtime::{RuntimeResourceHints, run_in_thread_pool, plan_verify_runtime};
 mod estimate;
 mod types;
 
@@ -61,7 +61,7 @@ impl<'a> VerifyOptions<'a> {
 }
 
 pub struct VerifyRequest<'a> {
-    pub target_manifest: &'a TargetManifest,
+    pub snapshot_manifest: &'a SnapshotManifest,
     pub dir: &'a Path,
     pub mode: VerifyMode,
     pub runtime_hints: &'a RuntimeResourceHints,
@@ -73,7 +73,7 @@ pub struct VerifyRequest<'a> {
 // ---------------------------------------------------------------------------
 
 fn classify_inner(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     dir: &Path,
     opts: &VerifyOptions,
 ) -> Result<(RepairClassification, VerifyTimings)> {
@@ -86,7 +86,7 @@ fn classify_inner(
         runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };
-    let manifest_paths: HashSet<&str> = target_manifest
+    let manifest_paths: HashSet<&str> = snapshot_manifest
         .files
         .iter()
         .map(|fm| fm.path.as_str())
@@ -95,25 +95,25 @@ fn classify_inner(
     emit_verify_progress(
         opts.control.progress(),
         0,
-        target_manifest.files.len(),
+        snapshot_manifest.files.len(),
         false,
     );
 
     timings.prepare_wall = total_start.elapsed();
     let verify_files_start = Instant::now();
-    let per_file_results = install_in_thread_pool(runtime_plan.worker_count, || {
-        target_manifest
+    let per_file_results = run_in_thread_pool(runtime_plan.worker_count, || {
+        snapshot_manifest
             .files
             .par_iter()
             .map(|fm| {
                 opts.control.checkpoint()?;
                 let result =
-                    verify_manifest_file(target_manifest, dir, fm, opts.mode, opts.control);
+                    verify_manifest_file(snapshot_manifest, dir, fm, opts.mode, opts.control);
                 let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
                 emit_verify_progress(
                     opts.control.progress(),
                     current,
-                    target_manifest.files.len(),
+                    snapshot_manifest.files.len(),
                     false,
                 );
                 result
@@ -156,25 +156,25 @@ fn classify_inner(
     timings.total = total_start.elapsed();
     emit_verify_progress(
         opts.control.progress(),
-        target_manifest.files.len(),
-        target_manifest.files.len(),
+        snapshot_manifest.files.len(),
+        snapshot_manifest.files.len(),
         true,
     );
     Ok((classification, timings))
 }
 
 fn verify_inner(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     dir: &Path,
     opts: &VerifyOptions,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    let (classification, timings) = classify_inner(target_manifest, dir, opts)?;
+    let (classification, timings) = classify_inner(snapshot_manifest, dir, opts)?;
     Ok((classification.into_messages(), timings))
 }
 
 pub fn verify_directory(request: VerifyRequest<'_>) -> Result<(Vec<String>, VerifyTimings)> {
     verify_inner(
-        request.target_manifest,
+        request.snapshot_manifest,
         request.dir,
         &VerifyOptions::default()
             .with_mode(request.mode)
@@ -187,7 +187,7 @@ pub fn classify_directory(
     request: VerifyRequest<'_>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
-        request.target_manifest,
+        request.snapshot_manifest,
         request.dir,
         &VerifyOptions::default()
             .with_mode(request.mode)
@@ -244,7 +244,7 @@ fn accumulate_timings(total: &mut VerifyTimings, add: &VerifyTimings) {
 // ---------------------------------------------------------------------------
 
 fn verify_manifest_file(
-    _target_manifest: &TargetManifest,
+    _snapshot_manifest: &SnapshotManifest,
     dir: &Path,
     fm: &manifest::FileManifest,
     verify_mode: VerifyMode,

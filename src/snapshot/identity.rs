@@ -1,54 +1,55 @@
 use crate::error::{Error, Result};
 use crate::manifest::{
-    TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagSet, target::TargetManifest,
+    SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema, SnapshotTagSet,
+    snapshot::SnapshotManifest,
 };
 
 #[derive(Debug, Clone)]
-pub struct ResolvedTargetIdentity {
-    pub target_tags: TargetTagSet,
+pub struct ResolvedSnapshotIdentity {
+    pub snapshot_tags: SnapshotTagSet,
 }
 
-pub fn parse_cli_tags(tag_values: &[String]) -> Result<TargetTagSet> {
-    TargetTagSet::from_compact_strings(tag_values)
+pub fn parse_cli_tags(tag_values: &[String]) -> Result<SnapshotTagSet> {
+    SnapshotTagSet::from_compact_strings(tag_values)
 }
 
-pub fn resolve_target_identity(
+pub fn resolve_snapshot_identity(
     input_path: &std::path::Path,
-    explicit_tags: &TargetTagSet,
-    rules: &TargetTagSchema,
+    explicit_tags: &SnapshotTagSet,
+    rules: &SnapshotTagSchema,
     context: &str,
-) -> Result<ResolvedTargetIdentity> {
-    resolve_target_identity_with_inference(input_path, explicit_tags, rules, true, context)
+) -> Result<ResolvedSnapshotIdentity> {
+    resolve_snapshot_identity_with_inference(input_path, explicit_tags, rules, true, context)
 }
 
-/// Like [`resolve_target_identity`], but name-based tag inference can be
+/// Like [`resolve_snapshot_identity`], but name-based tag inference can be
 /// disabled (explicit ingestion mode). Explicit tags still win over inferred
 /// tags; inference only fills values missing from the explicit set.
-pub fn resolve_target_identity_with_inference(
+pub fn resolve_snapshot_identity_with_inference(
     input_path: &std::path::Path,
-    explicit_tags: &TargetTagSet,
-    rules: &TargetTagSchema,
+    explicit_tags: &SnapshotTagSet,
+    rules: &SnapshotTagSchema,
     allow_name_inference: bool,
     context: &str,
-) -> Result<ResolvedTargetIdentity> {
-    let mut target_tags = explicit_tags.clone();
+) -> Result<ResolvedSnapshotIdentity> {
+    let mut snapshot_tags = explicit_tags.clone();
     if allow_name_inference {
         let inferred_tags = infer_tags_from_path(input_path, rules);
-        target_tags.extend_missing_from(&inferred_tags);
+        snapshot_tags.extend_missing_from(&inferred_tags);
     }
 
-    apply_schema_defaults(&mut target_tags, rules);
+    apply_schema_defaults(&mut snapshot_tags, rules);
 
-    if target_tags.get_exclusive("version").is_none() {
+    if snapshot_tags.get_exclusive("version").is_none() {
         return Err(Error::manifest(format!(
             "{context} is missing a recognizable version tag. Use --version 1.0.0, --tag version::1.0.0, or infer from filename."
         )));
     }
 
     if let Some(missing_name) = rules
-        .target_tags
+        .snapshot_tags
         .iter()
-        .find(|definition| definition.required && !has_definition_value(&target_tags, definition))
+        .find(|definition| definition.required && !has_definition_value(&snapshot_tags, definition))
         .map(|definition| definition.name.as_str())
     {
         return Err(Error::manifest(format!(
@@ -57,24 +58,24 @@ pub fn resolve_target_identity_with_inference(
         )));
     }
 
-    Ok(ResolvedTargetIdentity { target_tags })
+    Ok(ResolvedSnapshotIdentity { snapshot_tags })
 }
 
-pub fn resolve_target_identity_from_rules(
+pub fn resolve_snapshot_identity_from_rules(
     input_path: &std::path::Path,
-    explicit_tags: &TargetTagSet,
-    rules: Option<&TargetTagSchema>,
+    explicit_tags: &SnapshotTagSet,
+    rules: Option<&SnapshotTagSchema>,
     context: &str,
-) -> Result<ResolvedTargetIdentity> {
+) -> Result<ResolvedSnapshotIdentity> {
     let effective_rules = rules.cloned().unwrap_or_default();
-    resolve_target_identity(input_path, explicit_tags, &effective_rules, context)
+    resolve_snapshot_identity(input_path, explicit_tags, &effective_rules, context)
 }
 
-pub fn apply_resolved_target_identity(
-    target_manifest: &mut TargetManifest,
-    resolved_identity: &ResolvedTargetIdentity,
+pub fn apply_resolved_snapshot_identity(
+    snapshot_manifest: &mut SnapshotManifest,
+    resolved_identity: &ResolvedSnapshotIdentity,
 ) {
-    target_manifest.target_tags = resolved_identity.target_tags.clone();
+    snapshot_manifest.snapshot_tags = resolved_identity.snapshot_tags.clone();
 }
 
 fn identity_segments(name: &str) -> Vec<String> {
@@ -93,7 +94,7 @@ fn segment_candidate_for_prefix<'a>(segment: &'a str, prefix: &str) -> Option<&'
     segment.strip_prefix(required_prefix)
 }
 
-fn definition_matches_token(definition: &TargetTagDefinition, token: &str) -> bool {
+fn definition_matches_token(definition: &SnapshotTagDefinition, token: &str) -> bool {
     definition
         .values
         .iter()
@@ -101,16 +102,16 @@ fn definition_matches_token(definition: &TargetTagDefinition, token: &str) -> bo
 }
 
 fn another_definition_matches_token(
-    rules: &TargetTagSchema,
+    rules: &SnapshotTagSchema,
     current_definition_name: &str,
     token: &str,
 ) -> bool {
-    rules.target_tags.iter().any(|definition| {
+    rules.snapshot_tags.iter().any(|definition| {
         definition.name != current_definition_name && definition_matches_token(definition, token)
     })
 }
 
-fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> TargetTagSet {
+fn infer_tags_from_path(path: &std::path::Path, rules: &SnapshotTagSchema) -> SnapshotTagSet {
     let raw_name = if path.is_file() {
         path.file_stem()
             .and_then(|stem| stem.to_str())
@@ -121,14 +122,15 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
             .unwrap_or_default()
     };
 
-    let mut tags = TargetTagSet::default();
+    let mut tags = SnapshotTagSet::default();
 
     for segment in identity_segments(raw_name) {
-        for definition in &rules.target_tags {
-            if definition.kind != TargetTagKind::Exclusive {
+        for definition in &rules.snapshot_tags {
+            if definition.kind != SnapshotTagKind::Exclusive {
                 continue;
             }
-            if definition.kind == TargetTagKind::Exclusive && tags.has_exclusive(&definition.name) {
+            if definition.kind == SnapshotTagKind::Exclusive && tags.has_exclusive(&definition.name)
+            {
                 continue;
             }
 
@@ -172,33 +174,33 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &TargetTagSchema) -> Targ
     tags
 }
 
-fn insert_tag(tags: &mut TargetTagSet, definition: &TargetTagDefinition, value: String) {
+fn insert_tag(tags: &mut SnapshotTagSet, definition: &SnapshotTagDefinition, value: String) {
     match definition.kind {
-        TargetTagKind::Plain => {}
-        TargetTagKind::Scoped => {
+        SnapshotTagKind::Plain => {}
+        SnapshotTagKind::Scoped => {
             tags.insert_scoped(definition.name.clone(), value);
         }
-        TargetTagKind::Exclusive => {
+        SnapshotTagKind::Exclusive => {
             tags.insert_exclusive_if_missing(definition.name.clone(), value);
         }
     }
 }
 
-fn apply_schema_defaults(target_tags: &mut TargetTagSet, rules: &TargetTagSchema) {
-    for definition in &rules.target_tags {
+fn apply_schema_defaults(snapshot_tags: &mut SnapshotTagSet, rules: &SnapshotTagSchema) {
+    for definition in &rules.snapshot_tags {
         let Some(default_value) = definition.default_value.as_deref() else {
             continue;
         };
-        if has_definition_value(target_tags, definition) {
+        if has_definition_value(snapshot_tags, definition) {
             continue;
         }
         match definition.kind {
-            TargetTagKind::Plain => target_tags.insert_plain(default_value.to_string()),
-            TargetTagKind::Scoped => {
-                target_tags.insert_scoped(definition.name.clone(), default_value.to_string());
+            SnapshotTagKind::Plain => snapshot_tags.insert_plain(default_value.to_string()),
+            SnapshotTagKind::Scoped => {
+                snapshot_tags.insert_scoped(definition.name.clone(), default_value.to_string());
             }
-            TargetTagKind::Exclusive => {
-                target_tags.insert_exclusive_if_missing(
+            SnapshotTagKind::Exclusive => {
+                snapshot_tags.insert_exclusive_if_missing(
                     definition.name.clone(),
                     default_value.to_string(),
                 );
@@ -207,14 +209,17 @@ fn apply_schema_defaults(target_tags: &mut TargetTagSet, rules: &TargetTagSchema
     }
 }
 
-fn has_definition_value(target_tags: &TargetTagSet, definition: &TargetTagDefinition) -> bool {
+fn has_definition_value(
+    snapshot_tags: &SnapshotTagSet,
+    definition: &SnapshotTagDefinition,
+) -> bool {
     match definition.kind {
-        TargetTagKind::Plain => target_tags.plain.contains(&definition.name),
-        TargetTagKind::Scoped => target_tags
+        SnapshotTagKind::Plain => snapshot_tags.plain.contains(&definition.name),
+        SnapshotTagKind::Scoped => snapshot_tags
             .scoped
             .get(&definition.name)
             .is_some_and(|values| !values.is_empty()),
-        TargetTagKind::Exclusive => target_tags.exclusive.contains_key(&definition.name),
+        SnapshotTagKind::Exclusive => snapshot_tags.exclusive.contains_key(&definition.name),
     }
 }
 

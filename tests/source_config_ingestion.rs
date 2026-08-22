@@ -1,5 +1,5 @@
 //! End-to-end tests for the source-root ingestion config (`.gutch_source_config.json`)
-//! flowing through the `target commit` CLI path.
+//! flowing through the `snapshot create` CLI path.
 
 use std::path::Path;
 
@@ -20,7 +20,7 @@ fn write_source_root_files(root: &Path, relative: &str, content: &[u8]) {
 }
 
 #[test]
-fn commit_many_auto_mode_skips_ignored_folders() {
+fn create_many_auto_mode_skips_ignored_folders() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -43,9 +43,9 @@ fn commit_many_auto_mode_skips_ignored_folders() {
 
     run_from_args([
         "hostapp-cli",
-        "target",
-        "commit",
-        "--product-dir",
+        "snapshot",
+        "create",
+        "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
         repo_paths.repo_root.to_str().unwrap(),
@@ -54,21 +54,21 @@ fn commit_many_auto_mode_skips_ignored_folders() {
     .unwrap();
 
     let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
-    let target_ids: Vec<&str> = status
-        .targets
+    let snapshot_ids: Vec<&str> = status
+        .snapshots
         .iter()
-        .map(|target| target.target_id.as_str())
+        .map(|snapshot| snapshot.snapshot_id.as_str())
         .collect();
-    // The ignored `.archives` folder must not become a target.
+    // The ignored `.archives` folder must not become a snapshot.
     assert_eq!(
-        target_ids.len(),
+        snapshot_ids.len(),
         2,
-        "expected exactly two targets: {target_ids:?}"
+        "expected exactly two snapshots: {snapshot_ids:?}"
     );
 }
 
 #[test]
-fn commit_many_explicit_mode_uses_nested_targets_and_declared_tags() {
+fn create_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -93,7 +93,7 @@ fn commit_many_explicit_mode_uses_nested_targets_and_declared_tags() {
         r#"{
             "ingestion_mode": "explicit",
             "explicit_ingestion_rules": {
-                "targets": [
+                "snapshots": [
                     {"path": "versions/4.6-stable/windows-x86_64", "tags": ["version::4.6-stable", "os::windows", "arch::x86_64", "released_at::2026_07_14"]},
                     {"path": "./versions/4.6-stable/linux-x86_64", "tags": ["version::4.6-stable", "os::linux", "arch::x86_64", "released_at::2026_07_14"]}
                 ]
@@ -104,9 +104,9 @@ fn commit_many_explicit_mode_uses_nested_targets_and_declared_tags() {
 
     run_from_args([
         "hostapp-cli",
-        "target",
-        "commit",
-        "--product-dir",
+        "snapshot",
+        "create",
+        "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
         repo_paths.repo_root.to_str().unwrap(),
@@ -115,27 +115,30 @@ fn commit_many_explicit_mode_uses_nested_targets_and_declared_tags() {
     .unwrap();
 
     let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
-    assert_eq!(status.targets.len(), 2);
+    assert_eq!(status.snapshots.len(), 2);
     let windows = status
-        .targets
+        .snapshots
         .iter()
-        .find(|target| target.target_tags.get_exclusive("os").as_deref() == Some("windows"))
-        .expect("windows target");
+        .find(|snapshot| snapshot.snapshot_tags.get_exclusive("os").as_deref() == Some("windows"))
+        .expect("windows snapshot");
     assert_eq!(
-        windows.target_tags.get_exclusive("version").unwrap(),
+        windows.snapshot_tags.get_exclusive("version").unwrap(),
         "4.6-stable"
     );
-    assert_eq!(windows.target_tags.get_exclusive("arch").unwrap(), "x86_64");
+    assert_eq!(
+        windows.snapshot_tags.get_exclusive("arch").unwrap(),
+        "x86_64"
+    );
     let linux = status
-        .targets
+        .snapshots
         .iter()
-        .find(|target| target.target_tags.get_exclusive("os").as_deref() == Some("linux"))
-        .expect("linux target");
-    assert_eq!(linux.target_tags.get_exclusive("arch").unwrap(), "x86_64");
+        .find(|snapshot| snapshot.snapshot_tags.get_exclusive("os").as_deref() == Some("linux"))
+        .expect("linux snapshot");
+    assert_eq!(linux.snapshot_tags.get_exclusive("arch").unwrap(), "x86_64");
 }
 
 #[test]
-fn commit_many_explicit_mode_errors_when_declared_version_is_missing() {
+fn create_many_explicit_mode_errors_when_declared_version_is_missing() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -145,7 +148,7 @@ fn commit_many_explicit_mode_errors_when_declared_version_is_missing() {
         r#"{
             "ingestion_mode": "explicit",
             "explicit_ingestion_rules": {
-                "targets": [
+                "snapshots": [
                     {"path": "some-folder", "tags": ["os::windows", "arch::x86_64"]}
                 ]
             }
@@ -155,9 +158,9 @@ fn commit_many_explicit_mode_errors_when_declared_version_is_missing() {
 
     let result = run_from_args([
         "hostapp-cli",
-        "target",
-        "commit",
-        "--product-dir",
+        "snapshot",
+        "create",
+        "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
         repo_paths.repo_root.to_str().unwrap(),
@@ -171,7 +174,7 @@ fn commit_many_explicit_mode_errors_when_declared_version_is_missing() {
 }
 
 #[test]
-fn commit_many_auto_creates_skeleton_config_on_first_use() {
+fn create_many_auto_creates_skeleton_config_on_first_use() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -184,9 +187,9 @@ fn commit_many_auto_creates_skeleton_config_on_first_use() {
 
     run_from_args([
         "hostapp-cli",
-        "target",
-        "commit",
-        "--product-dir",
+        "snapshot",
+        "create",
+        "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
         repo_paths.repo_root.to_str().unwrap(),
@@ -196,11 +199,11 @@ fn commit_many_auto_creates_skeleton_config_on_first_use() {
 
     assert!(product_dir.join(".gutch_source_config.json").is_file());
     let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
-    assert_eq!(status.targets.len(), 1);
+    assert_eq!(status.snapshots.len(), 1);
 }
 
 #[test]
-fn commit_single_dir_matches_the_plain_dir_flow() {
+fn create_single_dir_matches_the_plain_dir_flow() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let source_dir = temp.path().join("v2.0.0-windows-x86_64-2026_08_01");
@@ -208,9 +211,9 @@ fn commit_single_dir_matches_the_plain_dir_flow() {
 
     run_from_args([
         "hostapp-cli",
-        "target",
-        "commit",
-        "--dir",
+        "snapshot",
+        "create",
+        "--source-dir",
         source_dir.to_str().unwrap(),
         "--repo",
         repo_paths.repo_root.to_str().unwrap(),
@@ -219,10 +222,10 @@ fn commit_single_dir_matches_the_plain_dir_flow() {
     .unwrap();
 
     let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
-    assert_eq!(status.targets.len(), 1);
+    assert_eq!(status.snapshots.len(), 1);
     assert_eq!(
-        status.targets[0]
-            .target_tags
+        status.snapshots[0]
+            .snapshot_tags
             .get_exclusive("version")
             .unwrap(),
         "2.0.0"
@@ -240,9 +243,9 @@ fn pull_and_remote_list_commands_parse() {
         "pull",
         "--repo",
         if cfg!(windows) {
-            r"D:\Repos\restore"
+            r"D:\Repos\reconstruct"
         } else {
-            "/repos/restore"
+            "/repos/reconstruct"
         },
         "--remote",
         "Skyforge/windows-x86_64",

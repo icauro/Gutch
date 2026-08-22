@@ -1,27 +1,27 @@
-use super::types::ResolvedTargetInstallState;
+use super::types::ResolvedSnapshotOperationState;
 use crate::{Error, Result};
 
-pub fn resolve_target_install_state(
+pub fn resolve_snapshot_state(
     repo_root: &std::path::Path,
-    target_id: &str,
-) -> Result<ResolvedTargetInstallState> {
+    snapshot_id: &str,
+) -> Result<ResolvedSnapshotOperationState> {
     let (repo_paths, _repo_manifest) = crate::load_gutch_repo_manifest(repo_root)?;
-    let target_manifest = crate::load_target_manifest(&repo_paths, target_id)?;
+    let snapshot_manifest = crate::load_snapshot_manifest(&repo_paths, snapshot_id)?;
 
-    let launch = target_manifest.launch.clone();
+    let launch = snapshot_manifest.launch.clone();
 
-    let manifest_bytes = crate::serialize_target_manifest_for_remote(&target_manifest)?;
-    let target_metadata_hash_b3 = crate::hash::hash_hex(&blake3::hash(&manifest_bytes));
+    let manifest_bytes = crate::serialize_snapshot_manifest_for_remote(&snapshot_manifest)?;
+    let snapshot_index_hash_b3 = crate::hash::hash_hex(&blake3::hash(&manifest_bytes));
 
-    if target_manifest.target_id.trim().is_empty() {
-        return Err(Error::manifest("target manifest is missing target_id"));
+    if snapshot_manifest.snapshot_id.trim().is_empty() {
+        return Err(Error::manifest("snapshot manifest is missing snapshot_id"));
     }
 
-    Ok(ResolvedTargetInstallState {
-        target_id: target_manifest.target_id,
-        target_metadata_hash_b3,
+    Ok(ResolvedSnapshotOperationState {
+        snapshot_id: snapshot_manifest.snapshot_id,
+        snapshot_index_hash_b3,
         launch,
-        external_product_dependencies: target_manifest
+        external_product_dependencies: snapshot_manifest
             .product_metadata
             .as_ref()
             .map(|metadata| {

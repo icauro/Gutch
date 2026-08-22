@@ -1,7 +1,7 @@
 use super::*;
 
-fn test_rules() -> TargetTagSchema {
-    TargetTagSchema::default()
+fn test_rules() -> SnapshotTagSchema {
+    SnapshotTagSchema::default()
 }
 
 #[test]
@@ -79,12 +79,12 @@ fn test_infer_four_part_version_from_prefixed_segment() {
 #[test]
 fn test_resolve_identity_explicit_overrides_inference() {
     let rules = test_rules();
-    let mut explicit = TargetTagSet::default();
+    let mut explicit = SnapshotTagSet::default();
     explicit.upsert_exclusive("version".to_string(), "2.0.0".to_string());
     explicit.upsert_exclusive("os".to_string(), "linux".to_string());
     explicit.upsert_exclusive("released_at".to_string(), "2026_07_14".to_string());
 
-    let resolved = resolve_target_identity(
+    let resolved = resolve_snapshot_identity(
         std::path::Path::new("game-v1.0.0-win-x64"),
         &explicit,
         &rules,
@@ -92,17 +92,20 @@ fn test_resolve_identity_explicit_overrides_inference() {
     )
     .unwrap();
 
-    assert_eq!(resolved.target_tags.get_exclusive("version"), Some("2.0.0"));
-    assert_eq!(resolved.target_tags.get_exclusive("os"), Some("linux"));
-    assert_eq!(resolved.target_tags.get_exclusive("arch"), Some("x86_64"));
+    assert_eq!(
+        resolved.snapshot_tags.get_exclusive("version"),
+        Some("2.0.0")
+    );
+    assert_eq!(resolved.snapshot_tags.get_exclusive("os"), Some("linux"));
+    assert_eq!(resolved.snapshot_tags.get_exclusive("arch"), Some("x86_64"));
 }
 
 #[test]
 fn test_resolve_missing_version_errors() {
     let rules = test_rules();
-    let result = resolve_target_identity(
+    let result = resolve_snapshot_identity(
         std::path::Path::new("game-win-x64"),
-        &TargetTagSet::default(),
+        &SnapshotTagSet::default(),
         &rules,
         "test",
     );
@@ -115,18 +118,18 @@ fn test_resolve_missing_version_errors() {
 fn test_resolve_custom_scoped_tags() {
     let mut rules = test_rules();
     rules
-        .target_tags
-        .push(gutch::manifest::TargetTagDefinition {
+        .snapshot_tags
+        .push(gutch::manifest::SnapshotTagDefinition {
             name: "loader".to_string(),
-            kind: TargetTagKind::Scoped,
+            kind: SnapshotTagKind::Scoped,
             required: false,
             inference_prefixes: vec!["-".to_string()],
             values: vec![
-                gutch::manifest::TargetTagValueDefinition {
+                gutch::manifest::SnapshotTagValueDefinition {
                     value: "fabric".to_string(),
                     aliases: Vec::new(),
                 },
-                gutch::manifest::TargetTagValueDefinition {
+                gutch::manifest::SnapshotTagValueDefinition {
                     value: "forge".to_string(),
                     aliases: Vec::new(),
                 },
@@ -135,26 +138,29 @@ fn test_resolve_custom_scoped_tags() {
             inference_handler: gutch::manifest::InferenceHandler::Default,
         });
 
-    let resolved = resolve_target_identity(
+    let resolved = resolve_snapshot_identity(
         std::path::Path::new("mod-v1.0.0-win-x64-fabric-2026_07_14"),
-        &TargetTagSet::default(),
+        &SnapshotTagSet::default(),
         &rules,
         "test",
     )
     .unwrap();
 
-    assert_eq!(resolved.target_tags.get_exclusive("version"), Some("1.0.0"));
-    assert_eq!(resolved.target_tags.get_exclusive("os"), Some("windows"));
-    assert_eq!(resolved.target_tags.get_exclusive("arch"), Some("x86_64"));
-    assert!(resolved.target_tags.scoped.get("loader").is_none());
+    assert_eq!(
+        resolved.snapshot_tags.get_exclusive("version"),
+        Some("1.0.0")
+    );
+    assert_eq!(resolved.snapshot_tags.get_exclusive("os"), Some("windows"));
+    assert_eq!(resolved.snapshot_tags.get_exclusive("arch"), Some("x86_64"));
+    assert!(resolved.snapshot_tags.scoped.get("loader").is_none());
 
-    let mut explicit_tags = TargetTagSet::default();
+    let mut explicit_tags = SnapshotTagSet::default();
     explicit_tags.upsert_exclusive("version", "1.0.0");
     explicit_tags.upsert_exclusive("os", "windows");
     explicit_tags.upsert_exclusive("arch", "x86_64");
     explicit_tags.upsert_exclusive("released_at", "2026_07_14");
     explicit_tags.insert_scoped("loader".to_string(), "fabric".to_string());
-    let explicitly_tagged = resolve_target_identity_with_inference(
+    let explicitly_tagged = resolve_snapshot_identity_with_inference(
         std::path::Path::new("mod-v1.0.0-win-x64-fabric-2026_07_14"),
         &explicit_tags,
         &rules,
@@ -164,7 +170,7 @@ fn test_resolve_custom_scoped_tags() {
     .unwrap();
     assert!(
         explicitly_tagged
-            .target_tags
+            .snapshot_tags
             .scoped
             .get("loader")
             .is_some_and(|values| values.contains("fabric"))
@@ -174,15 +180,15 @@ fn test_resolve_custom_scoped_tags() {
 #[test]
 fn test_resolve_missing_required_tag_errors() {
     let mut rules = test_rules();
-    rules.target_tags.iter_mut().for_each(|definition| {
+    rules.snapshot_tags.iter_mut().for_each(|definition| {
         if definition.name == "os" {
             definition.required = true;
         }
     });
 
-    let result = resolve_target_identity(
+    let result = resolve_snapshot_identity(
         std::path::Path::new("game-v1.0.0"),
-        &TargetTagSet::default(),
+        &SnapshotTagSet::default(),
         &rules,
         "test",
     );
@@ -194,13 +200,13 @@ fn test_resolve_missing_required_tag_errors() {
 #[test]
 fn test_explicit_tags_dont_need_inference() {
     let rules = test_rules();
-    let mut explicit = TargetTagSet::default();
+    let mut explicit = SnapshotTagSet::default();
     explicit.upsert_exclusive("version".to_string(), "1.0.0".to_string());
     explicit.upsert_exclusive("os".to_string(), "windows".to_string());
     explicit.upsert_exclusive("arch".to_string(), "x86_64".to_string());
     explicit.upsert_exclusive("released_at".to_string(), "2026_07_14".to_string());
 
-    let resolved = resolve_target_identity(
+    let resolved = resolve_snapshot_identity(
         std::path::Path::new("some-random-folder"),
         &explicit,
         &rules,
@@ -208,6 +214,9 @@ fn test_explicit_tags_dont_need_inference() {
     )
     .unwrap();
 
-    assert_eq!(resolved.target_tags.get_exclusive("version"), Some("1.0.0"));
-    assert_eq!(resolved.target_tags.get_exclusive("os"), Some("windows"));
+    assert_eq!(
+        resolved.snapshot_tags.get_exclusive("version"),
+        Some("1.0.0")
+    );
+    assert_eq!(resolved.snapshot_tags.get_exclusive("os"), Some("windows"));
 }

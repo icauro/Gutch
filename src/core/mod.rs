@@ -1,1 +1,1 @@
-pub use crate::target::identity as target_identity;
+pub use crate::snapshot::identity as snapshot_identity;

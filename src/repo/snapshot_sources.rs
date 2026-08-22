@@ -5,33 +5,33 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    RepoCheckStatus, Result, SourceTargetInstallCandidate, check_gutch_repo,
-    discover_source_target_installs, is_source_modified_at_newer,
+    RepoCheckStatus, Result, SourceSnapshotOperationCandidate, check_gutch_repo,
+    discover_source_snapshot_operations, is_source_modified_at_newer,
 };
-use crate::manifest::TargetTagSet;
+use crate::manifest::SnapshotTagSet;
 use crate::progress::{
     self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetSourcesRefresh {
+pub struct SnapshotSourcesRefresh {
     pub folder_name: String,
     pub path: String,
-    pub target_tags: TargetTagSet,
-    pub replaced_target_ids: Vec<String>,
+    pub snapshot_tags: SnapshotTagSet,
+    pub replaced_snapshot_ids: Vec<String>,
     pub source_modified_at: String,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct TargetSourcesSyncOptions {
-    pub prune_removed_targets: bool,
+pub struct SnapshotSourcesSyncOptions {
+    pub prune_removed_snapshots: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetSourcesSyncResult {
-    pub inserted_count: usize,
+pub struct SnapshotSourcesSyncResult {
+    pub created_count: usize,
     pub refreshed_count: usize,
     pub removed_count: usize,
     pub pruned: bool,
@@ -39,31 +39,31 @@ pub struct TargetSourcesSyncResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetSourcesSyncPlan {
+pub struct SnapshotSourcesSyncPlan {
     pub sources_ready: bool,
     pub candidate_count: usize,
-    pub insertable_count: usize,
+    pub creatable_count: usize,
     pub refresh_count: usize,
     pub removable_count: usize,
     #[serde(default)]
-    pub to_insert: Vec<SourceTargetInstallCandidate>,
+    pub to_create: Vec<SourceSnapshotOperationCandidate>,
     #[serde(default)]
-    pub to_refresh: Vec<TargetSourcesRefresh>,
+    pub to_refresh: Vec<SnapshotSourcesRefresh>,
     #[serde(default)]
-    pub to_apply: Vec<SourceTargetInstallCandidate>,
+    pub to_apply: Vec<SourceSnapshotOperationCandidate>,
     #[serde(default)]
     pub to_remove: Vec<String>,
 }
 
-impl TargetSourcesSyncPlan {
+impl SnapshotSourcesSyncPlan {
     fn empty() -> Self {
         Self {
             sources_ready: false,
             candidate_count: 0,
-            insertable_count: 0,
+            creatable_count: 0,
             refresh_count: 0,
             removable_count: 0,
-            to_insert: Vec::new(),
+            to_create: Vec::new(),
             to_refresh: Vec::new(),
             to_apply: Vec::new(),
             to_remove: Vec::new(),
@@ -71,41 +71,41 @@ impl TargetSourcesSyncPlan {
     }
 
     pub fn has_changes(&self) -> bool {
-        self.insertable_count > 0 || self.refresh_count > 0 || self.removable_count > 0
+        self.creatable_count > 0 || self.refresh_count > 0 || self.removable_count > 0
     }
 
     pub fn up_to_date_count(&self) -> usize {
         self.candidate_count
-            .saturating_sub(self.insertable_count)
+            .saturating_sub(self.creatable_count)
             .saturating_sub(self.refresh_count)
     }
 }
 
-pub fn plan_target_sources_sync(
+pub fn plan_snapshot_sources_sync(
     repo_root: &Path,
     sources_path: Option<&Path>,
-) -> Result<TargetSourcesSyncPlan> {
-    plan_target_sources_sync_with_context(repo_root, sources_path, None, None)
+) -> Result<SnapshotSourcesSyncPlan> {
+    plan_snapshot_sources_sync_with_context(repo_root, sources_path, None, None)
 }
 
-pub(crate) fn plan_target_sources_sync_with_context(
+pub(crate) fn plan_snapshot_sources_sync_with_context(
     repo_root: &Path,
     sources_path: Option<&Path>,
-    candidates: Option<&[SourceTargetInstallCandidate]>,
+    candidates: Option<&[SourceSnapshotOperationCandidate]>,
     repo_status: Option<&RepoCheckStatus>,
-) -> Result<TargetSourcesSyncPlan> {
+) -> Result<SnapshotSourcesSyncPlan> {
     let Some(sources_path) = normalized_sources_path(sources_path) else {
-        return Ok(TargetSourcesSyncPlan::empty());
+        return Ok(SnapshotSourcesSyncPlan::empty());
     };
 
-    let mut plan = TargetSourcesSyncPlan {
+    let mut plan = SnapshotSourcesSyncPlan {
         sources_ready: true,
-        ..TargetSourcesSyncPlan::empty()
+        ..SnapshotSourcesSyncPlan::empty()
     };
 
     let candidates = match candidates {
         Some(candidates) => candidates.to_vec(),
-        None => match discover_source_target_installs(repo_root, &sources_path) {
+        None => match discover_source_snapshot_operations(repo_root, &sources_path) {
             Ok(candidates) => candidates,
             Err(_) => return Ok(plan),
         },
@@ -121,60 +121,60 @@ pub(crate) fn plan_target_sources_sync_with_context(
         .filter(|candidate| candidate.error.is_none())
         .collect();
 
-    let candidate_tag_sets: Vec<TargetTagSet> = valid_candidates
+    let candidate_tag_sets: Vec<SnapshotTagSet> = valid_candidates
         .iter()
-        .map(|candidate| candidate.target_tags.clone())
+        .map(|candidate| candidate.snapshot_tags.clone())
         .collect();
 
     plan.candidate_count = valid_candidates.len();
     plan.to_remove = status
-        .targets
+        .snapshots
         .iter()
-        .filter(|target| {
+        .filter(|snapshot| {
             !candidate_tag_sets
                 .iter()
-                .any(|tags| tags == &target.target_tags)
+                .any(|tags| tags == &snapshot.snapshot_tags)
         })
-        .map(|target| target.target_id.clone())
+        .map(|snapshot| snapshot.snapshot_id.clone())
         .collect();
     plan.removable_count = plan.to_remove.len();
 
     for candidate in valid_candidates {
-        let matching_targets: Vec<_> = status
-            .targets
+        let matching_snapshots: Vec<_> = status
+            .snapshots
             .iter()
-            .filter(|target| target.target_tags == candidate.target_tags)
+            .filter(|snapshot| snapshot.snapshot_tags == candidate.snapshot_tags)
             .collect();
 
-        if matching_targets.is_empty() {
-            plan.to_insert.push(candidate.clone());
+        if matching_snapshots.is_empty() {
+            plan.to_create.push(candidate.clone());
             plan.to_apply.push(candidate);
             continue;
         }
 
-        let recorded_source_modified_at = matching_targets
+        let recorded_source_modified_at = matching_snapshots
             .first()
-            .map(|target| target.source_modified_at.as_str())
+            .map(|snapshot| snapshot.source_modified_at.as_str())
             .unwrap_or_default();
         if !is_source_modified_at_newer(&candidate.source_modified_at, recorded_source_modified_at)
         {
             continue;
         }
 
-        plan.to_refresh.push(TargetSourcesRefresh {
+        plan.to_refresh.push(SnapshotSourcesRefresh {
             folder_name: candidate.folder_name.clone(),
             path: candidate.path.clone(),
-            target_tags: candidate.target_tags.clone(),
-            replaced_target_ids: matching_targets
+            snapshot_tags: candidate.snapshot_tags.clone(),
+            replaced_snapshot_ids: matching_snapshots
                 .iter()
-                .map(|target| target.target_id.clone())
+                .map(|snapshot| snapshot.snapshot_id.clone())
                 .collect(),
             source_modified_at: candidate.source_modified_at.clone(),
         });
         plan.to_apply.push(candidate);
     }
 
-    plan.insertable_count = plan.to_insert.len();
+    plan.creatable_count = plan.to_create.len();
     plan.refresh_count = plan.to_refresh.len();
 
     Ok(plan)
@@ -189,49 +189,49 @@ fn normalized_sources_path(sources_path: Option<&Path>) -> Option<std::path::Pat
     Some(std::path::PathBuf::from(trimmed))
 }
 
-pub fn describe_target_sources_sync_plan(plan: &TargetSourcesSyncPlan) -> Vec<String> {
+pub fn describe_snapshot_sources_sync_plan(plan: &SnapshotSourcesSyncPlan) -> Vec<String> {
     let mut lines = Vec::new();
     for refresh in &plan.to_refresh {
         lines.push(format!(
-            "Refresh target slot for {} ({}): source modified at {}",
+            "Refresh snapshot slot for {} ({}): source modified at {}",
             refresh.folder_name, refresh.path, refresh.source_modified_at
         ));
     }
-    for target_id in &plan.to_remove {
+    for snapshot_id in &plan.to_remove {
         lines.push(format!(
-            "Remove repo target {} (missing from sources)",
-            target_id
+            "Remove repo snapshot {} (missing from sources)",
+            snapshot_id
         ));
     }
-    for candidate in &plan.to_insert {
+    for candidate in &plan.to_create {
         lines.push(format!(
-            "Insert new target slot {} ({})",
-            candidate.target_id, candidate.folder_name
+            "Create new snapshot slot {} ({})",
+            candidate.snapshot_id, candidate.folder_name
         ));
     }
     lines
 }
 
-pub fn sync_target_sources(
+pub fn sync_snapshot_sources(
     repo_root: &Path,
     sources_path: &Path,
-    options: TargetSourcesSyncOptions,
+    options: SnapshotSourcesSyncOptions,
     control: &crate::GutchOperationControl,
-) -> Result<TargetSourcesSyncResult> {
+) -> Result<SnapshotSourcesSyncResult> {
     control.checkpoint()?;
-    let plan = plan_target_sources_sync(repo_root, Some(sources_path))?;
+    let plan = plan_snapshot_sources_sync(repo_root, Some(sources_path))?;
     if !plan.sources_ready {
         return Err(crate::Error::manifest(
-            "target sources path is missing or invalid",
+            "snapshot sources path is missing or invalid",
         ));
     }
 
     if !plan.has_changes() {
-        return Ok(TargetSourcesSyncResult {
-            inserted_count: 0,
+        return Ok(SnapshotSourcesSyncResult {
+            created_count: 0,
             refreshed_count: 0,
             removed_count: 0,
-            pruned: options.prune_removed_targets,
+            pruned: options.prune_removed_snapshots,
         });
     }
 
@@ -239,23 +239,23 @@ pub fn sync_target_sources(
     let mut current_step = 0usize;
     let mut removed_count = 0usize;
 
-    if options.prune_removed_targets {
-        for target_id in &plan.to_remove {
+    if options.prune_removed_snapshots {
+        for snapshot_id in &plan.to_remove {
             control.checkpoint()?;
-            crate::remove_target_from_repo(repo_root, target_id)?;
+            crate::remove_snapshot_from_repo(repo_root, snapshot_id)?;
             removed_count += 1;
             current_step += 1;
             progress::emit_progress(
                 control.progress(),
                 GutchProgressEvent {
-                    operation: GutchOperation::TargetSourcesSync,
+                    operation: GutchOperation::SnapshotSourcesSync,
                     phase: GutchProgressPhase::Prune,
-                    message: format!("Removing target '{}'", target_id),
+                    message: format!("Removing snapshot '{}'", snapshot_id),
                     current: current_step,
                     total: total_steps,
                     transferred_bytes: 0,
                     total_bytes: 0,
-                    detail: Some(target_id.to_string()),
+                    detail: Some(snapshot_id.to_string()),
                     done: false,
                 },
             );
@@ -268,7 +268,7 @@ pub fn sync_target_sources(
         .map(|refresh| refresh.path.clone())
         .collect();
 
-    let mut inserted_count = 0usize;
+    let mut created_count = 0usize;
     let mut refreshed_count = 0usize;
     for candidate in &plan.to_apply {
         control.checkpoint()?;
@@ -276,9 +276,9 @@ pub fn sync_target_sources(
         progress::emit_progress(
             control.progress(),
             GutchProgressEvent {
-                operation: GutchOperation::TargetSourcesSync,
-                phase: GutchProgressPhase::Insert,
-                message: format!("Committing target '{}'", candidate.folder_name),
+                operation: GutchOperation::SnapshotSourcesSync,
+                phase: GutchProgressPhase::Create,
+                message: format!("Creating snapshot '{}'", candidate.folder_name),
                 current: current_step,
                 total: total_steps,
                 transferred_bytes: 0,
@@ -288,12 +288,13 @@ pub fn sync_target_sources(
             },
         );
         removed_count +=
-            crate::delete_repo_targets_with_matching_tags(repo_root, &candidate.target_tags)?.len();
-        insert_source_target_candidate(repo_root, candidate, control)?;
+            crate::delete_repo_snapshots_with_matching_tags(repo_root, &candidate.snapshot_tags)?
+                .len();
+        create_source_snapshot(repo_root, candidate, control)?;
         if refresh_paths.contains(&candidate.path) {
             refreshed_count += 1;
         } else {
-            inserted_count += 1;
+            created_count += 1;
         }
     }
 
@@ -302,9 +303,9 @@ pub fn sync_target_sources(
     progress::emit_progress(
         control.progress(),
         GutchProgressEvent {
-            operation: GutchOperation::TargetSourcesSync,
+            operation: GutchOperation::SnapshotSourcesSync,
             phase: GutchProgressPhase::Done,
-            message: "Target sources sync complete".to_string(),
+            message: "Snapshot sources sync complete".to_string(),
             current: total_steps,
             total: total_steps,
             transferred_bytes: 0,
@@ -314,31 +315,31 @@ pub fn sync_target_sources(
         },
     );
 
-    Ok(TargetSourcesSyncResult {
-        inserted_count,
+    Ok(SnapshotSourcesSyncResult {
+        created_count,
         refreshed_count,
         removed_count,
-        pruned: options.prune_removed_targets,
+        pruned: options.prune_removed_snapshots,
     })
 }
 
-fn insert_source_target_candidate(
+fn create_source_snapshot(
     repo_root: &Path,
-    candidate: &SourceTargetInstallCandidate,
+    candidate: &SourceSnapshotOperationCandidate,
     control: &crate::GutchOperationControl,
 ) -> Result<()> {
     let candidate_control = if let Some(sink) = control.progress() {
-        control.with_replaced_progress(Arc::new(TargetSourcesCandidateProgress {
+        control.with_replaced_progress(Arc::new(SnapshotSourcesCandidateProgress {
             sink: sink.clone(),
             folder_name: candidate.folder_name.clone(),
         }))
     } else {
         control.clone()
     };
-    crate::insert_repo_target(crate::RepoTargetInsertRequest {
+    crate::create_repo_snapshot(crate::RepoSnapshotCreateRequest {
         repo_root: repo_root.to_path_buf(),
         source_dir: std::path::PathBuf::from(&candidate.path),
-        explicit_tags: candidate.target_tags.clone(),
+        explicit_tags: candidate.snapshot_tags.clone(),
         allow_name_inference: true,
         chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
         bundle_profile: crate::manifest::BundleSizingPreset::Bundle16MiB,
@@ -351,14 +352,14 @@ fn insert_source_target_candidate(
 }
 
 #[derive(Debug)]
-struct TargetSourcesCandidateProgress {
+struct SnapshotSourcesCandidateProgress {
     sink: Arc<dyn GutchProgressSink>,
     folder_name: String,
 }
 
-impl GutchProgressSink for TargetSourcesCandidateProgress {
+impl GutchProgressSink for SnapshotSourcesCandidateProgress {
     fn emit(&self, mut event: GutchProgressEvent) {
-        event.operation = GutchOperation::TargetSourcesSync;
+        event.operation = GutchOperation::SnapshotSourcesSync;
         event.message = format!("{}: {}", self.folder_name, event.message);
         event.detail = Some(self.folder_name.clone());
         event.done = false;
@@ -371,10 +372,10 @@ mod tests {
     use super::*;
     use crate::GutchRepoPaths;
     use crate::hash::hash_hex;
-    use crate::manifest::{self, target::TargetManifest};
+    use crate::manifest::{self, snapshot::SnapshotManifest};
     use crate::repo::{
-        discover_source_target_installs, ensure_gutch_repo_layout, format_system_time_utc,
-        write_target_manifest_artifacts,
+        discover_source_snapshot_operations, ensure_gutch_repo_layout, format_system_time_utc,
+        write_snapshot_manifest_artifacts,
     };
     use std::time::{Duration, SystemTime};
 
@@ -383,21 +384,21 @@ mod tests {
     }
 
     #[test]
-    fn plan_target_sources_sync_returns_empty_plan_without_sources_path() {
+    fn plan_snapshot_sources_sync_returns_empty_plan_without_sources_path() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let plan = plan_target_sources_sync(&repo_root, None).unwrap();
+        let plan = plan_snapshot_sources_sync(&repo_root, None).unwrap();
         assert!(!plan.sources_ready);
-        assert_eq!(plan.insertable_count, 0);
+        assert_eq!(plan.creatable_count, 0);
         assert_eq!(plan.refresh_count, 0);
         assert_eq!(plan.removable_count, 0);
     }
 
     #[test]
-    fn plan_target_sources_sync_detects_refresh_when_source_is_newer() {
+    fn plan_snapshot_sources_sync_detects_refresh_when_source_is_newer() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
@@ -409,12 +410,12 @@ mod tests {
         let game_path = source_dir.join("game.exe");
         std::fs::write(&game_path, b"same-content").unwrap();
 
-        let candidate = discover_source_target_installs(&repo_root, &source_root).unwrap();
+        let candidate = discover_source_snapshot_operations(&repo_root, &source_root).unwrap();
         assert_eq!(candidate.len(), 1);
 
-        let tags = candidate[0].target_tags.clone();
-        let target_id = test_hash("existing-content-id");
-        let mut manifest = TargetManifest::new(target_id.clone(), tags);
+        let tags = candidate[0].snapshot_tags.clone();
+        let snapshot_id = test_hash("existing-snapshot-id");
+        let mut manifest = SnapshotManifest::new(snapshot_id.clone(), tags);
         manifest.source_modified_at =
             format_system_time_utc(SystemTime::now() - Duration::from_secs(3600));
         manifest.files = vec![manifest::FileManifest {
@@ -424,14 +425,14 @@ mod tests {
             full_file_hash: test_hash("game.exe"),
             chunks: Vec::new(),
         }];
-        write_target_manifest_artifacts(&repo_paths, &manifest).unwrap();
+        write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
 
         std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&game_path, b"new-content").unwrap();
 
-        let plan = plan_target_sources_sync(&repo_root, Some(&source_root)).unwrap();
+        let plan = plan_snapshot_sources_sync(&repo_root, Some(&source_root)).unwrap();
         assert_eq!(plan.refresh_count, 1);
-        assert_eq!(plan.insertable_count, 0);
+        assert_eq!(plan.creatable_count, 0);
         assert_eq!(
             plan.to_refresh[0].folder_name,
             "game-v2.0.0-windows-x86_64-base-2026_07_14"

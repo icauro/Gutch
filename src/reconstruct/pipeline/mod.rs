@@ -10,8 +10,8 @@ pub(super) use orchestrator::{
 
 // Re-export test-only functions.
 #[cfg(test)]
-pub(super) use direct::should_use_direct_bundle_to_file_restore;
+pub(super) use direct::should_use_direct_bundle_to_file_reconstruct;
 #[cfg(test)]
-pub(super) use direct::should_use_direct_bundle_to_file_restore_experimental;
+pub(super) use direct::should_use_direct_bundle_to_file_reconstruct_experimental;
 #[cfg(test)]
 pub(super) use staging::should_stage_bundle_payloads_in_memory;

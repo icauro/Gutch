@@ -1,4 +1,4 @@
-mod restore;
+mod pipeline;
 mod source;
 mod types;
 
@@ -9,24 +9,24 @@ use std::time::Instant;
 use crate::Result;
 use crate::bundle;
 use crate::hash::ChunkHash;
-use crate::manifest::{CompressionProfile, target::TargetManifest};
+use crate::manifest::{CompressionProfile, snapshot::SnapshotManifest};
 use crate::progress::GutchOperationControl;
 use crate::repo::{GutchRepoPaths, required_bundle_ids, required_chunk_hashes_typed};
 use crate::runtime::RuntimeResourceHints;
 
-use restore::{
+use pipeline::{
     prepare_reconstruct, read_loose_repo_chunks, rebuild_files_from_chunks,
     reconstruct_from_bundle_paths_and_local_chunks,
 };
 use source::read_reusable_source_chunks;
-pub use types::{ReconstructOptions, ReconstructTimings, VerifiedSourceInstall};
+pub use types::{ReconstructOptions, ReconstructTimings, VerifiedSourceTree};
 
 #[cfg(test)]
 use crate::runtime::RuntimePlan;
 #[cfg(test)]
-use restore::{
-    should_stage_bundle_payloads_in_memory, should_use_direct_bundle_to_file_restore,
-    should_use_direct_bundle_to_file_restore_experimental,
+use pipeline::{
+    should_stage_bundle_payloads_in_memory, should_use_direct_bundle_to_file_reconstruct,
+    should_use_direct_bundle_to_file_reconstruct_experimental,
 };
 #[cfg(test)]
 use std::collections::HashMap as TestHashMap;
@@ -35,15 +35,15 @@ use std::path::PathBuf as TestPathBuf;
 #[cfg(test)]
 use types::BundleScanInfo;
 
-pub fn reconstruct_from_target_manifest(
-    target_manifest: &TargetManifest,
+pub fn reconstruct_from_snapshot_manifest(
+    snapshot_manifest: &SnapshotManifest,
     bundles: &[Vec<u8>],
     compression_profile: &CompressionProfile,
     output_dir: &Path,
     control: &GutchOperationControl,
 ) -> Result<()> {
-    let (_, _) = reconstruct_from_target_manifest_with_timings(
-        target_manifest,
+    let (_, _) = reconstruct_from_snapshot_manifest_with_timings(
+        snapshot_manifest,
         bundles,
         compression_profile,
         output_dir,
@@ -52,8 +52,8 @@ pub fn reconstruct_from_target_manifest(
     Ok(())
 }
 
-fn reconstruct_from_target_manifest_with_timings(
-    target_manifest: &TargetManifest,
+fn reconstruct_from_snapshot_manifest_with_timings(
+    snapshot_manifest: &SnapshotManifest,
     bundles: &[Vec<u8>],
     compression_profile: &CompressionProfile,
     output_dir: &Path,
@@ -67,10 +67,10 @@ fn reconstruct_from_target_manifest_with_timings(
     control.checkpoint()?;
     crate::helpers::create_dir_all(output_dir)?;
 
-    let needed_chunks = required_chunk_hashes_typed(target_manifest)?;
+    let needed_chunks = required_chunk_hashes_typed(snapshot_manifest)?;
     let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::with_capacity(needed_chunks.len());
     timings.prepare_wall = total_start.elapsed();
-    let restore_start = Instant::now();
+    let reconstruct_start = Instant::now();
 
     for bundle_data in bundles {
         control.checkpoint()?;
@@ -106,37 +106,37 @@ fn reconstruct_from_target_manifest_with_timings(
     }
 
     rebuild_files_from_chunks(
-        target_manifest,
+        snapshot_manifest,
         &chunk_map,
         output_dir,
         &mut timings,
         control,
     )?;
-    timings.restore_wall = restore_start.elapsed();
+    timings.reconstruct_wall = reconstruct_start.elapsed();
     timings.total = total_start.elapsed();
     Ok(((), timings))
 }
 
 pub fn reconstruct_from_bundle_paths(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     bundle_paths: &[PathBuf],
     compression_profile: &CompressionProfile,
-    verified_source: Option<VerifiedSourceInstall<'_>>,
+    verified_source: Option<VerifiedSourceTree<'_>>,
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
     options: ReconstructOptions,
     control: &GutchOperationControl,
 ) -> Result<((), ReconstructTimings)> {
     let (needed_chunks, total_start, runtime_plan, timings) =
-        prepare_reconstruct(target_manifest, output_dir, runtime_hints, control)?;
+        prepare_reconstruct(snapshot_manifest, output_dir, runtime_hints, control)?;
 
-    let restore_start = Instant::now();
+    let reconstruct_start = Instant::now();
     let local_chunks = match verified_source {
         Some(source) => read_reusable_source_chunks(source, &needed_chunks, control)?,
         None => HashMap::new(),
     };
     let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
-        target_manifest,
+        snapshot_manifest,
         bundle_paths,
         compression_profile,
         &needed_chunks,
@@ -148,13 +148,13 @@ pub fn reconstruct_from_bundle_paths(
         options,
         control,
     )?;
-    timings.restore_wall = restore_start.elapsed();
+    timings.reconstruct_wall = reconstruct_start.elapsed();
     timings.total = total_start.elapsed();
     Ok((result, timings))
 }
 
 pub fn reconstruct_from_repo(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     repo_paths: &GutchRepoPaths,
     compression_profile: &CompressionProfile,
     output_dir: &Path,
@@ -163,9 +163,9 @@ pub fn reconstruct_from_repo(
     control: &GutchOperationControl,
 ) -> Result<((), ReconstructTimings)> {
     let (needed_chunks, total_start, runtime_plan, mut timings) =
-        prepare_reconstruct(target_manifest, output_dir, runtime_hints, control)?;
+        prepare_reconstruct(snapshot_manifest, output_dir, runtime_hints, control)?;
 
-    let restore_start = Instant::now();
+    let reconstruct_start = Instant::now();
     control.checkpoint()?;
     let chunk_index = crate::repo::load_chunk_index(repo_paths)?;
     let local_chunks = read_loose_repo_chunks(
@@ -178,14 +178,14 @@ pub fn reconstruct_from_repo(
         &mut timings,
         control,
     )?;
-    let required_bundle_ids = required_bundle_ids(target_manifest, &chunk_index);
+    let required_bundle_ids = required_bundle_ids(snapshot_manifest, &chunk_index);
     let bundle_paths = required_bundle_ids
         .iter()
         .map(|bundle_id| crate::repo::bundle_path(repo_paths, bundle_id))
         .collect::<Vec<_>>();
 
     let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
-        target_manifest,
+        snapshot_manifest,
         &bundle_paths,
         compression_profile,
         &needed_chunks,
@@ -197,7 +197,7 @@ pub fn reconstruct_from_repo(
         options,
         control,
     )?;
-    timings.restore_wall = restore_start.elapsed();
+    timings.reconstruct_wall = reconstruct_start.elapsed();
     timings.total = total_start.elapsed();
     Ok((result, timings))
 }
@@ -221,13 +221,13 @@ mod tests {
     fn pre_cancelled_reconstruct_does_not_create_output() {
         let output_dir = crate::test_util::temp_path("gutch_reconstruct_pre_cancelled");
         let _ = std::fs::remove_dir_all(&output_dir);
-        let manifest = TargetManifest::new(
-            "cancelled-target".to_string(),
-            crate::manifest::TargetTagSet::default(),
+        let manifest = SnapshotManifest::new(
+            "cancelled-snapshot".to_string(),
+            crate::manifest::SnapshotTagSet::default(),
         );
         let control = GutchOperationControl::default().with_cancellation(Arc::new(AlwaysCancelled));
 
-        let result = reconstruct_from_target_manifest(
+        let result = reconstruct_from_snapshot_manifest(
             &manifest,
             &[],
             &CompressionProfile::default(),
@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn high_memory_no_verify_restore_uses_direct_bundle_to_file_path() {
+    fn high_memory_no_verify_reconstruct_uses_direct_bundle_to_file_path() {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             BundleScanInfo {
@@ -323,7 +323,7 @@ mod tests {
             },
         )]);
 
-        assert!(should_use_direct_bundle_to_file_restore(
+        assert!(should_use_direct_bundle_to_file_reconstruct(
             &HashMap::new(),
             &bundle_scan_info,
             &runtime_plan(EffectiveMemoryMode::High, 1024),
@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn experimental_high_memory_no_verify_restore_can_use_direct_bundle_to_file_path() {
+    fn experimental_high_memory_no_verify_reconstruct_can_use_direct_bundle_to_file_path() {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             BundleScanInfo {
@@ -344,7 +344,7 @@ mod tests {
             },
         )]);
 
-        assert!(should_use_direct_bundle_to_file_restore_experimental(
+        assert!(should_use_direct_bundle_to_file_reconstruct_experimental(
             &HashMap::new(),
             &bundle_scan_info,
             &runtime_plan(EffectiveMemoryMode::High, 1024),
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_with_file_verify_keeps_staged_reconstruct_path() {
+    fn reconstruct_with_file_verify_keeps_staged_reconstruct_path() {
         let bundle_scan_info = TestHashMap::from([(
             TestPathBuf::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             BundleScanInfo {
@@ -365,7 +365,7 @@ mod tests {
             },
         )]);
 
-        assert!(!should_use_direct_bundle_to_file_restore(
+        assert!(!should_use_direct_bundle_to_file_reconstruct(
             &HashMap::new(),
             &bundle_scan_info,
             &runtime_plan(EffectiveMemoryMode::High, 1024),

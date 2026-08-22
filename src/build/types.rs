@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::hash::ChunkHash;
 use crate::manifest::{
     ArtifactStorageMode, BundleSizingProfile, ChunkSizingProfile, CompressionProfile, FileManifest,
-    TargetTagSet, target::TargetManifest,
+    SnapshotTagSet, snapshot::SnapshotManifest,
 };
 use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 
@@ -21,8 +21,8 @@ pub trait BuildProgressSink: Send + Sync + std::fmt::Debug {
 #[derive(Debug, Clone)]
 pub struct BuildConfig<'a> {
     pub gutch_repo_id: String,
-    pub target_id: String,
-    pub target_tags: TargetTagSet,
+    pub snapshot_id: String,
+    pub snapshot_tags: SnapshotTagSet,
     pub existing_chunk_locations: Option<&'a HashMap<String, ExistingChunkLocation>>,
     pub existing_bundle_ids: Option<&'a HashSet<String>>,
     pub previous_file_manifests: Option<&'a HashMap<String, Vec<FileManifest>>>,
@@ -38,13 +38,13 @@ pub struct BuildConfig<'a> {
 impl<'a> BuildConfig<'a> {
     pub fn with_ids(
         gutch_repo_id: &str,
-        target_id: &str,
-        target_tags: &TargetTagSet,
+        snapshot_id: &str,
+        snapshot_tags: &SnapshotTagSet,
     ) -> BuildConfig<'a> {
         BuildConfig {
             gutch_repo_id: gutch_repo_id.to_string(),
-            target_id: target_id.to_string(),
-            target_tags: target_tags.clone(),
+            snapshot_id: snapshot_id.to_string(),
+            snapshot_tags: snapshot_tags.clone(),
             existing_chunk_locations: None,
             existing_bundle_ids: None,
             previous_file_manifests: None,
@@ -106,7 +106,7 @@ impl<'a> BuildConfig<'a> {
 }
 
 pub struct BuildResult {
-    pub target_manifest: TargetManifest,
+    pub snapshot_manifest: SnapshotManifest,
     pub bundles: Vec<BuiltBundle>,
     pub loose_chunks: Vec<BuiltLooseChunk>,
 }

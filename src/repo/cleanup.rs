@@ -3,33 +3,33 @@ use std::path::Path;
 
 use crate::Result;
 
-use super::inventory::{list_repo_bundle_paths, list_repo_target_ids};
+use super::inventory::{list_repo_bundle_paths, list_repo_snapshot_ids};
 use super::{
-    load_chunk_index, load_gutch_repo_manifest, load_target_manifest, required_bundle_ids,
-    target_manifest_path, validate_target_id,
+    load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest, required_bundle_ids,
+    snapshot_manifest_path, validate_snapshot_id,
 };
 
-pub fn remove_target_from_repo(repo_root: &Path, target_id: &str) -> Result<()> {
-    validate_target_id(target_id)?;
+pub fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<()> {
+    validate_snapshot_id(snapshot_id)?;
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
-    let manifest_path = target_manifest_path(&repo_paths, target_id);
-    let Some(target_dir) = manifest_path.parent() else {
+    let manifest_path = snapshot_manifest_path(&repo_paths, snapshot_id);
+    let Some(snapshot_dir) = manifest_path.parent() else {
         return Ok(());
     };
-    if !target_dir.exists() {
+    if !snapshot_dir.exists() {
         return Ok(());
     }
-    let staged_target_dir = repo_paths
+    let staged_snapshot_dir = repo_paths
         .repo_root
-        .join(format!(".deleting-target-{target_id}"));
-    if staged_target_dir.exists() {
+        .join(format!(".deleting-snapshot-{snapshot_id}"));
+    if staged_snapshot_dir.exists() {
         return Err(crate::Error::manifest(format!(
-            "staged target deletion already exists at {}",
-            staged_target_dir.display()
+            "staged snapshot deletion already exists at {}",
+            staged_snapshot_dir.display()
         )));
     }
-    std::fs::rename(target_dir, &staged_target_dir)?;
-    std::fs::remove_dir_all(staged_target_dir)?;
+    std::fs::rename(snapshot_dir, &staged_snapshot_dir)?;
+    std::fs::remove_dir_all(staged_snapshot_dir)?;
     Ok(())
 }
 
@@ -40,16 +40,16 @@ pub fn cleanup_orphan_bundles_in_repo(
     use crate::progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase, emit_progress};
 
     const TOTAL: usize = 1000;
-    const SCAN_TARGETS_END: usize = 50;
+    const SCAN_SNAPSHOTS_END: usize = 50;
     const LOAD_MANIFESTS_END: usize = 400;
     const SCAN_BUNDLES_END: usize = 900;
 
     emit_progress(
         control.progress(),
         GutchProgressEvent {
-            operation: GutchOperation::TargetDelete,
-            phase: GutchProgressPhase::ScanTargets,
-            message: "Scanning remaining targets".to_string(),
+            operation: GutchOperation::SnapshotDelete,
+            phase: GutchProgressPhase::ScanSnapshots,
+            message: "Scanning remaining snapshots".to_string(),
             current: 0,
             total: TOTAL,
             transferred_bytes: 0,
@@ -59,34 +59,34 @@ pub fn cleanup_orphan_bundles_in_repo(
         },
     );
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
-    let remaining_targets = list_repo_target_ids(&repo_paths)?;
+    let remaining_snapshots = list_repo_snapshot_ids(&repo_paths)?;
 
     let chunk_index = load_chunk_index(&repo_paths)?;
     let mut still_required_bundle_ids = HashSet::new();
-    let target_count = remaining_targets.len().max(1);
-    for (i, target_id) in remaining_targets.iter().enumerate() {
+    let snapshot_count = remaining_snapshots.len().max(1);
+    for (i, snapshot_id) in remaining_snapshots.iter().enumerate() {
         control.checkpoint()?;
         let progress_current =
-            SCAN_TARGETS_END + (LOAD_MANIFESTS_END - SCAN_TARGETS_END) * i / target_count;
+            SCAN_SNAPSHOTS_END + (LOAD_MANIFESTS_END - SCAN_SNAPSHOTS_END) * i / snapshot_count;
         emit_progress(
             control.progress(),
             GutchProgressEvent {
-                operation: GutchOperation::TargetDelete,
+                operation: GutchOperation::SnapshotDelete,
                 phase: GutchProgressPhase::LoadManifests,
                 message: format!(
-                    "Loading target manifests ({}/{})",
+                    "Loading snapshot manifests ({}/{})",
                     i + 1,
-                    remaining_targets.len()
+                    remaining_snapshots.len()
                 ),
                 current: progress_current,
                 total: TOTAL,
                 transferred_bytes: 0,
                 total_bytes: 0,
-                detail: Some(target_id.clone()),
+                detail: Some(snapshot_id.clone()),
                 done: false,
             },
         );
-        let manifest = load_target_manifest(&repo_paths, target_id)?;
+        let manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
         still_required_bundle_ids.extend(required_bundle_ids(&manifest, &chunk_index));
     }
 
@@ -102,7 +102,7 @@ pub fn cleanup_orphan_bundles_in_repo(
             emit_progress(
                 control.progress(),
                 GutchProgressEvent {
-                    operation: GutchOperation::TargetDelete,
+                    operation: GutchOperation::SnapshotDelete,
                     phase: GutchProgressPhase::ScanBundles,
                     message: format!("Scanning bundles ({}/{})", i + 1, bundle_files.len()),
                     current: progress_current.min(SCAN_BUNDLES_END),
@@ -124,7 +124,7 @@ pub fn cleanup_orphan_bundles_in_repo(
     emit_progress(
         control.progress(),
         GutchProgressEvent {
-            operation: GutchOperation::TargetDelete,
+            operation: GutchOperation::SnapshotDelete,
             phase: GutchProgressPhase::DeleteOrphans,
             message: format!("Removing {} orphan bundle(s)", orphan_bundles.len()),
             current: SCAN_BUNDLES_END,

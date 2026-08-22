@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::manifest::ExternalProductDependencyRequirement;
 use crate::manifest::launch::ResolvedLaunchConfiguration;
-use crate::manifest::target::TargetManifest;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperationControl;
 use crate::runtime::RuntimeResourceHints;
 use crate::verify::{RepairClassification, VerifyMode, VerifyTimings};
@@ -17,9 +17,9 @@ pub struct GutchBundleDownload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolvedTargetInstallState {
-    pub target_id: String,
-    pub target_metadata_hash_b3: String,
+pub struct ResolvedSnapshotOperationState {
+    pub snapshot_id: String,
+    pub snapshot_index_hash_b3: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<ResolvedLaunchConfiguration>,
     #[serde(default)]
@@ -27,15 +27,15 @@ pub struct ResolvedTargetInstallState {
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallApplySource<'a> {
-    pub target_manifest: &'a TargetManifest,
-    pub install_dir: &'a Path,
+pub struct SnapshotReconstructSource<'a> {
+    pub snapshot_manifest: &'a SnapshotManifest,
+    pub destination_dir: &'a Path,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallApplyResult {
-    pub target_id: String,
-    pub install_dir: PathBuf,
+pub struct SnapshotReconstructResult {
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
     pub staging_dir: PathBuf,
     pub backup_dir: Option<PathBuf>,
     pub reused_source_chunk_count: usize,
@@ -46,62 +46,62 @@ pub struct TargetInstallApplyResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallApplyFromRepoRequest {
+pub struct SnapshotReconstructFromRepoRequest {
     pub repo_path: PathBuf,
-    pub target_id: String,
-    pub install_dir: PathBuf,
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
-    pub source_target_id: Option<String>,
+    pub source_snapshot_id: Option<String>,
     pub source_dir: Option<PathBuf>,
     pub runtime_hints: RuntimeResourceHints,
     pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallApplyFromRepoResult {
+pub struct SnapshotReconstructFromRepoResult {
     pub repo_root: PathBuf,
-    pub target_manifest: TargetManifest,
-    pub apply_result: TargetInstallApplyResult,
+    pub snapshot_manifest: SnapshotManifest,
+    pub reconstruct_result: SnapshotReconstructResult,
     pub resolved_bundle_file_count: usize,
-    pub source_install_dir: Option<PathBuf>,
+    pub source_destination_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallVerifyFromRepoRequest {
+pub struct SnapshotVerifyFromRepoRequest {
     pub repo_path: PathBuf,
-    pub target_id: String,
-    pub install_dir: PathBuf,
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
     pub verify_mode: VerifyMode,
     pub runtime_hints: RuntimeResourceHints,
     pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallVerifyFromRepoResult {
+pub struct SnapshotVerifyFromRepoResult {
     pub repo_root: PathBuf,
-    pub target_manifest: TargetManifest,
+    pub snapshot_manifest: SnapshotManifest,
     pub classification: RepairClassification,
     pub verify_timings: VerifyTimings,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallRepairResult {
-    pub target_id: String,
-    pub install_dir: PathBuf,
+pub struct SnapshotRepairResult {
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
     pub missing_file_count: usize,
     pub corrupt_file_count: usize,
     pub extra_file_count: usize,
     pub removed_extra_file_count: usize,
-    pub restored_extra_file_count: usize,
-    pub apply_result: Option<TargetInstallApplyResult>,
+    pub reconstructed_extra_file_count: usize,
+    pub reconstruct_result: Option<SnapshotReconstructResult>,
     pub verify_timings: VerifyTimings,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallRepairFromRepoRequest {
+pub struct SnapshotRepairFromRepoRequest {
     pub repo_path: PathBuf,
-    pub target_id: String,
-    pub install_dir: PathBuf,
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
     pub remove_added_files: bool,
     pub runtime_hints: RuntimeResourceHints,
@@ -109,19 +109,19 @@ pub struct TargetInstallRepairFromRepoRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallRepairPlanFromRepoRequest {
+pub struct SnapshotRepairPlanFromRepoRequest {
     pub repo_path: PathBuf,
-    pub target_id: String,
-    pub install_dir: PathBuf,
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
     pub remove_added_files: bool,
     pub runtime_hints: RuntimeResourceHints,
     pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallRepairPlanFromRepoResult {
+pub struct SnapshotRepairPlanFromRepoResult {
     pub repo_root: PathBuf,
-    pub target_manifest: TargetManifest,
+    pub snapshot_manifest: SnapshotManifest,
     pub missing_file_count: usize,
     pub corrupt_file_count: usize,
     pub extra_file_count: usize,
@@ -130,17 +130,17 @@ pub struct TargetInstallRepairPlanFromRepoResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallRepairFromRepoResult {
+pub struct SnapshotRepairFromRepoResult {
     pub repo_root: PathBuf,
-    pub target_manifest: TargetManifest,
-    pub repair_result: TargetInstallRepairResult,
+    pub snapshot_manifest: SnapshotManifest,
+    pub repair_result: SnapshotRepairResult,
     pub resolved_bundle_file_count: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallFetchRequest {
+pub struct SnapshotFetchRequest {
     pub repo_path: PathBuf,
-    pub target_id: String,
+    pub snapshot_id: String,
     pub repo_metadata_url: Option<String>,
     pub metadata_url: String,
     pub product_metadata_url: Option<String>,
@@ -153,26 +153,26 @@ pub struct TargetInstallFetchRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallFetchResult {
+pub struct SnapshotFetchResult {
     pub repo_path: PathBuf,
-    pub target_id: String,
+    pub snapshot_id: String,
     pub required_bundle_count: usize,
     pub downloaded_bundle_count: usize,
     pub skipped_existing_bundle_count: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallDownloadAndApplyRequest {
-    pub fetch_request: TargetInstallFetchRequest,
-    pub install_dir: PathBuf,
+pub struct SnapshotDownloadAndReconstructRequest {
+    pub fetch_request: SnapshotFetchRequest,
+    pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
-    pub source_target_id: Option<String>,
+    pub source_snapshot_id: Option<String>,
     pub source_dir: Option<PathBuf>,
     pub runtime_hints: RuntimeResourceHints,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetInstallDownloadAndApplyResult {
-    pub fetch_result: TargetInstallFetchResult,
-    pub apply_result: TargetInstallApplyFromRepoResult,
+pub struct SnapshotDownloadAndReconstructResult {
+    pub fetch_result: SnapshotFetchResult,
+    pub reconstruct_result: SnapshotReconstructFromRepoResult,
 }

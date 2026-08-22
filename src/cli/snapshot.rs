@@ -1,39 +1,40 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::cli::TargetCommands;
+use crate::cli::SnapshotCommands;
+use crate::cli::SECTION_SEPARATOR;
 use crate::cli::args::ArtifactBuildProfileArgs;
 use crate::cli::common::{
-    TargetExportStats, TargetInsertManyStats, TargetInsertStats, count_required_bundles_for_build,
-    count_required_bundles_from_chunk_index, count_required_chunks, load_target_manifest_from_repo,
-    prepare_input_path, prompt_yes_no, write_bundles, write_loose_chunks, write_report,
-    write_target_manifest,
+    SnapshotCreateManyStats, SnapshotCreateStats, count_required_bundles_for_build,
+    count_required_bundles_from_chunk_index,
+    count_required_chunks, load_snapshot_manifest_from_repo, prepare_input_path, prompt_yes_no,
+    write_bundles, write_loose_chunks, write_report, write_snapshot_manifest,
 };
 use crate::cli::progress::{CliBuildProgressSink, CliProgressSink};
 use crate::cli::reporting::{
-    build_timings_summary, optional_output_paths, print_build_timings, print_reconstruct_timings,
-    ratio_pct, reconstruct_timings_summary,
+    build_timings_summary, ensure_parent_directory, optional_output_paths, print_build_timings,
+    ratio_pct,
 };
 use crate::cli::verbose_output_enabled;
 use crate::hash::ChunkHash;
-use g::core::target_identity::{apply_resolved_target_identity, parse_cli_tags};
+use g::core::snapshot_identity::{apply_resolved_snapshot_identity, parse_cli_tags};
 use g::repo::scan_existing_store_state;
 use gutch as g;
 
-struct MutableInsertStoreState {
+struct MutableCreateStoreState {
     bundle_ids: HashSet<String>,
     chunk_index: g::manifest::ChunkIndex,
     chunk_locations: HashMap<String, g::ExistingChunkLocation>,
     previous_file_manifests: HashMap<String, Vec<g::manifest::FileManifest>>,
 }
 
-struct TargetIdentityStrings {
+struct SnapshotIdentityStrings {
     version_id: String,
     os: String,
     arch: String,
 }
 
-impl From<g::repo::ExistingStoreState> for MutableInsertStoreState {
+impl From<g::repo::ExistingStoreState> for MutableCreateStoreState {
     fn from(state: g::repo::ExistingStoreState) -> Self {
         Self {
             bundle_ids: state.bundle_ids,
@@ -44,12 +45,12 @@ impl From<g::repo::ExistingStoreState> for MutableInsertStoreState {
     }
 }
 
-struct InsertOneTargetRequest<'a> {
+struct CreateOneSnapshotRequest<'a> {
     input_dir: &'a Path,
     repo_paths: &'a g::GutchRepoPaths,
     repo_name: &'a str,
-    rules: &'a g::manifest::TargetTagSchema,
-    explicit_tags: &'a g::manifest::TargetTagSet,
+    rules: &'a g::manifest::SnapshotTagSchema,
+    explicit_tags: &'a g::manifest::SnapshotTagSet,
     allow_name_inference: bool,
     build_profile: ArtifactBuildProfileArgs,
     runtime_hints: g::RuntimeResourceHints,
@@ -59,42 +60,44 @@ struct InsertOneTargetRequest<'a> {
     skip_confirmation: bool,
 }
 
-fn resolved_identity_strings(target_tags: &g::manifest::TargetTagSet) -> TargetIdentityStrings {
-    TargetIdentityStrings {
-        version_id: target_tags
+fn resolved_identity_strings(
+    snapshot_tags: &g::manifest::SnapshotTagSet,
+) -> SnapshotIdentityStrings {
+    SnapshotIdentityStrings {
+        version_id: snapshot_tags
             .get_exclusive("version")
             .unwrap_or_default()
             .to_string(),
-        os: target_tags
+        os: snapshot_tags
             .get_exclusive("os")
             .unwrap_or_default()
             .to_string(),
-        arch: target_tags
+        arch: snapshot_tags
             .get_exclusive("arch")
             .unwrap_or_default()
             .to_string(),
     }
 }
 
-fn unchanged_target_insert_stats(
+fn unchanged_snapshot_create_stats(
     command_name: &'static str,
     repo_root: &Path,
     input_path: &Path,
     manifest_path: &Path,
     repo_name: &str,
-    target_manifest: &g::manifest::target::TargetManifest,
-    identity: TargetIdentityStrings,
+    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
+    identity: SnapshotIdentityStrings,
     storage_mode: g::manifest::ArtifactStorageMode,
     required_chunk_count: usize,
     required_bundle_count: usize,
     timings: &g::BuildTimings,
     stats_json_out: &Option<PathBuf>,
-) -> TargetInsertStats {
-    TargetInsertStats {
+) -> SnapshotCreateStats {
+    SnapshotCreateStats {
         command: command_name,
         repo_root: repo_root.display().to_string(),
         input_path: input_path.display().to_string(),
-        target_id: target_manifest.target_id.clone(),
+        snapshot_id: snapshot_manifest.snapshot_id.clone(),
         manifest_path: manifest_path.display().to_string(),
         product_id: repo_name.to_string(),
         remote_repo_id: repo_name.to_string(),
@@ -102,9 +105,9 @@ fn unchanged_target_insert_stats(
         os: identity.os,
         arch: identity.arch,
         storage_mode: storage_mode.cli_name().to_string(),
-        file_count: target_manifest.files.len(),
-        total_logical_size: target_manifest.total_logical_size,
-        total_compressed_size_estimate: target_manifest.total_compressed_size_estimate,
+        file_count: snapshot_manifest.files.len(),
+        total_logical_size: snapshot_manifest.total_logical_size,
+        total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
         required_chunk_count,
         required_bundle_count,
         generated_bundle_count: 0,
@@ -121,64 +124,64 @@ fn unchanged_target_insert_stats(
     }
 }
 
-fn run_insert_one_target(
-    request: InsertOneTargetRequest<'_>,
-    store_state: &mut MutableInsertStoreState,
-) -> g::Result<TargetInsertStats> {
-    let insert_plan = g::plan_target_insert(
+fn run_create_one_snapshot(
+    request: CreateOneSnapshotRequest<'_>,
+    store_state: &mut MutableCreateStoreState,
+) -> g::Result<SnapshotCreateStats> {
+    let create_plan = g::plan_snapshot_create(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
         request.explicit_tags,
         request.allow_name_inference,
     )?;
     if !request.yes && !request.skip_confirmation {
-        println!("target commit plan:");
-        println!("  {}", g::describe_target_insert_plan(&insert_plan));
-        if insert_plan.invalidates_existing_installs {
+        println!("snapshot create plan:");
+        println!("  {}", g::describe_snapshot_create_plan(&create_plan));
+        if create_plan.replaces_existing_slots {
             println!(
-                "  User installs pinned to replaced content ids become invalid until updated."
+                "  Existing snapshot references to replaced snapshots must be updated."
             );
         }
         if !prompt_yes_no("Proceed?", false)? {
-            return Err(g::Error::manifest("target commit cancelled"));
+            return Err(g::Error::manifest("snapshot create cancelled"));
         }
     }
-    if insert_plan.kind == g::TargetInsertKind::ReplaceSameTags {
-        g::delete_repo_targets(
+    if create_plan.kind == g::SnapshotCreateKind::ReplaceSlot {
+        g::delete_repo_snapshots(
             request.repo_paths.repo_root.as_path(),
-            &insert_plan.replaced_target_ids,
+            &create_plan.replaced_snapshot_ids,
         )?;
         let _ = g::cleanup_orphan_bundles_in_repo(
             request.repo_paths.repo_root.as_path(),
             &g::GutchOperationControl::default(),
         );
     }
-    if insert_plan.kind == g::TargetInsertKind::UpdateTags {
+    if create_plan.kind == g::SnapshotCreateKind::Relabel {
         let existing_manifest =
-            g::load_target_manifest(request.repo_paths, &insert_plan.content_target_id)?;
+            g::load_snapshot_manifest(request.repo_paths, &create_plan.snapshot_id)?;
         let mut updated_manifest = existing_manifest;
-        updated_manifest.target_tags = insert_plan.target_tags.clone();
-        let (manifest_path, _) = write_target_manifest(request.repo_paths, &updated_manifest)?;
+        updated_manifest.snapshot_tags = create_plan.snapshot_tags.clone();
+        let (manifest_path, _) = write_snapshot_manifest(request.repo_paths, &updated_manifest)?;
         if verbose_output_enabled() {
             println!(
-                "updated target tags for content id '{}' (content unchanged)",
-                insert_plan.content_target_id
+                "updated snapshot tags for snapshot id '{}' (snapshot unchanged)",
+                create_plan.snapshot_id
             );
         }
         let required_chunk_count = count_required_chunks(&updated_manifest);
         let required_bundle_count =
             count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
-        return Ok(unchanged_target_insert_stats(
+        return Ok(unchanged_snapshot_create_stats(
             request.command_name,
             &request.repo_paths.repo_root,
             request.input_dir,
             &manifest_path,
             request.repo_name,
             &updated_manifest,
-            TargetIdentityStrings {
-                version_id: insert_plan.version_id.clone(),
-                os: insert_plan.os.clone(),
-                arch: insert_plan.arch.clone(),
+            SnapshotIdentityStrings {
+                version_id: create_plan.version_id.clone(),
+                os: create_plan.os.clone(),
+                arch: create_plan.arch.clone(),
             },
             request.build_profile.storage_mode,
             required_chunk_count,
@@ -189,8 +192,8 @@ fn run_insert_one_target(
     }
 
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
-    let context = format!("target commit input '{}'", request.input_dir.display());
-    let resolved_identity = g::core::target_identity::resolve_target_identity_with_inference(
+    let context = format!("snapshot create input '{}'", request.input_dir.display());
+    let resolved_identity = g::core::snapshot_identity::resolve_snapshot_identity_with_inference(
         request.input_dir,
         request.explicit_tags,
         request.rules,
@@ -210,7 +213,7 @@ fn run_insert_one_target(
         g::manifest::CompressionProfile::for_preset(request.build_profile.compression_profile);
 
     let mut build_config =
-        g::BuildConfig::with_ids(request.repo_name, "", &resolved_identity.target_tags)
+        g::BuildConfig::with_ids(request.repo_name, "", &resolved_identity.snapshot_tags)
             .with_existing_chunks(&store_state.chunk_locations)
             .with_existing_bundles(&store_state.bundle_ids)
             .with_previous_manifests(&store_state.previous_file_manifests)
@@ -224,21 +227,22 @@ fn run_insert_one_target(
 
     let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
     let mut result = result;
-    let target_id = g::compute_target_id_from_files(&result.target_manifest.files);
-    result.target_manifest.target_id = target_id.clone();
-    apply_resolved_target_identity(&mut result.target_manifest, &resolved_identity);
+    let snapshot_id = g::compute_snapshot_id_from_files(&result.snapshot_manifest.files);
+    result.snapshot_manifest.snapshot_id = snapshot_id.clone();
+    apply_resolved_snapshot_identity(&mut result.snapshot_manifest, &resolved_identity);
 
-    let existing_manifest_path = g::target_manifest_path(request.repo_paths, &target_id);
+    let existing_manifest_path = g::snapshot_manifest_path(request.repo_paths, &snapshot_id);
     if existing_manifest_path.exists() {
-        let existing_manifest = g::load_target_manifest(request.repo_paths, &target_id)?;
-        if existing_manifest.target_tags != result.target_manifest.target_tags {
+        let existing_manifest = g::load_snapshot_manifest(request.repo_paths, &snapshot_id)?;
+        if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
             let mut updated_manifest = existing_manifest;
-            updated_manifest.target_tags = result.target_manifest.target_tags.clone();
-            let (manifest_path, _) = write_target_manifest(request.repo_paths, &updated_manifest)?;
+            updated_manifest.snapshot_tags = result.snapshot_manifest.snapshot_tags.clone();
+            let (manifest_path, _) =
+                write_snapshot_manifest(request.repo_paths, &updated_manifest)?;
             if verbose_output_enabled() {
                 println!(
-                    "updated target tags for content id '{}' (content unchanged)",
-                    target_id
+                    "updated snapshot tags for snapshot id '{}' (snapshot unchanged)",
+                    snapshot_id
                 );
             }
 
@@ -247,14 +251,14 @@ fn run_insert_one_target(
                 &updated_manifest,
                 &store_state.chunk_index,
             );
-            return Ok(unchanged_target_insert_stats(
+            return Ok(unchanged_snapshot_create_stats(
                 request.command_name,
                 &request.repo_paths.repo_root,
                 request.input_dir,
                 &manifest_path,
                 request.repo_name,
                 &updated_manifest,
-                resolved_identity_strings(&resolved_identity.target_tags),
+                resolved_identity_strings(&resolved_identity.snapshot_tags),
                 request.build_profile.storage_mode,
                 required_chunk_count,
                 required_bundle_count,
@@ -264,7 +268,8 @@ fn run_insert_one_target(
         }
     }
 
-    let (manifest_path, _) = write_target_manifest(request.repo_paths, &result.target_manifest)?;
+    let (manifest_path, _) =
+        write_snapshot_manifest(request.repo_paths, &result.snapshot_manifest)?;
     write_bundles(&request.repo_paths.bundles_root, &result.bundles)?;
     write_loose_chunks(&request.repo_paths.chunks_root, &result.loose_chunks)?;
     let compression_profile =
@@ -281,7 +286,7 @@ fn run_insert_one_target(
     }
     store_state.chunk_locations =
         g::repo::existing_chunk_locations_from_index(&store_state.chunk_index, request.repo_paths);
-    for file in &result.target_manifest.files {
+    for file in &result.snapshot_manifest.files {
         let candidates = store_state
             .previous_file_manifests
             .entry(file.path.clone())
@@ -296,11 +301,11 @@ fn run_insert_one_target(
     if verbose_output_enabled() {
         println!(
             "done. {} files in manifest, total logical: {} bytes",
-            result.target_manifest.files.len(),
-            result.target_manifest.total_logical_size
+            result.snapshot_manifest.files.len(),
+            result.snapshot_manifest.total_logical_size
         );
 
-        if let Ok(est) = g::estimate_build(&result.target_manifest, &Default::default(), 0) {
+        if let Ok(est) = g::estimate_build(&result.snapshot_manifest, &Default::default(), 0) {
             println!(
                 "estimate: {} chunks missing, {:.1} MiB logical",
                 est.missing_chunk_count,
@@ -311,9 +316,9 @@ fn run_insert_one_target(
 
     print_build_timings(&timings);
 
-    let required_chunk_count = count_required_chunks(&result.target_manifest);
+    let required_chunk_count = count_required_chunks(&result.snapshot_manifest);
     let required_bundle_count = count_required_bundles_for_build(
-        &result.target_manifest,
+        &result.snapshot_manifest,
         &store_state.chunk_locations,
         &result.bundles,
         &result.loose_chunks,
@@ -330,7 +335,7 @@ fn run_insert_one_target(
         .iter()
         .map(|chunk| chunk.data.len() as u64)
         .sum::<u64>();
-    let reused_chunk_count = g::repo::required_chunk_hashes_typed(&result.target_manifest)?
+    let reused_chunk_count = g::repo::required_chunk_hashes_typed(&result.snapshot_manifest)?
         .iter()
         .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
         .count();
@@ -338,12 +343,12 @@ fn run_insert_one_target(
     let reused_bundle_count = required_bundle_count.saturating_sub(generated_bundle_count);
     let reused_chunk_percent = ratio_pct(reused_chunk_count as u64, required_chunk_count as u64);
     let reused_bundle_percent = ratio_pct(reused_bundle_count as u64, required_bundle_count as u64);
-    let resolved_identity_strings = resolved_identity_strings(&resolved_identity.target_tags);
-    let stats = TargetInsertStats {
+    let resolved_identity_strings = resolved_identity_strings(&resolved_identity.snapshot_tags);
+    let stats = SnapshotCreateStats {
         command: request.command_name,
         repo_root: request.repo_paths.repo_root.display().to_string(),
         input_path: request.input_dir.display().to_string(),
-        target_id: result.target_manifest.target_id.clone(),
+        snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         manifest_path: manifest_path.display().to_string(),
         product_id: request.repo_name.to_string(),
         remote_repo_id: request.repo_name.to_string(),
@@ -351,9 +356,9 @@ fn run_insert_one_target(
         os: resolved_identity_strings.os,
         arch: resolved_identity_strings.arch,
         storage_mode: request.build_profile.storage_mode.cli_name().to_string(),
-        file_count: result.target_manifest.files.len(),
-        total_logical_size: result.target_manifest.total_logical_size,
-        total_compressed_size_estimate: result.target_manifest.total_compressed_size_estimate,
+        file_count: result.snapshot_manifest.files.len(),
+        total_logical_size: result.snapshot_manifest.total_logical_size,
+        total_compressed_size_estimate: result.snapshot_manifest.total_compressed_size_estimate,
         required_chunk_count,
         required_bundle_count,
         generated_bundle_count,
@@ -372,11 +377,11 @@ fn run_insert_one_target(
     Ok(stats)
 }
 
-fn collect_insert_many_sources(
+fn collect_create_many_sources(
     product_dir: Option<PathBuf>,
     explicit_dirs: Vec<PathBuf>,
-) -> g::Result<Vec<g::source_config::ResolvedSourceTarget>> {
-    let mut sources: Vec<g::source_config::ResolvedSourceTarget> = Vec::new();
+) -> g::Result<Vec<g::source_config::ResolvedSourceSnapshot>> {
+    let mut sources: Vec<g::source_config::ResolvedSourceSnapshot> = Vec::new();
     if let Some(product_dir) = product_dir {
         if !product_dir.is_dir() {
             return Err(g::Error::manifest(format!(
@@ -385,10 +390,10 @@ fn collect_insert_many_sources(
             )));
         }
         let config = g::source_config::SourceConfig::load_or_create(&product_dir)?;
-        sources.extend(config.discover_target_sources(&product_dir)?);
+        sources.extend(config.discover_snapshot_sources(&product_dir)?);
     }
     for dir in explicit_dirs {
-        sources.push(g::source_config::ResolvedSourceTarget {
+        sources.push(g::source_config::ResolvedSourceSnapshot {
             path: dir.clone(),
             relative_path: dir,
             config_tags: None,
@@ -400,23 +405,23 @@ fn collect_insert_many_sources(
     sources.dedup_by(|left, right| left.path == right.path);
     if sources.is_empty() {
         return Err(g::Error::manifest(
-            "target commit requires at least one --dir or --product-dir with target folders",
+            "snapshot create requires at least one --source-dir or --source-root with snapshot folders",
         ));
     }
 
     Ok(sources)
 }
 
-/// Resolve the config contribution for a single `insert --dir` target.
+/// Resolve the config contribution for a single `snapshot create --source-dir` operation.
 /// The config is read from the directory's parent when present; it is never
-/// auto-created for a single insert. Returns the entry tags (explicit mode)
+/// auto-created for a single create. Returns the entry tags (explicit mode)
 /// and whether name inference is allowed.
-fn single_insert_source_resolution(
+fn single_create_source_resolution(
     dir: &Path,
-) -> g::Result<(Option<g::manifest::TargetTagSet>, bool)> {
+) -> g::Result<(Option<g::manifest::SnapshotTagSet>, bool)> {
     let parent = dir.parent().ok_or_else(|| {
         g::Error::manifest(format!(
-            "target input has no parent directory: {}",
+            "snapshot input has no parent directory: {}",
             dir.display()
         ))
     })?;
@@ -425,14 +430,14 @@ fn single_insert_source_resolution(
     };
     let Some(name) = dir.file_name().and_then(|value| value.to_str()) else {
         return Err(g::Error::manifest(format!(
-            "target input has no usable folder name: {}",
+            "snapshot input has no usable folder name: {}",
             dir.display()
         )));
     };
     match config.ingestion_mode {
         g::source_config::IngestionMode::Auto => Ok((None, true)),
         g::source_config::IngestionMode::Explicit => {
-            let entry = config.explicit_ingestion_rules.targets.iter().find(|rule| {
+            let entry = config.explicit_ingestion_rules.snapshots.iter().find(|rule| {
                 g::source_config::normalize_relative_path(&rule.path)
                     .ok()
                     .as_deref()
@@ -440,10 +445,10 @@ fn single_insert_source_resolution(
             });
             match entry {
                 Some(rule) => {
-                    let tags = g::manifest::TargetTagSet::from_compact_strings(&rule.tags)
+                    let tags = g::manifest::SnapshotTagSet::from_compact_strings(&rule.tags)
                         .map_err(|err| {
                             g::Error::manifest(format!(
-                                "invalid tags for explicit target '{}': {err}",
+                                "invalid tags for explicit snapshot '{}': {err}",
                                 rule.path
                             ))
                         })?;
@@ -455,11 +460,11 @@ fn single_insert_source_resolution(
     }
 }
 
-pub fn run(command: TargetCommands) -> g::Result<()> {
+pub fn run(command: SnapshotCommands) -> g::Result<()> {
     match command {
-        TargetCommands::Commit {
-            dir,
-            product_dir,
+        SnapshotCommands::Create {
+            source_dirs,
+            source_root,
             repo,
             tags,
             build_profile,
@@ -467,36 +472,36 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             stats_json_out,
             yes,
         } => {
-            let sources = collect_insert_many_sources(product_dir.clone(), dir)?;
+            let sources = collect_create_many_sources(source_root.clone(), source_dirs)?;
             let cli_tags = parse_cli_tags(&tags)?;
-            if sources.len() == 1 && product_dir.is_none() {
+            if sources.len() == 1 && source_root.is_none() {
                 let source = &sources[0];
                 let (config_tags, allow_name_inference) =
-                    single_insert_source_resolution(&source.path)?;
+                    single_create_source_resolution(&source.path)?;
                 let mut explicit_tags = cli_tags.clone();
                 if let Some(config_tags) = config_tags {
                     explicit_tags.extend_missing_from(&config_tags);
                 }
-                let plan = g::plan_target_insert(
+                let plan = g::plan_snapshot_create(
                     repo.as_path(),
                     &source.path,
                     &explicit_tags,
                     allow_name_inference,
                 )?;
                 if !yes {
-                    println!("target commit plan:");
-                    println!("  {}", g::describe_target_insert_plan(&plan));
-                    if plan.invalidates_existing_installs {
+                println!("snapshot create plan:");
+                    println!("  {}", g::describe_snapshot_create_plan(&plan));
+                    if plan.replaces_existing_slots {
                         println!(
-                            "  User installs pinned to replaced content ids become invalid until updated."
+                            "  Existing snapshot references to replaced snapshots must be updated."
                         );
                     }
                     if !prompt_yes_no("Proceed?", false)? {
-                        return Err(g::Error::manifest("target commit cancelled"));
+                        return Err(g::Error::manifest("snapshot create cancelled"));
                     }
                 }
                 let progress = CliProgressSink::new();
-                let insert_result = g::insert_repo_target(g::RepoTargetInsertRequest {
+                let create_result = g::create_repo_snapshot(g::RepoSnapshotCreateRequest {
                     repo_root: repo.clone(),
                     source_dir: source.path.clone(),
                     explicit_tags,
@@ -509,44 +514,44 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     control: g::GutchOperationControl::default().with_progress(progress),
                 })?;
                 let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-                let stats = TargetInsertStats {
-                    command: "target commit",
-                    repo_root: insert_result.repo_root.display().to_string(),
+                let stats = SnapshotCreateStats {
+                    command: "snapshot create",
+                    repo_root: create_result.repo_root.display().to_string(),
                     input_path: source.path.display().to_string(),
-                    target_id: insert_result.target_id,
-                    manifest_path: insert_result.manifest_path.display().to_string(),
+                    snapshot_id: create_result.snapshot_id,
+                    manifest_path: create_result.manifest_path.display().to_string(),
                     product_id: repo_manifest.name.clone(),
                     remote_repo_id: repo_manifest.name.clone(),
-                    version_id: insert_result.version_id,
-                    os: insert_result.os,
-                    arch: insert_result.arch,
+                    version_id: create_result.version_id,
+                    os: create_result.os,
+                    arch: create_result.arch,
                     storage_mode: build_profile.storage_mode.cli_name().to_string(),
-                    file_count: insert_result.file_count,
-                    total_logical_size: insert_result.total_logical_size,
-                    total_compressed_size_estimate: insert_result.total_compressed_size_estimate,
-                    required_chunk_count: insert_result.required_chunk_count,
-                    required_bundle_count: insert_result.required_bundle_count,
-                    generated_bundle_count: insert_result.generated_bundle_count,
+                    file_count: create_result.file_count,
+                    total_logical_size: create_result.total_logical_size,
+                    total_compressed_size_estimate: create_result.total_compressed_size_estimate,
+                    required_chunk_count: create_result.required_chunk_count,
+                    required_bundle_count: create_result.required_bundle_count,
+                    generated_bundle_count: create_result.generated_bundle_count,
                     generated_bundle_bytes: 0,
-                    generated_chunk_count: insert_result.generated_chunk_count,
+                    generated_chunk_count: create_result.generated_chunk_count,
                     generated_chunk_bytes: 0,
-                    reused_chunk_count: insert_result.reused_chunk_count,
-                    new_chunk_count: insert_result.new_chunk_count,
+                    reused_chunk_count: create_result.reused_chunk_count,
+                    new_chunk_count: create_result.new_chunk_count,
                     reused_chunk_percent: ratio_pct(
-                        insert_result.reused_chunk_count as u64,
-                        insert_result.required_chunk_count as u64,
+                        create_result.reused_chunk_count as u64,
+                        create_result.required_chunk_count as u64,
                     ),
-                    reused_bundle_count: insert_result
+                    reused_bundle_count: create_result
                         .required_bundle_count
-                        .saturating_sub(insert_result.generated_bundle_count),
+                        .saturating_sub(create_result.generated_bundle_count),
                     reused_bundle_percent: ratio_pct(
-                        insert_result
+                        create_result
                             .required_bundle_count
-                            .saturating_sub(insert_result.generated_bundle_count)
+                            .saturating_sub(create_result.generated_bundle_count)
                             as u64,
-                        insert_result.required_bundle_count as u64,
+                        create_result.required_bundle_count as u64,
                     ),
-                    timings: build_timings_summary(&insert_result.build_timings),
+                    timings: build_timings_summary(&create_result.build_timings),
                     outputs: optional_output_paths(&stats_json_out),
                 };
                 write_report(&stats_json_out, &stats)?;
@@ -561,16 +566,19 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             } else {
                 let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-                let rules = repo_manifest.target_schema.clone().unwrap_or_default();
+                let rules = repo_manifest
+                    .snapshot_tag_schema
+                    .clone()
+                    .unwrap_or_default();
                 let repo_name = repo_manifest.name.clone();
-                let insert_plans: Vec<g::TargetInsertPlan> = sources
+                let create_plans: Vec<g::SnapshotCreatePlan> = sources
                     .iter()
                     .map(|source| {
                         let mut effective_tags = cli_tags.clone();
                         if let Some(config_tags) = &source.config_tags {
                             effective_tags.extend_missing_from(config_tags);
                         }
-                        g::plan_target_insert(
+                        g::plan_snapshot_create(
                             repo_paths.repo_root.as_path(),
                             &source.path,
                             &effective_tags,
@@ -579,34 +587,34 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     })
                     .collect::<g::Result<_>>()?;
                 if !yes {
-                    println!("target commit plan:");
-                    for plan in &insert_plans {
-                        println!("  {}", g::describe_target_insert_plan(plan));
+                    println!("snapshot create plan:");
+                    for plan in &create_plans {
+                        println!("  {}", g::describe_snapshot_create_plan(plan));
                     }
-                    if insert_plans
+                    if create_plans
                         .iter()
-                        .any(|plan| plan.invalidates_existing_installs)
+                        .any(|plan| plan.replaces_existing_slots)
                     {
                         println!(
-                            "  User installs pinned to replaced content ids become invalid until updated."
+                            "  Existing snapshot references to replaced snapshots must be updated."
                         );
                     }
                     if !prompt_yes_no("Proceed?", false)? {
-                        return Err(g::Error::manifest("target commit cancelled"));
+                        return Err(g::Error::manifest("snapshot create cancelled"));
                     }
                 }
-                let mut store_state: MutableInsertStoreState =
+                let mut store_state: MutableCreateStoreState =
                     scan_existing_store_state(&repo_paths)?.into();
                 let empty_output = None;
 
-                let mut target_stats = Vec::with_capacity(sources.len());
+                let mut snapshot_stats = Vec::with_capacity(sources.len());
                 for source in &sources {
                     let mut effective_tags = cli_tags.clone();
                     if let Some(config_tags) = &source.config_tags {
                         effective_tags.extend_missing_from(config_tags);
                     }
-                    target_stats.push(run_insert_one_target(
-                        InsertOneTargetRequest {
+                    snapshot_stats.push(run_create_one_snapshot(
+                        CreateOneSnapshotRequest {
                             input_dir: &source.path,
                             repo_paths: &repo_paths,
                             repo_name: &repo_name,
@@ -616,7 +624,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                             build_profile,
                             runtime_hints: runtime.hints(),
                             stats_json_out: &empty_output,
-                            command_name: "target commit",
+                            command_name: "snapshot create",
                             yes,
                             skip_confirmation: true,
                         },
@@ -626,38 +634,38 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
 
                 g::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
 
-                let total_logical_size = target_stats
+                let total_logical_size = snapshot_stats
                     .iter()
                     .map(|stats| stats.total_logical_size)
                     .sum();
-                let total_compressed_size_estimate = target_stats
+                let total_compressed_size_estimate = snapshot_stats
                     .iter()
                     .map(|stats| stats.total_compressed_size_estimate)
                     .sum();
-                let generated_bundle_count = target_stats
+                let generated_bundle_count = snapshot_stats
                     .iter()
                     .map(|stats| stats.generated_bundle_count)
                     .sum();
-                let generated_bundle_bytes = target_stats
+                let generated_bundle_bytes = snapshot_stats
                     .iter()
                     .map(|stats| stats.generated_bundle_bytes)
                     .sum();
-                let generated_chunk_count = target_stats
+                let generated_chunk_count = snapshot_stats
                     .iter()
                     .map(|stats| stats.generated_chunk_count)
                     .sum();
-                let generated_chunk_bytes = target_stats
+                let generated_chunk_bytes = snapshot_stats
                     .iter()
                     .map(|stats| stats.generated_chunk_bytes)
                     .sum();
-                let total_build_seconds = target_stats
+                let total_build_seconds = snapshot_stats
                     .iter()
                     .map(|stats| stats.timings.total_seconds)
                     .sum();
-                let aggregate_stats = TargetInsertManyStats {
-                    command: "target commit",
+                let aggregate_stats = SnapshotCreateManyStats {
+                    command: "snapshot create",
                     repo_root: repo_paths.repo_root.display().to_string(),
-                    target_count: target_stats.len(),
+                    snapshot_count: snapshot_stats.len(),
                     total_logical_size,
                     total_compressed_size_estimate,
                     generated_bundle_count,
@@ -665,7 +673,7 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                     generated_chunk_count,
                     generated_chunk_bytes,
                     total_build_seconds,
-                    targets: target_stats,
+                    snapshots: snapshot_stats,
                     outputs: optional_output_paths(&stats_json_out),
                 };
 
@@ -680,13 +688,41 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
             }
         }
 
-        TargetCommands::Delete { repo, target, yes } => {
+        SnapshotCommands::List { repo, json_out } => {
+            let status = g::check_gutch_repo(&repo)?;
+            if !status.is_repo {
+                return Err(g::Error::manifest(format!(
+                    "no gutch repo found at {}",
+                    repo.display()
+                )));
+            }
+            if let Some(json_out) = json_out.as_ref() {
+                ensure_parent_directory(json_out)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&status.snapshots)?)?;
+            }
+            println!("{SECTION_SEPARATOR}");
+            println!("Snapshots");
+            for snapshot in &status.snapshots {
+                println!("{}", snapshot.snapshot_id);
+            }
+            println!("{SECTION_SEPARATOR}");
+            println!("Total");
+            println!("name: {}", status.name);
+            println!("snapshots: {}", status.snapshots.len());
+            println!("bundles: {}", status.bundle_count);
+        }
+
+        SnapshotCommands::Delete {
+            repo,
+            snapshot_id,
+            yes,
+        } => {
             let (repo_paths, _repo_manifest, _, _tm) =
-                load_target_manifest_from_repo(&repo, &target)?;
+                load_snapshot_manifest_from_repo(&repo, &snapshot_id)?;
             if !yes {
-                let manifest_path = g::target_manifest_path(&repo_paths, &target);
+                let manifest_path = g::snapshot_manifest_path(&repo_paths, &snapshot_id);
                 eprintln!(
-                    "WARNING: this will remove '{}' and related target artifacts, and may orphan bundles. Use --yes to confirm.",
+                    "WARNING: this will remove '{}' and related snapshot artifacts, and may orphan bundles. Use --yes to confirm.",
                     manifest_path.display()
                 );
                 return Err(g::Error::manifest("deletion requires --yes flag"));
@@ -694,75 +730,91 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
 
             let progress = CliProgressSink::new();
             let control = g::GutchOperationControl::default().with_progress(progress);
-            let orphan_count = g::delete_repo_target_and_cleanup(&repo, &target, &control)?;
+            let orphan_count =
+                g::delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
 
             println!(
-                "deleted target '{}': removed manifest, {} orphaned bundles cleaned up",
-                target, orphan_count
+                "deleted snapshot '{}': removed manifest, {} orphaned bundles cleaned up",
+                snapshot_id, orphan_count
             );
         }
 
-        TargetCommands::Extract {
+        SnapshotCommands::Reconstruct {
             repo,
-            target,
-            output,
+            snapshot_id,
+            destination,
+            staging_dir,
+            source_snapshot_id,
+            source_dir,
             runtime,
-            restore_verify,
             stats_json_out,
+        } => crate::cli::snapshot_ops::reconstruct(
+            repo,
+            snapshot_id,
+            destination,
+            staging_dir,
+            source_snapshot_id,
+            source_dir,
+            runtime,
+            stats_json_out,
+        )?,
+
+        SnapshotCommands::Fetch {
+            repo,
+            snapshot_id,
+            metadata_url,
+            product_metadata_url,
+            blueprint_url,
+            repo_metadata_url,
+            chunk_index_url,
+            bundle_downloads_endpoint,
+            session_id,
+            bundles,
+        } => crate::cli::snapshot_ops::fetch(
+            repo,
+            snapshot_id,
+            metadata_url,
+            product_metadata_url,
+            blueprint_url,
+            repo_metadata_url,
+            chunk_index_url,
+            bundle_downloads_endpoint,
+            session_id,
+            bundles,
+        )?,
+
+        SnapshotCommands::Verify {
+            repo,
+            snapshot_id,
+            destination,
+            strict,
+            runtime,
+            stats_json_out,
+        } => crate::cli::snapshot_ops::verify(
+            repo,
+            snapshot_id,
+            destination,
+            strict,
+            runtime,
+            stats_json_out,
+        )?,
+
+        SnapshotCommands::Estimate {
+            source_dir,
+            repo,
+            tags,
         } => {
-            let (repo_paths, repo_manifest, _manifest_path, tm) =
-                load_target_manifest_from_repo(&repo, &target)?;
-            let chunk_index = g::load_chunk_index(&repo_paths)?;
-            let required_bundle_ids = g::repo::required_bundle_ids(&tm, &chunk_index);
-
-            let runtime_hints = runtime.hints();
-            let (_, timings) = g::reconstruct_from_repo(
-                &tm,
-                &repo_paths,
-                &repo_manifest.compression_profile(),
-                &output,
-                &runtime_hints,
-                g::ReconstructOptions {
-                    verify_chunks: restore_verify,
-                    verify_files: restore_verify,
-                },
-                &g::GutchOperationControl::default(),
-            )?;
-            if verbose_output_enabled() {
-                println!("reconstructed to: {}", output.display());
-            }
-            print_reconstruct_timings(&timings);
-
-            let stats = TargetExportStats {
-                command: "target extract",
-                repo_root: repo_paths.repo_root.display().to_string(),
-                target_id: tm.target_id.clone(),
-                output_dir: output.display().to_string(),
-                file_count: tm.files.len(),
-                required_chunk_count: count_required_chunks(&tm),
-                required_bundle_count: count_required_bundles_from_chunk_index(&tm, &chunk_index),
-                resolved_bundle_file_count: required_bundle_ids.len(),
-                restore_verify,
-                total_logical_size: tm.total_logical_size,
-                total_compressed_size_estimate: tm.total_compressed_size_estimate,
-                timings: reconstruct_timings_summary(&timings),
-                outputs: optional_output_paths(&stats_json_out),
-            };
-            write_report(&stats_json_out, &stats)?;
-        }
-
-        TargetCommands::Estimate { dir, repo, tags } => {
-            let prepared_input = prepare_input_path(&dir)?;
+            let prepared_input = prepare_input_path(&source_dir)?;
             let rules = if let Some(repo) = repo.as_ref() {
                 let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
-                repo_manifest.target_schema.unwrap_or_default()
+                repo_manifest.snapshot_tag_schema.unwrap_or_default()
             } else {
-                g::manifest::TargetTagSchema::default()
+                g::manifest::SnapshotTagSchema::default()
             };
             let explicit_tags = parse_cli_tags(&tags)?;
-            let context = format!("target estimate input '{}'", dir.display());
-            let resolved_identity = g::core::target_identity::resolve_target_identity(
-                &dir,
+            let context = format!("snapshot estimate input '{}'", source_dir.display());
+            let resolved_identity = g::core::snapshot_identity::resolve_snapshot_identity(
+                &source_dir,
                 &explicit_tags,
                 &rules,
                 &context,
@@ -771,20 +823,20 @@ pub fn run(command: TargetCommands) -> g::Result<()> {
                 &prepared_input.dir,
                 "estimate",
                 "estimate",
-                &resolved_identity.target_tags,
+                &resolved_identity.snapshot_tags,
             )?;
 
             let est = g::estimate_build(
-                &result.target_manifest,
+                &result.snapshot_manifest,
                 &Default::default(),
                 1024 * 1024 * 1024,
             )?;
 
-            println!("fresh install estimate:");
-            println!("  files: {}", result.target_manifest.files.len());
+            println!("fresh reconstruction estimate:");
+            println!("  files: {}", result.snapshot_manifest.files.len());
             println!(
                 "  logical size:  {:.2} MiB",
-                result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0)
+                result.snapshot_manifest.total_logical_size as f64 / (1024.0 * 1024.0)
             );
             println!("  missing chunks: {}", est.missing_chunk_count);
             println!(

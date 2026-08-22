@@ -20,11 +20,11 @@ pub(crate) struct PreparedInputPath {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct TargetInsertStats {
+pub(crate) struct SnapshotCreateStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
     pub(crate) input_path: String,
-    pub(crate) target_id: String,
+    pub(crate) snapshot_id: String,
     pub(crate) manifest_path: String,
     pub(crate) product_id: String,
     pub(crate) remote_repo_id: String,
@@ -51,10 +51,10 @@ pub(crate) struct TargetInsertStats {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct TargetInsertManyStats {
+pub(crate) struct SnapshotCreateManyStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
-    pub(crate) target_count: usize,
+    pub(crate) snapshot_count: usize,
     pub(crate) total_logical_size: u64,
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) generated_bundle_count: usize,
@@ -62,33 +62,16 @@ pub(crate) struct TargetInsertManyStats {
     pub(crate) generated_chunk_count: usize,
     pub(crate) generated_chunk_bytes: u64,
     pub(crate) total_build_seconds: f64,
-    pub(crate) targets: Vec<TargetInsertStats>,
+    pub(crate) snapshots: Vec<SnapshotCreateStats>,
     pub(crate) outputs: OptionalOutputPaths,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct TargetExportStats {
+pub(crate) struct SnapshotVerifyStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
-    pub(crate) target_id: String,
-    pub(crate) output_dir: String,
-    pub(crate) file_count: usize,
-    pub(crate) required_chunk_count: usize,
-    pub(crate) required_bundle_count: usize,
-    pub(crate) resolved_bundle_file_count: usize,
-    pub(crate) restore_verify: bool,
-    pub(crate) total_logical_size: u64,
-    pub(crate) total_compressed_size_estimate: u64,
-    pub(crate) timings: ReconstructTimingsSummary,
-    pub(crate) outputs: OptionalOutputPaths,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct TargetInstallVerifyStats {
-    pub(crate) command: &'static str,
-    pub(crate) repo_root: String,
-    pub(crate) target_id: String,
-    pub(crate) install_dir: String,
+    pub(crate) snapshot_id: String,
+    pub(crate) destination_dir: String,
     pub(crate) verify_mode: String,
     pub(crate) expected_file_count: usize,
     pub(crate) missing_file_count: usize,
@@ -101,14 +84,14 @@ pub(crate) struct TargetInstallVerifyStats {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct TargetInstallApplyStats {
+pub(crate) struct SnapshotReconstructStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
-    pub(crate) target_id: String,
-    pub(crate) install_dir: String,
+    pub(crate) snapshot_id: String,
+    pub(crate) destination_dir: String,
     pub(crate) staging_dir: String,
-    pub(crate) source_target_id: Option<String>,
-    pub(crate) source_install_dir: Option<String>,
+    pub(crate) source_snapshot_id: Option<String>,
+    pub(crate) source_destination_dir: Option<String>,
     pub(crate) file_count: usize,
     pub(crate) required_chunk_count: usize,
     pub(crate) required_bundle_count: usize,
@@ -168,43 +151,43 @@ pub(crate) fn load_optional_rules(
     Ok(Some(rules))
 }
 
-pub(crate) fn load_target_manifest_from_repo(
+pub(crate) fn load_snapshot_manifest_from_repo(
     repo_root: &std::path::Path,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> g::Result<(
     g::GutchRepoPaths,
     g::manifest::gutch_repo::GutchRepoManifest,
     PathBuf,
-    g::manifest::target::TargetManifest,
+    g::manifest::snapshot::SnapshotManifest,
 )> {
     let (repo_paths, repo_manifest) = g::load_gutch_repo_manifest(repo_root)?;
-    let manifest_path = g::target_manifest_path(&repo_paths, target_id);
+    let manifest_path = g::snapshot_manifest_path(&repo_paths, snapshot_id);
     if !manifest_path.exists() {
         return Err(g::Error::manifest(format!(
-            "target manifest not found at {}",
+            "snapshot manifest not found at {}",
             manifest_path.display()
         )));
     }
 
-    let target_manifest = g::load_target_manifest(&repo_paths, target_id)?;
-    Ok((repo_paths, repo_manifest, manifest_path, target_manifest))
+    let snapshot_manifest = g::load_snapshot_manifest(&repo_paths, snapshot_id)?;
+    Ok((repo_paths, repo_manifest, manifest_path, snapshot_manifest))
 }
 
 pub(crate) fn count_required_chunks(
-    target_manifest: &g::manifest::target::TargetManifest,
+    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
 ) -> usize {
-    required_chunk_hashes(target_manifest).len()
+    required_chunk_hashes(snapshot_manifest).len()
 }
 
 pub(crate) fn count_required_bundles_from_chunk_index(
-    target_manifest: &g::manifest::target::TargetManifest,
+    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
     chunk_index: &g::manifest::ChunkIndex,
 ) -> usize {
-    resolve_required_bundle_ids(target_manifest, chunk_index).len()
+    resolve_required_bundle_ids(snapshot_manifest, chunk_index).len()
 }
 
 pub(crate) fn count_required_bundles_for_build(
-    target_manifest: &g::manifest::target::TargetManifest,
+    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
     existing_chunk_locations: &HashMap<String, g::ExistingChunkLocation>,
     generated_bundles: &[g::BuiltBundle],
     _generated_loose_chunks: &[g::BuiltLooseChunk],
@@ -218,7 +201,7 @@ pub(crate) fn count_required_bundles_for_build(
         })
         .collect::<HashMap<_, _>>();
     let mut required_bundle_ids = HashSet::new();
-    let Ok(required_chunks) = g::repo::required_chunk_hashes_typed(target_manifest) else {
+    let Ok(required_chunks) = g::repo::required_chunk_hashes_typed(snapshot_manifest) else {
         return generated_bundles.len();
     };
     for chunk_hash in required_chunks {
@@ -273,14 +256,14 @@ pub(crate) fn session_id_for_cli(session_override: Option<String>) -> g::Result<
         })
 }
 
-pub(crate) fn write_target_manifest(
+pub(crate) fn write_snapshot_manifest(
     repo_paths: &g::GutchRepoPaths,
-    target_manifest: &g::manifest::target::TargetManifest,
+    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
 ) -> g::Result<(PathBuf, u64)> {
     let (manifest_path, manifest_size) =
-        g::write_target_manifest_artifacts(repo_paths, target_manifest)?;
+        g::write_snapshot_manifest_artifacts(repo_paths, snapshot_manifest)?;
     if verbose_output_enabled() {
-        println!("wrote target manifest: {}", manifest_path.display());
+        println!("wrote snapshot manifest: {}", manifest_path.display());
     }
     Ok((manifest_path, manifest_size))
 }

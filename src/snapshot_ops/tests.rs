@@ -1,17 +1,18 @@
 use super::*;
 use crate::hash::hash_hex;
-use crate::install::{
-    GutchBundleDownload, TargetInstallFetchRequest, fetch_target_install_content,
-    repair_target_install_from_repo, resolve_target_install_state,
-};
-use crate::manifest::{self, FileManifest, TargetTagSet};
+use crate::manifest::{self, FileManifest, SnapshotTagSet};
 use crate::runtime::RuntimeResourceHints;
+use crate::snapshot_ops::{
+    GutchBundleDownload, SnapshotFetchRequest, fetch_snapshot, repair_snapshot_from_repo,
+    resolve_snapshot_state,
+};
 use crate::{GutchRepoPaths, write_chunk_index};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
-fn test_target_manifest(files: Vec<(&str, &[u8])>) -> TargetManifest {
-    let mut manifest = TargetManifest::new("repair-target".to_string(), TargetTagSet::default());
+fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
+    let mut manifest =
+        SnapshotManifest::new("repair-snapshot".to_string(), SnapshotTagSet::default());
     manifest.files = files
         .into_iter()
         .map(|(path, bytes)| FileManifest {
@@ -29,10 +30,10 @@ fn test_hash(label: &str) -> String {
     hash_hex(&blake3::hash(label.as_bytes()))
 }
 
-fn write_repair_test_repo(root: &std::path::Path, manifest: &TargetManifest) {
+fn write_repair_test_repo(root: &std::path::Path, manifest: &SnapshotManifest) {
     let paths = GutchRepoPaths::from_repo_root(root);
     crate::ensure_gutch_repo_layout(&paths, "test").unwrap();
-    crate::write_target_manifest_artifacts(&paths, manifest).unwrap();
+    crate::write_snapshot_manifest_artifacts(&paths, manifest).unwrap();
 }
 
 #[test]
@@ -46,57 +47,60 @@ fn gutch_bundle_download_deserializes_backend_bundle_downloads_response() {
 }
 
 #[test]
-fn resolved_install_state_uses_target_product_runtime() {
-    let root = crate::test_util::temp_path("gutch_resolved_install_launch_state");
+fn resolved_snapshot_state_uses_product_runtime() {
+    let root = crate::test_util::temp_path("gutch_resolved_snapshot_launch_state");
     let _ = std::fs::remove_dir_all(&root);
     let paths = GutchRepoPaths::from_repo_root(&root);
     crate::ensure_gutch_repo_layout(&paths, "test").unwrap();
-    let mut tags = TargetTagSet::default();
+    let mut tags = SnapshotTagSet::default();
     tags.upsert_exclusive("os", "windows");
     tags.upsert_exclusive("arch", "x86_64");
-    let mut target = TargetManifest::new("target".into(), tags);
-    target.files.push(FileManifest {
+    let mut snapshot = SnapshotManifest::new("snapshot".into(), tags);
+    snapshot.files.push(FileManifest {
         path: "Game.exe".into(),
         size: 1,
         executable: true,
         full_file_hash: test_hash("Game.exe"),
         chunks: Vec::new(),
     });
-    crate::write_target_manifest_artifacts(&paths, &target).unwrap();
+    crate::write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
-    target.launch = Some(crate::ResolvedLaunchConfiguration {
+    snapshot.launch = Some(crate::ResolvedLaunchConfiguration {
         primary: None,
         actions: vec![crate::ResolvedLaunchAction {
             name: "Play".into(),
             executable: "Game.exe".into(),
-            arguments: vec!["--target".into()],
+            arguments: vec!["--snapshot".into()],
             working_directory: None,
         }],
     });
-    crate::write_target_manifest_artifacts(&paths, &target).unwrap();
-    let resolved = resolve_target_install_state(&root, "target").unwrap();
-    assert_eq!(resolved.launch.unwrap().actions[0].arguments, ["--target"]);
-    assert!(!resolved.target_metadata_hash_b3.is_empty());
+    crate::write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+    let resolved = resolve_snapshot_state(&root, "snapshot").unwrap();
+    assert_eq!(
+        resolved.launch.unwrap().actions[0].arguments,
+        ["--snapshot"]
+    );
+    assert!(!resolved.snapshot_index_hash_b3.is_empty());
 
     let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
-fn repair_target_install_keeps_added_files_when_requested() {
+fn repair_snapshot_ops_keeps_added_files_when_requested() {
     let root = crate::test_util::temp_path("gutch_repair_keep_added_files");
     let _ = std::fs::remove_dir_all(&root);
-    let install_dir = root.join("install");
+    let destination_dir = root.join("destination");
     let staging_dir = root.join("staging");
-    std::fs::create_dir_all(&install_dir).unwrap();
-    std::fs::write(install_dir.join("game.dat"), b"").unwrap();
-    std::fs::write(install_dir.join("mod.txt"), b"user data").unwrap();
-    let manifest = test_target_manifest(vec![("game.dat", b"")]);
+    std::fs::create_dir_all(&destination_dir).unwrap();
+    std::fs::write(destination_dir.join("game.dat"), b"").unwrap();
+    std::fs::write(destination_dir.join("mod.txt"), b"user data").unwrap();
+    let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_target_install_from_repo(crate::TargetInstallRepairFromRepoRequest {
+    let result = repair_snapshot_from_repo(crate::SnapshotRepairFromRepoRequest {
         repo_path: root.clone(),
-        target_id: manifest.target_id.clone(),
-        install_dir: install_dir.clone(),
+        snapshot_id: manifest.snapshot_id.clone(),
+        destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
         remove_added_files: false,
         runtime_hints: RuntimeResourceHints::default(),
@@ -107,26 +111,26 @@ fn repair_target_install_keeps_added_files_when_requested() {
 
     assert_eq!(result.extra_file_count, 1);
     assert_eq!(result.removed_extra_file_count, 0);
-    assert!(install_dir.join("mod.txt").exists());
+    assert!(destination_dir.join("mod.txt").exists());
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
-fn repair_target_install_full_repair_deletes_added_files() {
+fn repair_snapshot_ops_full_repair_deletes_added_files() {
     let root = crate::test_util::temp_path("gutch_repair_delete_added_files");
     let _ = std::fs::remove_dir_all(&root);
-    let install_dir = root.join("install");
+    let destination_dir = root.join("destination");
     let staging_dir = root.join("staging");
-    std::fs::create_dir_all(install_dir.join("mods")).unwrap();
-    std::fs::write(install_dir.join("game.dat"), b"").unwrap();
-    std::fs::write(install_dir.join("mods").join("mod.txt"), b"user data").unwrap();
-    let manifest = test_target_manifest(vec![("game.dat", b"")]);
+    std::fs::create_dir_all(destination_dir.join("mods")).unwrap();
+    std::fs::write(destination_dir.join("game.dat"), b"").unwrap();
+    std::fs::write(destination_dir.join("mods").join("mod.txt"), b"user data").unwrap();
+    let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_target_install_from_repo(crate::TargetInstallRepairFromRepoRequest {
+    let result = repair_snapshot_from_repo(crate::SnapshotRepairFromRepoRequest {
         repo_path: root.clone(),
-        target_id: manifest.target_id.clone(),
-        install_dir: install_dir.clone(),
+        snapshot_id: manifest.snapshot_id.clone(),
+        destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
@@ -137,7 +141,7 @@ fn repair_target_install_full_repair_deletes_added_files() {
 
     assert_eq!(result.extra_file_count, 1);
     assert_eq!(result.removed_extra_file_count, 1);
-    assert!(!install_dir.join("mods").join("mod.txt").exists());
+    assert!(!destination_dir.join("mods").join("mod.txt").exists());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -176,7 +180,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     };
     write_chunk_index(&paths, &chunk_index).unwrap();
 
-    let mut manifest = TargetManifest::new("target".to_string(), TargetTagSet::default());
+    let mut manifest = SnapshotManifest::new("snapshot".to_string(), SnapshotTagSet::default());
     manifest.files = vec![
         FileManifest {
             path: "game.exe".to_string(),
@@ -199,23 +203,21 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             }],
         },
     ];
-    crate::write_target_manifest_artifacts(&paths, &manifest).unwrap();
+    crate::write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
 
-    let install_dir = root.join("install");
-    std::fs::create_dir_all(&install_dir).unwrap();
-    std::fs::write(install_dir.join("game.exe"), b"bad!").unwrap();
-    std::fs::write(install_dir.join("data.bin"), b"data").unwrap();
+    let destination_dir = root.join("destination");
+    std::fs::create_dir_all(&destination_dir).unwrap();
+    std::fs::write(destination_dir.join("game.exe"), b"bad!").unwrap();
+    std::fs::write(destination_dir.join("data.bin"), b"data").unwrap();
 
-    let plan = crate::plan_repair_target_install_from_repo(
-        crate::TargetInstallRepairPlanFromRepoRequest {
-            repo_path: root.clone(),
-            target_id: "target".to_string(),
-            install_dir: install_dir.clone(),
-            remove_added_files: false,
-            runtime_hints: RuntimeResourceHints::default(),
-            control: crate::GutchOperationControl::default(),
-        },
-    )
+    let plan = crate::plan_repair_snapshot_from_repo(crate::SnapshotRepairPlanFromRepoRequest {
+        repo_path: root.clone(),
+        snapshot_id: "snapshot".to_string(),
+        destination_dir: destination_dir.clone(),
+        remove_added_files: false,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: crate::GutchOperationControl::default(),
+    })
     .unwrap();
 
     assert_eq!(plan.missing_file_count, 0);
@@ -227,9 +229,9 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
 
 #[test]
 #[ignore = "integration test: requires local mock HTTP server"]
-fn fetch_target_install_content_downloads_manifest_and_bundles() {
+fn fetch_snapshot_downloads_manifest_and_bundles() {
     let root = std::env::temp_dir().join(format!(
-        "gutch_fetch_install_test_{}_{}",
+        "gutch_fetch_snapshot_test_{}_{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
@@ -251,9 +253,9 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     };
     let paths = GutchRepoPaths::from_repo_root(&repo_path);
     write_chunk_index(&paths, &chunk_index).unwrap();
-    let mut blueprint_manifest = TargetManifest::new(
+    let mut blueprint_manifest = SnapshotManifest::new(
         "1.0.0-windows-x86_64-base".to_string(),
-        TargetTagSet::from_compact_strings(&["version::1.0.0".to_string()]).unwrap(),
+        SnapshotTagSet::from_compact_strings(&["version::1.0.0".to_string()]).unwrap(),
     );
     blueprint_manifest.files.push(FileManifest {
         path: "game.exe".to_string(),
@@ -265,8 +267,9 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
             raw_size: 100,
         }],
     });
-    let blueprint_path = root.join("fixture-target-blueprint.bin");
-    manifest::binary::write_target_blueprint_binary(&blueprint_path, &blueprint_manifest).unwrap();
+    let blueprint_path = root.join("fixture-snapshot-blueprint.bin");
+    manifest::binary::write_snapshot_blueprint_binary(&blueprint_path, &blueprint_manifest)
+        .unwrap();
     let blueprint_bytes = std::fs::read(&blueprint_path).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -287,9 +290,9 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
                 "/metadata" => (
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
-                    "target_metadata_version": "1.0.0",
+                    "snapshot_index_version": "1.0.0",
                     "inserted_at": "2026-05-11T00:00:00Z",
-                    "target_tags": ["version::1.0.0"],
+                    "snapshot_tags": ["version::1.0.0"],
                                             }))
                     .unwrap(),
                     "application/json",
@@ -330,9 +333,9 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
         }
     });
 
-    let result = fetch_target_install_content(&TargetInstallFetchRequest {
+    let result = fetch_snapshot(&SnapshotFetchRequest {
         repo_path: repo_path.clone(),
-        target_id: "1.0.0-windows-x86_64-base".to_string(),
+        snapshot_id: "1.0.0-windows-x86_64-base".to_string(),
         repo_metadata_url: None,
         metadata_url: format!("http://{}/metadata", address),
         product_metadata_url: None,
@@ -350,19 +353,19 @@ fn fetch_target_install_content_downloads_manifest_and_bundles() {
     assert!(repo_path.join("repo_metadata.json").exists() || repo_path.join("repo.json").exists());
     assert!(
         repo_path
-            .join("targets")
+            .join("snapshots")
             .join("1.0.0-windows-x86_64-base")
-            .join("target_metadata.json")
+            .join("snapshot_index.json")
             .exists()
     );
     assert!(
         repo_path
-            .join("targets")
+            .join("snapshots")
             .join("1.0.0-windows-x86_64-base")
-            .join("target_blueprint.gtcbin")
+            .join("snapshot_blueprint.gtcbin")
             .exists()
     );
-    assert!(repo_path.join("targets").exists());
+    assert!(repo_path.join("snapshots").exists());
     assert!(
         repo_path
             .join("bundles")

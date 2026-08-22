@@ -158,8 +158,8 @@ fn confirm_repo_init_stdio(assessment: &g::RepoInitAssessment) -> g::Result<bool
         if let Some(name) = assessment.repo_name.as_deref() {
             println!("  existing repo: {name}");
         }
-        if let Some(target_count) = assessment.target_count {
-            println!("  targets: {target_count}");
+        if let Some(snapshot_count) = assessment.snapshot_count {
+            println!("  snapshots: {snapshot_count}");
         }
         if let Some(bundle_count) = assessment.bundle_count {
             println!("  bundles: {bundle_count}");

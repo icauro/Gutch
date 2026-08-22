@@ -3,8 +3,10 @@ use std::io::Cursor;
 use std::time::SystemTime;
 
 use crate::hash::ChunkHash;
-use crate::manifest::{self, ArtifactStorageMode, FileManifest, binary, target::TargetManifest};
-use crate::{Result, bundle_id_from_bundle_path, bundle_path, chunk_path, load_target_manifest};
+use crate::manifest::{
+    self, ArtifactStorageMode, FileManifest, binary, snapshot::SnapshotManifest,
+};
+use crate::{Result, bundle_id_from_bundle_path, bundle_path, chunk_path, load_snapshot_manifest};
 
 use super::GutchRepoPaths;
 
@@ -42,16 +44,18 @@ pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> 
     Ok(empty_chunk_index())
 }
 
-pub fn required_chunk_hashes(target_manifest: &TargetManifest) -> HashSet<&str> {
-    target_manifest
+pub fn required_chunk_hashes(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
+    snapshot_manifest
         .files
         .iter()
         .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.as_str()))
         .collect()
 }
 
-pub fn required_chunk_hashes_typed(target_manifest: &TargetManifest) -> Result<HashSet<ChunkHash>> {
-    target_manifest
+pub fn required_chunk_hashes_typed(
+    snapshot_manifest: &SnapshotManifest,
+) -> Result<HashSet<ChunkHash>> {
+    snapshot_manifest
         .files
         .iter()
         .flat_map(|file| file.chunks.iter())
@@ -70,10 +74,10 @@ pub fn chunk_index_entries_typed(
 }
 
 pub fn required_bundle_ids(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     chunk_index: &manifest::ChunkIndex,
 ) -> HashSet<String> {
-    target_manifest
+    snapshot_manifest
         .files
         .iter()
         .flat_map(|file| file.chunks.iter())
@@ -112,15 +116,15 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
     };
     state.chunk_locations = existing_chunk_locations_from_index(&state.chunk_index, paths);
 
-    for entry in walkdir::WalkDir::new(&paths.targets_root).sort_by_file_name() {
+    for entry in walkdir::WalkDir::new(&paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file()
-            || entry.file_name() != super::target_manifests::TARGET_METADATA_FILE
+            || entry.file_name() != super::snapshot_manifests::SNAPSHOT_INDEX_FILE
         {
             continue;
         }
 
-        let Some(target_id) = entry
+        let Some(snapshot_id) = entry
             .path()
             .parent()
             .and_then(|parent| parent.file_name())
@@ -128,7 +132,7 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
         else {
             continue;
         };
-        let manifest = load_target_manifest(paths, target_id)?;
+        let manifest = load_snapshot_manifest(paths, snapshot_id)?;
         for file in manifest.files {
             let candidates = state
                 .previous_file_manifests

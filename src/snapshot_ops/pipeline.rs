@@ -8,18 +8,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-use super::apply::build_target_install_apply_result;
+use super::apply::build_snapshot_reconstruct_result;
 use super::transfer::{FetchTransferProgress, PendingBundleDownload, download_pending_bundle};
-use super::types::TargetInstallApplyFromRepoResult;
-use crate::manifest::target::TargetManifest;
+use super::types::SnapshotReconstructFromRepoResult;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase, emit_progress,
 };
 use crate::runtime::{RuntimeResourceHints, plan_reconstruct_runtime, plan_verify_runtime};
 use crate::{Error, Result};
 
-pub(super) struct InstallPipelinePlan {
-    files: Vec<InstallPipelineFile>,
+pub(super) struct ReconstructPipelinePlan {
+    files: Vec<ReconstructPipelineFile>,
     bundle_to_file_indices: HashMap<String, Vec<usize>>,
     remaining_bundle_dependencies: Vec<usize>,
     pub required_bundle_ids: HashSet<String>,
@@ -28,13 +28,13 @@ pub(super) struct InstallPipelinePlan {
     reused_source_chunk_count: usize,
 }
 
-pub(super) struct InstallPipelineApplyRequest<'a> {
+pub(super) struct ReconstructPipelineApplyRequest<'a> {
     pub repo_root: &'a Path,
     pub compression_profile: crate::manifest::CompressionProfile,
-    pub target_manifest: &'a TargetManifest,
-    pub install_dir: &'a Path,
+    pub snapshot_manifest: &'a SnapshotManifest,
+    pub destination_dir: &'a Path,
     pub staging_dir: Option<&'a Path>,
-    pub source_install_dir: Option<PathBuf>,
+    pub source_destination_dir: Option<PathBuf>,
     pub runtime_hints: &'a RuntimeResourceHints,
     pub existing_bundle_ids: &'a HashSet<String>,
     pub pending_bundle_downloads: &'a [PendingBundleDownload],
@@ -45,36 +45,36 @@ pub(super) struct InstallPipelineApplyRequest<'a> {
 }
 
 #[derive(Clone)]
-struct InstallPipelineFile {
+struct ReconstructPipelineFile {
     path: String,
     size: u64,
     full_file_hash: String,
-    materialization: InstallPipelineMaterialization,
+    reconstruction: ReconstructPipelineReconstruction,
 }
 
 #[derive(Clone)]
-enum InstallPipelineMaterialization {
+enum ReconstructPipelineReconstruction {
     CopyFromSource {
         source_path: PathBuf,
     },
     ReconstructFromParts {
-        chunks: Vec<InstallPipelineChunkInput>,
+        chunks: Vec<ReconstructPipelineChunkInput>,
     },
 }
 
 #[derive(Clone)]
-enum InstallPipelineChunkInput {
+enum ReconstructPipelineChunkInput {
     Source {
         chunk_hash: String,
         raw_size: u64,
         source_path: PathBuf,
         source_offset: u64,
     },
-    Bundle(InstallPipelineChunk),
+    Bundle(ReconstructPipelineChunk),
 }
 
 #[derive(Clone)]
-struct InstallPipelineChunk {
+struct ReconstructPipelineChunk {
     chunk_hash: String,
     raw_size: u64,
     compressed_size: u64,
@@ -93,7 +93,7 @@ enum BundlePipelineEvent {
     WorkerDone,
 }
 
-enum InstallPipelineEvent {
+enum ReconstructPipelineEvent {
     Bundle(BundlePipelineEvent),
     FileCompleted(crate::ReconstructTimings),
     FileFailed(Error),
@@ -110,22 +110,22 @@ fn has_files_still_waiting_on_bundles(
         .any(|(scheduled, remaining)| !scheduled && *remaining > 0)
 }
 
-pub(super) fn build_install_pipeline_plan(
-    target_manifest: &TargetManifest,
+pub(super) fn build_reconstruct_pipeline_plan(
+    snapshot_manifest: &SnapshotManifest,
     chunk_index: &crate::manifest::ChunkIndex,
     repo_paths: &crate::GutchRepoPaths,
     existing_bundle_ids: &HashSet<String>,
-    verified_source: Option<crate::reconstruct::VerifiedSourceInstall<'_>>,
-) -> Result<InstallPipelinePlan> {
-    let mut files = Vec::with_capacity(target_manifest.files.len());
+    verified_source: Option<crate::reconstruct::VerifiedSourceTree<'_>>,
+) -> Result<ReconstructPipelinePlan> {
+    let mut files = Vec::with_capacity(snapshot_manifest.files.len());
     let mut bundle_to_file_indices: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut remaining_bundle_dependencies = Vec::with_capacity(target_manifest.files.len());
+    let mut remaining_bundle_dependencies = Vec::with_capacity(snapshot_manifest.files.len());
     let mut required_bundle_ids = HashSet::new();
     let mut reused_source_chunk_count = 0usize;
     let source_files_by_path = verified_source
         .map(|source| {
             source
-                .target_manifest
+                .snapshot_manifest
                 .files
                 .iter()
                 .map(|file| (file.path.as_str(), file))
@@ -137,19 +137,19 @@ pub(super) fn build_install_pipeline_plan(
         .transpose()?
         .unwrap_or_default();
 
-    for file_manifest in &target_manifest.files {
+    for file_manifest in &snapshot_manifest.files {
         if let Some(source_file) = source_files_by_path.get(file_manifest.path.as_str())
             && source_file.full_file_hash == file_manifest.full_file_hash
             && source_file.size == file_manifest.size
         {
             let source_root = verified_source.expect("source files map only exists with source");
-            files.push(InstallPipelineFile {
+            files.push(ReconstructPipelineFile {
                 path: file_manifest.path.clone(),
                 size: file_manifest.size,
                 full_file_hash: file_manifest.full_file_hash.clone(),
-                materialization: InstallPipelineMaterialization::CopyFromSource {
+                reconstruction: ReconstructPipelineReconstruction::CopyFromSource {
                     source_path: crate::path_guard::resolve_manifest_relative_path(
-                        source_root.install_dir,
+                        source_root.destination_dir,
                         &file_manifest.path,
                     )?,
                 },
@@ -163,7 +163,7 @@ pub(super) fn build_install_pipeline_plan(
         let mut missing_bundle_dependencies = HashSet::new();
         for chunk_ref in &file_manifest.chunks {
             if let Some(source_chunk) = source_chunk_locations.get(&chunk_ref.chunk_hash) {
-                chunks.push(InstallPipelineChunkInput::Source {
+                chunks.push(ReconstructPipelineChunkInput::Source {
                     chunk_hash: chunk_ref.chunk_hash.clone(),
                     raw_size: chunk_ref.raw_size,
                     source_path: source_chunk.path.clone(),
@@ -183,11 +183,11 @@ pub(super) fn build_install_pipeline_plan(
                 })?;
             if entry.storage_mode != crate::manifest::ArtifactStorageMode::Bundled {
                 return Err(Error::manifest(format!(
-                    "fresh install pipeline only supports bundled chunk storage, but '{}' uses {:?}",
+                    "fresh reconstruction pipeline only supports bundled chunk storage, but '{}' uses {:?}",
                     file_manifest.path, entry.storage_mode
                 )));
             }
-            chunks.push(InstallPipelineChunkInput::Bundle(InstallPipelineChunk {
+            chunks.push(ReconstructPipelineChunkInput::Bundle(ReconstructPipelineChunk {
                 chunk_hash: chunk_ref.chunk_hash.clone(),
                 raw_size: chunk_ref.raw_size,
                 compressed_size: entry.compressed_size,
@@ -208,21 +208,21 @@ pub(super) fn build_install_pipeline_plan(
                 .push(file_index);
         }
         remaining_bundle_dependencies.push(missing_bundle_dependencies.len());
-        files.push(InstallPipelineFile {
+        files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
             full_file_hash: file_manifest.full_file_hash.clone(),
-            materialization: InstallPipelineMaterialization::ReconstructFromParts { chunks },
+            reconstruction: ReconstructPipelineReconstruction::ReconstructFromParts { chunks },
         });
     }
 
-    Ok(InstallPipelinePlan {
+    Ok(ReconstructPipelinePlan {
         files,
         bundle_to_file_indices,
         remaining_bundle_dependencies,
         required_bundle_ids: required_bundle_ids.clone(),
         required_bundle_count: required_bundle_ids.len(),
-        required_chunk_count: target_manifest
+        required_chunk_count: snapshot_manifest
             .files
             .iter()
             .map(|file| file.chunks.len())
@@ -231,24 +231,24 @@ pub(super) fn build_install_pipeline_plan(
     })
 }
 
-pub(super) fn apply_install_pipeline(
-    request: InstallPipelineApplyRequest<'_>,
-    pipeline_plan: InstallPipelinePlan,
-) -> Result<TargetInstallApplyFromRepoResult> {
+pub(super) fn apply_reconstruct_pipeline(
+    request: ReconstructPipelineApplyRequest<'_>,
+    pipeline_plan: ReconstructPipelinePlan,
+) -> Result<SnapshotReconstructFromRepoResult> {
     request.control.checkpoint()?;
     let staging_dir = request
         .staging_dir
         .map(Path::to_path_buf)
         .unwrap_or_else(|| {
-            super::apply::default_target_install_staging_dir(
-                request.install_dir,
-                &request.target_manifest.target_id,
+            super::apply::default_snapshot_staging_dir(
+                request.destination_dir,
+                &request.snapshot_manifest.snapshot_id,
             )
         });
-    if request.install_dir == staging_dir {
+    if request.destination_dir == staging_dir {
         return Err(Error::PathError {
-            path: request.install_dir.to_path_buf(),
-            reason: "install and staging directories must be different".to_string(),
+            path: request.destination_dir.to_path_buf(),
+            reason: "destination and staging directories must be different".to_string(),
         });
     }
     if staging_dir.exists() {
@@ -258,14 +258,14 @@ pub(super) fn apply_install_pipeline(
         crate::helpers::create_dir_all(parent)?;
     }
 
-    let main_result = (|| -> Result<TargetInstallApplyFromRepoResult> {
+    let main_result = (|| -> Result<SnapshotReconstructFromRepoResult> {
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
         let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
-        let (reconstruct_timings, verify_timings) = execute_install_pipeline_materialization(
+        let (reconstruct_timings, verify_timings) = execute_reconstruct_pipeline_reconstruction(
             pipeline_plan,
             &staging_dir,
-            &request.target_manifest.target_id,
+            &request.snapshot_manifest.snapshot_id,
             &request.compression_profile,
             request.runtime_hints,
             request.existing_bundle_ids,
@@ -278,17 +278,17 @@ pub(super) fn apply_install_pipeline(
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
         request.control.checkpoint()?;
-        let backup_dir = super::apply::promote_staging_install(
-            request.install_dir,
+        let backup_dir = super::apply::promote_staging_destination(
+            request.destination_dir,
             &staging_dir,
-            request.target_manifest,
+            request.snapshot_manifest,
         )?;
-        Ok(TargetInstallApplyFromRepoResult {
+        Ok(SnapshotReconstructFromRepoResult {
             repo_root: request.repo_root.to_path_buf(),
-            target_manifest: request.target_manifest.clone(),
-            apply_result: build_target_install_apply_result(
-                request.target_manifest,
-                request.install_dir,
+            snapshot_manifest: request.snapshot_manifest.clone(),
+            reconstruct_result: build_snapshot_reconstruct_result(
+                request.snapshot_manifest,
+                request.destination_dir,
                 &staging_dir,
                 backup_dir,
                 reused_source_chunk_count,
@@ -298,7 +298,7 @@ pub(super) fn apply_install_pipeline(
                 verify_timings,
             ),
             resolved_bundle_file_count: required_bundle_count,
-            source_install_dir: request.source_install_dir.clone(),
+            source_destination_dir: request.source_destination_dir.clone(),
         })
     })();
 
@@ -309,10 +309,10 @@ pub(super) fn apply_install_pipeline(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_install_pipeline_materialization(
-    mut pipeline_plan: InstallPipelinePlan,
+pub(super) fn execute_reconstruct_pipeline_reconstruction(
+    mut pipeline_plan: ReconstructPipelinePlan,
     staging_dir: &Path,
-    target_id: &str,
+    snapshot_id: &str,
     compression_profile: &crate::manifest::CompressionProfile,
     runtime_hints: &RuntimeResourceHints,
     existing_bundle_ids: &HashSet<String>,
@@ -354,13 +354,13 @@ pub(super) fn execute_install_pipeline_materialization(
         control.progress(),
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::Restore,
-            message: "Installing files (0/0)".to_string(),
+            phase: GutchProgressPhase::Reconstruct,
+            message: "Reconstructing files (0/0)".to_string(),
             current: 0,
             total: pipeline_plan.files.len().max(1),
             transferred_bytes: 0,
             total_bytes: 0,
-            detail: Some(target_id.to_string()),
+            detail: Some(snapshot_id.to_string()),
             done: false,
         },
     );
@@ -378,11 +378,11 @@ pub(super) fn execute_install_pipeline_materialization(
             .any(|remaining| *remaining > 0)
     {
         return Err(Error::reconstruct(
-            "install pipeline requires bundles that are not available locally",
+            "reconstruct pipeline requires bundles that are not available locally",
         ));
     }
 
-    let (pipeline_event_tx, pipeline_event_rx) = mpsc::channel::<InstallPipelineEvent>();
+    let (pipeline_event_tx, pipeline_event_rx) = mpsc::channel::<ReconstructPipelineEvent>();
     let bundle_task_receiver = Arc::new(Mutex::new(
         pending_bundle_downloads
             .iter()
@@ -406,7 +406,7 @@ pub(super) fn execute_install_pipeline_materialization(
                     let next_task = match task_receiver.lock() {
                         Ok(mut tasks) => tasks.pop_front(),
                         Err(_) => {
-                            let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                            let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
                                 BundlePipelineEvent::Failed(Error::reconstruct(
                                     "bundle task state is unavailable",
                                 )),
@@ -415,13 +415,13 @@ pub(super) fn execute_install_pipeline_materialization(
                         }
                     };
                     let Some(bundle_download) = next_task else {
-                        let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                        let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
                             BundlePipelineEvent::WorkerDone,
                         ));
                         return;
                     };
                     if let Err(error) = control.checkpoint() {
-                        let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                        let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
                             BundlePipelineEvent::Failed(error),
                         ));
                         return;
@@ -435,12 +435,12 @@ pub(super) fn execute_install_pipeline_materialization(
                     );
                     match result {
                         Ok(_) => {
-                            let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                            let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
                                 BundlePipelineEvent::Ready(bundle_download.bundle_id),
                             ));
                         }
                         Err(error) => {
-                            let _ = event_tx.send(InstallPipelineEvent::Bundle(
+                            let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
                                 BundlePipelineEvent::Failed(error),
                             ));
                             return;
@@ -465,7 +465,7 @@ pub(super) fn execute_install_pipeline_materialization(
                 let next_file_index = match file_task_rx.lock() {
                     Ok(receiver) => receiver.recv(),
                     Err(_) => {
-                        let _ = event_tx.send(InstallPipelineEvent::FileFailed(
+                        let _ = event_tx.send(ReconstructPipelineEvent::FileFailed(
                             Error::reconstruct("file task state is unavailable"),
                         ));
                         return;
@@ -474,25 +474,25 @@ pub(super) fn execute_install_pipeline_materialization(
                 let file_index = match next_file_index {
                     Ok(file_index) => file_index,
                     Err(_) => {
-                        let _ = event_tx.send(InstallPipelineEvent::FileWorkerDone);
+                        let _ = event_tx.send(ReconstructPipelineEvent::FileWorkerDone);
                         return;
                     }
                 };
                 if let Err(error) = control.checkpoint() {
-                    let _ = event_tx.send(InstallPipelineEvent::FileFailed(error));
+                    let _ = event_tx.send(ReconstructPipelineEvent::FileFailed(error));
                     return;
                 }
-                match materialize_pipeline_file(
+                match reconstruct_pipeline_file(
                     &file_plans[file_index],
                     &staging_dir,
                     &compression_profile,
                     &control,
                 ) {
                     Ok(file_timings) => {
-                        let _ = event_tx.send(InstallPipelineEvent::FileCompleted(file_timings));
+                        let _ = event_tx.send(ReconstructPipelineEvent::FileCompleted(file_timings));
                     }
                     Err(error) => {
-                        let _ = event_tx.send(InstallPipelineEvent::FileFailed(error));
+                        let _ = event_tx.send(ReconstructPipelineEvent::FileFailed(error));
                         return;
                     }
                 }
@@ -507,7 +507,7 @@ pub(super) fn execute_install_pipeline_materialization(
     let queue_ready_file = |file_index: usize| -> Result<()> {
         file_task_tx
             .send(file_index)
-            .map_err(|_| Error::reconstruct("install pipeline file queue closed unexpectedly"))
+            .map_err(|_| Error::reconstruct("reconstruct pipeline file queue closed unexpectedly"))
     };
     while completed_file_count < pipeline_plan.files.len() {
         if let Err(error) = control.checkpoint() {
@@ -526,7 +526,7 @@ pub(super) fn execute_install_pipeline_materialization(
         }
 
         match pipeline_event_rx.recv() {
-            Ok(InstallPipelineEvent::Bundle(BundlePipelineEvent::Ready(bundle_id))) => {
+            Ok(ReconstructPipelineEvent::Bundle(BundlePipelineEvent::Ready(bundle_id))) => {
                 if available_bundle_ids.insert(bundle_id.clone())
                     && let Some(file_indices) = pipeline_plan.bundle_to_file_indices.get(&bundle_id)
                 {
@@ -544,11 +544,11 @@ pub(super) fn execute_install_pipeline_materialization(
                     }
                 }
             }
-            Ok(InstallPipelineEvent::Bundle(BundlePipelineEvent::Failed(error))) => {
+            Ok(ReconstructPipelineEvent::Bundle(BundlePipelineEvent::Failed(error))) => {
                 pipeline_error = Some(error);
                 break;
             }
-            Ok(InstallPipelineEvent::Bundle(BundlePipelineEvent::WorkerDone)) => {
+            Ok(ReconstructPipelineEvent::Bundle(BundlePipelineEvent::WorkerDone)) => {
                 completed_bundle_workers += 1;
                 if completed_bundle_workers == bundle_worker_count
                     && completed_file_count < pipeline_plan.files.len()
@@ -558,12 +558,12 @@ pub(super) fn execute_install_pipeline_materialization(
                     )
                 {
                     pipeline_error = Some(Error::reconstruct(
-                        "install pipeline stopped before all files became ready",
+                        "reconstruct pipeline stopped before all files became ready",
                     ));
                     break;
                 }
             }
-            Ok(InstallPipelineEvent::FileCompleted(file_timings)) => {
+            Ok(ReconstructPipelineEvent::FileCompleted(file_timings)) => {
                 completed_file_count += 1;
                 accumulate_pipeline_timings(
                     &mut reconstruct_timings,
@@ -574,9 +574,9 @@ pub(super) fn execute_install_pipeline_materialization(
                     control.progress(),
                     GutchProgressEvent {
                         operation: GutchOperation::Fetch,
-                        phase: GutchProgressPhase::Restore,
+                        phase: GutchProgressPhase::Reconstruct,
                         message: format!(
-                            "Installing files ({}/{})",
+                            "Reconstructing files ({}/{})",
                             completed_file_count,
                             pipeline_plan.files.len().max(1)
                         ),
@@ -589,24 +589,24 @@ pub(super) fn execute_install_pipeline_materialization(
                     },
                 );
             }
-            Ok(InstallPipelineEvent::FileFailed(error)) => {
+            Ok(ReconstructPipelineEvent::FileFailed(error)) => {
                 pipeline_error = Some(error);
                 break;
             }
-            Ok(InstallPipelineEvent::FileWorkerDone) => {
+            Ok(ReconstructPipelineEvent::FileWorkerDone) => {
                 completed_file_workers += 1;
                 if completed_file_workers == reconstruct_worker_count
                     && completed_file_count < pipeline_plan.files.len()
                 {
                     pipeline_error = Some(Error::reconstruct(
-                        "install pipeline file workers stopped before install completed",
+                        "reconstruct pipeline file workers stopped before reconstruction completed",
                     ));
                     break;
                 }
             }
             Err(_) => {
                 pipeline_error = Some(Error::reconstruct(
-                    "install pipeline event channel closed unexpectedly",
+                    "reconstruct pipeline event channel closed unexpectedly",
                 ));
                 break;
             }
@@ -629,25 +629,25 @@ pub(super) fn execute_install_pipeline_materialization(
         return Err(error);
     }
 
-    reconstruct_timings.restore_wall = reconstruct_started_at.elapsed();
-    reconstruct_timings.total = reconstruct_timings.restore_wall;
-    verify_timings.verify_files_wall = reconstruct_timings.restore_wall;
-    verify_timings.total = reconstruct_timings.restore_wall;
+    reconstruct_timings.reconstruct_wall = reconstruct_started_at.elapsed();
+    reconstruct_timings.total = reconstruct_timings.reconstruct_wall;
+    verify_timings.verify_files_wall = reconstruct_timings.reconstruct_wall;
+    verify_timings.total = reconstruct_timings.reconstruct_wall;
     Ok((reconstruct_timings, verify_timings))
 }
 
-fn materialize_pipeline_file(
-    file_plan: &InstallPipelineFile,
+fn reconstruct_pipeline_file(
+    file_plan: &ReconstructPipelineFile,
     staging_dir: &Path,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<crate::ReconstructTimings> {
     control.checkpoint()?;
-    match &file_plan.materialization {
-        InstallPipelineMaterialization::CopyFromSource { source_path } => {
+    match &file_plan.reconstruction {
+        ReconstructPipelineReconstruction::CopyFromSource { source_path } => {
             copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)
         }
-        InstallPipelineMaterialization::ReconstructFromParts { chunks } => {
+        ReconstructPipelineReconstruction::ReconstructFromParts { chunks } => {
             reconstruct_pipeline_file_from_parts(
                 file_plan,
                 chunks,
@@ -660,7 +660,7 @@ fn materialize_pipeline_file(
 }
 
 fn copy_pipeline_file_from_source(
-    file_plan: &InstallPipelineFile,
+    file_plan: &ReconstructPipelineFile,
     source_path: &Path,
     staging_dir: &Path,
     control: &GutchOperationControl,
@@ -721,8 +721,8 @@ fn copy_pipeline_file_from_source(
 }
 
 fn reconstruct_pipeline_file_from_parts(
-    file_plan: &InstallPipelineFile,
-    chunks: &[InstallPipelineChunkInput],
+    file_plan: &ReconstructPipelineFile,
+    chunks: &[ReconstructPipelineChunkInput],
     staging_dir: &Path,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
@@ -745,7 +745,7 @@ fn reconstruct_pipeline_file_from_parts(
     for chunk in chunks {
         control.checkpoint()?;
         let chunk_bytes = match chunk {
-            InstallPipelineChunkInput::Source {
+            ReconstructPipelineChunkInput::Source {
                 chunk_hash,
                 raw_size,
                 source_path,
@@ -774,7 +774,7 @@ fn reconstruct_pipeline_file_from_parts(
                 }
                 chunk_bytes
             }
-            InstallPipelineChunkInput::Bundle(chunk) => {
+            ReconstructPipelineChunkInput::Bundle(chunk) => {
                 let reader_entry = match bundle_readers.entry(chunk.bundle_id.clone()) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
@@ -842,13 +842,13 @@ fn reconstruct_pipeline_file_from_parts(
 }
 
 fn build_source_chunk_locations(
-    source: crate::reconstruct::VerifiedSourceInstall<'_>,
+    source: crate::reconstruct::VerifiedSourceTree<'_>,
 ) -> Result<HashMap<String, SourceChunkLocation>> {
     let mut chunk_locations = HashMap::new();
-    for file_manifest in &source.target_manifest.files {
+    for file_manifest in &source.snapshot_manifest.files {
         let typed_file = crate::manifest::runtime::typed_file_manifest(file_manifest)?;
         let source_path = crate::path_guard::resolve_manifest_relative_path(
-            source.install_dir,
+            source.destination_dir,
             &file_manifest.path,
         )?;
         let mut offset = 0u64;
@@ -891,22 +891,23 @@ fn accumulate_pipeline_timings(
 mod tests {
     use super::*;
     use crate::hash::hash_hex;
-    use crate::manifest::{self, ChunkRef, FileManifest, TargetTagSet};
+    use crate::manifest::{self, ChunkRef, FileManifest, SnapshotTagSet};
 
     fn test_hash(bytes: &[u8]) -> String {
         hash_hex(&blake3::hash(bytes))
     }
 
-    fn target_manifest_with_file(target_id: &str, full_file_hash: &str) -> TargetManifest {
-        target_manifest_with_chunk(target_id, full_file_hash, test_hash(b"game"))
+    fn snapshot_manifest_with_file(snapshot_id: &str, full_file_hash: &str) -> SnapshotManifest {
+        snapshot_manifest_with_chunk(snapshot_id, full_file_hash, test_hash(b"game"))
     }
 
-    fn target_manifest_with_chunk(
-        target_id: &str,
+    fn snapshot_manifest_with_chunk(
+        snapshot_id: &str,
         full_file_hash: &str,
         chunk_hash: String,
-    ) -> TargetManifest {
-        let mut manifest = TargetManifest::new(target_id.to_string(), TargetTagSet::default());
+    ) -> SnapshotManifest {
+        let mut manifest =
+            SnapshotManifest::new(snapshot_id.to_string(), SnapshotTagSet::default());
         manifest.files.push(FileManifest {
             path: "game.exe".to_string(),
             size: 4,
@@ -936,13 +937,14 @@ mod tests {
         }
     }
 
-    fn target_manifest_with_two_chunks(
-        target_id: &str,
+    fn snapshot_manifest_with_two_chunks(
+        snapshot_id: &str,
         full_file_hash: &str,
         first_chunk_hash: String,
         second_chunk_hash: String,
-    ) -> TargetManifest {
-        let mut manifest = TargetManifest::new(target_id.to_string(), TargetTagSet::default());
+    ) -> SnapshotManifest {
+        let mut manifest =
+            SnapshotManifest::new(snapshot_id.to_string(), SnapshotTagSet::default());
         manifest.files.push(FileManifest {
             path: "game.exe".to_string(),
             size: 8,
@@ -968,20 +970,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&source_root);
         std::fs::create_dir_all(&source_root).unwrap();
         std::fs::write(source_root.join("game.exe"), b"game").unwrap();
-        let source_manifest = target_manifest_with_file("source", &test_hash(b"game"));
-        let target_manifest = target_manifest_with_file("target", &test_hash(b"game"));
+        let source_manifest = snapshot_manifest_with_file("source", &test_hash(b"game"));
+        let snapshot_manifest = snapshot_manifest_with_file("snapshot", &test_hash(b"game"));
         let repo_root = crate::test_util::temp_path("gutch_pipeline_copy_repo");
         let _ = std::fs::remove_dir_all(&repo_root);
         let repo_paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
 
-        let plan = build_install_pipeline_plan(
-            &target_manifest,
+        let plan = build_reconstruct_pipeline_plan(
+            &snapshot_manifest,
             &bundled_chunk_index(),
             &repo_paths,
             &HashSet::new(),
-            Some(crate::reconstruct::VerifiedSourceInstall {
-                target_manifest: &source_manifest,
-                install_dir: &source_root,
+            Some(crate::reconstruct::VerifiedSourceTree {
+                snapshot_manifest: &source_manifest,
+                destination_dir: &source_root,
             }),
         )
         .unwrap();
@@ -989,8 +991,8 @@ mod tests {
         assert_eq!(plan.required_bundle_count, 0);
         assert_eq!(plan.reused_source_chunk_count, 1);
         assert!(matches!(
-            plan.files[0].materialization,
-            InstallPipelineMaterialization::CopyFromSource { .. }
+            plan.files[0].reconstruction,
+            ReconstructPipelineReconstruction::CopyFromSource { .. }
         ));
 
         let _ = std::fs::remove_dir_all(&source_root);
@@ -1004,21 +1006,21 @@ mod tests {
         std::fs::create_dir_all(&source_root).unwrap();
         std::fs::write(source_root.join("game.exe"), b"old!").unwrap();
         let source_manifest =
-            target_manifest_with_chunk("source", &test_hash(b"old!"), test_hash(b"old!"));
-        let target_manifest =
-            target_manifest_with_chunk("target", &test_hash(b"game"), test_hash(b"game"));
+            snapshot_manifest_with_chunk("source", &test_hash(b"old!"), test_hash(b"old!"));
+        let snapshot_manifest =
+            snapshot_manifest_with_chunk("snapshot", &test_hash(b"game"), test_hash(b"game"));
         let repo_root = crate::test_util::temp_path("gutch_pipeline_rebuild_repo");
         let _ = std::fs::remove_dir_all(&repo_root);
         let repo_paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
 
-        let plan = build_install_pipeline_plan(
-            &target_manifest,
+        let plan = build_reconstruct_pipeline_plan(
+            &snapshot_manifest,
             &bundled_chunk_index(),
             &repo_paths,
             &HashSet::new(),
-            Some(crate::reconstruct::VerifiedSourceInstall {
-                target_manifest: &source_manifest,
-                install_dir: &source_root,
+            Some(crate::reconstruct::VerifiedSourceTree {
+                snapshot_manifest: &source_manifest,
+                destination_dir: &source_root,
             }),
         )
         .unwrap();
@@ -1026,8 +1028,8 @@ mod tests {
         assert_eq!(plan.required_bundle_count, 1);
         assert_eq!(plan.reused_source_chunk_count, 0);
         assert!(matches!(
-            plan.files[0].materialization,
-            InstallPipelineMaterialization::ReconstructFromParts { .. }
+            plan.files[0].reconstruction,
+            ReconstructPipelineReconstruction::ReconstructFromParts { .. }
         ));
 
         let _ = std::fs::remove_dir_all(&source_root);
@@ -1043,18 +1045,18 @@ mod tests {
 
         let shared_chunk_hash = test_hash(b"game");
         let source_only_chunk_hash = test_hash(b"old!");
-        let target_only_chunk_hash = test_hash(b"new!");
-        let source_manifest = target_manifest_with_two_chunks(
+        let snapshot_only_chunk_hash = test_hash(b"new!");
+        let source_manifest = snapshot_manifest_with_two_chunks(
             "source",
             &test_hash(b"gameold!"),
             shared_chunk_hash.clone(),
             source_only_chunk_hash,
         );
-        let target_manifest = target_manifest_with_two_chunks(
-            "target",
+        let snapshot_manifest = snapshot_manifest_with_two_chunks(
+            "snapshot",
             &test_hash(b"gamenew!"),
             shared_chunk_hash.clone(),
-            target_only_chunk_hash.clone(),
+            snapshot_only_chunk_hash.clone(),
         );
         let repo_root = crate::test_util::temp_path("gutch_pipeline_mixed_repo");
         let _ = std::fs::remove_dir_all(&repo_root);
@@ -1063,7 +1065,7 @@ mod tests {
             format_version: "1.0.0".to_string(),
             updated_at: String::new(),
             entries: std::collections::BTreeMap::from([(
-                target_only_chunk_hash,
+                snapshot_only_chunk_hash,
                 manifest::ChunkIndexEntry {
                     bundle_id: "bundle-b".to_string(),
                     raw_size: 4,
@@ -1073,14 +1075,14 @@ mod tests {
             )]),
         };
 
-        let plan = build_install_pipeline_plan(
-            &target_manifest,
+        let plan = build_reconstruct_pipeline_plan(
+            &snapshot_manifest,
             &chunk_index,
             &repo_paths,
             &HashSet::new(),
-            Some(crate::reconstruct::VerifiedSourceInstall {
-                target_manifest: &source_manifest,
-                install_dir: &source_root,
+            Some(crate::reconstruct::VerifiedSourceTree {
+                snapshot_manifest: &source_manifest,
+                destination_dir: &source_root,
             }),
         )
         .unwrap();
@@ -1088,10 +1090,10 @@ mod tests {
         assert_eq!(plan.required_bundle_count, 1);
         assert_eq!(plan.reused_source_chunk_count, 1);
         assert!(matches!(
-            &plan.files[0].materialization,
-            InstallPipelineMaterialization::ReconstructFromParts { chunks }
-                if matches!(chunks[0], InstallPipelineChunkInput::Source { .. })
-                    && matches!(chunks[1], InstallPipelineChunkInput::Bundle(_))
+            &plan.files[0].reconstruction,
+            ReconstructPipelineReconstruction::ReconstructFromParts { chunks }
+                if matches!(chunks[0], ReconstructPipelineChunkInput::Source { .. })
+                    && matches!(chunks[1], ReconstructPipelineChunkInput::Bundle(_))
         ));
 
         let _ = std::fs::remove_dir_all(&source_root);

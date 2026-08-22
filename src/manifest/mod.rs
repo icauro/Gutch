@@ -6,8 +6,8 @@ pub mod launch;
 mod profiles;
 pub mod runtime;
 pub mod schema_edit;
+pub mod snapshot;
 mod tags;
-pub mod target;
 pub mod template;
 
 pub const FORMAT_VERSION: &str = "1.0.0";
@@ -29,16 +29,18 @@ pub use profiles::{
     ChunkSizingProfile, CompressionKind, CompressionPreset, CompressionProfile, CompressionUnit,
 };
 pub use schema_edit::{
-    EditableTargetTagDefinition, TargetTagSchemaValidationError, TargetTagSchemaValidationResult,
-    sanitize_editable_target_tag_schema, validate_editable_target_tag_schema,
+    EditableSnapshotTagDefinition, SnapshotTagSchemaValidationError,
+    SnapshotTagSchemaValidationResult, sanitize_editable_snapshot_tag_schema,
+    validate_editable_snapshot_tag_schema,
+};
+pub use snapshot::{
+    ProductMetadata, SnapshotDirectRuntimeMetadata, SnapshotHostVariant,
+    SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction, SnapshotRuntimeMetadata,
+    current_host_tags,
 };
 pub use tags::{
-    AutoTaggingRules, InferenceHandler, StructuredVersion, TargetTagDefinition, TargetTagKind,
-    TargetTagSchema, TargetTagSet, TargetTagValueDefinition,
-};
-pub use target::{
-    TargetDirectRuntimeMetadata, TargetHostVariant, TargetHostVariantRuntimeMetadata,
-    TargetLaunchAction, TargetProductMetadata, TargetRuntimeMetadata, current_host_tags,
+    AutoTaggingRules, InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,
+    SnapshotTagSet, SnapshotTagValueDefinition, StructuredVersion,
 };
 
 #[cfg(test)]

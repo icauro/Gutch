@@ -4,65 +4,63 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 
-use super::apply::resolve_verified_source_install;
+use super::apply::resolve_verified_source;
 use super::pipeline::{
-    InstallPipelineApplyRequest, apply_install_pipeline, build_install_pipeline_plan,
+    ReconstructPipelineApplyRequest, apply_reconstruct_pipeline, build_reconstruct_pipeline_plan,
 };
 use super::transfer::{
-    FetchTransferProgress, MAX_INSTALL_BLUEPRINT_BYTES, MAX_INSTALL_CHUNK_INDEX_BYTES,
-    MAX_INSTALL_METADATA_BYTES, PendingBundleDownload, TransferPhaseCounters,
+    FetchTransferProgress, MAX_SNAPSHOT_BLUEPRINT_BYTES, MAX_CHUNK_INDEX_BYTES,
+    MAX_SNAPSHOT_INDEX_BYTES, PendingBundleDownload, TransferPhaseCounters,
     build_download_client, bundle_download_worker_count, download_pending_bundle,
-    download_url_bounded, fetch_bundle_urls, target_manifest_from_download, write_repo_manifest,
+    download_url_bounded, fetch_bundle_urls, snapshot_manifest_from_download, write_repo_manifest,
 };
 use super::types::{
-    TargetInstallApplySource, TargetInstallDownloadAndApplyRequest,
-    TargetInstallDownloadAndApplyResult, TargetInstallFetchRequest, TargetInstallFetchResult,
+    SnapshotDownloadAndReconstructRequest, SnapshotDownloadAndReconstructResult,
+    SnapshotFetchRequest, SnapshotFetchResult, SnapshotReconstructSource,
 };
 use crate::manifest::gutch_repo::GutchRepoManifest;
-use crate::manifest::target::TargetManifest;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::{
     GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
 };
-use crate::runtime::install_in_thread_pool;
+use crate::runtime::run_in_thread_pool;
 use crate::{Error, Result};
 
-struct PreparedTargetInstallFetch {
+struct PreparedSnapshotFetch {
     repo_paths: crate::GutchRepoPaths,
     compression_profile: crate::manifest::CompressionProfile,
-    target_manifest: TargetManifest,
+    snapshot_manifest: SnapshotManifest,
     chunk_index: crate::manifest::ChunkIndex,
     required_bundle_ids: HashSet<String>,
     existing_bundle_ids: HashSet<String>,
     pending_bundle_downloads: Vec<PendingBundleDownload>,
 }
 
-struct ResolvedInstallSource {
-    source_manifest: Option<TargetManifest>,
-    source_install_dir: Option<PathBuf>,
+struct ResolvedSnapshotSource {
+    source_manifest: Option<SnapshotManifest>,
+    source_destination_dir: Option<PathBuf>,
 }
 
-pub fn download_and_apply_target_install(
-    request: TargetInstallDownloadAndApplyRequest,
-) -> Result<TargetInstallDownloadAndApplyResult> {
-    download_and_apply_unified_target_install(request)
+pub fn download_and_reconstruct_snapshot(
+    request: SnapshotDownloadAndReconstructRequest,
+) -> Result<SnapshotDownloadAndReconstructResult> {
+    download_and_apply_unified_snapshot_ops(request)
 }
 
-pub fn fetch_target_install_content(
-    request: &TargetInstallFetchRequest,
-) -> Result<TargetInstallFetchResult> {
-    fetch_target_install_content_for_required_bundle_ids(request, None)
+pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchResult> {
+    fetch_snapshot_for_required_bundle_ids(request, None)
 }
 
-pub fn fetch_target_install_content_for_required_bundle_ids(
-    request: &TargetInstallFetchRequest,
+pub fn fetch_snapshot_for_required_bundle_ids(
+    request: &SnapshotFetchRequest,
     required_bundle_ids_override: Option<&HashSet<String>>,
-) -> Result<TargetInstallFetchResult> {
+) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
     let progress = request.control.progress().clone();
     let download_client = build_download_client()?;
     let transfer_progress = Arc::new(FetchTransferProgress::default());
     let prepared =
-        prepare_target_install_fetch(request, &download_client, &progress, &transfer_progress)?;
+        prepare_snapshot_fetch(request, &download_client, &progress, &transfer_progress)?;
     let required_bundle_ids = required_bundle_ids_override
         .cloned()
         .unwrap_or_else(|| prepared.required_bundle_ids.clone());
@@ -81,55 +79,55 @@ pub fn fetch_target_install_content_for_required_bundle_ids(
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Done,
-            message: "Target install content fetched".to_string(),
+            message: "Snapshot fetched".to_string(),
             current: required_bundle_ids.len(),
             total: required_bundle_ids.len().max(1),
             transferred_bytes: transfer_progress.transferred_bytes(),
             total_bytes: transfer_progress.total_bytes(),
-            detail: Some(request.target_id.clone()),
+            detail: Some(request.snapshot_id.clone()),
             done: true,
         },
     );
 
     Ok(build_fetch_result(
         &prepared.repo_paths.repo_root,
-        &request.target_id,
+        &request.snapshot_id,
         required_bundle_ids.len(),
         downloaded_bundle_count,
     ))
 }
 
-fn download_and_apply_unified_target_install(
-    request: TargetInstallDownloadAndApplyRequest,
-) -> Result<TargetInstallDownloadAndApplyResult> {
+fn download_and_apply_unified_snapshot_ops(
+    request: SnapshotDownloadAndReconstructRequest,
+) -> Result<SnapshotDownloadAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
     let progress = request.fetch_request.control.progress().clone();
     let download_client = build_download_client()?;
     let transfer_progress = Arc::new(FetchTransferProgress::default());
-    let prepared = prepare_target_install_fetch(
+    let prepared = prepare_snapshot_fetch(
         &request.fetch_request,
         &download_client,
         &progress,
         &transfer_progress,
     )?;
-    let resolved_source = resolve_install_source(&request, &prepared.repo_paths)?;
-    let verified_source = resolve_verified_source_install(
+    let resolved_source = resolve_snapshot_source(&request, &prepared.repo_paths)?;
+    let verified_source = resolve_verified_source(
         resolved_source
             .source_manifest
             .as_ref()
-            .zip(resolved_source.source_install_dir.as_deref())
+            .zip(resolved_source.source_destination_dir.as_deref())
             .map(
-                |(source_manifest, source_install_dir)| TargetInstallApplySource {
-                    target_manifest: source_manifest,
-                    install_dir: source_install_dir,
+                |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
+                    snapshot_manifest: source_manifest,
+                    destination_dir: source_destination_dir,
                 },
             ),
         &request.runtime_hints,
         &request.fetch_request.control,
     )?;
 
-    let pipeline_plan = build_install_pipeline_plan(
-        &prepared.target_manifest,
+    let pipeline_plan = build_reconstruct_pipeline_plan(
+        &prepared.snapshot_manifest,
         &prepared.chunk_index,
         &prepared.repo_paths,
         &prepared.existing_bundle_ids,
@@ -142,18 +140,18 @@ fn download_and_apply_unified_target_install(
 
     let fetch_result = build_fetch_result(
         &prepared.repo_paths.repo_root,
-        &request.fetch_request.target_id,
+        &request.fetch_request.snapshot_id,
         pipeline_plan.required_bundle_count,
         pending_bundle_downloads.len(),
     );
-    let apply_result = apply_install_pipeline(
-        InstallPipelineApplyRequest {
+    let reconstruct_result = apply_reconstruct_pipeline(
+        ReconstructPipelineApplyRequest {
             repo_root: &prepared.repo_paths.repo_root,
             compression_profile: prepared.compression_profile.clone(),
-            target_manifest: &prepared.target_manifest,
-            install_dir: &request.install_dir,
+            snapshot_manifest: &prepared.snapshot_manifest,
+            destination_dir: &request.destination_dir,
             staging_dir: request.staging_dir.as_deref(),
-            source_install_dir: resolved_source.source_install_dir,
+            source_destination_dir: resolved_source.source_destination_dir,
             runtime_hints: &request.runtime_hints,
             existing_bundle_ids: &prepared.existing_bundle_ids,
             pending_bundle_downloads: &pending_bundle_downloads,
@@ -165,18 +163,18 @@ fn download_and_apply_unified_target_install(
         pipeline_plan,
     )?;
 
-    Ok(TargetInstallDownloadAndApplyResult {
+    Ok(SnapshotDownloadAndReconstructResult {
         fetch_result,
-        apply_result,
+        reconstruct_result,
     })
 }
 
-fn prepare_target_install_fetch(
-    request: &TargetInstallFetchRequest,
+fn prepare_snapshot_fetch(
+    request: &SnapshotFetchRequest,
     download_client: &reqwest::blocking::Client,
     progress: &Option<Arc<dyn GutchProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
-) -> Result<PreparedTargetInstallFetch> {
+) -> Result<PreparedSnapshotFetch> {
     request.control.checkpoint()?;
     emit_progress(
         progress,
@@ -188,7 +186,7 @@ fn prepare_target_install_fetch(
             total: 1,
             transferred_bytes: 0,
             total_bytes: 0,
-            detail: Some(request.target_id.clone()),
+            detail: Some(request.snapshot_id.clone()),
             done: false,
         },
     );
@@ -224,7 +222,7 @@ fn prepare_target_install_fetch(
                 total: 1,
             },
             None,
-            MAX_INSTALL_METADATA_BYTES,
+            MAX_SNAPSHOT_INDEX_BYTES,
         )?;
         let repo_manifest: GutchRepoManifest =
             crate::helpers::from_json_bytes(&repo_manifest_bytes)?;
@@ -237,34 +235,34 @@ fn prepare_target_install_fetch(
         progress,
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::TargetMetadata,
-            message: "Downloading target metadata".to_string(),
+            phase: GutchProgressPhase::SnapshotMetadata,
+            message: "Downloading snapshot metadata".to_string(),
             current: 0,
             total: 1,
             transferred_bytes: 0,
             total_bytes: 0,
-            detail: Some(request.target_id.clone()),
+            detail: Some(request.snapshot_id.clone()),
             done: false,
         },
     );
-    let target_manifest_bytes = download_url_bounded(
+    let snapshot_manifest_bytes = download_url_bounded(
         download_client,
         &request.metadata_url,
         request.session_id.as_deref(),
         &request.control,
         transfer_progress,
-        GutchProgressPhase::TargetMetadata,
-        "Downloading target metadata",
+        GutchProgressPhase::SnapshotMetadata,
+        "Downloading snapshot metadata",
         TransferPhaseCounters {
             current: 0,
             total: 1,
         },
-        Some(request.target_id.as_str()),
-        MAX_INSTALL_METADATA_BYTES,
+        Some(request.snapshot_id.as_str()),
+        MAX_SNAPSHOT_INDEX_BYTES,
     )?;
-    let target_metadata =
-        target_manifest_from_download(&request.target_id, &target_manifest_bytes)?;
-    crate::repo::write_target_metadata_only(&repo_paths, &target_metadata)?;
+    let snapshot_index =
+        snapshot_manifest_from_download(&request.snapshot_id, &snapshot_manifest_bytes)?;
+    crate::repo::write_snapshot_index_only(&repo_paths, &snapshot_index)?;
 
     if let Some(product_metadata_url) = request.product_metadata_url.as_deref() {
         let product_metadata_bytes = download_url_bounded(
@@ -273,25 +271,25 @@ fn prepare_target_install_fetch(
             request.session_id.as_deref(),
             &request.control,
             transfer_progress,
-            GutchProgressPhase::TargetMetadata,
-            "Downloading target product metadata",
+            GutchProgressPhase::SnapshotMetadata,
+            "Downloading snapshot product metadata",
             TransferPhaseCounters {
                 current: 0,
                 total: 1,
             },
-            Some(request.target_id.as_str()),
-            MAX_INSTALL_METADATA_BYTES,
+            Some(request.snapshot_id.as_str()),
+            MAX_SNAPSHOT_INDEX_BYTES,
         )?;
-        let product_metadata: crate::manifest::TargetProductMetadata =
+        let product_metadata: crate::manifest::ProductMetadata =
             crate::helpers::from_json_bytes(&product_metadata_bytes)?;
         product_metadata.validate_structure()?;
-        crate::repo::write_target_product_metadata(
+        crate::repo::write_product_metadata(
             &repo_paths,
-            &request.target_id,
+            &request.snapshot_id,
             Some(&product_metadata),
         )?;
     } else {
-        crate::repo::write_target_product_metadata(&repo_paths, &request.target_id, None)?;
+        crate::repo::write_product_metadata(&repo_paths, &request.snapshot_id, None)?;
     }
 
     let blueprint_bytes = download_url_bounded(
@@ -300,20 +298,20 @@ fn prepare_target_install_fetch(
         request.session_id.as_deref(),
         &request.control,
         transfer_progress,
-        GutchProgressPhase::TargetMetadata,
-        "Downloading target blueprint",
+        GutchProgressPhase::SnapshotMetadata,
+        "Downloading snapshot blueprint",
         TransferPhaseCounters {
             current: 0,
             total: 1,
         },
-        Some(request.target_id.as_str()),
-        MAX_INSTALL_BLUEPRINT_BYTES,
+        Some(request.snapshot_id.as_str()),
+        MAX_SNAPSHOT_BLUEPRINT_BYTES,
     )?;
     crate::helpers::write(
-        &crate::target_blueprint_path(&repo_paths, &request.target_id),
+        &crate::snapshot_blueprint_path(&repo_paths, &request.snapshot_id),
         &blueprint_bytes,
     )?;
-    let target_manifest = crate::load_target_manifest(&repo_paths, &request.target_id)?;
+    let snapshot_manifest = crate::load_snapshot_manifest(&repo_paths, &request.snapshot_id)?;
 
     if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
         emit_progress(
@@ -343,7 +341,7 @@ fn prepare_target_install_fetch(
                 total: 1,
             },
             None,
-            MAX_INSTALL_CHUNK_INDEX_BYTES,
+            MAX_CHUNK_INDEX_BYTES,
         )?;
         let chunk_index: crate::manifest::ChunkIndex =
             crate::helpers::from_json_bytes(&chunk_index_bytes)?;
@@ -354,7 +352,7 @@ fn prepare_target_install_fetch(
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let compression_profile = repo_manifest.compression_profile();
-    let required_bundle_ids = crate::repo::required_bundle_ids(&target_manifest, &chunk_index);
+    let required_bundle_ids = crate::repo::required_bundle_ids(&snapshot_manifest, &chunk_index);
     let existing_bundle_ids = required_bundle_ids
         .iter()
         .filter(|bundle_id| crate::bundle_path(&repo_paths, bundle_id).is_file())
@@ -368,10 +366,10 @@ fn prepare_target_install_fetch(
         &repo_paths,
     )?;
 
-    Ok(PreparedTargetInstallFetch {
+    Ok(PreparedSnapshotFetch {
         repo_paths,
         compression_profile,
-        target_manifest,
+        snapshot_manifest,
         chunk_index,
         required_bundle_ids,
         existing_bundle_ids,
@@ -410,23 +408,26 @@ fn build_pending_bundle_downloads(
         .collect()
 }
 
-fn resolve_install_source(
-    request: &TargetInstallDownloadAndApplyRequest,
+fn resolve_snapshot_source(
+    request: &SnapshotDownloadAndReconstructRequest,
     repo_paths: &crate::GutchRepoPaths,
-) -> Result<ResolvedInstallSource> {
-    let source_manifest = match request.source_target_id.as_ref() {
-        Some(source_target_id) => Some(crate::load_target_manifest(repo_paths, source_target_id)?),
+) -> Result<ResolvedSnapshotSource> {
+    let source_manifest = match request.source_snapshot_id.as_ref() {
+        Some(source_snapshot_id) => Some(crate::load_snapshot_manifest(
+            repo_paths,
+            source_snapshot_id,
+        )?),
         None => None,
     };
-    let source_install_dir = source_manifest.as_ref().map(|_| {
+    let source_destination_dir = source_manifest.as_ref().map(|_| {
         request
             .source_dir
             .clone()
-            .unwrap_or_else(|| request.install_dir.clone())
+            .unwrap_or_else(|| request.destination_dir.clone())
     });
-    Ok(ResolvedInstallSource {
+    Ok(ResolvedSnapshotSource {
         source_manifest,
-        source_install_dir,
+        source_destination_dir,
     })
 }
 
@@ -443,13 +444,13 @@ fn select_pending_bundle_downloads(
 
 fn build_fetch_result(
     repo_root: &std::path::Path,
-    target_id: &str,
+    snapshot_id: &str,
     required_bundle_count: usize,
     downloaded_bundle_count: usize,
-) -> TargetInstallFetchResult {
-    TargetInstallFetchResult {
+) -> SnapshotFetchResult {
+    SnapshotFetchResult {
         repo_path: repo_root.to_path_buf(),
-        target_id: target_id.to_string(),
+        snapshot_id: snapshot_id.to_string(),
         required_bundle_count,
         downloaded_bundle_count,
         skipped_existing_bundle_count: required_bundle_count
@@ -458,7 +459,7 @@ fn build_fetch_result(
 }
 
 fn download_pending_bundle_files(
-    request: &TargetInstallFetchRequest,
+    request: &SnapshotFetchRequest,
     download_client: &reqwest::blocking::Client,
     progress: &Option<Arc<dyn GutchProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
@@ -468,7 +469,7 @@ fn download_pending_bundle_files(
         return Ok(0);
     }
 
-    install_in_thread_pool(
+    run_in_thread_pool(
         bundle_download_worker_count(pending_bundle_downloads.len()),
         || {
             pending_bundle_downloads

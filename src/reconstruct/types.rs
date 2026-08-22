@@ -8,7 +8,7 @@ use tempfile::TempDir;
 use crate::Result;
 use crate::hash::ChunkHash;
 use crate::manifest::runtime as manifest_runtime;
-use crate::manifest::target::TargetManifest;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::manifest::{CompressionUnit, FileManifest};
 use crate::runtime::RuntimePlan;
 
@@ -18,7 +18,7 @@ pub struct ReconstructTimings {
     pub verify_chunks: bool,
     pub verify_files: bool,
     pub prepare_wall: Duration,
-    pub restore_wall: Duration,
+    pub reconstruct_wall: Duration,
     pub bundle_read: Duration,
     pub bundle_read_compressed_bytes: u64,
     pub bundle_read_decompressed_bytes: u64,
@@ -50,9 +50,9 @@ impl ReconstructTimings {
 }
 
 #[derive(Clone, Copy)]
-pub struct VerifiedSourceInstall<'a> {
-    pub target_manifest: &'a TargetManifest,
-    pub install_dir: &'a Path,
+pub struct VerifiedSourceTree<'a> {
+    pub snapshot_manifest: &'a SnapshotManifest,
+    pub destination_dir: &'a Path,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -80,7 +80,7 @@ pub(super) struct ChunkLocation {
 }
 
 #[derive(Clone)]
-pub(super) struct ChunkWriteTarget {
+pub(super) struct ChunkWriteSnapshot {
     pub output_path: PathBuf,
     pub file_offset: u64,
     pub raw_size: u64,

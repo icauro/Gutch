@@ -16,7 +16,7 @@ const FIXTURE_ROOTS: &[&str] = &[
 #[derive(Debug, Deserialize)]
 struct TestManifest {
     generator: GeneratorSettings,
-    targets: Vec<ExpectedTarget>,
+    snapshots: Vec<ExpectedSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,7 +25,7 @@ struct GeneratorSettings {
 }
 
 #[derive(Debug, Deserialize)]
-struct ExpectedTarget {
+struct ExpectedSnapshot {
     path: String,
     files: Vec<ExpectedFile>,
 }
@@ -66,31 +66,31 @@ fn file_paths(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
-fn assert_target_matches_expected(
-    expected_target: &ExpectedTarget,
-    original_target_root: &Path,
-    reconstructed_target_root: &Path,
+fn assert_snapshot_matches_expected(
+    expected_snapshot: &ExpectedSnapshot,
+    original_snapshot_root: &Path,
+    reconstructed_snapshot_root: &Path,
 ) {
-    let expected_paths: BTreeSet<String> = expected_target
+    let expected_paths: BTreeSet<String> = expected_snapshot
         .files
         .iter()
         .map(|file| file.path.clone())
         .collect();
     assert_eq!(
         expected_paths,
-        file_paths(original_target_root),
-        "original target tree differs from its test manifest: {}",
-        expected_target.path
+        file_paths(original_snapshot_root),
+        "original snapshot tree differs from its test manifest: {}",
+        expected_snapshot.path
     );
     assert_eq!(
         expected_paths,
-        file_paths(reconstructed_target_root),
-        "reconstructed target tree differs from its test manifest: {}",
-        expected_target.path
+        file_paths(reconstructed_snapshot_root),
+        "reconstructed snapshot tree differs from its test manifest: {}",
+        expected_snapshot.path
     );
 
-    for expected_file in &expected_target.files {
-        for root in [original_target_root, reconstructed_target_root] {
+    for expected_file in &expected_snapshot.files {
+        for root in [original_snapshot_root, reconstructed_snapshot_root] {
             let path = root.join(&expected_file.path);
             assert_eq!(
                 std::fs::metadata(&path)
@@ -117,7 +117,7 @@ fn assert_target_matches_expected(
 }
 
 #[test]
-fn checked_in_fixtures_reconstruct_all_targets_and_verify_repos() {
+fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
     for fixture_relative_path in FIXTURE_ROOTS {
         let fixture_root = fixture_root(fixture_relative_path);
         let original_root = fixture_root.join("original");
@@ -131,10 +131,10 @@ fn checked_in_fixtures_reconstruct_all_targets_and_verify_repos() {
         };
 
         assert_eq!(test_manifest.generator.seed, expected_seed);
-        assert!(!test_manifest.targets.is_empty());
+        assert!(!test_manifest.snapshots.is_empty());
 
         let repo_status = gutch::check_gutch_repo(&repo_root).expect("fixture repo should load");
-        assert_eq!(repo_status.targets.len(), test_manifest.targets.len());
+        assert_eq!(repo_status.snapshots.len(), test_manifest.snapshots.len());
         let verification = gutch::verify_gutch_repo(&repo_root, None, VerifyMode::Strict)
             .expect("fixture repo should verify");
         assert!(
@@ -147,49 +147,50 @@ fn checked_in_fixtures_reconstruct_all_targets_and_verify_repos() {
             gutch::load_gutch_repo_manifest(&repo_root).expect("fixture repo manifest should load");
         let output_root = tempfile::tempdir().expect("reconstruction output tempdir");
 
-        for target in &repo_status.targets {
-            let version = target
-                .target_tags
+        for snapshot in &repo_status.snapshots {
+            let version = snapshot
+                .snapshot_tags
                 .get_exclusive("version")
-                .expect("fixture target version");
-            let os = target
-                .target_tags
+                .expect("fixture snapshot version");
+            let os = snapshot
+                .snapshot_tags
                 .get_exclusive("os")
-                .expect("fixture target os");
-            let arch = target
-                .target_tags
+                .expect("fixture snapshot os");
+            let arch = snapshot
+                .snapshot_tags
                 .get_exclusive("arch")
-                .expect("fixture target arch");
-            let access = target
-                .target_tags
+                .expect("fixture snapshot arch");
+            let access = snapshot
+                .snapshot_tags
                 .get_exclusive("access")
-                .expect("fixture target access");
-            let target_path = format!("{version}-{os}-{arch}-{access}");
-            let expected_target = test_manifest
-                .targets
+                .expect("fixture snapshot access");
+            let snapshot_path = format!("{version}-{os}-{arch}-{access}");
+            let expected_snapshot = test_manifest
+                .snapshots
                 .iter()
-                .find(|expected| expected.path == target_path)
-                .unwrap_or_else(|| panic!("missing expected target {target_path}"));
-            let original_target_root = original_root.join(&target_path);
-            let reconstructed_target_root = output_root.path().join(&target.target_id);
-            let target_manifest = gutch::load_target_manifest(&repo_paths, &target.target_id)
-                .expect("fixture target manifest should load");
+                .find(|expected| expected.path == snapshot_path)
+                .unwrap_or_else(|| panic!("missing expected snapshot {snapshot_path}"));
+            let original_snapshot_root = original_root.join(&snapshot_path);
+            let reconstructed_snapshot_root = output_root.path().join(&snapshot.snapshot_id);
+            let snapshot_manifest =
+                gutch::load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)
+                    .expect("fixture snapshot manifest should load");
 
             reconstruct_from_repo(
-                &target_manifest,
+                &snapshot_manifest,
                 &repo_paths,
                 &repo_manifest.compression_profile(),
-                &reconstructed_target_root,
+                &reconstructed_snapshot_root,
                 &RuntimeResourceHints::default(),
                 ReconstructOptions::default(),
                 &GutchOperationControl::default(),
             )
-            .expect("fixture target should reconstruct");
+            .expect("fixture snapshot should reconstruct");
 
-            assert_target_matches_expected(
-                expected_target,
-                &original_target_root,
-                &reconstructed_target_root,
+            assert_snapshot_matches_expected(
+                expected_snapshot,
+                &original_snapshot_root,
+                &reconstructed_snapshot_root,
             );
         }
     }

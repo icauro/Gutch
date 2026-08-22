@@ -7,23 +7,23 @@ use super::{load_gutch_repo_manifest, write_gutch_repo_manifest};
 
 pub fn initialize_tracked_gutch_repo(
     repo_root: &Path,
-    target_schema: Option<manifest::TargetTagSchema>,
-    target_sources_path: Option<String>,
+    snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
+    snapshot_sources_path: Option<String>,
 ) -> Result<()> {
     super::init_policy::initialize_tracked_gutch_repo_with_options(
         repo_root,
-        target_schema,
-        target_sources_path,
+        snapshot_tag_schema,
+        snapshot_sources_path,
         super::init_policy::RepoInitOptions { force: false },
     )
 }
 
 pub fn update_gutch_repo_schema(
     repo_root: &Path,
-    target_schema: Option<manifest::TargetTagSchema>,
+    snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
 ) -> Result<()> {
     let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    repo_manifest.target_schema = Some(target_schema.unwrap_or_default());
+    repo_manifest.snapshot_tag_schema = Some(snapshot_tag_schema.unwrap_or_default());
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)
 }
 

@@ -8,11 +8,11 @@ use crate::{Error, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GutchOperation {
-    TargetInsert,
-    TargetDelete,
+    SnapshotCreate,
+    SnapshotDelete,
     SyncUp,
     Pull,
-    TargetSourcesSync,
+    SnapshotSourcesSync,
     Fetch,
     Verify,
 }
@@ -22,13 +22,13 @@ pub enum GutchOperation {
 pub enum GutchProgressPhase {
     Prepare,
     RepoMetadata,
-    TargetMetadata,
+    SnapshotMetadata,
     ChunkIndex,
     Bundle,
-    Restore,
+    Reconstruct,
     Json,
     Done,
-    ScanTargets,
+    ScanSnapshots,
     LoadManifests,
     ScanBundles,
     DeleteOrphans,
@@ -36,14 +36,14 @@ pub enum GutchProgressPhase {
     Scan,
     Build,
     Planning,
-    RemoveTargets,
+    RemoveSnapshots,
     UploadRepoMetadata,
     UploadChunkIndex,
-    UploadTargetMetadata,
-    UploadTargetBlueprint,
+    UploadSnapshotMetadata,
+    UploadSnapshotBlueprint,
     UploadBundle,
     Prune,
-    Insert,
+    Create,
     Verify,
 }
 
@@ -52,13 +52,13 @@ impl GutchProgressPhase {
         match self {
             GutchProgressPhase::Prepare => "prepare",
             GutchProgressPhase::RepoMetadata => "repo_metadata",
-            GutchProgressPhase::TargetMetadata => "target_metadata",
+            GutchProgressPhase::SnapshotMetadata => "snapshot_index",
             GutchProgressPhase::ChunkIndex => "chunk_index",
             GutchProgressPhase::Bundle => "bundle",
-            GutchProgressPhase::Restore => "restore",
+            GutchProgressPhase::Reconstruct => "reconstruct",
             GutchProgressPhase::Json => "json",
             GutchProgressPhase::Done => "done",
-            GutchProgressPhase::ScanTargets => "scan_targets",
+            GutchProgressPhase::ScanSnapshots => "scan_snapshots",
             GutchProgressPhase::LoadManifests => "load_manifests",
             GutchProgressPhase::ScanBundles => "scan_bundles",
             GutchProgressPhase::DeleteOrphans => "delete_orphans",
@@ -66,14 +66,14 @@ impl GutchProgressPhase {
             GutchProgressPhase::Scan => "scan",
             GutchProgressPhase::Build => "build",
             GutchProgressPhase::Planning => "planning",
-            GutchProgressPhase::RemoveTargets => "remove_targets",
+            GutchProgressPhase::RemoveSnapshots => "remove_snapshots",
             GutchProgressPhase::UploadRepoMetadata => "upload_repo_metadata",
             GutchProgressPhase::UploadChunkIndex => "upload_chunk_index",
-            GutchProgressPhase::UploadTargetMetadata => "upload_target_metadata",
-            GutchProgressPhase::UploadTargetBlueprint => "upload_target_blueprint",
+            GutchProgressPhase::UploadSnapshotMetadata => "upload_snapshot_index",
+            GutchProgressPhase::UploadSnapshotBlueprint => "upload_snapshot_blueprint",
             GutchProgressPhase::UploadBundle => "upload_bundle",
             GutchProgressPhase::Prune => "prune",
-            GutchProgressPhase::Insert => "commit",
+            GutchProgressPhase::Create => "create",
             GutchProgressPhase::Verify => "verify",
         }
     }
@@ -89,7 +89,7 @@ pub struct GutchProgressEvent {
     pub phase: GutchProgressPhase,
     /// Human-readable message for the current step.
     pub message: String,
-    /// Current progress counter (files scanned, bundles built, targets synced, etc.).
+    /// Current progress counter (files scanned, bundles built, snapshots synced, etc.).
     pub current: usize,
     /// Total expected count for this phase.
     pub total: usize,

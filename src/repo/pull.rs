@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase};
 use crate::remote::backend::{
-    CreatorProductResponse, CreatorRepoResponse, CreatorReposResponse, CreatorTargetResponse,
+    CreatorProductResponse, CreatorRepoResponse, CreatorReposResponse, CreatorSnapshotResponse,
     request_json_from_backend,
 };
 use std::io::Write;
@@ -51,13 +51,13 @@ pub struct RepoPullStats {
     pub remote_repo_id: i64,
     pub repo_manifest_downloaded: bool,
     pub chunk_map_downloaded: bool,
-    pub target_downloaded_count: usize,
-    pub target_skipped_count: usize,
+    pub snapshot_downloaded_count: usize,
+    pub snapshot_skipped_count: usize,
     pub bundle_downloaded_count: usize,
     pub bundle_skipped_count: usize,
     pub kept_newer_local_count: usize,
-    pub local_only_targets_kept: usize,
-    pub pruned_target_count: usize,
+    pub local_only_snapshots_kept: usize,
+    pub pruned_snapshot_count: usize,
     pub pruned_bundle_count: usize,
 }
 
@@ -69,10 +69,10 @@ pub struct RepoPullPlan {
     pub remote_repo_name: String,
     pub repo_manifest_needed: bool,
     pub chunk_map_needed: bool,
-    pub targets_to_download: Vec<String>,
-    pub targets_to_skip: Vec<String>,
-    pub local_only_targets: Vec<String>,
-    pub kept_newer_local_targets: Vec<String>,
+    pub snapshots_to_download: Vec<String>,
+    pub snapshots_to_skip: Vec<String>,
+    pub local_only_snapshots: Vec<String>,
+    pub kept_newer_local_snapshots: Vec<String>,
     pub bundle_count: usize,
 }
 
@@ -92,11 +92,11 @@ struct RemoteRepoRecord {
     updated_at: String,
 }
 
-struct RemoteTargetRecord {
-    target_id: String,
-    target_metadata_hash_b3: String,
-    target_product_metadata_hash_b3: String,
-    target_blueprint_hash_b3: String,
+struct RemoteSnapshotRecord {
+    snapshot_id: String,
+    snapshot_index_hash_b3: String,
+    product_metadata_hash_b3: String,
+    snapshot_blueprint_hash_b3: String,
     uploaded_at: String,
     created_at: String,
 }
@@ -232,17 +232,17 @@ fn fetch_creator_repos(
     Ok(response.repos)
 }
 
-fn fetch_creator_targets(
+fn fetch_creator_snapshots(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: &str,
     product_id: i64,
     remote_repo_id: i64,
-) -> Result<Vec<RemoteTargetRecord>> {
-    let response: crate::remote::backend::CreatorRepoTargetsResponse = request_json_from_backend(
+) -> Result<Vec<RemoteSnapshotRecord>> {
+    let response: crate::remote::backend::CreatorRepoSnapshotsResponse = request_json_from_backend(
         client
             .get(format!(
-                "{}/v1/users/me/creator/products/{}/repos/{}/targets",
+                "{}/v1/users/me/creator/products/{}/repos/{}/snapshots",
                 base_endpoint(endpoint),
                 product_id,
                 remote_repo_id
@@ -251,25 +251,25 @@ fn fetch_creator_targets(
             .header("Authorization", format!("Bearer {}", session_id)),
     )?;
     let mut records = Vec::new();
-    for target in response.targets {
-        records.push(remote_target_record(target));
+    for snapshot in response.snapshots {
+        records.push(remote_snapshot_record(snapshot));
     }
     for tier in response.tier_labels {
-        for target in tier.targets {
-            records.push(remote_target_record(target));
+        for snapshot in tier.snapshots {
+            records.push(remote_snapshot_record(snapshot));
         }
     }
     Ok(records)
 }
 
-fn remote_target_record(target: CreatorTargetResponse) -> RemoteTargetRecord {
-    RemoteTargetRecord {
-        target_id: target.target_id,
-        target_metadata_hash_b3: target.target_metadata_hash_b3,
-        target_product_metadata_hash_b3: target.target_product_metadata_hash_b3,
-        target_blueprint_hash_b3: target.target_blueprint_hash_b3,
-        uploaded_at: target.uploaded_at,
-        created_at: target.created_at,
+fn remote_snapshot_record(snapshot: CreatorSnapshotResponse) -> RemoteSnapshotRecord {
+    RemoteSnapshotRecord {
+        snapshot_id: snapshot.snapshot_id,
+        snapshot_index_hash_b3: snapshot.snapshot_index_hash_b3,
+        product_metadata_hash_b3: snapshot.product_metadata_hash_b3,
+        snapshot_blueprint_hash_b3: snapshot.snapshot_blueprint_hash_b3,
+        uploaded_at: snapshot.uploaded_at,
+        created_at: snapshot.created_at,
     }
 }
 
@@ -290,42 +290,42 @@ fn local_chunk_map_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String>
     Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
 }
 
-fn local_target_metadata_hash_b3(
+fn local_snapshot_index_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> Result<String> {
-    if !crate::target_manifest_path(repo_paths, target_id).exists()
-        || !crate::target_blueprint_path(repo_paths, target_id).exists()
+    if !crate::snapshot_manifest_path(repo_paths, snapshot_id).exists()
+        || !crate::snapshot_blueprint_path(repo_paths, snapshot_id).exists()
     {
         return Ok(String::new());
     }
-    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
+    let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
     Ok(repo_file_hash(
-        &crate::serialize_target_manifest_for_remote(&manifest)?,
+        &crate::serialize_snapshot_manifest_for_remote(&manifest)?,
     ))
 }
 
-fn local_target_product_metadata_hash_b3(
+fn local_product_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> Result<String> {
-    if !crate::target_manifest_path(repo_paths, target_id).exists()
-        || !crate::target_blueprint_path(repo_paths, target_id).exists()
+    if !crate::snapshot_manifest_path(repo_paths, snapshot_id).exists()
+        || !crate::snapshot_blueprint_path(repo_paths, snapshot_id).exists()
     {
         return Ok(String::new());
     }
-    let manifest = crate::load_target_manifest(repo_paths, target_id)?;
-    let Some(bytes) = crate::serialize_target_product_metadata_for_remote(&manifest)? else {
+    let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
+    let Some(bytes) = crate::serialize_product_metadata_for_remote(&manifest)? else {
         return Ok(String::new());
     };
     Ok(repo_file_hash(&bytes))
 }
 
-fn local_target_blueprint_hash_b3(
+fn local_snapshot_blueprint_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> Result<String> {
-    let blueprint_path = crate::target_blueprint_path(repo_paths, target_id);
+    let blueprint_path = crate::snapshot_blueprint_path(repo_paths, snapshot_id);
     if !blueprint_path.exists() {
         return Ok(String::new());
     }
@@ -415,7 +415,7 @@ pub fn list_remote_repos(endpoint: &str, session_id: &str) -> Result<Vec<RemoteR
     Ok(entries)
 }
 
-fn resolve_pull_target(
+fn resolve_pull_snapshot(
     repo: &Path,
     remote_spec: Option<&str>,
     client: &reqwest::blocking::Client,
@@ -473,7 +473,7 @@ fn compute_pull_plan(
     repo_root: &Path,
     repo_paths: &crate::GutchRepoPaths,
     record: &RemoteRepoRecord,
-    targets: &[RemoteTargetRecord],
+    snapshots: &[RemoteSnapshotRecord],
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
     let repo_manifest_needed = decide_artifact(
@@ -492,39 +492,38 @@ fn compute_pull_plan(
         local_file_mtime(&repo_paths.chunk_map_path),
         policy,
     ) != ArtifactDecision::Identical;
-    let mut targets_to_download = Vec::new();
-    let mut targets_to_skip = Vec::new();
-    let mut kept_newer_local_targets = Vec::new();
-    for target in targets {
-        let updated_at = if target.uploaded_at.is_empty() {
-            &target.created_at
+    let mut snapshots_to_download = Vec::new();
+    let mut snapshots_to_skip = Vec::new();
+    let mut kept_newer_local_snapshots = Vec::new();
+    for snapshot in snapshots {
+        let updated_at = if snapshot.uploaded_at.is_empty() {
+            &snapshot.created_at
         } else {
-            &target.uploaded_at
+            &snapshot.uploaded_at
         };
-        let manifest_path = crate::target_manifest_path(repo_paths, &target.target_id);
+        let manifest_path = crate::snapshot_manifest_path(repo_paths, &snapshot.snapshot_id);
         let decision = decide_artifact(
             manifest_path.exists(),
-            local_target_metadata_hash_b3(repo_paths, &target.target_id)?,
-            &target.target_metadata_hash_b3,
+            local_snapshot_index_hash_b3(repo_paths, &snapshot.snapshot_id)?,
+            &snapshot.snapshot_index_hash_b3,
             updated_at,
             local_file_mtime(&manifest_path),
             policy,
         );
         let decision = if decision == ArtifactDecision::Identical
             && hashes_differ(
-                &local_target_blueprint_hash_b3(repo_paths, &target.target_id)?,
-                &target.target_blueprint_hash_b3,
+                &local_snapshot_blueprint_hash_b3(repo_paths, &snapshot.snapshot_id)?,
+                &snapshot.snapshot_blueprint_hash_b3,
             ) {
             ArtifactDecision::Fetch
         } else {
             decision
         };
-        let product_metadata_path =
-            crate::target_product_metadata_path(repo_paths, &target.target_id);
+        let product_metadata_path = crate::product_metadata_path(repo_paths, &snapshot.snapshot_id);
         let product_metadata_decision = decide_artifact(
             product_metadata_path.exists(),
-            local_target_product_metadata_hash_b3(repo_paths, &target.target_id)?,
-            &target.target_product_metadata_hash_b3,
+            local_product_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
+            &snapshot.product_metadata_hash_b3,
             updated_at,
             local_file_mtime(&product_metadata_path),
             policy,
@@ -537,41 +536,41 @@ fn compute_pull_plan(
             _ => ArtifactDecision::Identical,
         };
         match decision {
-            ArtifactDecision::Identical => targets_to_skip.push(target.target_id.clone()),
-            ArtifactDecision::Fetch => targets_to_download.push(target.target_id.clone()),
+            ArtifactDecision::Identical => snapshots_to_skip.push(snapshot.snapshot_id.clone()),
+            ArtifactDecision::Fetch => snapshots_to_download.push(snapshot.snapshot_id.clone()),
             ArtifactDecision::KeepLocalNewer => {
-                kept_newer_local_targets.push(target.target_id.clone());
-                targets_to_skip.push(target.target_id.clone());
+                kept_newer_local_snapshots.push(snapshot.snapshot_id.clone());
+                snapshots_to_skip.push(snapshot.snapshot_id.clone());
             }
         }
     }
-    targets_to_download.sort();
-    targets_to_skip.sort();
-    kept_newer_local_targets.sort();
+    snapshots_to_download.sort();
+    snapshots_to_skip.sort();
+    kept_newer_local_snapshots.sort();
 
-    let remote_target_ids: HashSet<&str> = targets
+    let remote_snapshot_ids: HashSet<&str> = snapshots
         .iter()
-        .map(|target| target.target_id.as_str())
+        .map(|snapshot| snapshot.snapshot_id.as_str())
         .collect();
-    let mut local_only_targets = Vec::new();
-    for entry in walkdir::WalkDir::new(&repo_paths.targets_root).sort_by_file_name() {
+    let mut local_only_snapshots = Vec::new();
+    for entry in walkdir::WalkDir::new(&repo_paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file()
-            || entry.file_name() != crate::repo::target_manifests::TARGET_METADATA_FILE
+            || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_INDEX_FILE
         {
             continue;
         }
-        if let Some(target_id) = entry
+        if let Some(snapshot_id) = entry
             .path()
             .parent()
             .and_then(|parent| parent.file_name())
             .and_then(|value| value.to_str())
-            && !remote_target_ids.contains(target_id)
+            && !remote_snapshot_ids.contains(snapshot_id)
         {
-            local_only_targets.push(target_id.to_string());
+            local_only_snapshots.push(snapshot_id.to_string());
         }
     }
-    local_only_targets.sort();
+    local_only_snapshots.sort();
 
     Ok(RepoPullPlan {
         repo_root: repo_root.display().to_string(),
@@ -580,10 +579,10 @@ fn compute_pull_plan(
         remote_repo_name: record.name.clone(),
         repo_manifest_needed,
         chunk_map_needed,
-        targets_to_download,
-        targets_to_skip,
-        local_only_targets,
-        kept_newer_local_targets,
+        snapshots_to_download,
+        snapshots_to_skip,
+        local_only_snapshots,
+        kept_newer_local_snapshots,
         bundle_count: 0,
     })
 }
@@ -597,15 +596,15 @@ pub fn plan_repo_pull(
 ) -> Result<RepoPullPlan> {
     let client = build_client()?;
     let (record, repo_paths) =
-        resolve_pull_target(repo, remote_spec, &client, endpoint, session_id)?;
-    let targets = fetch_creator_targets(
+        resolve_pull_snapshot(repo, remote_spec, &client, endpoint, session_id)?;
+    let snapshots = fetch_creator_snapshots(
         &client,
         endpoint,
         session_id,
         record.product_id,
         record.remote_repo_id,
     )?;
-    compute_pull_plan(repo, &repo_paths, &record, &targets, policy)
+    compute_pull_plan(repo, &repo_paths, &record, &snapshots, policy)
 }
 
 fn emit(
@@ -769,37 +768,37 @@ fn fetch_chunk_map_url(
     Ok(response.chunk_index_url)
 }
 
-fn fetch_target_metadata_url(
+fn fetch_snapshot_index_url(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: &str,
     product_id: i64,
     remote_repo_id: i64,
-    target_id: &str,
+    snapshot_id: &str,
 ) -> Result<(String, String, Option<String>)> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
-    struct TargetMetadataResponse {
+    struct SnapshotMetadataResponse {
         metadata_url: String,
         blueprint_url: String,
         #[serde(default)]
-        target_product_metadata_url: Option<String>,
+        product_metadata_url: Option<String>,
     }
-    let response: TargetMetadataResponse = request_json_authed(
+    let response: SnapshotMetadataResponse = request_json_authed(
         client,
         &format!(
-            "{}/v1/products/{}/repos/{}/targets/{}/metadata",
+            "{}/v1/products/{}/repos/{}/snapshots/{}/metadata",
             base_endpoint(endpoint),
             product_id,
             remote_repo_id,
-            url_encode_path_segment(target_id)
+            url_encode_path_segment(snapshot_id)
         ),
         session_id,
     )?;
     Ok((
         response.metadata_url,
         response.blueprint_url,
-        response.target_product_metadata_url,
+        response.product_metadata_url,
     ))
 }
 
@@ -818,7 +817,7 @@ fn fetch_bundle_download_urls(
     session_id: &str,
     product_id: i64,
     remote_repo_id: i64,
-    target_id: &str,
+    snapshot_id: &str,
     bundle_ids: &[String],
 ) -> Result<BundleDownloadSet> {
     #[derive(serde::Deserialize)]
@@ -839,11 +838,11 @@ fn fetch_bundle_download_urls(
     let response: BundleDownloadsResponse = request_json_from_backend(
         client
             .get(format!(
-                "{}/v1/products/{}/repos/{}/targets/{}/bundle-downloads?ids={}",
+                "{}/v1/products/{}/repos/{}/snapshots/{}/bundle-downloads?ids={}",
                 base_endpoint(endpoint),
                 product_id,
                 remote_repo_id,
-                url_encode_path_segment(target_id),
+                url_encode_path_segment(snapshot_id),
                 url_encode_query(&ids)
             ))
             .header("Accept", "application/json")
@@ -860,19 +859,19 @@ fn url_encode_query(value: &str) -> String {
     value.replace(',', "%2C").replace(' ', "%20")
 }
 
-fn required_bundle_ids_by_target(
+fn required_bundle_ids_by_snapshot(
     repo_paths: &crate::GutchRepoPaths,
 ) -> Result<Vec<(String, Vec<String>)>> {
     let chunk_index = crate::load_chunk_index(repo_paths)?;
-    let mut by_target = Vec::new();
-    for entry in walkdir::WalkDir::new(&repo_paths.targets_root).sort_by_file_name() {
+    let mut by_snapshot = Vec::new();
+    for entry in walkdir::WalkDir::new(&repo_paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file()
-            || entry.file_name() != crate::repo::target_manifests::TARGET_METADATA_FILE
+            || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_INDEX_FILE
         {
             continue;
         }
-        let Some(target_id) = entry
+        let Some(snapshot_id) = entry
             .path()
             .parent()
             .and_then(|parent| parent.file_name())
@@ -880,14 +879,14 @@ fn required_bundle_ids_by_target(
         else {
             continue;
         };
-        let manifest = crate::load_target_manifest(repo_paths, target_id)?;
+        let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
         let mut ids: Vec<String> = crate::repo::required_bundle_ids(&manifest, &chunk_index)
             .into_iter()
             .collect();
         ids.sort();
-        by_target.push((target_id.to_string(), ids));
+        by_snapshot.push((snapshot_id.to_string(), ids));
     }
-    Ok(by_target)
+    Ok(by_snapshot)
 }
 
 fn collect_local_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
@@ -913,7 +912,7 @@ pub fn pull_repo(
     control.checkpoint()?;
     let progress = control.progress().clone();
     let client = build_client()?;
-    let (record, repo_paths) = resolve_pull_target(
+    let (record, repo_paths) = resolve_pull_snapshot(
         &repo,
         remote_spec.as_deref(),
         &client,
@@ -933,14 +932,14 @@ pub fn pull_repo(
         false,
     );
 
-    let targets = fetch_creator_targets(
+    let snapshots = fetch_creator_snapshots(
         &client,
         &endpoint,
         &session_id,
         record.product_id,
         record.remote_repo_id,
     )?;
-    let plan = compute_pull_plan(&repo, &repo_paths, &record, &targets, policy)?;
+    let plan = compute_pull_plan(&repo, &repo_paths, &record, &snapshots, policy)?;
     control.checkpoint()?;
 
     let mut stats = RepoPullStats {
@@ -950,20 +949,20 @@ pub fn pull_repo(
         remote_repo_id: record.remote_repo_id,
         repo_manifest_downloaded: false,
         chunk_map_downloaded: false,
-        target_downloaded_count: 0,
-        target_skipped_count: plan.targets_to_skip.len(),
+        snapshot_downloaded_count: 0,
+        snapshot_skipped_count: plan.snapshots_to_skip.len(),
         bundle_downloaded_count: 0,
         bundle_skipped_count: 0,
-        kept_newer_local_count: plan.kept_newer_local_targets.len(),
-        local_only_targets_kept: 0,
-        pruned_target_count: 0,
+        kept_newer_local_count: plan.kept_newer_local_snapshots.len(),
+        local_only_snapshots_kept: 0,
+        pruned_snapshot_count: 0,
         pruned_bundle_count: 0,
     };
 
     let total_steps = 1
         + usize::from(plan.repo_manifest_needed)
         + usize::from(plan.chunk_map_needed)
-        + plan.targets_to_download.len()
+        + plan.snapshots_to_download.len()
         + 2;
     let mut step = 0usize;
 
@@ -1026,54 +1025,50 @@ pub fn pull_repo(
         stats.chunk_map_downloaded = true;
     }
 
-    let target_start = step;
-    for target_id in &plan.targets_to_download {
+    let snapshot_start = step;
+    for snapshot_id in &plan.snapshots_to_download {
         control.checkpoint()?;
         step += 1;
         emit(
             &progress,
             GutchOperation::Pull,
-            GutchProgressPhase::TargetMetadata,
+            GutchProgressPhase::SnapshotMetadata,
             format!(
-                "Downloading target metadata ({}/{})",
-                step - target_start,
-                plan.targets_to_download.len().max(1)
+                "Downloading snapshot metadata ({}/{})",
+                step - snapshot_start,
+                plan.snapshots_to_download.len().max(1)
             ),
             step,
             total_steps,
-            Some(target_id.clone()),
+            Some(snapshot_id.clone()),
             false,
         );
-        let (metadata_url, blueprint_url, product_metadata_url) = fetch_target_metadata_url(
+        let (metadata_url, blueprint_url, product_metadata_url) = fetch_snapshot_index_url(
             &client,
             &endpoint,
             &session_id,
             record.product_id,
             record.remote_repo_id,
-            target_id,
+            snapshot_id,
         )?;
         let metadata_bytes = download_json(&client, &metadata_url)?;
-        let metadata = crate::target_manifest_from_download(target_id, &metadata_bytes)?;
-        crate::repo::write_target_metadata_only(&repo_paths, &metadata)?;
+        let metadata = crate::snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
+        crate::repo::write_snapshot_index_only(&repo_paths, &metadata)?;
         if let Some(product_metadata_url) = product_metadata_url {
             let product_metadata_bytes = download_json(&client, &product_metadata_url)?;
-            let product_metadata: crate::manifest::TargetProductMetadata =
+            let product_metadata: crate::manifest::ProductMetadata =
                 crate::helpers::from_json_bytes(&product_metadata_bytes)?;
             product_metadata.validate_structure()?;
-            crate::repo::write_target_product_metadata(
-                &repo_paths,
-                target_id,
-                Some(&product_metadata),
-            )?;
+            crate::repo::write_product_metadata(&repo_paths, snapshot_id, Some(&product_metadata))?;
         } else {
-            crate::repo::write_target_product_metadata(&repo_paths, target_id, None)?;
+            crate::repo::write_product_metadata(&repo_paths, snapshot_id, None)?;
         }
         let blueprint_bytes = download_binary(&client, &blueprint_url)?;
         crate::helpers::write(
-            &crate::target_blueprint_path(&repo_paths, target_id),
+            &crate::snapshot_blueprint_path(&repo_paths, snapshot_id),
             &blueprint_bytes,
         )?;
-        stats.target_downloaded_count += 1;
+        stats.snapshot_downloaded_count += 1;
     }
 
     step += 1;
@@ -1087,8 +1082,8 @@ pub fn pull_repo(
         None,
         false,
     );
-    let bundles_by_target = required_bundle_ids_by_target(&repo_paths)?;
-    let required_set: HashSet<String> = bundles_by_target
+    let bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
+    let required_set: HashSet<String> = bundles_by_snapshot
         .iter()
         .flat_map(|(_, ids)| ids.iter())
         .cloned()
@@ -1101,13 +1096,13 @@ pub fn pull_repo(
     missing_bundles.sort();
 
     let mut download_set = BundleDownloadSet::default();
-    for (target_id, bundle_ids) in &bundles_by_target {
-        let missing_for_target: Vec<String> = bundle_ids
+    for (snapshot_id, bundle_ids) in &bundles_by_snapshot {
+        let missing_for_snapshot: Vec<String> = bundle_ids
             .iter()
             .filter(|id| missing_bundles.contains(id))
             .cloned()
             .collect();
-        if missing_for_target.is_empty() {
+        if missing_for_snapshot.is_empty() {
             continue;
         }
         let fetched = fetch_bundle_download_urls(
@@ -1116,8 +1111,8 @@ pub fn pull_repo(
             &session_id,
             record.product_id,
             record.remote_repo_id,
-            target_id,
-            &missing_for_target,
+            snapshot_id,
+            &missing_for_snapshot,
         )?;
         download_set.urls.extend(fetched.urls);
     }
@@ -1149,7 +1144,7 @@ pub fn pull_repo(
     stats.bundle_downloaded_count = bundle_downloaded;
     stats.bundle_skipped_count = required_set.len().saturating_sub(bundle_downloaded);
 
-    let mut pruned_target_count = 0usize;
+    let mut pruned_snapshot_count = 0usize;
     let mut pruned_bundle_count = 0usize;
     if prune {
         control.checkpoint()?;
@@ -1164,10 +1159,10 @@ pub fn pull_repo(
             None,
             false,
         );
-        for target_id in &plan.local_only_targets {
+        for snapshot_id in &plan.local_only_snapshots {
             control.checkpoint()?;
-            crate::repo::cleanup::remove_target_from_repo(&repo, target_id)?;
-            pruned_target_count += 1;
+            crate::repo::cleanup::remove_snapshot_from_repo(&repo, snapshot_id)?;
+            pruned_snapshot_count += 1;
         }
         let local_bundles = collect_local_bundle_paths(&repo_paths.bundles_root)?;
         for path in local_bundles {
@@ -1180,9 +1175,9 @@ pub fn pull_repo(
             }
         }
     } else {
-        stats.local_only_targets_kept = plan.local_only_targets.len();
+        stats.local_only_snapshots_kept = plan.local_only_snapshots.len();
     }
-    stats.pruned_target_count = pruned_target_count;
+    stats.pruned_snapshot_count = pruned_snapshot_count;
     stats.pruned_bundle_count = pruned_bundle_count;
 
     emit(

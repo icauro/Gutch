@@ -1,19 +1,22 @@
-use crate::cli::TargetSourcesCommands;
-use crate::cli::actions::target_sources::{CliTargetSourcesSyncOptions, sync_target_sources};
+use crate::cli::SnapshotSourcesCommands;
+use crate::cli::actions::snapshot_sources::{CliSnapshotSourcesSyncOptions, sync_snapshot_sources};
 use crate::cli::reporting::ensure_parent_directory;
 use gutch as g;
 
-pub fn run(command: TargetSourcesCommands) -> g::Result<()> {
+pub fn run(command: SnapshotSourcesCommands) -> g::Result<()> {
     match command {
-        TargetSourcesCommands::Sync {
+        SnapshotSourcesCommands::Sync {
             repo,
-            root,
+            source_root,
             no_prune,
             yes,
             json_out,
         } => {
-            let result =
-                sync_target_sources(&repo, &root, CliTargetSourcesSyncOptions { no_prune, yes })?;
+            let result = sync_snapshot_sources(
+                &repo,
+                &source_root,
+                CliSnapshotSourcesSyncOptions { no_prune, yes },
+            )?;
 
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;

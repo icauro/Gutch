@@ -6,18 +6,18 @@ use crate::path_guard::resolve_manifest_relative_path;
 use crate::progress::GutchOperationControl;
 use crate::{Error, Result};
 
-use super::restore::verify_chunk_hash;
-use super::types::{ReconstructOptions, VerifiedSourceInstall, typed_chunk_refs};
+use super::pipeline::verify_chunk_hash;
+use super::types::{ReconstructOptions, VerifiedSourceTree, typed_chunk_refs};
 
 pub(super) fn read_reusable_source_chunks(
-    source: VerifiedSourceInstall<'_>,
+    source: VerifiedSourceTree<'_>,
     needed_chunks: &std::collections::HashSet<ChunkHash>,
     control: &GutchOperationControl,
 ) -> Result<HashMap<ChunkHash, Vec<u8>>> {
     let mut chunk_map: HashMap<ChunkHash, Vec<u8>> = HashMap::new();
     let mut skip_buffer = Vec::new();
 
-    for fm in &source.target_manifest.files {
+    for fm in &source.snapshot_manifest.files {
         control.checkpoint()?;
         let typed_chunks = typed_chunk_refs(fm)?;
         if typed_chunks
@@ -27,7 +27,7 @@ pub(super) fn read_reusable_source_chunks(
             continue;
         }
 
-        let file_path = resolve_manifest_relative_path(source.install_dir, &fm.path)?;
+        let file_path = resolve_manifest_relative_path(source.destination_dir, &fm.path)?;
         let file = std::fs::File::open(&file_path)?;
         let mut reader = std::io::BufReader::new(file);
 

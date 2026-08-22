@@ -10,7 +10,7 @@ pub struct GutchRepoPaths {
     pub repo_metadata_path: PathBuf,
     pub repo_binding_path: PathBuf,
     pub chunk_map_path: PathBuf,
-    pub targets_root: PathBuf,
+    pub snapshots_root: PathBuf,
     pub bundles_root: PathBuf,
     pub chunks_root: PathBuf,
 }
@@ -27,7 +27,7 @@ impl GutchRepoPaths {
             repo_metadata_path: repo_root.join(REPO_METADATA_FILE),
             repo_binding_path: repo_root.join("repo_binding.json"),
             chunk_map_path: repo_root.join("chunk_map.gtcbin"),
-            targets_root: repo_root.join("targets"),
+            snapshots_root: repo_root.join("snapshots"),
             bundles_root: repo_root.join("bundles"),
             chunks_root: repo_root.join("chunks"),
         }
@@ -35,7 +35,7 @@ impl GutchRepoPaths {
 }
 
 pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<GutchRepoManifest> {
-    crate::helpers::create_dir_all(&paths.targets_root)?;
+    crate::helpers::create_dir_all(&paths.snapshots_root)?;
     crate::helpers::create_dir_all(&paths.bundles_root)?;
     crate::helpers::create_dir_all(&paths.chunks_root)?;
 

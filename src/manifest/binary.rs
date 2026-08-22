@@ -3,13 +3,13 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
 use crate::hash::ChunkHash;
-use crate::manifest::{self, target::TargetManifest};
+use crate::manifest::{self, snapshot::SnapshotManifest};
 use crate::{Error, Result};
 
 const CHUNK_INDEX_BINARY_MAGIC: &[u8; 4] = b"GTCI";
 const CHUNK_INDEX_BINARY_VERSION: u16 = 1;
-const TARGET_FILES_BINARY_MAGIC: &[u8; 4] = b"GTCT";
-const TARGET_FILES_BINARY_VERSION: u16 = 1;
+const SNAPSHOT_FILES_BINARY_MAGIC: &[u8; 4] = b"GTCT";
+const SNAPSHOT_FILES_BINARY_VERSION: u16 = 1;
 
 fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
     let mut buffer = [0u8; N];
@@ -230,32 +230,32 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex
     Ok(())
 }
 
-pub(crate) fn write_target_blueprint_binary(
+pub(crate) fn write_snapshot_blueprint_binary(
     path: &Path,
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
 ) -> Result<()> {
     let file = std::fs::File::create(path)?;
     let mut writer = BufWriter::new(file);
-    writer.write_all(TARGET_FILES_BINARY_MAGIC)?;
-    write_u16(&mut writer, TARGET_FILES_BINARY_VERSION)?;
+    writer.write_all(SNAPSHOT_FILES_BINARY_MAGIC)?;
+    write_u16(&mut writer, SNAPSHOT_FILES_BINARY_VERSION)?;
     write_u16(&mut writer, 0)?;
-    write_u32(&mut writer, target_manifest.files.len() as u32)?;
-    let chunk_ref_count = target_manifest
+    write_u32(&mut writer, snapshot_manifest.files.len() as u32)?;
+    let chunk_ref_count = snapshot_manifest
         .files
         .iter()
         .map(|file_manifest| file_manifest.chunks.len() as u64)
         .sum::<u64>();
     write_u64(&mut writer, chunk_ref_count)?;
 
-    let mut paths = Vec::with_capacity(target_manifest.files.len());
-    let mut sizes = Vec::with_capacity(target_manifest.files.len());
-    let mut executables = Vec::with_capacity(target_manifest.files.len());
-    let mut full_file_hashes = Vec::with_capacity(target_manifest.files.len());
-    let mut chunk_counts = Vec::with_capacity(target_manifest.files.len());
+    let mut paths = Vec::with_capacity(snapshot_manifest.files.len());
+    let mut sizes = Vec::with_capacity(snapshot_manifest.files.len());
+    let mut executables = Vec::with_capacity(snapshot_manifest.files.len());
+    let mut full_file_hashes = Vec::with_capacity(snapshot_manifest.files.len());
+    let mut chunk_counts = Vec::with_capacity(snapshot_manifest.files.len());
     let mut chunk_hashes = Vec::with_capacity(chunk_ref_count as usize);
     let mut chunk_raw_sizes = Vec::with_capacity(chunk_ref_count as usize);
 
-    for file_manifest in &target_manifest.files {
+    for file_manifest in &snapshot_manifest.files {
         paths.push(file_manifest.path.clone());
         sizes.push(file_manifest.size);
         executables.push(file_manifest.executable);
@@ -278,21 +278,21 @@ pub(crate) fn write_target_blueprint_binary(
     Ok(())
 }
 
-pub(crate) fn read_target_blueprint_binary(path: &Path) -> Result<Vec<manifest::FileManifest>> {
+pub(crate) fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest::FileManifest>> {
     let file = std::fs::File::open(path)?;
     let mut reader = BufReader::new(file);
     let magic = read_exact_array::<4>(&mut reader)?;
-    if &magic != TARGET_FILES_BINARY_MAGIC {
+    if &magic != SNAPSHOT_FILES_BINARY_MAGIC {
         return Err(Error::manifest(format!(
-            "invalid target blueprint binary header in {}",
+            "invalid snapshot blueprint binary header in {}",
             path.display()
         )));
     }
 
     let version = read_u16(&mut reader)?;
-    if version != TARGET_FILES_BINARY_VERSION {
+    if version != SNAPSHOT_FILES_BINARY_VERSION {
         return Err(Error::manifest(format!(
-            "unsupported target blueprint binary version {} in {}",
+            "unsupported snapshot blueprint binary version {} in {}",
             version,
             path.display()
         )));
@@ -316,15 +316,15 @@ pub(crate) fn read_target_blueprint_binary(path: &Path) -> Result<Vec<manifest::
         let chunk_count = chunk_counts[index] as usize;
         let end = chunk_offset
             .checked_add(chunk_count)
-            .ok_or_else(|| Error::manifest("target blueprint chunk count overflow"))?;
+            .ok_or_else(|| Error::manifest("snapshot blueprint chunk count overflow"))?;
         if end > chunk_hashes.len() {
             return Err(Error::manifest(
-                "target blueprint chunk count exceeds payload",
+                "snapshot blueprint chunk count exceeds payload",
             ));
         }
         if executables[index] > 1 {
             return Err(Error::manifest(
-                "target blueprint executable flags must be 0 or 1",
+                "snapshot blueprint executable flags must be 0 or 1",
             ));
         }
         let chunks: Vec<manifest::ChunkRef> = (chunk_offset..end)
@@ -339,7 +339,7 @@ pub(crate) fn read_target_blueprint_binary(path: &Path) -> Result<Vec<manifest::
         // still have to account for the full file size.
         if chunk_count > 0 && chunk_bytes != sizes[index] {
             return Err(Error::manifest(format!(
-                "target blueprint file '{}' size does not match its chunk references",
+                "snapshot blueprint file '{}' size does not match its chunk references",
                 paths[index]
             )));
         }
@@ -354,12 +354,14 @@ pub(crate) fn read_target_blueprint_binary(path: &Path) -> Result<Vec<manifest::
     }
     if chunk_offset != chunk_ref_count {
         return Err(Error::manifest(
-            "target blueprint contains unreferenced chunk records",
+            "snapshot blueprint contains unreferenced chunk records",
         ));
     }
     let mut trailing = [0u8; 1];
     if reader.read(&mut trailing)? != 0 {
-        return Err(Error::manifest("target blueprint contains trailing bytes"));
+        return Err(Error::manifest(
+            "snapshot blueprint contains trailing bytes",
+        ));
     }
     Ok(files)
 }

@@ -4,44 +4,44 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct TargetProductMetadata {
+pub struct ProductMetadata {
     #[serde(rename = "document_version")]
     pub document_version: String,
-    pub runtime: TargetRuntimeMetadata,
+    pub runtime: SnapshotRuntimeMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
-pub enum TargetRuntimeMetadata {
-    Direct(TargetDirectRuntimeMetadata),
-    HostVariants(TargetHostVariantRuntimeMetadata),
+pub enum SnapshotRuntimeMetadata {
+    Direct(SnapshotDirectRuntimeMetadata),
+    HostVariants(SnapshotHostVariantRuntimeMetadata),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct TargetDirectRuntimeMetadata {
-    pub launch_actions: Vec<TargetLaunchAction>,
+pub struct SnapshotDirectRuntimeMetadata {
+    pub launch_actions: Vec<SnapshotLaunchAction>,
     pub external_dependencies: Vec<ExternalProductDependencyRequirement>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct TargetHostVariantRuntimeMetadata {
-    pub host_variants: Vec<TargetHostVariant>,
+pub struct SnapshotHostVariantRuntimeMetadata {
+    pub host_variants: Vec<SnapshotHostVariant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct TargetHostVariant {
+pub struct SnapshotHostVariant {
     pub variant_id: String,
     pub host_tag_requirements: Vec<String>,
-    pub launch_actions: Vec<TargetLaunchAction>,
+    pub launch_actions: Vec<SnapshotLaunchAction>,
     pub external_dependencies: Vec<ExternalProductDependencyRequirement>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct TargetLaunchAction {
+pub struct SnapshotLaunchAction {
     pub action_name: String,
     pub executable_path: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -50,22 +50,22 @@ pub struct TargetLaunchAction {
     pub working_directory_path: Option<String>,
 }
 
-impl TargetProductMetadata {
+impl ProductMetadata {
     pub fn validate_structure(&self) -> crate::Result<()> {
         if self.document_version != FORMAT_VERSION {
             return Err(crate::Error::manifest(
-                "target product metadata document_version is unsupported",
+                "snapshot product metadata document_version is unsupported",
             ));
         }
         match &self.runtime {
-            TargetRuntimeMetadata::Direct(runtime) => {
+            SnapshotRuntimeMetadata::Direct(runtime) => {
                 validate_runtime_actions(&runtime.launch_actions, true)?;
                 validate_external_product_dependency_requirements(&runtime.external_dependencies)?;
             }
-            TargetRuntimeMetadata::HostVariants(runtime) => {
+            SnapshotRuntimeMetadata::HostVariants(runtime) => {
                 if runtime.host_variants.is_empty() {
                     return Err(crate::Error::manifest(
-                        "target product metadata host_variants must not be empty",
+                        "snapshot product metadata host_variants must not be empty",
                     ));
                 }
                 let mut variant_ids = std::collections::HashSet::new();
@@ -74,7 +74,7 @@ impl TargetProductMetadata {
                         || !variant_ids.insert(variant.variant_id.as_str())
                     {
                         return Err(crate::Error::manifest(
-                            "target product metadata variant_id is invalid or duplicated",
+                            "snapshot product metadata variant_id is invalid or duplicated",
                         ));
                     }
                     if variant.host_tag_requirements.is_empty()
@@ -84,7 +84,7 @@ impl TargetProductMetadata {
                             .any(|tag| tag.trim().is_empty())
                     {
                         return Err(crate::Error::manifest(
-                            "target product metadata host_tag_requirements must not be empty",
+                            "snapshot product metadata host_tag_requirements must not be empty",
                         ));
                     }
                     validate_runtime_actions(&variant.launch_actions, true)?;
@@ -103,11 +103,11 @@ impl TargetProductMetadata {
     ) -> Self {
         Self {
             document_version: FORMAT_VERSION.to_string(),
-            runtime: TargetRuntimeMetadata::Direct(TargetDirectRuntimeMetadata {
+            runtime: SnapshotRuntimeMetadata::Direct(SnapshotDirectRuntimeMetadata {
                 launch_actions: launch
                     .actions
                     .iter()
-                    .map(|action| TargetLaunchAction {
+                    .map(|action| SnapshotLaunchAction {
                         action_name: action.name.clone(),
                         executable_path: action.executable.clone(),
                         command_arguments: action.arguments.clone(),
@@ -121,11 +121,11 @@ impl TargetProductMetadata {
 
     pub fn launch_for_host_tags(
         &self,
-        host_tags: &TargetTagSet,
+        host_tags: &SnapshotTagSet,
     ) -> Option<launch::ResolvedLaunchConfiguration> {
         let launch_actions = match &self.runtime {
-            TargetRuntimeMetadata::Direct(runtime) => &runtime.launch_actions,
-            TargetRuntimeMetadata::HostVariants(_) => {
+            SnapshotRuntimeMetadata::Direct(runtime) => &runtime.launch_actions,
+            SnapshotRuntimeMetadata::HostVariants(_) => {
                 &self.matching_host_variant(host_tags)?.launch_actions
             }
         };
@@ -147,19 +147,19 @@ impl TargetProductMetadata {
 
     pub fn external_dependencies_for_host_tags(
         &self,
-        host_tags: &TargetTagSet,
+        host_tags: &SnapshotTagSet,
     ) -> Vec<ExternalProductDependencyRequirement> {
         match &self.runtime {
-            TargetRuntimeMetadata::Direct(runtime) => runtime.external_dependencies.clone(),
-            TargetRuntimeMetadata::HostVariants(_) => self
+            SnapshotRuntimeMetadata::Direct(runtime) => runtime.external_dependencies.clone(),
+            SnapshotRuntimeMetadata::HostVariants(_) => self
                 .matching_host_variant(host_tags)
                 .map(|variant| variant.external_dependencies.clone())
                 .unwrap_or_default(),
         }
     }
 
-    fn matching_host_variant(&self, host_tags: &TargetTagSet) -> Option<&TargetHostVariant> {
-        let TargetRuntimeMetadata::HostVariants(runtime) = &self.runtime else {
+    fn matching_host_variant(&self, host_tags: &SnapshotTagSet) -> Option<&SnapshotHostVariant> {
+        let SnapshotRuntimeMetadata::HostVariants(runtime) = &self.runtime else {
             return None;
         };
         let canonical_tags = host_tags.to_canonical_strings();
@@ -178,12 +178,12 @@ impl TargetProductMetadata {
 }
 
 pub(crate) fn validate_runtime_actions(
-    actions: &[TargetLaunchAction],
+    actions: &[SnapshotLaunchAction],
     require_actions: bool,
 ) -> crate::Result<()> {
     if require_actions && actions.is_empty() {
         return Err(crate::Error::manifest(
-            "target product metadata launch_actions must not be empty",
+            "snapshot product metadata launch_actions must not be empty",
         ));
     }
     let mut action_names = std::collections::HashSet::new();
@@ -192,7 +192,7 @@ pub(crate) fn validate_runtime_actions(
             || !action_names.insert(action.action_name.trim().to_ascii_lowercase())
         {
             return Err(crate::Error::manifest(
-                "target product metadata action_name is empty or duplicated",
+                "snapshot product metadata action_name is empty or duplicated",
             ));
         }
     }
@@ -208,10 +208,10 @@ fn is_runtime_identifier(value: &str) -> bool {
         })
 }
 
-/// Returns the launcher host capabilities used by target product host variants.
-/// These tags are runtime facts and are never written into target metadata.
-pub fn current_host_tags() -> TargetTagSet {
-    let mut tags = TargetTagSet::default();
+/// Returns the launcher host capabilities used by snapshot product host variants.
+/// These tags are runtime facts and are never written into snapshot metadata.
+pub fn current_host_tags() -> SnapshotTagSet {
+    let mut tags = SnapshotTagSet::default();
     let operating_system = match std::env::consts::OS {
         "windows" => "windows",
         "linux" => "linux",
@@ -231,14 +231,14 @@ pub fn current_host_tags() -> TargetTagSet {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TargetManifest {
-    #[serde(rename = "target_metadata_version")]
+pub struct SnapshotManifest {
+    #[serde(rename = "snapshot_index_version")]
     pub metadata_version: String,
     #[serde(skip)]
-    pub target_id: String,
+    pub snapshot_id: String,
     #[serde(rename = "inserted_at")]
     pub inserted_at: String,
-    /// Max source file mtime (UTC) recorded when this target was last synced from a source folder.
+    /// Max source file mtime (UTC) recorded when this snapshot was last synced from a source folder.
     #[serde(skip)]
     pub source_modified_at: String,
     #[serde(skip)]
@@ -247,28 +247,28 @@ pub struct TargetManifest {
     pub total_compressed_size_estimate: u64,
     #[serde(
         default,
-        serialize_with = "serialize_target_tags_as_compact_strings",
-        deserialize_with = "deserialize_target_tags_from_compact_strings"
+        serialize_with = "serialize_snapshot_tags_as_compact_strings",
+        deserialize_with = "deserialize_snapshot_tags_from_compact_strings"
     )]
-    pub target_tags: TargetTagSet,
+    pub snapshot_tags: SnapshotTagSet,
     #[serde(skip)]
     pub launch: Option<launch::ResolvedLaunchConfiguration>,
     #[serde(skip)]
-    pub product_metadata: Option<TargetProductMetadata>,
+    pub product_metadata: Option<ProductMetadata>,
     #[serde(skip)]
     pub files: Vec<FileManifest>,
 }
 
-impl TargetManifest {
-    pub fn new(target_id: String, target_tags: TargetTagSet) -> Self {
-        TargetManifest {
+impl SnapshotManifest {
+    pub fn new(snapshot_id: String, snapshot_tags: SnapshotTagSet) -> Self {
+        SnapshotManifest {
             metadata_version: FORMAT_VERSION.to_string(),
-            target_id,
+            snapshot_id,
             inserted_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             source_modified_at: String::new(),
             total_logical_size: 0,
             total_compressed_size_estimate: 0,
-            target_tags,
+            snapshot_tags,
             launch: None,
             product_metadata: None,
             files: Vec::new(),
@@ -280,7 +280,7 @@ impl TargetManifest {
             return;
         }
         if let Some(launch) = self.launch.as_ref() {
-            self.product_metadata = Some(TargetProductMetadata::from_launch(launch, Vec::new()));
+            self.product_metadata = Some(ProductMetadata::from_launch(launch, Vec::new()));
         }
     }
 
@@ -293,26 +293,26 @@ impl TargetManifest {
     }
 }
 
-pub(crate) fn serialize_target_tags_as_compact_strings<S>(
-    target_tags: &TargetTagSet,
+pub(crate) fn serialize_snapshot_tags_as_compact_strings<S>(
+    snapshot_tags: &SnapshotTagSet,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    target_tags.to_canonical_strings().serialize(serializer)
+    snapshot_tags.to_canonical_strings().serialize(serializer)
 }
 
-pub(crate) fn deserialize_target_tags_from_compact_strings<'de, D>(
+pub(crate) fn deserialize_snapshot_tags_from_compact_strings<'de, D>(
     deserializer: D,
-) -> std::result::Result<TargetTagSet, D::Error>
+) -> std::result::Result<SnapshotTagSet, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let values = Vec::<String>::deserialize(deserializer)?;
-    TargetTagSet::from_compact_strings(&values).map_err(serde::de::Error::custom)
+    SnapshotTagSet::from_compact_strings(&values).map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]
-#[path = "target_tests.rs"]
+#[path = "snapshot_tests.rs"]
 mod tests;

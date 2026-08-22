@@ -67,12 +67,12 @@ fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
     })
 }
 
-pub fn compute_target_id_from_files(files: &[FileManifest]) -> String {
+pub fn compute_snapshot_id_from_files(files: &[FileManifest]) -> String {
     let mut sorted_files = files.to_vec();
     sorted_files.sort_by(|left, right| left.path.cmp(&right.path));
 
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"gutch-target-content-id-v1");
+    hasher.update(b"gutch-snapshot-content-id-v1");
     for file in &sorted_files {
         hasher.update(file.path.as_bytes());
         hasher.update(b"\x00");

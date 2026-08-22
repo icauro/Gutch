@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    InferenceHandler, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition,
+    InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,
+    SnapshotTagValueDefinition,
 };
 
 /// Named tagging rule templates that creators can pick when creating or configuring a repo.
@@ -70,7 +71,7 @@ pub fn template_by_name(name: &str) -> Option<TaggingRuleTemplate> {
 }
 
 /// Returns the schema for the given template.
-pub fn template_schema(template: TaggingRuleTemplate) -> TargetTagSchema {
+pub fn template_schema(template: TaggingRuleTemplate) -> SnapshotTagSchema {
     match template {
         TaggingRuleTemplate::Default => default_template(),
         TaggingRuleTemplate::Minimal => minimal_template(),
@@ -78,10 +79,10 @@ pub fn template_schema(template: TaggingRuleTemplate) -> TargetTagSchema {
     }
 }
 
-fn version_tag() -> TargetTagDefinition {
-    TargetTagDefinition {
+fn version_tag() -> SnapshotTagDefinition {
+    SnapshotTagDefinition {
         name: "version".to_string(),
-        kind: TargetTagKind::Exclusive,
+        kind: SnapshotTagKind::Exclusive,
         required: true,
         inference_prefixes: vec!["-v".to_string()],
         values: Vec::new(),
@@ -90,22 +91,22 @@ fn version_tag() -> TargetTagDefinition {
     }
 }
 
-fn os_tag() -> TargetTagDefinition {
-    TargetTagDefinition {
+fn os_tag() -> SnapshotTagDefinition {
+    SnapshotTagDefinition {
         name: "os".to_string(),
-        kind: TargetTagKind::Exclusive,
+        kind: SnapshotTagKind::Exclusive,
         required: true,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "windows".to_string(),
                 aliases: vec!["win".to_string()],
             },
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "linux".to_string(),
                 aliases: Vec::new(),
             },
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "macos".to_string(),
                 aliases: vec!["mac".to_string(), "osx".to_string(), "darwin".to_string()],
             },
@@ -115,22 +116,22 @@ fn os_tag() -> TargetTagDefinition {
     }
 }
 
-fn arch_tag() -> TargetTagDefinition {
-    TargetTagDefinition {
+fn arch_tag() -> SnapshotTagDefinition {
+    SnapshotTagDefinition {
         name: "arch".to_string(),
-        kind: TargetTagKind::Exclusive,
+        kind: SnapshotTagKind::Exclusive,
         required: true,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "x86_64".to_string(),
                 aliases: vec!["x64".to_string(), "amd64".to_string()],
             },
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "x86_32".to_string(),
                 aliases: vec!["x86".to_string()],
             },
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "arm64".to_string(),
                 aliases: vec!["aarch64".to_string()],
             },
@@ -140,10 +141,10 @@ fn arch_tag() -> TargetTagDefinition {
     }
 }
 
-fn released_at_tag() -> TargetTagDefinition {
-    TargetTagDefinition {
+fn released_at_tag() -> SnapshotTagDefinition {
+    SnapshotTagDefinition {
         name: "released_at".to_string(),
-        kind: TargetTagKind::Exclusive,
+        kind: SnapshotTagKind::Exclusive,
         required: true,
         inference_prefixes: vec!["-".to_string()],
         values: Vec::new(),
@@ -152,22 +153,22 @@ fn released_at_tag() -> TargetTagDefinition {
     }
 }
 
-fn variant_tag() -> TargetTagDefinition {
-    TargetTagDefinition {
+fn variant_tag() -> SnapshotTagDefinition {
+    SnapshotTagDefinition {
         name: "variant".to_string(),
-        kind: TargetTagKind::Exclusive,
+        kind: SnapshotTagKind::Exclusive,
         required: true,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "free".to_string(),
                 aliases: Vec::new(),
             },
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "tier1".to_string(),
                 aliases: Vec::new(),
             },
-            TargetTagValueDefinition {
+            SnapshotTagValueDefinition {
                 value: "tier2".to_string(),
                 aliases: Vec::new(),
             },
@@ -177,21 +178,21 @@ fn variant_tag() -> TargetTagDefinition {
     }
 }
 
-fn default_template() -> TargetTagSchema {
-    TargetTagSchema {
-        target_tags: vec![version_tag(), os_tag(), arch_tag(), released_at_tag()],
+fn default_template() -> SnapshotTagSchema {
+    SnapshotTagSchema {
+        snapshot_tags: vec![version_tag(), os_tag(), arch_tag(), released_at_tag()],
     }
 }
 
-fn minimal_template() -> TargetTagSchema {
-    TargetTagSchema {
-        target_tags: vec![version_tag()],
+fn minimal_template() -> SnapshotTagSchema {
+    SnapshotTagSchema {
+        snapshot_tags: vec![version_tag()],
     }
 }
 
-fn subscription_example_template() -> TargetTagSchema {
-    TargetTagSchema {
-        target_tags: vec![
+fn subscription_example_template() -> SnapshotTagSchema {
+    SnapshotTagSchema {
+        snapshot_tags: vec![
             version_tag(),
             os_tag(),
             arch_tag(),
@@ -231,49 +232,57 @@ mod tests {
     #[test]
     fn default_template_has_standard_release_tags() {
         let schema = template_schema(TaggingRuleTemplate::Default);
-        let names: Vec<&str> = schema.target_tags.iter().map(|t| t.name.as_str()).collect();
+        let names: Vec<&str> = schema
+            .snapshot_tags
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect();
         assert_eq!(names, vec!["version", "os", "arch", "released_at"]);
-        assert!(schema.target_tags[0].required);
+        assert!(schema.snapshot_tags[0].required);
     }
 
     #[test]
     fn minimal_template_has_version_only() {
         let schema = template_schema(TaggingRuleTemplate::Minimal);
-        assert_eq!(schema.target_tags.len(), 1);
-        assert_eq!(schema.target_tags[0].name, "version");
-        assert!(schema.target_tags[0].required);
+        assert_eq!(schema.snapshot_tags.len(), 1);
+        assert_eq!(schema.snapshot_tags[0].name, "version");
+        assert!(schema.snapshot_tags[0].required);
     }
 
     #[test]
     fn subscription_example_template_has_all_tags() {
         let schema = template_schema(TaggingRuleTemplate::SubscriptionExample);
-        let names: Vec<&str> = schema.target_tags.iter().map(|t| t.name.as_str()).collect();
+        let names: Vec<&str> = schema
+            .snapshot_tags
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect();
         assert_eq!(
             names,
             vec!["version", "os", "arch", "variant", "released_at"]
         );
 
         let variant = schema
-            .target_tags
+            .snapshot_tags
             .iter()
             .find(|t| t.name == "variant")
             .unwrap();
-        assert_eq!(variant.kind, TargetTagKind::Exclusive);
+        assert_eq!(variant.kind, SnapshotTagKind::Exclusive);
         let variant_values: Vec<&str> = variant.values.iter().map(|v| v.value.as_str()).collect();
         assert_eq!(variant_values, vec!["free", "tier1", "tier2"]);
 
         let released_at = schema
-            .target_tags
+            .snapshot_tags
             .iter()
             .find(|t| t.name == "released_at")
             .unwrap();
-        assert_eq!(released_at.kind, TargetTagKind::Exclusive);
+        assert_eq!(released_at.kind, SnapshotTagKind::Exclusive);
     }
 
     #[test]
     fn default_template_has_no_access_tag() {
         let schema = template_schema(TaggingRuleTemplate::Default);
-        assert!(!schema.target_tags.iter().any(|t| t.name == "access"));
+        assert!(!schema.snapshot_tags.iter().any(|t| t.name == "access"));
     }
 
     #[test]

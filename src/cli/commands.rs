@@ -4,8 +4,7 @@ use gutch as g;
 pub(crate) fn run(cli: Cli) -> g::Result<()> {
     match cli.command {
         Commands::Repo { command } => crate::cli::repo::run(command),
-        Commands::Target { command } => crate::cli::target::run(command),
-        Commands::TargetInstall { command } => crate::cli::target_install::run(command),
+        Commands::Snapshot { command } => crate::cli::snapshot::run(command),
         Commands::Bundle { command } => match command {
             crate::cli::BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
         },

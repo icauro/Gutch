@@ -81,7 +81,7 @@ fn build_summary_separates_wall_phases_from_worker_details() {
 fn reconstruct_summary_uses_null_for_disabled_verification() {
     let timings = g::ReconstructTimings {
         prepare_wall: Duration::from_secs(1),
-        restore_wall: Duration::from_secs(7),
+        reconstruct_wall: Duration::from_secs(7),
         bundle_read: Duration::from_secs(9),
         file_write: Duration::from_secs(11),
         total: Duration::from_secs(9),
@@ -92,9 +92,9 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
     let json = serde_json::to_value(&summary).expect("serialize reconstruct timing summary");
 
     assert_eq!(summary.unaccounted_seconds, 1.0);
-    assert_eq!(summary.phases.restore.wall_seconds, 7.0);
-    assert!(json["phases"]["restore"]["details"]["chunk_verify_worker_seconds"].is_null());
-    assert!(json["phases"]["restore"]["details"]["file_hash_worker_seconds"].is_null());
+    assert_eq!(summary.phases.reconstruct.wall_seconds, 7.0);
+    assert!(json["phases"]["reconstruct"]["details"]["chunk_verify_worker_seconds"].is_null());
+    assert!(json["phases"]["reconstruct"]["details"]["file_hash_worker_seconds"].is_null());
 }
 
 #[test]

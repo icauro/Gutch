@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExistingInstallPathKind {
+pub enum ExistingDestinationPathKind {
     File,
     Directory,
     FileOrDirectory,
@@ -19,7 +19,7 @@ pub fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Resu
         } else {
             Err(Error::PathError {
                 path: relative_path.to_path_buf(),
-                reason: "manifest path must identify an entry beneath the target root".into(),
+                reason: "manifest path must identify an entry beneath the snapshot root".into(),
             })
         };
     }
@@ -42,7 +42,7 @@ pub fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Resu
         return Err(Error::PathError {
             path: relative_path.to_path_buf(),
             reason: format!(
-                "manifest path must stay within the target root: '{}'",
+                "manifest path must stay within the snapshot root: '{}'",
                 relative
             ),
         });
@@ -52,7 +52,7 @@ pub fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Resu
         return Err(Error::PathError {
             path: relative_path.to_path_buf(),
             reason: format!(
-                "manifest path must be normalized beneath the target root: '{}'",
+                "manifest path must be normalized beneath the snapshot root: '{}'",
                 relative
             ),
         });
@@ -74,12 +74,12 @@ fn ensure_existing_ancestors_stay_within_root(root: &Path, candidate: &Path) -> 
     }
     let canonical_root = root.canonicalize().map_err(|error| Error::PathError {
         path: root.to_path_buf(),
-        reason: format!("failed to resolve target root: {error}"),
+        reason: format!("failed to resolve snapshot root: {error}"),
     })?;
     let mut current = root.to_path_buf();
     let relative = candidate.strip_prefix(root).map_err(|_| Error::PathError {
         path: candidate.to_path_buf(),
-        reason: "candidate path is not beneath the target root".into(),
+        reason: "candidate path is not beneath the snapshot root".into(),
     })?;
     for component in relative.components() {
         current.push(component);
@@ -88,23 +88,23 @@ fn ensure_existing_ancestors_stay_within_root(root: &Path, candidate: &Path) -> 
         }
         let canonical_current = current.canonicalize().map_err(|error| Error::PathError {
             path: current.clone(),
-            reason: format!("failed to resolve target path component: {error}"),
+            reason: format!("failed to resolve snapshot path component: {error}"),
         })?;
         if !canonical_current.starts_with(&canonical_root) {
             return Err(Error::PathError {
                 path: current,
-                reason: "target path resolves outside the target root".into(),
+                reason: "snapshot path resolves outside the snapshot root".into(),
             });
         }
     }
     Ok(())
 }
 
-pub fn resolve_existing_install_path(
+pub fn resolve_existing_destination_path(
     install_root: &Path,
     relative: &str,
     allow_root: bool,
-    expected_kind: ExistingInstallPathKind,
+    expected_kind: ExistingDestinationPathKind,
 ) -> Result<PathBuf> {
     validate_manifest_relative_path(relative, allow_root)?;
 
@@ -131,9 +131,9 @@ pub fn resolve_existing_install_path(
     }
 
     let valid_kind = match expected_kind {
-        ExistingInstallPathKind::File => canonical_candidate.is_file(),
-        ExistingInstallPathKind::Directory => canonical_candidate.is_dir(),
-        ExistingInstallPathKind::FileOrDirectory => {
+        ExistingDestinationPathKind::File => canonical_candidate.is_file(),
+        ExistingDestinationPathKind::Directory => canonical_candidate.is_dir(),
+        ExistingDestinationPathKind::FileOrDirectory => {
             canonical_candidate.is_file() || canonical_candidate.is_dir()
         }
     };

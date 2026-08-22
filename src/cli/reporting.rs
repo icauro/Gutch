@@ -248,17 +248,17 @@ pub struct ReconstructTimingsSummary {
 #[derive(Debug, Serialize)]
 pub struct ReconstructTimingPhasesSummary {
     pub prepare: WallTimingPhaseSummary,
-    pub restore: ReconstructRestorePhaseSummary,
+    pub reconstruct: ReconstructReconstructPhaseSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReconstructRestorePhaseSummary {
+pub struct ReconstructReconstructPhaseSummary {
     pub wall_seconds: f64,
-    pub details: ReconstructRestoreDetailsSummary,
+    pub details: ReconstructReconstructDetailsSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReconstructRestoreDetailsSummary {
+pub struct ReconstructReconstructDetailsSummary {
     pub artifact_read_decode_worker_seconds: f64,
     pub bundle_read_compressed_bytes: u64,
     pub bundle_read_decompressed_bytes: u64,
@@ -453,8 +453,10 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
 }
 
 pub fn reconstruct_timings_summary(timings: &g::ReconstructTimings) -> ReconstructTimingsSummary {
-    let (total_seconds, unaccounted_seconds) =
-        wall_timing_fields(timings.total, &[timings.prepare_wall, timings.restore_wall]);
+    let (total_seconds, unaccounted_seconds) = wall_timing_fields(
+        timings.total,
+        &[timings.prepare_wall, timings.reconstruct_wall],
+    );
     let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
 
     ReconstructTimingsSummary {
@@ -466,9 +468,9 @@ pub fn reconstruct_timings_summary(timings: &g::ReconstructTimings) -> Reconstru
             prepare: WallTimingPhaseSummary {
                 wall_seconds: secs(timings.prepare_wall),
             },
-            restore: ReconstructRestorePhaseSummary {
-                wall_seconds: secs(timings.restore_wall),
-                details: ReconstructRestoreDetailsSummary {
+            reconstruct: ReconstructReconstructPhaseSummary {
+                wall_seconds: secs(timings.reconstruct_wall),
+                details: ReconstructReconstructDetailsSummary {
                     artifact_read_decode_worker_seconds: secs(timings.bundle_read),
                     bundle_read_compressed_bytes: timings.bundle_read_compressed_bytes,
                     bundle_read_decompressed_bytes: timings.bundle_read_decompressed_bytes,
@@ -784,8 +786,9 @@ pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_runtime_plan(t.runtime_plan.as_ref(), false);
     print_table_header();
     print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
-    print_table_row("restore", 0, Some(secs(t.restore_wall)), None, None);
-    let (_, unaccounted_seconds) = wall_timing_fields(t.total, &[t.prepare_wall, t.restore_wall]);
+    print_table_row("reconstruct", 0, Some(secs(t.reconstruct_wall)), None, None);
+    let (_, unaccounted_seconds) =
+        wall_timing_fields(t.total, &[t.prepare_wall, t.reconstruct_wall]);
     print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
     print_table_row("total", 0, Some(secs(t.total)), None, None);
 
@@ -861,10 +864,10 @@ pub fn print_repo_check_timings(t: &g::RepoCheckTimings) {
     print_metric_line("scan bundles", format!("{} ms", t.scan_bundles_ms));
     print_metric_line("load chunk index", format!("{} ms", t.load_chunk_index_ms));
     print_metric_line(
-        "load target manifests",
+        "load snapshot manifests",
         format!(
-            "{} ms  ({} targets)",
-            t.load_target_manifests_ms, t.target_count
+            "{} ms  ({} snapshots)",
+            t.load_snapshot_manifests_ms, t.snapshot_count
         ),
     );
     print_metric_line("total", format!("{} ms", t.total_ms));
@@ -878,7 +881,7 @@ pub fn print_tracked_repo_check_timings(
     print_section_title("Tracked Check Timing");
     print_metric_line("load config", format!("{} ms", tracked.load_config_ms));
     print_metric_line(
-        "scan source installs",
+        "scan source snapshots",
         format!(
             "{} ms  ({} folders)",
             tracked.scan_sources_ms, tracked.source_count

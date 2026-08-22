@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::template;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct TargetTagSet {
+pub struct SnapshotTagSet {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub plain: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -14,7 +14,7 @@ pub struct TargetTagSet {
     pub exclusive: BTreeMap<String, String>,
 }
 
-impl TargetTagSet {
+impl SnapshotTagSet {
     pub fn insert_plain(&mut self, value: impl Into<String>) {
         let value = value.into();
         if !value.is_empty() {
@@ -93,22 +93,22 @@ impl TargetTagSet {
         rendered
     }
 
-    pub fn to_ordered_strings(&self, schema: Option<&TargetTagSchema>) -> Vec<String> {
+    pub fn to_ordered_strings(&self, schema: Option<&SnapshotTagSchema>) -> Vec<String> {
         let mut rendered = Vec::new();
         let mut consumed_plain = BTreeSet::new();
         let mut consumed_scoped = BTreeSet::new();
         let mut consumed_exclusive = BTreeSet::new();
 
         if let Some(schema) = schema {
-            for definition in &schema.target_tags {
+            for definition in &schema.snapshot_tags {
                 match definition.kind {
-                    TargetTagKind::Plain => {
+                    SnapshotTagKind::Plain => {
                         if self.plain.contains(&definition.name) {
                             rendered.push(definition.name.clone());
                             consumed_plain.insert(definition.name.clone());
                         }
                     }
-                    TargetTagKind::Scoped => {
+                    SnapshotTagKind::Scoped => {
                         if let Some(values) = self.scoped.get(&definition.name) {
                             for value in values {
                                 rendered.push(format!("{}:{}", definition.name, value));
@@ -116,7 +116,7 @@ impl TargetTagSet {
                             consumed_scoped.insert(definition.name.clone());
                         }
                     }
-                    TargetTagKind::Exclusive => {
+                    SnapshotTagKind::Exclusive => {
                         if let Some(value) = self.exclusive.get(&definition.name) {
                             rendered.push(format!("{}::{}", definition.name, value));
                             consumed_exclusive.insert(definition.name.clone());
@@ -153,7 +153,7 @@ impl TargetTagSet {
         rendered
     }
 
-    pub fn update_family_key(&self, schema: Option<&TargetTagSchema>) -> Vec<String> {
+    pub fn update_family_key(&self, schema: Option<&SnapshotTagSchema>) -> Vec<String> {
         let is_release_varying = |name: &str| {
             schema
                 .and_then(|schema| schema.find_definition(name))
@@ -254,20 +254,20 @@ mod update_family_tests {
 
     #[test]
     fn update_family_excludes_version_and_date_handlers_but_keeps_unknown_tags() {
-        let schema = TargetTagSchema {
-            target_tags: vec![
-                TargetTagDefinition {
+        let schema = SnapshotTagSchema {
+            snapshot_tags: vec![
+                SnapshotTagDefinition {
                     name: "version".into(),
-                    kind: TargetTagKind::Exclusive,
+                    kind: SnapshotTagKind::Exclusive,
                     required: true,
                     inference_prefixes: vec![],
                     values: vec![],
                     default_value: None,
                     inference_handler: InferenceHandler::Version,
                 },
-                TargetTagDefinition {
+                SnapshotTagDefinition {
                     name: "released_at".into(),
-                    kind: TargetTagKind::Exclusive,
+                    kind: SnapshotTagKind::Exclusive,
                     required: true,
                     inference_prefixes: vec![],
                     values: vec![],
@@ -276,7 +276,7 @@ mod update_family_tests {
                 },
             ],
         };
-        let tags = TargetTagSet::from_compact_strings(&[
+        let tags = SnapshotTagSet::from_compact_strings(&[
             "version::1.2.0".into(),
             "released_at::2026_07_18".into(),
             "os::windows".into(),
@@ -293,7 +293,7 @@ mod update_family_tests {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum TargetTagKind {
+pub enum SnapshotTagKind {
     Plain,
     Scoped,
     Exclusive,
@@ -423,13 +423,13 @@ impl StructuredVersion {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[serde(deny_unknown_fields)]
-pub struct TargetTagValueDefinition {
+pub struct SnapshotTagValueDefinition {
     pub value: String,
     #[serde(skip)]
     pub aliases: Vec<String>,
 }
 
-impl TargetTagValueDefinition {
+impl SnapshotTagValueDefinition {
     pub fn matches_token(&self, token: &str) -> bool {
         self.value.eq_ignore_ascii_case(token)
             || self
@@ -442,11 +442,11 @@ impl TargetTagValueDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[serde(deny_unknown_fields)]
-pub struct TargetTagDefinition {
+pub struct SnapshotTagDefinition {
     #[serde(rename = "tag_name")]
     pub name: String,
     #[serde(rename = "tag_kind")]
-    pub kind: TargetTagKind,
+    pub kind: SnapshotTagKind,
     #[serde(rename = "is_required", default)]
     pub required: bool,
     #[serde(default)]
@@ -457,7 +457,7 @@ pub struct TargetTagDefinition {
         serialize_with = "serialize_allowed_values",
         deserialize_with = "deserialize_allowed_values"
     )]
-    pub values: Vec<TargetTagValueDefinition>,
+    pub values: Vec<SnapshotTagValueDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<String>,
     #[serde(
@@ -471,9 +471,9 @@ pub struct TargetTagDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[serde(deny_unknown_fields)]
-pub struct TargetTagSchema {
+pub struct SnapshotTagSchema {
     #[serde(rename = "tag_definitions", default)]
-    pub target_tags: Vec<TargetTagDefinition>,
+    pub snapshot_tags: Vec<SnapshotTagDefinition>,
 }
 
 fn is_default_inference_handler(handler: &InferenceHandler) -> bool {
@@ -481,7 +481,7 @@ fn is_default_inference_handler(handler: &InferenceHandler) -> bool {
 }
 
 fn serialize_allowed_values<S>(
-    values: &[TargetTagValueDefinition],
+    values: &[SnapshotTagValueDefinition],
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error>
 where
@@ -496,7 +496,7 @@ where
 
 fn deserialize_allowed_values<'de, D>(
     deserializer: D,
-) -> std::result::Result<Vec<TargetTagValueDefinition>, D::Error>
+) -> std::result::Result<Vec<SnapshotTagValueDefinition>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -504,7 +504,7 @@ where
     values
         .into_iter()
         .map(|value| {
-            Ok(TargetTagValueDefinition {
+            Ok(SnapshotTagValueDefinition {
                 value,
                 aliases: Vec::new(),
             })
@@ -512,18 +512,18 @@ where
         .collect()
 }
 
-impl TargetTagSchema {
-    pub fn find_definition(&self, name: &str) -> Option<&TargetTagDefinition> {
-        self.target_tags
+impl SnapshotTagSchema {
+    pub fn find_definition(&self, name: &str) -> Option<&SnapshotTagDefinition> {
+        self.snapshot_tags
             .iter()
             .find(|definition| definition.name == name)
     }
 }
 
-impl Default for TargetTagSchema {
+impl Default for SnapshotTagSchema {
     fn default() -> Self {
         template::template_schema(template::TaggingRuleTemplate::Default)
     }
 }
 
-pub type AutoTaggingRules = TargetTagSchema;
+pub type AutoTaggingRules = SnapshotTagSchema;

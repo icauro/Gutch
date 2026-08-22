@@ -10,7 +10,7 @@ use crate::bundle;
 use crate::hash::ChunkHash;
 use crate::manifest::CompressionProfile;
 use crate::progress::GutchOperationControl;
-use crate::runtime::{RuntimePlan, install_in_thread_pool};
+use crate::runtime::{RuntimePlan, run_in_thread_pool};
 
 use super::super::types::{
     BundleAccessPlan, BundleAccessStrategy, BundleScanInfo, ChunkLocation, ReconstructTimings,
@@ -73,7 +73,7 @@ pub(in crate::reconstruct) fn stage_reconstruct_bundle_access(
             crate::Error::Reconstruct(format!("failed to create bundle staging dir: {}", err))
         })?)
     };
-    let staged_results = install_in_thread_pool(runtime_plan.worker_count, || {
+    let staged_results = run_in_thread_pool(runtime_plan.worker_count, || {
         bundle_compressed_paths
             .par_iter()
             .enumerate()

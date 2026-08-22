@@ -73,8 +73,8 @@ pub struct GutchRepoManifest {
         skip_serializing_if = "Option::is_none"
     )]
     pub product_metadata: Option<RepoProductMetadata>,
-    #[serde(rename = "target_tag_schema")]
-    pub target_schema: Option<TargetTagSchema>,
+    #[serde(rename = "snapshot_tag_schema")]
+    pub snapshot_tag_schema: Option<SnapshotTagSchema>,
     #[serde(skip)]
     pub remote_repo_id: String,
     #[serde(skip)]
@@ -98,7 +98,7 @@ impl GutchRepoManifest {
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),
             product_metadata: None,
-            target_schema: Some(TargetTagSchema::default()),
+            snapshot_tag_schema: Some(SnapshotTagSchema::default()),
             remote_repo_id: String::new(),
             product_id: String::new(),
         }

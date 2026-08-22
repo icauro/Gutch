@@ -14,8 +14,8 @@ use crate::build_types::{
 use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
 use crate::hash::ChunkHash;
-use crate::manifest::{self, ArtifactStorageMode, TargetTagSet, target::TargetManifest};
-use crate::runtime::{ChunkStorageMode, install_in_thread_pool, plan_build_runtime};
+use crate::manifest::{self, ArtifactStorageMode, SnapshotTagSet, snapshot::SnapshotManifest};
+use crate::runtime::{ChunkStorageMode, run_in_thread_pool, plan_build_runtime};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
@@ -34,7 +34,7 @@ impl BundleSizingPolicy {
         }
     }
 
-    fn target_size_for(&self, compressed_bytes: u64) -> u64 {
+    fn snapshot_size_for(&self, compressed_bytes: u64) -> u64 {
         if compressed_bytes == 0 {
             return self.preferred_size.min(self.max_size);
         }
@@ -67,7 +67,7 @@ type PlannedChunkGroup = Vec<ChunkPayloadEntry>;
 fn estimate_bundle_compression_ratio_from_probe(
     chunks: &[(ChunkHash, ChunkPayload)],
     compression_profile: &manifest::CompressionProfile,
-    probe_raw_target_size: u64,
+    probe_raw_size_size: u64,
 ) -> Result<(f64, u64)> {
     if chunks.is_empty() {
         return Ok((1.0, 0));
@@ -81,7 +81,7 @@ fn estimate_bundle_compression_ratio_from_probe(
             data.len() as u64
         })?;
         raw_probe_size += bytes_added;
-        if raw_probe_size >= probe_raw_target_size {
+        if raw_probe_size >= probe_raw_size_size {
             break;
         }
     }
@@ -101,13 +101,13 @@ fn estimate_bundle_compression_ratio_from_probe(
     ))
 }
 
-fn raw_target_size_for_bundle_compression(
-    compressed_target_size: u64,
+fn raw_size_size_for_bundle_compression(
+    compressed_size_size: u64,
     compression_ratio: f64,
     bundle_policy: BundleSizingPolicy,
 ) -> u64 {
     let normalized_ratio = compression_ratio.max(0.01);
-    ((compressed_target_size as f64 / normalized_ratio).ceil() as u64)
+    ((compressed_size_size as f64 / normalized_ratio).ceil() as u64)
         .max(bundle_policy.preferred_size)
 }
 
@@ -149,10 +149,10 @@ fn plan_bundle_compressed_groups(
     let new_raw_bytes = sort_bytes;
     let estimated_total_compressed_bytes =
         ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
-    let bundle_target_compressed_size =
-        bundle_policy.target_size_for(estimated_total_compressed_bytes);
-    let bundle_raw_target_size = raw_target_size_for_bundle_compression(
-        bundle_target_compressed_size,
+    let bundle_compressed_size =
+        bundle_policy.snapshot_size_for(estimated_total_compressed_bytes);
+    let bundle_raw_size_size = raw_size_size_for_bundle_compression(
+        bundle_compressed_size,
         bundle_compression_ratio,
         bundle_policy,
     );
@@ -163,7 +163,7 @@ fn plan_bundle_compressed_groups(
 
     for (hash, payload) in chunks {
         let raw_size = payload.raw_size();
-        if !current_group.is_empty() && current_group_raw_size + raw_size > bundle_raw_target_size {
+        if !current_group.is_empty() && current_group_raw_size + raw_size > bundle_raw_size_size {
             planned_groups.push(current_group);
             current_group = Vec::new();
             current_group_raw_size = 0;
@@ -260,7 +260,7 @@ fn build_bundled_chunks(
             .collect::<Result<Vec<_>>>()
     };
 
-    install_in_thread_pool(bundle_worker_count, build_bundle_work)?
+    run_in_thread_pool(bundle_worker_count, build_bundle_work)?
 }
 
 fn build_loose_chunks(
@@ -293,15 +293,15 @@ fn build_loose_chunks(
             .collect::<Result<Vec<_>>>()
     };
 
-    install_in_thread_pool(runtime_worker_count, build_loose_work)?
+    run_in_thread_pool(runtime_worker_count, build_loose_work)?
 }
 
 fn base_build_config(
     gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
+    snapshot_id: &str,
+    snapshot_tags: &SnapshotTagSet,
 ) -> BuildConfig<'static> {
-    BuildConfig::with_ids(gutch_repo_id, target_id, target_tags)
+    BuildConfig::with_ids(gutch_repo_id, snapshot_id, snapshot_tags)
 }
 
 fn build_loose_chunk(
@@ -384,12 +384,12 @@ fn build_bundle_compressed_group(
 pub fn build_from_directory(
     dir: &Path,
     gutch_repo_id: &str,
-    target_id: &str,
-    target_tags: &TargetTagSet,
+    snapshot_id: &str,
+    snapshot_tags: &SnapshotTagSet,
 ) -> Result<BuildResult> {
     Ok(build_with_config(
         dir,
-        &base_build_config(gutch_repo_id, target_id, target_tags),
+        &base_build_config(gutch_repo_id, snapshot_id, snapshot_tags),
     )?
     .0)
 }
@@ -486,7 +486,7 @@ pub fn build_with_config(
     let artifact_encode_start = Instant::now();
     let mut bundles = Vec::new();
     let mut loose_chunks = Vec::new();
-    let bundle_target_size_policy = BundleSizingPolicy::new(
+    let bundle_size_policy = BundleSizingPolicy::new(
         config.bundle_profile.bundle_max_size_bytes(),
         config.bundle_profile.bundle_preferred_size_bytes(),
     );
@@ -503,7 +503,7 @@ pub fn build_with_config(
                 chunks_to_compress,
                 &compression_profile,
                 &config.bundle_profile,
-                bundle_target_size_policy,
+                bundle_size_policy,
             )?;
             timings.bundle_compressed_sort += planned_bundle_groups.sort_duration;
             timings.bundle_compressed_sort_bytes += planned_bundle_groups.sort_bytes;
@@ -565,7 +565,7 @@ pub fn build_with_config(
 
     let manifest_finalize_start = Instant::now();
     file_manifests.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut vm = TargetManifest::new(config.target_id.clone(), config.target_tags.clone());
+    let mut vm = SnapshotManifest::new(config.snapshot_id.clone(), config.snapshot_tags.clone());
     vm.total_logical_size = total_logical_size;
     vm.total_compressed_size_estimate = total_compressed;
     vm.files = file_manifests;
@@ -574,7 +574,7 @@ pub fn build_with_config(
 
     Ok((
         BuildResult {
-            target_manifest: vm,
+            snapshot_manifest: vm,
             bundles,
             loose_chunks,
         },

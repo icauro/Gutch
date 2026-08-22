@@ -5,18 +5,18 @@ use crate::Result;
 
 use super::{GutchRepoPaths, bundle_id_from_bundle_path};
 
-pub(crate) fn list_repo_target_ids(paths: &GutchRepoPaths) -> Result<Vec<String>> {
-    if !paths.targets_root.is_dir() {
+pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<String>> {
+    if !paths.snapshots_root.is_dir() {
         return Ok(Vec::new());
     }
 
-    let mut target_ids = std::fs::read_dir(&paths.targets_root)?
+    let mut snapshot_ids = std::fs::read_dir(&paths.snapshots_root)?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
             entry.path().is_dir()
                 && entry
                     .path()
-                    .join(super::target_manifests::TARGET_METADATA_FILE)
+                    .join(super::snapshot_manifests::SNAPSHOT_INDEX_FILE)
                     .is_file()
         })
         .filter_map(|entry| {
@@ -27,8 +27,8 @@ pub(crate) fn list_repo_target_ids(paths: &GutchRepoPaths) -> Result<Vec<String>
                 .map(str::to_string)
         })
         .collect::<Vec<_>>();
-    target_ids.sort();
-    Ok(target_ids)
+    snapshot_ids.sort();
+    Ok(snapshot_ids)
 }
 
 pub(crate) fn list_repo_bundle_paths(paths: &GutchRepoPaths) -> Vec<PathBuf> {

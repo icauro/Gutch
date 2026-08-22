@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use crate::build::types::{BuildProgressSink, BuildTimings, ChunkPayload, ExistingChunkLocation};
 use crate::hash::ChunkHash;
 use crate::manifest::{self, ChunkRef, FileManifest};
-use crate::runtime::{ChunkStorageMode, install_in_thread_pool};
+use crate::runtime::{ChunkStorageMode, run_in_thread_pool};
 use crate::{Error, Result};
 
 pub struct FileBuildEntry {
@@ -134,7 +134,7 @@ pub(crate) fn scan_directory_into_file_entries(
     if options.worker_count <= 1 {
         file_paths.iter().map(scan_one).collect::<Result<Vec<_>>>()
     } else {
-        install_in_thread_pool(options.worker_count, || {
+        run_in_thread_pool(options.worker_count, || {
             file_paths
                 .par_iter()
                 .map(scan_one)

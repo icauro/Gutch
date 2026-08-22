@@ -3,28 +3,29 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    InferenceHandler, TargetTagDefinition, TargetTagKind, TargetTagSchema, TargetTagValueDefinition,
+    InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,
+    SnapshotTagValueDefinition,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetTagSchemaValidationError {
+pub struct SnapshotTagSchemaValidationError {
     pub field: String,
     pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TargetTagSchemaValidationResult {
+pub struct SnapshotTagSchemaValidationResult {
     pub valid: bool,
-    pub errors: Vec<TargetTagSchemaValidationError>,
+    pub errors: Vec<SnapshotTagSchemaValidationError>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EditableTargetTagDefinition {
+pub struct EditableSnapshotTagDefinition {
     pub name: String,
-    pub kind: TargetTagKind,
+    pub kind: SnapshotTagKind,
     #[serde(default)]
     pub inference_prefixes: Vec<String>,
     #[serde(default)]
@@ -37,25 +38,25 @@ pub struct EditableTargetTagDefinition {
     pub inference_handler: InferenceHandler,
 }
 
-pub fn validate_editable_target_tag_schema(
-    definitions: Vec<EditableTargetTagDefinition>,
-) -> TargetTagSchemaValidationResult {
+pub fn validate_editable_snapshot_tag_schema(
+    definitions: Vec<EditableSnapshotTagDefinition>,
+) -> SnapshotTagSchemaValidationResult {
     let mut errors = Vec::new();
     let mut seen_names = BTreeSet::new();
     let mut has_version = false;
 
     for (index, tag) in definitions.iter().enumerate() {
-        let field_prefix = format!("targetTags[{index}]");
+        let field_prefix = format!("snapshotTags[{index}]");
         let name = tag.name.trim();
         if name.is_empty() {
-            errors.push(TargetTagSchemaValidationError {
+            errors.push(SnapshotTagSchemaValidationError {
                 field: format!("{field_prefix}.name"),
                 message: String::from("Tag name is required."),
             });
             continue;
         }
         if !seen_names.insert(name.to_string()) {
-            errors.push(TargetTagSchemaValidationError {
+            errors.push(SnapshotTagSchemaValidationError {
                 field: format!("{field_prefix}.name"),
                 message: format!("Duplicate tag name '{name}'."),
             });
@@ -63,27 +64,27 @@ pub fn validate_editable_target_tag_schema(
         if name == "version" {
             has_version = true;
             if index != 0 {
-                errors.push(TargetTagSchemaValidationError {
+                errors.push(SnapshotTagSchemaValidationError {
                     field: format!("{field_prefix}.name"),
                     message: String::from("Version tag must be first."),
                 });
             }
-            if tag.kind != TargetTagKind::Exclusive {
-                errors.push(TargetTagSchemaValidationError {
+            if tag.kind != SnapshotTagKind::Exclusive {
+                errors.push(SnapshotTagSchemaValidationError {
                     field: format!("{field_prefix}.kind"),
                     message: String::from("Version tag must be exclusive."),
                 });
             }
             if tag.inference_handler != InferenceHandler::Version {
-                errors.push(TargetTagSchemaValidationError {
+                errors.push(SnapshotTagSchemaValidationError {
                     field: format!("{field_prefix}.inferenceHandler"),
                     message: String::from("Version tag must use the version inference handler."),
                 });
             }
         }
 
-        if tag.kind == TargetTagKind::Plain {
-            errors.push(TargetTagSchemaValidationError {
+        if tag.kind == SnapshotTagKind::Plain {
+            errors.push(SnapshotTagSchemaValidationError {
                 field: format!("{field_prefix}.kind"),
                 message: String::from("Plain tags are not allowed. Use exclusive or scoped."),
             });
@@ -123,7 +124,7 @@ pub fn validate_editable_target_tag_schema(
 
             for (alias, canonical) in alias_pairs {
                 if !allowed_values.contains(&canonical) {
-                    errors.push(TargetTagSchemaValidationError {
+                    errors.push(SnapshotTagSchemaValidationError {
                         field: format!("{field_prefix}.aliases"),
                         message: format!("Alias '{alias}' points to unknown value '{canonical}'."),
                     });
@@ -133,7 +134,7 @@ pub fn validate_editable_target_tag_schema(
             if let Some(default_value) = default_value
                 && !allowed_values.contains(&default_value)
             {
-                errors.push(TargetTagSchemaValidationError {
+                errors.push(SnapshotTagSchemaValidationError {
                     field: format!("{field_prefix}.defaultValue"),
                     message: String::from(
                         "Default value must be one of the allowed values or aliases.",
@@ -144,26 +145,26 @@ pub fn validate_editable_target_tag_schema(
     }
 
     if !has_version {
-        errors.push(TargetTagSchemaValidationError {
-            field: String::from("targetTags"),
+        errors.push(SnapshotTagSchemaValidationError {
+            field: String::from("snapshotTags"),
             message: String::from("Version tag is required."),
         });
     }
 
-    TargetTagSchemaValidationResult {
+    SnapshotTagSchemaValidationResult {
         valid: errors.is_empty(),
         errors,
     }
 }
 
-pub fn sanitize_editable_target_tag_schema(
-    definitions: Vec<EditableTargetTagDefinition>,
-) -> Option<TargetTagSchema> {
-    let target_tags = definitions
+pub fn sanitize_editable_snapshot_tag_schema(
+    definitions: Vec<EditableSnapshotTagDefinition>,
+) -> Option<SnapshotTagSchema> {
+    let snapshot_tags = definitions
         .into_iter()
         .filter_map(|tag| {
             let name = tag.name.trim().to_string();
-            if name.is_empty() || tag.kind == TargetTagKind::Plain {
+            if name.is_empty() || tag.kind == SnapshotTagKind::Plain {
                 return None;
             }
 
@@ -204,7 +205,7 @@ pub fn sanitize_editable_target_tag_schema(
                 aliases_by_value.entry(canonical).or_default().push(alias);
             }
 
-            Some(TargetTagDefinition {
+            Some(SnapshotTagDefinition {
                 name,
                 kind: tag.kind,
                 required: true,
@@ -216,7 +217,7 @@ pub fn sanitize_editable_target_tag_schema(
                     .collect(),
                 values: canonical_values
                     .into_iter()
-                    .map(|value| TargetTagValueDefinition {
+                    .map(|value| SnapshotTagValueDefinition {
                         aliases: aliases_by_value.remove(&value).unwrap_or_default(),
                         value,
                     })
@@ -227,10 +228,10 @@ pub fn sanitize_editable_target_tag_schema(
         })
         .collect::<Vec<_>>();
 
-    if target_tags.is_empty() {
+    if snapshot_tags.is_empty() {
         None
     } else {
-        Some(TargetTagSchema { target_tags })
+        Some(SnapshotTagSchema { snapshot_tags })
     }
 }
 
@@ -241,9 +242,9 @@ mod tests {
 
     #[test]
     fn rejects_default_value_outside_allowed_values() {
-        let result = validate_editable_target_tag_schema(vec![EditableTargetTagDefinition {
+        let result = validate_editable_snapshot_tag_schema(vec![EditableSnapshotTagDefinition {
             name: String::from("version"),
-            kind: TargetTagKind::Exclusive,
+            kind: SnapshotTagKind::Exclusive,
             inference_prefixes: vec![String::from("-")],
             values: vec![String::from("1.0.0")],
             aliases: BTreeMap::new(),
@@ -261,9 +262,9 @@ mod tests {
 
     #[test]
     fn requires_version_tag() {
-        let result = validate_editable_target_tag_schema(vec![EditableTargetTagDefinition {
+        let result = validate_editable_snapshot_tag_schema(vec![EditableSnapshotTagDefinition {
             name: String::from("tier"),
-            kind: TargetTagKind::Exclusive,
+            kind: SnapshotTagKind::Exclusive,
             inference_prefixes: vec![String::from("-")],
             values: vec![String::from("base")],
             aliases: BTreeMap::new(),
@@ -275,25 +276,25 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|error| error.field == "targetTags")
+                .any(|error| error.field == "snapshotTags")
         );
     }
 
     #[test]
     fn version_tag_is_fixed_and_first() {
-        let result = validate_editable_target_tag_schema(vec![
-            EditableTargetTagDefinition {
+        let result = validate_editable_snapshot_tag_schema(vec![
+            EditableSnapshotTagDefinition {
                 name: String::from("os"),
-                kind: TargetTagKind::Exclusive,
+                kind: SnapshotTagKind::Exclusive,
                 inference_prefixes: vec![String::from("-")],
                 values: vec![String::from("windows")],
                 aliases: BTreeMap::new(),
                 default_value: None,
                 inference_handler: InferenceHandler::Default,
             },
-            EditableTargetTagDefinition {
+            EditableSnapshotTagDefinition {
                 name: String::from("version"),
-                kind: TargetTagKind::Scoped,
+                kind: SnapshotTagKind::Scoped,
                 inference_prefixes: vec![String::from("-v")],
                 values: Vec::new(),
                 aliases: BTreeMap::new(),
@@ -322,9 +323,9 @@ mod tests {
 
     #[test]
     fn sanitization_trims_inference_prefixes() {
-        let schema = sanitize_editable_target_tag_schema(vec![EditableTargetTagDefinition {
+        let schema = sanitize_editable_snapshot_tag_schema(vec![EditableSnapshotTagDefinition {
             name: String::from("version"),
-            kind: TargetTagKind::Exclusive,
+            kind: SnapshotTagKind::Exclusive,
             inference_prefixes: vec![String::from(" -v "), String::new()],
             values: Vec::new(),
             aliases: BTreeMap::new(),
@@ -333,6 +334,6 @@ mod tests {
         }])
         .expect("schema");
 
-        assert_eq!(schema.target_tags[0].inference_prefixes, vec!["-v"]);
+        assert_eq!(schema.snapshot_tags[0].inference_prefixes, vec!["-v"]);
     }
 }

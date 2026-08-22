@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::target::TargetManifest;
+use super::snapshot::SnapshotManifest;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,9 +23,9 @@ pub struct ResolvedLaunchAction {
     pub working_directory: Option<String>,
 }
 
-pub fn validate_resolved_launch_for_target(
+pub fn validate_resolved_launch_for_snapshot(
     configuration: &ResolvedLaunchConfiguration,
-    target: &TargetManifest,
+    snapshot: &SnapshotManifest,
 ) -> Result<()> {
     validate_action_names_and_primary(
         configuration
@@ -36,8 +36,11 @@ pub fn validate_resolved_launch_for_target(
         true,
     )?;
 
-    let target_os = target.target_tags.get_exclusive("os").unwrap_or_default();
-    let manifest_paths = target
+    let snapshot_os = snapshot
+        .snapshot_tags
+        .get_exclusive("os")
+        .unwrap_or_default();
+    let manifest_paths = snapshot
         .files
         .iter()
         .map(|file| file.path.as_str())
@@ -52,7 +55,7 @@ pub fn validate_resolved_launch_for_target(
                 let prefix = format!("{}/", working_directory.trim_end_matches('/'));
                 if !manifest_paths.iter().any(|path| path.starts_with(&prefix)) {
                     return Err(Error::manifest(format!(
-                        "launch action '{}' working directory '{}' does not exist in the target",
+                        "launch action '{}' working directory '{}' does not exist in the snapshot",
                         action.name, working_directory
                     )));
                 }
@@ -63,14 +66,14 @@ pub fn validate_resolved_launch_for_target(
             continue;
         }
         let app_bundle_prefix = format!("{}/", action.executable.trim_end_matches('/'));
-        let is_macos_bundle = target_os == "macos"
+        let is_macos_bundle = snapshot_os == "macos"
             && action.executable.to_ascii_lowercase().ends_with(".app")
             && manifest_paths
                 .iter()
                 .any(|path| path.starts_with(&app_bundle_prefix));
         if !is_macos_bundle {
             return Err(Error::manifest(format!(
-                "launch action '{}' executable '{}' is not contained in the target",
+                "launch action '{}' executable '{}' is not contained in the snapshot",
                 action.name, action.executable
             )));
         }

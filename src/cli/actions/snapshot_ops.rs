@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::cli::common::{TargetInstallApplyStats, TargetInstallVerifyStats, write_report};
+use crate::cli::common::{SnapshotReconstructStats, SnapshotVerifyStats, write_report};
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::{
     optional_output_paths, print_reconstruct_timings, print_verify_timings, ratio_pct,
@@ -9,12 +9,12 @@ use crate::cli::reporting::{
 use crate::cli::verbose_output_enabled;
 use gutch as g;
 
-pub(crate) struct ApplyCommand {
+pub(crate) struct ReconstructCommand {
     pub(crate) repo: PathBuf,
-    pub(crate) target: String,
-    pub(crate) dir: PathBuf,
+    pub(crate) snapshot_id: String,
+    pub(crate) destination: PathBuf,
     pub(crate) staging_dir: Option<PathBuf>,
-    pub(crate) source_target: Option<String>,
+    pub(crate) source_snapshot: Option<String>,
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
@@ -22,39 +22,39 @@ pub(crate) struct ApplyCommand {
 
 pub(crate) struct VerifyCommand {
     pub(crate) repo: PathBuf,
-    pub(crate) target: String,
-    pub(crate) dir: PathBuf,
+    pub(crate) snapshot_id: String,
+    pub(crate) destination: PathBuf,
     pub(crate) verify_mode: g::VerifyMode,
     pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
 }
 
-pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
-    let execution = g::apply_target_install_from_repo(g::TargetInstallApplyFromRepoRequest {
+pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()> {
+    let execution = g::reconstruct_snapshot_from_repo(g::SnapshotReconstructFromRepoRequest {
         repo_path: command.repo.clone(),
-        target_id: command.target.clone(),
-        install_dir: command.dir.clone(),
+        snapshot_id: command.snapshot_id.clone(),
+        destination_dir: command.destination.clone(),
         staging_dir: command.staging_dir.clone(),
-        source_target_id: command.source_target.clone(),
+        source_snapshot_id: command.source_snapshot.clone(),
         source_dir: command.source_dir.clone(),
         runtime_hints: command.runtime_hints,
         control: g::GutchOperationControl::default(),
     })?;
-    let tm = execution.target_manifest;
-    let result = execution.apply_result;
+    let tm = execution.snapshot_manifest;
+    let result = execution.reconstruct_result;
     let reused_source_chunk_percent = ratio_pct(
         result.reused_source_chunk_count as u64,
         result.required_chunk_count as u64,
     );
-    let stats = TargetInstallApplyStats {
-        command: "target_install apply",
+    let stats = SnapshotReconstructStats {
+        command: "snapshot reconstruct",
         repo_root: execution.repo_root.display().to_string(),
-        target_id: result.target_id.clone(),
-        install_dir: result.install_dir.display().to_string(),
+        snapshot_id: result.snapshot_id.clone(),
+        destination_dir: result.destination_dir.display().to_string(),
         staging_dir: result.staging_dir.display().to_string(),
-        source_target_id: command.source_target.clone(),
-        source_install_dir: execution
-            .source_install_dir
+        source_snapshot_id: command.source_snapshot.clone(),
+        source_destination_dir: execution
+            .source_destination_dir
             .as_ref()
             .map(|path| path.display().to_string()),
         file_count: tm.files.len(),
@@ -73,8 +73,8 @@ pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
 
     if verbose_output_enabled() {
         println!(
-            "applied target {} to {}",
-            stats.target_id, stats.install_dir
+            "reconstructed snapshot {} to {}",
+            stats.snapshot_id, stats.destination_dir
         );
         println!(
             "reused {} of {} chunks from source ({:.2}%)",
@@ -88,29 +88,29 @@ pub(crate) fn apply_install(command: ApplyCommand) -> g::Result<()> {
     Ok(())
 }
 
-pub(crate) fn verify_install(command: VerifyCommand) -> g::Result<()> {
+pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
     let progress = CliProgressSink::new();
-    let execution = g::verify_target_install_from_repo(g::TargetInstallVerifyFromRepoRequest {
+    let execution = g::verify_snapshot_from_repo(g::SnapshotVerifyFromRepoRequest {
         repo_path: command.repo.clone(),
-        target_id: command.target.clone(),
-        install_dir: command.dir.clone(),
+        snapshot_id: command.snapshot_id.clone(),
+        destination_dir: command.destination.clone(),
         verify_mode: command.verify_mode,
         runtime_hints: command.runtime_hints,
         control: g::GutchOperationControl::default().with_progress(progress),
     })?;
     let repo_root = execution.repo_root;
-    let tm = execution.target_manifest;
+    let tm = execution.snapshot_manifest;
     let classification = execution.classification;
     let timings = execution.verify_timings;
     let missing_file_count = classification.missing_files.len();
     let corrupt_file_count = classification.corrupt_files.len();
     let extra_file_count = classification.extra_files.len();
     let errors = classification.into_messages();
-    let stats = TargetInstallVerifyStats {
-        command: "target_install verify",
+    let stats = SnapshotVerifyStats {
+        command: "snapshot verify",
         repo_root: repo_root.display().to_string(),
-        target_id: tm.target_id.clone(),
-        install_dir: command.dir.display().to_string(),
+        snapshot_id: tm.snapshot_id.clone(),
+        destination_dir: command.destination.display().to_string(),
         verify_mode: command.verify_mode.as_str().to_string(),
         expected_file_count: tm.files.len(),
         missing_file_count,
@@ -125,7 +125,7 @@ pub(crate) fn verify_install(command: VerifyCommand) -> g::Result<()> {
 
     if errors.is_empty() {
         if verbose_output_enabled() {
-            println!("verification passed for {}", command.dir.display());
+            println!("verification passed for {}", command.destination.display());
         }
         print_verify_timings(&timings);
     } else {

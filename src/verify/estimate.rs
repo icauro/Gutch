@@ -3,17 +3,17 @@ use std::collections::HashSet;
 use crate::Result;
 use crate::hash::ChunkHash;
 use crate::manifest::runtime::typed_file_manifest;
-use crate::manifest::{self, target::TargetManifest};
+use crate::manifest::{self, snapshot::SnapshotManifest};
 
 pub fn estimate_build(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     available_chunks: &HashSet<ChunkHash>,
     available_disk_space: u64,
 ) -> Result<manifest::Estimate> {
     let mut missing_chunks: HashSet<ChunkHash> = HashSet::new();
     let mut missing_logical: u64 = 0;
 
-    for file_manifest in &target_manifest.files {
+    for file_manifest in &snapshot_manifest.files {
         let typed_file_manifest = typed_file_manifest(file_manifest)?;
         for chunk_ref in &typed_file_manifest.chunks {
             if !available_chunks.contains(&chunk_ref.hash) {

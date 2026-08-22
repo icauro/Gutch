@@ -1,11 +1,11 @@
 use super::*;
-use crate::manifest::{FileManifest, TargetTagSet, target::TargetManifest};
+use crate::manifest::{FileManifest, SnapshotTagSet, snapshot::SnapshotManifest};
 use crate::test_util;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> TargetTagSet {
-    let mut tags = TargetTagSet::default();
+fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> SnapshotTagSet {
+    let mut tags = SnapshotTagSet::default();
     tags.upsert_exclusive("version", version);
     tags.upsert_exclusive("os", os);
     tags.upsert_exclusive("arch", arch);
@@ -13,9 +13,9 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> TargetTagS
     tags
 }
 
-fn verify_test_directory(manifest: &TargetManifest, dir: &Path) -> Vec<String> {
+fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String> {
     verify_directory(VerifyRequest {
-        target_manifest: manifest,
+        snapshot_manifest: manifest,
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
@@ -25,9 +25,9 @@ fn verify_test_directory(manifest: &TargetManifest, dir: &Path) -> Vec<String> {
     .0
 }
 
-fn classify_test_directory(manifest: &TargetManifest, dir: &Path) -> RepairClassification {
+fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairClassification {
     classify_directory(VerifyRequest {
-        target_manifest: manifest,
+        snapshot_manifest: manifest,
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
@@ -60,14 +60,14 @@ fn test_build_and_reconstruct_roundtrip() {
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
 
-    assert!(!result.target_manifest.files.is_empty());
+    assert!(!result.snapshot_manifest.files.is_empty());
 
     let out_dir = test_util::temp_path("gutch_test_output");
     let _ = std::fs::remove_dir_all(&out_dir);
 
     let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
-    reconstruct_from_target_manifest(
-        &result.target_manifest,
+    reconstruct_from_snapshot_manifest(
+        &result.snapshot_manifest,
         &bundle_data,
         &manifest::CompressionProfile::default(),
         &out_dir,
@@ -75,7 +75,7 @@ fn test_build_and_reconstruct_roundtrip() {
     )
     .unwrap();
 
-    let verify_errors = verify_test_directory(&result.target_manifest, &out_dir);
+    let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
 
     assert!(
         verify_errors.is_empty(),
@@ -88,12 +88,12 @@ fn test_build_and_reconstruct_roundtrip() {
 }
 
 #[test]
-fn test_apply_target_install_reuses_verified_source_install() {
-    let root = test_util::temp_path("gutch_test_apply_target_install");
+fn test_apply_snapshot_ops_reuses_verified_source_destination() {
+    let root = test_util::temp_path("gutch_test_apply_snapshot_ops");
     let v1_dir = root.join("v1");
     let v2_dir = root.join("v2");
     let repo_dir = root.join("repo");
-    let install_dir = root.join("install");
+    let destination_dir = root.join("destination");
     let staging_dir = root.join(".staging");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&v1_dir).unwrap();
@@ -114,20 +114,20 @@ fn test_apply_target_install_reuses_verified_source_install() {
         .iter()
         .map(|bundle| bundle.data.clone())
         .collect();
-    reconstruct_from_target_manifest(
-        &v1.target_manifest,
+    reconstruct_from_snapshot_manifest(
+        &v1.snapshot_manifest,
         &v1_bundle_data,
         &manifest::CompressionProfile::default(),
-        &install_dir,
+        &destination_dir,
         &GutchOperationControl::default(),
     )
     .unwrap();
-    std::fs::write(install_dir.join("player.log"), b"local runtime log").unwrap();
+    std::fs::write(destination_dir.join("player.log"), b"local runtime log").unwrap();
 
     let repo_paths = GutchRepoPaths::from_repo_root(&repo_dir);
     ensure_gutch_repo_layout(&repo_paths, "test").unwrap();
-    write_target_manifest_artifacts(&repo_paths, &v1.target_manifest).unwrap();
-    write_target_manifest_artifacts(&repo_paths, &v2.target_manifest).unwrap();
+    write_snapshot_manifest_artifacts(&repo_paths, &v1.snapshot_manifest).unwrap();
+    write_snapshot_manifest_artifacts(&repo_paths, &v2.snapshot_manifest).unwrap();
     for bundle in &v2.bundles {
         std::fs::write(bundle_path(&repo_paths, &bundle.bundle_id), &bundle.data).unwrap();
     }
@@ -140,18 +140,18 @@ fn test_apply_target_install_reuses_verified_source_install() {
     .unwrap();
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
-    let result = apply_target_install_from_repo(TargetInstallApplyFromRepoRequest {
+    let result = reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
         repo_path: repo_dir,
-        target_id: v2.target_manifest.target_id.clone(),
-        install_dir: install_dir.clone(),
+        snapshot_id: v2.snapshot_manifest.snapshot_id.clone(),
+        destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir.clone()),
-        source_target_id: Some(v1.target_manifest.target_id.clone()),
-        source_dir: Some(install_dir.clone()),
+        source_snapshot_id: Some(v1.snapshot_manifest.snapshot_id.clone()),
+        source_dir: Some(destination_dir.clone()),
         runtime_hints: RuntimeResourceHints::default(),
         control: GutchOperationControl::default(),
     })
     .unwrap()
-    .apply_result;
+    .reconstruct_result;
 
     assert!(
         result.reused_source_chunk_count > 0,
@@ -161,12 +161,12 @@ fn test_apply_target_install_reuses_verified_source_install() {
         result.backup_dir, None,
         "successful promotion should not report a deleted backup directory"
     );
-    assert!(install_dir.join("shared.txt").exists());
-    assert!(install_dir.join("new.txt").exists());
-    assert!(!install_dir.join("old.txt").exists());
+    assert!(destination_dir.join("shared.txt").exists());
+    assert!(destination_dir.join("new.txt").exists());
+    assert!(!destination_dir.join("old.txt").exists());
     assert!(!staging_dir.exists());
 
-    let verify_errors = verify_test_directory(&v2.target_manifest, &install_dir);
+    let verify_errors = verify_test_directory(&v2.snapshot_manifest, &destination_dir);
     assert!(
         verify_errors.is_empty(),
         "verification errors: {:?}",
@@ -220,7 +220,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
         .collect();
 
     let (_, timings) = reconstruct_from_bundle_paths(
-        &result.target_manifest,
+        &result.snapshot_manifest,
         &bundle_paths,
         &manifest::CompressionProfile::default(),
         None,
@@ -235,7 +235,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
     )
     .unwrap();
 
-    let verify_errors = verify_test_directory(&result.target_manifest, &out_dir);
+    let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
     assert!(
         verify_errors.is_empty(),
         "verification errors: {:?}",
@@ -245,7 +245,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
         timings.runtime_plan.as_ref().map(|plan| plan.worker_count),
         Some(1)
     );
-    assert!(timings.total >= timings.prepare_wall + timings.restore_wall);
+    assert!(timings.total >= timings.prepare_wall + timings.reconstruct_wall);
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -262,7 +262,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
 
     std::fs::write(
         input_dir.join("a.bin"),
-        b"direct bundle restore".repeat(1024),
+        b"direct bundle reconstruct".repeat(1024),
     )
     .unwrap();
     std::fs::write(input_dir.join("b.bin"), b"second output file".repeat(512)).unwrap();
@@ -287,7 +287,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
         .collect();
 
     reconstruct_from_bundle_paths(
-        &result.target_manifest,
+        &result.snapshot_manifest,
         &bundle_paths,
         &manifest::CompressionProfile::default(),
         None,
@@ -305,7 +305,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
     )
     .unwrap();
 
-    let verify_errors = verify_test_directory(&result.target_manifest, &out_dir);
+    let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
     assert!(
         verify_errors.is_empty(),
         "verification errors: {:?}",
@@ -330,7 +330,7 @@ fn test_gutch_repo_paths_from_store_root() {
         paths.repo_metadata_path,
         paths.repo_root.join("repo_metadata.json")
     );
-    assert_eq!(paths.targets_root, paths.repo_root.join("targets"));
+    assert_eq!(paths.snapshots_root, paths.repo_root.join("snapshots"));
     assert_eq!(paths.bundles_root, paths.repo_root.join("bundles"));
 }
 
@@ -344,7 +344,7 @@ fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
 
     assert_eq!(repo_manifest.name, "base");
     assert!(paths.repo_metadata_path.exists());
-    assert!(paths.targets_root.exists());
+    assert!(paths.snapshots_root.exists());
     assert!(paths.bundles_root.exists());
 
     let _ = std::fs::remove_dir_all(&repo_root);
@@ -364,7 +364,7 @@ fn test_verify_directory_missing_file() {
     };
 
     let tags = exclusive_tags("v", "win", "x64", "base");
-    let mut vm = TargetManifest::new("1".into(), tags);
+    let mut vm = SnapshotManifest::new("1".into(), tags);
     vm.files.push(fm);
     let errors = verify_test_directory(&vm, &dir);
     assert!(!errors.is_empty());
@@ -384,7 +384,7 @@ fn test_verify_directory_reports_extra_file() {
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
 
-    let mut manifest = result.target_manifest.clone();
+    let mut manifest = result.snapshot_manifest.clone();
     manifest.files.retain(|file| file.path == "expected.txt");
     manifest.total_logical_size = b"hello world".len() as u64;
 
@@ -413,7 +413,7 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
     std::fs::write(dir.join("notes.tmp"), b"user scratch").unwrap();
 
-    let classification = classify_test_directory(&result.target_manifest, &dir);
+    let classification = classify_test_directory(&result.snapshot_manifest, &dir);
 
     assert_eq!(classification.missing_files.len(), 1);
     assert_eq!(classification.missing_files[0].path, "healthy.txt");
@@ -495,14 +495,14 @@ fn test_large_game_build_200mb() {
     let build_ms = t1.elapsed().as_millis();
 
     let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
-    let compression_pct = if result.target_manifest.total_logical_size > 0 {
-        100.0 * bundle_total as f64 / result.target_manifest.total_logical_size as f64
+    let compression_pct = if result.snapshot_manifest.total_logical_size > 0 {
+        100.0 * bundle_total as f64 / result.snapshot_manifest.total_logical_size as f64
     } else {
         0.0
     };
 
     let manifest_path = artifacts_dir.join("manifest.json");
-    let manifest_json = serde_json::to_string_pretty(&result.target_manifest).unwrap();
+    let manifest_json = serde_json::to_string_pretty(&result.snapshot_manifest).unwrap();
     std::fs::write(&manifest_path, manifest_json).unwrap();
     for bundle in &result.bundles {
         let bundle_dir = artifacts_dir.join("bundles");
@@ -516,8 +516,8 @@ fn test_large_game_build_200mb() {
     let out_dir = test_util::temp_path("gutch_test_200mb_reconstructed");
     let _ = std::fs::remove_dir_all(&out_dir);
     let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
-    reconstruct_from_target_manifest(
-        &result.target_manifest,
+    reconstruct_from_snapshot_manifest(
+        &result.snapshot_manifest,
         &bundle_data,
         &manifest::CompressionProfile::default(),
         &out_dir,
@@ -527,14 +527,14 @@ fn test_large_game_build_200mb() {
     let recon_ms = t2.elapsed().as_millis();
 
     let t3 = Instant::now();
-    let errors = verify_test_directory(&result.target_manifest, &out_dir);
+    let errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
     let verify_ms = t3.elapsed().as_millis();
     let pipeline_without_verify_ms = gen_ms + build_ms + recon_ms;
 
     assert!(errors.is_empty(), "verification errors: {:?}", errors);
 
     let est = estimate_build(
-        &result.target_manifest,
+        &result.snapshot_manifest,
         &Default::default(),
         1024 * 1024 * 1024,
     )
@@ -542,10 +542,13 @@ fn test_large_game_build_200mb() {
 
     println!();
     println!("=== 200 MB mock game build ===");
-    println!("  files:           {}", result.target_manifest.files.len());
+    println!(
+        "  files:           {}",
+        result.snapshot_manifest.files.len()
+    );
     println!(
         "  total logical:   {:.1} MB",
-        result.target_manifest.total_logical_size as f64 / (1024.0 * 1024.0)
+        result.snapshot_manifest.total_logical_size as f64 / (1024.0 * 1024.0)
     );
     println!(
         "  total bundled:   {:.1} MB ({:.1}% of original)",
@@ -559,7 +562,7 @@ fn test_large_game_build_200mb() {
     println!(
         "  unique chunks:   {}",
         result
-            .target_manifest
+            .snapshot_manifest
             .files
             .iter()
             .flat_map(|f| f.chunks.iter())
@@ -577,7 +580,7 @@ fn test_large_game_build_200mb() {
         gen_ms + build_ms + recon_ms + verify_ms
     );
     println!();
-    println!("  fresh install estimate:");
+    println!("  fresh reconstruction estimate:");
     println!("    missing chunks:      {}", est.missing_chunk_count);
     println!(
         "    missing logical:     {:.1} MB",

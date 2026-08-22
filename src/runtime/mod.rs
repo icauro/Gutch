@@ -139,8 +139,8 @@ fn plan_runtime(hints: &RuntimeResourceHints, workload: RuntimeWorkload) -> Runt
         RuntimeWorkload::Reconstruct => match effective_memory_mode {
             EffectiveMemoryMode::Low => LOW_RECONSTRUCT_WORKERS,
             EffectiveMemoryMode::Balanced => available_workers.min(BALANCED_RECONSTRUCT_WORKERS),
-            // Phase 1 benchmark showed bundled restore regressing at 8 and 16 workers because
-            // staging/read/write contention dominated. Keep the default capped until restore has
+            // Phase 1 benchmark showed bundled reconstruct regressing at 8 and 16 workers because
+            // staging/read/write contention dominated. Keep the default capped until reconstruct has
             // separate CPU and I/O limits.
             EffectiveMemoryMode::High => available_workers.min(HIGH_RECONSTRUCT_WORKERS),
         },
@@ -176,7 +176,7 @@ fn plan_runtime(hints: &RuntimeResourceHints, workload: RuntimeWorkload) -> Runt
     }
 }
 
-pub fn install_in_thread_pool<T: Send, F: FnOnce() -> T + Send>(
+pub fn run_in_thread_pool<T: Send, F: FnOnce() -> T + Send>(
     worker_count: usize,
     work: F,
 ) -> Result<T> {

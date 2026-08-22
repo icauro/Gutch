@@ -1,29 +1,28 @@
 //! Source-root ingestion config (`.gutch_source_config.json`).
 //!
-//! A source root is the directory passed as `--product-dir` to
-//! `target commit` (with `--product-dir`) or as the sources root to
-//! `target-sources sync` —
-//! the directory whose (possibly nested) subdirectories are target sources.
+//! A source root is the directory passed as `--source-root` to
+//! `snapshot create` or as the sources root to `repo sources sync` —
+//! the directory whose (possibly nested) subdirectories are snapshot sources.
 //!
 //! The config selects an ingestion mode:
 //!
-//! - `auto` (default): target sources are the immediate subdirectories of the
+//! - `auto` (default): snapshot sources are the immediate subdirectories of the
 //!   source root, filtered by `auto_ingestion_rules.ignore_paths` (plain folder-name
 //!   fnmatch). Tags come from folder names plus CLI tags.
-//! - `explicit`: target sources are exactly the `explicit_ingestion_rules.targets`
+//! - `explicit`: snapshot sources are exactly the `explicit_ingestion_rules.snapshots`
 //!   paths at any depth, with tags declared per entry. Folder names are
 //!   irrelevant and name inference is disabled.
 //!
 //! `.gutch_source_config.json` itself is always ignored: it is a file at the source
-//! root, so target discovery (which only picks directories) never sees it,
-//! and it sits outside every target source tree.
+//! root, so snapshot discovery (which only picks directories) never sees it,
+//! and it sits outside every snapshot source tree.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::manifest::TargetTagSet;
+use crate::manifest::SnapshotTagSet;
 use crate::{Error, Result};
 
 pub const SOURCE_CONFIG_FILE_NAME: &str = ".gutch_source_config.json";
@@ -47,15 +46,15 @@ pub struct AutoIngestionRules {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
 pub struct ExplicitIngestionRules {
-    pub targets: Vec<TargetRule>,
+    pub snapshots: Vec<SnapshotRule>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
-pub struct TargetRule {
-    /// Relative path from the source root to the target source folder.
+pub struct SnapshotRule {
+    /// Relative path from the source root to the snapshot source folder.
     pub path: String,
-    /// `key::value` compact tags applied to this target (same format as CLI
+    /// `key::value` compact tags applied to this snapshot (same format as CLI
     /// `--tag`). CLI `--tag` values still win over these.
     pub tags: Vec<String>,
 }
@@ -68,17 +67,17 @@ pub struct SourceConfig {
     pub explicit_ingestion_rules: ExplicitIngestionRules,
 }
 
-/// A target source resolved from the config (or from an explicit `--dir`).
+/// A snapshot source resolved from the config (or from an explicit `--dir`).
 #[derive(Debug, Clone)]
-pub struct ResolvedSourceTarget {
-    /// Absolute path to the target source directory.
+pub struct ResolvedSourceSnapshot {
+    /// Absolute path to the snapshot source directory.
     pub path: PathBuf,
     /// Path relative to the source root (`/`-separated segments).
     pub relative_path: PathBuf,
     /// Tags declared in the config entry (explicit mode); `None` in auto mode
     /// or for explicit `--dir` arguments.
-    pub config_tags: Option<TargetTagSet>,
-    /// Whether name-based tag inference is allowed for this target.
+    pub config_tags: Option<SnapshotTagSet>,
+    /// Whether name-based tag inference is allowed for this snapshot.
     pub allow_name_inference: bool,
 }
 
@@ -101,7 +100,7 @@ impl SourceConfig {
     }
 
     /// Load the config or fall back to the default `auto` skeleton without
-    /// creating a file (used by read-only consumers such as repo refresh reads).
+    /// creating a file (used by read-only consumers such as repo status reads).
     pub fn load_or_default(source_root: &Path) -> Result<Self> {
         Ok(Self::load(source_root)?.unwrap_or_else(Self::default_skeleton))
     }
@@ -123,19 +122,22 @@ impl SourceConfig {
         crate::helpers::write(&path, text)
     }
 
-    /// Resolve the target sources for this config under `source_root`.
+    /// Resolve the snapshot sources for this config under `source_root`.
     ///
     /// Validates the active mode only: `explicit` requires non-empty unique
-    /// `targets` whose normalized paths exist as directories; `auto` requires
+    /// `snapshots` whose normalized paths exist as directories; `auto` requires
     /// `ignore_paths` to be plain folder names.
-    pub fn discover_target_sources(&self, source_root: &Path) -> Result<Vec<ResolvedSourceTarget>> {
+    pub fn discover_snapshot_sources(
+        &self,
+        source_root: &Path,
+    ) -> Result<Vec<ResolvedSourceSnapshot>> {
         match self.ingestion_mode {
             IngestionMode::Auto => self.discover_auto(source_root),
             IngestionMode::Explicit => self.discover_explicit(source_root),
         }
     }
 
-    fn discover_auto(&self, source_root: &Path) -> Result<Vec<ResolvedSourceTarget>> {
+    fn discover_auto(&self, source_root: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
         for pattern in &self.auto_ingestion_rules.ignore_paths {
             if pattern.is_empty() || pattern.contains('/') || pattern.contains('\\') {
                 return Err(Error::manifest(format!(
@@ -150,7 +152,7 @@ impl SourceConfig {
                 source_root.display()
             )));
         }
-        let mut targets = Vec::new();
+        let mut snapshots = Vec::new();
         for entry in std::fs::read_dir(source_root)? {
             let entry = entry?;
             let path = entry.path();
@@ -172,36 +174,36 @@ impl SourceConfig {
             {
                 continue;
             }
-            targets.push(ResolvedSourceTarget {
+            snapshots.push(ResolvedSourceSnapshot {
                 path,
                 relative_path: PathBuf::from(&name),
                 config_tags: None,
                 allow_name_inference: true,
             });
         }
-        targets.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
-        Ok(targets)
+        snapshots.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+        Ok(snapshots)
     }
 
-    fn discover_explicit(&self, source_root: &Path) -> Result<Vec<ResolvedSourceTarget>> {
-        if self.explicit_ingestion_rules.targets.is_empty() {
+    fn discover_explicit(&self, source_root: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
+        if self.explicit_ingestion_rules.snapshots.is_empty() {
             return Err(Error::manifest(
-                "explicit ingestion mode requires at least one target in explicit_ingestion_rules.targets",
+                "explicit ingestion mode requires at least one snapshot in explicit_ingestion_rules.snapshots",
             ));
         }
         let mut seen: HashSet<String> = HashSet::new();
-        let mut targets = Vec::new();
-        for rule in &self.explicit_ingestion_rules.targets {
+        let mut snapshots = Vec::new();
+        for rule in &self.explicit_ingestion_rules.snapshots {
             let normalized = normalize_relative_path(&rule.path)?;
             if !seen.insert(normalized.clone()) {
                 return Err(Error::manifest(format!(
-                    "duplicate explicit target path '{}'",
+                    "duplicate explicit snapshot path '{}'",
                     rule.path
                 )));
             }
-            let tags = TargetTagSet::from_compact_strings(&rule.tags).map_err(|err| {
+            let tags = SnapshotTagSet::from_compact_strings(&rule.tags).map_err(|err| {
                 Error::manifest(format!(
-                    "invalid tags for explicit target '{}': {err}",
+                    "invalid tags for explicit snapshot '{}': {err}",
                     rule.path
                 ))
             })?;
@@ -209,19 +211,19 @@ impl SourceConfig {
             let path = source_root.join(&relative_path);
             if !path.is_dir() {
                 return Err(Error::manifest(format!(
-                    "explicit target path does not exist or is not a directory: {}",
+                    "explicit snapshot path does not exist or is not a directory: {}",
                     path.display()
                 )));
             }
-            targets.push(ResolvedSourceTarget {
+            snapshots.push(ResolvedSourceSnapshot {
                 path,
                 relative_path,
                 config_tags: Some(tags),
                 allow_name_inference: false,
             });
         }
-        targets.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
-        Ok(targets)
+        snapshots.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+        Ok(snapshots)
     }
 }
 
@@ -231,7 +233,7 @@ impl SourceConfig {
 pub fn normalize_relative_path(raw: &str) -> Result<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed == "." {
-        return Err(Error::manifest("explicit target path must not be empty"));
+        return Err(Error::manifest("explicit snapshot path must not be empty"));
     }
     let with_forward_slashes = trimmed.replace('\\', "/");
     let mut parts: Vec<&str> = Vec::new();
@@ -240,18 +242,18 @@ pub fn normalize_relative_path(raw: &str) -> Result<String> {
             "" | "." => {}
             ".." => {
                 return Err(Error::manifest(
-                    "explicit target path must not contain '..' segments",
+                    "explicit snapshot path must not contain '..' segments",
                 ));
             }
             _ => parts.push(part),
         }
     }
     if parts.is_empty() {
-        return Err(Error::manifest("explicit target path must not be empty"));
+        return Err(Error::manifest("explicit snapshot path must not be empty"));
     }
     if with_forward_slashes.starts_with('/') || is_windows_drive_prefix(parts[0]) {
         return Err(Error::manifest(
-            "explicit target path must be relative to the source root",
+            "explicit snapshot path must be relative to the source root",
         ));
     }
     Ok(parts.join("/"))
@@ -306,7 +308,7 @@ mod tests {
         let config = SourceConfig::default_skeleton();
         assert_eq!(config.ingestion_mode, IngestionMode::Auto);
         assert!(config.auto_ingestion_rules.ignore_paths.is_empty());
-        assert!(config.explicit_ingestion_rules.targets.is_empty());
+        assert!(config.explicit_ingestion_rules.snapshots.is_empty());
     }
 
     #[test]
@@ -361,12 +363,12 @@ mod tests {
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
 
-        let targets = config.discover_target_sources(temp.path()).unwrap();
+        let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();
 
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].relative_path, PathBuf::from("game-win"));
-        assert!(targets[0].allow_name_inference);
-        assert!(targets[0].config_tags.is_none());
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].relative_path, PathBuf::from("game-win"));
+        assert!(snapshots[0].allow_name_inference);
+        assert!(snapshots[0].config_tags.is_none());
     }
 
     #[test]
@@ -380,35 +382,35 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[{"path":"./versions/4.6-stable/linux-x86_64","tags":["version::4.6-stable","os::linux","arch::x86_64"]}]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"snapshots":[{"path":"./versions/4.6-stable/linux-x86_64","tags":["version::4.6-stable","os::linux","arch::x86_64"]}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
 
-        let targets = config.discover_target_sources(temp.path()).unwrap();
+        let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();
 
-        assert_eq!(targets.len(), 1);
+        assert_eq!(snapshots.len(), 1);
         assert_eq!(
-            targets[0].relative_path,
+            snapshots[0].relative_path,
             PathBuf::from("versions/4.6-stable/linux-x86_64")
         );
-        assert!(!targets[0].allow_name_inference);
-        let tags = targets[0].config_tags.as_ref().unwrap();
+        assert!(!snapshots[0].allow_name_inference);
+        let tags = snapshots[0].config_tags.as_ref().unwrap();
         assert_eq!(tags.get_exclusive("version").unwrap(), "4.6-stable");
         assert_eq!(tags.get_exclusive("os").unwrap(), "linux");
     }
 
     #[test]
-    fn explicit_discovery_rejects_missing_targets_and_duplicates() {
+    fn explicit_discovery_rejects_missing_snapshots_and_duplicates() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("game-win")).unwrap();
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[{"path":"game-win"},{"path":"./game-win"}]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"snapshots":[{"path":"game-win"},{"path":"./game-win"}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
             config
-                .discover_target_sources(temp.path())
+                .discover_snapshot_sources(temp.path())
                 .unwrap_err()
                 .to_string()
                 .contains("duplicate")
@@ -416,12 +418,12 @@ mod tests {
 
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[{"path":"missing-dir"}]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"snapshots":[{"path":"missing-dir"}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
             config
-                .discover_target_sources(temp.path())
+                .discover_snapshot_sources(temp.path())
                 .unwrap_err()
                 .to_string()
                 .contains("does not exist")
@@ -429,12 +431,12 @@ mod tests {
 
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"targets":[]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"snapshots":[]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
             config
-                .discover_target_sources(temp.path())
+                .discover_snapshot_sources(temp.path())
                 .unwrap_err()
                 .to_string()
                 .contains("requires at least one")
@@ -451,7 +453,7 @@ mod tests {
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
         assert!(
             config
-                .discover_target_sources(temp.path())
+                .discover_snapshot_sources(temp.path())
                 .unwrap_err()
                 .to_string()
                 .contains("plain folder names")
@@ -463,13 +465,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("game-win")).unwrap();
         // Auto mode active; the explicit block references a missing dir and
-        // empty targets, which must be ignored because it is dormant.
+        // empty snapshots, which must be ignored because it is dormant.
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":[]},"explicit_ingestion_rules":{"targets":[]}}"#,
+            r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":[]},"explicit_ingestion_rules":{"snapshots":[]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
-        let targets = config.discover_target_sources(temp.path()).unwrap();
-        assert_eq!(targets.len(), 1);
+        let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();
+        assert_eq!(snapshots.len(), 1);
     }
 }

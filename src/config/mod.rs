@@ -14,7 +14,7 @@ pub struct GutchConfig {
 pub struct TrackedRepo {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_sources_path: Option<String>,
+    pub snapshot_sources_path: Option<String>,
 }
 
 impl GutchConfig {
@@ -32,27 +32,27 @@ impl GutchConfig {
 
     pub fn upsert_repo(&mut self, repo: TrackedRepo) {
         if let Some(existing) = self.find_repo_mut(&repo.path) {
-            if repo.target_sources_path.is_some() {
-                existing.target_sources_path = repo.target_sources_path;
+            if repo.snapshot_sources_path.is_some() {
+                existing.snapshot_sources_path = repo.snapshot_sources_path;
             }
         } else {
             self.insert_repo(repo);
         }
     }
 
-    pub fn set_repo_target_sources_path(
+    pub fn set_repo_snapshot_sources_path(
         &mut self,
         path: &str,
-        target_sources_path: Option<String>,
+        snapshot_sources_path: Option<String>,
     ) {
         if let Some(existing) = self.find_repo_mut(path) {
-            existing.target_sources_path = target_sources_path;
+            existing.snapshot_sources_path = snapshot_sources_path;
             return;
         }
 
         self.insert_repo(TrackedRepo {
             path: path.to_string(),
-            target_sources_path,
+            snapshot_sources_path,
         });
     }
 
@@ -107,12 +107,12 @@ fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {
             ));
         }
         if repo
-            .target_sources_path
+            .snapshot_sources_path
             .as_deref()
             .is_some_and(|path| !std::path::Path::new(path.trim()).is_absolute())
         {
             return Err(crate::Error::manifest(
-                "tracked Gutch target source paths must be absolute",
+                "tracked Gutch snapshot source paths must be absolute",
             ));
         }
     }
@@ -133,18 +133,18 @@ mod tests {
     }
 
     #[test]
-    fn set_repo_target_sources_path_updates_existing_value() {
+    fn set_repo_snapshot_sources_path_updates_existing_value() {
         let mut config = GutchConfig {
             repos: vec![TrackedRepo {
                 path: "D:\\Repos\\game".to_string(),
-                target_sources_path: Some("D:\\Builds\\game".to_string()),
+                snapshot_sources_path: Some("D:\\Builds\\game".to_string()),
             }],
         };
 
-        config.set_repo_target_sources_path("  d:\\repos\\GAME  ", None);
+        config.set_repo_snapshot_sources_path("  d:\\repos\\GAME  ", None);
 
         let tracked = config.find_repo("D:\\Repos\\game").unwrap();
-        assert_eq!(tracked.target_sources_path, None);
+        assert_eq!(tracked.snapshot_sources_path, None);
     }
 
     #[test]
@@ -153,21 +153,21 @@ mod tests {
 
         config.upsert_repo(TrackedRepo {
             path: "D:\\Repos\\game".to_string(),
-            target_sources_path: Some("D:\\Builds\\game".to_string()),
+            snapshot_sources_path: Some("D:\\Builds\\game".to_string()),
         });
         assert_eq!(config.repos.len(), 1);
         assert_eq!(
-            config.repos[0].target_sources_path,
+            config.repos[0].snapshot_sources_path,
             Some("D:\\Builds\\game".to_string())
         );
 
         config.upsert_repo(TrackedRepo {
             path: "D:\\Repos\\game".to_string(),
-            target_sources_path: Some("D:\\Builds\\game-v2".to_string()),
+            snapshot_sources_path: Some("D:\\Builds\\game-v2".to_string()),
         });
         assert_eq!(config.repos.len(), 1);
         assert_eq!(
-            config.repos[0].target_sources_path,
+            config.repos[0].snapshot_sources_path,
             Some("D:\\Builds\\game-v2".to_string())
         );
     }
@@ -179,7 +179,7 @@ mod tests {
         for path in ["D:\\Repos\\game", "C:\\Repos\\game"] {
             config.upsert_repo(TrackedRepo {
                 path: path.to_string(),
-                target_sources_path: None,
+                snapshot_sources_path: None,
             });
         }
 

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use serde::Deserialize;
 
-use super::types::{GutchBundleDownload, TargetInstallFetchRequest};
+use super::types::{GutchBundleDownload, SnapshotFetchRequest};
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
@@ -17,9 +17,9 @@ use crate::{Error, Result};
 
 const DOWNLOAD_PROGRESS_EMIT_BYTES: u64 = 256 * 1024;
 const MAX_PARALLEL_BUNDLE_DOWNLOADS: usize = 4;
-pub(super) const MAX_INSTALL_METADATA_BYTES: u64 = 16 * 1024 * 1024;
-pub(super) const MAX_INSTALL_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
-pub(super) const MAX_INSTALL_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
+pub(super) const MAX_SNAPSHOT_INDEX_BYTES: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
+pub(super) const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,7 +107,7 @@ pub(super) fn normalize_bundle_downloads(
 }
 
 pub(super) fn fetch_bundle_urls(
-    request: &TargetInstallFetchRequest,
+    request: &SnapshotFetchRequest,
     required_bundle_ids: &std::collections::HashSet<String>,
     existing_bundle_ids: &std::collections::HashSet<String>,
 ) -> Result<HashMap<String, String>> {
@@ -166,16 +166,16 @@ pub(super) fn write_repo_manifest(
     crate::write_gutch_repo_manifest(repo_paths, repo_manifest)
 }
 
-pub(crate) fn target_manifest_from_download(
-    target_id: &str,
+pub(crate) fn snapshot_manifest_from_download(
+    snapshot_id: &str,
     manifest_bytes: &[u8],
-) -> Result<crate::manifest::target::TargetManifest> {
+) -> Result<crate::manifest::snapshot::SnapshotManifest> {
     let manifest_json = std::str::from_utf8(manifest_bytes)
-        .map_err(|err| Error::manifest(format!("target manifest is not valid UTF-8: {}", err)))?;
+        .map_err(|err| Error::manifest(format!("snapshot manifest is not valid UTF-8: {}", err)))?;
     let mut manifest =
-        serde_json::from_str::<crate::manifest::target::TargetManifest>(manifest_json)?;
-    if manifest.target_id.trim().is_empty() || manifest.target_id != target_id {
-        manifest.target_id = target_id.to_string();
+        serde_json::from_str::<crate::manifest::snapshot::SnapshotManifest>(manifest_json)?;
+    if manifest.snapshot_id.trim().is_empty() || manifest.snapshot_id != snapshot_id {
+        manifest.snapshot_id = snapshot_id.to_string();
     }
     Ok(manifest)
 }
@@ -405,7 +405,7 @@ where
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase,
-            message: "Downloaded content".to_string(),
+            message: "Downloaded snapshot bundles".to_string(),
             current: counters.total.min(counters.current.saturating_add(1)),
             total: counters.total.max(1),
             transferred_bytes: transfer_progress.transferred_bytes(),
@@ -468,7 +468,7 @@ fn download_json_bytes(
             total: 1,
         },
         None,
-        MAX_INSTALL_METADATA_BYTES,
+        MAX_SNAPSHOT_INDEX_BYTES,
     )
 }
 

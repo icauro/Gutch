@@ -9,12 +9,12 @@ use rayon::prelude::*;
 use crate::bundle;
 use crate::compress::decompress_data;
 use crate::hash::{ChunkHash, hash_hex};
-use crate::manifest::{ArtifactStorageMode, CompressionProfile, target::TargetManifest};
+use crate::manifest::{ArtifactStorageMode, CompressionProfile, snapshot::SnapshotManifest};
 use crate::path_guard::resolve_manifest_relative_path;
 use crate::progress::GutchOperationControl;
 use crate::repo::{GutchRepoPaths, chunk_path};
 use crate::runtime::{
-    RuntimePlan, RuntimeResourceHints, install_in_thread_pool, plan_reconstruct_runtime,
+    RuntimePlan, RuntimeResourceHints, run_in_thread_pool, plan_reconstruct_runtime,
 };
 use crate::{Error, Result};
 
@@ -23,7 +23,7 @@ use super::super::types::{
     ReconstructTimings, typed_chunk_refs,
 };
 use super::direct::{
-    direct_reconstruct_bundle_compressed_to_files, should_use_direct_bundle_to_file_restore,
+    direct_reconstruct_bundle_compressed_to_files, should_use_direct_bundle_to_file_reconstruct,
 };
 use super::staging::stage_reconstruct_bundle_access;
 
@@ -32,14 +32,14 @@ use super::staging::stage_reconstruct_bundle_access;
 // ---------------------------------------------------------------------------
 
 pub(in crate::reconstruct) fn prepare_reconstruct(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     output_dir: &Path,
     runtime_hints: &RuntimeResourceHints,
     control: &GutchOperationControl,
 ) -> Result<(HashSet<ChunkHash>, Instant, RuntimePlan, ReconstructTimings)> {
     control.checkpoint()?;
     let total_start = Instant::now();
-    let needed_chunks = crate::repo::required_chunk_hashes_typed(target_manifest)?;
+    let needed_chunks = crate::repo::required_chunk_hashes_typed(snapshot_manifest)?;
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
     let mut timings = ReconstructTimings {
         runtime_plan: Some(runtime_plan.clone()),
@@ -55,7 +55,7 @@ pub(in crate::reconstruct) fn prepare_reconstruct(
 // ---------------------------------------------------------------------------
 
 pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     bundle_paths: &[std::path::PathBuf],
     compression_profile: &CompressionProfile,
     needed_chunks: &HashSet<ChunkHash>,
@@ -112,14 +112,14 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
         }
     }
 
-    if should_use_direct_bundle_to_file_restore(
+    if should_use_direct_bundle_to_file_reconstruct(
         &local_chunks,
         &bundle_scan_info,
         &runtime_plan,
         options,
     ) {
         direct_reconstruct_bundle_compressed_to_files(
-            target_manifest,
+            snapshot_manifest,
             &locations,
             output_dir,
             compression_profile,
@@ -142,7 +142,7 @@ pub(in crate::reconstruct) fn reconstruct_from_bundle_paths_and_local_chunks(
     )?;
 
     reconstruct_files_from_locations_and_chunks(
-        target_manifest,
+        snapshot_manifest,
         &locations,
         &access_plan,
         &local_chunks,
@@ -172,7 +172,7 @@ pub(in crate::reconstruct) fn read_loose_repo_chunks(
     control: &GutchOperationControl,
 ) -> Result<HashMap<ChunkHash, Vec<u8>>> {
     let typed_chunk_index_entries = crate::repo::chunk_index_entries_typed(chunk_index)?;
-    let loaded_chunks = install_in_thread_pool(worker_count, || {
+    let loaded_chunks = run_in_thread_pool(worker_count, || {
         needed_chunks
             .par_iter()
             .filter_map(|chunk_hash| {
@@ -243,13 +243,13 @@ fn read_loose_repo_chunk(
 // ---------------------------------------------------------------------------
 
 pub(in crate::reconstruct) fn rebuild_files_from_chunks(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     chunk_map: &HashMap<ChunkHash, Vec<u8>>,
     output_dir: &Path,
     timings: &mut ReconstructTimings,
     control: &GutchOperationControl,
 ) -> Result<()> {
-    for fm in &target_manifest.files {
+    for fm in &snapshot_manifest.files {
         control.checkpoint()?;
         let mut file_data = Vec::with_capacity(fm.size as usize);
 
@@ -300,7 +300,7 @@ pub(in crate::reconstruct) fn rebuild_files_from_chunks(
 // ---------------------------------------------------------------------------
 
 fn reconstruct_files_from_locations_and_chunks(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     locations: &HashMap<ChunkHash, ChunkLocation>,
     access_plan: &BundleAccessPlan,
     local_chunks: &HashMap<ChunkHash, Vec<u8>>,
@@ -311,8 +311,8 @@ fn reconstruct_files_from_locations_and_chunks(
     options: ReconstructOptions,
     control: &GutchOperationControl,
 ) -> Result<()> {
-    let per_file = install_in_thread_pool(worker_count, || {
-        target_manifest
+    let per_file = run_in_thread_pool(worker_count, || {
+        snapshot_manifest
             .files
             .par_iter()
             .map(|fm| {

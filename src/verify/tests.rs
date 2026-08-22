@@ -1,6 +1,6 @@
 use super::*;
 use crate::hash::ChunkHash;
-use crate::manifest::{TargetTagSet, target::TargetManifest};
+use crate::manifest::{SnapshotTagSet, snapshot::SnapshotManifest};
 use crate::test_util;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -22,18 +22,18 @@ fn test_file_hash(label: &str) -> String {
     crate::hash::hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
 }
 
-fn empty_manifest() -> TargetManifest {
-    TargetManifest::new("t1".into(), TargetTagSet::default())
+fn empty_manifest() -> SnapshotManifest {
+    SnapshotManifest::new("t1".into(), SnapshotTagSet::default())
 }
 
 fn verify_with<'a>(
-    target_manifest: &'a TargetManifest,
+    snapshot_manifest: &'a SnapshotManifest,
     dir: &'a std::path::Path,
     mode: VerifyMode,
     runtime_hints: &'a RuntimeResourceHints,
 ) -> Result<(Vec<String>, VerifyTimings)> {
     verify_directory(VerifyRequest {
-        target_manifest,
+        snapshot_manifest,
         dir,
         mode,
         runtime_hints,
@@ -42,11 +42,11 @@ fn verify_with<'a>(
 }
 
 fn verify_fast(
-    target_manifest: &TargetManifest,
+    snapshot_manifest: &SnapshotManifest,
     dir: &std::path::Path,
 ) -> Result<(Vec<String>, VerifyTimings)> {
     verify_with(
-        target_manifest,
+        snapshot_manifest,
         dir,
         VerifyMode::Fast,
         default_runtime_hints(),
@@ -58,7 +58,7 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
     let missing_dir = test_util::temp_path("gutch_verify_pre_cancelled_missing");
     let _ = std::fs::remove_dir_all(&missing_dir);
     let result = verify_directory(VerifyRequest {
-        target_manifest: &empty_manifest(),
+        snapshot_manifest: &empty_manifest(),
         dir: &missing_dir,
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),

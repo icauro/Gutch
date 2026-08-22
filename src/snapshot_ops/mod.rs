@@ -2,30 +2,29 @@ mod apply;
 pub mod fetch;
 mod pipeline;
 mod repair;
-mod repo_target;
+mod snapshot_repo;
 pub mod state;
 mod transfer;
 
-pub(crate) use transfer::target_manifest_from_download;
+pub(crate) use transfer::snapshot_manifest_from_download;
 pub mod types;
 
 pub use apply::{
-    apply_target_install_from_repo, default_target_install_staging_dir,
-    verify_target_install_from_repo,
+    default_snapshot_staging_dir, reconstruct_snapshot_from_repo, verify_snapshot_from_repo,
 };
 pub use fetch::{
-    download_and_apply_target_install, fetch_target_install_content,
-    fetch_target_install_content_for_required_bundle_ids,
+    download_and_reconstruct_snapshot, fetch_snapshot,
+    fetch_snapshot_for_required_bundle_ids,
 };
-pub use repair::plan_repair_target_install_from_repo;
-pub use repair::repair_target_install_from_repo;
-pub use state::resolve_target_install_state;
+pub use repair::plan_repair_snapshot_from_repo;
+pub use repair::repair_snapshot_from_repo;
+pub use state::resolve_snapshot_state;
 pub use types::{
-    GutchBundleDownload, ResolvedTargetInstallState, TargetInstallApplyFromRepoRequest,
-    TargetInstallApplyFromRepoResult, TargetInstallApplyResult, TargetInstallApplySource,
-    TargetInstallDownloadAndApplyRequest, TargetInstallDownloadAndApplyResult,
-    TargetInstallFetchRequest, TargetInstallFetchResult, TargetInstallRepairFromRepoRequest,
-    TargetInstallRepairFromRepoResult, TargetInstallRepairPlanFromRepoRequest,
-    TargetInstallRepairPlanFromRepoResult, TargetInstallRepairResult,
-    TargetInstallVerifyFromRepoRequest, TargetInstallVerifyFromRepoResult,
+    GutchBundleDownload, ResolvedSnapshotOperationState, SnapshotDownloadAndReconstructRequest,
+    SnapshotDownloadAndReconstructResult, SnapshotFetchRequest, SnapshotFetchResult,
+    SnapshotReconstructFromRepoRequest, SnapshotReconstructFromRepoResult,
+    SnapshotReconstructResult, SnapshotReconstructSource, SnapshotRepairFromRepoRequest,
+    SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
+    SnapshotRepairPlanFromRepoResult, SnapshotRepairResult, SnapshotVerifyFromRepoRequest,
+    SnapshotVerifyFromRepoResult,
 };

@@ -8,13 +8,14 @@ pub(crate) mod path_compare;
 pub(crate) mod progress;
 pub mod repo;
 pub(crate) mod reporting;
-pub mod target;
-pub(crate) mod target_install;
-pub mod target_sources;
+pub mod snapshot;
+pub(crate) mod snapshot_ops;
+pub mod snapshot_sources;
 
 pub use args::{
-    BundleCommands, Cli, Commands, PathCommands, RemoteCommands, RepoCommands, TargetCommands,
-    TargetInstallCommands, TargetSourcesCommands,
+    BundleCommands, Cli, Commands, PathCommands, RemoteCommands, RepoCommands,
+    RepoNameCommands, RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands,
+    SnapshotSourcesCommands,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};

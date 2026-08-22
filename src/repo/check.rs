@@ -3,11 +3,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::inventory::{list_repo_target_ids, scan_bundle_inventory};
-use super::target_descriptor::{preview_target_identity, summarize_target_tags};
+use super::inventory::{list_repo_snapshot_ids, scan_bundle_inventory};
+use super::snapshot_descriptor::{preview_snapshot_identity, summarize_snapshot_tags};
 use super::{
-    GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_target_manifest,
-    required_bundle_ids, source_modified_at_from_directory, target_sources,
+    GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest,
+    required_bundle_ids, snapshot_sources, source_modified_at_from_directory,
 };
 use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::{self};
@@ -23,10 +23,10 @@ pub struct RepoCheckStatus {
     pub remote_repo_id: String,
     pub product_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_schema: Option<manifest::TargetTagSchema>,
+    pub snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_manifest: Option<manifest::gutch_repo::GutchRepoManifest>,
-    pub targets: Vec<RepoCheckTargetStatus>,
+    pub snapshots: Vec<RepoCheckSnapshotStatus>,
     #[serde(default)]
     pub bundle_count: usize,
     #[serde(default)]
@@ -42,8 +42,8 @@ pub struct RepoCheckTimings {
     pub load_manifest_ms: u64,
     pub scan_bundles_ms: u64,
     pub load_chunk_index_ms: u64,
-    pub load_target_manifests_ms: u64,
-    pub target_count: usize,
+    pub load_snapshot_manifests_ms: u64,
+    pub snapshot_count: usize,
     pub total_ms: u64,
 }
 
@@ -52,11 +52,11 @@ pub struct RepoCheckTimings {
 pub struct TrackedRepoCheckStatus {
     pub repo_status: RepoCheckStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_sources_path: Option<String>,
+    pub snapshot_sources_path: Option<String>,
     #[serde(default)]
-    pub source_target_installs: Vec<SourceTargetInstallCandidate>,
+    pub source_snapshot_operations: Vec<SourceSnapshotOperationCandidate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_sources_plan: Option<target_sources::TargetSourcesSyncPlan>,
+    pub snapshot_sources_plan: Option<snapshot_sources::SnapshotSourcesSyncPlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timings: Option<TrackedRepoCheckTimings>,
 }
@@ -73,8 +73,8 @@ pub struct TrackedRepoCheckTimings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoCheckTargetStatus {
-    pub target_id: String,
+pub struct RepoCheckSnapshotStatus {
+    pub snapshot_id: String,
     pub version_id: String,
     pub os: String,
     pub arch: String,
@@ -84,9 +84,9 @@ pub struct RepoCheckTargetStatus {
     pub manifest_path: String,
     pub missing_bundle_count: usize,
     pub source_modified_at: String,
-    pub target_tags: manifest::TargetTagSet,
+    pub snapshot_tags: manifest::SnapshotTagSet,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_metadata: Option<serde_json::Value>,
+    pub snapshot_index: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -102,30 +102,28 @@ pub struct RepoCheckTargetStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SourceTargetInstallCandidate {
+pub struct SourceSnapshotOperationCandidate {
     pub path: String,
     pub folder_name: String,
-    pub target_id: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub content_target_id: String,
+    pub snapshot_id: String,
     #[serde(default)]
     pub source_modified_at: String,
     pub version_id: String,
     pub os: String,
     pub arch: String,
-    pub target_tags: manifest::TargetTagSet,
+    pub snapshot_tags: manifest::SnapshotTagSet,
     #[serde(default)]
-    pub disposition: SourceTargetInstallDisposition,
+    pub disposition: SourceSnapshotOperationDisposition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SourceTargetInstallDisposition {
+pub enum SourceSnapshotOperationDisposition {
     #[default]
     Unchanged,
-    Insert,
+    Create,
     Refresh,
     Invalid,
 }
@@ -140,7 +138,7 @@ pub fn ensure_gutch_repo_tracked(repo_path: &str) -> Result<()> {
     if config.find_repo(repo_path_str).is_none() {
         config.upsert_repo(crate::config::TrackedRepo {
             path: repo_path_str.to_string(),
-            target_sources_path: None,
+            snapshot_sources_path: None,
         });
         crate::config::save_config(&config)?;
     }
@@ -155,52 +153,52 @@ pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStat
     }
 
     let config_start = std::time::Instant::now();
-    let target_sources_path = crate::config::load_config()?
+    let snapshot_sources_path = crate::config::load_config()?
         .find_repo(&repo_status.repo_path)
-        .and_then(|repo| repo.target_sources_path.clone())
+        .and_then(|repo| repo.snapshot_sources_path.clone())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let load_config_ms = config_start.elapsed().as_millis() as u64;
 
     let sources_start = std::time::Instant::now();
-    let mut source_target_installs = match target_sources_path.as_deref() {
+    let mut source_snapshot_operations = match snapshot_sources_path.as_deref() {
         Some(path) if repo_status.is_repo => {
-            discover_source_target_installs(repo_root, Path::new(path))?
+            discover_source_snapshot_operations(repo_root, Path::new(path))?
         }
         _ => Vec::new(),
     };
     let scan_sources_ms = sources_start.elapsed().as_millis() as u64;
-    let source_count = source_target_installs.len();
+    let source_count = source_snapshot_operations.len();
 
     let plan_start = std::time::Instant::now();
-    let target_sources_plan = if repo_status.is_repo {
-        Some(target_sources::plan_target_sources_sync_with_context(
+    let snapshot_sources_plan = if repo_status.is_repo {
+        Some(snapshot_sources::plan_snapshot_sources_sync_with_context(
             repo_root,
-            target_sources_path.as_deref().map(Path::new),
-            Some(source_target_installs.as_slice()),
+            snapshot_sources_path.as_deref().map(Path::new),
+            Some(source_snapshot_operations.as_slice()),
             Some(&repo_status),
         )?)
     } else {
         None
     };
-    if let Some(plan) = target_sources_plan.as_ref() {
-        for candidate in &mut source_target_installs {
+    if let Some(plan) = snapshot_sources_plan.as_ref() {
+        for candidate in &mut source_snapshot_operations {
             candidate.disposition = if candidate.error.is_some() {
-                SourceTargetInstallDisposition::Invalid
+                SourceSnapshotOperationDisposition::Invalid
             } else if plan
-                .to_insert
+                .to_create
                 .iter()
                 .any(|entry| entry.path == candidate.path)
             {
-                SourceTargetInstallDisposition::Insert
+                SourceSnapshotOperationDisposition::Create
             } else if plan
                 .to_refresh
                 .iter()
                 .any(|entry| entry.path == candidate.path)
             {
-                SourceTargetInstallDisposition::Refresh
+                SourceSnapshotOperationDisposition::Refresh
             } else {
-                SourceTargetInstallDisposition::Unchanged
+                SourceSnapshotOperationDisposition::Unchanged
             };
         }
     }
@@ -210,9 +208,9 @@ pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStat
 
     Ok(TrackedRepoCheckStatus {
         repo_status,
-        target_sources_path,
-        source_target_installs,
-        target_sources_plan,
+        snapshot_sources_path,
+        source_snapshot_operations,
+        snapshot_sources_plan,
         timings: Some(TrackedRepoCheckTimings {
             load_config_ms,
             scan_sources_ms,
@@ -260,9 +258,9 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         scan_bundle_inventory(&repo_paths.bundles_root)?;
     let scan_bundles_ms = scan_start.elapsed().as_millis() as u64;
 
-    let (targets, target_check_timings) =
-        check_target_manifests(&repo_paths, &repo_paths.targets_root, &available_bundle_ids)?;
-    let target_count = targets.len();
+    let (snapshots, snapshot_check_timings) =
+        check_snapshot_manifests(&repo_paths, &repo_paths.snapshots_root, &available_bundle_ids)?;
+    let snapshot_count = snapshots.len();
 
     let total_ms = total_start.elapsed().as_millis() as u64;
 
@@ -273,78 +271,78 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         name: repo_manifest.name.clone(),
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
         product_id: repo_manifest.product_id.clone(),
-        target_schema: repo_manifest.target_schema.clone(),
+        snapshot_tag_schema: repo_manifest.snapshot_tag_schema.clone(),
         repo_manifest: Some(repo_manifest),
-        targets,
+        snapshots,
         bundle_count,
         bundle_bytes,
         error: None,
         timings: Some(RepoCheckTimings {
             load_manifest_ms,
             scan_bundles_ms,
-            load_chunk_index_ms: target_check_timings.load_chunk_index_ms,
-            load_target_manifests_ms: target_check_timings.load_target_manifests_ms,
-            target_count,
+            load_chunk_index_ms: snapshot_check_timings.load_chunk_index_ms,
+            load_snapshot_manifests_ms: snapshot_check_timings.load_snapshot_manifests_ms,
+            snapshot_count,
             total_ms,
         }),
     })
 }
 
-pub fn discover_source_target_installs(
+pub fn discover_source_snapshot_operations(
     repo_root: &Path,
-    source_targets_root: &Path,
-) -> Result<Vec<SourceTargetInstallCandidate>> {
-    if !source_targets_root.exists() {
+    source_snapshots_root: &Path,
+) -> Result<Vec<SourceSnapshotOperationCandidate>> {
+    if !source_snapshots_root.exists() {
         return Err(Error::manifest(format!(
-            "source targets path does not exist: {}",
-            source_targets_root.display()
+            "source snapshots path does not exist: {}",
+            source_snapshots_root.display()
         )));
     }
-    if !source_targets_root.is_dir() {
+    if !source_snapshots_root.is_dir() {
         return Err(Error::manifest(format!(
-            "source targets path is not a directory: {}",
-            source_targets_root.display()
+            "source snapshots path is not a directory: {}",
+            source_snapshots_root.display()
         )));
     }
 
     let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    let rules = repo_manifest.target_schema.unwrap_or_default();
-    let config = crate::target::source_config::SourceConfig::load_or_default(source_targets_root)?;
+    let rules = repo_manifest.snapshot_tag_schema.unwrap_or_default();
+    let config =
+        crate::snapshot::source_config::SourceConfig::load_or_default(source_snapshots_root)?;
     let mut candidates = Vec::new();
 
-    for target in config.discover_target_sources(source_targets_root)? {
-        let explicit_tags = target.config_tags.clone().unwrap_or_default();
-        match build_source_target_install_candidate(
-            &target.path,
+    for snapshot in config.discover_snapshot_sources(source_snapshots_root)? {
+        let explicit_tags = snapshot.config_tags.clone().unwrap_or_default();
+        match build_source_snapshot_ops_candidate(
+            &snapshot.path,
             &rules,
             &explicit_tags,
-            target.allow_name_inference,
+            snapshot.allow_name_inference,
         ) {
             Ok(candidate) => candidates.push(candidate),
             Err(err) => {
-                if !target.allow_name_inference {
-                    // A declared explicit target that cannot resolve its tags is
+                if !snapshot.allow_name_inference {
+                    // A declared explicit snapshot that cannot resolve its tags is
                     // a hard error rather than a skipped folder.
                     return Err(err);
                 }
-                let folder_name = target
+                let folder_name = snapshot
                     .path
                     .file_name()
                     .and_then(|value| value.to_str())
                     .unwrap_or("")
                     .to_string();
                 if !folder_name.is_empty() {
-                    candidates.push(SourceTargetInstallCandidate {
-                        path: target.path.display().to_string(),
+                    candidates.push(SourceSnapshotOperationCandidate {
+                        path: snapshot.path.display().to_string(),
                         folder_name,
-                        target_id: String::new(),
-                        content_target_id: String::new(),
+                        snapshot_id: String::new(),
                         source_modified_at: String::new(),
                         version_id: String::new(),
                         os: String::new(),
                         arch: String::new(),
-                        target_tags: manifest::TargetTagSet::default(),
-                        disposition: SourceTargetInstallDisposition::Invalid,
+                        snapshot_tags: manifest::SnapshotTagSet::default(),
+                        disposition: SourceSnapshotOperationDisposition::Invalid,
                         error: Some(err.to_string()),
                     });
                 }
@@ -356,29 +354,29 @@ pub fn discover_source_target_installs(
     Ok(candidates)
 }
 
-pub fn preview_source_target_install(
+pub fn preview_source_snapshot_ops(
     repo_root: &Path,
     source_dir: &Path,
-) -> Result<SourceTargetInstallCandidate> {
+) -> Result<SourceSnapshotOperationCandidate> {
     if !source_dir.exists() {
         return Err(Error::manifest(format!(
-            "source targets path does not exist: {}",
+            "source snapshots path does not exist: {}",
             source_dir.display()
         )));
     }
     if !source_dir.is_dir() {
         return Err(Error::manifest(format!(
-            "source targets path is not a directory: {}",
+            "source snapshots path is not a directory: {}",
             source_dir.display()
         )));
     }
 
     let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    let rules = repo_manifest.target_schema.unwrap_or_default();
-    build_source_target_install_candidate(
+    let rules = repo_manifest.snapshot_tag_schema.unwrap_or_default();
+    build_source_snapshot_ops_candidate(
         source_dir,
         &rules,
-        &manifest::TargetTagSet::default(),
+        &manifest::SnapshotTagSet::default(),
         true,
     )
 }
@@ -395,9 +393,9 @@ fn empty_repo_check_status(
         name: String::new(),
         remote_repo_id: String::new(),
         product_id: String::new(),
-        target_schema: None,
+        snapshot_tag_schema: None,
         repo_manifest: None,
-        targets: Vec::new(),
+        snapshots: Vec::new(),
         bundle_count: 0,
         bundle_bytes: 0,
         error,
@@ -405,13 +403,13 @@ fn empty_repo_check_status(
     }
 }
 
-fn check_target_manifests(
+fn check_snapshot_manifests(
     repo_paths: &GutchRepoPaths,
-    targets_root: &Path,
+    snapshots_root: &Path,
     available_bundle_ids: &HashSet<String>,
-) -> Result<(Vec<RepoCheckTargetStatus>, TargetManifestCheckTimings)> {
-    if !targets_root.exists() {
-        return Ok((Vec::new(), TargetManifestCheckTimings::default()));
+) -> Result<(Vec<RepoCheckSnapshotStatus>, SnapshotManifestCheckTimings)> {
+    if !snapshots_root.exists() {
+        return Ok((Vec::new(), SnapshotManifestCheckTimings::default()));
     }
 
     let chunk_start = std::time::Instant::now();
@@ -419,12 +417,12 @@ fn check_target_manifests(
     let load_chunk_index_ms = chunk_start.elapsed().as_millis() as u64;
 
     let manifests_start = std::time::Instant::now();
-    let mut targets = Vec::new();
-    for target_id in list_repo_target_ids(repo_paths)? {
-        let manifest_path = crate::target_manifest_path(repo_paths, &target_id);
-        let manifest = load_target_manifest(repo_paths, &target_id)?;
-        let target_metadata = Some(serde_json::to_value(&manifest).map_err(|error| {
-            Error::manifest(format!("failed to serialize target metadata: {error}"))
+    let mut snapshots = Vec::new();
+    for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
+        let manifest_path = crate::snapshot_manifest_path(repo_paths, &snapshot_id);
+        let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
+        let snapshot_index = Some(serde_json::to_value(&manifest).map_err(|error| {
+            Error::manifest(format!("failed to serialize snapshot metadata: {error}"))
         })?);
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
@@ -432,7 +430,7 @@ fn check_target_manifests(
             .filter(|bundle_id| !available_bundle_ids.contains(*bundle_id))
             .count();
         let resolved_launch = if let Some(launch) = manifest.launch.as_ref() {
-            manifest::launch::validate_resolved_launch_for_target(launch, &manifest)?;
+            manifest::launch::validate_resolved_launch_for_snapshot(launch, &manifest)?;
             Some(launch.clone())
         } else {
             None
@@ -445,9 +443,9 @@ fn check_target_manifests(
             })
             .unwrap_or_default();
 
-        let summary = summarize_target_tags(&manifest.target_tags, None);
-        targets.push(RepoCheckTargetStatus {
-            target_id: manifest.target_id.clone(),
+        let summary = summarize_snapshot_tags(&manifest.snapshot_tags, None);
+        snapshots.push(RepoCheckSnapshotStatus {
+            snapshot_id: manifest.snapshot_id.clone(),
             version_id: summary.version_id,
             os: summary.os,
             arch: summary.arch,
@@ -457,8 +455,8 @@ fn check_target_manifests(
             manifest_path: manifest_path.display().to_string(),
             missing_bundle_count,
             source_modified_at: manifest.source_modified_at.clone(),
-            target_tags: manifest.target_tags,
-            target_metadata,
+            snapshot_tags: manifest.snapshot_tags,
+            snapshot_index,
             launch: manifest.launch,
             resolved_launch,
             external_product_dependencies,
@@ -467,34 +465,34 @@ fn check_target_manifests(
         });
     }
 
-    targets.sort_by(|left, right| left.target_id.cmp(&right.target_id));
-    let load_target_manifests_ms = manifests_start.elapsed().as_millis() as u64;
+    snapshots.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
+    let load_snapshot_manifests_ms = manifests_start.elapsed().as_millis() as u64;
 
     Ok((
-        targets,
-        TargetManifestCheckTimings {
+        snapshots,
+        SnapshotManifestCheckTimings {
             load_chunk_index_ms,
-            load_target_manifests_ms,
+            load_snapshot_manifests_ms,
         },
     ))
 }
 
 #[derive(Debug, Clone, Default)]
-struct TargetManifestCheckTimings {
+struct SnapshotManifestCheckTimings {
     load_chunk_index_ms: u64,
-    load_target_manifests_ms: u64,
+    load_snapshot_manifests_ms: u64,
 }
 
-pub(crate) fn build_source_target_install_candidate(
+pub(crate) fn build_source_snapshot_ops_candidate(
     path: &Path,
-    rules: &manifest::TargetTagSchema,
-    explicit_tags: &manifest::TargetTagSet,
+    rules: &manifest::SnapshotTagSchema,
+    explicit_tags: &manifest::SnapshotTagSet,
     allow_name_inference: bool,
-) -> Result<SourceTargetInstallCandidate> {
-    use crate::core::target_identity::resolve_target_identity_with_inference;
+) -> Result<SourceSnapshotOperationCandidate> {
+    use crate::core::snapshot_identity::resolve_snapshot_identity_with_inference;
 
-    let context = format!("source target '{}'", path.display());
-    let resolved = resolve_target_identity_with_inference(
+    let context = format!("source snapshot '{}'", path.display());
+    let resolved = resolve_snapshot_identity_with_inference(
         path,
         explicit_tags,
         rules,
@@ -506,22 +504,23 @@ pub(crate) fn build_source_target_install_candidate(
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| Error::manifest(format!("invalid source target path: {}", path.display())))?
+        .ok_or_else(|| {
+            Error::manifest(format!("invalid source snapshot path: {}", path.display()))
+        })?
         .to_string();
 
-    let summary = summarize_target_tags(&resolved.target_tags, Some(rules));
+    let summary = summarize_snapshot_tags(&resolved.snapshot_tags, Some(rules));
 
-    Ok(SourceTargetInstallCandidate {
+    Ok(SourceSnapshotOperationCandidate {
         path: path.display().to_string(),
         folder_name,
-        target_id: preview_target_identity(&resolved.target_tags, Some(rules)),
-        content_target_id: String::new(),
+        snapshot_id: preview_snapshot_identity(&resolved.snapshot_tags, Some(rules)),
         source_modified_at: source_modified_at_from_directory(path)?,
         version_id: summary.version_id,
         os: summary.os,
         arch: summary.arch,
-        target_tags: resolved.target_tags,
-        disposition: SourceTargetInstallDisposition::Unchanged,
+        snapshot_tags: resolved.snapshot_tags,
+        disposition: SourceSnapshotOperationDisposition::Unchanged,
         error: None,
     })
 }
