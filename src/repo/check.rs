@@ -88,6 +88,8 @@ pub struct RepoCheckSnapshotStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_metadata: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_product_metadata_hash_b3: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
@@ -428,6 +430,9 @@ fn check_snapshot_manifests(
             Some(serde_json::to_value(manifest.metadata()).map_err(|error| {
                 Error::manifest(format!("failed to serialize snapshot metadata: {error}"))
             })?);
+        let snapshot_product_metadata_hash_b3 =
+            crate::serialize_snapshot_product_metadata_for_remote(&manifest)?
+                .map(|bytes| crate::hash::hash_hex(&blake3::hash(&bytes)));
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()
@@ -461,6 +466,7 @@ fn check_snapshot_manifests(
             source_modified_at: manifest.source_modified_at.clone(),
             snapshot_tags: manifest.snapshot_tags.clone(),
             snapshot_metadata,
+            snapshot_product_metadata_hash_b3,
             launch: manifest.launch.clone(),
             resolved_launch,
             external_product_dependencies,

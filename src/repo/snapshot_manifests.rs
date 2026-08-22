@@ -152,21 +152,49 @@ pub fn save_snapshot_product_metadata(
     launch: Option<ResolvedLaunchConfiguration>,
     dependencies: Vec<ExternalProductDependencyRequirement>,
 ) -> Result<()> {
+    save_snapshot_product_metadata_for_snapshots(
+        repo_root,
+        &[snapshot_id.to_string()],
+        launch,
+        dependencies,
+    )
+}
+
+pub fn save_snapshot_product_metadata_for_snapshots(
+    repo_root: &std::path::Path,
+    snapshot_ids: &[String],
+    launch: Option<ResolvedLaunchConfiguration>,
+    dependencies: Vec<ExternalProductDependencyRequirement>,
+) -> Result<()> {
+    if snapshot_ids.is_empty() {
+        return Err(crate::Error::manifest(
+            "at least one snapshot id is required to save product metadata",
+        ));
+    }
     let paths = GutchRepoPaths::from_repo_root(repo_root);
-    let mut snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
-    snapshot_manifest.launch = launch;
-    snapshot_manifest.product_metadata = snapshot_manifest
-        .launch
+    let product_metadata = launch
         .as_ref()
         .map(|launch| SnapshotProductMetadata::from_launch(launch, dependencies));
-    if let Some(launch) = snapshot_manifest.launch.as_ref() {
-        crate::manifest::launch::validate_resolved_launch_for_snapshot(launch, &snapshot_manifest)?;
+    let mut manifests = Vec::with_capacity(snapshot_ids.len());
+    for snapshot_id in snapshot_ids {
+        let mut snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
+        snapshot_manifest.launch = launch.clone();
+        snapshot_manifest.product_metadata = product_metadata.clone();
+        if let Some(launch) = snapshot_manifest.launch.as_ref() {
+            crate::manifest::launch::validate_resolved_launch_for_snapshot(
+                launch,
+                &snapshot_manifest,
+            )?;
+        }
+        manifests.push(snapshot_manifest);
     }
-    write_snapshot_product_metadata(
-        &paths,
-        snapshot_id,
-        snapshot_manifest.product_metadata.as_ref(),
-    )?;
+    for snapshot_manifest in manifests {
+        write_snapshot_product_metadata(
+            &paths,
+            &snapshot_manifest.snapshot_id,
+            snapshot_manifest.product_metadata.as_ref(),
+        )?;
+    }
     Ok(())
 }
 

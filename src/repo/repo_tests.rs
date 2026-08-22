@@ -48,6 +48,53 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
 }
 
 #[test]
+fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
+    let snapshot_ids = vec!["snapshot-a".to_string(), "snapshot-b".to_string()];
+    for snapshot_id in &snapshot_ids {
+        let mut snapshot =
+            SnapshotManifest::new(snapshot_id.clone(), manifest::SnapshotTagSet::default());
+        snapshot.push_file(manifest::FileManifest {
+            path: "game.exe".to_string(),
+            size: 0,
+            executable: true,
+            read_only: false,
+            full_file_hash: test_hash(""),
+            chunks: Vec::new(),
+        });
+        write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+    }
+
+    save_snapshot_product_metadata_for_snapshots(
+        temp.path(),
+        &snapshot_ids,
+        Some(manifest::launch::ResolvedLaunchConfiguration {
+            primary: Some("Play".to_string()),
+            actions: vec![manifest::launch::ResolvedLaunchAction {
+                name: "Play".to_string(),
+                executable: "game.exe".to_string(),
+                arguments: Vec::new(),
+                working_directory: None,
+            }],
+        }),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let status = check_gutch_repo(temp.path()).unwrap();
+    let hashes = status
+        .snapshots
+        .iter()
+        .map(|snapshot| snapshot.snapshot_product_metadata_hash_b3.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(hashes.len(), 2);
+    assert!(hashes[0].is_some());
+    assert_eq!(hashes[0], hashes[1]);
+}
+
+#[test]
 fn gutch_repo_paths_from_repo_root() {
     let root = PathBuf::from("/test/repo");
     let paths = GutchRepoPaths::from_repo_root(&root);
