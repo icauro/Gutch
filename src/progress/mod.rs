@@ -52,7 +52,7 @@ impl GutchProgressPhase {
         match self {
             GutchProgressPhase::Prepare => "prepare",
             GutchProgressPhase::RepoMetadata => "repo_metadata",
-            GutchProgressPhase::SnapshotMetadata => "snapshot_index",
+            GutchProgressPhase::SnapshotMetadata => "snapshot_metadata",
             GutchProgressPhase::ChunkIndex => "chunk_index",
             GutchProgressPhase::Bundle => "bundle",
             GutchProgressPhase::Reconstruct => "reconstruct",
@@ -69,7 +69,7 @@ impl GutchProgressPhase {
             GutchProgressPhase::RemoveSnapshots => "remove_snapshots",
             GutchProgressPhase::UploadRepoMetadata => "upload_repo_metadata",
             GutchProgressPhase::UploadChunkIndex => "upload_chunk_index",
-            GutchProgressPhase::UploadSnapshotMetadata => "upload_snapshot_index",
+            GutchProgressPhase::UploadSnapshotMetadata => "upload_snapshot_metadata",
             GutchProgressPhase::UploadSnapshotBlueprint => "upload_snapshot_blueprint",
             GutchProgressPhase::UploadBundle => "upload_bundle",
             GutchProgressPhase::Prune => "prune",

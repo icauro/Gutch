@@ -66,8 +66,8 @@ struct SyncSnapshotRecord {
     os: String,
     arch: String,
     tags: Vec<String>,
-    snapshot_index_hash_b3: String,
-    product_metadata_hash_b3: String,
+    snapshot_metadata_hash_b3: String,
+    snapshot_product_metadata_hash_b3: String,
     snapshot_blueprint_hash_b3: String,
 }
 
@@ -132,8 +132,8 @@ fn remote_sync_snapshot(
                 .cloned()
                 .unwrap_or_default(),
             tags: remote_snapshot_tags(snapshot),
-            snapshot_index_hash_b3: snapshot.snapshot_index_hash_b3.clone(),
-            product_metadata_hash_b3: snapshot.product_metadata_hash_b3.clone(),
+            snapshot_metadata_hash_b3: snapshot.snapshot_metadata_hash_b3.clone(),
+            snapshot_product_metadata_hash_b3: snapshot.snapshot_product_metadata_hash_b3.clone(),
             snapshot_blueprint_hash_b3: snapshot.snapshot_blueprint_hash_b3.clone(),
         },
         Some(snapshot.artifact_state.clone()),
@@ -158,22 +158,22 @@ fn local_chunk_index_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<Strin
     Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
 }
 
-fn local_snapshot_index_hash_b3(
+fn local_snapshot_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
     let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
     Ok(repo_file_hash(
-        &crate::serialize_snapshot_manifest_for_remote(&manifest)?,
+        &crate::serialize_snapshot_metadata_for_remote(&manifest)?,
     ))
 }
 
-fn local_product_metadata_hash_b3(
+fn local_snapshot_product_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
     let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
-    let Some(bytes) = crate::serialize_product_metadata_for_remote(&manifest)? else {
+    let Some(bytes) = crate::serialize_snapshot_product_metadata_for_remote(&manifest)? else {
         return Ok(String::new());
     };
     Ok(repo_file_hash(&bytes))
@@ -205,13 +205,13 @@ fn resolve_sync_binding(repo: &Path) -> Result<(i64, i64)> {
     }
     let product_id = manifest.product_id.parse::<i64>().map_err(|_| {
         crate::Error::manifest(format!(
-            "invalid product_id '{}' in manifest",
+            "invalid product_id '{}' in repo_metadata.json",
             manifest.product_id
         ))
     })?;
     let remote_repo_id = manifest.remote_repo_id_value().ok_or_else(|| {
         crate::Error::manifest(format!(
-            "invalid remote_repo_id '{}' in manifest",
+            "invalid remote_repo_id '{}' in local_repo_config.json",
             manifest.remote_repo_id
         ))
     })?;
@@ -338,11 +338,11 @@ fn collect_local_sync_snapshots(
             os: summary.os,
             arch: summary.arch,
             tags: summary.canonical_tags,
-            snapshot_index_hash_b3: local_snapshot_index_hash_b3(
+            snapshot_metadata_hash_b3: local_snapshot_metadata_hash_b3(
                 &repo_paths,
                 &manifest.snapshot_id,
             )?,
-            product_metadata_hash_b3: local_product_metadata_hash_b3(
+            snapshot_product_metadata_hash_b3: local_snapshot_product_metadata_hash_b3(
                 &repo_paths,
                 &manifest.snapshot_id,
             )?,
@@ -390,22 +390,22 @@ pub fn plan_sync_up_repo(
                 let tag_mismatch = local_snapshot.tags != remote_snapshot_tags(remote_snapshot);
                 let needs_state_update = remote_snapshot.artifact_state != "ready";
                 let metadata_hash_changed = hashes_differ(
-                    &local_snapshot.snapshot_index_hash_b3,
-                    &remote_snapshot.snapshot_index_hash_b3,
+                    &local_snapshot.snapshot_metadata_hash_b3,
+                    &remote_snapshot.snapshot_metadata_hash_b3,
                 );
                 let snapshot_blueprint_hash_changed = hashes_differ(
                     &local_snapshot.snapshot_blueprint_hash_b3,
                     &remote_snapshot.snapshot_blueprint_hash_b3,
                 );
-                let product_metadata_hash_changed = hashes_differ(
-                    &local_snapshot.product_metadata_hash_b3,
-                    &remote_snapshot.product_metadata_hash_b3,
+                let snapshot_product_metadata_hash_changed = hashes_differ(
+                    &local_snapshot.snapshot_product_metadata_hash_b3,
+                    &remote_snapshot.snapshot_product_metadata_hash_b3,
                 );
                 if tag_mismatch
                     || needs_state_update
                     || metadata_hash_changed
                     || snapshot_blueprint_hash_changed
-                    || product_metadata_hash_changed
+                    || snapshot_product_metadata_hash_changed
                 {
                     let mut reasons = Vec::new();
                     if tag_mismatch {
@@ -420,7 +420,7 @@ pub fn plan_sync_up_repo(
                     if snapshot_blueprint_hash_changed {
                         reasons.push("snapshot blueprint hash differs");
                     }
-                    if product_metadata_hash_changed {
+                    if snapshot_product_metadata_hash_changed {
                         reasons.push("snapshot product metadata hash differs");
                     }
                     to_update.push(sync_snapshot_change(
@@ -525,7 +525,7 @@ pub fn link_repo(repo: &Path, product_id: i64, endpoint: &str, session_id: Strin
 
     manifest.remote_repo_id = remote_repo_id.to_string();
     manifest.product_id = product_id.to_string();
-    manifest.sync_product_metadata_from_binding();
+    manifest.sync_product_metadata_from_product_id();
     crate::write_gutch_repo_manifest(&paths, &manifest)?;
 
     Ok(())
@@ -587,8 +587,6 @@ pub fn unlink_repo(
     }
 
     manifest.remote_repo_id = String::new();
-    manifest.product_id = String::new();
-    manifest.product_metadata = None;
     crate::write_gutch_repo_manifest(&paths, &manifest)?;
 
     Ok(())
@@ -823,7 +821,7 @@ pub fn sync_up_repo(
             },
         );
         let manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
-        let manifest_bytes = crate::serialize_snapshot_manifest_for_remote(&manifest)?;
+        let manifest_bytes = crate::serialize_snapshot_metadata_for_remote(&manifest)?;
         let version = manifest
             .snapshot_tags
             .get_exclusive("version")
@@ -872,9 +870,9 @@ pub fn sync_up_repo(
                         snapshot_id: manifest.snapshot_id.clone(),
                         snapshot_tags: Default::default(),
                         artifact_state: String::from("pending"),
-                        snapshot_index_hash_b3: String::new(),
+                        snapshot_metadata_hash_b3: String::new(),
                         snapshot_blueprint_hash_b3: String::new(),
-                        product_metadata_hash_b3: String::new(),
+                        snapshot_product_metadata_hash_b3: String::new(),
                         uploaded_at: String::new(),
                         created_at: String::new(),
                     },
@@ -887,7 +885,7 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-            "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/metadata",
+                "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/metadata",
                 product_id, remote_repo_id, remote_snapshot_id
             ),
             &session_id,
@@ -921,7 +919,7 @@ pub fn sync_up_repo(
             &client,
             &endpoint,
             &format!(
-            "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/blueprint",
+                "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/blueprint",
                 product_id, remote_repo_id, remote_snapshot_id
             ),
             &session_id,
@@ -947,17 +945,17 @@ pub fn sync_up_repo(
                 done: false,
             },
         );
-        let product_metadata_path = format!(
+        let snapshot_product_metadata_path = format!(
             "/v1/users/me/creator/products/{}/repos/{}/snapshots/{}/product-metadata",
             product_id, remote_repo_id, remote_snapshot_id
         );
         if let Some(product_metadata_bytes) =
-            crate::serialize_product_metadata_for_remote(&manifest)?
+            crate::serialize_snapshot_product_metadata_for_remote(&manifest)?
         {
             upload_raw_file(
                 &client,
                 &endpoint,
-                &product_metadata_path,
+                &snapshot_product_metadata_path,
                 &session_id,
                 product_metadata_bytes,
                 "application/json",
@@ -966,13 +964,13 @@ pub fn sync_up_repo(
             product_metadata_uploaded_count += 1;
         } else if remote_snapshots
             .get(&manifest.snapshot_id)
-            .is_some_and(|remote| !remote.product_metadata_hash_b3.trim().is_empty())
+            .is_some_and(|remote| !remote.snapshot_product_metadata_hash_b3.trim().is_empty())
         {
             let response = client
                 .delete(format!(
                     "{}{}",
                     endpoint.trim_end_matches('/'),
-                    product_metadata_path
+                    snapshot_product_metadata_path
                 ))
                 .header("Accept", "application/json")
                 .header("Authorization", format!("Bearer {}", session_id))

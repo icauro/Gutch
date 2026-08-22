@@ -122,7 +122,7 @@ impl GutchRepoManifest {
         !self.remote_repo_id.is_empty()
     }
 
-    pub fn sync_product_metadata_from_binding(&mut self) {
+    pub fn sync_product_metadata_from_product_id(&mut self) {
         self.product_metadata = if self.product_id.trim().is_empty() {
             None
         } else {
@@ -131,6 +131,14 @@ impl GutchRepoManifest {
                 product_id: self.product_id.clone(),
             })
         };
+    }
+
+    pub fn sync_product_id_from_metadata(&mut self) {
+        self.product_id = self
+            .product_metadata
+            .as_ref()
+            .map(|metadata| metadata.product_id.clone())
+            .unwrap_or_default();
     }
 
     pub fn remote_repo_id_value(&self) -> Option<i64> {

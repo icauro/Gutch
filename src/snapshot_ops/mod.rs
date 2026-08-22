@@ -13,8 +13,7 @@ pub use apply::{
     default_snapshot_staging_dir, reconstruct_snapshot_from_repo, verify_snapshot_from_repo,
 };
 pub use fetch::{
-    download_and_reconstruct_snapshot, fetch_snapshot,
-    fetch_snapshot_for_required_bundle_ids,
+    download_and_reconstruct_snapshot, fetch_snapshot, fetch_snapshot_for_required_bundle_ids,
 };
 pub use repair::plan_repair_snapshot_from_repo;
 pub use repair::repair_snapshot_from_repo;

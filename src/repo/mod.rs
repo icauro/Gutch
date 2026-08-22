@@ -1,8 +1,8 @@
 mod check;
 mod chunk_index;
 mod cleanup;
-mod init_policy;
 mod create_plan;
+mod init_policy;
 mod inventory;
 mod paths;
 mod pull;
@@ -23,15 +23,15 @@ pub use check::{
 };
 pub use chunk_index::*;
 pub use cleanup::*;
+pub use create_plan::{
+    RepoSnapshotCreateRequest, RepoSnapshotCreateResult, SnapshotCreateKind, SnapshotCreatePlan,
+    create_repo_snapshot, delete_repo_snapshot_and_cleanup, delete_repo_snapshots,
+    delete_repo_snapshots_with_matching_tags, describe_snapshot_create_plan, plan_snapshot_create,
+};
 pub use init_policy::{
     REPO_INIT_NEEDS_CONFIRMATION, RepoInitAssessment, RepoInitOptions, RepoInitPathKind,
     RepoInitRisk, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
     parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error,
-};
-pub use create_plan::{
-    RepoSnapshotCreateRequest, RepoSnapshotCreateResult, SnapshotCreateKind, SnapshotCreatePlan,
-    delete_repo_snapshot_and_cleanup, delete_repo_snapshots, delete_repo_snapshots_with_matching_tags,
-    describe_snapshot_create_plan, create_repo_snapshot, plan_snapshot_create,
 };
 pub use paths::*;
 pub use pull::*;

@@ -52,10 +52,41 @@ fn gutch_repo_paths_from_repo_root() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     assert_eq!(paths.repo_root, root);
     assert_eq!(paths.repo_metadata_path, root.join("repo_metadata.json"));
+    assert_eq!(
+        paths.local_repo_config_path,
+        root.join("local_repo_config.json")
+    );
     assert_eq!(paths.chunk_map_path, root.join("chunk_map.gtcbin"));
     assert_eq!(paths.snapshots_root, root.join("snapshots"));
     assert_eq!(paths.bundles_root, root.join("bundles"));
     assert_eq!(paths.chunks_root, root.join("chunks"));
+}
+
+#[test]
+fn local_repo_config_contains_only_the_remote_link() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    ensure_gutch_repo_layout(&paths, "linked").unwrap();
+
+    let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
+    repo_manifest.product_id = "42".to_string();
+    repo_manifest.remote_repo_id = "99".to_string();
+    repo_manifest.sync_product_metadata_from_product_id();
+    write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
+
+    let local_config: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&paths.local_repo_config_path).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        local_config,
+        serde_json::json!({"remote_repo_id": "99"})
+    );
+
+    let repo_metadata: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&paths.repo_metadata_path).unwrap()).unwrap();
+    assert_eq!(repo_metadata["product_metadata"]["product_id"], "42");
+    assert!(repo_metadata.get("remote_repo_id").is_none());
 }
 
 #[test]
@@ -79,10 +110,10 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     let snapshot_id = "0123456789abcdef";
     assert_eq!(
-        crate::snapshot_manifest_path(&paths, snapshot_id),
+        crate::snapshot_metadata_path(&paths, snapshot_id),
         root.join("snapshots")
             .join(snapshot_id)
-            .join("snapshot_index.json")
+            .join("snapshot_metadata.json")
     );
     assert_eq!(
         crate::snapshot_blueprint_path(&paths, snapshot_id),
@@ -488,7 +519,7 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
     });
 
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
-    let local_json = std::fs::read_to_string(snapshot_manifest_path(&paths, "snapshot-a")).unwrap();
+    let local_json = std::fs::read_to_string(snapshot_metadata_path(&paths, "snapshot-a")).unwrap();
     let local_value: serde_json::Value = serde_json::from_str(&local_json).unwrap();
     assert!(local_value.get("source_modified_at").is_none());
     assert!(local_value.get("files").is_none());

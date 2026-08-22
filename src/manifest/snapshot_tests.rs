@@ -32,23 +32,22 @@ fn test_manifest_serialization_roundtrip() {
         }],
     });
     m.sync_product_metadata_from_launch();
-    let json = serde_json::to_string_pretty(&m).unwrap();
+    let json = serde_json::to_string_pretty(&m.metadata()).unwrap();
     assert!(json.contains("\"snapshot_tags\": ["));
     assert!(json.contains("\"arch::x86_64\""));
     assert!(!json.contains("\"executable_path\": \"Game.exe\""));
     assert!(!json.contains("\"exclusive\""));
     assert!(!json.contains("\"files\""));
-    let m2: SnapshotManifest = serde_json::from_str(&json).unwrap();
+    let m2: SnapshotMetadata = serde_json::from_str(&json).unwrap();
     assert!(m2.snapshot_id.is_empty());
     assert_eq!(m.inserted_at, m2.inserted_at);
     assert_eq!(m.snapshot_tags, m2.snapshot_tags);
-    assert!(m2.product_metadata.is_none());
 }
 
 #[test]
-fn snapshot_index_does_not_store_source_or_blueprint_details() {
+fn snapshot_metadata_does_not_store_source_or_blueprint_details() {
     let manifest = SnapshotManifest::new("abc123def".into(), SnapshotTagSet::default());
-    let mut value = serde_json::to_value(manifest).unwrap();
+    let mut value = serde_json::to_value(manifest.metadata()).unwrap();
     assert!(
         !value
             .as_object_mut()
@@ -61,7 +60,7 @@ fn snapshot_index_does_not_store_source_or_blueprint_details() {
             .unwrap()
             .contains_key("total_logical_size")
     );
-    assert!(serde_json::from_value::<SnapshotManifest>(value).is_ok());
+    assert!(serde_json::from_value::<SnapshotMetadata>(value).is_ok());
 }
 
 #[test]
@@ -71,7 +70,7 @@ fn host_variant_runtime_uses_launcher_host_tags() {
         format!("os::{}", host_tags.get_exclusive("os").unwrap()),
         format!("arch::{}", host_tags.get_exclusive("arch").unwrap()),
     ];
-    let metadata = ProductMetadata {
+    let metadata = SnapshotProductMetadata {
         document_version: "1.0.0".into(),
         runtime: SnapshotRuntimeMetadata::HostVariants(SnapshotHostVariantRuntimeMetadata {
             host_variants: vec![SnapshotHostVariant {

@@ -119,7 +119,7 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
     for entry in walkdir::WalkDir::new(&paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file()
-            || entry.file_name() != super::snapshot_manifests::SNAPSHOT_INDEX_FILE
+            || entry.file_name() != super::snapshot_manifests::SNAPSHOT_METADATA_FILE
         {
             continue;
         }

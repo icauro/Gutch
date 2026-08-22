@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct ProductMetadata {
+pub struct SnapshotProductMetadata {
     #[serde(rename = "document_version")]
     pub document_version: String,
     pub runtime: SnapshotRuntimeMetadata,
@@ -50,7 +50,7 @@ pub struct SnapshotLaunchAction {
     pub working_directory_path: Option<String>,
 }
 
-impl ProductMetadata {
+impl SnapshotProductMetadata {
     pub fn validate_structure(&self) -> crate::Result<()> {
         if self.document_version != FORMAT_VERSION {
             return Err(crate::Error::manifest(
@@ -231,31 +231,38 @@ pub fn current_host_tags() -> SnapshotTagSet {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SnapshotManifest {
-    #[serde(rename = "snapshot_index_version")]
+pub struct SnapshotMetadata {
+    #[serde(rename = "snapshot_metadata_version")]
     pub metadata_version: String,
     #[serde(skip)]
     pub snapshot_id: String,
     #[serde(rename = "inserted_at")]
     pub inserted_at: String,
-    /// Max source file mtime (UTC) recorded when this snapshot was last synced from a source folder.
-    #[serde(skip)]
-    pub source_modified_at: String,
-    #[serde(skip)]
-    pub total_logical_size: u64,
-    #[serde(skip)]
-    pub total_compressed_size_estimate: u64,
     #[serde(
         default,
         serialize_with = "serialize_snapshot_tags_as_compact_strings",
         deserialize_with = "deserialize_snapshot_tags_from_compact_strings"
     )]
     pub snapshot_tags: SnapshotTagSet,
-    #[serde(skip)]
+}
+
+#[derive(Debug, Clone)]
+pub struct SnapshotBlueprint {
+    pub files: Vec<FileManifest>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnapshotManifest {
+    pub metadata_version: String,
+    pub snapshot_id: String,
+    pub inserted_at: String,
+    /// Max source file mtime (UTC) recorded when this snapshot was last synced from a source folder.
+    pub source_modified_at: String,
+    pub total_logical_size: u64,
+    pub total_compressed_size_estimate: u64,
+    pub snapshot_tags: SnapshotTagSet,
     pub launch: Option<launch::ResolvedLaunchConfiguration>,
-    #[serde(skip)]
-    pub product_metadata: Option<ProductMetadata>,
-    #[serde(skip)]
+    pub product_metadata: Option<SnapshotProductMetadata>,
     pub files: Vec<FileManifest>,
 }
 
@@ -275,12 +282,42 @@ impl SnapshotManifest {
         }
     }
 
+    pub fn metadata(&self) -> SnapshotMetadata {
+        SnapshotMetadata {
+            metadata_version: self.metadata_version.clone(),
+            snapshot_id: self.snapshot_id.clone(),
+            inserted_at: self.inserted_at.clone(),
+            snapshot_tags: self.snapshot_tags.clone(),
+        }
+    }
+
+    pub fn blueprint(&self) -> SnapshotBlueprint {
+        SnapshotBlueprint {
+            files: self.files.clone(),
+        }
+    }
+
+    pub fn from_metadata(metadata: SnapshotMetadata) -> Self {
+        Self {
+            metadata_version: metadata.metadata_version,
+            snapshot_id: metadata.snapshot_id,
+            inserted_at: metadata.inserted_at,
+            source_modified_at: String::new(),
+            total_logical_size: 0,
+            total_compressed_size_estimate: 0,
+            snapshot_tags: metadata.snapshot_tags,
+            launch: None,
+            product_metadata: None,
+            files: Vec::new(),
+        }
+    }
+
     pub fn sync_product_metadata_from_launch(&mut self) {
         if self.product_metadata.is_some() {
             return;
         }
         if let Some(launch) = self.launch.as_ref() {
-            self.product_metadata = Some(ProductMetadata::from_launch(launch, Vec::new()));
+            self.product_metadata = Some(SnapshotProductMetadata::from_launch(launch, Vec::new()));
         }
     }
 

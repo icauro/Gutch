@@ -62,6 +62,6 @@ pub fn bind_gutch_repo_remote(
     let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     repo_manifest.product_id = product_id.to_string();
     repo_manifest.remote_repo_id = remote_repo_id.to_string();
-    repo_manifest.sync_product_metadata_from_binding();
+    repo_manifest.sync_product_metadata_from_product_id();
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)
 }

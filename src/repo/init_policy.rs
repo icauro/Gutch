@@ -233,13 +233,20 @@ pub fn parse_repo_init_needs_confirmation_error(message: &str) -> Option<RepoIni
 
 pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
     let paths = GutchRepoPaths::from_repo_root(repo_root);
-    for dir in [&paths.snapshots_root, &paths.bundles_root, &paths.chunks_root] {
+    for dir in [
+        &paths.snapshots_root,
+        &paths.bundles_root,
+        &paths.chunks_root,
+    ] {
         if dir.exists() {
             crate::helpers::remove_dir_all(dir)?;
         }
     }
     if paths.repo_metadata_path.exists() {
         crate::helpers::remove_file(&paths.repo_metadata_path)?;
+    }
+    if paths.local_repo_config_path.exists() {
+        crate::helpers::remove_file(&paths.local_repo_config_path)?;
     }
     if paths.chunk_map_path.exists() {
         crate::helpers::remove_file(&paths.chunk_map_path)?;

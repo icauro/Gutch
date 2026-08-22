@@ -17,7 +17,7 @@ use crate::{Error, Result};
 
 const DOWNLOAD_PROGRESS_EMIT_BYTES: u64 = 256 * 1024;
 const MAX_PARALLEL_BUNDLE_DOWNLOADS: usize = 4;
-pub(super) const MAX_SNAPSHOT_INDEX_BYTES: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
 pub(super) const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -170,14 +170,14 @@ pub(crate) fn snapshot_manifest_from_download(
     snapshot_id: &str,
     manifest_bytes: &[u8],
 ) -> Result<crate::manifest::snapshot::SnapshotManifest> {
-    let manifest_json = std::str::from_utf8(manifest_bytes)
-        .map_err(|err| Error::manifest(format!("snapshot manifest is not valid UTF-8: {}", err)))?;
-    let mut manifest =
-        serde_json::from_str::<crate::manifest::snapshot::SnapshotManifest>(manifest_json)?;
-    if manifest.snapshot_id.trim().is_empty() || manifest.snapshot_id != snapshot_id {
-        manifest.snapshot_id = snapshot_id.to_string();
-    }
-    Ok(manifest)
+    let metadata_json = std::str::from_utf8(manifest_bytes)
+        .map_err(|err| Error::manifest(format!("snapshot metadata is not valid UTF-8: {}", err)))?;
+    let mut metadata =
+        serde_json::from_str::<crate::manifest::snapshot::SnapshotMetadata>(metadata_json)?;
+    metadata.snapshot_id = snapshot_id.to_string();
+    Ok(crate::manifest::snapshot::SnapshotManifest::from_metadata(
+        metadata,
+    ))
 }
 
 pub(super) fn download_pending_bundle(
@@ -468,7 +468,7 @@ fn download_json_bytes(
             total: 1,
         },
         None,
-        MAX_SNAPSHOT_INDEX_BYTES,
+        MAX_SNAPSHOT_METADATA_BYTES,
     )
 }
 

@@ -502,7 +502,7 @@ fn test_large_game_build_200mb() {
     };
 
     let manifest_path = artifacts_dir.join("manifest.json");
-    let manifest_json = serde_json::to_string_pretty(&result.snapshot_manifest).unwrap();
+    let manifest_json = serde_json::to_string_pretty(&result.snapshot_manifest.metadata()).unwrap();
     std::fs::write(&manifest_path, manifest_json).unwrap();
     for bundle in &result.bundles {
         let bundle_dir = artifacts_dir.join("bundles");

@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::{Error, Result};
@@ -8,7 +10,7 @@ use crate::{Error, Result};
 pub struct GutchRepoPaths {
     pub repo_root: PathBuf,
     pub repo_metadata_path: PathBuf,
-    pub repo_binding_path: PathBuf,
+    pub local_repo_config_path: PathBuf,
     pub chunk_map_path: PathBuf,
     pub snapshots_root: PathBuf,
     pub bundles_root: PathBuf,
@@ -25,7 +27,7 @@ impl GutchRepoPaths {
         Self {
             repo_root: repo_root.to_path_buf(),
             repo_metadata_path: repo_root.join(REPO_METADATA_FILE),
-            repo_binding_path: repo_root.join("repo_binding.json"),
+            local_repo_config_path: repo_root.join("local_repo_config.json"),
             chunk_map_path: repo_root.join("chunk_map.gtcbin"),
             snapshots_root: repo_root.join("snapshots"),
             bundles_root: repo_root.join("bundles"),
@@ -42,7 +44,8 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
     let repo_manifest = if paths.repo_metadata_path.exists() {
         let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
         let mut manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
-        apply_repo_binding(paths, &mut manifest)?;
+        manifest.sync_product_id_from_metadata();
+        apply_local_repo_config(paths, &mut manifest)?;
         manifest
     } else {
         let repo_manifest = GutchRepoManifest::new(name.to_string());
@@ -63,7 +66,8 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
     }
     let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
     let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
-    apply_repo_binding(&paths, &mut repo_manifest)?;
+    repo_manifest.sync_product_id_from_metadata();
+    apply_local_repo_config(&paths, &mut repo_manifest)?;
     Ok((paths, repo_manifest))
 }
 
@@ -72,38 +76,35 @@ pub fn write_gutch_repo_manifest(
     repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
     crate::helpers::write_json(&paths.repo_metadata_path, repo_manifest)?;
-    if repo_manifest.remote_repo_id.is_empty() && repo_manifest.product_id.is_empty() {
-        if paths.repo_binding_path.exists() {
-            std::fs::remove_file(&paths.repo_binding_path)?;
+    if repo_manifest.remote_repo_id.is_empty() {
+        if paths.local_repo_config_path.exists() {
+            std::fs::remove_file(&paths.local_repo_config_path)?;
         }
     } else {
         crate::helpers::write_json(
-            &paths.repo_binding_path,
-            &serde_json::json!({
-                "product_id": repo_manifest.product_id,
-                "remote_repo_id": repo_manifest.remote_repo_id,
-            }),
+            &paths.local_repo_config_path,
+            &LocalRepoConfig {
+                remote_repo_id: repo_manifest.remote_repo_id.clone(),
+            },
         )?;
     }
     Ok(())
 }
 
-fn apply_repo_binding(paths: &GutchRepoPaths, manifest: &mut GutchRepoManifest) -> Result<()> {
-    if !paths.repo_binding_path.exists() {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalRepoConfig {
+    remote_repo_id: String,
+}
+
+fn apply_local_repo_config(paths: &GutchRepoPaths, manifest: &mut GutchRepoManifest) -> Result<()> {
+    if !paths.local_repo_config_path.exists() {
         return Ok(());
     }
-    let binding: serde_json::Value =
-        crate::helpers::from_json_str(&crate::helpers::read_to_string(&paths.repo_binding_path)?)?;
-    manifest.product_id = binding
-        .get("product_id")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    manifest.remote_repo_id = binding
-        .get("remote_repo_id")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let config: LocalRepoConfig = crate::helpers::from_json_str(&crate::helpers::read_to_string(
+        &paths.local_repo_config_path,
+    )?)?;
+    manifest.remote_repo_id = config.remote_repo_id;
     Ok(())
 }
 

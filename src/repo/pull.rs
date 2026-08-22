@@ -94,8 +94,8 @@ struct RemoteRepoRecord {
 
 struct RemoteSnapshotRecord {
     snapshot_id: String,
-    snapshot_index_hash_b3: String,
-    product_metadata_hash_b3: String,
+    snapshot_metadata_hash_b3: String,
+    snapshot_product_metadata_hash_b3: String,
     snapshot_blueprint_hash_b3: String,
     uploaded_at: String,
     created_at: String,
@@ -265,8 +265,8 @@ fn fetch_creator_snapshots(
 fn remote_snapshot_record(snapshot: CreatorSnapshotResponse) -> RemoteSnapshotRecord {
     RemoteSnapshotRecord {
         snapshot_id: snapshot.snapshot_id,
-        snapshot_index_hash_b3: snapshot.snapshot_index_hash_b3,
-        product_metadata_hash_b3: snapshot.product_metadata_hash_b3,
+        snapshot_metadata_hash_b3: snapshot.snapshot_metadata_hash_b3,
+        snapshot_product_metadata_hash_b3: snapshot.snapshot_product_metadata_hash_b3,
         snapshot_blueprint_hash_b3: snapshot.snapshot_blueprint_hash_b3,
         uploaded_at: snapshot.uploaded_at,
         created_at: snapshot.created_at,
@@ -290,32 +290,32 @@ fn local_chunk_map_hash_b3(repo_paths: &crate::GutchRepoPaths) -> Result<String>
     Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
 }
 
-fn local_snapshot_index_hash_b3(
+fn local_snapshot_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
-    if !crate::snapshot_manifest_path(repo_paths, snapshot_id).exists()
+    if !crate::snapshot_metadata_path(repo_paths, snapshot_id).exists()
         || !crate::snapshot_blueprint_path(repo_paths, snapshot_id).exists()
     {
         return Ok(String::new());
     }
     let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
     Ok(repo_file_hash(
-        &crate::serialize_snapshot_manifest_for_remote(&manifest)?,
+        &crate::serialize_snapshot_metadata_for_remote(&manifest)?,
     ))
 }
 
-fn local_product_metadata_hash_b3(
+fn local_snapshot_product_metadata_hash_b3(
     repo_paths: &crate::GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
-    if !crate::snapshot_manifest_path(repo_paths, snapshot_id).exists()
+    if !crate::snapshot_metadata_path(repo_paths, snapshot_id).exists()
         || !crate::snapshot_blueprint_path(repo_paths, snapshot_id).exists()
     {
         return Ok(String::new());
     }
     let manifest = crate::load_snapshot_manifest(repo_paths, snapshot_id)?;
-    let Some(bytes) = crate::serialize_product_metadata_for_remote(&manifest)? else {
+    let Some(bytes) = crate::serialize_snapshot_product_metadata_for_remote(&manifest)? else {
         return Ok(String::new());
     };
     Ok(repo_file_hash(&bytes))
@@ -501,11 +501,11 @@ fn compute_pull_plan(
         } else {
             &snapshot.uploaded_at
         };
-        let manifest_path = crate::snapshot_manifest_path(repo_paths, &snapshot.snapshot_id);
+        let manifest_path = crate::snapshot_metadata_path(repo_paths, &snapshot.snapshot_id);
         let decision = decide_artifact(
             manifest_path.exists(),
-            local_snapshot_index_hash_b3(repo_paths, &snapshot.snapshot_id)?,
-            &snapshot.snapshot_index_hash_b3,
+            local_snapshot_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
+            &snapshot.snapshot_metadata_hash_b3,
             updated_at,
             local_file_mtime(&manifest_path),
             policy,
@@ -519,13 +519,14 @@ fn compute_pull_plan(
         } else {
             decision
         };
-        let product_metadata_path = crate::product_metadata_path(repo_paths, &snapshot.snapshot_id);
+        let snapshot_product_metadata_path =
+            crate::snapshot_product_metadata_path(repo_paths, &snapshot.snapshot_id);
         let product_metadata_decision = decide_artifact(
-            product_metadata_path.exists(),
-            local_product_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
-            &snapshot.product_metadata_hash_b3,
+            snapshot_product_metadata_path.exists(),
+            local_snapshot_product_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
+            &snapshot.snapshot_product_metadata_hash_b3,
             updated_at,
-            local_file_mtime(&product_metadata_path),
+            local_file_mtime(&snapshot_product_metadata_path),
             policy,
         );
         let decision = match (decision, product_metadata_decision) {
@@ -556,7 +557,7 @@ fn compute_pull_plan(
     for entry in walkdir::WalkDir::new(&repo_paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file()
-            || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_INDEX_FILE
+            || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_METADATA_FILE
         {
             continue;
         }
@@ -768,7 +769,7 @@ fn fetch_chunk_map_url(
     Ok(response.chunk_index_url)
 }
 
-fn fetch_snapshot_index_url(
+fn fetch_snapshot_metadata_url(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: &str,
@@ -867,7 +868,7 @@ fn required_bundle_ids_by_snapshot(
     for entry in walkdir::WalkDir::new(&repo_paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
         if !entry.path().is_file()
-            || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_INDEX_FILE
+            || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_METADATA_FILE
         {
             continue;
         }
@@ -991,7 +992,7 @@ pub fn pull_repo(
             crate::helpers::from_json_bytes(&bytes)?;
         manifest.product_id = record.product_id.to_string();
         manifest.remote_repo_id = record.remote_repo_id.to_string();
-        manifest.sync_product_metadata_from_binding();
+        manifest.sync_product_metadata_from_product_id();
         crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
         stats.repo_manifest_downloaded = true;
     }
@@ -1043,7 +1044,7 @@ pub fn pull_repo(
             Some(snapshot_id.clone()),
             false,
         );
-        let (metadata_url, blueprint_url, product_metadata_url) = fetch_snapshot_index_url(
+        let (metadata_url, blueprint_url, product_metadata_url) = fetch_snapshot_metadata_url(
             &client,
             &endpoint,
             &session_id,
@@ -1053,15 +1054,19 @@ pub fn pull_repo(
         )?;
         let metadata_bytes = download_json(&client, &metadata_url)?;
         let metadata = crate::snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
-        crate::repo::write_snapshot_index_only(&repo_paths, &metadata)?;
+        crate::repo::write_snapshot_metadata_only(&repo_paths, &metadata)?;
         if let Some(product_metadata_url) = product_metadata_url {
             let product_metadata_bytes = download_json(&client, &product_metadata_url)?;
-            let product_metadata: crate::manifest::ProductMetadata =
+            let product_metadata: crate::manifest::SnapshotProductMetadata =
                 crate::helpers::from_json_bytes(&product_metadata_bytes)?;
             product_metadata.validate_structure()?;
-            crate::repo::write_product_metadata(&repo_paths, snapshot_id, Some(&product_metadata))?;
+            crate::repo::write_snapshot_product_metadata(
+                &repo_paths,
+                snapshot_id,
+                Some(&product_metadata),
+            )?;
         } else {
-            crate::repo::write_product_metadata(&repo_paths, snapshot_id, None)?;
+            crate::repo::write_snapshot_product_metadata(&repo_paths, snapshot_id, None)?;
         }
         let blueprint_bytes = download_binary(&client, &blueprint_url)?;
         crate::helpers::write(

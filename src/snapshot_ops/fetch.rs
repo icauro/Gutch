@@ -9,8 +9,8 @@ use super::pipeline::{
     ReconstructPipelineApplyRequest, apply_reconstruct_pipeline, build_reconstruct_pipeline_plan,
 };
 use super::transfer::{
-    FetchTransferProgress, MAX_SNAPSHOT_BLUEPRINT_BYTES, MAX_CHUNK_INDEX_BYTES,
-    MAX_SNAPSHOT_INDEX_BYTES, PendingBundleDownload, TransferPhaseCounters,
+    FetchTransferProgress, MAX_CHUNK_INDEX_BYTES, MAX_SNAPSHOT_BLUEPRINT_BYTES,
+    MAX_SNAPSHOT_METADATA_BYTES, PendingBundleDownload, TransferPhaseCounters,
     build_download_client, bundle_download_worker_count, download_pending_bundle,
     download_url_bounded, fetch_bundle_urls, snapshot_manifest_from_download, write_repo_manifest,
 };
@@ -222,7 +222,7 @@ fn prepare_snapshot_fetch(
                 total: 1,
             },
             None,
-            MAX_SNAPSHOT_INDEX_BYTES,
+            MAX_SNAPSHOT_METADATA_BYTES,
         )?;
         let repo_manifest: GutchRepoManifest =
             crate::helpers::from_json_bytes(&repo_manifest_bytes)?;
@@ -258,11 +258,11 @@ fn prepare_snapshot_fetch(
             total: 1,
         },
         Some(request.snapshot_id.as_str()),
-        MAX_SNAPSHOT_INDEX_BYTES,
+        MAX_SNAPSHOT_METADATA_BYTES,
     )?;
-    let snapshot_index =
+    let snapshot_metadata =
         snapshot_manifest_from_download(&request.snapshot_id, &snapshot_manifest_bytes)?;
-    crate::repo::write_snapshot_index_only(&repo_paths, &snapshot_index)?;
+    crate::repo::write_snapshot_metadata_only(&repo_paths, &snapshot_metadata)?;
 
     if let Some(product_metadata_url) = request.product_metadata_url.as_deref() {
         let product_metadata_bytes = download_url_bounded(
@@ -278,18 +278,18 @@ fn prepare_snapshot_fetch(
                 total: 1,
             },
             Some(request.snapshot_id.as_str()),
-            MAX_SNAPSHOT_INDEX_BYTES,
+            MAX_SNAPSHOT_METADATA_BYTES,
         )?;
-        let product_metadata: crate::manifest::ProductMetadata =
+        let product_metadata: crate::manifest::SnapshotProductMetadata =
             crate::helpers::from_json_bytes(&product_metadata_bytes)?;
         product_metadata.validate_structure()?;
-        crate::repo::write_product_metadata(
+        crate::repo::write_snapshot_product_metadata(
             &repo_paths,
             &request.snapshot_id,
             Some(&product_metadata),
         )?;
     } else {
-        crate::repo::write_product_metadata(&repo_paths, &request.snapshot_id, None)?;
+        crate::repo::write_snapshot_product_metadata(&repo_paths, &request.snapshot_id, None)?;
     }
 
     let blueprint_bytes = download_url_bounded(

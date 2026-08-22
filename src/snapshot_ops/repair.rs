@@ -8,7 +8,9 @@ use crate::verify::{RepairClassification, RepairIssue, VerifyRequest, classify_d
 use crate::{Error, Result};
 
 use super::apply::default_snapshot_staging_dir;
-use super::pipeline::{build_reconstruct_pipeline_plan, execute_reconstruct_pipeline_reconstruction};
+use super::pipeline::{
+    build_reconstruct_pipeline_plan, execute_reconstruct_pipeline_reconstruction,
+};
 use super::types::{
     SnapshotRepairFromRepoRequest, SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
     SnapshotRepairPlanFromRepoResult, SnapshotRepairResult,
@@ -36,8 +38,10 @@ pub fn repair_snapshot_from_repo(
     request: SnapshotRepairFromRepoRequest,
 ) -> Result<SnapshotRepairFromRepoResult> {
     request.control.checkpoint()?;
-    let (repo_paths, snapshot_manifest) =
-        super::snapshot_repo::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+        &request.repo_path,
+        &request.snapshot_id,
+    )?;
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let repair_plan = plan_repair_snapshot_ops(
@@ -102,8 +106,10 @@ pub fn plan_repair_snapshot_from_repo(
     request: SnapshotRepairPlanFromRepoRequest,
 ) -> Result<SnapshotRepairPlanFromRepoResult> {
     request.control.checkpoint()?;
-    let (repo_paths, snapshot_manifest) =
-        super::snapshot_repo::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+        &request.repo_path,
+        &request.snapshot_id,
+    )?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let repair_plan = plan_repair_snapshot_ops(
         &snapshot_manifest,

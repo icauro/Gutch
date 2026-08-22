@@ -57,15 +57,20 @@ pub fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: &str) -
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("destination");
-    destination_dir.with_file_name(format!(".gutch-staging-{}-{}", destination_name, snapshot_id))
+    destination_dir.with_file_name(format!(
+        ".gutch-staging-{}-{}",
+        destination_name, snapshot_id
+    ))
 }
 
 pub fn verify_snapshot_from_repo(
     request: SnapshotVerifyFromRepoRequest,
 ) -> Result<SnapshotVerifyFromRepoResult> {
     request.control.checkpoint()?;
-    let (repo_paths, snapshot_manifest) =
-        super::snapshot_repo::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+        &request.repo_path,
+        &request.snapshot_id,
+    )?;
     let (classification, verify_timings) = classify_directory(VerifyRequest {
         snapshot_manifest: &snapshot_manifest,
         dir: &request.destination_dir,
@@ -86,8 +91,10 @@ pub fn reconstruct_snapshot_from_repo(
     request: SnapshotReconstructFromRepoRequest,
 ) -> Result<SnapshotReconstructFromRepoResult> {
     request.control.checkpoint()?;
-    let (repo_paths, snapshot_manifest) =
-        super::snapshot_repo::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+        &request.repo_path,
+        &request.snapshot_id,
+    )?;
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let existing_bundle_ids = crate::repo::required_bundle_ids(&snapshot_manifest, &chunk_index)
@@ -180,7 +187,8 @@ pub(super) fn promote_staging_destination(
     }
 
     let backup_dir = if destination_dir.exists() {
-        let backup_dir = backup_dir_for_destination(destination_dir, &snapshot_manifest.snapshot_id);
+        let backup_dir =
+            backup_dir_for_destination(destination_dir, &snapshot_manifest.snapshot_id);
         if backup_dir.exists() {
             crate::helpers::remove_dir_all(&backup_dir)?;
         }

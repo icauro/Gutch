@@ -161,7 +161,7 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     g::manifest::snapshot::SnapshotManifest,
 )> {
     let (repo_paths, repo_manifest) = g::load_gutch_repo_manifest(repo_root)?;
-    let manifest_path = g::snapshot_manifest_path(&repo_paths, snapshot_id);
+    let manifest_path = g::snapshot_metadata_path(&repo_paths, snapshot_id);
     if !manifest_path.exists() {
         return Err(g::Error::manifest(format!(
             "snapshot manifest not found at {}",

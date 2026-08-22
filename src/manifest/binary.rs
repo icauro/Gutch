@@ -3,7 +3,7 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
 use crate::hash::ChunkHash;
-use crate::manifest::{self, snapshot::SnapshotManifest};
+use crate::manifest::{self, snapshot::SnapshotBlueprint};
 use crate::{Error, Result};
 
 const CHUNK_INDEX_BINARY_MAGIC: &[u8; 4] = b"GTCI";
@@ -232,30 +232,30 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex
 
 pub(crate) fn write_snapshot_blueprint_binary(
     path: &Path,
-    snapshot_manifest: &SnapshotManifest,
+    snapshot_blueprint: &SnapshotBlueprint,
 ) -> Result<()> {
     let file = std::fs::File::create(path)?;
     let mut writer = BufWriter::new(file);
     writer.write_all(SNAPSHOT_FILES_BINARY_MAGIC)?;
     write_u16(&mut writer, SNAPSHOT_FILES_BINARY_VERSION)?;
     write_u16(&mut writer, 0)?;
-    write_u32(&mut writer, snapshot_manifest.files.len() as u32)?;
-    let chunk_ref_count = snapshot_manifest
+    write_u32(&mut writer, snapshot_blueprint.files.len() as u32)?;
+    let chunk_ref_count = snapshot_blueprint
         .files
         .iter()
         .map(|file_manifest| file_manifest.chunks.len() as u64)
         .sum::<u64>();
     write_u64(&mut writer, chunk_ref_count)?;
 
-    let mut paths = Vec::with_capacity(snapshot_manifest.files.len());
-    let mut sizes = Vec::with_capacity(snapshot_manifest.files.len());
-    let mut executables = Vec::with_capacity(snapshot_manifest.files.len());
-    let mut full_file_hashes = Vec::with_capacity(snapshot_manifest.files.len());
-    let mut chunk_counts = Vec::with_capacity(snapshot_manifest.files.len());
+    let mut paths = Vec::with_capacity(snapshot_blueprint.files.len());
+    let mut sizes = Vec::with_capacity(snapshot_blueprint.files.len());
+    let mut executables = Vec::with_capacity(snapshot_blueprint.files.len());
+    let mut full_file_hashes = Vec::with_capacity(snapshot_blueprint.files.len());
+    let mut chunk_counts = Vec::with_capacity(snapshot_blueprint.files.len());
     let mut chunk_hashes = Vec::with_capacity(chunk_ref_count as usize);
     let mut chunk_raw_sizes = Vec::with_capacity(chunk_ref_count as usize);
 
-    for file_manifest in &snapshot_manifest.files {
+    for file_manifest in &snapshot_blueprint.files {
         paths.push(file_manifest.path.clone());
         sizes.push(file_manifest.size);
         executables.push(file_manifest.executable);

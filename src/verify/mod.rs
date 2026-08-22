@@ -16,7 +16,7 @@ use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
     GutchProgressSink, emit_progress,
 };
-use crate::runtime::{RuntimeResourceHints, run_in_thread_pool, plan_verify_runtime};
+use crate::runtime::{RuntimeResourceHints, plan_verify_runtime, run_in_thread_pool};
 mod estimate;
 mod types;
 

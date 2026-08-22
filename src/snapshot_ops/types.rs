@@ -19,7 +19,7 @@ pub struct GutchBundleDownload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedSnapshotOperationState {
     pub snapshot_id: String,
-    pub snapshot_index_hash_b3: String,
+    pub snapshot_metadata_hash_b3: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<ResolvedLaunchConfiguration>,
     #[serde(default)]

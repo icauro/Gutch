@@ -187,13 +187,15 @@ pub(super) fn build_reconstruct_pipeline_plan(
                     file_manifest.path, entry.storage_mode
                 )));
             }
-            chunks.push(ReconstructPipelineChunkInput::Bundle(ReconstructPipelineChunk {
-                chunk_hash: chunk_ref.chunk_hash.clone(),
-                raw_size: chunk_ref.raw_size,
-                compressed_size: entry.compressed_size,
-                bundle_id: entry.bundle_id.clone(),
-                bundle_path: crate::bundle_path(repo_paths, &entry.bundle_id),
-            }));
+            chunks.push(ReconstructPipelineChunkInput::Bundle(
+                ReconstructPipelineChunk {
+                    chunk_hash: chunk_ref.chunk_hash.clone(),
+                    raw_size: chunk_ref.raw_size,
+                    compressed_size: entry.compressed_size,
+                    bundle_id: entry.bundle_id.clone(),
+                    bundle_path: crate::bundle_path(repo_paths, &entry.bundle_id),
+                },
+            ));
             required_bundle_ids.insert(entry.bundle_id.clone());
             if !existing_bundle_ids.contains(&entry.bundle_id) {
                 missing_bundle_dependencies.insert(entry.bundle_id.clone());
@@ -489,7 +491,8 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     &control,
                 ) {
                     Ok(file_timings) => {
-                        let _ = event_tx.send(ReconstructPipelineEvent::FileCompleted(file_timings));
+                        let _ =
+                            event_tx.send(ReconstructPipelineEvent::FileCompleted(file_timings));
                     }
                     Err(error) => {
                         let _ = event_tx.send(ReconstructPipelineEvent::FileFailed(error));

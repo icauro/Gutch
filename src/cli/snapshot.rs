@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::cli::SnapshotCommands;
 use crate::cli::SECTION_SEPARATOR;
+use crate::cli::SnapshotCommands;
 use crate::cli::args::ArtifactBuildProfileArgs;
 use crate::cli::common::{
     SnapshotCreateManyStats, SnapshotCreateStats, count_required_bundles_for_build,
-    count_required_bundles_from_chunk_index,
-    count_required_chunks, load_snapshot_manifest_from_repo, prepare_input_path, prompt_yes_no,
-    write_bundles, write_loose_chunks, write_report, write_snapshot_manifest,
+    count_required_bundles_from_chunk_index, count_required_chunks,
+    load_snapshot_manifest_from_repo, prepare_input_path, prompt_yes_no, write_bundles,
+    write_loose_chunks, write_report, write_snapshot_manifest,
 };
 use crate::cli::progress::{CliBuildProgressSink, CliProgressSink};
 use crate::cli::reporting::{
@@ -138,9 +138,7 @@ fn run_create_one_snapshot(
         println!("snapshot create plan:");
         println!("  {}", g::describe_snapshot_create_plan(&create_plan));
         if create_plan.replaces_existing_slots {
-            println!(
-                "  Existing snapshot references to replaced snapshots must be updated."
-            );
+            println!("  Existing snapshot references to replaced snapshots must be updated.");
         }
         if !prompt_yes_no("Proceed?", false)? {
             return Err(g::Error::manifest("snapshot create cancelled"));
@@ -231,7 +229,7 @@ fn run_create_one_snapshot(
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
     apply_resolved_snapshot_identity(&mut result.snapshot_manifest, &resolved_identity);
 
-    let existing_manifest_path = g::snapshot_manifest_path(request.repo_paths, &snapshot_id);
+    let existing_manifest_path = g::snapshot_metadata_path(request.repo_paths, &snapshot_id);
     if existing_manifest_path.exists() {
         let existing_manifest = g::load_snapshot_manifest(request.repo_paths, &snapshot_id)?;
         if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
@@ -437,12 +435,16 @@ fn single_create_source_resolution(
     match config.ingestion_mode {
         g::source_config::IngestionMode::Auto => Ok((None, true)),
         g::source_config::IngestionMode::Explicit => {
-            let entry = config.explicit_ingestion_rules.snapshots.iter().find(|rule| {
-                g::source_config::normalize_relative_path(&rule.path)
-                    .ok()
-                    .as_deref()
-                    == Some(name)
-            });
+            let entry = config
+                .explicit_ingestion_rules
+                .snapshots
+                .iter()
+                .find(|rule| {
+                    g::source_config::normalize_relative_path(&rule.path)
+                        .ok()
+                        .as_deref()
+                        == Some(name)
+                });
             match entry {
                 Some(rule) => {
                     let tags = g::manifest::SnapshotTagSet::from_compact_strings(&rule.tags)
@@ -489,7 +491,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                     allow_name_inference,
                 )?;
                 if !yes {
-                println!("snapshot create plan:");
+                    println!("snapshot create plan:");
                     println!("  {}", g::describe_snapshot_create_plan(&plan));
                     if plan.replaces_existing_slots {
                         println!(
@@ -591,10 +593,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                     for plan in &create_plans {
                         println!("  {}", g::describe_snapshot_create_plan(plan));
                     }
-                    if create_plans
-                        .iter()
-                        .any(|plan| plan.replaces_existing_slots)
-                    {
+                    if create_plans.iter().any(|plan| plan.replaces_existing_slots) {
                         println!(
                             "  Existing snapshot references to replaced snapshots must be updated."
                         );
@@ -720,7 +719,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             let (repo_paths, _repo_manifest, _, _tm) =
                 load_snapshot_manifest_from_repo(&repo, &snapshot_id)?;
             if !yes {
-                let manifest_path = g::snapshot_manifest_path(&repo_paths, &snapshot_id);
+                let manifest_path = g::snapshot_metadata_path(&repo_paths, &snapshot_id);
                 eprintln!(
                     "WARNING: this will remove '{}' and related snapshot artifacts, and may orphan bundles. Use --yes to confirm.",
                     manifest_path.display()
@@ -730,8 +729,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
 
             let progress = CliProgressSink::new();
             let control = g::GutchOperationControl::default().with_progress(progress);
-            let orphan_count =
-                g::delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
+            let orphan_count = g::delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
 
             println!(
                 "deleted snapshot '{}': removed manifest, {} orphaned bundles cleaned up",

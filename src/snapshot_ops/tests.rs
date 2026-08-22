@@ -80,7 +80,7 @@ fn resolved_snapshot_state_uses_product_runtime() {
         resolved.launch.unwrap().actions[0].arguments,
         ["--snapshot"]
     );
-    assert!(!resolved.snapshot_index_hash_b3.is_empty());
+    assert!(!resolved.snapshot_metadata_hash_b3.is_empty());
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -268,8 +268,11 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
         }],
     });
     let blueprint_path = root.join("fixture-snapshot-blueprint.bin");
-    manifest::binary::write_snapshot_blueprint_binary(&blueprint_path, &blueprint_manifest)
-        .unwrap();
+    manifest::binary::write_snapshot_blueprint_binary(
+        &blueprint_path,
+        &blueprint_manifest.blueprint(),
+    )
+    .unwrap();
     let blueprint_bytes = std::fs::read(&blueprint_path).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -290,7 +293,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
                 "/metadata" => (
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
-                    "snapshot_index_version": "1.0.0",
+                    "snapshot_metadata_version": "1.0.0",
                     "inserted_at": "2026-05-11T00:00:00Z",
                     "snapshot_tags": ["version::1.0.0"],
                                             }))
@@ -355,7 +358,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
         repo_path
             .join("snapshots")
             .join("1.0.0-windows-x86_64-base")
-            .join("snapshot_index.json")
+            .join("snapshot_metadata.json")
             .exists()
     );
     assert!(

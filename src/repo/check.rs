@@ -86,7 +86,7 @@ pub struct RepoCheckSnapshotStatus {
     pub source_modified_at: String,
     pub snapshot_tags: manifest::SnapshotTagSet,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub snapshot_index: Option<serde_json::Value>,
+    pub snapshot_metadata: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -258,8 +258,11 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         scan_bundle_inventory(&repo_paths.bundles_root)?;
     let scan_bundles_ms = scan_start.elapsed().as_millis() as u64;
 
-    let (snapshots, snapshot_check_timings) =
-        check_snapshot_manifests(&repo_paths, &repo_paths.snapshots_root, &available_bundle_ids)?;
+    let (snapshots, snapshot_check_timings) = check_snapshot_manifests(
+        &repo_paths,
+        &repo_paths.snapshots_root,
+        &available_bundle_ids,
+    )?;
     let snapshot_count = snapshots.len();
 
     let total_ms = total_start.elapsed().as_millis() as u64;
@@ -419,11 +422,12 @@ fn check_snapshot_manifests(
     let manifests_start = std::time::Instant::now();
     let mut snapshots = Vec::new();
     for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
-        let manifest_path = crate::snapshot_manifest_path(repo_paths, &snapshot_id);
+        let manifest_path = crate::snapshot_metadata_path(repo_paths, &snapshot_id);
         let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
-        let snapshot_index = Some(serde_json::to_value(&manifest).map_err(|error| {
-            Error::manifest(format!("failed to serialize snapshot metadata: {error}"))
-        })?);
+        let snapshot_metadata =
+            Some(serde_json::to_value(manifest.metadata()).map_err(|error| {
+                Error::manifest(format!("failed to serialize snapshot metadata: {error}"))
+            })?);
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()
@@ -456,7 +460,7 @@ fn check_snapshot_manifests(
             missing_bundle_count,
             source_modified_at: manifest.source_modified_at.clone(),
             snapshot_tags: manifest.snapshot_tags,
-            snapshot_index,
+            snapshot_metadata,
             launch: manifest.launch,
             resolved_launch,
             external_product_dependencies,

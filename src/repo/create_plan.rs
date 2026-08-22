@@ -299,7 +299,9 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     }
 }
 
-pub fn create_repo_snapshot(request: RepoSnapshotCreateRequest) -> Result<RepoSnapshotCreateResult> {
+pub fn create_repo_snapshot(
+    request: RepoSnapshotCreateRequest,
+) -> Result<RepoSnapshotCreateResult> {
     request.control.checkpoint()?;
     let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
     let rules = repo_manifest
@@ -408,7 +410,7 @@ pub fn create_repo_snapshot(request: RepoSnapshotCreateRequest) -> Result<RepoSn
         &resolved_identity,
     );
 
-    let existing_manifest_path = crate::snapshot_manifest_path(&repo_paths, &snapshot_id);
+    let existing_manifest_path = crate::snapshot_metadata_path(&repo_paths, &snapshot_id);
     if existing_manifest_path.exists() {
         let existing_manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot_id)?;
         if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {

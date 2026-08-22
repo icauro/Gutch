@@ -16,7 +16,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<Strin
             entry.path().is_dir()
                 && entry
                     .path()
-                    .join(super::snapshot_manifests::SNAPSHOT_INDEX_FILE)
+                    .join(super::snapshot_manifests::SNAPSHOT_METADATA_FILE)
                     .is_file()
         })
         .filter_map(|entry| {

@@ -34,9 +34,9 @@ pub use schema_edit::{
     validate_editable_snapshot_tag_schema,
 };
 pub use snapshot::{
-    ProductMetadata, SnapshotDirectRuntimeMetadata, SnapshotHostVariant,
-    SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction, SnapshotRuntimeMetadata,
-    current_host_tags,
+    SnapshotBlueprint, SnapshotDirectRuntimeMetadata, SnapshotHostVariant,
+    SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction, SnapshotMetadata,
+    SnapshotProductMetadata, SnapshotRuntimeMetadata, current_host_tags,
 };
 pub use tags::{
     AutoTaggingRules, InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,

@@ -10,8 +10,8 @@ pub fn resolve_snapshot_state(
 
     let launch = snapshot_manifest.launch.clone();
 
-    let manifest_bytes = crate::serialize_snapshot_manifest_for_remote(&snapshot_manifest)?;
-    let snapshot_index_hash_b3 = crate::hash::hash_hex(&blake3::hash(&manifest_bytes));
+    let manifest_bytes = crate::serialize_snapshot_metadata_for_remote(&snapshot_manifest)?;
+    let snapshot_metadata_hash_b3 = crate::hash::hash_hex(&blake3::hash(&manifest_bytes));
 
     if snapshot_manifest.snapshot_id.trim().is_empty() {
         return Err(Error::manifest("snapshot manifest is missing snapshot_id"));
@@ -19,7 +19,7 @@ pub fn resolve_snapshot_state(
 
     Ok(ResolvedSnapshotOperationState {
         snapshot_id: snapshot_manifest.snapshot_id,
-        snapshot_index_hash_b3,
+        snapshot_metadata_hash_b3,
         launch,
         external_product_dependencies: snapshot_manifest
             .product_metadata
