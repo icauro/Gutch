@@ -283,8 +283,8 @@ pub struct SnapshotMetadata {
     pub metadata_version: String,
     #[serde(skip)]
     pub snapshot_id: String,
-    #[serde(rename = "inserted_at")]
-    pub inserted_at: String,
+    #[serde(rename = "captured_at")]
+    pub captured_at: String,
     #[serde(
         default,
         serialize_with = "serialize_snapshot_tags_as_compact_strings",
@@ -302,8 +302,8 @@ pub struct SnapshotBlueprint {
 pub struct SnapshotManifest {
     pub metadata_version: String,
     pub snapshot_id: String,
-    pub inserted_at: String,
-    /// Max source file mtime (UTC) recorded when this snapshot was last synced from a source folder.
+    pub captured_at: String,
+    /// Max source file mtime (UTC) recorded when this snapshot was last captured from a source folder.
     pub source_modified_at: String,
     pub total_logical_size: u64,
     pub total_compressed_size_estimate: u64,
@@ -318,7 +318,7 @@ impl SnapshotManifest {
         SnapshotManifest {
             metadata_version: FORMAT_VERSION.to_string(),
             snapshot_id,
-            inserted_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            captured_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             source_modified_at: String::new(),
             total_logical_size: 0,
             total_compressed_size_estimate: 0,
@@ -333,7 +333,7 @@ impl SnapshotManifest {
         SnapshotMetadata {
             metadata_version: self.metadata_version.clone(),
             snapshot_id: self.snapshot_id.clone(),
-            inserted_at: self.inserted_at.clone(),
+            captured_at: self.captured_at.clone(),
             snapshot_tags: self.snapshot_tags.clone(),
         }
     }
@@ -348,7 +348,7 @@ impl SnapshotManifest {
         Self {
             metadata_version: metadata.metadata_version,
             snapshot_id: metadata.snapshot_id,
-            inserted_at: metadata.inserted_at,
+            captured_at: metadata.captured_at,
             source_modified_at: String::new(),
             total_logical_size: 0,
             total_compressed_size_estimate: 0,

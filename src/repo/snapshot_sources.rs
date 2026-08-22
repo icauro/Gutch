@@ -278,7 +278,7 @@ pub fn capture_snapshot_sources(
             GutchProgressEvent {
                 operation: GutchOperation::SnapshotSourcesCapture,
                 phase: GutchProgressPhase::Capture,
-                message: format!("Creating snapshot '{}'", candidate.folder_name),
+                message: format!("Capturing snapshot '{}'", candidate.folder_name),
                 current: current_step,
                 total: total_steps,
                 transferred_bytes: 0,

@@ -11,7 +11,7 @@ fn test_snapshot_manifest_new() {
     assert_eq!(m.snapshot_id, "abc123def");
     assert_eq!(m.snapshot_tags.get_exclusive("os"), Some("windows"));
     assert_eq!(m.metadata_version, "1");
-    assert!(m.inserted_at.len() > 0);
+    assert!(m.captured_at.len() > 0);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn test_manifest_serialization_roundtrip() {
     assert!(!json.contains("\"files\""));
     let m2: SnapshotMetadata = serde_json::from_str(&json).unwrap();
     assert!(m2.snapshot_id.is_empty());
-    assert_eq!(m.inserted_at, m2.inserted_at);
+    assert_eq!(m.captured_at, m2.captured_at);
     assert_eq!(m.snapshot_tags, m2.snapshot_tags);
 }
 

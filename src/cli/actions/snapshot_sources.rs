@@ -82,7 +82,7 @@ pub fn capture_snapshot_sources(
     )?;
 
     println!(
-        "snapshot sources capture complete: created {}, refreshed {}, pruned {}{}",
+        "snapshot sources capture complete: captured {}, refreshed {}, pruned {}{}",
         result.captured_count,
         result.refreshed_count,
         result.removed_count,

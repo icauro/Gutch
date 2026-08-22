@@ -20,7 +20,7 @@ fn write_source_root_files(root: &Path, relative: &str, content: &[u8]) {
 }
 
 #[test]
-fn create_many_auto_mode_skips_ignored_folders() {
+fn capture_many_auto_mode_skips_ignored_folders() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -68,7 +68,7 @@ fn create_many_auto_mode_skips_ignored_folders() {
 }
 
 #[test]
-fn create_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
+fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -138,7 +138,7 @@ fn create_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
 }
 
 #[test]
-fn create_many_explicit_mode_errors_when_declared_version_is_missing() {
+fn capture_many_explicit_mode_errors_when_declared_version_is_missing() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -174,7 +174,7 @@ fn create_many_explicit_mode_errors_when_declared_version_is_missing() {
 }
 
 #[test]
-fn create_many_auto_captures_skeleton_config_on_first_use() {
+fn capture_many_auto_captures_skeleton_config_on_first_use() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -203,7 +203,7 @@ fn create_many_auto_captures_skeleton_config_on_first_use() {
 }
 
 #[test]
-fn create_single_dir_matches_the_plain_dir_flow() {
+fn capture_single_dir_matches_the_plain_dir_flow() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let source_dir = temp.path().join("v2.0.0-windows-x86_64-2026_08_01");

@@ -456,7 +456,7 @@ pub fn capture_repo_snapshot(
         }
     }
 
-    // Artifact publication below creates the snapshot. Check once before it and then complete the
+    // Artifact publication below persists the captured snapshot. Check once before it and then complete the
     // internally consistent manifest/bundle/index write set.
     request.control.checkpoint()?;
     let (manifest_path, _) =

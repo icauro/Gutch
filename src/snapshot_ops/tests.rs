@@ -301,7 +301,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
                     "200 OK",
                     serde_json::to_vec(&serde_json::json!({
                     "snapshot_metadata_version": "1",
-                    "inserted_at": "2026-05-11T00:00:00Z",
+                    "captured_at": "2026-05-11T00:00:00Z",
                     "snapshot_tags": ["version::1.0.0"],
                                             }))
                     .unwrap(),

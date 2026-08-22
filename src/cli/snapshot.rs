@@ -412,7 +412,7 @@ fn collect_capture_many_sources(
 
 /// Resolve the config contribution for a single `snapshot capture --source-dir` operation.
 /// The config is read from the directory's parent when present; it is never
-/// auto-created for a single create. Returns the entry tags (explicit mode)
+/// generated automatically for a single capture. Returns the entry tags (explicit mode)
 /// and whether name inference is allowed.
 fn single_capture_source_resolution(
     dir: &Path,
