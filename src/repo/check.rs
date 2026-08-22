@@ -90,12 +90,7 @@ pub struct RepoCheckSnapshotStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_product_metadata_hash_b3: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_launch: Option<manifest::launch::ResolvedLaunchConfiguration>,
-    #[serde(default)]
-    pub external_product_dependencies:
-        Vec<manifest::external_dependency::ExternalProductDependencyRequirement>,
+    pub snapshot_product_metadata: Option<manifest::SnapshotProductMetadata>,
     #[serde(default)]
     pub file_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -438,19 +433,12 @@ fn check_snapshot_manifests(
             .iter()
             .filter(|bundle_id| !available_bundle_ids.contains(*bundle_id))
             .count();
-        let resolved_launch = if let Some(launch) = manifest.launch.as_ref() {
-            manifest::launch::validate_resolved_launch_for_snapshot(launch, &manifest)?;
-            Some(launch.clone())
-        } else {
-            None
-        };
-        let external_product_dependencies = manifest
-            .product_metadata
-            .as_ref()
-            .map(|metadata| {
-                metadata.external_dependencies_for_host_tags(&manifest::current_host_tags())
-            })
-            .unwrap_or_default();
+        let launch_readiness_error =
+            if manifest.product_metadata.is_some() && manifest.launch.is_none() {
+                Some("No runtime target matches this host.".to_string())
+            } else {
+                None
+            };
 
         let summary = summarize_snapshot_tags(&manifest.snapshot_tags, None);
         snapshots.push(RepoCheckSnapshotStatus {
@@ -467,11 +455,9 @@ fn check_snapshot_manifests(
             snapshot_tags: manifest.snapshot_tags.clone(),
             snapshot_metadata,
             snapshot_product_metadata_hash_b3,
-            launch: manifest.launch.clone(),
-            resolved_launch,
-            external_product_dependencies,
+            snapshot_product_metadata: manifest.product_metadata.clone(),
             file_paths: manifest.files().map(|file| file.path.clone()).collect(),
-            launch_readiness_error: None,
+            launch_readiness_error,
         });
     }
 

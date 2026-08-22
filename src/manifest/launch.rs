@@ -27,6 +27,14 @@ pub fn validate_resolved_launch_for_snapshot(
     configuration: &ResolvedLaunchConfiguration,
     snapshot: &SnapshotManifest,
 ) -> Result<()> {
+    validate_resolved_launch_for_snapshot_os(configuration, snapshot, None)
+}
+
+pub(crate) fn validate_resolved_launch_for_snapshot_os(
+    configuration: &ResolvedLaunchConfiguration,
+    snapshot: &SnapshotManifest,
+    target_os: Option<&str>,
+) -> Result<()> {
     validate_action_names_and_primary(
         configuration
             .actions
@@ -36,10 +44,12 @@ pub fn validate_resolved_launch_for_snapshot(
         true,
     )?;
 
-    let snapshot_os = snapshot
-        .snapshot_tags
-        .get_exclusive("os")
-        .unwrap_or_default();
+    let snapshot_os = target_os.unwrap_or_else(|| {
+        snapshot
+            .snapshot_tags
+            .get_exclusive("os")
+            .unwrap_or_default()
+    });
     let manifest_paths = snapshot
         .files()
         .map(|file| file.path.as_str())

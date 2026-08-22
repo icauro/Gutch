@@ -145,6 +145,33 @@ impl SnapshotProductMetadata {
         })
     }
 
+    pub fn validate_for_snapshot(&self, snapshot: &SnapshotManifest) -> crate::Result<()> {
+        self.validate_structure()?;
+        match &self.runtime {
+            SnapshotRuntimeMetadata::Direct(runtime) => {
+                validate_snapshot_launch_actions_for_snapshot(
+                    &runtime.launch_actions,
+                    snapshot,
+                    None,
+                )?;
+            }
+            SnapshotRuntimeMetadata::HostVariants(runtime) => {
+                for variant in &runtime.host_variants {
+                    let target_os = variant
+                        .host_tag_requirements
+                        .iter()
+                        .find_map(|requirement| requirement.strip_prefix("os::"));
+                    validate_snapshot_launch_actions_for_snapshot(
+                        &variant.launch_actions,
+                        snapshot,
+                        target_os,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn external_dependencies_for_host_tags(
         &self,
         host_tags: &SnapshotTagSet,
@@ -175,6 +202,26 @@ impl SnapshotProductMetadata {
         }
         Some(variant)
     }
+}
+
+fn validate_snapshot_launch_actions_for_snapshot(
+    actions: &[SnapshotLaunchAction],
+    snapshot: &SnapshotManifest,
+    target_os: Option<&str>,
+) -> crate::Result<()> {
+    let configuration = launch::ResolvedLaunchConfiguration {
+        primary: actions.first().map(|action| action.action_name.clone()),
+        actions: actions
+            .iter()
+            .map(|action| launch::ResolvedLaunchAction {
+                name: action.action_name.clone(),
+                executable: action.executable_path.clone(),
+                arguments: action.command_arguments.clone(),
+                working_directory: action.working_directory_path.clone(),
+            })
+            .collect(),
+    };
+    launch::validate_resolved_launch_for_snapshot_os(&configuration, snapshot, target_os)
 }
 
 pub(crate) fn validate_runtime_actions(

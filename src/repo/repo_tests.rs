@@ -70,16 +70,32 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
     save_snapshot_product_metadata_for_snapshots(
         temp.path(),
         &snapshot_ids,
-        Some(manifest::launch::ResolvedLaunchConfiguration {
-            primary: Some("Play".to_string()),
-            actions: vec![manifest::launch::ResolvedLaunchAction {
-                name: "Play".to_string(),
-                executable: "game.exe".to_string(),
-                arguments: Vec::new(),
-                working_directory: None,
-            }],
+        Some(manifest::SnapshotProductMetadata {
+            document_version: "1".to_string(),
+            runtime: manifest::SnapshotRuntimeMetadata::HostVariants(
+                manifest::SnapshotHostVariantRuntimeMetadata {
+                    host_variants: [("windows-x64", "os::windows"), ("linux-x64", "os::linux")]
+                        .into_iter()
+                        .map(
+                            |(variant_id, os_requirement)| manifest::SnapshotHostVariant {
+                                variant_id: variant_id.to_string(),
+                                host_tag_requirements: vec![
+                                    os_requirement.to_string(),
+                                    "arch::x86_64".to_string(),
+                                ],
+                                launch_actions: vec![manifest::SnapshotLaunchAction {
+                                    action_name: "Play".to_string(),
+                                    executable_path: "game.exe".to_string(),
+                                    command_arguments: Vec::new(),
+                                    working_directory_path: None,
+                                }],
+                                external_dependencies: Vec::new(),
+                            },
+                        )
+                        .collect(),
+                },
+            ),
         }),
-        Vec::new(),
     )
     .unwrap();
 
@@ -92,6 +108,14 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
     assert_eq!(hashes.len(), 2);
     assert!(hashes[0].is_some());
     assert_eq!(hashes[0], hashes[1]);
+    let saved_metadata = status.snapshots[0]
+        .snapshot_product_metadata
+        .as_ref()
+        .unwrap();
+    let manifest::SnapshotRuntimeMetadata::HostVariants(runtime) = &saved_metadata.runtime else {
+        panic!("expected host-variant product metadata");
+    };
+    assert_eq!(runtime.host_variants.len(), 2);
 }
 
 #[test]

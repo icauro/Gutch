@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use crate::manifest::{
     binary,
-    external_dependency::ExternalProductDependencyRequirement,
-    launch::ResolvedLaunchConfiguration,
     snapshot::{SnapshotManifest, SnapshotMetadata, SnapshotProductMetadata},
 };
 use crate::{Result, helpers};
@@ -67,11 +65,6 @@ pub fn load_snapshot_manifest(
     manifest.entries = binary::read_snapshot_blueprint_binary(&blueprint_path)?;
     manifest.total_logical_size = manifest.files().map(|file| file.size).sum();
     manifest.sync_launch_from_product_metadata();
-    if manifest.product_metadata.is_some() && manifest.launch.is_none() {
-        return Err(crate::Error::manifest(
-            "snapshot product runtime has no matching host variant",
-        ));
-    }
     if let Some(launch) = manifest.launch.as_ref() {
         crate::manifest::launch::validate_resolved_launch_for_snapshot(launch, &manifest)?;
     }
@@ -149,22 +142,19 @@ pub fn write_snapshot_product_metadata_only(
 pub fn save_snapshot_product_metadata(
     repo_root: &std::path::Path,
     snapshot_id: &str,
-    launch: Option<ResolvedLaunchConfiguration>,
-    dependencies: Vec<ExternalProductDependencyRequirement>,
+    product_metadata: Option<SnapshotProductMetadata>,
 ) -> Result<()> {
     save_snapshot_product_metadata_for_snapshots(
         repo_root,
         &[snapshot_id.to_string()],
-        launch,
-        dependencies,
+        product_metadata,
     )
 }
 
 pub fn save_snapshot_product_metadata_for_snapshots(
     repo_root: &std::path::Path,
     snapshot_ids: &[String],
-    launch: Option<ResolvedLaunchConfiguration>,
-    dependencies: Vec<ExternalProductDependencyRequirement>,
+    product_metadata: Option<SnapshotProductMetadata>,
 ) -> Result<()> {
     if snapshot_ids.is_empty() {
         return Err(crate::Error::manifest(
@@ -172,19 +162,15 @@ pub fn save_snapshot_product_metadata_for_snapshots(
         ));
     }
     let paths = GutchRepoPaths::from_repo_root(repo_root);
-    let product_metadata = launch
-        .as_ref()
-        .map(|launch| SnapshotProductMetadata::from_launch(launch, dependencies));
+    if let Some(metadata) = product_metadata.as_ref() {
+        metadata.validate_structure()?;
+    }
     let mut manifests = Vec::with_capacity(snapshot_ids.len());
     for snapshot_id in snapshot_ids {
         let mut snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
-        snapshot_manifest.launch = launch.clone();
         snapshot_manifest.product_metadata = product_metadata.clone();
-        if let Some(launch) = snapshot_manifest.launch.as_ref() {
-            crate::manifest::launch::validate_resolved_launch_for_snapshot(
-                launch,
-                &snapshot_manifest,
-            )?;
+        if let Some(metadata) = snapshot_manifest.product_metadata.as_ref() {
+            metadata.validate_for_snapshot(&snapshot_manifest)?;
         }
         manifests.push(snapshot_manifest);
     }

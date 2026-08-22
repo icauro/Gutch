@@ -45,6 +45,8 @@ pub use manifest::template::{
 };
 pub use manifest::{
     EditableSnapshotTagDefinition, ExternalProductDependencyRequirement, InferenceHandler,
+    SnapshotDirectRuntimeMetadata, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata,
+    SnapshotLaunchAction, SnapshotProductMetadata, SnapshotRuntimeMetadata,
     SnapshotTagSchemaValidationError, SnapshotTagSchemaValidationResult,
     sanitize_editable_snapshot_tag_schema, validate_editable_snapshot_tag_schema,
 };
@@ -78,12 +80,12 @@ pub use repo::{
     parse_repo_init_needs_confirmation_error, plan_repo_pull, plan_snapshot_create,
     plan_snapshot_sources_sync, plan_sync_up_repo, preview_source_snapshot_ops, pull_repo,
     remove_snapshot_from_repo, repo_init_needs_confirmation_error, save_snapshot_product_metadata,
-    save_snapshot_product_metadata_for_snapshots,
-    serialize_snapshot_metadata_for_remote, serialize_snapshot_product_metadata_for_remote,
-    snapshot_blueprint_path, snapshot_metadata_path, snapshot_product_metadata_path,
-    sync_snapshot_sources, sync_up_repo, unlink_repo, update_gutch_repo_name,
-    update_gutch_repo_schema, verify_gutch_repo, write_chunk_index, write_gutch_repo_manifest,
-    write_snapshot_manifest_artifacts, write_snapshot_product_metadata,
+    save_snapshot_product_metadata_for_snapshots, serialize_snapshot_metadata_for_remote,
+    serialize_snapshot_product_metadata_for_remote, snapshot_blueprint_path,
+    snapshot_metadata_path, snapshot_product_metadata_path, sync_snapshot_sources, sync_up_repo,
+    unlink_repo, update_gutch_repo_name, update_gutch_repo_schema, verify_gutch_repo,
+    write_chunk_index, write_gutch_repo_manifest, write_snapshot_manifest_artifacts,
+    write_snapshot_product_metadata,
 };
 pub use runtime::{
     ChunkStorageMode, EffectiveMemoryMode, MemoryMode, RuntimePlan, RuntimeResourceHints,
