@@ -654,7 +654,7 @@ struct PreparedInputPath {
 pub fn describe_snapshot_create_plan(plan: &SnapshotCreatePlan) -> String {
     match plan.kind {
         SnapshotCreateKind::CreateNew => format!(
-            "Commit new snapshot slot {} ({})",
+            "Create new snapshot slot {} ({})",
             plan.folder_name, plan.version_id
         ),
         SnapshotCreateKind::Relabel => format!(
