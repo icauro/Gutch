@@ -1,7 +1,7 @@
+mod capture_plan;
 mod check;
 mod chunk_index;
 mod cleanup;
-mod create_plan;
 mod init_policy;
 mod inventory;
 mod paths;
@@ -15,6 +15,12 @@ mod updates;
 mod verify;
 
 pub use crate::Result;
+pub use capture_plan::{
+    RepoSnapshotCaptureRequest, RepoSnapshotCaptureResult, SnapshotCaptureKind,
+    SnapshotCapturePlan, capture_repo_snapshot, delete_repo_snapshot_and_cleanup,
+    delete_repo_snapshots, delete_repo_snapshots_with_matching_tags,
+    describe_snapshot_capture_plan, plan_snapshot_capture,
+};
 pub use check::{
     RepoCheckSnapshotStatus, RepoCheckStatus, RepoCheckTimings, SourceSnapshotOperationCandidate,
     SourceSnapshotOperationDisposition, TrackedRepoCheckStatus, TrackedRepoCheckTimings,
@@ -23,11 +29,6 @@ pub use check::{
 };
 pub use chunk_index::*;
 pub use cleanup::*;
-pub use create_plan::{
-    RepoSnapshotCreateRequest, RepoSnapshotCreateResult, SnapshotCreateKind, SnapshotCreatePlan,
-    create_repo_snapshot, delete_repo_snapshot_and_cleanup, delete_repo_snapshots,
-    delete_repo_snapshots_with_matching_tags, describe_snapshot_create_plan, plan_snapshot_create,
-};
 pub use init_policy::{
     REPO_INIT_NEEDS_CONFIRMATION, RepoInitAssessment, RepoInitOptions, RepoInitPathKind,
     RepoInitRisk, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
@@ -41,9 +42,9 @@ pub use remote_ops::{
 };
 pub use snapshot_manifests::*;
 pub use snapshot_sources::{
-    SnapshotSourcesRefresh, SnapshotSourcesSyncOptions, SnapshotSourcesSyncPlan,
-    SnapshotSourcesSyncResult, describe_snapshot_sources_sync_plan, plan_snapshot_sources_sync,
-    sync_snapshot_sources,
+    SnapshotSourcesCaptureOptions, SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult,
+    SnapshotSourcesRefresh, capture_snapshot_sources, describe_snapshot_sources_capture_plan,
+    plan_snapshot_sources_capture,
 };
 pub use source_identity::*;
 pub use updates::*;

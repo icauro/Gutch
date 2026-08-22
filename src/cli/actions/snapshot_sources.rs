@@ -6,15 +6,15 @@ use crate::cli::progress::CliProgressSink;
 use gutch as g;
 
 #[derive(Debug, Clone, Copy)]
-pub struct CliSnapshotSourcesSyncOptions {
+pub struct CliSnapshotSourcesCaptureOptions {
     pub no_prune: bool,
     pub yes: bool,
 }
 
-fn print_snapshot_sources_sync_plan(plan: &g::SnapshotSourcesSyncPlan, prune: bool) {
-    println!("snapshot sources sync plan:");
+fn print_snapshot_sources_capture_plan(plan: &g::SnapshotSourcesCapturePlan, prune: bool) {
+    println!("snapshot sources capture plan:");
     println!("candidates: {}", plan.candidate_count);
-    println!("new snapshots: {}", plan.creatable_count);
+    println!("new snapshots: {}", plan.capturable_count);
     println!("refreshes: {}", plan.refresh_count);
     println!("up to date: {}", plan.up_to_date_count());
     println!(
@@ -26,7 +26,7 @@ fn print_snapshot_sources_sync_plan(plan: &g::SnapshotSourcesSyncPlan, prune: bo
             " (skipped with --no-prune)".to_string()
         }
     );
-    for line in g::describe_snapshot_sources_sync_plan(plan) {
+    for line in g::describe_snapshot_sources_capture_plan(plan) {
         println!("  {line}");
     }
     if plan.refresh_count > 0 {
@@ -34,12 +34,12 @@ fn print_snapshot_sources_sync_plan(plan: &g::SnapshotSourcesSyncPlan, prune: bo
     }
 }
 
-pub fn sync_snapshot_sources(
+pub fn capture_snapshot_sources(
     repo: &Path,
     sources_path: &Path,
-    options: CliSnapshotSourcesSyncOptions,
-) -> g::Result<g::SnapshotSourcesSyncResult> {
-    let plan = g::plan_snapshot_sources_sync(repo, Some(sources_path))?;
+    options: CliSnapshotSourcesCaptureOptions,
+) -> g::Result<g::SnapshotSourcesCaptureResult> {
+    let plan = g::plan_snapshot_sources_capture(repo, Some(sources_path))?;
     if !plan.sources_ready {
         return Err(g::Error::manifest(
             "snapshot sources path is missing or invalid",
@@ -49,21 +49,21 @@ pub fn sync_snapshot_sources(
     let prune = !options.no_prune;
 
     if !plan.has_changes() {
-        println!("snapshot sources sync: no changes");
-        return Ok(g::SnapshotSourcesSyncResult {
-            created_count: 0,
+        println!("snapshot sources capture: no changes");
+        return Ok(g::SnapshotSourcesCaptureResult {
+            captured_count: 0,
             refreshed_count: 0,
             removed_count: 0,
             pruned: prune,
         });
     }
 
-    print_snapshot_sources_sync_plan(&plan, prune);
+    print_snapshot_sources_capture_plan(&plan, prune);
 
     if !options.yes && !prompt_yes_no("Proceed?", false)? {
-        println!("snapshot sources sync cancelled");
-        return Ok(g::SnapshotSourcesSyncResult {
-            created_count: 0,
+        println!("snapshot sources capture cancelled");
+        return Ok(g::SnapshotSourcesCaptureResult {
+            captured_count: 0,
             refreshed_count: 0,
             removed_count: 0,
             pruned: prune,
@@ -72,18 +72,18 @@ pub fn sync_snapshot_sources(
 
     let progress: Arc<dyn g::GutchProgressSink> = CliProgressSink::new();
     let control = g::GutchOperationControl::default().with_progress(progress);
-    let result = g::sync_snapshot_sources(
+    let result = g::capture_snapshot_sources(
         repo,
         sources_path,
-        g::SnapshotSourcesSyncOptions {
+        g::SnapshotSourcesCaptureOptions {
             prune_removed_snapshots: prune,
         },
         &control,
     )?;
 
     println!(
-        "snapshot sources sync complete: created {}, refreshed {}, pruned {}{}",
-        result.created_count,
+        "snapshot sources capture complete: created {}, refreshed {}, pruned {}{}",
+        result.captured_count,
         result.refreshed_count,
         result.removed_count,
         if prune {

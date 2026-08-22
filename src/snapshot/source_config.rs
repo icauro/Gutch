@@ -1,7 +1,7 @@
 //! Source-root ingestion config (`.gutch_source_config.json`).
 //!
 //! A source root is the directory passed as `--source-root` to
-//! `snapshot create` or as the sources root to `repo sources sync` —
+//! `snapshot capture` or as the sources root to `repo sources sync` —
 //! the directory whose (possibly nested) subdirectories are snapshot sources.
 //!
 //! The config selects an ingestion mode:

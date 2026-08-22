@@ -47,11 +47,11 @@ impl GutchProgressSink for CliProgressSink {
         }
 
         let label = match event.operation {
-            GutchOperation::SnapshotCreate => "create",
+            GutchOperation::SnapshotCapture => "capture",
             GutchOperation::SnapshotDelete => "delete",
             GutchOperation::SyncUp => "push",
             GutchOperation::Pull => "pull",
-            GutchOperation::SnapshotSourcesSync => "sources",
+            GutchOperation::SnapshotSourcesCapture => "capture-current",
             GutchOperation::Fetch => "fetch",
             GutchOperation::Verify => "verify",
         };
@@ -111,7 +111,7 @@ impl BuildProgressSink for CliBuildProgressSink {
         self.scanned_files.store(0, Ordering::Relaxed);
         self.total_files.store(total_files, Ordering::Relaxed);
         self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current: 0,
@@ -126,7 +126,7 @@ impl BuildProgressSink for CliBuildProgressSink {
     fn on_file_scanned(&self) {
         let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
         self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current,
@@ -142,7 +142,7 @@ impl BuildProgressSink for CliBuildProgressSink {
         self.built_bundles.store(0, Ordering::Relaxed);
         self.total_bundles.store(total_bundles, Ordering::Relaxed);
         self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current: 0,
@@ -157,7 +157,7 @@ impl BuildProgressSink for CliBuildProgressSink {
     fn on_bundle_built(&self) {
         let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
         self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current,

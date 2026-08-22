@@ -5,7 +5,7 @@ use crate::cli::SECTION_SEPARATOR;
 use crate::cli::SnapshotCommands;
 use crate::cli::args::ArtifactBuildProfileArgs;
 use crate::cli::common::{
-    SnapshotCreateManyStats, SnapshotCreateStats, count_required_bundles_for_build,
+    SnapshotCaptureManyStats, SnapshotCaptureStats, count_required_bundles_for_build,
     count_required_bundles_from_chunk_index, count_required_chunks,
     load_snapshot_manifest_from_repo, prepare_input_path, prompt_yes_no, write_bundles,
     write_loose_chunks, write_report, write_snapshot_manifest,
@@ -21,7 +21,7 @@ use g::core::snapshot_identity::{apply_resolved_snapshot_identity, parse_cli_tag
 use g::repo::scan_existing_store_state;
 use gutch as g;
 
-struct MutableCreateStoreState {
+struct MutableCaptureStoreState {
     bundle_ids: HashSet<String>,
     chunk_index: g::manifest::ChunkIndex,
     chunk_locations: HashMap<String, g::ExistingChunkLocation>,
@@ -34,7 +34,7 @@ struct SnapshotIdentityStrings {
     arch: String,
 }
 
-impl From<g::repo::ExistingStoreState> for MutableCreateStoreState {
+impl From<g::repo::ExistingStoreState> for MutableCaptureStoreState {
     fn from(state: g::repo::ExistingStoreState) -> Self {
         Self {
             bundle_ids: state.bundle_ids,
@@ -45,7 +45,7 @@ impl From<g::repo::ExistingStoreState> for MutableCreateStoreState {
     }
 }
 
-struct CreateOneSnapshotRequest<'a> {
+struct CaptureOneSnapshotRequest<'a> {
     input_dir: &'a Path,
     repo_paths: &'a g::GutchRepoPaths,
     repo_name: &'a str,
@@ -79,7 +79,7 @@ fn resolved_identity_strings(
     }
 }
 
-fn unchanged_snapshot_create_stats(
+fn unchanged_snapshot_capture_stats(
     command_name: &'static str,
     repo_root: &Path,
     input_path: &Path,
@@ -92,8 +92,8 @@ fn unchanged_snapshot_create_stats(
     required_bundle_count: usize,
     timings: &g::BuildTimings,
     stats_json_out: &Option<PathBuf>,
-) -> SnapshotCreateStats {
-    SnapshotCreateStats {
+) -> SnapshotCaptureStats {
+    SnapshotCaptureStats {
         command: command_name,
         repo_root: repo_root.display().to_string(),
         input_path: input_path.display().to_string(),
@@ -124,52 +124,52 @@ fn unchanged_snapshot_create_stats(
     }
 }
 
-fn run_create_one_snapshot(
-    request: CreateOneSnapshotRequest<'_>,
-    store_state: &mut MutableCreateStoreState,
-) -> g::Result<SnapshotCreateStats> {
-    let create_plan = g::plan_snapshot_create(
+fn run_capture_one_snapshot(
+    request: CaptureOneSnapshotRequest<'_>,
+    store_state: &mut MutableCaptureStoreState,
+) -> g::Result<SnapshotCaptureStats> {
+    let capture_plan = g::plan_snapshot_capture(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
         request.explicit_tags,
         request.allow_name_inference,
     )?;
     if !request.yes && !request.skip_confirmation {
-        println!("snapshot create plan:");
-        println!("  {}", g::describe_snapshot_create_plan(&create_plan));
-        if create_plan.replaces_existing_slots {
+        println!("snapshot capture plan:");
+        println!("  {}", g::describe_snapshot_capture_plan(&capture_plan));
+        if capture_plan.replaces_existing_slots {
             println!("  Existing snapshot references to replaced snapshots must be updated.");
         }
         if !prompt_yes_no("Proceed?", false)? {
-            return Err(g::Error::manifest("snapshot create cancelled"));
+            return Err(g::Error::manifest("snapshot capture cancelled"));
         }
     }
-    if create_plan.kind == g::SnapshotCreateKind::ReplaceSlot {
+    if capture_plan.kind == g::SnapshotCaptureKind::ReplaceSlot {
         g::delete_repo_snapshots(
             request.repo_paths.repo_root.as_path(),
-            &create_plan.replaced_snapshot_ids,
+            &capture_plan.replaced_snapshot_ids,
         )?;
         let _ = g::cleanup_orphan_bundles_in_repo(
             request.repo_paths.repo_root.as_path(),
             &g::GutchOperationControl::default(),
         );
     }
-    if create_plan.kind == g::SnapshotCreateKind::Relabel {
+    if capture_plan.kind == g::SnapshotCaptureKind::Relabel {
         let existing_manifest =
-            g::load_snapshot_manifest(request.repo_paths, &create_plan.snapshot_id)?;
+            g::load_snapshot_manifest(request.repo_paths, &capture_plan.snapshot_id)?;
         let mut updated_manifest = existing_manifest;
-        updated_manifest.snapshot_tags = create_plan.snapshot_tags.clone();
+        updated_manifest.snapshot_tags = capture_plan.snapshot_tags.clone();
         let (manifest_path, _) = write_snapshot_manifest(request.repo_paths, &updated_manifest)?;
         if verbose_output_enabled() {
             println!(
                 "updated snapshot tags for snapshot id '{}' (snapshot unchanged)",
-                create_plan.snapshot_id
+                capture_plan.snapshot_id
             );
         }
         let required_chunk_count = count_required_chunks(&updated_manifest);
         let required_bundle_count =
             count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
-        return Ok(unchanged_snapshot_create_stats(
+        return Ok(unchanged_snapshot_capture_stats(
             request.command_name,
             &request.repo_paths.repo_root,
             request.input_dir,
@@ -177,9 +177,9 @@ fn run_create_one_snapshot(
             request.repo_name,
             &updated_manifest,
             SnapshotIdentityStrings {
-                version_id: create_plan.version_id.clone(),
-                os: create_plan.os.clone(),
-                arch: create_plan.arch.clone(),
+                version_id: capture_plan.version_id.clone(),
+                os: capture_plan.os.clone(),
+                arch: capture_plan.arch.clone(),
             },
             request.build_profile.storage_mode,
             required_chunk_count,
@@ -190,7 +190,7 @@ fn run_create_one_snapshot(
     }
 
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
-    let context = format!("snapshot create input '{}'", request.input_dir.display());
+    let context = format!("snapshot capture input '{}'", request.input_dir.display());
     let resolved_identity = g::core::snapshot_identity::resolve_snapshot_identity_with_inference(
         request.input_dir,
         request.explicit_tags,
@@ -249,7 +249,7 @@ fn run_create_one_snapshot(
                 &updated_manifest,
                 &store_state.chunk_index,
             );
-            return Ok(unchanged_snapshot_create_stats(
+            return Ok(unchanged_snapshot_capture_stats(
                 request.command_name,
                 &request.repo_paths.repo_root,
                 request.input_dir,
@@ -342,7 +342,7 @@ fn run_create_one_snapshot(
     let reused_chunk_percent = ratio_pct(reused_chunk_count as u64, required_chunk_count as u64);
     let reused_bundle_percent = ratio_pct(reused_bundle_count as u64, required_bundle_count as u64);
     let resolved_identity_strings = resolved_identity_strings(&resolved_identity.snapshot_tags);
-    let stats = SnapshotCreateStats {
+    let stats = SnapshotCaptureStats {
         command: request.command_name,
         repo_root: request.repo_paths.repo_root.display().to_string(),
         input_path: request.input_dir.display().to_string(),
@@ -375,7 +375,7 @@ fn run_create_one_snapshot(
     Ok(stats)
 }
 
-fn collect_create_many_sources(
+fn collect_capture_many_sources(
     product_dir: Option<PathBuf>,
     explicit_dirs: Vec<PathBuf>,
 ) -> g::Result<Vec<g::source_config::ResolvedSourceSnapshot>> {
@@ -403,18 +403,18 @@ fn collect_create_many_sources(
     sources.dedup_by(|left, right| left.path == right.path);
     if sources.is_empty() {
         return Err(g::Error::manifest(
-            "snapshot create requires at least one --source-dir or --source-root with snapshot folders",
+            "snapshot capture requires at least one --source-dir or --source-root with snapshot folders",
         ));
     }
 
     Ok(sources)
 }
 
-/// Resolve the config contribution for a single `snapshot create --source-dir` operation.
+/// Resolve the config contribution for a single `snapshot capture --source-dir` operation.
 /// The config is read from the directory's parent when present; it is never
 /// auto-created for a single create. Returns the entry tags (explicit mode)
 /// and whether name inference is allowed.
-fn single_create_source_resolution(
+fn single_capture_source_resolution(
     dir: &Path,
 ) -> g::Result<(Option<g::manifest::SnapshotTagSet>, bool)> {
     let parent = dir.parent().ok_or_else(|| {
@@ -464,7 +464,7 @@ fn single_create_source_resolution(
 
 pub fn run(command: SnapshotCommands) -> g::Result<()> {
     match command {
-        SnapshotCommands::Create {
+        SnapshotCommands::Capture {
             source_dirs,
             source_root,
             repo,
@@ -474,36 +474,36 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             stats_json_out,
             yes,
         } => {
-            let sources = collect_create_many_sources(source_root.clone(), source_dirs)?;
+            let sources = collect_capture_many_sources(source_root.clone(), source_dirs)?;
             let cli_tags = parse_cli_tags(&tags)?;
             if sources.len() == 1 && source_root.is_none() {
                 let source = &sources[0];
                 let (config_tags, allow_name_inference) =
-                    single_create_source_resolution(&source.path)?;
+                    single_capture_source_resolution(&source.path)?;
                 let mut explicit_tags = cli_tags.clone();
                 if let Some(config_tags) = config_tags {
                     explicit_tags.extend_missing_from(&config_tags);
                 }
-                let plan = g::plan_snapshot_create(
+                let plan = g::plan_snapshot_capture(
                     repo.as_path(),
                     &source.path,
                     &explicit_tags,
                     allow_name_inference,
                 )?;
                 if !yes {
-                    println!("snapshot create plan:");
-                    println!("  {}", g::describe_snapshot_create_plan(&plan));
+                    println!("snapshot capture plan:");
+                    println!("  {}", g::describe_snapshot_capture_plan(&plan));
                     if plan.replaces_existing_slots {
                         println!(
                             "  Existing snapshot references to replaced snapshots must be updated."
                         );
                     }
                     if !prompt_yes_no("Proceed?", false)? {
-                        return Err(g::Error::manifest("snapshot create cancelled"));
+                        return Err(g::Error::manifest("snapshot capture cancelled"));
                     }
                 }
                 let progress = CliProgressSink::new();
-                let create_result = g::create_repo_snapshot(g::RepoSnapshotCreateRequest {
+                let capture_result = g::capture_repo_snapshot(g::RepoSnapshotCaptureRequest {
                     repo_root: repo.clone(),
                     source_dir: source.path.clone(),
                     explicit_tags,
@@ -516,44 +516,44 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                     control: g::GutchOperationControl::default().with_progress(progress),
                 })?;
                 let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-                let stats = SnapshotCreateStats {
-                    command: "snapshot create",
-                    repo_root: create_result.repo_root.display().to_string(),
+                let stats = SnapshotCaptureStats {
+                    command: "snapshot capture",
+                    repo_root: capture_result.repo_root.display().to_string(),
                     input_path: source.path.display().to_string(),
-                    snapshot_id: create_result.snapshot_id,
-                    manifest_path: create_result.manifest_path.display().to_string(),
+                    snapshot_id: capture_result.snapshot_id,
+                    manifest_path: capture_result.manifest_path.display().to_string(),
                     product_id: repo_manifest.name.clone(),
                     remote_repo_id: repo_manifest.name.clone(),
-                    version_id: create_result.version_id,
-                    os: create_result.os,
-                    arch: create_result.arch,
+                    version_id: capture_result.version_id,
+                    os: capture_result.os,
+                    arch: capture_result.arch,
                     storage_mode: build_profile.storage_mode.cli_name().to_string(),
-                    file_count: create_result.file_count,
-                    total_logical_size: create_result.total_logical_size,
-                    total_compressed_size_estimate: create_result.total_compressed_size_estimate,
-                    required_chunk_count: create_result.required_chunk_count,
-                    required_bundle_count: create_result.required_bundle_count,
-                    generated_bundle_count: create_result.generated_bundle_count,
+                    file_count: capture_result.file_count,
+                    total_logical_size: capture_result.total_logical_size,
+                    total_compressed_size_estimate: capture_result.total_compressed_size_estimate,
+                    required_chunk_count: capture_result.required_chunk_count,
+                    required_bundle_count: capture_result.required_bundle_count,
+                    generated_bundle_count: capture_result.generated_bundle_count,
                     generated_bundle_bytes: 0,
-                    generated_chunk_count: create_result.generated_chunk_count,
+                    generated_chunk_count: capture_result.generated_chunk_count,
                     generated_chunk_bytes: 0,
-                    reused_chunk_count: create_result.reused_chunk_count,
-                    new_chunk_count: create_result.new_chunk_count,
+                    reused_chunk_count: capture_result.reused_chunk_count,
+                    new_chunk_count: capture_result.new_chunk_count,
                     reused_chunk_percent: ratio_pct(
-                        create_result.reused_chunk_count as u64,
-                        create_result.required_chunk_count as u64,
+                        capture_result.reused_chunk_count as u64,
+                        capture_result.required_chunk_count as u64,
                     ),
-                    reused_bundle_count: create_result
+                    reused_bundle_count: capture_result
                         .required_bundle_count
-                        .saturating_sub(create_result.generated_bundle_count),
+                        .saturating_sub(capture_result.generated_bundle_count),
                     reused_bundle_percent: ratio_pct(
-                        create_result
+                        capture_result
                             .required_bundle_count
-                            .saturating_sub(create_result.generated_bundle_count)
+                            .saturating_sub(capture_result.generated_bundle_count)
                             as u64,
-                        create_result.required_bundle_count as u64,
+                        capture_result.required_bundle_count as u64,
                     ),
-                    timings: build_timings_summary(&create_result.build_timings),
+                    timings: build_timings_summary(&capture_result.build_timings),
                     outputs: optional_output_paths(&stats_json_out),
                 };
                 write_report(&stats_json_out, &stats)?;
@@ -573,14 +573,14 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                     .clone()
                     .unwrap_or_default();
                 let repo_name = repo_manifest.name.clone();
-                let create_plans: Vec<g::SnapshotCreatePlan> = sources
+                let capture_plans: Vec<g::SnapshotCapturePlan> = sources
                     .iter()
                     .map(|source| {
                         let mut effective_tags = cli_tags.clone();
                         if let Some(config_tags) = &source.config_tags {
                             effective_tags.extend_missing_from(config_tags);
                         }
-                        g::plan_snapshot_create(
+                        g::plan_snapshot_capture(
                             repo_paths.repo_root.as_path(),
                             &source.path,
                             &effective_tags,
@@ -589,20 +589,23 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                     })
                     .collect::<g::Result<_>>()?;
                 if !yes {
-                    println!("snapshot create plan:");
-                    for plan in &create_plans {
-                        println!("  {}", g::describe_snapshot_create_plan(plan));
+                    println!("snapshot capture plan:");
+                    for plan in &capture_plans {
+                        println!("  {}", g::describe_snapshot_capture_plan(plan));
                     }
-                    if create_plans.iter().any(|plan| plan.replaces_existing_slots) {
+                    if capture_plans
+                        .iter()
+                        .any(|plan| plan.replaces_existing_slots)
+                    {
                         println!(
                             "  Existing snapshot references to replaced snapshots must be updated."
                         );
                     }
                     if !prompt_yes_no("Proceed?", false)? {
-                        return Err(g::Error::manifest("snapshot create cancelled"));
+                        return Err(g::Error::manifest("snapshot capture cancelled"));
                     }
                 }
-                let mut store_state: MutableCreateStoreState =
+                let mut store_state: MutableCaptureStoreState =
                     scan_existing_store_state(&repo_paths)?.into();
                 let empty_output = None;
 
@@ -612,8 +615,8 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                     if let Some(config_tags) = &source.config_tags {
                         effective_tags.extend_missing_from(config_tags);
                     }
-                    snapshot_stats.push(run_create_one_snapshot(
-                        CreateOneSnapshotRequest {
+                    snapshot_stats.push(run_capture_one_snapshot(
+                        CaptureOneSnapshotRequest {
                             input_dir: &source.path,
                             repo_paths: &repo_paths,
                             repo_name: &repo_name,
@@ -623,7 +626,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                             build_profile,
                             runtime_hints: runtime.hints(),
                             stats_json_out: &empty_output,
-                            command_name: "snapshot create",
+                            command_name: "snapshot capture",
                             yes,
                             skip_confirmation: true,
                         },
@@ -661,8 +664,8 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
                     .iter()
                     .map(|stats| stats.timings.total_seconds)
                     .sum();
-                let aggregate_stats = SnapshotCreateManyStats {
-                    command: "snapshot create",
+                let aggregate_stats = SnapshotCaptureManyStats {
+                    command: "snapshot capture",
                     repo_root: repo_paths.repo_root.display().to_string(),
                     snapshot_count: snapshot_stats.len(),
                     total_logical_size,

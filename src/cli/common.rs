@@ -20,7 +20,7 @@ pub(crate) struct PreparedInputPath {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct SnapshotCreateStats {
+pub(crate) struct SnapshotCaptureStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
     pub(crate) input_path: String,
@@ -51,7 +51,7 @@ pub(crate) struct SnapshotCreateStats {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct SnapshotCreateManyStats {
+pub(crate) struct SnapshotCaptureManyStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
     pub(crate) snapshot_count: usize,
@@ -62,7 +62,7 @@ pub(crate) struct SnapshotCreateManyStats {
     pub(crate) generated_chunk_count: usize,
     pub(crate) generated_chunk_bytes: u64,
     pub(crate) total_build_seconds: f64,
-    pub(crate) snapshots: Vec<SnapshotCreateStats>,
+    pub(crate) snapshots: Vec<SnapshotCaptureStats>,
     pub(crate) outputs: OptionalOutputPaths,
 }
 

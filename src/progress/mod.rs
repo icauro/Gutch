@@ -8,11 +8,11 @@ use crate::{Error, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GutchOperation {
-    SnapshotCreate,
+    SnapshotCapture,
     SnapshotDelete,
     SyncUp,
     Pull,
-    SnapshotSourcesSync,
+    SnapshotSourcesCapture,
     Fetch,
     Verify,
 }
@@ -43,7 +43,7 @@ pub enum GutchProgressPhase {
     UploadSnapshotBlueprint,
     UploadBundle,
     Prune,
-    Create,
+    Capture,
     Verify,
 }
 
@@ -73,7 +73,7 @@ impl GutchProgressPhase {
             GutchProgressPhase::UploadSnapshotBlueprint => "upload_snapshot_blueprint",
             GutchProgressPhase::UploadBundle => "upload_bundle",
             GutchProgressPhase::Prune => "prune",
-            GutchProgressPhase::Create => "create",
+            GutchProgressPhase::Capture => "capture",
             GutchProgressPhase::Verify => "verify",
         }
     }

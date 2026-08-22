@@ -56,7 +56,7 @@ pub struct TrackedRepoCheckStatus {
     #[serde(default)]
     pub source_snapshot_operations: Vec<SourceSnapshotOperationCandidate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub snapshot_sources_plan: Option<snapshot_sources::SnapshotSourcesSyncPlan>,
+    pub snapshot_sources_plan: Option<snapshot_sources::SnapshotSourcesCapturePlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timings: Option<TrackedRepoCheckTimings>,
 }
@@ -120,7 +120,7 @@ pub struct SourceSnapshotOperationCandidate {
 pub enum SourceSnapshotOperationDisposition {
     #[default]
     Unchanged,
-    Create,
+    Capture,
     Refresh,
     Invalid,
 }
@@ -169,12 +169,14 @@ pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStat
 
     let plan_start = std::time::Instant::now();
     let snapshot_sources_plan = if repo_status.is_repo {
-        Some(snapshot_sources::plan_snapshot_sources_sync_with_context(
-            repo_root,
-            snapshot_sources_path.as_deref().map(Path::new),
-            Some(source_snapshot_operations.as_slice()),
-            Some(&repo_status),
-        )?)
+        Some(
+            snapshot_sources::plan_snapshot_sources_capture_with_context(
+                repo_root,
+                snapshot_sources_path.as_deref().map(Path::new),
+                Some(source_snapshot_operations.as_slice()),
+                Some(&repo_status),
+            )?,
+        )
     } else {
         None
     };
@@ -183,11 +185,11 @@ pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStat
             candidate.disposition = if candidate.error.is_some() {
                 SourceSnapshotOperationDisposition::Invalid
             } else if plan
-                .to_create
+                .to_capture
                 .iter()
                 .any(|entry| entry.path == candidate.path)
             {
-                SourceSnapshotOperationDisposition::Create
+                SourceSnapshotOperationDisposition::Capture
             } else if plan
                 .to_refresh
                 .iter()

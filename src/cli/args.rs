@@ -205,7 +205,8 @@ pub enum RepoTagSchemaCommands {
 
 #[derive(Subcommand)]
 pub enum SnapshotSourcesCommands {
-    Sync {
+    #[command(name = "capture")]
+    Capture {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
         #[arg(long = "source-root", value_parser = parse_absolute_path)]
@@ -231,8 +232,8 @@ pub enum RemoteCommands {
 
 #[derive(Subcommand)]
 pub enum SnapshotCommands {
-    #[command(name = "create")]
-    Create {
+    #[command(name = "capture")]
+    Capture {
         #[arg(short, long = "source-dir", value_parser = parse_absolute_path)]
         source_dirs: Vec<PathBuf>,
         #[arg(long = "source-root", value_parser = parse_absolute_path)]

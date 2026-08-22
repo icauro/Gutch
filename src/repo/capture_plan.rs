@@ -19,16 +19,16 @@ use crate::runtime::RuntimeResourceHints;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum SnapshotCreateKind {
-    CreateNew,
+pub enum SnapshotCaptureKind {
+    CaptureNew,
     Relabel,
     ReplaceSlot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotCreatePlan {
-    pub kind: SnapshotCreateKind,
+pub struct SnapshotCapturePlan {
+    pub kind: SnapshotCaptureKind,
     pub snapshot_id: String,
     pub folder_name: String,
     pub path: String,
@@ -43,7 +43,7 @@ pub struct SnapshotCreatePlan {
 }
 
 #[derive(Debug, Clone)]
-pub struct RepoSnapshotCreateRequest {
+pub struct RepoSnapshotCaptureRequest {
     pub repo_root: PathBuf,
     pub source_dir: PathBuf,
     pub explicit_tags: SnapshotTagSet,
@@ -59,7 +59,7 @@ pub struct RepoSnapshotCreateRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct RepoSnapshotCreateResult {
+pub struct RepoSnapshotCaptureResult {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub manifest_path: PathBuf,
@@ -78,14 +78,14 @@ pub struct RepoSnapshotCreateResult {
     pub build_timings: crate::BuildTimings,
 }
 
-impl SnapshotCreatePlan {
+impl SnapshotCapturePlan {
     pub fn from_candidate(
         candidate: SourceSnapshotOperationCandidate,
-        kind: SnapshotCreateKind,
+        kind: SnapshotCaptureKind,
         from_tags: Option<SnapshotTagSet>,
         replaced_snapshot_ids: Vec<String>,
     ) -> Self {
-        let replaces_existing_slots = kind == SnapshotCreateKind::ReplaceSlot;
+        let replaces_existing_slots = kind == SnapshotCaptureKind::ReplaceSlot;
         Self {
             kind,
             snapshot_id: candidate.snapshot_id,
@@ -106,12 +106,12 @@ impl SnapshotCreatePlan {
     }
 }
 
-pub fn plan_snapshot_create(
+pub fn plan_snapshot_capture(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,
     allow_name_inference: bool,
-) -> Result<SnapshotCreatePlan> {
+) -> Result<SnapshotCapturePlan> {
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(repo_root)?;
     let rules = repo_manifest
         .snapshot_tag_schema
@@ -134,17 +134,17 @@ pub fn plan_snapshot_create(
         .collect();
 
     if !replaced_snapshot_ids.is_empty() {
-        return Ok(SnapshotCreatePlan::from_candidate(
+        return Ok(SnapshotCapturePlan::from_candidate(
             candidate,
-            SnapshotCreateKind::ReplaceSlot,
+            SnapshotCaptureKind::ReplaceSlot,
             None,
             replaced_snapshot_ids,
         ));
     }
 
-    Ok(SnapshotCreatePlan::from_candidate(
+    Ok(SnapshotCapturePlan::from_candidate(
         candidate,
-        SnapshotCreateKind::CreateNew,
+        SnapshotCaptureKind::CaptureNew,
         None,
         Vec::new(),
     ))
@@ -240,7 +240,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         self.scanned_files.store(0, Ordering::Relaxed);
         self.total_files.store(total_files, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current: 0,
@@ -255,7 +255,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     fn on_file_scanned(&self) {
         let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Scan,
             message: "Scanning files".to_string(),
             current,
@@ -271,7 +271,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
         self.built_bundles.store(0, Ordering::Relaxed);
         self.total_bundles.store(total_bundles, Ordering::Relaxed);
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current: 0,
@@ -286,7 +286,7 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     fn on_bundle_built(&self) {
         let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
         self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCreate,
+            operation: GutchOperation::SnapshotCapture,
             phase: GutchProgressPhase::Build,
             message: "Building bundles".to_string(),
             current,
@@ -299,16 +299,16 @@ impl crate::build_types::BuildProgressSink for BuildProgressBridge {
     }
 }
 
-pub fn create_repo_snapshot(
-    request: RepoSnapshotCreateRequest,
-) -> Result<RepoSnapshotCreateResult> {
+pub fn capture_repo_snapshot(
+    request: RepoSnapshotCaptureRequest,
+) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
     let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
     let rules = repo_manifest
         .snapshot_tag_schema
         .clone()
         .unwrap_or_default();
-    let create_plan = plan_snapshot_create(
+    let capture_plan = plan_snapshot_capture(
         request.repo_root.as_path(),
         request.source_dir.as_path(),
         &request.explicit_tags,
@@ -316,32 +316,32 @@ pub fn create_repo_snapshot(
     )?;
 
     let mut store_state =
-        MutableCreateStoreState::from_existing(scan_existing_store_state(&repo_paths)?);
-    if create_plan.kind == SnapshotCreateKind::ReplaceSlot {
+        MutableCaptureStoreState::from_existing(scan_existing_store_state(&repo_paths)?);
+    if capture_plan.kind == SnapshotCaptureKind::ReplaceSlot {
         request.control.checkpoint()?;
         delete_repo_snapshots(
             request.repo_root.as_path(),
-            &create_plan.replaced_snapshot_ids,
+            &capture_plan.replaced_snapshot_ids,
         )?;
         let _ =
             crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path(), &request.control);
     }
-    if create_plan.kind == SnapshotCreateKind::Relabel {
+    if capture_plan.kind == SnapshotCaptureKind::Relabel {
         request.control.checkpoint()?;
         let existing_manifest =
-            crate::load_snapshot_manifest(&repo_paths, &create_plan.snapshot_id)?;
+            crate::load_snapshot_manifest(&repo_paths, &capture_plan.snapshot_id)?;
         let mut updated_manifest = existing_manifest;
-        updated_manifest.snapshot_tags = create_plan.snapshot_tags.clone();
+        updated_manifest.snapshot_tags = capture_plan.snapshot_tags.clone();
         let (manifest_path, _) =
             crate::write_snapshot_manifest_artifacts(&repo_paths, &updated_manifest)?;
         let chunk_index = crate::load_chunk_index(&repo_paths)?;
-        return Ok(RepoSnapshotCreateResult {
+        return Ok(RepoSnapshotCaptureResult {
             repo_root: repo_paths.repo_root,
             snapshot_id: updated_manifest.snapshot_id.clone(),
             manifest_path,
-            version_id: create_plan.version_id,
-            os: create_plan.os,
-            arch: create_plan.arch,
+            version_id: capture_plan.version_id,
+            os: capture_plan.os,
+            arch: capture_plan.arch,
             file_count: updated_manifest.file_count(),
             total_logical_size: updated_manifest.total_logical_size,
             total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
@@ -365,7 +365,7 @@ pub fn create_repo_snapshot(
         &request.explicit_tags,
         &rules,
         request.allow_name_inference,
-        &format!("snapshot create input '{}'", request.source_dir.display()),
+        &format!("snapshot capture input '{}'", request.source_dir.display()),
     )?;
 
     let existing_chunk_ids = store_state
@@ -423,7 +423,7 @@ pub fn create_repo_snapshot(
             let required_chunk_count = crate::repo::required_chunk_hashes(&updated_manifest).len();
             let required_bundle_count =
                 crate::repo::required_bundle_ids(&updated_manifest, &store_state.chunk_index).len();
-            return Ok(RepoSnapshotCreateResult {
+            return Ok(RepoSnapshotCaptureResult {
                 repo_root: repo_paths.repo_root,
                 snapshot_id: updated_manifest.snapshot_id.clone(),
                 manifest_path,
@@ -502,7 +502,7 @@ pub fn create_repo_snapshot(
         .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
         .count();
 
-    let create_result = RepoSnapshotCreateResult {
+    let capture_result = RepoSnapshotCaptureResult {
         repo_root: repo_paths.repo_root,
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         manifest_path,
@@ -532,19 +532,19 @@ pub fn create_repo_snapshot(
         new_chunk_count: required_chunk_count.saturating_sub(reused_chunk_count),
         build_timings: timings,
     };
-    create_result.emit_done(request.control.progress());
-    Ok(create_result)
+    capture_result.emit_done(request.control.progress());
+    Ok(capture_result)
 }
 
-impl RepoSnapshotCreateResult {
+impl RepoSnapshotCaptureResult {
     /// Emit a done event if a progress sink was provided.
     pub(crate) fn emit_done(&self, progress: &Option<Arc<dyn GutchProgressSink>>) {
         progress::emit_progress(
             progress,
             GutchProgressEvent {
-                operation: GutchOperation::SnapshotCreate,
+                operation: GutchOperation::SnapshotCapture,
                 phase: GutchProgressPhase::Done,
-                message: "Snapshot create complete".to_string(),
+                message: "Snapshot capture complete".to_string(),
                 current: 1,
                 total: 1,
                 transferred_bytes: 0,
@@ -556,14 +556,14 @@ impl RepoSnapshotCreateResult {
     }
 }
 
-struct MutableCreateStoreState {
+struct MutableCaptureStoreState {
     bundle_ids: HashSet<String>,
     chunk_index: crate::manifest::ChunkIndex,
     chunk_locations: HashMap<String, crate::ExistingChunkLocation>,
     previous_file_manifests: HashMap<String, Vec<crate::manifest::FileManifest>>,
 }
 
-impl MutableCreateStoreState {
+impl MutableCaptureStoreState {
     fn from_existing(state: ExistingStoreState) -> Self {
         Self {
             bundle_ids: state.bundle_ids,
@@ -651,17 +651,17 @@ struct PreparedInputPath {
     _tempdir: Option<tempfile::TempDir>,
 }
 
-pub fn describe_snapshot_create_plan(plan: &SnapshotCreatePlan) -> String {
+pub fn describe_snapshot_capture_plan(plan: &SnapshotCapturePlan) -> String {
     match plan.kind {
-        SnapshotCreateKind::CreateNew => format!(
-            "Create new snapshot slot {} ({})",
+        SnapshotCaptureKind::CaptureNew => format!(
+            "Capture new snapshot slot {} ({})",
             plan.folder_name, plan.version_id
         ),
-        SnapshotCreateKind::Relabel => format!(
+        SnapshotCaptureKind::Relabel => format!(
             "Update tags for existing snapshot {} ({}): folder rename or tag inference changed; snapshot unchanged",
             plan.snapshot_id, plan.folder_name
         ),
-        SnapshotCreateKind::ReplaceSlot => format!(
+        SnapshotCaptureKind::ReplaceSlot => format!(
             "Replace snapshot slot for {} ({}): same tags, new snapshot id {}. Removes repo snapshot(s) {}. Existing snapshot references to the old snapshot id must be updated.",
             plan.folder_name,
             plan.version_id,
@@ -682,7 +682,7 @@ mod tests {
     };
 
     #[test]
-    fn plan_snapshot_create_detects_replace_same_tags() {
+    fn plan_snapshot_capture_detects_replace_same_tags() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
@@ -730,14 +730,14 @@ mod tests {
 
         std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
-        let plan = plan_snapshot_create(
+        let plan = plan_snapshot_capture(
             &repo_root,
             &new_source,
             &manifest::SnapshotTagSet::default(),
             true,
         )
         .unwrap();
-        assert_eq!(plan.kind, SnapshotCreateKind::ReplaceSlot);
+        assert_eq!(plan.kind, SnapshotCaptureKind::ReplaceSlot);
         assert_eq!(plan.replaced_snapshot_ids, vec![old_snapshot_id]);
         assert!(plan.replaces_existing_slots);
     }

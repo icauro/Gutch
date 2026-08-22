@@ -1,5 +1,5 @@
 //! End-to-end tests for the source-root ingestion config (`.gutch_source_config.json`)
-//! flowing through the `snapshot create` CLI path.
+//! flowing through the `snapshot capture` CLI path.
 
 use std::path::Path;
 
@@ -44,7 +44,7 @@ fn create_many_auto_mode_skips_ignored_folders() {
     run_from_args([
         "hostapp-cli",
         "snapshot",
-        "create",
+        "capture",
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
@@ -105,7 +105,7 @@ fn create_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
     run_from_args([
         "hostapp-cli",
         "snapshot",
-        "create",
+        "capture",
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
@@ -159,7 +159,7 @@ fn create_many_explicit_mode_errors_when_declared_version_is_missing() {
     let result = run_from_args([
         "hostapp-cli",
         "snapshot",
-        "create",
+        "capture",
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
@@ -174,7 +174,7 @@ fn create_many_explicit_mode_errors_when_declared_version_is_missing() {
 }
 
 #[test]
-fn create_many_auto_creates_skeleton_config_on_first_use() {
+fn create_many_auto_captures_skeleton_config_on_first_use() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -188,7 +188,7 @@ fn create_many_auto_creates_skeleton_config_on_first_use() {
     run_from_args([
         "hostapp-cli",
         "snapshot",
-        "create",
+        "capture",
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
@@ -212,7 +212,7 @@ fn create_single_dir_matches_the_plain_dir_flow() {
     run_from_args([
         "hostapp-cli",
         "snapshot",
-        "create",
+        "capture",
         "--source-dir",
         source_dir.to_str().unwrap(),
         "--repo",

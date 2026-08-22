@@ -24,14 +24,14 @@ pub struct SnapshotSourcesRefresh {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct SnapshotSourcesSyncOptions {
+pub struct SnapshotSourcesCaptureOptions {
     pub prune_removed_snapshots: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotSourcesSyncResult {
-    pub created_count: usize,
+pub struct SnapshotSourcesCaptureResult {
+    pub captured_count: usize,
     pub refreshed_count: usize,
     pub removed_count: usize,
     pub pruned: bool,
@@ -39,14 +39,14 @@ pub struct SnapshotSourcesSyncResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotSourcesSyncPlan {
+pub struct SnapshotSourcesCapturePlan {
     pub sources_ready: bool,
     pub candidate_count: usize,
-    pub creatable_count: usize,
+    pub capturable_count: usize,
     pub refresh_count: usize,
     pub removable_count: usize,
     #[serde(default)]
-    pub to_create: Vec<SourceSnapshotOperationCandidate>,
+    pub to_capture: Vec<SourceSnapshotOperationCandidate>,
     #[serde(default)]
     pub to_refresh: Vec<SnapshotSourcesRefresh>,
     #[serde(default)]
@@ -55,15 +55,15 @@ pub struct SnapshotSourcesSyncPlan {
     pub to_remove: Vec<String>,
 }
 
-impl SnapshotSourcesSyncPlan {
+impl SnapshotSourcesCapturePlan {
     fn empty() -> Self {
         Self {
             sources_ready: false,
             candidate_count: 0,
-            creatable_count: 0,
+            capturable_count: 0,
             refresh_count: 0,
             removable_count: 0,
-            to_create: Vec::new(),
+            to_capture: Vec::new(),
             to_refresh: Vec::new(),
             to_apply: Vec::new(),
             to_remove: Vec::new(),
@@ -71,36 +71,36 @@ impl SnapshotSourcesSyncPlan {
     }
 
     pub fn has_changes(&self) -> bool {
-        self.creatable_count > 0 || self.refresh_count > 0 || self.removable_count > 0
+        self.capturable_count > 0 || self.refresh_count > 0 || self.removable_count > 0
     }
 
     pub fn up_to_date_count(&self) -> usize {
         self.candidate_count
-            .saturating_sub(self.creatable_count)
+            .saturating_sub(self.capturable_count)
             .saturating_sub(self.refresh_count)
     }
 }
 
-pub fn plan_snapshot_sources_sync(
+pub fn plan_snapshot_sources_capture(
     repo_root: &Path,
     sources_path: Option<&Path>,
-) -> Result<SnapshotSourcesSyncPlan> {
-    plan_snapshot_sources_sync_with_context(repo_root, sources_path, None, None)
+) -> Result<SnapshotSourcesCapturePlan> {
+    plan_snapshot_sources_capture_with_context(repo_root, sources_path, None, None)
 }
 
-pub(crate) fn plan_snapshot_sources_sync_with_context(
+pub(crate) fn plan_snapshot_sources_capture_with_context(
     repo_root: &Path,
     sources_path: Option<&Path>,
     candidates: Option<&[SourceSnapshotOperationCandidate]>,
     repo_status: Option<&RepoCheckStatus>,
-) -> Result<SnapshotSourcesSyncPlan> {
+) -> Result<SnapshotSourcesCapturePlan> {
     let Some(sources_path) = normalized_sources_path(sources_path) else {
-        return Ok(SnapshotSourcesSyncPlan::empty());
+        return Ok(SnapshotSourcesCapturePlan::empty());
     };
 
-    let mut plan = SnapshotSourcesSyncPlan {
+    let mut plan = SnapshotSourcesCapturePlan {
         sources_ready: true,
-        ..SnapshotSourcesSyncPlan::empty()
+        ..SnapshotSourcesCapturePlan::empty()
     };
 
     let candidates = match candidates {
@@ -147,7 +147,7 @@ pub(crate) fn plan_snapshot_sources_sync_with_context(
             .collect();
 
         if matching_snapshots.is_empty() {
-            plan.to_create.push(candidate.clone());
+            plan.to_capture.push(candidate.clone());
             plan.to_apply.push(candidate);
             continue;
         }
@@ -174,7 +174,7 @@ pub(crate) fn plan_snapshot_sources_sync_with_context(
         plan.to_apply.push(candidate);
     }
 
-    plan.creatable_count = plan.to_create.len();
+    plan.capturable_count = plan.to_capture.len();
     plan.refresh_count = plan.to_refresh.len();
 
     Ok(plan)
@@ -189,7 +189,7 @@ fn normalized_sources_path(sources_path: Option<&Path>) -> Option<std::path::Pat
     Some(std::path::PathBuf::from(trimmed))
 }
 
-pub fn describe_snapshot_sources_sync_plan(plan: &SnapshotSourcesSyncPlan) -> Vec<String> {
+pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan) -> Vec<String> {
     let mut lines = Vec::new();
     for refresh in &plan.to_refresh {
         lines.push(format!(
@@ -203,23 +203,23 @@ pub fn describe_snapshot_sources_sync_plan(plan: &SnapshotSourcesSyncPlan) -> Ve
             snapshot_id
         ));
     }
-    for candidate in &plan.to_create {
+    for candidate in &plan.to_capture {
         lines.push(format!(
-            "Create new snapshot slot {} ({})",
+            "Capture new snapshot slot {} ({})",
             candidate.snapshot_id, candidate.folder_name
         ));
     }
     lines
 }
 
-pub fn sync_snapshot_sources(
+pub fn capture_snapshot_sources(
     repo_root: &Path,
     sources_path: &Path,
-    options: SnapshotSourcesSyncOptions,
+    options: SnapshotSourcesCaptureOptions,
     control: &crate::GutchOperationControl,
-) -> Result<SnapshotSourcesSyncResult> {
+) -> Result<SnapshotSourcesCaptureResult> {
     control.checkpoint()?;
-    let plan = plan_snapshot_sources_sync(repo_root, Some(sources_path))?;
+    let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path))?;
     if !plan.sources_ready {
         return Err(crate::Error::manifest(
             "snapshot sources path is missing or invalid",
@@ -227,8 +227,8 @@ pub fn sync_snapshot_sources(
     }
 
     if !plan.has_changes() {
-        return Ok(SnapshotSourcesSyncResult {
-            created_count: 0,
+        return Ok(SnapshotSourcesCaptureResult {
+            captured_count: 0,
             refreshed_count: 0,
             removed_count: 0,
             pruned: options.prune_removed_snapshots,
@@ -248,7 +248,7 @@ pub fn sync_snapshot_sources(
             progress::emit_progress(
                 control.progress(),
                 GutchProgressEvent {
-                    operation: GutchOperation::SnapshotSourcesSync,
+                    operation: GutchOperation::SnapshotSourcesCapture,
                     phase: GutchProgressPhase::Prune,
                     message: format!("Removing snapshot '{}'", snapshot_id),
                     current: current_step,
@@ -268,7 +268,7 @@ pub fn sync_snapshot_sources(
         .map(|refresh| refresh.path.clone())
         .collect();
 
-    let mut created_count = 0usize;
+    let mut captured_count = 0usize;
     let mut refreshed_count = 0usize;
     for candidate in &plan.to_apply {
         control.checkpoint()?;
@@ -276,8 +276,8 @@ pub fn sync_snapshot_sources(
         progress::emit_progress(
             control.progress(),
             GutchProgressEvent {
-                operation: GutchOperation::SnapshotSourcesSync,
-                phase: GutchProgressPhase::Create,
+                operation: GutchOperation::SnapshotSourcesCapture,
+                phase: GutchProgressPhase::Capture,
                 message: format!("Creating snapshot '{}'", candidate.folder_name),
                 current: current_step,
                 total: total_steps,
@@ -290,11 +290,11 @@ pub fn sync_snapshot_sources(
         removed_count +=
             crate::delete_repo_snapshots_with_matching_tags(repo_root, &candidate.snapshot_tags)?
                 .len();
-        create_source_snapshot(repo_root, candidate, control)?;
+        capture_source_snapshot(repo_root, candidate, control)?;
         if refresh_paths.contains(&candidate.path) {
             refreshed_count += 1;
         } else {
-            created_count += 1;
+            captured_count += 1;
         }
     }
 
@@ -303,9 +303,9 @@ pub fn sync_snapshot_sources(
     progress::emit_progress(
         control.progress(),
         GutchProgressEvent {
-            operation: GutchOperation::SnapshotSourcesSync,
+            operation: GutchOperation::SnapshotSourcesCapture,
             phase: GutchProgressPhase::Done,
-            message: "Snapshot sources sync complete".to_string(),
+            message: "Snapshot sources capture complete".to_string(),
             current: total_steps,
             total: total_steps,
             transferred_bytes: 0,
@@ -315,15 +315,15 @@ pub fn sync_snapshot_sources(
         },
     );
 
-    Ok(SnapshotSourcesSyncResult {
-        created_count,
+    Ok(SnapshotSourcesCaptureResult {
+        captured_count,
         refreshed_count,
         removed_count,
         pruned: options.prune_removed_snapshots,
     })
 }
 
-fn create_source_snapshot(
+fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotOperationCandidate,
     control: &crate::GutchOperationControl,
@@ -336,7 +336,7 @@ fn create_source_snapshot(
     } else {
         control.clone()
     };
-    crate::create_repo_snapshot(crate::RepoSnapshotCreateRequest {
+    crate::capture_repo_snapshot(crate::RepoSnapshotCaptureRequest {
         repo_root: repo_root.to_path_buf(),
         source_dir: std::path::PathBuf::from(&candidate.path),
         explicit_tags: candidate.snapshot_tags.clone(),
@@ -359,7 +359,7 @@ struct SnapshotSourcesCandidateProgress {
 
 impl GutchProgressSink for SnapshotSourcesCandidateProgress {
     fn emit(&self, mut event: GutchProgressEvent) {
-        event.operation = GutchOperation::SnapshotSourcesSync;
+        event.operation = GutchOperation::SnapshotSourcesCapture;
         event.message = format!("{}: {}", self.folder_name, event.message);
         event.detail = Some(self.folder_name.clone());
         event.done = false;
@@ -384,21 +384,21 @@ mod tests {
     }
 
     #[test]
-    fn plan_snapshot_sources_sync_returns_empty_plan_without_sources_path() {
+    fn plan_snapshot_sources_capture_returns_empty_plan_without_sources_path() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let plan = plan_snapshot_sources_sync(&repo_root, None).unwrap();
+        let plan = plan_snapshot_sources_capture(&repo_root, None).unwrap();
         assert!(!plan.sources_ready);
-        assert_eq!(plan.creatable_count, 0);
+        assert_eq!(plan.capturable_count, 0);
         assert_eq!(plan.refresh_count, 0);
         assert_eq!(plan.removable_count, 0);
     }
 
     #[test]
-    fn plan_snapshot_sources_sync_detects_refresh_when_source_is_newer() {
+    fn plan_snapshot_sources_capture_detects_refresh_when_source_is_newer() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
@@ -431,9 +431,9 @@ mod tests {
         std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&game_path, b"new-content").unwrap();
 
-        let plan = plan_snapshot_sources_sync(&repo_root, Some(&source_root)).unwrap();
+        let plan = plan_snapshot_sources_capture(&repo_root, Some(&source_root)).unwrap();
         assert_eq!(plan.refresh_count, 1);
-        assert_eq!(plan.creatable_count, 0);
+        assert_eq!(plan.capturable_count, 0);
         assert_eq!(
             plan.to_refresh[0].folder_name,
             "game-v2.0.0-windows-x86_64-base-2026_07_14"
