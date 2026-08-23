@@ -799,22 +799,6 @@ pub fn sync_up_repo(
         );
         let manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
         let manifest_bytes = crate::serialize_snapshot_metadata_for_remote(&manifest)?;
-        let version = manifest
-            .snapshot_tags
-            .get_exclusive("version")
-            .ok_or_else(|| {
-                crate::Error::manifest(format!(
-                    "snapshot '{}' is missing version tag",
-                    manifest.snapshot_id
-                ))
-            })?;
-        let structured_version =
-            crate::manifest::StructuredVersion::parse(version).map_err(|_| {
-                crate::Error::manifest(format!(
-                    "snapshot '{}' has invalid version '{}'",
-                    manifest.snapshot_id, version
-                ))
-            })?;
         let remote_snapshot_id = match remote_snapshots
             .get(&manifest.snapshot_id)
             .map(|snapshot| snapshot.id)
@@ -834,10 +818,6 @@ pub fn sync_up_repo(
                         .json(&serde_json::json!({
                             "snapshotId": manifest.snapshot_id,
                             "snapshotTags": manifest.snapshot_tags,
-                            "versionMajor": structured_version.major,
-                            "versionMinor": structured_version.minor,
-                            "versionPatch": structured_version.patch,
-                            "versionRevision": structured_version.revision,
                         })),
                 )?;
                 remote_snapshots.insert(
