@@ -141,9 +141,7 @@ fn local_repo_config_contains_only_the_remote_link() {
     ensure_gutch_repo_layout(&paths, "linked").unwrap();
 
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
-    repo_manifest.product_id = "42".to_string();
     repo_manifest.remote_repo_id = "99".to_string();
-    repo_manifest.sync_product_metadata_from_product_id();
     write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
 
     let local_config: serde_json::Value =
@@ -153,7 +151,8 @@ fn local_repo_config_contains_only_the_remote_link() {
 
     let repo_metadata: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&paths.repo_metadata_path).unwrap()).unwrap();
-    assert_eq!(repo_metadata["product_metadata"]["product_id"], "42");
+    assert!(repo_metadata.get("product_id").is_none());
+    assert!(repo_metadata.get("product_metadata").is_none());
     assert!(repo_metadata.get("remote_repo_id").is_none());
 }
 

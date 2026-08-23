@@ -21,7 +21,6 @@ pub struct RepoCheckStatus {
     pub repo_path: String,
     pub name: String,
     pub remote_repo_id: String,
-    pub product_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -272,7 +271,6 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         repo_path: repo_path_display,
         name: repo_manifest.name.clone(),
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
-        product_id: repo_manifest.product_id.clone(),
         snapshot_tag_schema: repo_manifest.snapshot_tag_schema.clone(),
         repo_manifest: Some(repo_manifest),
         snapshots,
@@ -394,7 +392,6 @@ fn empty_repo_check_status(
         repo_path,
         name: String::new(),
         remote_repo_id: String::new(),
-        product_id: String::new(),
         snapshot_tag_schema: None,
         repo_manifest: None,
         snapshots: Vec::new(),

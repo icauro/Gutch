@@ -6,7 +6,6 @@ fn test_gutch_repo_manifest_new() {
     assert_eq!(repo.format, CONTENT_REPO_FORMAT);
     assert_eq!(repo.format_version, "1");
     assert_eq!(repo.name, "base");
-    assert!(repo.product_metadata.is_none());
     assert_eq!(
         repo.artifact_profile.chunk,
         ArtifactSizingPreset::Chunk128KiB
@@ -59,4 +58,13 @@ fn repo_manifest_serializes_the_compact_artifact_profile() {
     );
     assert_eq!(artifact_profile.get("storage_mode").unwrap(), "bundled");
     assert!(json.get("artifact_profile").is_none());
+}
+
+#[test]
+fn repo_manifest_does_not_serialize_remote_binding_ids() {
+    let json = serde_json::to_value(GutchRepoManifest::new("base".into())).unwrap();
+
+    assert!(json.get("product_id").is_none());
+    assert!(json.get("product_metadata").is_none());
+    assert!(json.get("remote_repo_id").is_none());
 }

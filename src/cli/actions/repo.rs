@@ -118,7 +118,6 @@ pub fn unlink_repo(
     }
 
     let remote_repo_id = manifest.remote_repo_id.clone();
-    let product_id = manifest.product_id.clone();
     let session_id = if delete_remote {
         Some(session_id_for_cli(session_override)?)
     } else {
@@ -126,10 +125,7 @@ pub fn unlink_repo(
     };
     g::unlink_repo(repo, delete_remote, endpoint, session_id)?;
     if delete_remote {
-        println!(
-            "deleted remote repo {} (product {})",
-            remote_repo_id, product_id
-        );
+        println!("deleted remote repo {}", remote_repo_id);
     }
 
     println!("unlinked repo '{}'", paths.repo_root.display());

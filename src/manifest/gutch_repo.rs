@@ -67,26 +67,10 @@ pub struct GutchRepoManifest {
     pub created_at: String,
     #[serde(rename = "content_packaging_profile")]
     pub artifact_profile: ArtifactProfile,
-    #[serde(
-        rename = "product_metadata",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub product_metadata: Option<RepoProductMetadata>,
     #[serde(rename = "snapshot_tag_schema")]
     pub snapshot_tag_schema: Option<SnapshotTagSchema>,
     #[serde(skip)]
     pub remote_repo_id: String,
-    #[serde(skip)]
-    pub product_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RepoProductMetadata {
-    #[serde(rename = "document_version")]
-    pub document_version: String,
-    pub product_id: String,
 }
 
 impl GutchRepoManifest {
@@ -97,10 +81,8 @@ impl GutchRepoManifest {
             name,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),
-            product_metadata: None,
             snapshot_tag_schema: Some(SnapshotTagSchema::default()),
             remote_repo_id: String::new(),
-            product_id: String::new(),
         }
     }
 
@@ -120,25 +102,6 @@ impl GutchRepoManifest {
 
     pub fn is_linked(&self) -> bool {
         !self.remote_repo_id.is_empty()
-    }
-
-    pub fn sync_product_metadata_from_product_id(&mut self) {
-        self.product_metadata = if self.product_id.trim().is_empty() {
-            None
-        } else {
-            Some(RepoProductMetadata {
-                document_version: FORMAT_VERSION.to_string(),
-                product_id: self.product_id.clone(),
-            })
-        };
-    }
-
-    pub fn sync_product_id_from_metadata(&mut self) {
-        self.product_id = self
-            .product_metadata
-            .as_ref()
-            .map(|metadata| metadata.product_id.clone())
-            .unwrap_or_default();
     }
 
     pub fn remote_repo_id_value(&self) -> Option<i64> {

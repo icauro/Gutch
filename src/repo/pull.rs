@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase};
 use crate::remote::backend::{
     CreatorProductResponse, CreatorRepoResponse, CreatorReposResponse, CreatorSnapshotResponse,
-    request_json_from_backend,
+    fetch_creator_repo_by_id, request_json_from_backend,
 };
 use std::io::Write;
 
@@ -349,20 +349,16 @@ fn resolve_remote_record_from_binding(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: &str,
-    product_id: i64,
     remote_repo_id: i64,
 ) -> Result<RemoteRepoRecord> {
-    let repos = fetch_creator_repos(client, endpoint, session_id, product_id)?;
-    let repo = repos
-        .iter()
-        .find(|repo| repo.id == remote_repo_id)
-        .ok_or_else(|| {
-            Error::manifest(format!(
-                "remote repo {} not found for product {}",
-                remote_repo_id, product_id
-            ))
-        })?;
-    Ok(remote_repo_record(repo, product_id))
+    let repo = fetch_creator_repo_by_id(client, endpoint, session_id, remote_repo_id)?;
+    if repo.product_id <= 0 {
+        return Err(Error::manifest(format!(
+            "backend response for remote repo {} is missing product_id",
+            remote_repo_id
+        )));
+    }
+    Ok(remote_repo_record(&repo, repo.product_id))
 }
 
 fn resolve_remote_record_from_spec(
@@ -426,25 +422,13 @@ fn resolve_pull_snapshot(
     let record = if repo_paths.repo_metadata_path.exists() {
         let (_, manifest) = crate::load_gutch_repo_manifest(repo)?;
         if manifest.is_linked() {
-            let product_id = manifest.product_id.parse::<i64>().map_err(|_| {
-                Error::manifest(format!(
-                    "invalid product_id '{}' in manifest",
-                    manifest.product_id
-                ))
-            })?;
             let remote_repo_id = manifest.remote_repo_id_value().ok_or_else(|| {
                 Error::manifest(format!(
                     "invalid remote_repo_id '{}' in manifest",
                     manifest.remote_repo_id
                 ))
             })?;
-            resolve_remote_record_from_binding(
-                client,
-                endpoint,
-                session_id,
-                product_id,
-                remote_repo_id,
-            )?
+            resolve_remote_record_from_binding(client, endpoint, session_id, remote_repo_id)?
         } else if let Some(spec) = remote_spec {
             resolve_remote_record_from_spec(client, endpoint, session_id, spec)?
         } else {
@@ -990,9 +974,7 @@ pub fn pull_repo(
         let bytes = download_json(&client, &url)?;
         let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
             crate::helpers::from_json_bytes(&bytes)?;
-        manifest.product_id = record.product_id.to_string();
         manifest.remote_repo_id = record.remote_repo_id.to_string();
-        manifest.sync_product_metadata_from_product_id();
         crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
         stats.repo_manifest_downloaded = true;
     }

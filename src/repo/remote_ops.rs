@@ -6,8 +6,8 @@ use serde::Serialize;
 use crate::Result;
 use crate::progress::{self, GutchOperation, GutchProgressEvent, GutchProgressPhase};
 use crate::remote::backend::{
-    CreatorRepoResponse, CreatorRepoSnapshotsResponse, CreatorReposResponse,
-    CreatorSnapshotResponse, UpsertSnapshotResponse, request_json_from_backend, upload_raw_file,
+    CreatorRepoSnapshotsResponse, CreatorSnapshotResponse, UpsertSnapshotResponse,
+    fetch_creator_repo_by_id, request_json_from_backend, upload_raw_file,
 };
 use crate::repo::snapshot_descriptor::summarize_snapshot_tags;
 #[derive(Debug, Serialize)]
@@ -195,7 +195,7 @@ fn hashes_differ(local_hash: &str, remote_hash: &str) -> bool {
     remote_hash.is_empty() || local_hash != remote_hash
 }
 
-fn resolve_sync_binding(repo: &Path) -> Result<(i64, i64)> {
+fn resolve_sync_binding(repo: &Path) -> Result<i64> {
     let (paths, manifest) = crate::load_gutch_repo_manifest(repo)?;
     if !manifest.is_linked() {
         return Err(crate::Error::manifest(format!(
@@ -203,19 +203,13 @@ fn resolve_sync_binding(repo: &Path) -> Result<(i64, i64)> {
             paths.repo_root.display()
         )));
     }
-    let product_id = manifest.product_id.parse::<i64>().map_err(|_| {
-        crate::Error::manifest(format!(
-            "invalid product_id '{}' in repo_metadata.json",
-            manifest.product_id
-        ))
-    })?;
     let remote_repo_id = manifest.remote_repo_id_value().ok_or_else(|| {
         crate::Error::manifest(format!(
             "invalid remote_repo_id '{}' in local_repo_config.json",
             manifest.remote_repo_id
         ))
     })?;
-    Ok((product_id, remote_repo_id))
+    Ok(remote_repo_id)
 }
 
 fn fetch_creator_snapshots(
@@ -250,35 +244,6 @@ fn fetch_creator_snapshots(
         }
     }
     Ok(remote_snapshots)
-}
-
-fn fetch_creator_repo(
-    client: &reqwest::blocking::Client,
-    endpoint: &str,
-    session_id: &str,
-    product_id: i64,
-    remote_repo_id: i64,
-) -> Result<CreatorRepoResponse> {
-    let creator_repos: CreatorReposResponse = request_json_from_backend(
-        client
-            .get(format!(
-                "{}/v1/users/me/creator/products/{}/repos",
-                endpoint.trim_end_matches('/'),
-                product_id
-            ))
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", session_id)),
-    )?;
-    creator_repos
-        .repos
-        .into_iter()
-        .find(|repo| repo.id == remote_repo_id)
-        .ok_or_else(|| {
-            crate::Error::manifest(format!(
-                "remote repo {} not found for product {}",
-                remote_repo_id, product_id
-            ))
-        })
 }
 
 fn remote_bundle_exists(
@@ -360,15 +325,21 @@ pub fn plan_sync_up_repo(
     endpoint: String,
     session_id: String,
 ) -> Result<RepoSyncPlan> {
-    let (product_id, remote_repo_id) = resolve_sync_binding(&repo)?;
+    let remote_repo_id = resolve_sync_binding(&repo)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
         .build()
         .map_err(|err| crate::Error::manifest(format!("failed to create sync client: {}", err)))?;
 
     let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(&repo)?;
-    let remote_repo =
-        fetch_creator_repo(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
+    let remote_repo = fetch_creator_repo_by_id(&client, &endpoint, &session_id, remote_repo_id)?;
+    let product_id = remote_repo.product_id;
+    if product_id <= 0 {
+        return Err(crate::Error::manifest(format!(
+            "backend response for remote repo {} is missing product_id",
+            remote_repo_id
+        )));
+    }
     let remote_snapshots =
         fetch_creator_snapshots(&client, &endpoint, &session_id, product_id, remote_repo_id)?;
     let repo_manifest_changed = hashes_differ(
@@ -473,10 +444,9 @@ pub fn link_repo(repo: &Path, product_id: i64, endpoint: &str, session_id: Strin
     let (paths, mut manifest) = crate::load_gutch_repo_manifest(repo)?;
     if manifest.is_linked() {
         return Err(crate::Error::manifest(format!(
-            "repo '{}' is already linked (remote_repo_id={}, product_id={}). Unlink first.",
+            "repo '{}' is already linked (remote_repo_id={}). Unlink first.",
             paths.repo_root.display(),
-            manifest.remote_repo_id,
-            manifest.product_id
+            manifest.remote_repo_id
         )));
     }
 
@@ -524,8 +494,6 @@ pub fn link_repo(repo: &Path, product_id: i64, endpoint: &str, session_id: Strin
         .ok_or_else(|| crate::Error::manifest("backend response missing repo id".to_string()))?;
 
     manifest.remote_repo_id = remote_repo_id.to_string();
-    manifest.product_id = product_id.to_string();
-    manifest.sync_product_metadata_from_product_id();
     crate::write_gutch_repo_manifest(&paths, &manifest)?;
 
     Ok(())
@@ -549,13 +517,6 @@ pub fn unlink_repo(
                 manifest.remote_repo_id
             ))
         })?;
-        let product_id = manifest.product_id.parse::<i64>().map_err(|_| {
-            crate::Error::manifest(format!(
-                "invalid product_id '{}' in manifest",
-                manifest.product_id
-            ))
-        })?;
-
         let endpoint = endpoint.ok_or_else(|| {
             crate::Error::manifest("--endpoint required when using --delete-remote".to_string())
         })?;
@@ -566,6 +527,14 @@ pub fn unlink_repo(
             .user_agent("Gutch CLI")
             .build()
             .map_err(|err| crate::Error::manifest(format!("failed to create client: {}", err)))?;
+        let remote_repo = fetch_creator_repo_by_id(&client, endpoint, &session_id, remote_repo_id)?;
+        let product_id = remote_repo.product_id;
+        if product_id <= 0 {
+            return Err(crate::Error::manifest(format!(
+                "backend response for remote repo {} is missing product_id",
+                remote_repo_id
+            )));
+        }
 
         let response = client
             .delete(format!(
@@ -634,13 +603,21 @@ pub fn sync_up_repo(
 ) -> Result<RepoSyncUpStats> {
     control.checkpoint()?;
     let progress = control.progress().clone();
-    let (product_id, remote_repo_id) = resolve_sync_binding(&repo)?;
+    let remote_repo_id = resolve_sync_binding(&repo)?;
     let client = reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(15 * 60))
         .build()
         .map_err(|err| crate::Error::manifest(format!("failed to create sync client: {}", err)))?;
+    let remote_repo = fetch_creator_repo_by_id(&client, &endpoint, &session_id, remote_repo_id)?;
+    let product_id = remote_repo.product_id;
+    if product_id <= 0 {
+        return Err(crate::Error::manifest(format!(
+            "backend response for remote repo {} is missing product_id",
+            remote_repo_id
+        )));
+    }
 
     progress::emit_progress(
         &progress,

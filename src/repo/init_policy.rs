@@ -102,7 +102,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
                 repo_name: Some(status.name),
                 snapshot_count: Some(status.snapshots.len()),
                 bundle_count: Some(status.bundle_count),
-                linked: Some(!status.remote_repo_id.is_empty() || !status.product_id.is_empty()),
+                linked: Some(!status.remote_repo_id.is_empty()),
             });
         }
 

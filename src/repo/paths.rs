@@ -44,7 +44,6 @@ pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<Gu
     let repo_manifest = if paths.repo_metadata_path.exists() {
         let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
         let mut manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
-        manifest.sync_product_id_from_metadata();
         apply_local_repo_config(paths, &mut manifest)?;
         manifest
     } else {
@@ -68,7 +67,6 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
     let repo_manifest_json = crate::helpers::read_to_string(&paths.repo_metadata_path)?;
     let mut repo_manifest: GutchRepoManifest = crate::helpers::from_json_str(&repo_manifest_json)?;
     validate_repo_snapshot_tag_schema(&repo_manifest)?;
-    repo_manifest.sync_product_id_from_metadata();
     apply_local_repo_config(&paths, &mut repo_manifest)?;
     Ok((paths, repo_manifest))
 }

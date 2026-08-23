@@ -24,13 +24,15 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
         }
 
         RepoCommands::Tags {
-            command: crate::cli::RepoTagsCommands::Schema {
-                command: crate::cli::RepoTagSchemaCommands::Set {
-                    repo,
-                    schema,
-                    clear,
+            command:
+                crate::cli::RepoTagsCommands::Schema {
+                    command:
+                        crate::cli::RepoTagSchemaCommands::Set {
+                            repo,
+                            schema,
+                            clear,
+                        },
                 },
-            },
         } => {
             if clear && schema.is_some() {
                 return Err(g::Error::manifest(
@@ -82,14 +84,6 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                         "(not linked)"
                     } else {
                         &status.remote_repo_id
-                    }
-                );
-                println!(
-                    "product_id: {}",
-                    if status.product_id.is_empty() {
-                        "(not linked)"
-                    } else {
-                        &status.product_id
                     }
                 );
                 println!("repo_path: {}", status.repo_path);
@@ -254,7 +248,10 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 println!("kept newer local: {}", stats.kept_newer_local_count);
             }
             if stats.local_only_snapshots_kept > 0 {
-                println!("kept local-only snapshots: {}", stats.local_only_snapshots_kept);
+                println!(
+                    "kept local-only snapshots: {}",
+                    stats.local_only_snapshots_kept
+                );
             }
             if stats.pruned_snapshot_count > 0 || stats.pruned_bundle_count > 0 {
                 println!(
