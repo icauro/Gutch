@@ -77,7 +77,7 @@ impl GutchRepoManifest {
     pub fn new(name: String) -> Self {
         Self {
             format: CONTENT_REPO_FORMAT.to_string(),
-            format_version: FORMAT_VERSION.to_string(),
+            format_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             name,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),

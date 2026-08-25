@@ -52,7 +52,7 @@ pub struct SnapshotLaunchAction {
 
 impl SnapshotProductMetadata {
     pub fn validate_structure(&self) -> crate::Result<()> {
-        if self.document_version != FORMAT_VERSION {
+        if self.document_version != PUBLIC_METADATA_FORMAT_VERSION {
             return Err(crate::Error::manifest(
                 "snapshot product metadata document_version is unsupported",
             ));
@@ -102,7 +102,7 @@ impl SnapshotProductMetadata {
         dependencies: Vec<ExternalProductDependencyRequirement>,
     ) -> Self {
         Self {
-            document_version: FORMAT_VERSION.to_string(),
+            document_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             runtime: SnapshotRuntimeMetadata::Direct(SnapshotDirectRuntimeMetadata {
                 launch_actions: launch
                     .actions
@@ -316,7 +316,7 @@ pub struct SnapshotManifest {
 impl SnapshotManifest {
     pub fn new(snapshot_id: String, snapshot_tags: SnapshotTagSet) -> Self {
         SnapshotManifest {
-            metadata_version: FORMAT_VERSION.to_string(),
+            metadata_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             snapshot_id,
             captured_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             source_modified_at: String::new(),

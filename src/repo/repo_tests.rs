@@ -71,7 +71,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
         temp.path(),
         &snapshot_ids,
         Some(manifest::SnapshotProductMetadata {
-            document_version: "1".to_string(),
+            document_version: manifest::PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             runtime: manifest::SnapshotRuntimeMetadata::HostVariants(
                 manifest::SnapshotHostVariantRuntimeMetadata {
                     host_variants: [("windows-x64", "os::windows"), ("linux-x64", "os::linux")]

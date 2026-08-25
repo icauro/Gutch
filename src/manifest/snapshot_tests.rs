@@ -10,7 +10,7 @@ fn test_snapshot_manifest_new() {
     let m = SnapshotManifest::new("abc123def".into(), tags.clone());
     assert_eq!(m.snapshot_id, "abc123def");
     assert_eq!(m.snapshot_tags.get_exclusive("os"), Some("windows"));
-    assert_eq!(m.metadata_version, "1");
+    assert_eq!(m.metadata_version, PUBLIC_METADATA_FORMAT_VERSION);
     assert!(m.captured_at.len() > 0);
 }
 
@@ -71,7 +71,7 @@ fn host_variant_runtime_uses_launcher_host_tags() {
         format!("arch::{}", host_tags.get_exclusive("arch").unwrap()),
     ];
     let metadata = SnapshotProductMetadata {
-        document_version: "1".into(),
+        document_version: PUBLIC_METADATA_FORMAT_VERSION.into(),
         runtime: SnapshotRuntimeMetadata::HostVariants(SnapshotHostVariantRuntimeMetadata {
             host_variants: vec![SnapshotHostVariant {
                 variant_id: "current-host".into(),

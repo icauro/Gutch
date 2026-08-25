@@ -11,6 +11,7 @@ mod tags;
 pub mod template;
 
 pub const FORMAT_VERSION: &str = "1";
+pub const PUBLIC_METADATA_FORMAT_VERSION: &str = "1.0.0";
 pub const CHUNKER_FASTCDC: &str = "fastcdc-v2020";
 pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const COMPRESSION_ZSTD: &str = "zstd";
