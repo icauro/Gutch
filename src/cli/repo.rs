@@ -1,7 +1,7 @@
 use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::actions;
-use crate::cli::common::load_optional_rules;
+use crate::cli::common::{load_optional_rules, session_id_for_cli};
 use crate::cli::reporting::{
     ensure_parent_directory, print_repo_check_timings, print_tracked_repo_check_timings,
 };
@@ -51,6 +51,53 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 "updated snapshot tag schema at {}",
                 repo_paths.repo_metadata_path.display()
             );
+        }
+
+        RepoCommands::Tags {
+            command:
+                crate::cli::RepoTagsCommands::Requirements {
+                    repo,
+                    check,
+                    json_out,
+                    endpoint,
+                    session_id,
+                },
+        } => {
+            let session_id = session_id_for_cli(session_id)?;
+            let result = g::inspect_repo_tag_requirements(repo, endpoint, session_id)?;
+            if let Some(json_out) = json_out.as_ref() {
+                ensure_parent_directory(json_out)?;
+                crate::helpers::write(json_out, serde_json::to_vec_pretty(&result)?)?;
+            }
+
+            println!("repo: {}", result.repo_root);
+            println!("product_id: {}", result.product_id);
+            println!("remote_repo_id: {}", result.remote_repo_id);
+            for tag in &result.required_tags {
+                let values = if tag.allowed_values.is_empty() {
+                    "any non-empty value".to_string()
+                } else {
+                    tag.allowed_values.join(", ")
+                };
+                println!(
+                    "{} | {} | {} | {} | {}{}",
+                    tag.status,
+                    tag.tag_name,
+                    tag.tag_kind,
+                    tag.inference_strategy,
+                    values,
+                    tag.issue
+                        .as_deref()
+                        .map(|issue| format!(" | {}", issue))
+                        .unwrap_or_default()
+                );
+            }
+            println!("ready: {}", result.ready);
+            if check && !result.ready {
+                return Err(g::Error::manifest(
+                    "repo tag requirements are not satisfied",
+                ));
+            }
         }
 
         RepoCommands::Status { repo, json_out } => {

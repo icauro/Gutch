@@ -11,6 +11,7 @@ mod snapshot_descriptor;
 mod snapshot_manifests;
 mod snapshot_sources;
 mod source_identity;
+mod tag_requirements;
 mod updates;
 mod verify;
 
@@ -47,6 +48,9 @@ pub use snapshot_sources::{
     plan_snapshot_sources_capture,
 };
 pub use source_identity::*;
+pub use tag_requirements::{
+    RepoTagRequirementStatus, RepoTagRequirementsResult, inspect_repo_tag_requirements,
+};
 pub use updates::*;
 pub use verify::{RepoVerifyResult, RepoVerifyTimings, SnapshotVerifyResult, verify_gutch_repo};
 

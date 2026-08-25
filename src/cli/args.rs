@@ -189,6 +189,18 @@ pub enum RepoTagsCommands {
         #[command(subcommand)]
         command: RepoTagSchemaCommands,
     },
+    Requirements {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "check")]
+        check: bool,
+        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        json_out: Option<PathBuf>,
+        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
+        endpoint: String,
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
