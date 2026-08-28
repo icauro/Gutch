@@ -100,11 +100,11 @@ pub use snapshot::path_guard::{
     ExistingDestinationPathKind, resolve_existing_destination_path, validate_manifest_relative_path,
 };
 pub use snapshot_ops::{
-    GutchBundleDownload, ResolvedSnapshotOperationState, SnapshotDownloadAndReconstructRequest,
-    SnapshotDownloadAndReconstructResult, SnapshotFetchRequest, SnapshotFetchResult,
-    SnapshotReconstructFromRepoRequest, SnapshotReconstructFromRepoResult,
-    SnapshotReconstructResult, SnapshotReconstructSource, SnapshotRepairFromRepoRequest,
-    SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
+    BundleDownload, BundleUrlProvider, ResolvedSnapshotOperationState,
+    SnapshotDownloadAndReconstructRequest, SnapshotDownloadAndReconstructResult,
+    SnapshotFetchRequest, SnapshotFetchResult, SnapshotReconstructFromRepoRequest,
+    SnapshotReconstructFromRepoResult, SnapshotReconstructResult, SnapshotReconstructSource,
+    SnapshotRepairFromRepoRequest, SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
     SnapshotRepairPlanFromRepoResult, SnapshotRepairResult, SnapshotVerifyFromRepoRequest,
     SnapshotVerifyFromRepoResult, default_snapshot_staging_dir, download_and_reconstruct_snapshot,
     fetch_snapshot, fetch_snapshot_for_required_bundle_ids, plan_repair_snapshot_from_repo,

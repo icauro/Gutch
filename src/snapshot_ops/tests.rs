@@ -2,11 +2,13 @@ use super::*;
 use crate::hash::hash_hex;
 use crate::manifest::{self, FileManifest, SnapshotTagSet};
 use crate::runtime::RuntimeResourceHints;
+use crate::snapshot_ops::transfer;
 use crate::snapshot_ops::{
-    GutchBundleDownload, SnapshotFetchRequest, fetch_snapshot, repair_snapshot_from_repo,
+    BundleDownload, SnapshotFetchRequest, fetch_snapshot, repair_snapshot_from_repo,
     resolve_snapshot_state,
 };
 use crate::{GutchRepoPaths, write_chunk_index};
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
@@ -40,13 +42,71 @@ fn write_repair_test_repo(root: &std::path::Path, manifest: &SnapshotManifest) {
 }
 
 #[test]
-fn gutch_bundle_download_deserializes_backend_bundle_downloads_response() {
-    let bundle: GutchBundleDownload = serde_json::from_str(
+fn bundle_download_deserializes_download_response() {
+    let bundle: BundleDownload = serde_json::from_str(
         r#"{"bundleId":"abc123","downloadUrl":"https://example.com/bundle","expiresInSeconds":3600}"#,
     )
     .unwrap();
     assert_eq!(bundle.bundle_id, "abc123");
     assert_eq!(bundle.url, "https://example.com/bundle");
+}
+
+#[test]
+fn bundle_url_provider_rejects_unexpected_bundle_ids() {
+    let required_bundle_ids = HashSet::from(["bundle-a".to_string()]);
+    let request = SnapshotFetchRequest {
+        repo_path: std::path::PathBuf::from("C:\\repo"),
+        snapshot_id: "snapshot".to_string(),
+        repo_metadata_url: None,
+        metadata_url: "https://example.com/metadata".to_string(),
+        product_metadata_url: None,
+        blueprint_url: "https://example.com/blueprint".to_string(),
+        chunk_index_url: None,
+        bundles: Vec::new(),
+        bundle_url_provider: Some(std::sync::Arc::new(
+            |_bundle_ids: &[String], _control: &crate::GutchOperationControl| {
+                Ok(vec![BundleDownload {
+                    bundle_id: "bundle-b".to_string(),
+                    url: "https://example.com/bundle-b".to_string(),
+                }])
+            },
+        )),
+        control: crate::GutchOperationControl::default(),
+    };
+
+    let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
+        .expect_err("unexpected bundle IDs must fail resolution");
+    assert!(error.to_string().contains("unexpected bundle 'bundle-b'"));
+}
+
+#[test]
+fn direct_bundle_urls_reject_duplicate_bundle_ids() {
+    let required_bundle_ids = HashSet::from(["bundle-a".to_string()]);
+    let request = SnapshotFetchRequest {
+        repo_path: std::path::PathBuf::from("C:\\repo"),
+        snapshot_id: "snapshot".to_string(),
+        repo_metadata_url: None,
+        metadata_url: "https://example.com/metadata".to_string(),
+        product_metadata_url: None,
+        blueprint_url: "https://example.com/blueprint".to_string(),
+        chunk_index_url: None,
+        bundles: vec![
+            BundleDownload {
+                bundle_id: "bundle-a".to_string(),
+                url: "https://example.com/a".to_string(),
+            },
+            BundleDownload {
+                bundle_id: " bundle-a ".to_string(),
+                url: "https://example.com/a2".to_string(),
+            },
+        ],
+        bundle_url_provider: None,
+        control: crate::GutchOperationControl::default(),
+    };
+
+    let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
+        .expect_err("duplicate bundle IDs must fail normalization");
+    assert!(error.to_string().contains("duplicate direct bundle URL"));
 }
 
 #[test]
@@ -285,7 +345,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for _ in 0..4 {
+        for _ in 0..3 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0u8; 4096];
             let bytes_read = stream.read(&mut buffer).unwrap();
@@ -317,18 +377,6 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
                     b"bundle-a-bytes".to_vec(),
                     "application/octet-stream",
                 ),
-                _ if path.starts_with("/bundles?ids=bundle-a") => (
-                    "200 OK",
-                    serde_json::to_vec(&serde_json::json!({
-                        "bundles": [{
-                            "bundleId": "bundle-a",
-                            "downloadUrl": format!("http://{}/bundle-a", address),
-                            "expiresInSeconds": 3600
-                        }]
-                    }))
-                    .unwrap(),
-                    "application/json",
-                ),
                 _ => ("404 Not Found", b"not found".to_vec(), "text/plain"),
             };
 
@@ -351,9 +399,16 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
         product_metadata_url: None,
         blueprint_url: format!("http://{}/blueprint", address),
         chunk_index_url: None,
-        bundle_downloads_endpoint: Some(format!("http://{}/bundles", address)),
-        session_id: Some("session-1".to_string()),
         bundles: Vec::new(),
+        bundle_url_provider: Some(std::sync::Arc::new(
+            move |bundle_ids: &[String], _control: &crate::GutchOperationControl| {
+                assert_eq!(bundle_ids, &["bundle-a".to_string()]);
+                Ok(vec![BundleDownload {
+                    bundle_id: "bundle-a".to_string(),
+                    url: format!("http://{}/bundle-a", address),
+                }])
+            },
+        )),
         control: crate::GutchOperationControl::default(),
     })
     .unwrap();

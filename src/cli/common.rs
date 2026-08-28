@@ -215,9 +215,7 @@ pub(crate) fn count_required_bundles_for_build(
     required_bundle_ids.len() + generated_bundles.len()
 }
 
-pub(crate) fn parse_bundle_downloads(
-    bundle_args: &[String],
-) -> g::Result<Vec<g::GutchBundleDownload>> {
+pub(crate) fn parse_bundle_downloads(bundle_args: &[String]) -> g::Result<Vec<g::BundleDownload>> {
     bundle_args
         .iter()
         .map(|bundle_arg| {
@@ -236,7 +234,7 @@ pub(crate) fn parse_bundle_downloads(
                 )));
             }
 
-            Ok(g::GutchBundleDownload {
+            Ok(g::BundleDownload {
                 bundle_id: bundle_id.to_string(),
                 url: url.to_string(),
             })

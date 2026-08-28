@@ -4,10 +4,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 
-use serde::Deserialize;
-
-use super::types::{GutchBundleDownload, SnapshotFetchRequest};
+use super::types::{BundleDownload, SnapshotFetchRequest};
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
@@ -20,13 +19,6 @@ const MAX_PARALLEL_BUNDLE_DOWNLOADS: usize = 4;
 pub(super) const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
 pub(super) const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GutchBundleUrlsResponse {
-    #[serde(default)]
-    bundles: Vec<GutchBundleDownload>,
-}
 
 #[derive(Debug, Default)]
 pub(super) struct FetchTransferProgress {
@@ -90,18 +82,28 @@ pub(super) fn bundle_download_worker_count(pending_bundle_count: usize) -> usize
 pub(super) fn build_download_client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .user_agent("Gutch CLI")
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30 * 60))
         .build()
         .map_err(|err| Error::manifest(format!("failed to create download client: {}", err)))
 }
 
 pub(super) fn normalize_bundle_downloads(
-    bundles: &[GutchBundleDownload],
+    bundles: &[BundleDownload],
 ) -> Result<HashMap<String, String>> {
     let mut normalized = HashMap::with_capacity(bundles.len());
     for bundle in bundles {
         let bundle_id = non_empty_trimmed(&bundle.bundle_id, "bundle id")?;
         let url = non_empty_trimmed(&bundle.url, "bundle URL")?;
-        normalized.insert(bundle_id.to_string(), url.to_string());
+        if normalized
+            .insert(bundle_id.to_string(), url.to_string())
+            .is_some()
+        {
+            return Err(Error::manifest(format!(
+                "duplicate direct bundle URL for '{}'",
+                bundle_id
+            )));
+        }
     }
     Ok(normalized)
 }
@@ -124,26 +126,29 @@ pub(super) fn fetch_bundle_urls(
         return Ok(bundle_urls);
     }
 
-    let endpoint = request
-        .bundle_downloads_endpoint
-        .as_deref()
-        .ok_or_else(|| {
-            Error::manifest(
-                "bundle-downloads-endpoint is required when direct bundle URLs are not provided",
-            )
-        })?;
-    let ids = unresolved_bundle_ids.join(",");
-    let separator = if endpoint.contains('?') { "&" } else { "?" };
-    let response_bytes = download_json_bytes(
-        &format!("{endpoint}{separator}ids={ids}"),
-        request.session_id.as_deref(),
-        &request.control,
-    )?;
-    let response: GutchBundleUrlsResponse = crate::helpers::from_json_bytes(&response_bytes)?;
-    for bundle in response.bundles {
+    let provider = request.bundle_url_provider.as_ref().ok_or_else(|| {
+        Error::manifest("bundle URL provider is required when direct bundle URLs are not provided")
+    })?;
+    let resolved_bundles =
+        provider.resolve_bundle_urls(&unresolved_bundle_ids, &request.control)?;
+    for bundle in resolved_bundles {
         let bundle_id = non_empty_trimmed(&bundle.bundle_id, "bundle id")?;
         let url = non_empty_trimmed(&bundle.url, "bundle URL")?;
-        bundle_urls.insert(bundle_id.to_string(), url.to_string());
+        if !unresolved_bundle_ids.iter().any(|id| id == bundle_id) {
+            return Err(Error::manifest(format!(
+                "bundle URL provider returned unexpected bundle '{}'",
+                bundle_id
+            )));
+        }
+        if bundle_urls
+            .insert(bundle_id.to_string(), url.to_string())
+            .is_some()
+        {
+            return Err(Error::manifest(format!(
+                "bundle URL provider returned duplicate bundle '{}'",
+                bundle_id
+            )));
+        }
     }
 
     let missing = unresolved_bundle_ids
@@ -183,7 +188,6 @@ pub(crate) fn snapshot_manifest_from_download(
 pub(super) fn download_pending_bundle(
     download_client: &reqwest::blocking::Client,
     bundle_download: &PendingBundleDownload,
-    session_id: Option<&str>,
     control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<usize> {
@@ -194,7 +198,6 @@ pub(super) fn download_pending_bundle(
     download_url_to_path(
         download_client,
         &bundle_download.url,
-        session_id,
         &bundle_download.bundle_path,
         control,
         transfer_progress,
@@ -216,7 +219,6 @@ pub(super) fn download_pending_bundle(
 pub(super) fn download_url_bounded(
     client: &reqwest::blocking::Client,
     url: &str,
-    session_id: Option<&str>,
     control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
     phase: GutchProgressPhase,
@@ -228,7 +230,6 @@ pub(super) fn download_url_bounded(
     download_url_with_limit(
         client,
         url,
-        session_id,
         control,
         transfer_progress,
         phase,
@@ -242,7 +243,6 @@ pub(super) fn download_url_bounded(
 fn download_url_with_limit(
     client: &reqwest::blocking::Client,
     url: &str,
-    session_id: Option<&str>,
     control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
     phase: GutchProgressPhase,
@@ -256,7 +256,6 @@ fn download_url_with_limit(
     download_url_streaming(
         client,
         url,
-        session_id,
         control,
         transfer_progress,
         phase,
@@ -280,7 +279,6 @@ fn download_url_with_limit(
 pub(super) fn download_url_to_path(
     client: &reqwest::blocking::Client,
     url: &str,
-    session_id: Option<&str>,
     path: &Path,
     control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
@@ -299,7 +297,6 @@ pub(super) fn download_url_to_path(
         download_url_streaming(
             client,
             url,
-            session_id,
             control,
             transfer_progress,
             phase,
@@ -328,7 +325,6 @@ pub(super) fn download_url_to_path(
 fn download_url_streaming<F>(
     client: &reqwest::blocking::Client,
     url: &str,
-    session_id: Option<&str>,
     control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
     phase: GutchProgressPhase,
@@ -342,14 +338,8 @@ where
     F: FnMut(&[u8]) -> Result<()>,
 {
     control.checkpoint()?;
-    let mut request = client.get(url);
-    if should_attach_bearer_session(url, session_id) {
-        request = request.header(
-            "Authorization",
-            format!("Bearer {}", session_id.expect("session already checked")),
-        );
-    }
-    let response = request
+    let response = client
+        .get(url)
         .send()
         .map_err(|err| Error::manifest(format!("download request failed: {}", err)))?;
     if !response.status().is_success() {
@@ -440,36 +430,6 @@ fn emit_transfer_progress(
             done,
         },
     );
-}
-
-fn should_attach_bearer_session(url: &str, session_id: Option<&str>) -> bool {
-    session_id.is_some() && !url.contains("X-Amz-Algorithm=") && !url.contains("sig=")
-}
-
-fn download_json_bytes(
-    url: &str,
-    session_id: Option<&str>,
-    control: &GutchOperationControl,
-) -> Result<Vec<u8>> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("Gutch CLI")
-        .build()
-        .map_err(|err| Error::manifest(format!("failed to create download client: {}", err)))?;
-    download_url_bounded(
-        &client,
-        url,
-        session_id,
-        control,
-        &Arc::new(FetchTransferProgress::default()),
-        GutchProgressPhase::Json,
-        "Downloading JSON",
-        TransferPhaseCounters {
-            current: 0,
-            total: 1,
-        },
-        None,
-        MAX_SNAPSHOT_METADATA_BYTES,
-    )
 }
 
 fn non_empty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {

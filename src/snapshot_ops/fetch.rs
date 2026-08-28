@@ -158,7 +158,6 @@ fn download_and_apply_unified_snapshot_ops(
             control: &request.fetch_request.control,
             download_client: Some(&download_client),
             transfer_progress: Some(&transfer_progress),
-            session_id: request.fetch_request.session_id.as_deref(),
         },
         pipeline_plan,
     )?;
@@ -212,7 +211,6 @@ fn prepare_snapshot_fetch(
         let repo_manifest_bytes = download_url_bounded(
             download_client,
             repo_metadata_url,
-            request.session_id.as_deref(),
             &request.control,
             transfer_progress,
             GutchProgressPhase::RepoMetadata,
@@ -248,7 +246,6 @@ fn prepare_snapshot_fetch(
     let snapshot_manifest_bytes = download_url_bounded(
         download_client,
         &request.metadata_url,
-        request.session_id.as_deref(),
         &request.control,
         transfer_progress,
         GutchProgressPhase::SnapshotMetadata,
@@ -268,7 +265,6 @@ fn prepare_snapshot_fetch(
         let product_metadata_bytes = download_url_bounded(
             download_client,
             product_metadata_url,
-            request.session_id.as_deref(),
             &request.control,
             transfer_progress,
             GutchProgressPhase::SnapshotMetadata,
@@ -295,7 +291,6 @@ fn prepare_snapshot_fetch(
     let blueprint_bytes = download_url_bounded(
         download_client,
         &request.blueprint_url,
-        request.session_id.as_deref(),
         &request.control,
         transfer_progress,
         GutchProgressPhase::SnapshotMetadata,
@@ -331,7 +326,6 @@ fn prepare_snapshot_fetch(
         let chunk_index_bytes = download_url_bounded(
             download_client,
             chunk_index_url,
-            request.session_id.as_deref(),
             &request.control,
             transfer_progress,
             GutchProgressPhase::ChunkIndex,
@@ -497,7 +491,6 @@ fn download_pending_bundle_files(
                     let completed_bundle_count = download_pending_bundle(
                         download_client,
                         bundle_download,
-                        request.session_id.as_deref(),
                         &request.control,
                         transfer_progress,
                     )?;

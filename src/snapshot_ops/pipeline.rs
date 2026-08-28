@@ -41,7 +41,6 @@ pub(super) struct ReconstructPipelineApplyRequest<'a> {
     pub control: &'a GutchOperationControl,
     pub download_client: Option<&'a reqwest::blocking::Client>,
     pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
-    pub session_id: Option<&'a str>,
 }
 
 #[derive(Clone)]
@@ -274,7 +273,6 @@ pub(super) fn apply_reconstruct_pipeline(
             request.control,
             request.download_client,
             request.transfer_progress,
-            request.session_id,
         )?;
         crate::reconstruct::finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
         // Promotion is a short consistency-critical section. Observe cancellation immediately
@@ -322,7 +320,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     control: &GutchOperationControl,
     download_client: Option<&reqwest::blocking::Client>,
     transfer_progress: Option<&Arc<FetchTransferProgress>>,
-    session_id: Option<&str>,
 ) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
     control.checkpoint()?;
     let reconstruct_started_at = Instant::now();
@@ -402,7 +399,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             let control = control.clone();
             let transfer_progress = Arc::clone(transfer_progress);
             let download_client = download_client.clone();
-            let session_id = session_id.map(str::to_string);
             bundle_worker_handles.push(thread::spawn(move || {
                 loop {
                     let next_task = match task_receiver.lock() {
@@ -431,7 +427,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     let result = download_pending_bundle(
                         &download_client,
                         &bundle_download,
-                        session_id.as_deref(),
                         &control,
                         &transfer_progress,
                     );

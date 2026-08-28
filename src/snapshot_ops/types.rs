@@ -10,10 +10,31 @@ use crate::verify::{RepairClassification, VerifyMode, VerifyTimings};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GutchBundleDownload {
+pub struct BundleDownload {
     pub bundle_id: String,
     #[serde(alias = "downloadUrl")]
     pub url: String,
+}
+
+pub trait BundleUrlProvider: Send + Sync {
+    fn resolve_bundle_urls(
+        &self,
+        bundle_ids: &[String],
+        control: &GutchOperationControl,
+    ) -> crate::Result<Vec<BundleDownload>>;
+}
+
+impl<F> BundleUrlProvider for F
+where
+    F: Fn(&[String], &GutchOperationControl) -> crate::Result<Vec<BundleDownload>> + Send + Sync,
+{
+    fn resolve_bundle_urls(
+        &self,
+        bundle_ids: &[String],
+        control: &GutchOperationControl,
+    ) -> crate::Result<Vec<BundleDownload>> {
+        self(bundle_ids, control)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,7 +158,7 @@ pub struct SnapshotRepairFromRepoResult {
     pub resolved_bundle_file_count: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SnapshotFetchRequest {
     pub repo_path: PathBuf,
     pub snapshot_id: String,
@@ -146,9 +167,8 @@ pub struct SnapshotFetchRequest {
     pub product_metadata_url: Option<String>,
     pub blueprint_url: String,
     pub chunk_index_url: Option<String>,
-    pub bundle_downloads_endpoint: Option<String>,
-    pub session_id: Option<String>,
-    pub bundles: Vec<GutchBundleDownload>,
+    pub bundles: Vec<BundleDownload>,
+    pub bundle_url_provider: Option<std::sync::Arc<dyn BundleUrlProvider>>,
     pub control: GutchOperationControl,
 }
 
@@ -161,7 +181,7 @@ pub struct SnapshotFetchResult {
     pub skipped_existing_bundle_count: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SnapshotDownloadAndReconstructRequest {
     pub fetch_request: SnapshotFetchRequest,
     pub destination_dir: PathBuf,

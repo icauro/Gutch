@@ -144,7 +144,6 @@ pub fn reconstruct_snapshot_from_repo(
             control: &request.control,
             download_client: None,
             transfer_progress: None,
-            session_id: None,
         },
         pipeline_plan,
     )

@@ -81,7 +81,6 @@ pub fn repair_snapshot_from_repo(
             &request.control,
             None,
             None,
-            None,
         )?;
     }
     let repair_result = finalize_repair_result_after_reconstruction(
@@ -357,9 +356,7 @@ fn promote_repaired_files(
         let dest =
             crate::path_guard::resolve_manifest_relative_path(destination_dir, &directory.path)?;
         let is_existing_directory = fs::symlink_metadata(&dest)
-            .map(|metadata| {
-                metadata.file_type().is_dir() && !metadata.file_type().is_symlink()
-            })
+            .map(|metadata| metadata.file_type().is_dir() && !metadata.file_type().is_symlink())
             .unwrap_or(false);
         if !is_existing_directory {
             remove_existing_entry(&dest)?;

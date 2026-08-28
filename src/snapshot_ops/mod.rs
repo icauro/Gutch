@@ -19,11 +19,11 @@ pub use repair::plan_repair_snapshot_from_repo;
 pub use repair::repair_snapshot_from_repo;
 pub use state::resolve_snapshot_state;
 pub use types::{
-    GutchBundleDownload, ResolvedSnapshotOperationState, SnapshotDownloadAndReconstructRequest,
-    SnapshotDownloadAndReconstructResult, SnapshotFetchRequest, SnapshotFetchResult,
-    SnapshotReconstructFromRepoRequest, SnapshotReconstructFromRepoResult,
-    SnapshotReconstructResult, SnapshotReconstructSource, SnapshotRepairFromRepoRequest,
-    SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
+    BundleDownload, BundleUrlProvider, ResolvedSnapshotOperationState,
+    SnapshotDownloadAndReconstructRequest, SnapshotDownloadAndReconstructResult,
+    SnapshotFetchRequest, SnapshotFetchResult, SnapshotReconstructFromRepoRequest,
+    SnapshotReconstructFromRepoResult, SnapshotReconstructResult, SnapshotReconstructSource,
+    SnapshotRepairFromRepoRequest, SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
     SnapshotRepairPlanFromRepoResult, SnapshotRepairResult, SnapshotVerifyFromRepoRequest,
     SnapshotVerifyFromRepoResult,
 };
