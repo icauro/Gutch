@@ -1,14 +1,14 @@
 use crate::manifest;
 
 #[derive(Debug, Clone)]
-pub(crate) struct SnapshotTagSummary {
+pub struct SnapshotTagSummary {
     pub version_id: String,
     pub os: String,
     pub arch: String,
     pub canonical_tags: Vec<String>,
 }
 
-pub(crate) fn summarize_snapshot_tags(
+pub fn summarize_snapshot_tags(
     snapshot_tags: &manifest::SnapshotTagSet,
     _snapshot_tag_schema: Option<&manifest::SnapshotTagSchema>,
 ) -> SnapshotTagSummary {

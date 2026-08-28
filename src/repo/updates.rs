@@ -5,15 +5,13 @@ use crate::manifest;
 
 use super::{load_gutch_repo_manifest, write_gutch_repo_manifest};
 
-pub fn initialize_tracked_gutch_repo(
+pub fn initialize_gutch_repo(
     repo_root: &Path,
     snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
-    snapshot_sources_path: Option<String>,
 ) -> Result<()> {
-    super::init_policy::initialize_tracked_gutch_repo_with_options(
+    super::init_policy::initialize_gutch_repo_with_options(
         repo_root,
         snapshot_tag_schema,
-        snapshot_sources_path,
         super::init_policy::RepoInitOptions { force: false },
     )
 }

@@ -7,7 +7,7 @@ use super::inventory::{list_repo_snapshot_ids, scan_bundle_inventory};
 use super::snapshot_descriptor::{preview_snapshot_identity, summarize_snapshot_tags};
 use super::{
     GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest,
-    required_bundle_ids, snapshot_sources, source_modified_at_from_directory,
+    required_bundle_ids, source_modified_at_from_directory,
 };
 use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::{self};
@@ -43,30 +43,6 @@ pub struct RepoCheckTimings {
     pub load_chunk_index_ms: u64,
     pub load_snapshot_manifests_ms: u64,
     pub snapshot_count: usize,
-    pub total_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrackedRepoCheckStatus {
-    pub repo_status: RepoCheckStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub snapshot_sources_path: Option<String>,
-    #[serde(default)]
-    pub source_snapshot_operations: Vec<SourceSnapshotOperationCandidate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub snapshot_sources_plan: Option<snapshot_sources::SnapshotSourcesCapturePlan>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timings: Option<TrackedRepoCheckTimings>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrackedRepoCheckTimings {
-    pub load_config_ms: u64,
-    pub scan_sources_ms: u64,
-    pub plan_sources_ms: u64,
-    pub source_count: usize,
     pub total_ms: u64,
 }
 
@@ -122,101 +98,6 @@ pub enum SourceSnapshotOperationDisposition {
     Capture,
     Refresh,
     Invalid,
-}
-
-pub fn ensure_gutch_repo_tracked(repo_path: &str) -> Result<()> {
-    let repo_path_str = repo_path.trim();
-    if repo_path_str.is_empty() {
-        return Ok(());
-    }
-
-    let mut config = crate::config::load_config()?;
-    if config.find_repo(repo_path_str).is_none() {
-        config.upsert_repo(crate::config::TrackedRepo {
-            path: repo_path_str.to_string(),
-            snapshot_sources_path: None,
-        });
-        crate::config::save_config(&config)?;
-    }
-    Ok(())
-}
-
-pub fn check_tracked_gutch_repo(repo_root: &Path) -> Result<TrackedRepoCheckStatus> {
-    let total_start = std::time::Instant::now();
-    let repo_status = check_gutch_repo(repo_root)?;
-    if repo_status.is_repo {
-        ensure_gutch_repo_tracked(&repo_status.repo_path)?;
-    }
-
-    let config_start = std::time::Instant::now();
-    let snapshot_sources_path = crate::config::load_config()?
-        .find_repo(&repo_status.repo_path)
-        .and_then(|repo| repo.snapshot_sources_path.clone())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let load_config_ms = config_start.elapsed().as_millis() as u64;
-
-    let sources_start = std::time::Instant::now();
-    let mut source_snapshot_operations = match snapshot_sources_path.as_deref() {
-        Some(path) if repo_status.is_repo => {
-            discover_source_snapshot_operations(repo_root, Path::new(path))?
-        }
-        _ => Vec::new(),
-    };
-    let scan_sources_ms = sources_start.elapsed().as_millis() as u64;
-    let source_count = source_snapshot_operations.len();
-
-    let plan_start = std::time::Instant::now();
-    let snapshot_sources_plan = if repo_status.is_repo {
-        Some(
-            snapshot_sources::plan_snapshot_sources_capture_with_context(
-                repo_root,
-                snapshot_sources_path.as_deref().map(Path::new),
-                Some(source_snapshot_operations.as_slice()),
-                Some(&repo_status),
-            )?,
-        )
-    } else {
-        None
-    };
-    if let Some(plan) = snapshot_sources_plan.as_ref() {
-        for candidate in &mut source_snapshot_operations {
-            candidate.disposition = if candidate.error.is_some() {
-                SourceSnapshotOperationDisposition::Invalid
-            } else if plan
-                .to_capture
-                .iter()
-                .any(|entry| entry.path == candidate.path)
-            {
-                SourceSnapshotOperationDisposition::Capture
-            } else if plan
-                .to_refresh
-                .iter()
-                .any(|entry| entry.path == candidate.path)
-            {
-                SourceSnapshotOperationDisposition::Refresh
-            } else {
-                SourceSnapshotOperationDisposition::Unchanged
-            };
-        }
-    }
-    let plan_sources_ms = plan_start.elapsed().as_millis() as u64;
-
-    let total_ms = total_start.elapsed().as_millis() as u64;
-
-    Ok(TrackedRepoCheckStatus {
-        repo_status,
-        snapshot_sources_path,
-        source_snapshot_operations,
-        snapshot_sources_plan,
-        timings: Some(TrackedRepoCheckTimings {
-            load_config_ms,
-            scan_sources_ms,
-            plan_sources_ms,
-            source_count,
-            total_ms,
-        }),
-    })
 }
 
 pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {

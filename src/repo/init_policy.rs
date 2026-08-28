@@ -146,10 +146,9 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     })
 }
 
-pub fn initialize_tracked_gutch_repo_with_options(
+pub fn initialize_gutch_repo_with_options(
     repo_root: &Path,
     snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
-    snapshot_sources_path: Option<String>,
     options: RepoInitOptions,
 ) -> Result<()> {
     let assessment = assess_repo_init_path(repo_root)?;
@@ -182,12 +181,6 @@ pub fn initialize_tracked_gutch_repo_with_options(
     repo_manifest.snapshot_tag_schema = Some(snapshot_tag_schema.unwrap_or_default());
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
-    let mut config = crate::config::load_config()?;
-    config.upsert_repo(crate::config::TrackedRepo {
-        path: repo_paths.repo_root.display().to_string(),
-        snapshot_sources_path,
-    });
-    crate::config::save_config(&config)?;
     Ok(())
 }
 
@@ -293,13 +286,9 @@ mod tests {
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let err = initialize_tracked_gutch_repo_with_options(
-            &repo_root,
-            None,
-            None,
-            RepoInitOptions { force: false },
-        )
-        .unwrap_err();
+        let err =
+            initialize_gutch_repo_with_options(&repo_root, None, RepoInitOptions { force: false })
+                .unwrap_err();
         assert!(err.to_string().contains(REPO_INIT_NEEDS_CONFIRMATION));
     }
 
@@ -325,13 +314,8 @@ mod tests {
         write_snapshot_manifest_artifacts(&repo_paths, &snapshot_manifest).unwrap();
         std::fs::write(repo_paths.bundles_root.join("bundle-a"), b"bundle").unwrap();
 
-        initialize_tracked_gutch_repo_with_options(
-            &repo_root,
-            None,
-            None,
-            RepoInitOptions { force: true },
-        )
-        .unwrap();
+        initialize_gutch_repo_with_options(&repo_root, None, RepoInitOptions { force: true })
+            .unwrap();
 
         let status = check_gutch_repo(&repo_root).unwrap();
         assert!(status.is_repo);
@@ -346,13 +330,8 @@ mod tests {
         std::fs::create_dir_all(&repo_root).unwrap();
         std::fs::write(repo_root.join("notes.txt"), b"keep me").unwrap();
 
-        initialize_tracked_gutch_repo_with_options(
-            &repo_root,
-            None,
-            None,
-            RepoInitOptions { force: true },
-        )
-        .unwrap();
+        initialize_gutch_repo_with_options(&repo_root, None, RepoInitOptions { force: true })
+            .unwrap();
 
         assert!(repo_root.join("notes.txt").exists());
         assert!(repo_root.join("snapshots").is_dir());

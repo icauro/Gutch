@@ -242,18 +242,6 @@ pub(crate) fn parse_bundle_downloads(bundle_args: &[String]) -> g::Result<Vec<g:
         .collect()
 }
 
-pub(crate) fn session_id_for_cli(session_override: Option<String>) -> g::Result<String> {
-    session_override
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .or(g::remote::auth::shared_session_id().map_err(g::Error::manifest)?)
-        .ok_or_else(|| {
-            g::Error::manifest(
-                "authentication required. Run `hostapp-cli auth login` or pass --session-id.",
-            )
-        })
-}
-
 pub(crate) fn write_snapshot_manifest(
     repo_paths: &g::GutchRepoPaths,
     snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,

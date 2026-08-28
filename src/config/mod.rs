@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -66,20 +66,7 @@ fn repo_paths_match(left: &str, right: &str) -> bool {
     left.trim().eq_ignore_ascii_case(right.trim())
 }
 
-fn gutch_config_dir() -> Result<PathBuf, crate::Error> {
-    hostapp_common::paths::resolve_launcher_paths()
-        .map(|paths| paths.gutch_config_dir())
-        .map_err(|error| crate::Error::manifest(error.to_string()))
-}
-
-fn gutch_config_path() -> Result<PathBuf, crate::Error> {
-    hostapp_common::paths::resolve_launcher_paths()
-        .map(|paths| paths.gutch_config_file())
-        .map_err(|error| crate::Error::manifest(error.to_string()))
-}
-
-pub fn load_config() -> Result<GutchConfig, crate::Error> {
-    let path = gutch_config_path()?;
+pub fn load_config(path: &Path) -> Result<GutchConfig, crate::Error> {
     if !path.exists() {
         return Ok(GutchConfig::default());
     }
@@ -90,12 +77,11 @@ pub fn load_config() -> Result<GutchConfig, crate::Error> {
     Ok(config)
 }
 
-pub fn save_config(config: &GutchConfig) -> Result<(), crate::Error> {
+pub fn save_config(path: &Path, config: &GutchConfig) -> Result<(), crate::Error> {
     validate_config_paths(config)?;
-    let dir = gutch_config_dir()?;
-    crate::helpers::create_dir_all(&dir)?;
-
-    let path = gutch_config_path()?;
+    if let Some(dir) = path.parent() {
+        crate::helpers::create_dir_all(dir)?;
+    }
     crate::helpers::write_json(&path, config)
 }
 
@@ -121,14 +107,27 @@ fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GutchConfig, TrackedRepo, gutch_config_dir};
+    use super::{GutchConfig, TrackedRepo};
 
     #[test]
-    fn gutch_config_dir_lives_under_shared_root() {
-        let paths = hostapp_common::paths::resolve_launcher_paths().expect("launcher paths");
+    fn config_round_trips_at_explicit_path() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("gutch.json");
+        let config = GutchConfig {
+            repos: vec![TrackedRepo {
+                path: if cfg!(windows) {
+                    "D:\\Repos\\game".to_string()
+                } else {
+                    "/repos/game".to_string()
+                },
+                snapshot_sources_path: None,
+            }],
+        };
+
+        super::save_config(&path, &config).expect("save config");
         assert_eq!(
-            gutch_config_dir().expect("gutch config dir"),
-            paths.gutch_config_dir()
+            super::load_config(&path).expect("load config").repos.len(),
+            1
         );
     }
 

@@ -222,7 +222,7 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
     Ok(SnapshotManifest::from_metadata(metadata))
 }
 
-pub(crate) fn write_snapshot_metadata_only(
+pub fn write_snapshot_metadata_only(
     paths: &GutchRepoPaths,
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<()> {

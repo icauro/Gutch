@@ -13,9 +13,8 @@ pub(crate) mod snapshot_ops;
 pub mod snapshot_sources;
 
 pub use args::{
-    BundleCommands, Cli, Commands, PathCommands, RemoteCommands, RepoCommands,
-    RepoNameCommands, RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands,
-    SnapshotSourcesCommands,
+    BundleCommands, Cli, Commands, PathCommands, RepoCommands, RepoNameCommands,
+    RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands, SnapshotSourcesCommands,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};

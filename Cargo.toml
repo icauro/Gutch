@@ -15,7 +15,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 # JSON parsing (manifests, configs)
 clap = { version = "4.6.1", features = ["derive"] }
-# CLI argument parsing (hostapp-cli gutch commands)
+# CLI argument parsing for generic Gutch commands
 walkdir = "2.5.0"
 # Recursive directory traversal
 chrono = "0.4.45"
@@ -35,9 +35,5 @@ reqwest = { version = "0.13.4", features = [
 # HTTP client (bundle downloads from signed URLs) default-features = false,
 indicatif = "0.18.4"
 # CLI progress bars (download/install progress)
-hostapp-auth = { path = "../hostapp-auth" }
-# Shared auth utilities (session tokens)
-hostapp-common = { path = "../hostapp-common" }
-# Shared launcher distribution and filesystem paths
 smol_str = { version = "0.3.2", features = ["serde"] }
 # Small owned strings for clone-heavy metadata

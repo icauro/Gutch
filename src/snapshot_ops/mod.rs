@@ -6,7 +6,7 @@ mod snapshot_repo;
 pub mod state;
 mod transfer;
 
-pub(crate) use transfer::snapshot_manifest_from_download;
+pub use transfer::snapshot_manifest_from_download;
 pub mod types;
 
 pub use apply::{

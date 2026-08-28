@@ -46,9 +46,9 @@ pub struct ArtifactBuildProfileArgs {
 
 #[derive(Parser)]
 #[command(
-    name = "hostapp-cli gutch",
+    name = "gutch",
     version,
-    about = hostapp_common::GUTCH_ABOUT
+    about = "Generic Gutch artifact and repository engine"
 )]
 pub struct Cli {
     #[arg(long, short = 'v', global = true)]
@@ -118,59 +118,6 @@ pub enum RepoCommands {
         #[command(subcommand)]
         command: SnapshotSourcesCommands,
     },
-    #[command(name = "push")]
-    Push {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-        #[arg(long = "yes")]
-        yes: bool,
-    },
-    #[command(name = "pull")]
-    Pull {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "remote")]
-        remote: Option<String>,
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-        #[arg(long = "on-conflict", default_value = "keep-newer")]
-        on_conflict: String,
-        #[arg(long = "prune")]
-        prune: bool,
-        #[arg(long = "yes")]
-        yes: bool,
-    },
-    #[command(name = "remote")]
-    Remote {
-        #[command(subcommand)]
-        command: RemoteCommands,
-    },
-    Link {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-        #[arg(long = "product-id")]
-        product_id: Option<i64>,
-    },
-    Unlink {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "delete-remote")]
-        delete_remote: bool,
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -188,18 +135,6 @@ pub enum RepoTagsCommands {
     Schema {
         #[command(subcommand)]
         command: RepoTagSchemaCommands,
-    },
-    Requirements {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "check")]
-        check: bool,
-        #[arg(long = "json-out", value_parser = parse_absolute_path)]
-        json_out: Option<PathBuf>,
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
     },
 }
 
@@ -229,16 +164,6 @@ pub enum SnapshotSourcesCommands {
         yes: bool,
         #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum RemoteCommands {
-    List {
-        #[arg(long = "endpoint", default_value_t = g::remote::auth::default_backend_url())]
-        endpoint: String,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
     },
 }
 
@@ -390,7 +315,7 @@ mod tests {
         } else {
             "/repos/game"
         };
-        Cli::try_parse_from(["hostapp-cli gutch", "repo", "status", "--repo", repo])
+        Cli::try_parse_from(["gutch", "repo", "status", "--repo", repo])
             .expect("absolute repository path");
     }
 }

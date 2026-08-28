@@ -165,7 +165,7 @@ impl GutchOperationControl {
 }
 
 /// Helper to emit if a sink is present.
-pub(crate) fn emit_progress(
+pub fn emit_progress(
     sink: &Option<std::sync::Arc<dyn GutchProgressSink>>,
     event: GutchProgressEvent,
 ) {

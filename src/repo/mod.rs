@@ -5,13 +5,10 @@ mod cleanup;
 mod init_policy;
 mod inventory;
 mod paths;
-mod pull;
-mod remote_ops;
 mod snapshot_descriptor;
 mod snapshot_manifests;
 mod snapshot_sources;
 mod source_identity;
-mod tag_requirements;
 mod updates;
 mod verify;
 
@@ -24,33 +21,25 @@ pub use capture_plan::{
 };
 pub use check::{
     RepoCheckSnapshotStatus, RepoCheckStatus, RepoCheckTimings, SourceSnapshotOperationCandidate,
-    SourceSnapshotOperationDisposition, TrackedRepoCheckStatus, TrackedRepoCheckTimings,
-    check_gutch_repo, check_tracked_gutch_repo, discover_source_snapshot_operations,
-    ensure_gutch_repo_tracked, preview_source_snapshot_ops,
+    SourceSnapshotOperationDisposition, check_gutch_repo, discover_source_snapshot_operations,
+    preview_source_snapshot_ops,
 };
 pub use chunk_index::*;
 pub use cleanup::*;
 pub use init_policy::{
     REPO_INIT_NEEDS_CONFIRMATION, RepoInitAssessment, RepoInitOptions, RepoInitPathKind,
-    RepoInitRisk, assess_repo_init_path, initialize_tracked_gutch_repo_with_options,
+    RepoInitRisk, assess_repo_init_path, initialize_gutch_repo_with_options,
     parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error,
 };
 pub use paths::*;
-pub use pull::*;
-pub use remote_ops::{
-    RepoSyncPlan, RepoSyncSnapshotChange, RepoSyncUpStats, link_repo, plan_sync_up_repo,
-    sync_up_repo, unlink_repo,
-};
+pub use snapshot_descriptor::summarize_snapshot_tags;
 pub use snapshot_manifests::*;
 pub use snapshot_sources::{
     SnapshotSourcesCaptureOptions, SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult,
     SnapshotSourcesRefresh, capture_snapshot_sources, describe_snapshot_sources_capture_plan,
-    plan_snapshot_sources_capture,
+    plan_snapshot_sources_capture, plan_snapshot_sources_capture_with_context,
 };
 pub use source_identity::*;
-pub use tag_requirements::{
-    RepoTagRequirementStatus, RepoTagRequirementsResult, inspect_repo_tag_requirements,
-};
 pub use updates::*;
 pub use verify::{RepoVerifyResult, RepoVerifyTimings, SnapshotVerifyResult, verify_gutch_repo};
 

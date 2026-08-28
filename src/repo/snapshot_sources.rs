@@ -88,7 +88,7 @@ pub fn plan_snapshot_sources_capture(
     plan_snapshot_sources_capture_with_context(repo_root, sources_path, None, None)
 }
 
-pub(crate) fn plan_snapshot_sources_capture_with_context(
+pub fn plan_snapshot_sources_capture_with_context(
     repo_root: &Path,
     sources_path: Option<&Path>,
     candidates: Option<&[SourceSnapshotOperationCandidate]>,

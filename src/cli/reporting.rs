@@ -873,27 +873,6 @@ pub fn print_repo_check_timings(t: &g::RepoCheckTimings) {
     print_metric_line("total", format!("{} ms", t.total_ms));
 }
 
-pub fn print_tracked_repo_check_timings(
-    repo: &g::RepoCheckTimings,
-    tracked: &g::TrackedRepoCheckTimings,
-) {
-    print_repo_check_timings(repo);
-    print_section_title("Tracked Check Timing");
-    print_metric_line("load config", format!("{} ms", tracked.load_config_ms));
-    print_metric_line(
-        "scan source snapshots",
-        format!(
-            "{} ms  ({} folders)",
-            tracked.scan_sources_ms, tracked.source_count
-        ),
-    );
-    print_metric_line(
-        "plan source sync",
-        format!("{} ms", tracked.plan_sources_ms),
-    );
-    print_metric_line("total tracked", format!("{} ms", tracked.total_ms));
-}
-
 #[cfg(test)]
 #[path = "reporting_tests.rs"]
 mod tests;
