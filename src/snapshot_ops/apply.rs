@@ -37,10 +37,7 @@ pub(super) fn resolve_verified_source<'a>(
                     .map(|issue| issue.detail.as_str())
                     .collect::<Vec<_>>()
                     .join("; ");
-                return Err(Error::verify(format!(
-                    "source snapshot destination did not verify: {}",
-                    source_errors
-                )));
+                return Err(Error::SourceSnapshotNotVerified(source_errors));
             }
 
             Ok(Some(VerifiedSourceTree {

@@ -28,6 +28,9 @@ pub enum Error {
     #[error("Verification error: {0}")]
     Verify(String),
 
+    #[error("Source snapshot destination did not verify: {0}")]
+    SourceSnapshotNotVerified(String),
+
     #[error("Reconstruction error: {0}")]
     Reconstruct(String),
 

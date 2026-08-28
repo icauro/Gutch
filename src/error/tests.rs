@@ -19,6 +19,15 @@ fn error_display_verify() {
 }
 
 #[test]
+fn error_display_source_snapshot_not_verified() {
+    let e = Error::SourceSnapshotNotVerified("missing file".into());
+    assert_eq!(
+        e.to_string(),
+        "Source snapshot destination did not verify: missing file"
+    );
+}
+
+#[test]
 fn error_display_reconstruct() {
     let e = Error::reconstruct("output dir missing");
     assert_eq!(e.to_string(), "Reconstruction error: output dir missing");
