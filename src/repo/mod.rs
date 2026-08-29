@@ -5,10 +5,12 @@ mod cleanup;
 mod init_policy;
 mod inventory;
 mod paths;
+pub mod remote;
 mod snapshot_descriptor;
 mod snapshot_manifests;
 mod snapshot_sources;
 mod source_identity;
+pub mod tag_requirements;
 mod updates;
 mod verify;
 
@@ -32,6 +34,7 @@ pub use init_policy::{
     parse_repo_init_needs_confirmation_error, repo_init_needs_confirmation_error,
 };
 pub use paths::*;
+pub use remote::*;
 pub use snapshot_descriptor::summarize_snapshot_tags;
 pub use snapshot_manifests::*;
 pub use snapshot_sources::{
@@ -40,6 +43,7 @@ pub use snapshot_sources::{
     plan_snapshot_sources_capture, plan_snapshot_sources_capture_with_context,
 };
 pub use source_identity::*;
+pub use tag_requirements::*;
 pub use updates::*;
 pub use verify::{RepoVerifyResult, RepoVerifyTimings, SnapshotVerifyResult, verify_gutch_repo};
 

@@ -57,6 +57,14 @@ pub use reconstruct::{
     ReconstructOptions, ReconstructTimings, VerifiedSourceTree, reconstruct_from_bundle_paths,
     reconstruct_from_repo, reconstruct_from_snapshot_manifest,
 };
+pub use repo::remote::{
+    PullConflictPolicy, RemoteArtifactSource, RemoteBundleSource, RemoteRepository,
+    RemoteRepositoryProvider, RemoteRepositoryReader, RemoteRepositoryWriter, RemoteSnapshot,
+    RemoteSnapshotSources, RepoPullPlan, RepoPullStats, RepoSyncPlan, RepoSyncSnapshotChange,
+    RepoSyncUpStats, linked_remote_repo_id, plan_pull, plan_pull_with_provider, plan_sync_up,
+    plan_sync_up_with_provider, pull_repo, sync_up_repo,
+};
+pub use repo::tag_requirements::{TagRequirement, TagRequirementStatus, compare_tag_requirements};
 pub use repo::{
     GutchRepoPaths, REPO_INIT_NEEDS_CONFIRMATION, RepoCheckSnapshotStatus, RepoCheckStatus,
     RepoCheckTimings, RepoInitAssessment, RepoInitOptions, RepoInitPathKind, RepoInitRisk,
