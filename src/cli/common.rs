@@ -161,7 +161,7 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     g::manifest::snapshot::SnapshotManifest,
 )> {
     let (repo_paths, repo_manifest) = g::load_gutch_repo_manifest(repo_root)?;
-    let manifest_path = g::snapshot_metadata_path(&repo_paths, snapshot_id);
+    let manifest_path = g::snapshot_metadata_path(&repo_paths, snapshot_id)?;
     if !manifest_path.exists() {
         return Err(g::Error::manifest(format!(
             "snapshot manifest not found at {}",
@@ -260,7 +260,7 @@ pub(crate) fn write_bundles(
 ) -> g::Result<std::collections::HashMap<String, u64>> {
     let mut bundle_sizes = std::collections::HashMap::with_capacity(bundles.len());
     for bundle in bundles {
-        let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id);
+        let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
         crate::helpers::write(&bundle_path, &bundle.data)?;
         let bundle_size = bundle.data.len() as u64;
         bundle_sizes.insert(bundle.bundle_id.clone(), bundle_size);
@@ -282,7 +282,7 @@ pub(crate) fn write_loose_chunks(
     let mut chunk_sizes = std::collections::HashMap::with_capacity(chunks.len());
     for chunk in chunks {
         let chunk_hash = chunk.chunk_hash.to_string();
-        let chunk_path = g::chunk_path_in_root(chunks_root, &chunk_hash);
+        let chunk_path = g::chunk_path_in_root(chunks_root, &chunk_hash)?;
         if let Some(parent) = chunk_path.parent() {
             crate::helpers::create_dir_all(parent)?;
         }

@@ -64,23 +64,35 @@ pub(in crate::reconstruct) fn should_use_direct_bundle_to_file_reconstruct_exper
 // Direct reconstruction pipeline
 // ---------------------------------------------------------------------------
 
+pub(in crate::reconstruct) struct DirectReconstructRequest<'a> {
+    pub snapshot_manifest: &'a SnapshotManifest,
+    pub locations: &'a HashMap<ChunkHash, ChunkLocation>,
+    pub output_dir: &'a Path,
+    pub compression_profile: &'a CompressionProfile,
+    pub timings: &'a mut ReconstructTimings,
+    pub worker_count: usize,
+    pub options: ReconstructOptions,
+    pub control: &'a GutchOperationControl,
+}
+
 pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
-    snapshot_manifest: &SnapshotManifest,
-    locations: &HashMap<ChunkHash, ChunkLocation>,
-    output_dir: &Path,
-    compression_profile: &CompressionProfile,
-    timings: &mut ReconstructTimings,
-    worker_count: usize,
-    options: ReconstructOptions,
-    control: &GutchOperationControl,
+    request: DirectReconstructRequest<'_>,
 ) -> Result<()> {
-    control.checkpoint()?;
-    let write_snapshots = build_chunk_write_snapshots(snapshot_manifest, output_dir, control)?;
-    prepare_direct_output_files(snapshot_manifest, output_dir, control)?;
+    request.control.checkpoint()?;
+    let write_snapshots = build_chunk_write_snapshots(
+        request.snapshot_manifest,
+        request.output_dir,
+        request.control,
+    )?;
+    prepare_direct_output_files(
+        request.snapshot_manifest,
+        request.output_dir,
+        request.control,
+    )?;
 
     let mut bundle_locations: HashMap<PathBuf, Vec<(ChunkHash, ChunkLocation)>> = HashMap::new();
-    for (chunk_hash, location) in locations {
-        control.checkpoint()?;
+    for (chunk_hash, location) in request.locations {
+        request.control.checkpoint()?;
         bundle_locations
             .entry(location.bundle_path.clone())
             .or_default()
@@ -89,27 +101,27 @@ pub(in crate::reconstruct) fn direct_reconstruct_bundle_compressed_to_files(
     let mut bundle_locations = bundle_locations.into_iter().collect::<Vec<_>>();
     bundle_locations.sort_by(|(left, _), (right, _)| left.cmp(right));
 
-    let bundle_results = run_in_thread_pool(worker_count, || {
+    let bundle_results = run_in_thread_pool(request.worker_count, || {
         bundle_locations
             .par_iter()
             .map(|(bundle_path, chunk_locations)| {
-                control.checkpoint()?;
+                request.control.checkpoint()?;
                 direct_reconstruct_one_bundle(
                     bundle_path,
                     chunk_locations,
                     &write_snapshots,
-                    compression_profile,
-                    options,
-                    control,
+                    request.compression_profile,
+                    request.options,
+                    request.control,
                 )
             })
             .collect::<Vec<_>>()
     })?;
 
     for result in bundle_results {
-        control.checkpoint()?;
+        request.control.checkpoint()?;
         let bundle_timings = result?;
-        timings.accumulate(&bundle_timings);
+        request.timings.accumulate(&bundle_timings);
     }
 
     Ok(())

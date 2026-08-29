@@ -12,7 +12,7 @@ use super::{
 pub fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<()> {
     validate_snapshot_id(snapshot_id)?;
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
-    let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id);
+    let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
     let Some(snapshot_dir) = manifest_path.parent() else {
         return Ok(());
     };

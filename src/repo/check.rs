@@ -299,7 +299,7 @@ fn check_snapshot_manifests(
     let manifests_start = std::time::Instant::now();
     let mut snapshots = Vec::new();
     for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
-        let manifest_path = crate::snapshot_metadata_path(repo_paths, &snapshot_id);
+        let manifest_path = crate::snapshot_metadata_path(repo_paths, &snapshot_id)?;
         let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
         let snapshot_metadata =
             Some(serde_json::to_value(manifest.metadata()).map_err(|error| {
@@ -365,7 +365,7 @@ pub(crate) fn build_source_snapshot_ops_candidate(
     explicit_tags: &manifest::SnapshotTagSet,
     allow_name_inference: bool,
 ) -> Result<SourceSnapshotOperationCandidate> {
-    use crate::core::snapshot_identity::resolve_snapshot_identity_with_inference;
+    use crate::snapshot::identity::resolve_snapshot_identity_with_inference;
 
     let context = format!("source snapshot '{}'", path.display());
     let resolved = resolve_snapshot_identity_with_inference(

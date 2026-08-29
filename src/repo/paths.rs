@@ -8,19 +8,20 @@ use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct GutchRepoPaths {
-    pub repo_root: PathBuf,
-    pub repo_metadata_path: PathBuf,
-    pub local_repo_config_path: PathBuf,
-    pub chunk_map_path: PathBuf,
-    pub snapshots_root: PathBuf,
-    pub bundles_root: PathBuf,
-    pub chunks_root: PathBuf,
+    pub(crate) repo_root: PathBuf,
+    pub(crate) repo_metadata_path: PathBuf,
+    pub(crate) local_repo_config_path: PathBuf,
+    pub(crate) chunk_map_path: PathBuf,
+    pub(crate) snapshots_root: PathBuf,
+    pub(crate) bundles_root: PathBuf,
+    pub(crate) chunks_root: PathBuf,
 }
 
 impl GutchRepoPaths {
-    pub fn from_store_root(store_root: &Path, gutch_repo_id: &str) -> Self {
+    pub fn from_store_root(store_root: &Path, gutch_repo_id: &str) -> Result<Self> {
+        validate_path_component(gutch_repo_id, "Gutch repository ID")?;
         let repo_root = store_root.join("v1").join("repos").join(gutch_repo_id);
-        Self::from_repo_root(&repo_root)
+        Ok(Self::from_repo_root(&repo_root))
     }
 
     pub fn from_repo_root(repo_root: &Path) -> Self {
@@ -34,6 +35,27 @@ impl GutchRepoPaths {
             chunks_root: repo_root.join("chunks"),
         }
     }
+
+    pub fn repo_root(&self) -> &Path {
+        &self.repo_root
+    }
+}
+
+pub(crate) fn validate_path_component(value: &str, label: &str) -> Result<()> {
+    if value.is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains('\0')
+        || value.contains('/')
+        || value.contains('\\')
+        || value.contains(':')
+        || Path::new(value).components().count() != 1
+    {
+        return Err(Error::manifest(format!(
+            "invalid {label} path component '{value}'"
+        )));
+    }
+    Ok(())
 }
 
 pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<GutchRepoManifest> {
@@ -123,20 +145,22 @@ fn apply_local_repo_config(paths: &GutchRepoPaths, manifest: &mut GutchRepoManif
     Ok(())
 }
 
-pub fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> PathBuf {
-    bundles_root.join(bundle_id)
+pub fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> Result<PathBuf> {
+    validate_path_component(bundle_id, "bundle ID")?;
+    Ok(bundles_root.join(bundle_id))
 }
 
-pub fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> PathBuf {
+pub fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> Result<PathBuf> {
     bundle_path_in_root(&paths.bundles_root, bundle_id)
 }
 
-pub fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> PathBuf {
+pub fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> Result<PathBuf> {
+    validate_path_component(chunk_hash, "chunk hash")?;
     let prefix = chunk_hash.get(0..2).unwrap_or("xx");
-    chunks_root.join(prefix).join(chunk_hash)
+    Ok(chunks_root.join(prefix).join(chunk_hash))
 }
 
-pub fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> PathBuf {
+pub fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> Result<PathBuf> {
     chunk_path_in_root(&paths.chunks_root, chunk_hash)
 }
 
@@ -144,4 +168,26 @@ pub fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
     let bundle_id = path.file_name().and_then(|value| value.to_str())?;
     crate::ChunkHash::parse_hex(bundle_id).ok()?;
     Some(bundle_id.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_path_traversal_components() {
+        let store_root = Path::new("store");
+        assert!(GutchRepoPaths::from_store_root(store_root, "../escape").is_err());
+        assert!(bundle_path_in_root(store_root, "..\\escape").is_err());
+        assert!(chunk_path_in_root(store_root, "nested/hash").is_err());
+        assert!(validate_path_component("C:\\escape", "component").is_err());
+    }
+
+    #[test]
+    fn accepts_single_component_identifiers() {
+        let paths = GutchRepoPaths::from_store_root(Path::new("store"), "repo-1").unwrap();
+        assert!(paths.repo_root().ends_with(Path::new("v1/repos/repo-1")));
+        assert!(bundle_path(&paths, "bundle-1").is_ok());
+        assert!(chunk_path(&paths, "ab123").is_ok());
+    }
 }

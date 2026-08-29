@@ -11,13 +11,6 @@ use crate::manifest::{
 };
 use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 
-pub trait BuildProgressSink: Send + Sync + std::fmt::Debug {
-    fn on_file_scan_started(&self, total_files: usize);
-    fn on_file_scanned(&self);
-    fn on_bundle_build_started(&self, total_bundles: usize);
-    fn on_bundle_built(&self);
-}
-
 #[derive(Debug, Clone)]
 pub struct BuildConfig<'a> {
     pub gutch_repo_id: String,
@@ -31,7 +24,6 @@ pub struct BuildConfig<'a> {
     pub compression_profile: CompressionProfile,
     pub storage_mode: ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
-    pub progress: Option<Arc<dyn BuildProgressSink>>,
     pub control: crate::GutchOperationControl,
 }
 
@@ -53,7 +45,6 @@ impl<'a> BuildConfig<'a> {
             compression_profile: CompressionProfile::default(),
             storage_mode: ArtifactStorageMode::default(),
             runtime_hints: RuntimeResourceHints::default(),
-            progress: None,
             control: crate::GutchOperationControl::default(),
         }
     }
@@ -91,11 +82,6 @@ impl<'a> BuildConfig<'a> {
 
     pub fn with_compression_profile(mut self, profile: &CompressionProfile) -> Self {
         self.compression_profile = profile.clone();
-        self
-    }
-
-    pub fn with_progress(mut self, progress: Arc<dyn BuildProgressSink>) -> Self {
-        self.progress = Some(progress);
         self
     }
 
@@ -154,20 +140,7 @@ impl ChunkPayload {
     }
 
     pub fn load_bytes(&self) -> crate::Result<Vec<u8>> {
-        match self {
-            ChunkPayload::InMemory { bytes } => Ok(bytes.as_ref().to_vec()),
-            ChunkPayload::TempFile {
-                path,
-                offset,
-                raw_size,
-            } => {
-                let mut file = std::fs::File::open(path)?;
-                file.seek(SeekFrom::Start(*offset))?;
-                let mut bytes = vec![0u8; *raw_size as usize];
-                file.read_exact(&mut bytes)?;
-                Ok(bytes)
-            }
-        }
+        self.with_bytes(|bytes| bytes.to_vec())
     }
 
     pub fn with_bytes<T>(&self, f: impl FnOnce(&[u8]) -> T) -> crate::Result<T> {

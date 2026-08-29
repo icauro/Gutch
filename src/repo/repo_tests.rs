@@ -122,7 +122,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
 fn gutch_repo_paths_from_repo_root() {
     let root = PathBuf::from("/test/repo");
     let paths = GutchRepoPaths::from_repo_root(&root);
-    assert_eq!(paths.repo_root, root);
+    assert_eq!(paths.repo_root(), root);
     assert_eq!(paths.repo_metadata_path, root.join("repo_metadata.json"));
     assert_eq!(
         paths.local_repo_config_path,
@@ -161,7 +161,7 @@ fn payload_paths_are_extensionless_and_bundle_names_are_hashes() {
     let root = PathBuf::from("/test/repo");
     let chunk_hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
     assert_eq!(
-        crate::chunk_path_in_root(&root.join("chunks"), chunk_hash),
+        crate::chunk_path_in_root(&root.join("chunks"), chunk_hash).unwrap(),
         root.join("chunks").join("ab").join(chunk_hash)
     );
     assert_eq!(
@@ -177,13 +177,13 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     let snapshot_id = "0123456789abcdef";
     assert_eq!(
-        crate::snapshot_metadata_path(&paths, snapshot_id),
+        crate::snapshot_metadata_path(&paths, snapshot_id).unwrap(),
         root.join("snapshots")
             .join(snapshot_id)
             .join("snapshot_metadata.json")
     );
     assert_eq!(
-        crate::snapshot_blueprint_path(&paths, snapshot_id),
+        crate::snapshot_blueprint_path(&paths, snapshot_id).unwrap(),
         root.join("snapshots")
             .join(snapshot_id)
             .join("snapshot_blueprint.gtcbin")
@@ -192,7 +192,7 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
 #[test]
 fn gutch_repo_paths_from_store_root() {
     let root = PathBuf::from("/test/store");
-    let paths = GutchRepoPaths::from_store_root(&root, "my-repo");
+    let paths = GutchRepoPaths::from_store_root(&root, "my-repo").unwrap();
     assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
     assert!(
         paths
@@ -480,7 +480,7 @@ fn chunk_index_write_and_load_roundtrip() {
             .map(|entry| entry.bundle_id.as_str()),
         Some("bundle-2")
     );
-    assert!(loaded.entries.get("nonexistent").is_none());
+    assert!(!loaded.entries.contains_key("nonexistent"));
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -508,7 +508,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
 
     let chunk_hash = crate::hash::ChunkHash::from_blake3(crate::hash::hash_chunk(b"hello"));
     let mut builder = crate::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
-    builder.add_chunk(chunk_hash.clone(), b"hello".to_vec());
+    builder.add_chunk(chunk_hash, b"hello".to_vec());
     let (bundle_id, data) = builder.build_with_id().unwrap();
     let built_bundle = crate::BuiltBundle {
         bundle_id: bundle_id.clone(),
@@ -527,7 +527,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     )
     .unwrap();
 
-    std::fs::write(bundle_path(&paths, &bundle_id), &built_bundle.data).unwrap();
+    std::fs::write(bundle_path(&paths, &bundle_id).unwrap(), &built_bundle.data).unwrap();
     let rebuilt =
         rebuild_chunk_index_from_bundles(&paths, &manifest::CompressionProfile::default()).unwrap();
 
@@ -606,11 +606,16 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
     });
 
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
-    let local_json = std::fs::read_to_string(snapshot_metadata_path(&paths, "snapshot-a")).unwrap();
+    let local_json =
+        std::fs::read_to_string(snapshot_metadata_path(&paths, "snapshot-a").unwrap()).unwrap();
     let local_value: serde_json::Value = serde_json::from_str(&local_json).unwrap();
     assert!(local_value.get("source_modified_at").is_none());
     assert!(local_value.get("files").is_none());
-    assert!(snapshot_blueprint_path(&paths, "snapshot-a").is_file());
+    assert!(
+        snapshot_blueprint_path(&paths, "snapshot-a")
+            .unwrap()
+            .is_file()
+    );
     let loaded = load_snapshot_manifest(&paths, "snapshot-a").unwrap();
 
     assert_eq!(loaded.file_count(), 1);

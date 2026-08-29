@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::Duration;
 
 use super::types::{BundleDownload, SnapshotFetchRequest};
 use crate::manifest::gutch_repo::GutchRepoManifest;
@@ -59,6 +57,80 @@ pub(super) struct TransferPhaseCounters {
     pub total: usize,
 }
 
+pub(super) struct TransferDownloadRequest<'a> {
+    pub(super) client: &'a reqwest::blocking::Client,
+    pub(super) url: &'a str,
+    pub(super) control: &'a GutchOperationControl,
+    pub(super) transfer_progress: &'a Arc<FetchTransferProgress>,
+    pub(super) phase: GutchProgressPhase,
+    pub(super) message: &'a str,
+    pub(super) counters: TransferPhaseCounters,
+    pub(super) detail: Option<&'a str>,
+}
+
+impl<'a> TransferDownloadRequest<'a> {
+    pub(super) fn download_bounded(self, maximum_bytes: u64) -> Result<Vec<u8>> {
+        self.control.checkpoint()?;
+        let mut bytes = Vec::new();
+        let reporter = TransferProgressReporter::new(
+            self.control,
+            self.transfer_progress,
+            self.phase,
+            self.message,
+            self.counters,
+            self.detail,
+        );
+        crate::transport::download_url_streaming(
+            self.client,
+            self.url,
+            self.control,
+            Some(maximum_bytes),
+            |content_length| {
+                reporter.record_content_length(content_length);
+                Ok(())
+            },
+            |chunk| {
+                bytes.extend_from_slice(chunk);
+                reporter.record_chunk(chunk.len() as u64);
+                Ok(())
+            },
+        )?;
+        reporter.finish();
+        Ok(bytes)
+    }
+
+    pub(super) fn download_to_path(self, path: &Path) -> Result<()> {
+        self.control.checkpoint()?;
+        crate::helpers::write_atomic_with(path, |file| {
+            let reporter = TransferProgressReporter::new(
+                self.control,
+                self.transfer_progress,
+                self.phase,
+                self.message,
+                self.counters,
+                self.detail,
+            );
+            crate::transport::download_url_streaming(
+                self.client,
+                self.url,
+                self.control,
+                None,
+                |content_length| {
+                    reporter.record_content_length(content_length);
+                    Ok(())
+                },
+                |chunk| {
+                    file.write_all(chunk)?;
+                    reporter.record_chunk(chunk.len() as u64);
+                    Ok(())
+                },
+            )?;
+            reporter.finish();
+            Ok(())
+        })
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct PendingBundleDownload {
     pub bundle_id: String,
@@ -68,24 +140,93 @@ pub(super) struct PendingBundleDownload {
     pub total_missing_bundle_count: usize,
 }
 
+pub(super) use crate::transport::build_download_client;
+
+struct TransferProgressReporter<'a> {
+    control: &'a GutchOperationControl,
+    transfer_progress: &'a Arc<FetchTransferProgress>,
+    phase: GutchProgressPhase,
+    message: &'a str,
+    counters: TransferPhaseCounters,
+    detail: Option<&'a str>,
+    emitted_chunk_bytes: AtomicU64,
+}
+
+impl<'a> TransferProgressReporter<'a> {
+    fn new(
+        control: &'a GutchOperationControl,
+        transfer_progress: &'a Arc<FetchTransferProgress>,
+        phase: GutchProgressPhase,
+        message: &'a str,
+        counters: TransferPhaseCounters,
+        detail: Option<&'a str>,
+    ) -> Self {
+        Self {
+            control,
+            transfer_progress,
+            phase,
+            message,
+            counters,
+            detail,
+            emitted_chunk_bytes: AtomicU64::new(0),
+        }
+    }
+
+    fn record_content_length(&self, content_length: Option<u64>) {
+        if let Some(content_length) = content_length {
+            self.transfer_progress.add_total_bytes(content_length);
+        }
+    }
+
+    fn record_chunk(&self, byte_count: u64) {
+        self.transfer_progress.add_transferred_bytes(byte_count);
+        let emitted_chunk_bytes = self
+            .emitted_chunk_bytes
+            .fetch_add(byte_count, Ordering::Relaxed)
+            + byte_count;
+        if emitted_chunk_bytes >= DOWNLOAD_PROGRESS_EMIT_BYTES {
+            emit_transfer_progress(
+                self.control.progress(),
+                self.transfer_progress,
+                self.phase,
+                self.message,
+                self.counters,
+                self.detail,
+                false,
+            );
+            self.emitted_chunk_bytes.store(0, Ordering::Relaxed);
+        }
+    }
+
+    fn finish(&self) {
+        emit_progress(
+            self.control.progress(),
+            GutchProgressEvent {
+                operation: GutchOperation::Fetch,
+                phase: self.phase,
+                message: "Downloaded snapshot bundles".to_string(),
+                current: self
+                    .counters
+                    .total
+                    .min(self.counters.current.saturating_add(1)),
+                total: self.counters.total.max(1),
+                transferred_bytes: self.transfer_progress.transferred_bytes(),
+                total_bytes: self.transfer_progress.total_bytes(),
+                detail: self.detail.map(str::to_string),
+                done: false,
+            },
+        );
+    }
+}
+
 pub(super) fn bundle_download_worker_count(pending_bundle_count: usize) -> usize {
     let available_workers = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1)
         .max(1);
     pending_bundle_count
-        .max(1)
-        .min(MAX_PARALLEL_BUNDLE_DOWNLOADS)
+        .clamp(1, MAX_PARALLEL_BUNDLE_DOWNLOADS)
         .min(available_workers)
-}
-
-pub(super) fn build_download_client() -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .user_agent("Gutch CLI")
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30 * 60))
-        .build()
-        .map_err(|err| Error::manifest(format!("failed to create download client: {}", err)))
 }
 
 pub(super) fn normalize_bundle_downloads(
@@ -195,216 +336,26 @@ pub(super) fn download_pending_bundle(
     if let Some(parent) = bundle_download.bundle_path.parent() {
         crate::helpers::create_dir_all(parent)?;
     }
-    download_url_to_path(
-        download_client,
-        &bundle_download.url,
-        &bundle_download.bundle_path,
+    let message = format!(
+        "Downloading bundles ({}/{})",
+        bundle_download.ordinal + 1,
+        bundle_download.total_missing_bundle_count.max(1)
+    );
+    TransferDownloadRequest {
+        client: download_client,
+        url: &bundle_download.url,
         control,
         transfer_progress,
-        GutchProgressPhase::Bundle,
-        &format!(
-            "Downloading bundles ({}/{})",
-            bundle_download.ordinal + 1,
-            bundle_download.total_missing_bundle_count.max(1)
-        ),
-        TransferPhaseCounters {
+        phase: GutchProgressPhase::Bundle,
+        message: &message,
+        counters: TransferPhaseCounters {
             current: transfer_progress.completed_bundle_count(),
             total: bundle_download.total_missing_bundle_count.max(1),
         },
-        Some(bundle_download.bundle_id.as_str()),
-    )?;
+        detail: Some(bundle_download.bundle_id.as_str()),
+    }
+    .download_to_path(&bundle_download.bundle_path)?;
     Ok(transfer_progress.mark_bundle_completed())
-}
-
-pub(super) fn download_url_bounded(
-    client: &reqwest::blocking::Client,
-    url: &str,
-    control: &GutchOperationControl,
-    transfer_progress: &Arc<FetchTransferProgress>,
-    phase: GutchProgressPhase,
-    message: &str,
-    counters: TransferPhaseCounters,
-    detail: Option<&str>,
-    maximum_bytes: u64,
-) -> Result<Vec<u8>> {
-    download_url_with_limit(
-        client,
-        url,
-        control,
-        transfer_progress,
-        phase,
-        message,
-        counters,
-        detail,
-        Some(maximum_bytes),
-    )
-}
-
-fn download_url_with_limit(
-    client: &reqwest::blocking::Client,
-    url: &str,
-    control: &GutchOperationControl,
-    transfer_progress: &Arc<FetchTransferProgress>,
-    phase: GutchProgressPhase,
-    message: &str,
-    counters: TransferPhaseCounters,
-    detail: Option<&str>,
-    maximum_bytes: Option<u64>,
-) -> Result<Vec<u8>> {
-    control.checkpoint()?;
-    let mut bytes = Vec::new();
-    download_url_streaming(
-        client,
-        url,
-        control,
-        transfer_progress,
-        phase,
-        message,
-        counters,
-        detail,
-        maximum_bytes,
-        |chunk| {
-            if let Some(maximum) = maximum_bytes
-                && bytes.len().saturating_add(chunk.len()) as u64 > maximum
-            {
-                return Err(Error::manifest("download exceeded the allowed size"));
-            }
-            bytes.extend_from_slice(chunk);
-            Ok(())
-        },
-    )?;
-    Ok(bytes)
-}
-
-pub(super) fn download_url_to_path(
-    client: &reqwest::blocking::Client,
-    url: &str,
-    path: &Path,
-    control: &GutchOperationControl,
-    transfer_progress: &Arc<FetchTransferProgress>,
-    phase: GutchProgressPhase,
-    message: &str,
-    counters: TransferPhaseCounters,
-    detail: Option<&str>,
-) -> Result<()> {
-    control.checkpoint()?;
-    let temporary_path = path.with_extension("downloading");
-    if temporary_path.exists() {
-        let _ = std::fs::remove_file(&temporary_path);
-    }
-    let result = (|| -> Result<()> {
-        let mut file = File::create(&temporary_path)?;
-        download_url_streaming(
-            client,
-            url,
-            control,
-            transfer_progress,
-            phase,
-            message,
-            counters,
-            detail,
-            None,
-            |chunk| {
-                file.write_all(chunk)?;
-                Ok(())
-            },
-        )?;
-        file.flush()?;
-        drop(file);
-        control.checkpoint()?;
-        std::fs::rename(&temporary_path, path)?;
-        Ok(())
-    })();
-
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary_path);
-    }
-    result
-}
-
-fn download_url_streaming<F>(
-    client: &reqwest::blocking::Client,
-    url: &str,
-    control: &GutchOperationControl,
-    transfer_progress: &Arc<FetchTransferProgress>,
-    phase: GutchProgressPhase,
-    message: &str,
-    counters: TransferPhaseCounters,
-    detail: Option<&str>,
-    maximum_bytes: Option<u64>,
-    mut on_chunk: F,
-) -> Result<()>
-where
-    F: FnMut(&[u8]) -> Result<()>,
-{
-    control.checkpoint()?;
-    let response = client
-        .get(url)
-        .send()
-        .map_err(|err| Error::manifest(format!("download request failed: {}", err)))?;
-    if !response.status().is_success() {
-        return Err(Error::manifest(format!(
-            "download request failed with status {}",
-            response.status()
-        )));
-    }
-    if maximum_bytes.is_some_and(|maximum| {
-        response
-            .content_length()
-            .is_some_and(|length| length > maximum)
-    }) {
-        return Err(Error::manifest("download exceeded the allowed size"));
-    }
-    if let Some(content_length) = response.content_length() {
-        transfer_progress.add_total_bytes(content_length);
-    }
-    let mut response = response;
-    let mut buffer = [0u8; 64 * 1024];
-    let mut downloaded_bytes = 0_u64;
-    let mut emitted_chunk_bytes = 0u64;
-    loop {
-        control.checkpoint()?;
-        let read = response
-            .read(&mut buffer)
-            .map_err(|err| Error::manifest(format!("failed to read download response: {}", err)))?;
-        if read == 0 {
-            break;
-        }
-        downloaded_bytes = downloaded_bytes.saturating_add(read as u64);
-        if maximum_bytes.is_some_and(|maximum| downloaded_bytes > maximum) {
-            return Err(Error::manifest("download exceeded the allowed size"));
-        }
-        on_chunk(&buffer[..read])?;
-        transfer_progress.add_transferred_bytes(read as u64);
-        emitted_chunk_bytes += read as u64;
-        if emitted_chunk_bytes >= DOWNLOAD_PROGRESS_EMIT_BYTES {
-            emit_transfer_progress(
-                control.progress(),
-                transfer_progress,
-                phase,
-                message,
-                counters,
-                detail,
-                false,
-            );
-            emitted_chunk_bytes = 0;
-        }
-    }
-    emit_progress(
-        control.progress(),
-        GutchProgressEvent {
-            operation: GutchOperation::Fetch,
-            phase,
-            message: "Downloaded snapshot bundles".to_string(),
-            current: counters.total.min(counters.current.saturating_add(1)),
-            total: counters.total.max(1),
-            transferred_bytes: transfer_progress.transferred_bytes(),
-            total_bytes: transfer_progress.total_bytes(),
-            detail: detail.map(str::to_string),
-            done: false,
-        },
-    );
-    Ok(())
 }
 
 fn emit_transfer_progress(

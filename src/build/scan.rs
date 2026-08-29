@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use rayon::prelude::*;
 
-use crate::build::types::{BuildProgressSink, BuildTimings, ChunkPayload, ExistingChunkLocation};
+use crate::build::progress::BuildProgressTracker;
+use crate::build::types::{BuildTimings, ChunkPayload, ExistingChunkLocation};
 use crate::hash::ChunkHash;
 use crate::manifest::{
     self, ChunkRef, DirectoryManifest, FileManifest, SnapshotEntry, SymlinkManifest,
@@ -34,7 +34,6 @@ pub(crate) struct ScanDirectoryOptions<'a> {
     pub chunk_storage_mode: ChunkStorageMode,
     pub chunk_spool_root: Option<&'a Path>,
     pub worker_count: usize,
-    pub progress: Option<Arc<dyn BuildProgressSink>>,
     pub control: crate::GutchOperationControl,
 }
 
@@ -179,12 +178,15 @@ pub(crate) fn scan_directory_into_file_entries(
         }
     }
 
-    if let Some(progress) = &options.progress {
-        progress.on_file_scan_started(file_paths.len());
-    }
+    let progress = BuildProgressTracker::new(
+        &options.control,
+        crate::GutchProgressPhase::Scan,
+        "Scanning files",
+    );
+    progress.start(file_paths.len());
 
     let spool_root = options.chunk_spool_root.map(PathBuf::from);
-    let progress_for_scan = options.progress.clone();
+    let progress_for_scan = progress.clone();
     let control_for_scan = options.control.clone();
     let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
         let result = (|| -> Result<FileBuildEntry> {
@@ -204,23 +206,21 @@ pub(crate) fn scan_directory_into_file_entries(
                 .map(Vec::as_slice)
                 .unwrap_or_default();
 
-            scan_changed_file(
+            scan_changed_file(ScanChangedFileRequest {
                 path,
                 relative,
                 normalized_relative,
-                &source_metadata,
+                source_metadata: &source_metadata,
                 metadata,
                 previous_candidates,
-                &options,
-                &control_for_scan,
-                spool_root.as_ref(),
-            )
+                options: &options,
+                control: &control_for_scan,
+                spool_root: spool_root.as_deref(),
+            })
         })();
 
-        if result.is_ok()
-            && let Some(progress) = &progress_for_scan
-        {
-            progress.on_file_scanned();
+        if result.is_ok() {
+            progress_for_scan.completed();
         }
 
         result
@@ -238,18 +238,30 @@ pub(crate) fn scan_directory_into_file_entries(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn scan_changed_file(
-    path: &Path,
-    relative: &Path,
+struct ScanChangedFileRequest<'a> {
+    path: &'a Path,
+    relative: &'a Path,
     normalized_relative: String,
-    source_metadata: &std::fs::Metadata,
+    source_metadata: &'a std::fs::Metadata,
     metadata: Duration,
-    previous_candidates: &[FileManifest],
-    options: &ScanDirectoryOptions<'_>,
-    control: &crate::GutchOperationControl,
-    spool_root: Option<&PathBuf>,
-) -> Result<FileBuildEntry> {
+    previous_candidates: &'a [FileManifest],
+    options: &'a ScanDirectoryOptions<'a>,
+    control: &'a crate::GutchOperationControl,
+    spool_root: Option<&'a Path>,
+}
+
+fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEntry> {
+    let ScanChangedFileRequest {
+        path,
+        relative,
+        normalized_relative,
+        source_metadata,
+        metadata,
+        previous_candidates,
+        options,
+        control,
+        spool_root,
+    } = request;
     let read_only = source_metadata.permissions().readonly();
     #[cfg(unix)]
     let executable = {

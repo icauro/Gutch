@@ -129,7 +129,11 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     write_snapshot_manifest_artifacts(&repo_paths, &v1.snapshot_manifest).unwrap();
     write_snapshot_manifest_artifacts(&repo_paths, &v2.snapshot_manifest).unwrap();
     for bundle in &v2.bundles {
-        std::fs::write(bundle_path(&repo_paths, &bundle.bundle_id), &bundle.data).unwrap();
+        std::fs::write(
+            bundle_path(&repo_paths, &bundle.bundle_id).unwrap(),
+            &bundle.data,
+        )
+        .unwrap();
     }
     let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
     add_built_bundles_to_chunk_index(
@@ -208,7 +212,7 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
 
     for bundle in &result.bundles {
         std::fs::write(
-            bundle_path_in_root(&bundles_dir, &bundle.bundle_id),
+            bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap(),
             &bundle.data,
         )
         .unwrap();
@@ -216,23 +220,23 @@ fn test_reconstruct_bundle_compressed_with_runtime_hints() {
     let bundle_paths: Vec<PathBuf> = result
         .bundles
         .iter()
-        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
+        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap())
         .collect();
 
-    let (_, timings) = reconstruct_from_bundle_paths(
-        &result.snapshot_manifest,
-        &bundle_paths,
-        &manifest::CompressionProfile::default(),
-        None,
-        &out_dir,
-        &crate::runtime::RuntimeResourceHints {
+    let (_, timings) = reconstruct_from_bundle_paths(ReconstructRequest {
+        snapshot_manifest: &result.snapshot_manifest,
+        bundle_paths: &bundle_paths,
+        compression_profile: &manifest::CompressionProfile::default(),
+        verified_source: None,
+        output_dir: &out_dir,
+        runtime_hints: &crate::runtime::RuntimeResourceHints {
             memory_mode: crate::runtime::MemoryMode::Low,
             max_memory_mib: Some(1024),
             jobs: Some(1),
         },
-        ReconstructOptions::default(),
-        &GutchOperationControl::default(),
-    )
+        options: ReconstructOptions::default(),
+        control: &GutchOperationControl::default(),
+    })
     .unwrap();
 
     let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
@@ -275,7 +279,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
 
     for bundle in &result.bundles {
         std::fs::write(
-            bundle_path_in_root(&bundles_dir, &bundle.bundle_id),
+            bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap(),
             &bundle.data,
         )
         .unwrap();
@@ -283,26 +287,26 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
     let bundle_paths: Vec<PathBuf> = result
         .bundles
         .iter()
-        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id))
+        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap())
         .collect();
 
-    reconstruct_from_bundle_paths(
-        &result.snapshot_manifest,
-        &bundle_paths,
-        &manifest::CompressionProfile::default(),
-        None,
-        &out_dir,
-        &crate::runtime::RuntimeResourceHints {
+    reconstruct_from_bundle_paths(ReconstructRequest {
+        snapshot_manifest: &result.snapshot_manifest,
+        bundle_paths: &bundle_paths,
+        compression_profile: &manifest::CompressionProfile::default(),
+        verified_source: None,
+        output_dir: &out_dir,
+        runtime_hints: &crate::runtime::RuntimeResourceHints {
             memory_mode: crate::runtime::MemoryMode::High,
             max_memory_mib: Some(1024),
             jobs: Some(2),
         },
-        ReconstructOptions {
+        options: ReconstructOptions {
             verify_chunks: false,
             verify_files: false,
         },
-        &GutchOperationControl::default(),
-    )
+        control: &GutchOperationControl::default(),
+    })
     .unwrap();
 
     let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
@@ -317,7 +321,7 @@ fn test_high_memory_no_verify_reconstruct_roundtrip() {
 
 #[test]
 fn test_gutch_repo_paths_from_store_root() {
-    let paths = GutchRepoPaths::from_store_root(Path::new("D:\\store"), "base");
+    let paths = GutchRepoPaths::from_store_root(Path::new("D:\\store"), "base").unwrap();
 
     assert_eq!(
         paths.repo_root,
@@ -512,7 +516,7 @@ fn test_large_game_build_200mb() {
     for bundle in &result.bundles {
         let bundle_dir = artifacts_dir.join("bundles");
         std::fs::create_dir_all(&bundle_dir).unwrap();
-        let bundle_path = bundle_path_in_root(&bundle_dir, &bundle.bundle_id);
+        let bundle_path = bundle_path_in_root(&bundle_dir, &bundle.bundle_id).unwrap();
         std::fs::write(bundle_path, &bundle.data).unwrap();
     }
     let artifacts_total = test_util::dir_size(&artifacts_dir);

@@ -7,10 +7,10 @@ pub mod artifact;
 pub mod build;
 pub mod cli;
 pub mod config;
-pub mod core;
 pub mod error;
 pub mod helpers;
 mod snapshot_ops;
+mod transport;
 pub use snapshot_ops::snapshot_manifest_from_download;
 pub mod manifest;
 mod progress;
@@ -30,8 +30,8 @@ pub use snapshot::path_guard;
 pub use snapshot::source_config;
 
 pub use build::types::{
-    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
-    ChunkPayload, ExistingChunkLocation,
+    BuildConfig, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk, ChunkPayload,
+    ExistingChunkLocation,
 };
 pub use build::{build_from_directory, build_with_config};
 pub use error::{Error, Result};
@@ -54,8 +54,8 @@ pub use progress::{
     GutchProgressPhase, GutchProgressSink, emit_progress,
 };
 pub use reconstruct::{
-    ReconstructOptions, ReconstructTimings, VerifiedSourceTree, reconstruct_from_bundle_paths,
-    reconstruct_from_repo, reconstruct_from_snapshot_manifest,
+    ReconstructOptions, ReconstructRequest, ReconstructTimings, VerifiedSourceTree,
+    reconstruct_from_bundle_paths, reconstruct_from_repo, reconstruct_from_snapshot_manifest,
 };
 pub use repo::remote::{
     PullConflictPolicy, RemoteArtifactSource, RemoteBundleSource, RemoteRepository,

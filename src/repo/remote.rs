@@ -5,7 +5,6 @@
 //! mutations, progress, cancellation, and synchronization order.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -301,6 +300,46 @@ fn repo_file_hash(bytes: &[u8]) -> String {
     crate::hash::hash_hex(&blake3::hash(bytes))
 }
 
+fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &str) -> Result<()> {
+    let expected_hash = expected_hash.trim();
+    if expected_hash.is_empty() {
+        return Ok(());
+    }
+    let actual_hash = repo_file_hash(bytes);
+    if actual_hash != expected_hash {
+        return Err(Error::HashMismatch {
+            expected: format!("{label} {expected_hash}"),
+            actual: format!("{label} {actual_hash}"),
+        });
+    }
+    Ok(())
+}
+
+fn verify_remote_bundle(bundle_id: &str, bytes: &[u8]) -> Result<()> {
+    let expected_hash = crate::ChunkHash::parse_hex(bundle_id)?;
+    if bytes.len() < 64 {
+        return Err(Error::InvalidBundle(format!(
+            "bundle '{}' is missing its content hash",
+            bundle_id
+        )));
+    }
+    let actual_hash = repo_file_hash(&bytes[..bytes.len() - 64]);
+    if actual_hash != expected_hash.to_hex() {
+        return Err(Error::HashMismatch {
+            expected: expected_hash.to_hex(),
+            actual: actual_hash,
+        });
+    }
+    let expected_hex = expected_hash.to_hex();
+    if &bytes[bytes.len() - 64..] != expected_hex.as_bytes() {
+        return Err(Error::InvalidBundle(format!(
+            "bundle '{}' has an inconsistent trailing content hash",
+            bundle_id
+        )));
+    }
+    Ok(())
+}
+
 fn hashes_differ(local_hash: &str, remote_hash: &str) -> bool {
     let local_hash = local_hash.trim();
     let remote_hash = remote_hash.trim();
@@ -380,9 +419,9 @@ fn local_snapshot_metadata_hash_b3(
     repo_paths: &GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
-    if !crate::repo::snapshot_metadata_path(repo_paths, snapshot_id).exists()
-        || !crate::repo::snapshot_blueprint_path(repo_paths, snapshot_id).exists()
-    {
+    let metadata_path = crate::repo::snapshot_metadata_path(repo_paths, snapshot_id)?;
+    let blueprint_path = crate::repo::snapshot_blueprint_path(repo_paths, snapshot_id)?;
+    if !metadata_path.exists() || !blueprint_path.exists() {
         return Ok(String::new());
     }
     let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
@@ -395,9 +434,9 @@ fn local_snapshot_product_metadata_hash_b3(
     repo_paths: &GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
-    if !crate::repo::snapshot_metadata_path(repo_paths, snapshot_id).exists()
-        || !crate::repo::snapshot_blueprint_path(repo_paths, snapshot_id).exists()
-    {
+    let metadata_path = crate::repo::snapshot_metadata_path(repo_paths, snapshot_id)?;
+    let blueprint_path = crate::repo::snapshot_blueprint_path(repo_paths, snapshot_id)?;
+    if !metadata_path.exists() || !blueprint_path.exists() {
         return Ok(String::new());
     }
     let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
@@ -411,7 +450,7 @@ fn local_snapshot_blueprint_hash_b3(
     repo_paths: &GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
-    let path = crate::repo::snapshot_blueprint_path(repo_paths, snapshot_id);
+    let path = crate::repo::snapshot_blueprint_path(repo_paths, snapshot_id)?;
     if !path.exists() {
         return Ok(String::new());
     }
@@ -451,7 +490,7 @@ fn compute_pull_plan(
         } else {
             &snapshot.uploaded_at
         };
-        let metadata_path = crate::repo::snapshot_metadata_path(repo_paths, &snapshot.snapshot_id);
+        let metadata_path = crate::repo::snapshot_metadata_path(repo_paths, &snapshot.snapshot_id)?;
         let mut decision = decide_artifact(
             metadata_path.exists(),
             local_snapshot_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
@@ -469,7 +508,7 @@ fn compute_pull_plan(
             decision = ArtifactDecision::Fetch;
         }
         let product_metadata_path =
-            crate::repo::snapshot_product_metadata_path(repo_paths, &snapshot.snapshot_id);
+            crate::repo::snapshot_product_metadata_path(repo_paths, &snapshot.snapshot_id)?;
         let product_metadata_decision = decide_artifact(
             product_metadata_path.exists(),
             local_snapshot_product_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
@@ -585,17 +624,9 @@ impl RemoteProgress {
     }
 }
 
-fn build_remote_client() -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .user_agent("Gutch")
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(15 * 60))
-        .build()
-        .map_err(|error| Error::manifest(format!("failed to create remote client: {error}")))
-}
-
 fn source_bytes(
     source: &RemoteArtifactSource,
+    client: &reqwest::blocking::Client,
     maximum_bytes: u64,
     control: &GutchOperationControl,
 ) -> Result<Vec<u8>> {
@@ -608,44 +639,53 @@ fn source_bytes(
             Ok(bytes.clone())
         }
         RemoteArtifactSource::Url(url) => {
-            let client = build_remote_client()?;
-            let response = client.get(url).send().map_err(|error| {
-                Error::manifest(format!("remote artifact request failed: {error}"))
-            })?;
-            if !response.status().is_success() {
-                return Err(Error::manifest(format!(
-                    "remote artifact request failed with status {}",
-                    response.status()
-                )));
-            }
-            crate::helpers::read_response_bounded(response, maximum_bytes, || control.checkpoint())
+            let mut bytes = Vec::new();
+            crate::transport::download_url_streaming(
+                client,
+                url,
+                control,
+                Some(maximum_bytes),
+                |_| Ok(()),
+                |chunk| {
+                    bytes.extend_from_slice(chunk);
+                    Ok(())
+                },
+            )?;
+            Ok(bytes)
         }
     }
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| Error::manifest(format!("path has no parent: {}", path.display())))?;
-    crate::helpers::create_dir_all(parent)?;
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| Error::manifest(format!("path has no file name: {}", path.display())))?;
-    let temporary_path = parent.join(format!(".{file_name}.part-{}", std::process::id()));
-    let result = (|| -> Result<()> {
-        let mut file = std::fs::File::create(&temporary_path)?;
-        file.write_all(bytes)?;
-        file.flush()?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&temporary_path, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary_path);
+fn write_remote_snapshot_artifacts(
+    repo_paths: &GutchRepoPaths,
+    snapshot_id: &str,
+    metadata: &crate::manifest::snapshot::SnapshotManifest,
+    product_metadata: Option<&crate::manifest::SnapshotProductMetadata>,
+    blueprint_bytes: &[u8],
+) -> Result<()> {
+    crate::repo::validate_path_component(snapshot_id, "snapshot ID")?;
+    let staging_dir = tempfile::Builder::new()
+        .prefix(".gutch-snapshot-")
+        .tempdir_in(&repo_paths.snapshots_root)?;
+    let staging_path = staging_dir.path().to_path_buf();
+    crate::helpers::write(
+        &staging_path.join(crate::repo::SNAPSHOT_METADATA_FILE),
+        &serde_json::to_vec_pretty(&metadata.metadata())?,
+    )?;
+    if let Some(product_metadata) = product_metadata {
+        product_metadata.validate_structure()?;
+        crate::helpers::write(
+            &staging_path.join(crate::repo::SNAPSHOT_PRODUCT_METADATA_FILE),
+            &serde_json::to_vec_pretty(product_metadata)?,
+        )?;
     }
-    result
+    let blueprint_path = staging_path.join(crate::repo::SNAPSHOT_BLUEPRINT_FILE);
+    crate::helpers::write(&blueprint_path, blueprint_bytes)?;
+    crate::manifest::binary::read_snapshot_blueprint_binary(&blueprint_path)?;
+
+    let staging_path = staging_dir.keep();
+    let destination_dir = repo_paths.snapshots_root.join(snapshot_id);
+    crate::helpers::replace_directory(&staging_path, &destination_dir)
 }
 
 pub fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
@@ -812,6 +852,7 @@ pub fn pull_repo<P: RemoteRepositoryReader>(
     let snapshots = provider.list_snapshots(&repository)?;
     let plan = compute_pull_plan(&repo, &repo_paths, &repository, &snapshots, policy)?;
     control.checkpoint()?;
+    let download_client = crate::transport::build_download_client()?;
 
     let mut stats = RepoPullStats {
         command: "repo pull",
@@ -848,9 +889,11 @@ pub fn pull_repo<P: RemoteRepositoryReader>(
         );
         let bytes = source_bytes(
             &provider.repository_metadata_source(&repository)?,
+            &download_client,
             MAX_REMOTE_JSON_BYTES,
             &control,
         )?;
+        verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repository metadata")?;
         let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
             crate::helpers::from_json_bytes(&bytes)?;
         manifest.remote_repo_id = repository.id.clone();
@@ -871,9 +914,11 @@ pub fn pull_repo<P: RemoteRepositoryReader>(
         );
         let bytes = source_bytes(
             &provider.chunk_index_source(&repository)?,
+            &download_client,
             MAX_REMOTE_JSON_BYTES,
             &control,
         )?;
+        verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
         let chunk_index: crate::manifest::ChunkIndex = crate::helpers::from_json_bytes(&bytes)
             .map_err(|error| {
                 Error::manifest(format!("downloaded chunk map is invalid JSON: {error}"))
@@ -908,25 +953,49 @@ pub fn pull_repo<P: RemoteRepositoryReader>(
                 ))
             })?;
         let sources = provider.snapshot_sources(&repository, snapshot)?;
-        let metadata_bytes = source_bytes(&sources.metadata, MAX_REMOTE_JSON_BYTES, &control)?;
+        let metadata_bytes = source_bytes(
+            &sources.metadata,
+            &download_client,
+            MAX_REMOTE_JSON_BYTES,
+            &control,
+        )?;
+        verify_remote_artifact(
+            &metadata_bytes,
+            &snapshot.metadata_hash_b3,
+            "snapshot metadata",
+        )?;
         let metadata = crate::snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
-        crate::repo::write_snapshot_metadata_only(&repo_paths, &metadata)?;
-        if let Some(source) = sources.product_metadata {
-            let product_metadata_bytes = source_bytes(&source, MAX_REMOTE_JSON_BYTES, &control)?;
+        let product_metadata = if let Some(source) = sources.product_metadata {
+            let product_metadata_bytes =
+                source_bytes(&source, &download_client, MAX_REMOTE_JSON_BYTES, &control)?;
+            verify_remote_artifact(
+                &product_metadata_bytes,
+                &snapshot.product_metadata_hash_b3,
+                "snapshot product metadata",
+            )?;
             let product_metadata: crate::manifest::SnapshotProductMetadata =
                 crate::helpers::from_json_bytes(&product_metadata_bytes)?;
             product_metadata.validate_structure()?;
-            crate::repo::write_snapshot_product_metadata(
-                &repo_paths,
-                snapshot_id,
-                Some(&product_metadata),
-            )?;
+            Some(product_metadata)
         } else {
-            crate::repo::write_snapshot_product_metadata(&repo_paths, snapshot_id, None)?;
-        }
-        let blueprint_bytes = source_bytes(&sources.blueprint, MAX_REMOTE_BINARY_BYTES, &control)?;
-        atomic_write(
-            &crate::repo::snapshot_blueprint_path(&repo_paths, snapshot_id),
+            None
+        };
+        let blueprint_bytes = source_bytes(
+            &sources.blueprint,
+            &download_client,
+            MAX_REMOTE_BINARY_BYTES,
+            &control,
+        )?;
+        verify_remote_artifact(
+            &blueprint_bytes,
+            &snapshot.blueprint_hash_b3,
+            "snapshot blueprint",
+        )?;
+        write_remote_snapshot_artifacts(
+            &repo_paths,
+            snapshot_id,
+            &metadata,
+            product_metadata.as_ref(),
             &blueprint_bytes,
         )?;
         stats.snapshot_downloaded_count += 1;
@@ -947,11 +1016,12 @@ pub fn pull_repo<P: RemoteRepositoryReader>(
         .flat_map(|(_, ids)| ids.iter())
         .cloned()
         .collect();
-    let mut missing_bundles: Vec<String> = required_set
-        .iter()
-        .filter(|id| !crate::bundle_path(&repo_paths, id).is_file())
-        .cloned()
-        .collect();
+    let mut missing_bundles = Vec::new();
+    for id in &required_set {
+        if !crate::bundle_path(&repo_paths, id)?.is_file() {
+            missing_bundles.push(id.clone());
+        }
+    }
     missing_bundles.sort();
     let mut bundle_sources = HashMap::new();
     for (snapshot_id, missing_for_snapshot) in
@@ -995,8 +1065,10 @@ pub fn pull_repo<P: RemoteRepositoryReader>(
             Some(bundle_id.clone()),
             false,
         );
-        let bytes = source_bytes(source, MAX_REMOTE_BINARY_BYTES, &control)?;
-        atomic_write(&crate::bundle_path(&repo_paths, bundle_id), &bytes)?;
+        let bytes = source_bytes(source, &download_client, MAX_REMOTE_BINARY_BYTES, &control)?;
+        verify_remote_bundle(bundle_id, &bytes)?;
+        let bundle_path = crate::bundle_path(&repo_paths, bundle_id)?;
+        crate::helpers::write(&bundle_path, &bytes)?;
         bundle_downloaded += 1;
     }
     stats.bundle_downloaded_count = bundle_downloaded;
@@ -1291,13 +1363,12 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter>(
         Some(snapshot.snapshot_id.clone()),
         false,
     );
+    let blueprint_path =
+        crate::repo::snapshot_blueprint_path(context.repo_paths, &snapshot.snapshot_id)?;
     context.provider.upload_snapshot_blueprint(
         context.repository,
         remote_snapshot,
-        crate::helpers::read(&crate::repo::snapshot_blueprint_path(
-            context.repo_paths,
-            &snapshot.snapshot_id,
-        ))?,
+        crate::helpers::read(&blueprint_path)?,
         context.control,
     )?;
     context.stats.snapshot_blueprint_uploaded_count += 1;
@@ -1635,6 +1706,26 @@ mod tests {
             ]),
             ("1.2.3".into(), "linux".into(), "".into())
         );
+    }
+
+    #[test]
+    fn remote_artifact_hashes_are_verified_before_persistence() {
+        let bytes = b"remote artifact";
+        let expected = repo_file_hash(bytes);
+        assert!(verify_remote_artifact(bytes, &expected, "metadata").is_ok());
+        assert!(verify_remote_artifact(b"tampered", &expected, "metadata").is_err());
+    }
+
+    #[test]
+    fn remote_bundle_content_hash_is_verified() {
+        let payload = b"bundle payload";
+        let bundle_hash = repo_file_hash(payload);
+        let mut bundle_bytes = payload.to_vec();
+        bundle_bytes.extend_from_slice(bundle_hash.as_bytes());
+
+        assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_ok());
+        bundle_bytes[0] ^= 1;
+        assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_err());
     }
 
     #[test]

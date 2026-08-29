@@ -125,7 +125,7 @@ fn verify_snapshot_bundles(
     let mut corrupt = Vec::new();
 
     for bundle_id in &required {
-        let path = bundle_path(repo_paths, bundle_id);
+        let path = bundle_path(repo_paths, bundle_id)?;
         if !path.exists() {
             missing.push(bundle_id.clone());
             continue;

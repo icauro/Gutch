@@ -3,7 +3,7 @@ mod source;
 mod types;
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use crate::Result;
@@ -15,11 +15,12 @@ use crate::repo::{GutchRepoPaths, required_bundle_ids, required_chunk_hashes_typ
 use crate::runtime::RuntimeResourceHints;
 
 use pipeline::{
-    prepare_reconstruct, read_loose_repo_chunks, rebuild_files_from_chunks,
+    BundleReconstructRequest, ReadLooseRepoChunksRequest, prepare_reconstruct,
+    read_loose_repo_chunks, rebuild_files_from_chunks,
     reconstruct_from_bundle_paths_and_local_chunks,
 };
 use source::read_reusable_source_chunks;
-pub use types::{ReconstructOptions, ReconstructTimings, VerifiedSourceTree};
+pub use types::{ReconstructOptions, ReconstructRequest, ReconstructTimings, VerifiedSourceTree};
 
 pub(crate) fn prepare_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
@@ -136,36 +137,34 @@ fn reconstruct_from_snapshot_manifest_with_timings(
 }
 
 pub fn reconstruct_from_bundle_paths(
-    snapshot_manifest: &SnapshotManifest,
-    bundle_paths: &[PathBuf],
-    compression_profile: &CompressionProfile,
-    verified_source: Option<VerifiedSourceTree<'_>>,
-    output_dir: &Path,
-    runtime_hints: &RuntimeResourceHints,
-    options: ReconstructOptions,
-    control: &GutchOperationControl,
+    request: ReconstructRequest<'_>,
 ) -> Result<((), ReconstructTimings)> {
-    let (needed_chunks, total_start, runtime_plan, timings) =
-        prepare_reconstruct(snapshot_manifest, output_dir, runtime_hints, control)?;
+    let (needed_chunks, total_start, runtime_plan, timings) = prepare_reconstruct(
+        request.snapshot_manifest,
+        request.output_dir,
+        request.runtime_hints,
+        request.control,
+    )?;
 
     let reconstruct_start = Instant::now();
-    let local_chunks = match verified_source {
-        Some(source) => read_reusable_source_chunks(source, &needed_chunks, control)?,
+    let local_chunks = match request.verified_source {
+        Some(source) => read_reusable_source_chunks(source, &needed_chunks, request.control)?,
         None => HashMap::new(),
     };
-    let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
-        snapshot_manifest,
-        bundle_paths,
-        compression_profile,
-        &needed_chunks,
-        local_chunks,
-        output_dir,
-        runtime_plan,
-        total_start,
-        timings,
-        options,
-        control,
-    )?;
+    let (result, mut timings) =
+        reconstruct_from_bundle_paths_and_local_chunks(BundleReconstructRequest {
+            snapshot_manifest: request.snapshot_manifest,
+            bundle_paths: request.bundle_paths,
+            compression_profile: request.compression_profile,
+            needed_chunks: &needed_chunks,
+            local_chunks,
+            output_dir: request.output_dir,
+            runtime_plan,
+            total_start,
+            timings,
+            options: request.options,
+            control: request.control,
+        })?;
     timings.reconstruct_wall = reconstruct_start.elapsed();
     timings.total = total_start.elapsed();
     Ok((result, timings))
@@ -186,35 +185,36 @@ pub fn reconstruct_from_repo(
     let reconstruct_start = Instant::now();
     control.checkpoint()?;
     let chunk_index = crate::repo::load_chunk_index(repo_paths)?;
-    let local_chunks = read_loose_repo_chunks(
+    let local_chunks = read_loose_repo_chunks(ReadLooseRepoChunksRequest {
         repo_paths,
-        &chunk_index,
+        chunk_index: &chunk_index,
         compression_profile,
-        &needed_chunks,
+        needed_chunks: &needed_chunks,
         options,
-        runtime_plan.worker_count,
-        &mut timings,
+        worker_count: runtime_plan.worker_count,
+        timings: &mut timings,
         control,
-    )?;
+    })?;
     let required_bundle_ids = required_bundle_ids(snapshot_manifest, &chunk_index);
     let bundle_paths = required_bundle_ids
         .iter()
         .map(|bundle_id| crate::repo::bundle_path(repo_paths, bundle_id))
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
-    let (result, mut timings) = reconstruct_from_bundle_paths_and_local_chunks(
-        snapshot_manifest,
-        &bundle_paths,
-        compression_profile,
-        &needed_chunks,
-        local_chunks,
-        output_dir,
-        runtime_plan,
-        total_start,
-        timings,
-        options,
-        control,
-    )?;
+    let (result, mut timings) =
+        reconstruct_from_bundle_paths_and_local_chunks(BundleReconstructRequest {
+            snapshot_manifest,
+            bundle_paths: &bundle_paths,
+            compression_profile,
+            needed_chunks: &needed_chunks,
+            local_chunks,
+            output_dir,
+            runtime_plan,
+            total_start,
+            timings,
+            options,
+            control,
+        })?;
     timings.reconstruct_wall = reconstruct_start.elapsed();
     timings.total = total_start.elapsed();
     Ok((result, timings))

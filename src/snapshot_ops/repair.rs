@@ -9,7 +9,8 @@ use crate::{Error, Result};
 
 use super::apply::default_snapshot_staging_dir;
 use super::pipeline::{
-    build_reconstruct_pipeline_plan, execute_reconstruct_pipeline_reconstruction,
+    ExecuteReconstructPipelineRequest, build_reconstruct_pipeline_plan,
+    execute_reconstruct_pipeline_reconstruction,
 };
 use super::types::{
     SnapshotRepairFromRepoRequest, SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
@@ -57,12 +58,12 @@ pub fn repair_snapshot_from_repo(
     });
     let resolved_bundle_file_count = repair_plan.required_bundle_ids.len();
     if repair_plan.needs_rebuild {
-        let existing_bundle_ids = repair_plan
-            .required_bundle_ids
-            .iter()
-            .filter(|bundle_id| crate::bundle_path(&repo_paths, bundle_id).is_file())
-            .cloned()
-            .collect::<HashSet<_>>();
+        let mut existing_bundle_ids = HashSet::new();
+        for bundle_id in &repair_plan.required_bundle_ids {
+            if crate::bundle_path(&repo_paths, bundle_id)?.is_file() {
+                existing_bundle_ids.insert(bundle_id.clone());
+            }
+        }
         let pipeline_plan = build_reconstruct_pipeline_plan(
             &repair_plan.affected_manifest,
             &chunk_index,
@@ -70,18 +71,19 @@ pub fn repair_snapshot_from_repo(
             &existing_bundle_ids,
             None,
         )?;
-        let _ = execute_reconstruct_pipeline_reconstruction(
+        let compression_profile = repo_manifest.compression_profile();
+        let _ = execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
             pipeline_plan,
-            &staging_dir,
-            &snapshot_manifest.snapshot_id,
-            &repo_manifest.compression_profile(),
-            &request.runtime_hints,
-            &existing_bundle_ids,
-            &[],
-            &request.control,
-            None,
-            None,
-        )?;
+            staging_dir: &staging_dir,
+            snapshot_id: &snapshot_manifest.snapshot_id,
+            compression_profile: &compression_profile,
+            runtime_hints: &request.runtime_hints,
+            existing_bundle_ids: &existing_bundle_ids,
+            pending_bundle_downloads: &[],
+            control: &request.control,
+            download_client: None,
+            transfer_progress: None,
+        })?;
     }
     let repair_result = finalize_repair_result_after_reconstruction(
         &snapshot_manifest,
@@ -312,10 +314,10 @@ fn subset_manifest_for_issues(
     loop {
         let previous_len = required_paths.len();
         for entry in &snapshot_manifest.entries {
-            if required_paths.contains(entry.path()) {
-                if let SnapshotEntry::Symlink(link) = entry {
-                    required_paths.insert(link.target_path.as_str());
-                }
+            if required_paths.contains(entry.path())
+                && let SnapshotEntry::Symlink(link) = entry
+            {
+                required_paths.insert(link.target_path.as_str());
             }
         }
         if required_paths.len() == previous_len {

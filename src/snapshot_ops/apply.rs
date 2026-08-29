@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::snapshot::SnapshotManifest;
@@ -94,10 +95,12 @@ pub fn reconstruct_snapshot_from_repo(
     )?;
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
-    let existing_bundle_ids = crate::repo::required_bundle_ids(&snapshot_manifest, &chunk_index)
-        .into_iter()
-        .filter(|bundle_id| crate::bundle_path(&repo_paths, bundle_id).is_file())
-        .collect();
+    let mut existing_bundle_ids = HashSet::new();
+    for bundle_id in crate::repo::required_bundle_ids(&snapshot_manifest, &chunk_index) {
+        if crate::bundle_path(&repo_paths, &bundle_id)?.is_file() {
+            existing_bundle_ids.insert(bundle_id);
+        }
+    }
 
     let source_manifest = match request.source_snapshot_id.as_ref() {
         Some(source_snapshot_id) => Some(crate::load_snapshot_manifest(
@@ -149,27 +152,31 @@ pub fn reconstruct_snapshot_from_repo(
     )
 }
 
+pub(super) struct BuildSnapshotReconstructResultRequest<'a> {
+    pub snapshot_manifest: &'a SnapshotManifest,
+    pub destination_dir: &'a Path,
+    pub staging_dir: &'a Path,
+    pub backup_dir: Option<PathBuf>,
+    pub reused_source_chunk_count: usize,
+    pub required_chunk_count: usize,
+    pub required_bundle_count: usize,
+    pub reconstruct_timings: crate::ReconstructTimings,
+    pub verify_timings: crate::verify::VerifyTimings,
+}
+
 pub(super) fn build_snapshot_reconstruct_result(
-    snapshot_manifest: &SnapshotManifest,
-    destination_dir: &Path,
-    staging_dir: &Path,
-    backup_dir: Option<PathBuf>,
-    reused_source_chunk_count: usize,
-    required_chunk_count: usize,
-    required_bundle_count: usize,
-    reconstruct_timings: crate::ReconstructTimings,
-    verify_timings: crate::verify::VerifyTimings,
+    request: BuildSnapshotReconstructResultRequest<'_>,
 ) -> SnapshotReconstructResult {
     SnapshotReconstructResult {
-        snapshot_id: snapshot_manifest.snapshot_id.clone(),
-        destination_dir: destination_dir.to_path_buf(),
-        staging_dir: staging_dir.to_path_buf(),
-        backup_dir,
-        reused_source_chunk_count,
-        required_chunk_count,
-        required_bundle_count,
-        reconstruct_timings,
-        verify_timings,
+        snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
+        destination_dir: request.destination_dir.to_path_buf(),
+        staging_dir: request.staging_dir.to_path_buf(),
+        backup_dir: request.backup_dir,
+        reused_source_chunk_count: request.reused_source_chunk_count,
+        required_chunk_count: request.required_chunk_count,
+        required_bundle_count: request.required_bundle_count,
+        reconstruct_timings: request.reconstruct_timings,
+        verify_timings: request.verify_timings,
     }
 }
 

@@ -37,9 +37,11 @@ fn print_blank_line() {
 }
 
 fn runtime_plan_detail(plan: &g::RuntimePlan, include_storage: bool) -> String {
-    let storage = include_storage
-        .then(|| format!(" storage={}", plan.chunk_storage_mode.as_str()))
-        .unwrap_or_default();
+    let storage = if include_storage {
+        format!(" storage={}", plan.chunk_storage_mode.as_str())
+    } else {
+        String::new()
+    };
     format!(
         "requested={} effective={}{} workers={} budget={} MiB{}",
         plan.requested_memory_mode.as_str(),
@@ -559,10 +561,10 @@ pub fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> OptionalOutput
 }
 
 pub fn ensure_parent_directory(path: &std::path::Path) -> g::Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
     }
 
     Ok(())

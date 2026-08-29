@@ -321,7 +321,7 @@ impl InferenceHandler {
 }
 
 fn parse_date_token(raw: &str) -> Option<String> {
-    let normalized = raw.replace('_', ".").replace('-', ".");
+    let normalized = raw.replace(['_', '-'], ".");
     let parts: Vec<&str> = normalized.split('.').collect();
     if parts.len() != 3 {
         return None;
@@ -329,7 +329,7 @@ fn parse_date_token(raw: &str) -> Option<String> {
     let year: u32 = parts[0].parse().ok()?;
     let month: u32 = parts[1].parse().ok()?;
     let day: u32 = parts[2].parse().ok()?;
-    if year < 1900 || year > 2100 {
+    if !(1900..=2100).contains(&year) {
         return None;
     }
     let date = chrono::NaiveDate::from_ymd_opt(year as i32, month, day)?;

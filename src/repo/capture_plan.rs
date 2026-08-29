@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -220,85 +219,6 @@ pub fn delete_repo_snapshots_with_matching_tags(
     Ok(removed)
 }
 
-/// Bridge that adapts a `GutchProgressSink` to `BuildProgressSink` for the build phase.
-struct BuildProgressBridge {
-    sink: Arc<dyn GutchProgressSink>,
-    scanned_files: AtomicUsize,
-    total_files: AtomicUsize,
-    built_bundles: AtomicUsize,
-    total_bundles: AtomicUsize,
-}
-
-impl std::fmt::Debug for BuildProgressBridge {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BuildProgressBridge").finish()
-    }
-}
-
-impl crate::build_types::BuildProgressSink for BuildProgressBridge {
-    fn on_file_scan_started(&self, total_files: usize) {
-        self.scanned_files.store(0, Ordering::Relaxed);
-        self.total_files.store(total_files, Ordering::Relaxed);
-        self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Scan,
-            message: "Scanning files".to_string(),
-            current: 0,
-            total: total_files,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
-    }
-
-    fn on_file_scanned(&self) {
-        let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
-        self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Scan,
-            message: "Scanning files".to_string(),
-            current,
-            total: self.total_files.load(Ordering::Relaxed),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
-    }
-
-    fn on_bundle_build_started(&self, total_bundles: usize) {
-        self.built_bundles.store(0, Ordering::Relaxed);
-        self.total_bundles.store(total_bundles, Ordering::Relaxed);
-        self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Build,
-            message: "Building bundles".to_string(),
-            current: 0,
-            total: total_bundles,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
-    }
-
-    fn on_bundle_built(&self) {
-        let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
-        self.sink.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Build,
-            message: "Building bundles".to_string(),
-            current,
-            total: self.total_bundles.load(Ordering::Relaxed),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
-    }
-}
-
 pub fn capture_repo_snapshot(
     request: RepoSnapshotCaptureRequest,
 ) -> Result<RepoSnapshotCaptureResult> {
@@ -388,15 +308,6 @@ pub fn capture_repo_snapshot(
     build_config.storage_mode = request.storage_mode;
     build_config.runtime_hints = request.runtime_hints;
     build_config.control = request.control.clone();
-    if let Some(sink) = request.control.progress() {
-        build_config.progress = Some(Arc::new(BuildProgressBridge {
-            sink: sink.clone(),
-            scanned_files: AtomicUsize::new(0),
-            total_files: AtomicUsize::new(0),
-            built_bundles: AtomicUsize::new(0),
-            total_bundles: AtomicUsize::new(0),
-        }));
-    }
 
     let (result, timings) = crate::build_with_config(&prepared_input.dir, &build_config)?;
     request.control.checkpoint()?;
@@ -405,12 +316,12 @@ pub fn capture_repo_snapshot(
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
         crate::repo::source_modified_at_from_directory(request.source_dir.as_path())?;
-    crate::core::snapshot_identity::apply_resolved_snapshot_identity(
+    crate::snapshot::identity::apply_resolved_snapshot_identity(
         &mut result.snapshot_manifest,
         &resolved_identity,
     );
 
-    let existing_manifest_path = crate::snapshot_metadata_path(&repo_paths, &snapshot_id);
+    let existing_manifest_path = crate::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
     if existing_manifest_path.exists() {
         let existing_manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot_id)?;
         if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
@@ -477,7 +388,7 @@ pub fn capture_repo_snapshot(
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
     }
     store_state.chunk_locations =
-        crate::repo::existing_chunk_locations_from_index(&store_state.chunk_index, &repo_paths);
+        crate::repo::existing_chunk_locations_from_index(&store_state.chunk_index, &repo_paths)?;
     for file in result.snapshot_manifest.files() {
         let candidates = store_state
             .previous_file_manifests
@@ -601,7 +512,7 @@ fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
 
 fn write_bundles(bundles_root: &Path, bundles: &[crate::BuiltBundle]) -> Result<()> {
     for bundle in bundles {
-        let bundle_path = crate::bundle_path_in_root(bundles_root, &bundle.bundle_id);
+        let bundle_path = crate::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
         crate::helpers::write(&bundle_path, &bundle.data)?;
     }
     Ok(())
@@ -610,7 +521,7 @@ fn write_bundles(bundles_root: &Path, bundles: &[crate::BuiltBundle]) -> Result<
 fn write_loose_chunks(chunks_root: &Path, chunks: &[crate::BuiltLooseChunk]) -> Result<()> {
     for chunk in chunks {
         let chunk_hash = chunk.chunk_hash.to_string();
-        let chunk_path = crate::chunk_path_in_root(chunks_root, &chunk_hash);
+        let chunk_path = crate::chunk_path_in_root(chunks_root, &chunk_hash)?;
         if let Some(parent) = chunk_path.parent() {
             crate::helpers::create_dir_all(parent)?;
         }
@@ -637,10 +548,10 @@ fn count_required_bundles_for_build(
         return generated_bundles.len();
     };
     for chunk_hash in required_chunks {
-        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash) {
-            if existing.storage_mode == crate::manifest::ArtifactStorageMode::Bundled {
-                required_bundle_ids.insert(existing.bundle_id.clone());
-            }
+        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
+            && existing.storage_mode == crate::manifest::ArtifactStorageMode::Bundled
+        {
+            required_bundle_ids.insert(existing.bundle_id.clone());
         }
     }
     required_bundle_ids.len() + generated_bundles.len()

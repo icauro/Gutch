@@ -14,8 +14,8 @@ fn test_build_and_read_bundle() {
     let hash2 = ChunkHash::from_blake3(hash::hash_chunk(&chunk2_data));
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
-    builder.add_chunk(hash1.clone(), chunk1_data.to_vec());
-    builder.add_chunk(hash2.clone(), chunk2_data.to_vec());
+    builder.add_chunk(hash1, chunk1_data.to_vec());
+    builder.add_chunk(hash2, chunk2_data.to_vec());
 
     let (_bundle_id, bundle_data) = builder.build_with_id().unwrap();
 
@@ -45,7 +45,7 @@ fn test_single_chunk_bundle() {
     let hash = ChunkHash::from_blake3(hash::hash_chunk(&data));
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
-    builder.add_chunk(hash.clone(), data.to_vec());
+    builder.add_chunk(hash, data.to_vec());
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
@@ -80,8 +80,10 @@ fn test_build_and_read_bundle_compressed_stream() {
     let chunk1 = b"bundle compression test chunk one ".repeat(8);
     let chunk2 = b"bundle compression test chunk two ".repeat(8);
 
-    let mut profile = CompressionProfile::default();
-    profile.compression_unit = CompressionUnit::Bundle;
+    let profile = CompressionProfile {
+        compression_unit: CompressionUnit::Bundle,
+        ..CompressionProfile::default()
+    };
 
     let mut builder = BundleBuilder::new(profile.clone());
     builder.add_chunk(
@@ -130,7 +132,7 @@ fn test_bundle_id_deterministic() {
     let hash1 = ChunkHash::from_blake3(hash::hash_chunk(&data1));
 
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
-    b1.add_chunk(hash1.clone(), data1.to_vec());
+    b1.add_chunk(hash1, data1.to_vec());
     let (id1, _) = b1.build_with_id().unwrap();
 
     let mut b2 = BundleBuilder::new(CompressionProfile::default());
@@ -148,8 +150,8 @@ fn test_bundle_id_depends_on_final_bundle_bytes() {
     let h2 = ChunkHash::from_blake3(hash::hash_chunk(&d2));
 
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
-    b1.add_chunk(h1.clone(), d1.to_vec());
-    b1.add_chunk(h2.clone(), d2.to_vec());
+    b1.add_chunk(h1, d1.to_vec());
+    b1.add_chunk(h2, d2.to_vec());
     let (id1, _) = b1.build_with_id().unwrap();
 
     let mut b2 = BundleBuilder::new(CompressionProfile::default());

@@ -6,7 +6,7 @@ use crate::manifest::{
 };
 use crate::{Result, helpers};
 
-use super::GutchRepoPaths;
+use super::{GutchRepoPaths, validate_path_component};
 
 pub const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
 pub const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
@@ -26,36 +26,42 @@ pub fn validate_snapshot_id(snapshot_id: &str) -> Result<()> {
     }
 }
 
-pub fn snapshot_metadata_path(paths: &GutchRepoPaths, snapshot_id: &str) -> PathBuf {
-    paths
+pub fn snapshot_metadata_path(paths: &GutchRepoPaths, snapshot_id: &str) -> Result<PathBuf> {
+    validate_path_component(snapshot_id, "snapshot ID")?;
+    Ok(paths
         .snapshots_root
         .join(snapshot_id)
-        .join(SNAPSHOT_METADATA_FILE)
+        .join(SNAPSHOT_METADATA_FILE))
 }
 
-pub fn snapshot_blueprint_path(paths: &GutchRepoPaths, snapshot_id: &str) -> PathBuf {
-    paths
+pub fn snapshot_blueprint_path(paths: &GutchRepoPaths, snapshot_id: &str) -> Result<PathBuf> {
+    validate_path_component(snapshot_id, "snapshot ID")?;
+    Ok(paths
         .snapshots_root
         .join(snapshot_id)
-        .join(SNAPSHOT_BLUEPRINT_FILE)
+        .join(SNAPSHOT_BLUEPRINT_FILE))
 }
 
-pub fn snapshot_product_metadata_path(paths: &GutchRepoPaths, snapshot_id: &str) -> PathBuf {
-    paths
+pub fn snapshot_product_metadata_path(
+    paths: &GutchRepoPaths,
+    snapshot_id: &str,
+) -> Result<PathBuf> {
+    validate_path_component(snapshot_id, "snapshot ID")?;
+    Ok(paths
         .snapshots_root
         .join(snapshot_id)
-        .join(SNAPSHOT_PRODUCT_METADATA_FILE)
+        .join(SNAPSHOT_PRODUCT_METADATA_FILE))
 }
 
 pub fn load_snapshot_manifest(
     paths: &GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<SnapshotManifest> {
-    let metadata_path = snapshot_metadata_path(paths, snapshot_id);
+    let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
     let metadata_json = helpers::read_to_string(&metadata_path)?;
     let mut manifest = load_snapshot_metadata_from_json_text(snapshot_id, &metadata_json)?;
     manifest.product_metadata = load_snapshot_product_metadata(paths, snapshot_id)?;
-    let blueprint_path = snapshot_blueprint_path(paths, snapshot_id);
+    let blueprint_path = snapshot_blueprint_path(paths, snapshot_id)?;
     if !blueprint_path.is_file() {
         return Err(crate::Error::manifest(format!(
             "snapshot blueprint not found at {}",
@@ -95,7 +101,7 @@ pub fn load_snapshot_product_metadata(
     paths: &GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<Option<SnapshotProductMetadata>> {
-    let metadata_path = snapshot_product_metadata_path(paths, snapshot_id);
+    let metadata_path = snapshot_product_metadata_path(paths, snapshot_id)?;
     if !metadata_path.is_file() {
         return Ok(None);
     }
@@ -110,7 +116,7 @@ pub fn write_snapshot_product_metadata(
     snapshot_id: &str,
     metadata: Option<&SnapshotProductMetadata>,
 ) -> Result<Option<(PathBuf, u64)>> {
-    let metadata_path = snapshot_product_metadata_path(paths, snapshot_id);
+    let metadata_path = snapshot_product_metadata_path(paths, snapshot_id)?;
     if let Some(metadata) = metadata {
         metadata.validate_structure()?;
         helpers::create_dir_all(&paths.snapshots_root.join(snapshot_id))?;
@@ -189,10 +195,12 @@ pub fn write_snapshot_manifest_artifacts(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<(PathBuf, u64)> {
     helpers::create_dir_all(&paths.snapshots_root)?;
-    helpers::create_dir_all(&paths.snapshots_root.join(&snapshot_manifest.snapshot_id))?;
-
-    let metadata_path = snapshot_metadata_path(paths, &snapshot_manifest.snapshot_id);
-    let blueprint_path = snapshot_blueprint_path(paths, &snapshot_manifest.snapshot_id);
+    let snapshot_id = &snapshot_manifest.snapshot_id;
+    super::validate_path_component(snapshot_id, "snapshot ID")?;
+    let staging_dir = tempfile::Builder::new()
+        .prefix(".gutch-snapshot-")
+        .tempdir_in(&paths.snapshots_root)?;
+    let staging_path = staging_dir.path().to_path_buf();
 
     // snapshot_metadata.json owns snapshot identity, timestamps, and tags.
     // snapshot_product_metadata.json owns runtime data, while
@@ -201,14 +209,23 @@ pub fn write_snapshot_manifest_artifacts(
     metadata.sync_product_metadata_from_launch();
     let product_metadata = metadata.product_metadata.clone();
     let metadata_json = serde_json::to_vec_pretty(&metadata.metadata())?;
-    helpers::write(&metadata_path, &metadata_json)?;
-    write_snapshot_product_metadata(
-        paths,
-        &snapshot_manifest.snapshot_id,
-        product_metadata.as_ref(),
+    helpers::write(&staging_path.join(SNAPSHOT_METADATA_FILE), &metadata_json)?;
+    if let Some(product_metadata) = product_metadata.as_ref() {
+        product_metadata.validate_structure()?;
+        helpers::write(
+            &staging_path.join(SNAPSHOT_PRODUCT_METADATA_FILE),
+            &serde_json::to_vec_pretty(product_metadata)?,
+        )?;
+    }
+    binary::write_snapshot_blueprint_binary(
+        &staging_path.join(SNAPSHOT_BLUEPRINT_FILE),
+        &snapshot_manifest.blueprint(),
     )?;
-    binary::write_snapshot_blueprint_binary(&blueprint_path, &snapshot_manifest.blueprint())?;
+    let staging_path = staging_dir.keep();
+    let snapshot_dir = paths.snapshots_root.join(snapshot_id);
+    helpers::replace_directory(&staging_path, &snapshot_dir)?;
 
+    let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
     let metadata_size = std::fs::metadata(&metadata_path)?.len();
     Ok((metadata_path, metadata_size))
 }
@@ -226,10 +243,24 @@ pub fn write_snapshot_metadata_only(
     paths: &GutchRepoPaths,
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<()> {
-    helpers::create_dir_all(&paths.snapshots_root.join(&snapshot_manifest.snapshot_id))?;
+    let metadata_path = snapshot_metadata_path(paths, &snapshot_manifest.snapshot_id)?;
     helpers::write(
-        &snapshot_metadata_path(paths, &snapshot_manifest.snapshot_id),
+        &metadata_path,
         &serde_json::to_vec_pretty(&snapshot_manifest.metadata())?,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn rejects_unsafe_snapshot_path_components() {
+        let paths = GutchRepoPaths::from_repo_root(Path::new("repo"));
+        assert!(snapshot_metadata_path(&paths, "../escape").is_err());
+        assert!(snapshot_blueprint_path(&paths, "nested/snapshot").is_err());
+        assert!(snapshot_product_metadata_path(&paths, "").is_err());
+    }
 }

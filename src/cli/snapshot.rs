@@ -10,15 +10,15 @@ use crate::cli::common::{
     load_snapshot_manifest_from_repo, prepare_input_path, prompt_yes_no, write_bundles,
     write_loose_chunks, write_report, write_snapshot_manifest,
 };
-use crate::cli::progress::{CliBuildProgressSink, CliProgressSink};
+use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::{
     build_timings_summary, ensure_parent_directory, optional_output_paths, print_build_timings,
     ratio_pct,
 };
 use crate::cli::verbose_output_enabled;
 use crate::hash::ChunkHash;
-use g::core::snapshot_identity::{apply_resolved_snapshot_identity, parse_cli_tags};
 use g::repo::scan_existing_store_state;
+use g::snapshot::identity::{apply_resolved_snapshot_identity, parse_cli_tags};
 use gutch as g;
 
 struct MutableCaptureStoreState {
@@ -60,6 +60,21 @@ struct CaptureOneSnapshotRequest<'a> {
     skip_confirmation: bool,
 }
 
+struct UnchangedSnapshotCaptureRequest<'a> {
+    command_name: &'static str,
+    repo_root: &'a Path,
+    input_path: &'a Path,
+    manifest_path: &'a Path,
+    repo_name: &'a str,
+    snapshot_manifest: &'a g::manifest::snapshot::SnapshotManifest,
+    identity: SnapshotIdentityStrings,
+    storage_mode: g::manifest::ArtifactStorageMode,
+    required_chunk_count: usize,
+    required_bundle_count: usize,
+    timings: &'a g::BuildTimings,
+    stats_json_out: &'a Option<PathBuf>,
+}
+
 fn resolved_identity_strings(
     snapshot_tags: &g::manifest::SnapshotTagSet,
 ) -> SnapshotIdentityStrings {
@@ -80,47 +95,36 @@ fn resolved_identity_strings(
 }
 
 fn unchanged_snapshot_capture_stats(
-    command_name: &'static str,
-    repo_root: &Path,
-    input_path: &Path,
-    manifest_path: &Path,
-    repo_name: &str,
-    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
-    identity: SnapshotIdentityStrings,
-    storage_mode: g::manifest::ArtifactStorageMode,
-    required_chunk_count: usize,
-    required_bundle_count: usize,
-    timings: &g::BuildTimings,
-    stats_json_out: &Option<PathBuf>,
+    request: UnchangedSnapshotCaptureRequest<'_>,
 ) -> SnapshotCaptureStats {
     SnapshotCaptureStats {
-        command: command_name,
-        repo_root: repo_root.display().to_string(),
-        input_path: input_path.display().to_string(),
-        snapshot_id: snapshot_manifest.snapshot_id.clone(),
-        manifest_path: manifest_path.display().to_string(),
-        product_id: repo_name.to_string(),
-        remote_repo_id: repo_name.to_string(),
-        version_id: identity.version_id,
-        os: identity.os,
-        arch: identity.arch,
-        storage_mode: storage_mode.cli_name().to_string(),
-        file_count: snapshot_manifest.file_count(),
-        total_logical_size: snapshot_manifest.total_logical_size,
-        total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
-        required_chunk_count,
-        required_bundle_count,
+        command: request.command_name,
+        repo_root: request.repo_root.display().to_string(),
+        input_path: request.input_path.display().to_string(),
+        snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
+        manifest_path: request.manifest_path.display().to_string(),
+        product_id: request.repo_name.to_string(),
+        remote_repo_id: request.repo_name.to_string(),
+        version_id: request.identity.version_id,
+        os: request.identity.os,
+        arch: request.identity.arch,
+        storage_mode: request.storage_mode.cli_name().to_string(),
+        file_count: request.snapshot_manifest.file_count(),
+        total_logical_size: request.snapshot_manifest.total_logical_size,
+        total_compressed_size_estimate: request.snapshot_manifest.total_compressed_size_estimate,
+        required_chunk_count: request.required_chunk_count,
+        required_bundle_count: request.required_bundle_count,
         generated_bundle_count: 0,
         generated_bundle_bytes: 0,
         generated_chunk_count: 0,
         generated_chunk_bytes: 0,
-        reused_chunk_count: required_chunk_count,
+        reused_chunk_count: request.required_chunk_count,
         new_chunk_count: 0,
         reused_chunk_percent: 100.0,
-        reused_bundle_count: required_bundle_count,
+        reused_bundle_count: request.required_bundle_count,
         reused_bundle_percent: 100.0,
-        timings: build_timings_summary(timings),
-        outputs: optional_output_paths(stats_json_out),
+        timings: build_timings_summary(request.timings),
+        outputs: optional_output_paths(request.stats_json_out),
     }
 }
 
@@ -170,28 +174,30 @@ fn run_capture_one_snapshot(
         let required_bundle_count =
             count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
         return Ok(unchanged_snapshot_capture_stats(
-            request.command_name,
-            &request.repo_paths.repo_root,
-            request.input_dir,
-            &manifest_path,
-            request.repo_name,
-            &updated_manifest,
-            SnapshotIdentityStrings {
-                version_id: capture_plan.version_id.clone(),
-                os: capture_plan.os.clone(),
-                arch: capture_plan.arch.clone(),
+            UnchangedSnapshotCaptureRequest {
+                command_name: request.command_name,
+                repo_root: &request.repo_paths.repo_root,
+                input_path: request.input_dir,
+                manifest_path: &manifest_path,
+                repo_name: request.repo_name,
+                snapshot_manifest: &updated_manifest,
+                identity: SnapshotIdentityStrings {
+                    version_id: capture_plan.version_id.clone(),
+                    os: capture_plan.os.clone(),
+                    arch: capture_plan.arch.clone(),
+                },
+                storage_mode: request.build_profile.storage_mode,
+                required_chunk_count,
+                required_bundle_count,
+                timings: &g::BuildTimings::default(),
+                stats_json_out: request.stats_json_out,
             },
-            request.build_profile.storage_mode,
-            required_chunk_count,
-            required_bundle_count,
-            &g::BuildTimings::default(),
-            request.stats_json_out,
         ));
     }
 
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
     let context = format!("snapshot capture input '{}'", request.input_dir.display());
-    let resolved_identity = g::core::snapshot_identity::resolve_snapshot_identity_with_inference(
+    let resolved_identity = g::snapshot::identity::resolve_snapshot_identity_with_inference(
         request.input_dir,
         request.explicit_tags,
         request.rules,
@@ -220,8 +226,8 @@ fn run_capture_one_snapshot(
             .with_compression_profile(&compression_profile);
     build_config.storage_mode = request.build_profile.storage_mode;
     build_config.runtime_hints = request.runtime_hints.clone();
-    let build_progress = CliBuildProgressSink::new();
-    build_config.progress = Some(build_progress.as_build_sink());
+    build_config.control =
+        g::GutchOperationControl::default().with_progress(CliProgressSink::new());
 
     let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
     let mut result = result;
@@ -229,7 +235,7 @@ fn run_capture_one_snapshot(
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
     apply_resolved_snapshot_identity(&mut result.snapshot_manifest, &resolved_identity);
 
-    let existing_manifest_path = g::snapshot_metadata_path(request.repo_paths, &snapshot_id);
+    let existing_manifest_path = g::snapshot_metadata_path(request.repo_paths, &snapshot_id)?;
     if existing_manifest_path.exists() {
         let existing_manifest = g::load_snapshot_manifest(request.repo_paths, &snapshot_id)?;
         if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
@@ -250,18 +256,20 @@ fn run_capture_one_snapshot(
                 &store_state.chunk_index,
             );
             return Ok(unchanged_snapshot_capture_stats(
-                request.command_name,
-                &request.repo_paths.repo_root,
-                request.input_dir,
-                &manifest_path,
-                request.repo_name,
-                &updated_manifest,
-                resolved_identity_strings(&resolved_identity.snapshot_tags),
-                request.build_profile.storage_mode,
-                required_chunk_count,
-                required_bundle_count,
-                &timings,
-                request.stats_json_out,
+                UnchangedSnapshotCaptureRequest {
+                    command_name: request.command_name,
+                    repo_root: &request.repo_paths.repo_root,
+                    input_path: request.input_dir,
+                    manifest_path: &manifest_path,
+                    repo_name: request.repo_name,
+                    snapshot_manifest: &updated_manifest,
+                    identity: resolved_identity_strings(&resolved_identity.snapshot_tags),
+                    storage_mode: request.build_profile.storage_mode,
+                    required_chunk_count,
+                    required_bundle_count,
+                    timings: &timings,
+                    stats_json_out: request.stats_json_out,
+                },
             ));
         }
     }
@@ -283,7 +291,7 @@ fn run_capture_one_snapshot(
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
     }
     store_state.chunk_locations =
-        g::repo::existing_chunk_locations_from_index(&store_state.chunk_index, request.repo_paths);
+        g::repo::existing_chunk_locations_from_index(&store_state.chunk_index, request.repo_paths)?;
     for file in result.snapshot_manifest.files() {
         let candidates = store_state
             .previous_file_manifests
@@ -722,7 +730,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             let (repo_paths, _repo_manifest, _, _tm) =
                 load_snapshot_manifest_from_repo(&repo, &snapshot_id)?;
             if !yes {
-                let manifest_path = g::snapshot_metadata_path(&repo_paths, &snapshot_id);
+                let manifest_path = g::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
                 eprintln!(
                     "WARNING: this will remove '{}' and related snapshot artifacts, and may orphan bundles. Use --yes to confirm.",
                     manifest_path.display()
@@ -749,7 +757,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             source_dir,
             runtime,
             stats_json_out,
-        } => crate::cli::snapshot_ops::reconstruct(
+        } => crate::cli::snapshot_ops::reconstruct(crate::cli::snapshot_ops::ReconstructCommand {
             repo,
             snapshot_id,
             destination,
@@ -758,7 +766,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             source_dir,
             runtime,
             stats_json_out,
-        )?,
+        })?,
 
         SnapshotCommands::Fetch {
             repo,
@@ -771,7 +779,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             bundle_downloads_endpoint,
             session_id,
             bundles,
-        } => crate::cli::snapshot_ops::fetch(
+        } => crate::cli::snapshot_ops::fetch(crate::cli::snapshot_ops::FetchCommand {
             repo,
             snapshot_id,
             metadata_url,
@@ -782,7 +790,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             bundle_downloads_endpoint,
             session_id,
             bundles,
-        )?,
+        })?,
 
         SnapshotCommands::Verify {
             repo,
@@ -814,7 +822,7 @@ pub fn run(command: SnapshotCommands) -> g::Result<()> {
             };
             let explicit_tags = parse_cli_tags(&tags)?;
             let context = format!("snapshot estimate input '{}'", source_dir.display());
-            let resolved_identity = g::core::snapshot_identity::resolve_snapshot_identity(
+            let resolved_identity = g::snapshot::identity::resolve_snapshot_identity(
                 &source_dir,
                 &explicit_tags,
                 &rules,

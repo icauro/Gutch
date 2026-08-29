@@ -6,10 +6,11 @@ use rayon::prelude::*;
 use tempfile::TempDir;
 
 use crate::Result;
+use crate::build::progress::BuildProgressTracker;
 use crate::build_scan::{ScanDirectoryOptions, collect_scanned_chunks};
 use crate::build_types::{
-    BuildConfig, BuildProgressSink, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk,
-    ChunkPayload, ExistingChunkLocation,
+    BuildConfig, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk, ChunkPayload,
+    ExistingChunkLocation,
 };
 use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
@@ -137,7 +138,7 @@ fn plan_bundle_compressed_groups(
 
     let sort_start = Instant::now();
     let sort_bytes: u64 = chunks.iter().map(|(_, payload)| payload.raw_size()).sum();
-    chunks.sort_by(|a, b| a.0.cmp(&b.0));
+    chunks.sort_by_key(|a| a.0);
     let sort_duration = sort_start.elapsed();
     let probe_start = Instant::now();
     let (bundle_compression_ratio, probe_raw_bytes) = estimate_bundle_compression_ratio_from_probe(
@@ -227,72 +228,82 @@ struct BuiltLooseChunkResult {
     payload_load_bytes: u64,
 }
 
+fn run_parallel_chunk_work<T, U, F>(
+    work_items: Vec<T>,
+    worker_count: usize,
+    control: &crate::GutchOperationControl,
+    work: F,
+) -> Result<Vec<U>>
+where
+    T: Send,
+    U: Send,
+    F: Fn(T, &crate::GutchOperationControl) -> Result<U> + Send + Sync,
+{
+    control.checkpoint()?;
+    let control_for_work = control.clone();
+    run_in_thread_pool(worker_count, || {
+        work_items
+            .into_par_iter()
+            .map(|work_item| {
+                control_for_work.checkpoint()?;
+                work(work_item, &control_for_work)
+            })
+            .collect::<Result<Vec<_>>>()
+    })?
+}
+
 fn build_bundled_chunks(
     planned_bundle_groups: PlannedBundleGroups,
     compression_profile: &manifest::CompressionProfile,
     runtime_worker_count: usize,
-    progress: Option<&std::sync::Arc<dyn BuildProgressSink>>,
     control: &crate::GutchOperationControl,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
     control.checkpoint()?;
-    if let Some(progress) = progress {
-        progress.on_bundle_build_started(planned_bundle_groups.groups.len());
-    }
+    let progress = BuildProgressTracker::new(
+        control,
+        crate::GutchProgressPhase::Build,
+        "Building bundles",
+    );
+    progress.start(planned_bundle_groups.groups.len());
     let compression_profile_for_work = compression_profile.clone();
-    let progress_for_work = progress.cloned();
-    let control_for_work = control.clone();
+    let progress_for_work = progress.clone();
     let bundle_worker_count =
         bundle_compression_worker_count(planned_bundle_groups.groups.len(), runtime_worker_count);
-    let build_bundle_work = || {
-        planned_bundle_groups
-            .groups
-            .into_par_iter()
-            .map(|planned_bundle| {
-                control_for_work.checkpoint()?;
-                build_bundle_compressed_group(
-                    planned_bundle,
-                    &compression_profile_for_work,
-                    progress_for_work.as_deref(),
-                    &control_for_work,
-                )
-            })
-            .collect::<Result<Vec<_>>>()
-    };
-
-    run_in_thread_pool(bundle_worker_count, build_bundle_work)?
+    run_parallel_chunk_work(
+        planned_bundle_groups.groups,
+        bundle_worker_count,
+        control,
+        move |planned_bundle, control| {
+            build_bundle_compressed_group(planned_bundle, &compression_profile_for_work, control)
+                .inspect(|_| progress_for_work.completed())
+        },
+    )
 }
 
 fn build_loose_chunks(
     chunks_to_compress: Vec<ChunkPayloadEntry>,
     compression_profile: &manifest::CompressionProfile,
     runtime_worker_count: usize,
-    progress: Option<&std::sync::Arc<dyn BuildProgressSink>>,
     control: &crate::GutchOperationControl,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
     control.checkpoint()?;
-    if let Some(progress) = progress {
-        progress.on_bundle_build_started(chunks_to_compress.len());
-    }
+    let progress = BuildProgressTracker::new(
+        control,
+        crate::GutchProgressPhase::Build,
+        "Building bundles",
+    );
+    progress.start(chunks_to_compress.len());
     let compression_profile_for_work = compression_profile.clone();
-    let progress_for_work = progress.cloned();
-    let control_for_work = control.clone();
-    let build_loose_work = || {
-        chunks_to_compress
-            .into_par_iter()
-            .map(|(chunk_hash, payload)| {
-                control_for_work.checkpoint()?;
-                build_loose_chunk(
-                    chunk_hash,
-                    payload,
-                    &compression_profile_for_work,
-                    progress_for_work.as_deref(),
-                    &control_for_work,
-                )
-            })
-            .collect::<Result<Vec<_>>>()
-    };
-
-    run_in_thread_pool(runtime_worker_count, build_loose_work)?
+    let progress_for_work = progress.clone();
+    run_parallel_chunk_work(
+        chunks_to_compress,
+        runtime_worker_count,
+        control,
+        move |(chunk_hash, payload), control| {
+            build_loose_chunk(chunk_hash, payload, &compression_profile_for_work, control)
+                .inspect(|_| progress_for_work.completed())
+        },
+    )
 }
 
 fn base_build_config(
@@ -307,7 +318,6 @@ fn build_loose_chunk(
     chunk_hash: ChunkHash,
     payload: ChunkPayload,
     compression_profile: &manifest::CompressionProfile,
-    progress: Option<&dyn BuildProgressSink>,
     control: &crate::GutchOperationControl,
 ) -> Result<BuiltLooseChunkResult> {
     control.checkpoint()?;
@@ -322,10 +332,6 @@ fn build_loose_chunk(
         compress_with_level(&bytes, compression_profile.zstd_level)?
     };
     let compressed_size = data.len() as u64;
-    if let Some(progress) = progress {
-        progress.on_bundle_built();
-    }
-
     Ok(BuiltLooseChunkResult {
         chunk: BuiltLooseChunk {
             chunk_hash,
@@ -341,7 +347,6 @@ fn build_loose_chunk(
 fn build_bundle_compressed_group(
     planned_bundle: Vec<(ChunkHash, ChunkPayload)>,
     compression_profile: &manifest::CompressionProfile,
-    progress: Option<&dyn BuildProgressSink>,
     control: &crate::GutchOperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
     control.checkpoint()?;
@@ -368,9 +373,6 @@ fn build_bundle_compressed_group(
     }
 
     let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
-    if let Some(progress) = progress {
-        progress.on_bundle_built();
-    }
     Ok(BuiltBundleCompressedGroup {
         bundle_id,
         bundle_data,
@@ -393,7 +395,6 @@ pub fn build_from_directory(
     .0)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_with_config(
     dir: &Path,
     config: &BuildConfig<'_>,
@@ -435,7 +436,6 @@ pub fn build_with_config(
             chunk_storage_mode: runtime_plan.chunk_storage_mode,
             chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
             worker_count: runtime_plan.worker_count,
-            progress: config.progress.clone(),
             control: config.control.clone(),
         },
         &mut timings,
@@ -515,7 +515,6 @@ pub fn build_with_config(
                 planned_bundle_groups,
                 &compression_profile,
                 runtime_plan.worker_count,
-                config.progress.as_ref(),
                 &config.control,
             )?;
 
@@ -542,7 +541,6 @@ pub fn build_with_config(
                 chunks_to_compress,
                 &compression_profile,
                 runtime_plan.worker_count,
-                config.progress.as_ref(),
                 &config.control,
             )?;
 

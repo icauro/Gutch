@@ -10,7 +10,7 @@ use crate::hash::ChunkHash;
 use crate::manifest::runtime as manifest_runtime;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::manifest::{CompressionUnit, FileManifest};
-use crate::runtime::RuntimePlan;
+use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 
 #[derive(Debug, Clone, Default)]
 pub struct ReconstructTimings {
@@ -59,6 +59,17 @@ pub struct VerifiedSourceTree<'a> {
 pub struct ReconstructOptions {
     pub verify_chunks: bool,
     pub verify_files: bool,
+}
+
+pub struct ReconstructRequest<'a> {
+    pub snapshot_manifest: &'a SnapshotManifest,
+    pub bundle_paths: &'a [PathBuf],
+    pub compression_profile: &'a crate::manifest::CompressionProfile,
+    pub verified_source: Option<VerifiedSourceTree<'a>>,
+    pub output_dir: &'a Path,
+    pub runtime_hints: &'a RuntimeResourceHints,
+    pub options: ReconstructOptions,
+    pub control: &'a crate::progress::GutchOperationControl,
 }
 
 impl Default for ReconstructOptions {

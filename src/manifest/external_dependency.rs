@@ -32,12 +32,11 @@ pub fn validate_external_product_dependency_requirements(
         if let (Some(minimum), Some(maximum)) = (
             requirement.minimum_version.as_deref(),
             requirement.maximum_version_exclusive.as_deref(),
-        ) {
-            if compare_versions(minimum, maximum) != std::cmp::Ordering::Less {
-                return Err(Error::manifest(
-                    "external dependency maximum_version_exclusive must be greater than minimum_version",
-                ));
-            }
+        ) && compare_versions(minimum, maximum) != std::cmp::Ordering::Less
+        {
+            return Err(Error::manifest(
+                "external dependency maximum_version_exclusive must be greater than minimum_version",
+            ));
         }
     }
     Ok(())

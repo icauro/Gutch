@@ -9,18 +9,32 @@ use std::time::Duration;
 
 const MAX_BUNDLE_URL_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
-pub(crate) fn fetch(
-    repo: std::path::PathBuf,
-    snapshot_id: String,
-    metadata_url: String,
-    product_metadata_url: Option<String>,
-    blueprint_url: String,
-    repo_metadata_url: Option<String>,
-    chunk_index_url: Option<String>,
-    bundle_downloads_endpoint: Option<String>,
-    session_id: Option<String>,
-    bundles: Vec<String>,
-) -> g::Result<()> {
+pub(crate) struct FetchCommand {
+    pub repo: std::path::PathBuf,
+    pub snapshot_id: String,
+    pub metadata_url: String,
+    pub product_metadata_url: Option<String>,
+    pub blueprint_url: String,
+    pub repo_metadata_url: Option<String>,
+    pub chunk_index_url: Option<String>,
+    pub bundle_downloads_endpoint: Option<String>,
+    pub session_id: Option<String>,
+    pub bundles: Vec<String>,
+}
+
+pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
+    let FetchCommand {
+        repo,
+        snapshot_id,
+        metadata_url,
+        product_metadata_url,
+        blueprint_url,
+        repo_metadata_url,
+        chunk_index_url,
+        bundle_downloads_endpoint,
+        session_id,
+        bundles,
+    } = command;
     let progress = CliProgressSink::new();
     let bundle_url_provider = bundle_downloads_endpoint
         .map(|endpoint| {
@@ -75,25 +89,27 @@ pub(crate) fn fetch(
     Ok(())
 }
 
-pub(crate) fn reconstruct(
-    repo: std::path::PathBuf,
-    snapshot_id: String,
-    destination: std::path::PathBuf,
-    staging_dir: Option<std::path::PathBuf>,
-    source_snapshot_id: Option<String>,
-    source_dir: Option<std::path::PathBuf>,
-    runtime: crate::cli::args::RuntimeArgs,
-    stats_json_out: Option<std::path::PathBuf>,
-) -> g::Result<()> {
+pub(crate) struct ReconstructCommand {
+    pub repo: std::path::PathBuf,
+    pub snapshot_id: String,
+    pub destination: std::path::PathBuf,
+    pub staging_dir: Option<std::path::PathBuf>,
+    pub source_snapshot_id: Option<String>,
+    pub source_dir: Option<std::path::PathBuf>,
+    pub runtime: crate::cli::args::RuntimeArgs,
+    pub stats_json_out: Option<std::path::PathBuf>,
+}
+
+pub(crate) fn reconstruct(command: ReconstructCommand) -> g::Result<()> {
     actions::snapshot_ops::reconstruct_snapshot(actions::snapshot_ops::ReconstructCommand {
-        repo,
-        snapshot_id,
-        destination,
-        staging_dir,
-        source_snapshot: source_snapshot_id,
-        source_dir,
-        runtime_hints: runtime.hints(),
-        stats_json_out,
+        repo: command.repo,
+        snapshot_id: command.snapshot_id,
+        destination: command.destination,
+        staging_dir: command.staging_dir,
+        source_snapshot: command.source_snapshot_id,
+        source_dir: command.source_dir,
+        runtime_hints: command.runtime.hints(),
+        stats_json_out: command.stats_json_out,
     })
 }
 

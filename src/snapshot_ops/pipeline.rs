@@ -191,7 +191,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
                     raw_size: chunk_ref.raw_size,
                     compressed_size: entry.compressed_size,
                     bundle_id: entry.bundle_id.clone(),
-                    bundle_path: crate::bundle_path(repo_paths, &entry.bundle_id),
+                    bundle_path: crate::bundle_path(repo_paths, &entry.bundle_id)?,
                 },
             ));
             required_bundle_ids.insert(entry.bundle_id.clone());
@@ -262,18 +262,19 @@ pub(super) fn apply_reconstruct_pipeline(
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
         let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
-        let (reconstruct_timings, verify_timings) = execute_reconstruct_pipeline_reconstruction(
-            pipeline_plan,
-            &staging_dir,
-            &request.snapshot_manifest.snapshot_id,
-            &request.compression_profile,
-            request.runtime_hints,
-            request.existing_bundle_ids,
-            request.pending_bundle_downloads,
-            request.control,
-            request.download_client,
-            request.transfer_progress,
-        )?;
+        let (reconstruct_timings, verify_timings) =
+            execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
+                pipeline_plan,
+                staging_dir: &staging_dir,
+                snapshot_id: &request.snapshot_manifest.snapshot_id,
+                compression_profile: &request.compression_profile,
+                runtime_hints: request.runtime_hints,
+                existing_bundle_ids: request.existing_bundle_ids,
+                pending_bundle_downloads: request.pending_bundle_downloads,
+                control: request.control,
+                download_client: request.download_client,
+                transfer_progress: request.transfer_progress,
+            })?;
         crate::reconstruct::finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
@@ -287,15 +288,17 @@ pub(super) fn apply_reconstruct_pipeline(
             repo_root: request.repo_root.to_path_buf(),
             snapshot_manifest: request.snapshot_manifest.clone(),
             reconstruct_result: build_snapshot_reconstruct_result(
-                request.snapshot_manifest,
-                request.destination_dir,
-                &staging_dir,
-                backup_dir,
-                reused_source_chunk_count,
-                required_chunk_count,
-                required_bundle_count,
-                reconstruct_timings,
-                verify_timings,
+                super::apply::BuildSnapshotReconstructResultRequest {
+                    snapshot_manifest: request.snapshot_manifest,
+                    destination_dir: request.destination_dir,
+                    staging_dir: &staging_dir,
+                    backup_dir,
+                    reused_source_chunk_count,
+                    required_chunk_count,
+                    required_bundle_count,
+                    reconstruct_timings,
+                    verify_timings,
+                },
             ),
             resolved_bundle_file_count: required_bundle_count,
             source_destination_dir: request.source_destination_dir.clone(),
@@ -308,19 +311,34 @@ pub(super) fn apply_reconstruct_pipeline(
     main_result
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(super) struct ExecuteReconstructPipelineRequest<'a> {
+    pub(super) pipeline_plan: ReconstructPipelinePlan,
+    pub(super) staging_dir: &'a Path,
+    pub(super) snapshot_id: &'a str,
+    pub(super) compression_profile: &'a crate::manifest::CompressionProfile,
+    pub(super) runtime_hints: &'a RuntimeResourceHints,
+    pub(super) existing_bundle_ids: &'a HashSet<String>,
+    pub(super) pending_bundle_downloads: &'a [PendingBundleDownload],
+    pub(super) control: &'a GutchOperationControl,
+    pub(super) download_client: Option<&'a reqwest::blocking::Client>,
+    pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
+}
+
 pub(super) fn execute_reconstruct_pipeline_reconstruction(
-    mut pipeline_plan: ReconstructPipelinePlan,
-    staging_dir: &Path,
-    snapshot_id: &str,
-    compression_profile: &crate::manifest::CompressionProfile,
-    runtime_hints: &RuntimeResourceHints,
-    existing_bundle_ids: &HashSet<String>,
-    pending_bundle_downloads: &[PendingBundleDownload],
-    control: &GutchOperationControl,
-    download_client: Option<&reqwest::blocking::Client>,
-    transfer_progress: Option<&Arc<FetchTransferProgress>>,
+    request: ExecuteReconstructPipelineRequest<'_>,
 ) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
+    let ExecuteReconstructPipelineRequest {
+        mut pipeline_plan,
+        staging_dir,
+        snapshot_id,
+        compression_profile,
+        runtime_hints,
+        existing_bundle_ids,
+        pending_bundle_downloads,
+        control,
+        download_client,
+        transfer_progress,
+    } = request;
     control.checkpoint()?;
     let reconstruct_started_at = Instant::now();
     let mut reconstruct_timings = crate::ReconstructTimings {
@@ -683,39 +701,11 @@ fn copy_pipeline_file_from_source(
         if read == 0 {
             break;
         }
-        let write_started_at = Instant::now();
-        output.write_all(&buffer[..read])?;
-        timings.file_write += write_started_at.elapsed();
-        timings.file_write_bytes += read as u64;
-        timings.file_rebuild_bytes += read as u64;
-        let verify_started_at = Instant::now();
-        hasher.update(&buffer[..read]);
-        timings.file_verify += verify_started_at.elapsed();
-        timings.file_verify_bytes += read as u64;
+        write_verified_file_bytes(&mut output, &mut hasher, &buffer[..read], &mut timings)?;
         written += read as u64;
     }
 
-    if written != file_plan.size {
-        return Err(Error::reconstruct(format!(
-            "copied size {} does not match expected {} for {}",
-            written, file_plan.size, file_plan.path
-        )));
-    }
-
-    let flush_started_at = Instant::now();
-    output.flush()?;
-    timings.file_write += flush_started_at.elapsed();
-    let verify_started_at = Instant::now();
-    let actual_hash = crate::hash::hash_hex(&hasher.finalize());
-    timings.file_verify += verify_started_at.elapsed();
-    if actual_hash != file_plan.full_file_hash {
-        return Err(Error::HashMismatch {
-            expected: file_plan.full_file_hash.clone(),
-            actual: actual_hash,
-        });
-    }
-
-    Ok(timings)
+    finish_verified_file(output, hasher, written, file_plan, timings, "copied")
 }
 
 fn reconstruct_pipeline_file_from_parts(
@@ -804,21 +794,49 @@ fn reconstruct_pipeline_file_from_parts(
                 chunk_bytes
             }
         };
-        let write_started_at = Instant::now();
-        output.write_all(&chunk_bytes)?;
-        timings.file_write += write_started_at.elapsed();
-        timings.file_write_bytes += chunk_bytes.len() as u64;
-        timings.file_rebuild_bytes += chunk_bytes.len() as u64;
-        let verify_started_at = Instant::now();
-        file_hasher.update(&chunk_bytes);
-        timings.file_verify += verify_started_at.elapsed();
-        timings.file_verify_bytes += chunk_bytes.len() as u64;
+        write_verified_file_bytes(&mut output, &mut file_hasher, &chunk_bytes, &mut timings)?;
         written += chunk_bytes.len() as u64;
     }
 
+    finish_verified_file(
+        output,
+        file_hasher,
+        written,
+        file_plan,
+        timings,
+        "reconstructed",
+    )
+}
+
+fn write_verified_file_bytes(
+    output: &mut std::io::BufWriter<File>,
+    hasher: &mut blake3::Hasher,
+    bytes: &[u8],
+    timings: &mut crate::ReconstructTimings,
+) -> Result<()> {
+    let write_started_at = Instant::now();
+    output.write_all(bytes)?;
+    timings.file_write += write_started_at.elapsed();
+    timings.file_write_bytes += bytes.len() as u64;
+    timings.file_rebuild_bytes += bytes.len() as u64;
+    let verify_started_at = Instant::now();
+    hasher.update(bytes);
+    timings.file_verify += verify_started_at.elapsed();
+    timings.file_verify_bytes += bytes.len() as u64;
+    Ok(())
+}
+
+fn finish_verified_file(
+    mut output: std::io::BufWriter<File>,
+    hasher: blake3::Hasher,
+    written: u64,
+    file_plan: &ReconstructPipelineFile,
+    mut timings: crate::ReconstructTimings,
+    operation: &str,
+) -> Result<crate::ReconstructTimings> {
     if written != file_plan.size {
         return Err(Error::reconstruct(format!(
-            "reconstructed size {} does not match expected {} for {}",
+            "{operation} size {} does not match expected {} for {}",
             written, file_plan.size, file_plan.path
         )));
     }
@@ -827,7 +845,7 @@ fn reconstruct_pipeline_file_from_parts(
     output.flush()?;
     timings.file_write += flush_started_at.elapsed();
     let verify_started_at = Instant::now();
-    let actual_hash = crate::hash::hash_hex(&file_hasher.finalize());
+    let actual_hash = crate::hash::hash_hex(&hasher.finalize());
     timings.file_verify += verify_started_at.elapsed();
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {

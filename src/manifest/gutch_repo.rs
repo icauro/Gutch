@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactProfile {
     #[serde(rename = "chunk_size_profile")]
@@ -13,17 +13,6 @@ pub struct ArtifactProfile {
     pub compression: CompressionPreset,
     #[serde(rename = "storage_mode")]
     pub storage: ArtifactStorageMode,
-}
-
-impl Default for ArtifactProfile {
-    fn default() -> Self {
-        Self {
-            chunk: ArtifactSizingPreset::default(),
-            bundle: BundleSizingPreset::default(),
-            compression: CompressionPreset::default(),
-            storage: ArtifactStorageMode::default(),
-        }
-    }
 }
 
 impl ArtifactProfile {

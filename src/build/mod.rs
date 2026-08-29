@@ -1,4 +1,5 @@
 mod pipeline;
+mod progress;
 pub mod scan;
 pub mod types;
 

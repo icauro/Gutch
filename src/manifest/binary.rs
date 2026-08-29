@@ -180,38 +180,39 @@ pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkInde
 }
 
 pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex) -> Result<()> {
-    let file = std::fs::File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    writer.write_all(CHUNK_INDEX_BINARY_MAGIC)?;
-    write_u16(&mut writer, CHUNK_INDEX_BINARY_VERSION)?;
-    write_u16(&mut writer, 0)?;
+    crate::helpers::write_atomic_with(path, |file| {
+        let mut writer = BufWriter::new(file);
+        writer.write_all(CHUNK_INDEX_BINARY_MAGIC)?;
+        write_u16(&mut writer, CHUNK_INDEX_BINARY_VERSION)?;
+        write_u16(&mut writer, 0)?;
 
-    write_u64(&mut writer, index.entries.len() as u64)?;
-    write_len_prefixed_string(&mut writer, &index.format_version)?;
-    write_len_prefixed_string(&mut writer, &index.updated_at)?;
+        write_u64(&mut writer, index.entries.len() as u64)?;
+        write_len_prefixed_string(&mut writer, &index.format_version)?;
+        write_len_prefixed_string(&mut writer, &index.updated_at)?;
 
-    let mut chunk_hashes = Vec::with_capacity(index.entries.len());
-    let mut storage_modes = Vec::with_capacity(index.entries.len());
-    let mut object_ids = Vec::with_capacity(index.entries.len());
-    let mut raw_sizes = Vec::with_capacity(index.entries.len());
-    let mut compressed_sizes = Vec::with_capacity(index.entries.len());
-    for (chunk_hash, entry) in &index.entries {
-        chunk_hashes.push(ChunkHash::parse_hex(chunk_hash)?);
-        storage_modes.push(match entry.storage_mode {
-            manifest::ArtifactStorageMode::Bundled => 0,
-            manifest::ArtifactStorageMode::LooseChunks => 1,
-        });
-        object_ids.push(entry.bundle_id.clone());
-        raw_sizes.push(entry.raw_size);
-        compressed_sizes.push(entry.compressed_size);
-    }
-    write_chunk_hash_array(&mut writer, &chunk_hashes)?;
-    write_u8_array(&mut writer, &storage_modes)?;
-    write_len_prefixed_string_array(&mut writer, &object_ids)?;
-    write_u64_array(&mut writer, &raw_sizes)?;
-    write_u64_array(&mut writer, &compressed_sizes)?;
-    writer.flush()?;
-    Ok(())
+        let mut chunk_hashes = Vec::with_capacity(index.entries.len());
+        let mut storage_modes = Vec::with_capacity(index.entries.len());
+        let mut object_ids = Vec::with_capacity(index.entries.len());
+        let mut raw_sizes = Vec::with_capacity(index.entries.len());
+        let mut compressed_sizes = Vec::with_capacity(index.entries.len());
+        for (chunk_hash, entry) in &index.entries {
+            chunk_hashes.push(ChunkHash::parse_hex(chunk_hash)?);
+            storage_modes.push(match entry.storage_mode {
+                manifest::ArtifactStorageMode::Bundled => 0,
+                manifest::ArtifactStorageMode::LooseChunks => 1,
+            });
+            object_ids.push(entry.bundle_id.clone());
+            raw_sizes.push(entry.raw_size);
+            compressed_sizes.push(entry.compressed_size);
+        }
+        write_chunk_hash_array(&mut writer, &chunk_hashes)?;
+        write_u8_array(&mut writer, &storage_modes)?;
+        write_len_prefixed_string_array(&mut writer, &object_ids)?;
+        write_u64_array(&mut writer, &raw_sizes)?;
+        write_u64_array(&mut writer, &compressed_sizes)?;
+        writer.flush()?;
+        Ok(())
+    })
 }
 
 pub(crate) fn write_snapshot_blueprint_binary(
@@ -219,47 +220,48 @@ pub(crate) fn write_snapshot_blueprint_binary(
     snapshot_blueprint: &SnapshotBlueprint,
 ) -> Result<()> {
     manifest::validate_snapshot_entries(&snapshot_blueprint.entries)?;
-    let file = std::fs::File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    writer.write_all(SNAPSHOT_FILES_BINARY_MAGIC)?;
-    write_u16(&mut writer, SNAPSHOT_FILES_BINARY_VERSION)?;
-    write_u16(&mut writer, 0)?;
-    write_u32(&mut writer, snapshot_blueprint.entries.len() as u32)?;
-    let chunk_ref_count = snapshot_blueprint
-        .entries
-        .iter()
-        .filter_map(manifest::SnapshotEntry::as_file)
-        .map(|file| file.chunks.len() as u64)
-        .sum::<u64>();
-    write_u64(&mut writer, chunk_ref_count)?;
-    for entry in &snapshot_blueprint.entries {
-        match entry {
-            manifest::SnapshotEntry::File(file) => {
-                writer.write_all(&[0])?;
-                write_len_prefixed_string(&mut writer, &file.path)?;
-                write_u64(&mut writer, file.size)?;
-                writer.write_all(&[u8::from(file.executable), u8::from(file.read_only)])?;
-                writer.write_all(ChunkHash::parse_hex(&file.full_file_hash)?.as_bytes())?;
-                write_u32(&mut writer, file.chunks.len() as u32)?;
-                for chunk in &file.chunks {
-                    writer.write_all(ChunkHash::parse_hex(&chunk.chunk_hash)?.as_bytes())?;
-                    write_u64(&mut writer, chunk.raw_size)?;
+    crate::helpers::write_atomic_with(path, |file| {
+        let mut writer = BufWriter::new(file);
+        writer.write_all(SNAPSHOT_FILES_BINARY_MAGIC)?;
+        write_u16(&mut writer, SNAPSHOT_FILES_BINARY_VERSION)?;
+        write_u16(&mut writer, 0)?;
+        write_u32(&mut writer, snapshot_blueprint.entries.len() as u32)?;
+        let chunk_ref_count = snapshot_blueprint
+            .entries
+            .iter()
+            .filter_map(manifest::SnapshotEntry::as_file)
+            .map(|file| file.chunks.len() as u64)
+            .sum::<u64>();
+        write_u64(&mut writer, chunk_ref_count)?;
+        for entry in &snapshot_blueprint.entries {
+            match entry {
+                manifest::SnapshotEntry::File(file) => {
+                    writer.write_all(&[0])?;
+                    write_len_prefixed_string(&mut writer, &file.path)?;
+                    write_u64(&mut writer, file.size)?;
+                    writer.write_all(&[u8::from(file.executable), u8::from(file.read_only)])?;
+                    writer.write_all(ChunkHash::parse_hex(&file.full_file_hash)?.as_bytes())?;
+                    write_u32(&mut writer, file.chunks.len() as u32)?;
+                    for chunk in &file.chunks {
+                        writer.write_all(ChunkHash::parse_hex(&chunk.chunk_hash)?.as_bytes())?;
+                        write_u64(&mut writer, chunk.raw_size)?;
+                    }
+                }
+                manifest::SnapshotEntry::Directory(directory) => {
+                    writer.write_all(&[1])?;
+                    write_len_prefixed_string(&mut writer, &directory.path)?;
+                    writer.write_all(&[u8::from(directory.read_only)])?;
+                }
+                manifest::SnapshotEntry::Symlink(link) => {
+                    writer.write_all(&[2])?;
+                    write_len_prefixed_string(&mut writer, &link.path)?;
+                    write_len_prefixed_string(&mut writer, &link.target_path)?;
                 }
             }
-            manifest::SnapshotEntry::Directory(directory) => {
-                writer.write_all(&[1])?;
-                write_len_prefixed_string(&mut writer, &directory.path)?;
-                writer.write_all(&[u8::from(directory.read_only)])?;
-            }
-            manifest::SnapshotEntry::Symlink(link) => {
-                writer.write_all(&[2])?;
-                write_len_prefixed_string(&mut writer, &link.path)?;
-                write_len_prefixed_string(&mut writer, &link.target_path)?;
-            }
         }
-    }
-    writer.flush()?;
-    Ok(())
+        writer.flush()?;
+        Ok(())
+    })
 }
 
 pub(crate) fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest::SnapshotEntry>> {

@@ -111,7 +111,7 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
     } else {
         chunk_index
     };
-    state.chunk_locations = existing_chunk_locations_from_index(&state.chunk_index, paths);
+    state.chunk_locations = existing_chunk_locations_from_index(&state.chunk_index, paths)?;
 
     for entry in walkdir::WalkDir::new(&paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
@@ -149,16 +149,15 @@ pub fn scan_existing_store_state(paths: &GutchRepoPaths) -> Result<ExistingStore
 pub fn existing_chunk_locations_from_index(
     chunk_index: &manifest::ChunkIndex,
     paths: &GutchRepoPaths,
-) -> std::collections::HashMap<String, crate::ExistingChunkLocation> {
-    chunk_index
-        .entries
-        .iter()
-        .filter(|(chunk_hash, entry)| match entry.storage_mode {
-            ArtifactStorageMode::Bundled => bundle_path(paths, &entry.bundle_id).is_file(),
-            ArtifactStorageMode::LooseChunks => chunk_path(paths, chunk_hash).is_file(),
-        })
-        .map(|(chunk_hash, entry)| {
-            (
+) -> Result<std::collections::HashMap<String, crate::ExistingChunkLocation>> {
+    let mut locations = std::collections::HashMap::new();
+    for (chunk_hash, entry) in &chunk_index.entries {
+        let path_exists = match entry.storage_mode {
+            ArtifactStorageMode::Bundled => bundle_path(paths, &entry.bundle_id)?.is_file(),
+            ArtifactStorageMode::LooseChunks => chunk_path(paths, chunk_hash)?.is_file(),
+        };
+        if path_exists {
+            locations.insert(
                 chunk_hash.clone(),
                 crate::ExistingChunkLocation {
                     bundle_id: entry.bundle_id.clone(),
@@ -166,9 +165,10 @@ pub fn existing_chunk_locations_from_index(
                     compressed_size: entry.compressed_size,
                     storage_mode: entry.storage_mode,
                 },
-            )
-        })
-        .collect()
+            );
+        }
+    }
+    Ok(locations)
 }
 
 pub fn rebuild_chunk_index_from_bundles(

@@ -71,7 +71,7 @@ pub fn load_config(path: &Path) -> Result<GutchConfig, crate::Error> {
         return Ok(GutchConfig::default());
     }
 
-    let raw = crate::helpers::read_to_string(&path)?;
+    let raw = crate::helpers::read_to_string(path)?;
     let config: GutchConfig = crate::helpers::from_json_str(&raw)?;
     validate_config_paths(&config)?;
     Ok(config)
@@ -82,7 +82,7 @@ pub fn save_config(path: &Path, config: &GutchConfig) -> Result<(), crate::Error
     if let Some(dir) = path.parent() {
         crate::helpers::create_dir_all(dir)?;
     }
-    crate::helpers::write_json(&path, config)
+    crate::helpers::write_json(path, config)
 }
 
 fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {

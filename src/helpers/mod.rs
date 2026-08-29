@@ -1,5 +1,6 @@
 //! Shared helpers for the gutch crate to reduce boilerplate.
 
+use std::io::Write;
 use std::path::Path;
 
 use crate::error::Error;
@@ -18,9 +19,68 @@ pub fn read(path: &Path) -> Result<Vec<u8>, Error> {
     Ok(std::fs::read(path)?)
 }
 
-/// Write bytes to a file.
+/// Write bytes to a file through a same-directory temporary file.
 pub fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Error> {
-    Ok(std::fs::write(path, contents)?)
+    let contents = contents.as_ref();
+    write_atomic_with(path, |file| {
+        file.write_all(contents)?;
+        Ok(())
+    })
+}
+
+/// Write a file through a same-directory temporary file and atomically replace the target.
+pub(crate) fn write_atomic_with<F>(path: &Path, write_contents: F) -> Result<(), Error>
+where
+    F: FnOnce(&mut std::fs::File) -> Result<(), Error>,
+{
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    create_dir_all(parent)?;
+
+    let mut temporary_file = tempfile::NamedTempFile::new_in(parent)?;
+    write_contents(temporary_file.as_file_mut())?;
+    temporary_file.as_file_mut().flush()?;
+    temporary_file.as_file_mut().sync_all()?;
+    temporary_file
+        .persist(path)
+        .map_err(|error| Error::Io(error.error))?;
+    Ok(())
+}
+
+/// Replace a directory with a fully prepared same-parent directory.
+pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> Result<(), Error> {
+    let parent = destination_dir
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    create_dir_all(parent)?;
+
+    let backup_dir = if destination_dir.exists() {
+        let backup = tempfile::Builder::new()
+            .prefix(".gutch-backup-")
+            .tempdir_in(parent)?
+            .keep();
+        std::fs::remove_dir(&backup)?;
+        std::fs::rename(destination_dir, &backup)?;
+        Some(backup)
+    } else {
+        None
+    };
+
+    if let Err(error) = std::fs::rename(staging_dir, destination_dir) {
+        if let Some(backup) = &backup_dir {
+            let _ = std::fs::rename(backup, destination_dir);
+        }
+        let _ = std::fs::remove_dir_all(staging_dir);
+        return Err(Error::Io(error));
+    }
+
+    if let Some(backup) = backup_dir {
+        remove_dir_all(&backup)?;
+    }
+    Ok(())
 }
 
 /// Create directory and all parents.
@@ -80,14 +140,13 @@ pub fn encode_query_component(value: &str) -> String {
 
 /// Read a blocking HTTP response with a hard byte limit and cancellation hook.
 pub fn read_response_bounded<F>(
-    mut response: reqwest::blocking::Response,
+    response: reqwest::blocking::Response,
     maximum_bytes: u64,
-    mut checkpoint: F,
+    checkpoint: F,
 ) -> Result<Vec<u8>, Error>
 where
     F: FnMut() -> Result<(), Error>,
 {
-    checkpoint()?;
     if response
         .content_length()
         .is_some_and(|length| length > maximum_bytes)
@@ -95,31 +154,76 @@ where
         return Err(Error::manifest("response exceeded the allowed size"));
     }
     let mut bytes = Vec::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        checkpoint()?;
-        let read = std::io::Read::read(&mut response, &mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        if bytes.len().saturating_add(read) as u64 > maximum_bytes {
-            return Err(Error::manifest("response exceeded the allowed size"));
-        }
-        bytes.extend_from_slice(&buffer[..read]);
-    }
-    checkpoint()?;
+    crate::transport::read_bounded_chunks(response, Some(maximum_bytes), checkpoint, |chunk| {
+        bytes.extend_from_slice(chunk);
+        Ok(())
+    })?;
     Ok(bytes)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::encode_query_component;
+    use super::{encode_query_component, replace_directory, write, write_atomic_with};
 
     #[test]
     fn query_component_preserves_unreserved_bytes_and_encodes_delimiters() {
         assert_eq!(
             encode_query_component("bundle-a,bundle b?"),
             "bundle-a%2Cbundle%20b%3F"
+        );
+    }
+
+    #[test]
+    fn atomic_write_preserves_existing_file_when_writer_fails() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("artifact");
+        write(&path, b"original").unwrap();
+
+        let result = write_atomic_with(&path, |_file| {
+            Err(crate::Error::manifest("simulated write failure"))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("artifact");
+        write(&path, b"original").unwrap();
+
+        write(&path, b"replacement").unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn directory_replacement_promotes_staged_contents_and_removes_backup() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("destination");
+        let staging = directory.path().join("staging");
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(destination.join("old"), b"old").unwrap();
+        std::fs::write(staging.join("new"), b"new").unwrap();
+
+        replace_directory(&staging, &destination).unwrap();
+
+        assert!(!destination.join("old").exists());
+        assert_eq!(std::fs::read(destination.join("new")).unwrap(), b"new");
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".gutch-backup-"))
+                .count(),
+            0
         );
     }
 }

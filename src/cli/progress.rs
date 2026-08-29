@@ -1,9 +1,8 @@
 use std::io::IsTerminal;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use gutch::{GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink};
+use gutch::{GutchOperation, GutchProgressEvent, GutchProgressSink};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 /// Unified CLI progress sink that handles all gutch operations via indicatif.
@@ -76,96 +75,5 @@ impl GutchProgressSink for CliProgressSink {
 impl Drop for CliProgressSink {
     fn drop(&mut self) {
         self.bar.finish_and_clear();
-    }
-}
-
-use gutch::BuildProgressSink;
-
-#[derive(Debug)]
-pub(crate) struct CliBuildProgressSink {
-    inner: Arc<CliProgressSink>,
-    scanned_files: AtomicUsize,
-    total_files: AtomicUsize,
-    built_bundles: AtomicUsize,
-    total_bundles: AtomicUsize,
-}
-
-impl CliBuildProgressSink {
-    pub(crate) fn new() -> Arc<Self> {
-        Arc::new(Self {
-            inner: CliProgressSink::new(),
-            scanned_files: AtomicUsize::new(0),
-            total_files: AtomicUsize::new(0),
-            built_bundles: AtomicUsize::new(0),
-            total_bundles: AtomicUsize::new(0),
-        })
-    }
-
-    pub(crate) fn as_build_sink(self: &Arc<Self>) -> Arc<dyn BuildProgressSink> {
-        self.clone()
-    }
-}
-
-impl BuildProgressSink for CliBuildProgressSink {
-    fn on_file_scan_started(&self, total_files: usize) {
-        self.scanned_files.store(0, Ordering::Relaxed);
-        self.total_files.store(total_files, Ordering::Relaxed);
-        self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Scan,
-            message: "Scanning files".to_string(),
-            current: 0,
-            total: total_files,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
-    }
-
-    fn on_file_scanned(&self) {
-        let current = self.scanned_files.fetch_add(1, Ordering::Relaxed) + 1;
-        self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Scan,
-            message: "Scanning files".to_string(),
-            current,
-            total: self.total_files.load(Ordering::Relaxed),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
-    }
-
-    fn on_bundle_build_started(&self, total_bundles: usize) {
-        self.built_bundles.store(0, Ordering::Relaxed);
-        self.total_bundles.store(total_bundles, Ordering::Relaxed);
-        self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Build,
-            message: "Building bundles".to_string(),
-            current: 0,
-            total: total_bundles,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
-    }
-
-    fn on_bundle_built(&self) {
-        let current = self.built_bundles.fetch_add(1, Ordering::Relaxed) + 1;
-        self.inner.emit(GutchProgressEvent {
-            operation: GutchOperation::SnapshotCapture,
-            phase: GutchProgressPhase::Build,
-            message: "Building bundles".to_string(),
-            current,
-            total: self.total_bundles.load(Ordering::Relaxed),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        });
     }
 }

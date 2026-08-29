@@ -48,12 +48,12 @@ fn capture_many_auto_mode_skips_ignored_folders() {
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
-        repo_paths.repo_root.to_str().unwrap(),
+        repo_paths.repo_root().to_str().unwrap(),
         "--yes",
     ])
     .unwrap();
 
-    let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
+    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
     let snapshot_ids: Vec<&str> = status
         .snapshots
         .iter()
@@ -109,17 +109,17 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
-        repo_paths.repo_root.to_str().unwrap(),
+        repo_paths.repo_root().to_str().unwrap(),
         "--yes",
     ])
     .unwrap();
 
-    let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
+    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
     assert_eq!(status.snapshots.len(), 2);
     let windows = status
         .snapshots
         .iter()
-        .find(|snapshot| snapshot.snapshot_tags.get_exclusive("os").as_deref() == Some("windows"))
+        .find(|snapshot| snapshot.snapshot_tags.get_exclusive("os") == Some("windows"))
         .expect("windows snapshot");
     assert_eq!(
         windows.snapshot_tags.get_exclusive("version").unwrap(),
@@ -132,7 +132,7 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
     let linux = status
         .snapshots
         .iter()
-        .find(|snapshot| snapshot.snapshot_tags.get_exclusive("os").as_deref() == Some("linux"))
+        .find(|snapshot| snapshot.snapshot_tags.get_exclusive("os") == Some("linux"))
         .expect("linux snapshot");
     assert_eq!(linux.snapshot_tags.get_exclusive("arch").unwrap(), "x86_64");
 }
@@ -163,7 +163,7 @@ fn capture_many_explicit_mode_errors_when_declared_version_is_missing() {
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
-        repo_paths.repo_root.to_str().unwrap(),
+        repo_paths.repo_root().to_str().unwrap(),
         "--yes",
     ]);
     let message = result.unwrap_err().to_string();
@@ -192,13 +192,13 @@ fn capture_many_auto_captures_skeleton_config_on_first_use() {
         "--source-root",
         product_dir.to_str().unwrap(),
         "--repo",
-        repo_paths.repo_root.to_str().unwrap(),
+        repo_paths.repo_root().to_str().unwrap(),
         "--yes",
     ])
     .unwrap();
 
     assert!(product_dir.join(".gutch_source_config.json").is_file());
-    let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
+    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
     assert_eq!(status.snapshots.len(), 1);
 }
 
@@ -216,12 +216,12 @@ fn capture_single_dir_matches_the_plain_dir_flow() {
         "--source-dir",
         source_dir.to_str().unwrap(),
         "--repo",
-        repo_paths.repo_root.to_str().unwrap(),
+        repo_paths.repo_root().to_str().unwrap(),
         "--yes",
     ])
     .unwrap();
 
-    let status = gutch::check_gutch_repo(&repo_paths.repo_root).unwrap();
+    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(
         status.snapshots[0]
