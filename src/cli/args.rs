@@ -88,6 +88,46 @@ pub enum RepoCommands {
         #[arg(long = "force")]
         force: bool,
     },
+    Push {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "yes")]
+        yes: bool,
+    },
+    Pull {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "remote")]
+        remote: Option<String>,
+        #[arg(long = "on-conflict", default_value = "keep-newer")]
+        on_conflict: String,
+        #[arg(long = "prune")]
+        prune: bool,
+        #[arg(long = "yes")]
+        yes: bool,
+    },
+    Remote {
+        #[command(subcommand)]
+        command: RemoteCommands,
+    },
+    Link {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "scope-id")]
+        scope_id: String,
+    },
+    Bind {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "remote-repo-id")]
+        remote_repo_id: String,
+    },
+    Unlink {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "delete-remote")]
+        delete_remote: bool,
+    },
     Name {
         #[command(subcommand)]
         command: RepoNameCommands,
@@ -121,6 +161,11 @@ pub enum RepoCommands {
 }
 
 #[derive(Subcommand)]
+pub enum RemoteCommands {
+    List,
+}
+
+#[derive(Subcommand)]
 pub enum RepoNameCommands {
     Set {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
@@ -135,6 +180,14 @@ pub enum RepoTagsCommands {
     Schema {
         #[command(subcommand)]
         command: RepoTagSchemaCommands,
+    },
+    Requirements {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "check")]
+        check: bool,
+        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        json_out: Option<PathBuf>,
     },
 }
 
@@ -267,6 +320,124 @@ pub enum SnapshotCommands {
     },
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Commands, RemoteCommands, RepoCommands, RepoTagsCommands};
+    use clap::Parser;
+
+    #[test]
+    fn parses_provider_neutral_remote_commands() {
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "repo",
+            "pull",
+            "--repo",
+            if cfg!(windows) {
+                r"D:\Repos\reconstruct"
+            } else {
+                "/repos/reconstruct"
+            },
+            "--remote",
+            "scope/repo",
+            "--on-conflict",
+            "keep-local",
+            "--prune",
+            "--yes",
+        ])
+        .expect("remote pull args should parse");
+
+        assert!(matches!(
+            cli.command,
+            Commands::Repo {
+                command: RepoCommands::Pull {
+                    prune: true,
+                    yes: true,
+                    ..
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_generic_scope_and_tag_requirement_commands() {
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "repo",
+            "link",
+            "--repo",
+            if cfg!(windows) {
+                r"D:\Repos\creator"
+            } else {
+                "/repos/creator"
+            },
+            "--scope-id",
+            "creator-scope",
+        ])
+        .expect("generic link args should parse");
+        assert!(matches!(
+            cli.command,
+            Commands::Repo {
+                command: RepoCommands::Link { scope_id, .. }
+            } if scope_id == "creator-scope"
+        ));
+
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "repo",
+            "bind",
+            "--repo",
+            if cfg!(windows) {
+                r"D:\Repos\creator"
+            } else {
+                "/repos/creator"
+            },
+            "--remote-repo-id",
+            "remote-repository",
+        ])
+        .expect("generic bind args should parse");
+        assert!(matches!(
+            cli.command,
+            Commands::Repo {
+                command: RepoCommands::Bind { remote_repo_id, .. }
+            } if remote_repo_id == "remote-repository"
+        ));
+
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "repo",
+            "tags",
+            "requirements",
+            "--repo",
+            if cfg!(windows) {
+                r"D:\Repos\creator"
+            } else {
+                "/repos/creator"
+            },
+            "--check",
+        ])
+        .expect("tag requirement args should parse");
+        assert!(matches!(
+            cli.command,
+            Commands::Repo {
+                command: RepoCommands::Tags {
+                    command: RepoTagsCommands::Requirements { check: true, .. }
+                }
+            }
+        ));
+
+        let cli = Cli::try_parse_from(["gutch", "repo", "remote", "list"])
+            .expect("remote list args should parse");
+        assert!(matches!(
+            cli.command,
+            Commands::Repo {
+                command: RepoCommands::Remote {
+                    command: RemoteCommands::List
+                }
+            }
+        ));
+    }
+}
+
 #[derive(Subcommand)]
 pub enum BundleCommands {
     Inspect {
@@ -290,7 +461,7 @@ pub enum PathCommands {
 }
 
 #[cfg(test)]
-mod tests {
+mod path_tests {
     use super::Cli;
     use clap::Parser;
 

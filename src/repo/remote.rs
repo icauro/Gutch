@@ -13,10 +13,11 @@ use crate::manifest::SnapshotTagSet;
 use crate::repo::{
     GutchRepoPaths, RepoCheckStatus, load_chunk_index, load_gutch_repo_manifest,
     load_snapshot_manifest, required_bundle_ids, summarize_snapshot_tags,
+    write_gutch_repo_manifest,
 };
 use crate::{
     Error, GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
-    GutchProgressSink, Result,
+    GutchProgressSink, Result, compare_tag_requirements,
 };
 
 pub const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
@@ -177,6 +178,44 @@ pub trait RemoteRepositoryWriter {
 pub trait RemoteRepositoryProvider: RemoteRepositoryReader + RemoteRepositoryWriter {}
 
 impl<T> RemoteRepositoryProvider for T where T: RemoteRepositoryReader + RemoteRepositoryWriter {}
+
+/// Provider-neutral information used when listing remote repositories.
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteRepositorySummary {
+    pub scope_id: String,
+    pub scope_name: String,
+    pub scope_slug: String,
+    pub repository_id: String,
+    pub repository_name: String,
+}
+
+/// Provider-neutral result from comparing a local repository with remote tag requirements.
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteTagRequirementsResult {
+    pub repo_root: String,
+    pub remote_repo_id: String,
+    pub required_tags: Vec<crate::TagRequirementStatus>,
+    pub ready: bool,
+}
+
+/// HostApp or another host application supplies this context to Gutch's remote CLI.
+///
+/// The context owns backend configuration and authentication. Gutch only receives the
+/// provider-neutral operations needed to synchronize repositories and evaluate tags.
+pub trait RemoteRepositoryCommandProvider {
+    fn repository_provider(&self) -> &dyn RemoteRepositoryProvider;
+
+    fn list_remote_repositories(&self) -> Result<Vec<RemoteRepositorySummary>>;
+
+    fn create_remote_repository(&self, scope_id: &str, name: &str) -> Result<String>;
+
+    fn delete_remote_repository(&self, repository: &RemoteRepository) -> Result<()>;
+
+    fn required_tag_requirements(
+        &self,
+        repository: &RemoteRepository,
+    ) -> Result<Vec<crate::TagRequirement>>;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PullConflictPolicy {
@@ -702,6 +741,115 @@ pub fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
     Ok(manifest.remote_repo_id)
 }
 
+pub fn bind_repo_remote(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
+    let remote_repo_id = remote_repo_id.trim();
+    if remote_repo_id.is_empty() {
+        return Err(Error::manifest("remote repository ID is required"));
+    }
+
+    let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
+    manifest.remote_repo_id = remote_repo_id.to_string();
+    write_gutch_repo_manifest(&paths, &manifest)
+}
+
+pub fn list_remote_repositories(
+    provider: &dyn RemoteRepositoryCommandProvider,
+) -> Result<Vec<RemoteRepositorySummary>> {
+    provider.list_remote_repositories()
+}
+
+pub fn link_repo(
+    repo_root: &Path,
+    scope_id: &str,
+    provider: &dyn RemoteRepositoryCommandProvider,
+) -> Result<()> {
+    let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
+    if manifest.is_linked() {
+        return Err(Error::manifest(format!(
+            "repo '{}' is already linked (remote_repo_id={}). Unlink first.",
+            paths.repo_root().display(),
+            manifest.remote_repo_id
+        )));
+    }
+
+    let scope_id = scope_id.trim();
+    if scope_id.is_empty() {
+        return Err(Error::manifest("remote repository scope is required"));
+    }
+    let remote_repo_id = provider.create_remote_repository(scope_id, &manifest.name)?;
+    if remote_repo_id.trim().is_empty() {
+        return Err(Error::manifest(
+            "remote provider returned an empty repository ID",
+        ));
+    }
+    manifest.remote_repo_id = remote_repo_id;
+    write_gutch_repo_manifest(&paths, &manifest)?;
+    Ok(())
+}
+
+pub fn unlink_repo(
+    repo_root: &Path,
+    delete_remote: bool,
+    provider: Option<&dyn RemoteRepositoryCommandProvider>,
+) -> Result<()> {
+    let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
+    if !manifest.is_linked() {
+        return Ok(());
+    }
+
+    if delete_remote {
+        let remote_repo_id = manifest.remote_repo_id.trim();
+        if remote_repo_id.is_empty() {
+            return Err(Error::manifest(format!(
+                "invalid remote_repo_id '{}' in manifest",
+                manifest.remote_repo_id
+            )));
+        }
+        let remote_repo_id = remote_repo_id.to_string();
+        let provider = provider.ok_or_else(|| {
+            Error::manifest(
+                "remote provider context is required when deleting the remote repository",
+            )
+        })?;
+        let repository = provider
+            .repository_provider()
+            .resolve_repository(None, Some(&remote_repo_id))?;
+        provider.delete_remote_repository(&repository)?;
+    }
+
+    manifest.remote_repo_id.clear();
+    write_gutch_repo_manifest(&paths, &manifest)?;
+    Ok(())
+}
+
+pub fn inspect_repo_tag_requirements(
+    repo_root: &Path,
+    provider: &dyn RemoteRepositoryCommandProvider,
+) -> Result<RemoteTagRequirementsResult> {
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    let remote_repo_id = repo_manifest.remote_repo_id.trim();
+    if remote_repo_id.is_empty() {
+        return Err(Error::manifest(format!(
+            "repo '{}' is not linked. Use 'gutch repo link' first.",
+            repo_paths.repo_root().display()
+        )));
+    }
+    let remote_repo_id = remote_repo_id.to_string();
+    let repository = provider
+        .repository_provider()
+        .resolve_repository(None, Some(&remote_repo_id))?;
+    let requirements = provider.required_tag_requirements(&repository)?;
+    let required_tags =
+        compare_tag_requirements(repo_manifest.snapshot_tag_schema.as_ref(), &requirements);
+
+    Ok(RemoteTagRequirementsResult {
+        repo_root: repo_paths.repo_root().display().to_string(),
+        remote_repo_id,
+        ready: required_tags.iter().all(|tag| tag.status == "ready"),
+        required_tags,
+    })
+}
+
 fn bound_remote_repo_id(repo_root: &Path) -> Result<Option<String>> {
     let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
     if !repo_paths.repo_metadata_path.exists() {
@@ -711,7 +859,7 @@ fn bound_remote_repo_id(repo_root: &Path) -> Result<Option<String>> {
     Ok(manifest.is_linked().then_some(manifest.remote_repo_id))
 }
 
-pub fn plan_pull_with_provider<P: RemoteRepositoryReader>(
+pub fn plan_pull_with_provider<P: RemoteRepositoryReader + ?Sized>(
     repo_root: &Path,
     provider: &P,
     remote_spec: Option<&str>,
@@ -723,7 +871,7 @@ pub fn plan_pull_with_provider<P: RemoteRepositoryReader>(
     plan_pull(repo_root, &repository, &snapshots, policy)
 }
 
-pub fn plan_sync_up_with_provider<P: RemoteRepositoryReader>(
+pub fn plan_sync_up_with_provider<P: RemoteRepositoryReader + ?Sized>(
     repo_root: &Path,
     provider: &P,
 ) -> Result<RepoSyncPlan> {
@@ -826,7 +974,7 @@ fn bundle_source_requests(
     requests
 }
 
-pub fn pull_repo<P: RemoteRepositoryReader>(
+pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
     repo: PathBuf,
     provider: &P,
     remote_spec: Option<String>,
@@ -1318,7 +1466,7 @@ pub fn plan_sync_up(
     })
 }
 
-struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter> {
+struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter + ?Sized> {
     provider: &'a P,
     repository: &'a RemoteRepository,
     repo_paths: &'a GutchRepoPaths,
@@ -1329,7 +1477,7 @@ struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter> {
     total_steps: usize,
 }
 
-fn write_snapshot_uploads<P: RemoteRepositoryWriter>(
+fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context: &mut SnapshotUploadContext<'_, P>,
     snapshot: &crate::RepoCheckSnapshotStatus,
     remote_snapshot: &RemoteSnapshot,
@@ -1399,7 +1547,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter>(
     Ok(())
 }
 
-pub fn sync_up_repo<P: RemoteRepositoryProvider>(
+pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
     repo: PathBuf,
     provider: &P,
     control: GutchOperationControl,
@@ -1846,6 +1994,33 @@ mod tests {
         assert!(plan.repo_manifest_needed);
         assert!(plan.chunk_map_needed);
         assert!(plan.snapshots_to_download.is_empty());
+    }
+
+    #[test]
+    fn binding_a_remote_repo_keeps_the_id_opaque() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        crate::ensure_gutch_repo_layout(
+            &GutchRepoPaths::from_repo_root(directory.path()),
+            "fixture",
+        )
+        .expect("repo layout");
+
+        bind_repo_remote(directory.path(), "provider-specific-id").expect("bind repo");
+        assert_eq!(
+            linked_remote_repo_id(directory.path()).expect("linked id"),
+            "provider-specific-id"
+        );
+    }
+
+    #[test]
+    fn binding_rejects_an_empty_remote_repo_id() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let error = bind_repo_remote(directory.path(), " ").expect_err("empty id must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("remote repository ID is required")
+        );
     }
 
     #[test]

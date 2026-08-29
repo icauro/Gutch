@@ -1,9 +1,12 @@
 use crate::cli::{Cli, Commands, bundle, path};
 use gutch as g;
 
-pub(crate) fn run(cli: Cli) -> g::Result<()> {
+pub(crate) fn run(
+    cli: Cli,
+    remote_provider: Option<&dyn g::RemoteRepositoryCommandProvider>,
+) -> g::Result<()> {
     match cli.command {
-        Commands::Repo { command } => crate::cli::repo::run(command),
+        Commands::Repo { command } => crate::cli::repo::run(command, remote_provider),
         Commands::Snapshot { command } => crate::cli::snapshot::run(command),
         Commands::Bundle { command } => match command {
             crate::cli::BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),

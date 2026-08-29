@@ -5,7 +5,10 @@ use crate::cli::common::load_optional_rules;
 use crate::cli::reporting::{ensure_parent_directory, print_repo_check_timings};
 use gutch as g;
 
-pub fn run(command: RepoCommands) -> g::Result<()> {
+pub fn run(
+    command: RepoCommands,
+    remote_provider: Option<&dyn g::RemoteRepositoryCommandProvider>,
+) -> g::Result<()> {
     match command {
         RepoCommands::Init {
             path,
@@ -13,6 +16,44 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
             force,
         } => {
             actions::repo::init_repo(&path, schema.as_ref(), force)?;
+        }
+
+        RepoCommands::Push { repo, yes } => {
+            crate::cli::remote::push(repo, yes, remote_provider)?;
+        }
+
+        RepoCommands::Pull {
+            repo,
+            remote,
+            on_conflict,
+            prune,
+            yes,
+        } => {
+            crate::cli::remote::pull(repo, remote, on_conflict, prune, yes, remote_provider)?;
+        }
+
+        RepoCommands::Remote { command } => match command {
+            crate::cli::RemoteCommands::List => {
+                crate::cli::remote::list(remote_provider)?;
+            }
+        },
+
+        RepoCommands::Link { repo, scope_id } => {
+            crate::cli::remote::link(repo, scope_id, remote_provider)?;
+        }
+
+        RepoCommands::Bind {
+            repo,
+            remote_repo_id,
+        } => {
+            crate::cli::remote::bind(repo, remote_repo_id)?;
+        }
+
+        RepoCommands::Unlink {
+            repo,
+            delete_remote,
+        } => {
+            crate::cli::remote::unlink(repo, delete_remote, remote_provider)?;
         }
 
         RepoCommands::Name {
@@ -49,6 +90,17 @@ pub fn run(command: RepoCommands) -> g::Result<()> {
                 "updated snapshot tag schema at {}",
                 repo_paths.repo_metadata_path.display()
             );
+        }
+
+        RepoCommands::Tags {
+            command:
+                crate::cli::RepoTagsCommands::Requirements {
+                    repo,
+                    check,
+                    json_out,
+                },
+        } => {
+            crate::cli::remote::tag_requirements(repo, check, json_out, remote_provider)?;
         }
 
         RepoCommands::Status { repo, json_out } => {

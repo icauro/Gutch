@@ -59,10 +59,12 @@ pub use reconstruct::{
 };
 pub use repo::remote::{
     PullConflictPolicy, RemoteArtifactSource, RemoteBundleSource, RemoteRepository,
-    RemoteRepositoryProvider, RemoteRepositoryReader, RemoteRepositoryWriter, RemoteSnapshot,
-    RemoteSnapshotSources, RepoPullPlan, RepoPullStats, RepoSyncPlan, RepoSyncSnapshotChange,
-    RepoSyncUpStats, linked_remote_repo_id, plan_pull, plan_pull_with_provider, plan_sync_up,
-    plan_sync_up_with_provider, pull_repo, sync_up_repo,
+    RemoteRepositoryCommandProvider, RemoteRepositoryProvider, RemoteRepositoryReader,
+    RemoteRepositorySummary, RemoteRepositoryWriter, RemoteSnapshot, RemoteSnapshotSources,
+    RemoteTagRequirementsResult, RepoPullPlan, RepoPullStats, RepoSyncPlan, RepoSyncSnapshotChange,
+    RepoSyncUpStats, bind_repo_remote, inspect_repo_tag_requirements, link_repo,
+    linked_remote_repo_id, list_remote_repositories, plan_pull, plan_pull_with_provider,
+    plan_sync_up, plan_sync_up_with_provider, pull_repo, sync_up_repo, unlink_repo,
 };
 pub use repo::tag_requirements::{TagRequirement, TagRequirementStatus, compare_tag_requirements};
 pub use repo::{
@@ -73,9 +75,9 @@ pub use repo::{
     SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult, SnapshotSourcesRefresh,
     SnapshotVerifyResult, SourceSnapshotOperationCandidate, SourceSnapshotOperationDisposition,
     add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index, assess_repo_init_path,
-    bind_gutch_repo_remote, bundle_id_from_bundle_path, bundle_path, bundle_path_in_root,
-    capture_repo_snapshot, capture_snapshot_sources, check_gutch_repo, chunk_path,
-    chunk_path_in_root, cleanup_orphan_bundles_in_repo, compute_snapshot_id_from_entries,
+    bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, capture_repo_snapshot,
+    capture_snapshot_sources, check_gutch_repo, chunk_path, chunk_path_in_root,
+    cleanup_orphan_bundles_in_repo, compute_snapshot_id_from_entries,
     delete_repo_snapshot_and_cleanup, delete_repo_snapshots,
     delete_repo_snapshots_with_matching_tags, describe_snapshot_capture_plan,
     describe_snapshot_sources_capture_plan, discover_source_snapshot_operations,
