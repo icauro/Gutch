@@ -90,7 +90,7 @@ pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()>
 
 pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
     let progress = CliProgressSink::new();
-    let execution = g::verify_snapshot_from_repo(g::SnapshotVerifyFromRepoRequest {
+    let execution = g::verify_installed_snapshot(g::SnapshotVerifyFromRepoRequest {
         repo_path: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),

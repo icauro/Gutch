@@ -1,7 +1,7 @@
-//! Provider-neutral remote repository planning and synchronization.
+//! Provider-neutral remote repo planning and synchronization.
 //!
-//! A caller supplies a remote repository provider for control-plane lookup and
-//! artifact transfer. Gutch owns the comparison rules, local repository
+//! A caller supplies a remote repo provider for control-plane lookup and
+//! artifact transfer. Gutch owns the comparison rules, local repo
 //! mutations, progress, cancellation, and synchronization order.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -174,12 +174,12 @@ pub trait RemoteRepositoryWriter {
     ) -> Result<usize>;
 }
 
-/// A provider that supports both repository reads and writes.
+/// A provider that supports both repo reads and writes.
 pub trait RemoteRepositoryProvider: RemoteRepositoryReader + RemoteRepositoryWriter {}
 
 impl<T> RemoteRepositoryProvider for T where T: RemoteRepositoryReader + RemoteRepositoryWriter {}
 
-/// Provider-neutral information used when listing remote repositories.
+/// Provider-neutral information used when listing remote repos.
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteRepositorySummary {
     pub scope_id: String,
@@ -189,7 +189,7 @@ pub struct RemoteRepositorySummary {
     pub repository_name: String,
 }
 
-/// Provider-neutral result from comparing a local repository with remote tag requirements.
+/// Provider-neutral result from comparing a local repo with remote tag requirements.
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteTagRequirementsResult {
     pub repo_root: String,
@@ -201,7 +201,7 @@ pub struct RemoteTagRequirementsResult {
 /// HostApp or another host application supplies this context to Gutch's remote CLI.
 ///
 /// The context owns backend configuration and authentication. Gutch only receives the
-/// provider-neutral operations needed to synchronize repositories and evaluate tags.
+/// provider-neutral operations needed to synchronize repos and evaluate tags.
 pub trait RemoteRepositoryCommandProvider {
     fn repository_provider(&self) -> &dyn RemoteRepositoryProvider;
 
@@ -744,7 +744,7 @@ pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
 pub fn bind_repo_remote(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
     let remote_repo_id = remote_repo_id.trim();
     if remote_repo_id.is_empty() {
-        return Err(Error::manifest("remote repository ID is required"));
+        return Err(Error::manifest("remote repo ID is required"));
     }
 
     let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
@@ -774,13 +774,11 @@ pub fn link_repo(
 
     let scope_id = scope_id.trim();
     if scope_id.is_empty() {
-        return Err(Error::manifest("remote repository scope is required"));
+        return Err(Error::manifest("remote repo scope is required"));
     }
     let remote_repo_id = provider.create_remote_repository(scope_id, &manifest.name)?;
     if remote_repo_id.trim().is_empty() {
-        return Err(Error::manifest(
-            "remote provider returned an empty repository ID",
-        ));
+        return Err(Error::manifest("remote provider returned an empty repo ID"));
     }
     manifest.remote_repo_id = remote_repo_id;
     write_gutch_repo_manifest(&paths, &manifest)?;
@@ -807,9 +805,7 @@ pub fn unlink_repo(
         }
         let remote_repo_id = remote_repo_id.to_string();
         let provider = provider.ok_or_else(|| {
-            Error::manifest(
-                "remote provider context is required when deleting the remote repository",
-            )
+            Error::manifest("remote provider context is required when deleting the remote repo")
         })?;
         let repository = provider
             .repository_provider()
@@ -1041,7 +1037,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             MAX_REMOTE_JSON_BYTES,
             &control,
         )?;
-        verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repository metadata")?;
+        verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
         let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
             crate::helpers::from_json_bytes(&bytes)?;
         manifest.remote_repo_id = repository.id.clone();
@@ -2016,11 +2012,7 @@ mod tests {
     fn binding_rejects_an_empty_remote_repo_id() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let error = bind_repo_remote(directory.path(), " ").expect_err("empty id must fail");
-        assert!(
-            error
-                .to_string()
-                .contains("remote repository ID is required")
-        );
+        assert!(error.to_string().contains("remote repo ID is required"));
     }
 
     #[test]

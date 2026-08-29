@@ -182,7 +182,7 @@ fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
 
         let repo_status = gutch::check_gutch_repo(&repo_root).expect("fixture repo should load");
         assert_eq!(repo_status.snapshots.len(), test_manifest.snapshots.len());
-        let verification = gutch::verify_gutch_repo(&repo_root, None, VerifyMode::Strict)
+        let verification = gutch::verify_gutch_repo_artifacts(&repo_root, None, VerifyMode::Strict)
             .expect("fixture repo should verify");
         assert!(
             verification.ok,

@@ -161,7 +161,7 @@ pub(crate) fn run(
             } else {
                 g::VerifyMode::Fast
             };
-            let result = g::verify_gutch_repo(&repo, snapshot_id.as_deref(), mode)?;
+            let result = g::verify_gutch_repo_artifacts(&repo, snapshot_id.as_deref(), mode)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
                 crate::helpers::write(json_out, serde_json::to_vec_pretty(&result)?)?;

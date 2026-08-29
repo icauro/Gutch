@@ -34,7 +34,7 @@ pub struct SnapshotVerifyResult {
 }
 
 /// Verify repo bundle integrity. When `snapshot_id` is None, all repo snapshots are verified.
-pub fn verify_gutch_repo(
+pub fn verify_gutch_repo_artifacts(
     repo_root: &Path,
     snapshot_id: Option<&str>,
     mode: VerifyMode,

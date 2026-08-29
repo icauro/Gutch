@@ -89,7 +89,7 @@ fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {
     for repo in &config.repos {
         if !std::path::Path::new(repo.path.trim()).is_absolute() {
             return Err(crate::Error::manifest(
-                "tracked Gutch repository paths must be absolute",
+                "tracked Gutch repo paths must be absolute",
             ));
         }
         if repo

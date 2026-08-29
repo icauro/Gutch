@@ -60,7 +60,7 @@ pub(crate) fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: 
     ))
 }
 
-pub fn verify_snapshot_from_repo(
+pub fn verify_installed_snapshot(
     request: SnapshotVerifyFromRepoRequest,
 ) -> Result<SnapshotVerifyFromRepoResult> {
     request.control.checkpoint()?;

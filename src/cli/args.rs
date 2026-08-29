@@ -48,7 +48,7 @@ pub(crate) struct ArtifactBuildProfileArgs {
 #[command(
     name = "gutch",
     version,
-    about = "Generic Gutch artifact and repository engine"
+    about = "Generic Gutch artifact and repo engine"
 )]
 pub(crate) struct Cli {
     #[arg(long, short = 'v', global = true)]
@@ -475,7 +475,7 @@ mod path_tests {
             "relative/repo",
         ])
         .err()
-        .expect("relative repository path must be rejected");
+        .expect("relative repo path must be rejected");
         assert!(error.to_string().contains("path must be absolute"));
     }
 
@@ -487,6 +487,6 @@ mod path_tests {
             "/repos/game"
         };
         Cli::try_parse_from(["gutch", "repo", "status", "--repo", repo])
-            .expect("absolute repository path");
+            .expect("absolute repo path");
     }
 }

@@ -108,7 +108,7 @@ pub use repo::snapshot_sources::{
 pub(crate) use repo::source_identity::compute_snapshot_id_from_entries;
 pub use repo::tag_requirements::{TagRequirement, TagRequirementStatus, compare_tag_requirements};
 pub use repo::updates::{update_gutch_repo_name, update_gutch_repo_schema};
-pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo};
+pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo_artifacts};
 pub(crate) use runtime::RuntimePlan;
 pub use runtime::{MemoryMode, RuntimeResourceHints};
 pub(crate) use snapshot::identity::resolve_snapshot_identity_with_inference;
@@ -125,7 +125,7 @@ pub use snapshot_ops::{
     SnapshotVerifyFromRepoResult, download_and_reconstruct_snapshot, fetch_snapshot,
     fetch_snapshot_for_required_bundle_ids, plan_repair_snapshot_from_repo,
     reconstruct_snapshot_from_repo, repair_snapshot_from_repo, resolve_snapshot_state,
-    verify_snapshot_from_repo,
+    verify_installed_snapshot,
 };
 pub(crate) use verify::VerifyTimings;
 pub(crate) use verify::estimate_build;

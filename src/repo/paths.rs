@@ -19,7 +19,7 @@ pub struct GutchRepoPaths {
 
 impl GutchRepoPaths {
     pub fn from_store_root(store_root: &Path, gutch_repo_id: &str) -> Result<Self> {
-        validate_path_component(gutch_repo_id, "Gutch repository ID")?;
+        validate_path_component(gutch_repo_id, "Gutch repo ID")?;
         let repo_root = store_root.join("v1").join("repos").join(gutch_repo_id);
         Ok(Self::from_repo_root(&repo_root))
     }
