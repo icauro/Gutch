@@ -176,7 +176,7 @@ fn plan_runtime(hints: &RuntimeResourceHints, workload: RuntimeWorkload) -> Runt
     }
 }
 
-pub fn run_in_thread_pool<T: Send, F: FnOnce() -> T + Send>(
+pub(crate) fn run_in_thread_pool<T: Send, F: FnOnce() -> T + Send>(
     worker_count: usize,
     work: F,
 ) -> Result<T> {

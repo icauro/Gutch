@@ -2,7 +2,7 @@ use crate::cli::common::{load_optional_rules, prompt_yes_no};
 use gutch as g;
 use std::path::{Path, PathBuf};
 
-pub fn init_repo(path: &Path, schema: Option<&PathBuf>, force: bool) -> g::Result<()> {
+pub(crate) fn init_repo(path: &Path, schema: Option<&PathBuf>, force: bool) -> g::Result<()> {
     let assessment = g::assess_repo_init_path(path)?;
     let mut proceed_force = force;
     if assessment.requires_confirmation && !proceed_force {
@@ -29,7 +29,7 @@ pub fn init_repo(path: &Path, schema: Option<&PathBuf>, force: bool) -> g::Resul
     Ok(())
 }
 
-pub fn rename_repo(repo: &Path, name: &str) -> g::Result<()> {
+pub(crate) fn rename_repo(repo: &Path, name: &str) -> g::Result<()> {
     g::update_gutch_repo_name(repo, name)?;
     println!("renamed repo '{}' to '{}'", repo.display(), name.trim());
     Ok(())

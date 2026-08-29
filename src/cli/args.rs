@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use gutch as g;
 
-pub fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
+pub(crate) fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(value.trim());
     if path.is_absolute() {
         Ok(path)
@@ -13,7 +13,7 @@ pub fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
 }
 
 #[derive(Debug, Clone, Copy, Args)]
-pub struct RuntimeArgs {
+pub(crate) struct RuntimeArgs {
     #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
     pub(crate) memory_mode: g::MemoryMode,
     #[arg(long = "max-memory-mib")]
@@ -33,7 +33,7 @@ impl RuntimeArgs {
 }
 
 #[derive(Debug, Clone, Copy, Args)]
-pub struct ArtifactBuildProfileArgs {
+pub(crate) struct ArtifactBuildProfileArgs {
     #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk128KiB)]
     pub(crate) chunk_profile: g::manifest::ArtifactSizingPreset,
     #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
@@ -50,16 +50,16 @@ pub struct ArtifactBuildProfileArgs {
     version,
     about = "Generic Gutch artifact and repository engine"
 )]
-pub struct Cli {
+pub(crate) struct Cli {
     #[arg(long, short = 'v', global = true)]
-    pub verbose: bool,
+    pub(crate) verbose: bool,
 
     #[command(subcommand)]
-    pub command: Commands,
+    pub(crate) command: Commands,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub(crate) enum Commands {
     Repo {
         #[command(subcommand)]
         command: RepoCommands,
@@ -79,7 +79,7 @@ pub enum Commands {
 }
 
 #[derive(Subcommand)]
-pub enum RepoCommands {
+pub(crate) enum RepoCommands {
     Init {
         #[arg(long = "path", value_parser = parse_absolute_path)]
         path: PathBuf,
@@ -161,12 +161,12 @@ pub enum RepoCommands {
 }
 
 #[derive(Subcommand)]
-pub enum RemoteCommands {
+pub(crate) enum RemoteCommands {
     List,
 }
 
 #[derive(Subcommand)]
-pub enum RepoNameCommands {
+pub(crate) enum RepoNameCommands {
     Set {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
@@ -176,7 +176,7 @@ pub enum RepoNameCommands {
 }
 
 #[derive(Subcommand)]
-pub enum RepoTagsCommands {
+pub(crate) enum RepoTagsCommands {
     Schema {
         #[command(subcommand)]
         command: RepoTagSchemaCommands,
@@ -192,7 +192,7 @@ pub enum RepoTagsCommands {
 }
 
 #[derive(Subcommand)]
-pub enum RepoTagSchemaCommands {
+pub(crate) enum RepoTagSchemaCommands {
     Set {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
@@ -204,7 +204,7 @@ pub enum RepoTagSchemaCommands {
 }
 
 #[derive(Subcommand)]
-pub enum SnapshotSourcesCommands {
+pub(crate) enum SnapshotSourcesCommands {
     #[command(name = "capture")]
     Capture {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
@@ -221,7 +221,7 @@ pub enum SnapshotSourcesCommands {
 }
 
 #[derive(Subcommand)]
-pub enum SnapshotCommands {
+pub(crate) enum SnapshotCommands {
     #[command(name = "capture")]
     Capture {
         #[arg(short, long = "source-dir", value_parser = parse_absolute_path)]
@@ -439,7 +439,7 @@ mod tests {
 }
 
 #[derive(Subcommand)]
-pub enum BundleCommands {
+pub(crate) enum BundleCommands {
     Inspect {
         #[arg(short, long, value_parser = parse_absolute_path)]
         bundle: PathBuf,
@@ -449,7 +449,7 @@ pub enum BundleCommands {
 }
 
 #[derive(Subcommand)]
-pub enum PathCommands {
+pub(crate) enum PathCommands {
     Compare {
         #[arg(long = "expected", value_parser = parse_absolute_path)]
         expected: PathBuf,

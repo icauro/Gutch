@@ -5,7 +5,7 @@ use crate::cli::common::load_optional_rules;
 use crate::cli::reporting::{ensure_parent_directory, print_repo_check_timings};
 use gutch as g;
 
-pub fn run(
+pub(crate) fn run(
     command: RepoCommands,
     remote_provider: Option<&dyn g::RemoteRepositoryCommandProvider>,
 ) -> g::Result<()> {

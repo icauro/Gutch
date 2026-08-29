@@ -8,11 +8,11 @@ use crate::{Result, helpers};
 
 use super::{GutchRepoPaths, validate_path_component};
 
-pub const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
-pub const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
-pub const SNAPSHOT_BLUEPRINT_FILE: &str = "snapshot_blueprint.gtcbin";
+pub(crate) const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
+pub(crate) const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
+pub(crate) const SNAPSHOT_BLUEPRINT_FILE: &str = "snapshot_blueprint.gtcbin";
 
-pub fn validate_snapshot_id(snapshot_id: &str) -> Result<()> {
+pub(crate) fn validate_snapshot_id(snapshot_id: &str) -> Result<()> {
     if snapshot_id.len() == 64
         && snapshot_id
             .bytes()
@@ -129,20 +129,6 @@ pub fn write_snapshot_product_metadata(
         helpers::remove_file(&metadata_path)?;
     }
     Ok(None)
-}
-
-pub fn write_snapshot_product_metadata_only(
-    paths: &GutchRepoPaths,
-    snapshot_manifest: &SnapshotManifest,
-) -> Result<()> {
-    let mut metadata = snapshot_manifest.clone();
-    metadata.sync_product_metadata_from_launch();
-    write_snapshot_product_metadata(
-        paths,
-        &snapshot_manifest.snapshot_id,
-        metadata.product_metadata.as_ref(),
-    )?;
-    Ok(())
 }
 
 pub fn save_snapshot_product_metadata(

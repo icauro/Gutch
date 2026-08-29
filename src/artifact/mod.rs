@@ -1,4 +1,4 @@
-pub mod bundle;
-pub mod chunk;
-pub mod compress;
-pub mod hash;
+pub(crate) mod bundle;
+pub(crate) mod chunk;
+pub(crate) mod compress;
+pub(crate) mod hash;

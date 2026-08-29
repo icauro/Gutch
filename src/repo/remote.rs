@@ -20,8 +20,8 @@ use crate::{
     GutchProgressSink, Result, compare_tag_requirements,
 };
 
-pub const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
-pub const MAX_REMOTE_BINARY_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_REMOTE_BINARY_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct RemoteRepository {

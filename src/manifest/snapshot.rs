@@ -257,7 +257,7 @@ fn is_runtime_identifier(value: &str) -> bool {
 
 /// Returns the launcher host capabilities used by snapshot product host variants.
 /// These tags are runtime facts and are never written into snapshot metadata.
-pub fn current_host_tags() -> SnapshotTagSet {
+pub(crate) fn current_host_tags() -> SnapshotTagSet {
     let mut tags = SnapshotTagSet::default();
     let operating_system = match std::env::consts::OS {
         "windows" => "windows",

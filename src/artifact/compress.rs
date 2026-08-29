@@ -3,7 +3,7 @@ use std::io::{Cursor, Write};
 use crate::error::Result;
 use crate::manifest::CompressionKind;
 
-pub fn decompress_data(data: &[u8], compression: CompressionKind) -> Result<Vec<u8>> {
+pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Result<Vec<u8>> {
     match compression {
         CompressionKind::None => Ok(data.to_vec()),
         CompressionKind::Zstd => zstd::decode_all(data)
@@ -11,7 +11,7 @@ pub fn decompress_data(data: &[u8], compression: CompressionKind) -> Result<Vec<
     }
 }
 
-pub fn decompress_data_to_writer<W: Write>(
+pub(crate) fn decompress_data_to_writer<W: Write>(
     data: &[u8],
     compression: CompressionKind,
     mut writer: W,
@@ -52,11 +52,11 @@ pub fn decompress_data_to_writer<W: Write>(
     }
 }
 
-pub fn compress_with_level(data: &[u8], level: i32) -> Result<Vec<u8>> {
+pub(crate) fn compress_with_level(data: &[u8], level: i32) -> Result<Vec<u8>> {
     compress_segments_with_level(std::iter::once(data), data.len() as u64, level)
 }
 
-pub fn compress_segments_with_level<'a, I>(
+pub(crate) fn compress_segments_with_level<'a, I>(
     segments: I,
     raw_size: u64,
     level: i32,

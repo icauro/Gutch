@@ -1,13 +1,13 @@
 mod apply;
-pub mod fetch;
+pub(crate) mod fetch;
 mod pipeline;
 mod repair;
 mod snapshot_repo;
-pub mod state;
+pub(crate) mod state;
 mod transfer;
 
 pub use transfer::snapshot_manifest_from_download;
-pub mod types;
+pub(crate) mod types;
 
 pub use apply::{
     default_snapshot_staging_dir, reconstruct_snapshot_from_repo, verify_snapshot_from_repo,

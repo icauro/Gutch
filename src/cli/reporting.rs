@@ -109,7 +109,7 @@ fn print_table_row(
     print_table_border();
 }
 
-pub fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
+pub(crate) fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
     if denominator == 0 {
         0.0
     } else {
@@ -118,7 +118,7 @@ pub fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
 }
 
 #[derive(Debug, Serialize)]
-pub struct RuntimePlanSummary {
+pub(crate) struct RuntimePlanSummary {
     requested_memory_mode: Option<String>,
     effective_memory_mode: Option<String>,
     chunk_storage_mode: Option<String>,
@@ -146,179 +146,179 @@ fn wall_timing_fields(total: std::time::Duration, parts: &[std::time::Duration])
 }
 
 #[derive(Debug, Serialize)]
-pub struct OptionalOutputPaths {
+pub(crate) struct OptionalOutputPaths {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stats_json_out: Option<String>,
+    pub(crate) stats_json_out: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildTimingsSummary {
-    pub schema_version: u32,
-    pub scan_strategy: String,
-    pub runtime_plan: RuntimePlanSummary,
-    pub total_seconds: f64,
-    pub unaccounted_seconds: f64,
-    pub phases: BuildTimingPhasesSummary,
+pub(crate) struct BuildTimingsSummary {
+    pub(crate) schema_version: u32,
+    pub(crate) scan_strategy: String,
+    pub(crate) runtime_plan: RuntimePlanSummary,
+    pub(crate) total_seconds: f64,
+    pub(crate) unaccounted_seconds: f64,
+    pub(crate) phases: BuildTimingPhasesSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildTimingPhasesSummary {
-    pub scan_chunk: BuildScanChunkPhaseSummary,
-    pub dedupe_plan: BuildDedupePlanPhaseSummary,
-    pub artifact_encode: BuildArtifactEncodePhaseSummary,
-    pub manifest_finalize: WallTimingPhaseSummary,
+pub(crate) struct BuildTimingPhasesSummary {
+    pub(crate) scan_chunk: BuildScanChunkPhaseSummary,
+    pub(crate) dedupe_plan: BuildDedupePlanPhaseSummary,
+    pub(crate) artifact_encode: BuildArtifactEncodePhaseSummary,
+    pub(crate) manifest_finalize: WallTimingPhaseSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildScanChunkPhaseSummary {
-    pub wall_seconds: f64,
-    pub details: BuildScanChunkDetailsSummary,
+pub(crate) struct BuildScanChunkPhaseSummary {
+    pub(crate) wall_seconds: f64,
+    pub(crate) details: BuildScanChunkDetailsSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildScanChunkDetailsSummary {
-    pub logical_bytes: u64,
-    pub stream_chunk_worker_seconds: f64,
-    pub stream_chunk_bytes: u64,
-    pub stream_chunk_mib_per_second: f64,
-    pub file_hash_worker_seconds: f64,
-    pub file_hash_bytes: u64,
-    pub file_hash_mib_per_second: f64,
-    pub chunk_hash_worker_seconds: f64,
-    pub chunk_hash_bytes: u64,
-    pub chunk_hash_mib_per_second: f64,
-    pub metadata_worker_seconds: f64,
+pub(crate) struct BuildScanChunkDetailsSummary {
+    pub(crate) logical_bytes: u64,
+    pub(crate) stream_chunk_worker_seconds: f64,
+    pub(crate) stream_chunk_bytes: u64,
+    pub(crate) stream_chunk_mib_per_second: f64,
+    pub(crate) file_hash_worker_seconds: f64,
+    pub(crate) file_hash_bytes: u64,
+    pub(crate) file_hash_mib_per_second: f64,
+    pub(crate) chunk_hash_worker_seconds: f64,
+    pub(crate) chunk_hash_bytes: u64,
+    pub(crate) chunk_hash_mib_per_second: f64,
+    pub(crate) metadata_worker_seconds: f64,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildDedupePlanPhaseSummary {
-    pub wall_seconds: f64,
-    pub details: BuildDedupePlanDetailsSummary,
+pub(crate) struct BuildDedupePlanPhaseSummary {
+    pub(crate) wall_seconds: f64,
+    pub(crate) details: BuildDedupePlanDetailsSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildDedupePlanDetailsSummary {
-    pub lookup_worker_seconds: f64,
-    pub dedupe_lookup_bytes: u64,
-    pub dedupe_lookup_mib_per_second: f64,
+pub(crate) struct BuildDedupePlanDetailsSummary {
+    pub(crate) lookup_worker_seconds: f64,
+    pub(crate) dedupe_lookup_bytes: u64,
+    pub(crate) dedupe_lookup_mib_per_second: f64,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildArtifactEncodePhaseSummary {
-    pub wall_seconds: f64,
-    pub details: BuildArtifactEncodeDetailsSummary,
+pub(crate) struct BuildArtifactEncodePhaseSummary {
+    pub(crate) wall_seconds: f64,
+    pub(crate) details: BuildArtifactEncodeDetailsSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BuildArtifactEncodeDetailsSummary {
-    pub compression_input_bytes: u64,
-    pub compression_output_bytes: u64,
-    pub compression_ratio_percent: f64,
-    pub total_compressed_bytes: u64,
-    pub artifact_output_bytes: u64,
-    pub payload_load_worker_seconds: f64,
-    pub payload_load_bytes: u64,
-    pub payload_load_mib_per_second: f64,
-    pub bundle_sort_worker_seconds: Option<f64>,
-    pub bundle_compressed_sort_bytes: u64,
-    pub bundle_compressed_sort_mib_per_second: Option<f64>,
-    pub ratio_probe_worker_seconds: Option<f64>,
-    pub bundle_compressed_ratio_probe_bytes: u64,
-    pub bundle_compressed_ratio_probe_mib_per_second: Option<f64>,
-    pub payload_assembly_worker_seconds: Option<f64>,
-    pub bundle_compressed_payload_assembly_bytes: u64,
-    pub bundle_compressed_payload_assembly_mib_per_second: Option<f64>,
-    pub zstd_worker_seconds: Option<f64>,
-    pub bundle_compressed_stream_input_bytes: u64,
-    pub bundle_compressed_stream_output_bytes: u64,
-    pub bundle_compressed_stream_input_mib_per_second: Option<f64>,
-    pub bundle_compressed_stream_ratio_percent: Option<f64>,
-    pub serialization_worker_seconds: Option<f64>,
-    pub bundle_compressed_serialization_bytes: u64,
-    pub bundle_compressed_serialization_mib_per_second: Option<f64>,
+pub(crate) struct BuildArtifactEncodeDetailsSummary {
+    pub(crate) compression_input_bytes: u64,
+    pub(crate) compression_output_bytes: u64,
+    pub(crate) compression_ratio_percent: f64,
+    pub(crate) total_compressed_bytes: u64,
+    pub(crate) artifact_output_bytes: u64,
+    pub(crate) payload_load_worker_seconds: f64,
+    pub(crate) payload_load_bytes: u64,
+    pub(crate) payload_load_mib_per_second: f64,
+    pub(crate) bundle_sort_worker_seconds: Option<f64>,
+    pub(crate) bundle_compressed_sort_bytes: u64,
+    pub(crate) bundle_compressed_sort_mib_per_second: Option<f64>,
+    pub(crate) ratio_probe_worker_seconds: Option<f64>,
+    pub(crate) bundle_compressed_ratio_probe_bytes: u64,
+    pub(crate) bundle_compressed_ratio_probe_mib_per_second: Option<f64>,
+    pub(crate) payload_assembly_worker_seconds: Option<f64>,
+    pub(crate) bundle_compressed_payload_assembly_bytes: u64,
+    pub(crate) bundle_compressed_payload_assembly_mib_per_second: Option<f64>,
+    pub(crate) zstd_worker_seconds: Option<f64>,
+    pub(crate) bundle_compressed_stream_input_bytes: u64,
+    pub(crate) bundle_compressed_stream_output_bytes: u64,
+    pub(crate) bundle_compressed_stream_input_mib_per_second: Option<f64>,
+    pub(crate) bundle_compressed_stream_ratio_percent: Option<f64>,
+    pub(crate) serialization_worker_seconds: Option<f64>,
+    pub(crate) bundle_compressed_serialization_bytes: u64,
+    pub(crate) bundle_compressed_serialization_mib_per_second: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReconstructTimingsSummary {
-    pub schema_version: u32,
-    pub runtime_plan: RuntimePlanSummary,
-    pub total_seconds: f64,
-    pub unaccounted_seconds: f64,
-    pub phases: ReconstructTimingPhasesSummary,
+pub(crate) struct ReconstructTimingsSummary {
+    pub(crate) schema_version: u32,
+    pub(crate) runtime_plan: RuntimePlanSummary,
+    pub(crate) total_seconds: f64,
+    pub(crate) unaccounted_seconds: f64,
+    pub(crate) phases: ReconstructTimingPhasesSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReconstructTimingPhasesSummary {
-    pub prepare: WallTimingPhaseSummary,
-    pub reconstruct: ReconstructReconstructPhaseSummary,
+pub(crate) struct ReconstructTimingPhasesSummary {
+    pub(crate) prepare: WallTimingPhaseSummary,
+    pub(crate) reconstruct: ReconstructReconstructPhaseSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReconstructReconstructPhaseSummary {
-    pub wall_seconds: f64,
-    pub details: ReconstructReconstructDetailsSummary,
+pub(crate) struct ReconstructReconstructPhaseSummary {
+    pub(crate) wall_seconds: f64,
+    pub(crate) details: ReconstructReconstructDetailsSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReconstructReconstructDetailsSummary {
-    pub artifact_read_decode_worker_seconds: f64,
-    pub bundle_read_compressed_bytes: u64,
-    pub bundle_read_decompressed_bytes: u64,
-    pub bundle_read_decompressed_mib_per_second: f64,
-    pub chunk_verify_worker_seconds: Option<f64>,
-    pub chunk_verify_bytes: Option<u64>,
-    pub chunk_verify_mib_per_second: Option<f64>,
-    pub file_hash_worker_seconds: Option<f64>,
-    pub file_verify_bytes: u64,
-    pub file_verify_mib_per_second: Option<f64>,
-    pub file_write_worker_seconds: f64,
-    pub file_write_bytes: u64,
-    pub file_write_mib_per_second: f64,
+pub(crate) struct ReconstructReconstructDetailsSummary {
+    pub(crate) artifact_read_decode_worker_seconds: f64,
+    pub(crate) bundle_read_compressed_bytes: u64,
+    pub(crate) bundle_read_decompressed_bytes: u64,
+    pub(crate) bundle_read_decompressed_mib_per_second: f64,
+    pub(crate) chunk_verify_worker_seconds: Option<f64>,
+    pub(crate) chunk_verify_bytes: Option<u64>,
+    pub(crate) chunk_verify_mib_per_second: Option<f64>,
+    pub(crate) file_hash_worker_seconds: Option<f64>,
+    pub(crate) file_verify_bytes: u64,
+    pub(crate) file_verify_mib_per_second: Option<f64>,
+    pub(crate) file_write_worker_seconds: f64,
+    pub(crate) file_write_bytes: u64,
+    pub(crate) file_write_mib_per_second: f64,
 }
 
 #[derive(Debug, Serialize)]
-pub struct VerifyTimingsSummary {
-    pub schema_version: u32,
-    pub verify_mode: String,
-    pub runtime_plan: RuntimePlanSummary,
-    pub total_seconds: f64,
-    pub unaccounted_seconds: f64,
-    pub phases: VerifyTimingPhasesSummary,
+pub(crate) struct VerifyTimingsSummary {
+    pub(crate) schema_version: u32,
+    pub(crate) verify_mode: String,
+    pub(crate) runtime_plan: RuntimePlanSummary,
+    pub(crate) total_seconds: f64,
+    pub(crate) unaccounted_seconds: f64,
+    pub(crate) phases: VerifyTimingPhasesSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct VerifyTimingPhasesSummary {
-    pub prepare: WallTimingPhaseSummary,
-    pub verify_files: VerifyFilesPhaseSummary,
-    pub extra_file_scan: WallTimingPhaseSummary,
+pub(crate) struct VerifyTimingPhasesSummary {
+    pub(crate) prepare: WallTimingPhaseSummary,
+    pub(crate) verify_files: VerifyFilesPhaseSummary,
+    pub(crate) extra_file_scan: WallTimingPhaseSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct VerifyFilesPhaseSummary {
-    pub wall_seconds: f64,
-    pub details: VerifyFilesDetailsSummary,
+pub(crate) struct VerifyFilesPhaseSummary {
+    pub(crate) wall_seconds: f64,
+    pub(crate) details: VerifyFilesDetailsSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub struct VerifyFilesDetailsSummary {
-    pub stat_worker_seconds: f64,
-    pub file_read_worker_seconds: f64,
-    pub file_read_bytes: u64,
-    pub file_read_mib_per_second: f64,
-    pub file_hash_worker_seconds: f64,
-    pub file_hash_bytes: u64,
-    pub file_hash_mib_per_second: f64,
-    pub chunk_hash_worker_seconds: Option<f64>,
-    pub chunk_hash_bytes: Option<u64>,
-    pub chunk_hash_mib_per_second: Option<f64>,
+pub(crate) struct VerifyFilesDetailsSummary {
+    pub(crate) stat_worker_seconds: f64,
+    pub(crate) file_read_worker_seconds: f64,
+    pub(crate) file_read_bytes: u64,
+    pub(crate) file_read_mib_per_second: f64,
+    pub(crate) file_hash_worker_seconds: f64,
+    pub(crate) file_hash_bytes: u64,
+    pub(crate) file_hash_mib_per_second: f64,
+    pub(crate) chunk_hash_worker_seconds: Option<f64>,
+    pub(crate) chunk_hash_bytes: Option<u64>,
+    pub(crate) chunk_hash_mib_per_second: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct WallTimingPhaseSummary {
-    pub wall_seconds: f64,
+pub(crate) struct WallTimingPhaseSummary {
+    pub(crate) wall_seconds: f64,
 }
 
-pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
+pub(crate) fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -454,7 +454,9 @@ pub fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSummary {
     }
 }
 
-pub fn reconstruct_timings_summary(timings: &g::ReconstructTimings) -> ReconstructTimingsSummary {
+pub(crate) fn reconstruct_timings_summary(
+    timings: &g::ReconstructTimings,
+) -> ReconstructTimingsSummary {
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[timings.prepare_wall, timings.reconstruct_wall],
@@ -506,7 +508,7 @@ pub fn reconstruct_timings_summary(timings: &g::ReconstructTimings) -> Reconstru
     }
 }
 
-pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummary {
+pub(crate) fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummary {
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -552,7 +554,7 @@ pub fn verify_timings_summary(timings: &g::VerifyTimings) -> VerifyTimingsSummar
     }
 }
 
-pub fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> OptionalOutputPaths {
+pub(crate) fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> OptionalOutputPaths {
     OptionalOutputPaths {
         stats_json_out: stats_json_out
             .as_ref()
@@ -560,7 +562,7 @@ pub fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> OptionalOutput
     }
 }
 
-pub fn ensure_parent_directory(path: &std::path::Path) -> g::Result<()> {
+pub(crate) fn ensure_parent_directory(path: &std::path::Path) -> g::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -570,7 +572,7 @@ pub fn ensure_parent_directory(path: &std::path::Path) -> g::Result<()> {
     Ok(())
 }
 
-pub fn write_stats_json_output<T: Serialize>(
+pub(crate) fn write_stats_json_output<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
 ) -> g::Result<()> {
@@ -584,7 +586,7 @@ pub fn write_stats_json_output<T: Serialize>(
     Ok(())
 }
 
-pub fn print_build_timings(t: &g::BuildTimings) {
+pub(crate) fn print_build_timings(t: &g::BuildTimings) {
     print_section_title("Build Timing Summary");
     print_runtime_plan(t.runtime_plan.as_ref(), true);
     print_table_header();
@@ -783,7 +785,7 @@ pub fn print_build_timings(t: &g::BuildTimings) {
     );
 }
 
-pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
+pub(crate) fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_section_title("Reconstruct Timing Summary");
     print_runtime_plan(t.runtime_plan.as_ref(), false);
     print_table_header();
@@ -819,7 +821,7 @@ pub fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_timing_throughput_line("file write", t.file_write, t.file_write_bytes);
 }
 
-pub fn print_verify_timings(t: &g::VerifyTimings) {
+pub(crate) fn print_verify_timings(t: &g::VerifyTimings) {
     print_section_title("Verify Timing Summary");
     print_metric_line("mode", t.verify_mode.as_str());
     print_runtime_plan(t.runtime_plan.as_ref(), false);
@@ -860,7 +862,7 @@ pub fn print_verify_timings(t: &g::VerifyTimings) {
     }
 }
 
-pub fn print_repo_check_timings(t: &g::RepoCheckTimings) {
+pub(crate) fn print_repo_check_timings(t: &g::RepoCheckTimings) {
     print_section_title("Check Timing");
     print_metric_line("load manifest", format!("{} ms", t.load_manifest_ms));
     print_metric_line("scan bundles", format!("{} ms", t.scan_bundles_ms));

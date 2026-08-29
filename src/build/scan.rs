@@ -14,17 +14,17 @@ use crate::manifest::{
 use crate::runtime::{ChunkStorageMode, run_in_thread_pool};
 use crate::{Error, Result};
 
-pub struct FileBuildEntry {
-    pub manifest: FileManifest,
-    pub chunks: Vec<(ChunkHash, ChunkPayload)>,
-    pub size: u64,
-    pub file_hash: Duration,
-    pub file_hash_bytes: u64,
-    pub stream_chunk: Duration,
-    pub stream_chunk_bytes: u64,
-    pub chunk_hash_judgment: Duration,
-    pub chunk_hash_judgment_bytes: u64,
-    pub metadata: Duration,
+pub(crate) struct FileBuildEntry {
+    pub(crate) manifest: FileManifest,
+    pub(crate) chunks: Vec<(ChunkHash, ChunkPayload)>,
+    pub(crate) size: u64,
+    pub(crate) file_hash: Duration,
+    pub(crate) file_hash_bytes: u64,
+    pub(crate) stream_chunk: Duration,
+    pub(crate) stream_chunk_bytes: u64,
+    pub(crate) chunk_hash_judgment: Duration,
+    pub(crate) chunk_hash_judgment_bytes: u64,
+    pub(crate) metadata: Duration,
 }
 
 pub(crate) struct ScanDirectoryOptions<'a> {

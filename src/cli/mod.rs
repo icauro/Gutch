@@ -1,5 +1,5 @@
-pub mod actions;
-pub mod args;
+pub(crate) mod actions;
+pub(crate) mod args;
 pub(crate) mod bundle;
 pub(crate) mod commands;
 pub(crate) mod common;
@@ -7,18 +7,17 @@ pub(crate) mod path;
 pub(crate) mod path_compare;
 pub(crate) mod progress;
 pub(crate) mod remote;
-pub mod repo;
+pub(crate) mod repo;
 pub(crate) mod reporting;
-pub mod snapshot;
+pub(crate) mod snapshot;
 pub(crate) mod snapshot_ops;
-pub mod snapshot_sources;
+pub(crate) mod snapshot_sources;
 
-pub use args::{
+pub(crate) use args::{
     BundleCommands, Cli, Commands, PathCommands, RemoteCommands, RepoCommands, RepoNameCommands,
     RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands, SnapshotSourcesCommands,
-    parse_absolute_path,
 };
-pub use common::prompt_yes_no;
+pub(crate) use common::prompt_yes_no;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

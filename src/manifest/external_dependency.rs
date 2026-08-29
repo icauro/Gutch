@@ -12,7 +12,7 @@ pub struct ExternalProductDependencyRequirement {
     pub maximum_version_exclusive: Option<String>,
 }
 
-pub fn validate_external_product_dependency_requirements(
+pub(crate) fn validate_external_product_dependency_requirements(
     requirements: &[ExternalProductDependencyRequirement],
 ) -> Result<()> {
     let mut dependency_ids = std::collections::HashSet::new();

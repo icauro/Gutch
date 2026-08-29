@@ -1,3 +1,3 @@
-pub mod identity;
-pub mod path_guard;
-pub mod source_config;
+pub(crate) mod identity;
+pub(crate) mod path_guard;
+pub(crate) mod source_config;

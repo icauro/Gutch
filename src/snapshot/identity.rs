@@ -71,7 +71,7 @@ pub fn resolve_snapshot_identity_from_rules(
     resolve_snapshot_identity(input_path, explicit_tags, &effective_rules, context)
 }
 
-pub fn apply_resolved_snapshot_identity(
+pub(crate) fn apply_resolved_snapshot_identity(
     snapshot_manifest: &mut SnapshotManifest,
     resolved_identity: &ResolvedSnapshotIdentity,
 ) {

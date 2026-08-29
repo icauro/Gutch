@@ -5,7 +5,7 @@ use crate::cli::actions::snapshot_sources::{
 use crate::cli::reporting::ensure_parent_directory;
 use gutch as g;
 
-pub fn run(command: SnapshotSourcesCommands) -> g::Result<()> {
+pub(crate) fn run(command: SnapshotSourcesCommands) -> g::Result<()> {
     match command {
         SnapshotSourcesCommands::Capture {
             repo,

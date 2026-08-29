@@ -10,16 +10,16 @@ use std::time::Duration;
 const MAX_BUNDLE_URL_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
 pub(crate) struct FetchCommand {
-    pub repo: std::path::PathBuf,
-    pub snapshot_id: String,
-    pub metadata_url: String,
-    pub product_metadata_url: Option<String>,
-    pub blueprint_url: String,
-    pub repo_metadata_url: Option<String>,
-    pub chunk_index_url: Option<String>,
-    pub bundle_downloads_endpoint: Option<String>,
-    pub session_id: Option<String>,
-    pub bundles: Vec<String>,
+    pub(crate) repo: std::path::PathBuf,
+    pub(crate) snapshot_id: String,
+    pub(crate) metadata_url: String,
+    pub(crate) product_metadata_url: Option<String>,
+    pub(crate) blueprint_url: String,
+    pub(crate) repo_metadata_url: Option<String>,
+    pub(crate) chunk_index_url: Option<String>,
+    pub(crate) bundle_downloads_endpoint: Option<String>,
+    pub(crate) session_id: Option<String>,
+    pub(crate) bundles: Vec<String>,
 }
 
 pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
@@ -90,14 +90,14 @@ pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
 }
 
 pub(crate) struct ReconstructCommand {
-    pub repo: std::path::PathBuf,
-    pub snapshot_id: String,
-    pub destination: std::path::PathBuf,
-    pub staging_dir: Option<std::path::PathBuf>,
-    pub source_snapshot_id: Option<String>,
-    pub source_dir: Option<std::path::PathBuf>,
-    pub runtime: crate::cli::args::RuntimeArgs,
-    pub stats_json_out: Option<std::path::PathBuf>,
+    pub(crate) repo: std::path::PathBuf,
+    pub(crate) snapshot_id: String,
+    pub(crate) destination: std::path::PathBuf,
+    pub(crate) staging_dir: Option<std::path::PathBuf>,
+    pub(crate) source_snapshot_id: Option<String>,
+    pub(crate) source_dir: Option<std::path::PathBuf>,
+    pub(crate) runtime: crate::cli::args::RuntimeArgs,
+    pub(crate) stats_json_out: Option<std::path::PathBuf>,
 }
 
 pub(crate) fn reconstruct(command: ReconstructCommand) -> g::Result<()> {

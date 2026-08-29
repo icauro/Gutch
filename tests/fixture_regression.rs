@@ -2,9 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use gutch::GutchOperationControl;
-use gutch::reconstruct::{ReconstructOptions, reconstruct_from_repo};
-use gutch::runtime::RuntimeResourceHints;
-use gutch::verify::VerifyMode;
+use gutch::{ReconstructOptions, RuntimeResourceHints, VerifyMode, reconstruct_from_repo};
 use serde::Deserialize;
 
 const FIXTURE_ROOTS: &[&str] = &[
@@ -136,7 +134,9 @@ fn assert_snapshot_matches_expected(
                     }
                     #[cfg(not(unix))]
                     let _ = executable;
-                    let hash = gutch::hash::hash_hex(&gutch::hash::hash_file(&path).unwrap());
+                    let hash = blake3::hash(&std::fs::read(&path).unwrap())
+                        .to_hex()
+                        .to_string();
                     assert_eq!(&hash, blake3);
                 }
                 ExpectedEntry::Directory { read_only, .. } => {

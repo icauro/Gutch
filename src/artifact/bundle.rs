@@ -11,19 +11,19 @@ use std::time::{Duration, Instant};
 const BUNDLE_TABLE_ENTRY_SIZE: usize = 32 + (8 * 4);
 
 #[derive(Debug, Clone, Default)]
-pub struct BundleBuildMetrics {
-    pub payload_assembly: Duration,
-    pub payload_assembly_bytes: u64,
-    pub stream_compression: Duration,
-    pub stream_input_bytes: u64,
-    pub stream_output_bytes: u64,
-    pub serialization: Duration,
-    pub serialization_bytes: u64,
+pub(crate) struct BundleBuildMetrics {
+    pub(crate) payload_assembly: Duration,
+    pub(crate) payload_assembly_bytes: u64,
+    pub(crate) stream_compression: Duration,
+    pub(crate) stream_input_bytes: u64,
+    pub(crate) stream_output_bytes: u64,
+    pub(crate) serialization: Duration,
+    pub(crate) serialization_bytes: u64,
 }
 
-pub struct BundleBuilder {
+pub(crate) struct BundleBuilder {
     chunks: Vec<ChunkData>,
-    pub profile: CompressionProfile,
+    pub(crate) profile: CompressionProfile,
 }
 
 struct ChunkData {
@@ -47,14 +47,14 @@ impl ChunkRawData {
 }
 
 impl BundleBuilder {
-    pub fn new(profile: CompressionProfile) -> Self {
+    pub(crate) fn new(profile: CompressionProfile) -> Self {
         BundleBuilder {
             chunks: Vec::new(),
             profile,
         }
     }
 
-    pub fn add_chunk(&mut self, chunk_hash: ChunkHash, raw_data: Vec<u8>) {
+    pub(crate) fn add_chunk(&mut self, chunk_hash: ChunkHash, raw_data: Vec<u8>) {
         let raw_size = raw_data.len() as u64;
         self.chunks.push(ChunkData {
             hash: chunk_hash,
@@ -63,7 +63,7 @@ impl BundleBuilder {
         });
     }
 
-    pub fn add_shared_chunk(&mut self, chunk_hash: ChunkHash, raw_data: Arc<[u8]>) {
+    pub(crate) fn add_shared_chunk(&mut self, chunk_hash: ChunkHash, raw_data: Arc<[u8]>) {
         let raw_size = raw_data.len() as u64;
         self.chunks.push(ChunkData {
             hash: chunk_hash,
@@ -72,25 +72,31 @@ impl BundleBuilder {
         });
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
         self.chunks.is_empty()
     }
 
-    pub fn chunk_count(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn chunk_count(&self) -> usize {
         self.chunks.len()
     }
 
-    pub fn build(&self) -> Result<Vec<u8>> {
+    #[cfg(test)]
+    pub(crate) fn build(&self) -> Result<Vec<u8>> {
         let (_, bundle) = self.build_with_id()?;
         Ok(bundle)
     }
 
-    pub fn build_with_id(&self) -> Result<(String, Vec<u8>)> {
+    #[cfg(test)]
+    pub(crate) fn build_with_id(&self) -> Result<(String, Vec<u8>)> {
         let (bundle_id, bundle, _) = self.build_with_id_and_metrics()?;
         Ok((bundle_id, bundle))
     }
 
-    pub fn build_with_id_and_metrics(&self) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
+    pub(crate) fn build_with_id_and_metrics(
+        &self,
+    ) -> Result<(String, Vec<u8>, BundleBuildMetrics)> {
         if self.profile.compression_unit != CompressionUnit::Bundle {
             return Err(crate::error::Error::InvalidBundle(
                 "gutch only supports bundle-compressed bundles".into(),
@@ -213,9 +219,10 @@ fn finalize_bundle_bytes(mut bundle_without_id: Vec<u8>) -> (String, Vec<u8>) {
     (bundle_id, bundle_without_id)
 }
 
-pub struct BundleReader<R: Read + Seek> {
+pub(crate) struct BundleReader<R: Read + Seek> {
     entries: Vec<BundleTableEntry>,
     chunk_hashes: Vec<ChunkHash>,
+    #[cfg(test)]
     chunk_index_by_hash: HashMap<ChunkHash, usize>,
     data_start: u64,
     payload_size: u64,
@@ -226,7 +233,7 @@ pub struct BundleReader<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> BundleReader<R> {
-    pub fn open(mut reader: R, compression_profile: &CompressionProfile) -> Result<Self> {
+    pub(crate) fn open(mut reader: R, compression_profile: &CompressionProfile) -> Result<Self> {
         if compression_profile.compression_unit != CompressionUnit::Bundle {
             return Err(crate::error::Error::InvalidBundle(
                 "gutch only supports bundle-compressed bundles".into(),
@@ -247,6 +254,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let end = reader.seek(SeekFrom::End(0))?;
         let payload_size = end.saturating_sub(data_start).saturating_sub(64);
         reader.seek(SeekFrom::Start(data_start))?;
+        #[cfg(test)]
         let chunk_index_by_hash = chunk_hashes
             .iter()
             .enumerate()
@@ -255,6 +263,7 @@ impl<R: Read + Seek> BundleReader<R> {
         Ok(BundleReader {
             entries,
             chunk_hashes,
+            #[cfg(test)]
             chunk_index_by_hash,
             data_start,
             payload_size,
@@ -265,19 +274,19 @@ impl<R: Read + Seek> BundleReader<R> {
         })
     }
 
-    pub fn chunk_count(&self) -> usize {
+    pub(crate) fn chunk_count(&self) -> usize {
         self.entries.len()
     }
 
-    pub fn entries(&self) -> &[BundleTableEntry] {
+    pub(crate) fn entries(&self) -> &[BundleTableEntry] {
         &self.entries
     }
 
-    pub fn chunk_hashes(&self) -> &[ChunkHash] {
+    pub(crate) fn chunk_hashes(&self) -> &[ChunkHash] {
         &self.chunk_hashes
     }
 
-    pub fn chunk_index(&self) -> HashMap<String, usize> {
+    pub(crate) fn chunk_index(&self) -> HashMap<String, usize> {
         self.entries
             .iter()
             .enumerate()
@@ -285,15 +294,15 @@ impl<R: Read + Seek> BundleReader<R> {
             .collect()
     }
 
-    pub fn compression_unit(&self) -> CompressionUnit {
+    pub(crate) fn compression_unit(&self) -> CompressionUnit {
         self.compression_unit
     }
 
-    pub fn payload_size(&self) -> u64 {
+    pub(crate) fn payload_size(&self) -> u64 {
         self.payload_size
     }
 
-    pub fn stage_bundle_payload_to<W: Write>(&mut self, writer: &mut W) -> Result<u64> {
+    pub(crate) fn stage_bundle_payload_to<W: Write>(&mut self, writer: &mut W) -> Result<u64> {
         self.reader.seek(SeekFrom::Start(self.data_start))?;
         let mut compressed = vec![0u8; self.payload_size as usize];
         self.reader.read_exact(&mut compressed)?;
@@ -301,7 +310,7 @@ impl<R: Read + Seek> BundleReader<R> {
         Ok(written)
     }
 
-    pub fn read_chunk_bytes(&mut self, index: usize) -> Result<&[u8]> {
+    pub(crate) fn read_chunk_bytes(&mut self, index: usize) -> Result<&[u8]> {
         if index >= self.entries.len() {
             return Err(crate::error::Error::InvalidBundle(format!(
                 "chunk index {} out of range ({} chunks)",
@@ -342,11 +351,12 @@ impl<R: Read + Seek> BundleReader<R> {
         Ok(chunk_data)
     }
 
-    pub fn read_chunk(&mut self, index: usize) -> Result<Vec<u8>> {
+    pub(crate) fn read_chunk(&mut self, index: usize) -> Result<Vec<u8>> {
         Ok(self.read_chunk_bytes(index)?.to_vec())
     }
 
-    pub fn read_chunk_by_hash(&mut self, hash: &str) -> Result<Vec<u8>> {
+    #[cfg(test)]
+    pub(crate) fn read_chunk_by_hash(&mut self, hash: &str) -> Result<Vec<u8>> {
         let expected_hash = ChunkHash::parse_hex(hash)?;
         let index = *self
             .chunk_index_by_hash
@@ -355,7 +365,7 @@ impl<R: Read + Seek> BundleReader<R> {
         self.read_chunk(index)
     }
 
-    pub fn verify(&mut self) -> Result<bool> {
+    pub(crate) fn verify(&mut self) -> Result<bool> {
         for i in 0..self.entries.len() {
             match self.read_chunk_bytes(i) {
                 Ok(_) => continue,
@@ -435,7 +445,7 @@ fn read_u64(reader: &mut impl Read) -> Result<u64> {
     Ok(u64::from_le_bytes(read_exact_array(reader)?))
 }
 
-pub fn read_bundle<'a>(
+pub(crate) fn read_bundle<'a>(
     data: &'a [u8],
     compression_profile: &CompressionProfile,
 ) -> Result<BundleReader<std::io::Cursor<&'a [u8]>>> {

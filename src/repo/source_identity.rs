@@ -4,7 +4,7 @@ use crate::hash::hash_hex;
 use crate::manifest::SnapshotEntry;
 use crate::{Error, Result};
 
-pub fn source_modified_at_from_directory(dir: &Path) -> Result<String> {
+pub(crate) fn source_modified_at_from_directory(dir: &Path) -> Result<String> {
     Ok(format_system_time_utc(max_file_modified_time(dir)?))
 }
 

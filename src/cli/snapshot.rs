@@ -470,7 +470,7 @@ fn single_capture_source_resolution(
     }
 }
 
-pub fn run(command: SnapshotCommands) -> g::Result<()> {
+pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
     match command {
         SnapshotCommands::Capture {
             source_dirs,

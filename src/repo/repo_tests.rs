@@ -6,6 +6,7 @@ use crate::hash::hash_hex;
 use crate::manifest;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::repo::check::SourceSnapshotOperationDisposition;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
     let mut tags = manifest::SnapshotTagSet::default();

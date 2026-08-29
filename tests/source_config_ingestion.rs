@@ -5,7 +5,7 @@ use std::path::Path;
 
 use gutch::GutchRepoPaths;
 use gutch::cli::run_from_args;
-use gutch::repo::ensure_gutch_repo_layout;
+use gutch::ensure_gutch_repo_layout;
 
 fn init_repo(root: &Path) -> GutchRepoPaths {
     let repo_paths = GutchRepoPaths::from_repo_root(&root.join("repo"));

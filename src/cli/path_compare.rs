@@ -20,24 +20,24 @@ struct ComparableEntry {
 }
 
 #[derive(Debug, Serialize)]
-pub struct PathCompareStats {
-    pub command: &'static str,
-    pub expected_path: String,
-    pub actual_path: String,
-    pub expected_file_count: usize,
-    pub actual_file_count: usize,
-    pub matched_file_count: usize,
-    pub mismatched_file_count: usize,
-    pub missing_file_count: usize,
-    pub extra_file_count: usize,
-    pub compare_passed: bool,
-    pub mismatched_files: Vec<String>,
-    pub missing_files: Vec<String>,
-    pub extra_files: Vec<String>,
-    pub outputs: OptionalOutputPaths,
+pub(crate) struct PathCompareStats {
+    pub(crate) command: &'static str,
+    pub(crate) expected_path: String,
+    pub(crate) actual_path: String,
+    pub(crate) expected_file_count: usize,
+    pub(crate) actual_file_count: usize,
+    pub(crate) matched_file_count: usize,
+    pub(crate) mismatched_file_count: usize,
+    pub(crate) missing_file_count: usize,
+    pub(crate) extra_file_count: usize,
+    pub(crate) compare_passed: bool,
+    pub(crate) mismatched_files: Vec<String>,
+    pub(crate) missing_files: Vec<String>,
+    pub(crate) extra_files: Vec<String>,
+    pub(crate) outputs: OptionalOutputPaths,
 }
 
-pub fn compare_paths(
+pub(crate) fn compare_paths(
     expected: &Path,
     actual: &Path,
     outputs: OptionalOutputPaths,

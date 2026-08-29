@@ -1,3 +1,3 @@
-pub mod repo;
+pub(crate) mod repo;
 pub(crate) mod snapshot_ops;
-pub mod snapshot_sources;
+pub(crate) mod snapshot_sources;

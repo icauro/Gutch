@@ -1,4 +1,6 @@
-use fastcdc::v2020::{Chunk, FastCDC, Normalization, StreamCDC};
+#[cfg(test)]
+use fastcdc::v2020::{Chunk, FastCDC};
+use fastcdc::v2020::{Normalization, StreamCDC};
 use std::io::BufReader;
 use std::time::{Duration, Instant};
 
@@ -6,45 +8,50 @@ use crate::error::Result;
 use crate::hash::hash_hex;
 use crate::manifest::ChunkSizingProfile;
 
-pub struct ChunkResult {
-    pub data: Vec<u8>,
-    pub offset: u64,
-    pub hash: blake3::Hash,
+pub(crate) struct ChunkResult {
+    pub(crate) data: Vec<u8>,
+    #[cfg(test)]
+    pub(crate) offset: u64,
+    pub(crate) hash: blake3::Hash,
 }
 
-pub struct ChunkFileScan {
-    pub chunks: Vec<ChunkResult>,
-    pub file_size: u64,
-    pub full_file_hash: String,
-    pub full_file_hash_duration: Duration,
+pub(crate) struct ChunkFileScan {
+    pub(crate) chunks: Vec<ChunkResult>,
+    pub(crate) file_size: u64,
+    pub(crate) full_file_hash: String,
+    pub(crate) full_file_hash_duration: Duration,
 }
 
-pub struct ChunkSlice {
-    pub offset: u64,
-    pub len: usize,
-    pub hash: blake3::Hash,
+#[cfg(test)]
+struct ChunkSlice {
+    offset: u64,
+    len: usize,
+    hash: blake3::Hash,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ChunkScanTimings {
-    pub boundary_scan: Duration,
-    pub boundary_scan_bytes: u64,
-    pub hash_judgment: Duration,
-    pub hash_judgment_bytes: u64,
+pub(crate) struct ChunkScanTimings {
+    pub(crate) boundary_scan: Duration,
+    pub(crate) boundary_scan_bytes: u64,
+    pub(crate) hash_judgment: Duration,
+    pub(crate) hash_judgment_bytes: u64,
 }
 
-pub fn chunk_bytes(data: &[u8], profile: &ChunkSizingProfile) -> Vec<ChunkResult> {
+#[cfg(test)]
+pub(crate) fn chunk_bytes(data: &[u8], profile: &ChunkSizingProfile) -> Vec<ChunkResult> {
     chunk_slices(data, profile)
         .0
         .into_iter()
         .map(|chunk| ChunkResult {
             data: data[chunk.offset as usize..chunk.offset as usize + chunk.len].to_vec(),
+            #[cfg(test)]
             offset: chunk.offset,
             hash: chunk.hash,
         })
         .collect()
 }
 
+#[cfg(test)]
 fn chunk_slices(data: &[u8], profile: &ChunkSizingProfile) -> (Vec<ChunkSlice>, ChunkScanTimings) {
     let min = profile.min_chunk_size_bytes() as usize;
     let avg = profile.avg_chunk_size_bytes() as usize;
@@ -73,6 +80,7 @@ fn chunk_slices(data: &[u8], profile: &ChunkSizingProfile) -> (Vec<ChunkSlice>, 
     )
 }
 
+#[cfg(test)]
 fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
     let offset = chunk.offset;
     let length = chunk.length;
@@ -84,7 +92,8 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
     }
 }
 
-pub fn chunk_file_streaming_with_file_hash(
+#[cfg(test)]
+pub(crate) fn chunk_file_streaming_with_file_hash(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
@@ -95,7 +104,7 @@ pub fn chunk_file_streaming_with_file_hash(
     )
 }
 
-pub fn chunk_file_streaming_with_file_hash_and_control(
+pub(crate) fn chunk_file_streaming_with_file_hash_and_control(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,
     control: &crate::GutchOperationControl,
@@ -142,6 +151,7 @@ pub fn chunk_file_streaming_with_file_hash_and_control(
         hash_judgment_bytes += chunk.length as u64;
         chunk_results.push(ChunkResult {
             data: chunk.data,
+            #[cfg(test)]
             offset: chunk.offset,
             hash,
         });

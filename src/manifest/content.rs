@@ -55,7 +55,7 @@ impl SnapshotEntry {
     }
 }
 
-pub fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Result<()> {
+pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Result<()> {
     let mut paths = std::collections::HashSet::with_capacity(entries.len());
     for entry in entries {
         crate::validate_manifest_relative_path(entry.path(), false)?;

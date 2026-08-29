@@ -6,9 +6,9 @@ use crate::cli::progress::CliProgressSink;
 use gutch as g;
 
 #[derive(Debug, Clone, Copy)]
-pub struct CliSnapshotSourcesCaptureOptions {
-    pub no_prune: bool,
-    pub yes: bool,
+pub(crate) struct CliSnapshotSourcesCaptureOptions {
+    pub(crate) no_prune: bool,
+    pub(crate) yes: bool,
 }
 
 fn print_snapshot_sources_capture_plan(plan: &g::SnapshotSourcesCapturePlan, prune: bool) {
@@ -34,7 +34,7 @@ fn print_snapshot_sources_capture_plan(plan: &g::SnapshotSourcesCapturePlan, pru
     }
 }
 
-pub fn capture_snapshot_sources(
+pub(crate) fn capture_snapshot_sources(
     repo: &Path,
     sources_path: &Path,
     options: CliSnapshotSourcesCaptureOptions,
