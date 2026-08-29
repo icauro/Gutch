@@ -58,7 +58,6 @@ pub struct SnapshotReconstructResult {
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub staging_dir: PathBuf,
-    pub backup_dir: Option<PathBuf>,
     pub reused_source_chunk_count: usize,
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,

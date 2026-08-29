@@ -279,11 +279,7 @@ pub(super) fn apply_reconstruct_pipeline(
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
         request.control.checkpoint()?;
-        let backup_dir = super::apply::promote_staging_destination(
-            request.destination_dir,
-            &staging_dir,
-            request.snapshot_manifest,
-        )?;
+        crate::helpers::replace_directory(&staging_dir, request.destination_dir)?;
         Ok(SnapshotReconstructFromRepoResult {
             repo_root: request.repo_root.to_path_buf(),
             snapshot_manifest: request.snapshot_manifest.clone(),
@@ -292,7 +288,6 @@ pub(super) fn apply_reconstruct_pipeline(
                     snapshot_manifest: request.snapshot_manifest,
                     destination_dir: request.destination_dir,
                     staging_dir: &staging_dir,
-                    backup_dir,
                     reused_source_chunk_count,
                     required_chunk_count,
                     required_bundle_count,

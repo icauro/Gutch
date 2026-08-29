@@ -161,10 +161,6 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
         result.reused_source_chunk_count > 0,
         "expected at least one source chunk to be reused"
     );
-    assert_eq!(
-        result.backup_dir, None,
-        "successful promotion should not report a deleted backup directory"
-    );
     assert!(destination_dir.join("shared.txt").exists());
     assert!(destination_dir.join("new.txt").exists());
     assert!(!destination_dir.join("old.txt").exists());

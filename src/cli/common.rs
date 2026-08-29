@@ -300,7 +300,7 @@ pub(crate) fn write_loose_chunks(
     Ok(chunk_sizes)
 }
 
-pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> g::Result<bool> {
+pub fn prompt_yes_no(prompt: &str, default_yes: bool) -> g::Result<bool> {
     loop {
         let suffix = if default_yes { "[Y/n]" } else { "[y/N]" };
         print!("{} {}: ", prompt, suffix);

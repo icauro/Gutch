@@ -15,7 +15,9 @@ pub mod snapshot_sources;
 pub use args::{
     BundleCommands, Cli, Commands, PathCommands, RepoCommands, RepoNameCommands,
     RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands, SnapshotSourcesCommands,
+    parse_absolute_path,
 };
+pub use common::prompt_yes_no;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

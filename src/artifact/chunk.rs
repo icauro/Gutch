@@ -3,6 +3,7 @@ use std::io::BufReader;
 use std::time::{Duration, Instant};
 
 use crate::error::Result;
+use crate::hash::hash_hex;
 use crate::manifest::ChunkSizingProfile;
 
 pub struct ChunkResult {
@@ -160,10 +161,6 @@ pub fn chunk_file_streaming_with_file_hash_and_control(
             hash_judgment_bytes,
         },
     ))
-}
-
-pub fn hash_hex(hash: &blake3::Hash) -> String {
-    hash.to_hex().to_string()
 }
 
 #[cfg(test)]

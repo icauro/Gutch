@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use gutch as g;
 
-fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
+pub fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(value.trim());
     if path.is_absolute() {
         Ok(path)

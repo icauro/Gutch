@@ -156,7 +156,6 @@ pub(super) struct BuildSnapshotReconstructResultRequest<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub destination_dir: &'a Path,
     pub staging_dir: &'a Path,
-    pub backup_dir: Option<PathBuf>,
     pub reused_source_chunk_count: usize,
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,
@@ -171,62 +170,12 @@ pub(super) fn build_snapshot_reconstruct_result(
         snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
         destination_dir: request.destination_dir.to_path_buf(),
         staging_dir: request.staging_dir.to_path_buf(),
-        backup_dir: request.backup_dir,
         reused_source_chunk_count: request.reused_source_chunk_count,
         required_chunk_count: request.required_chunk_count,
         required_bundle_count: request.required_bundle_count,
         reconstruct_timings: request.reconstruct_timings,
         verify_timings: request.verify_timings,
     }
-}
-
-pub(super) fn promote_staging_destination(
-    destination_dir: &Path,
-    staging_dir: &Path,
-    snapshot_manifest: &SnapshotManifest,
-) -> Result<Option<PathBuf>> {
-    if let Some(parent) = destination_dir.parent() {
-        crate::helpers::create_dir_all(parent)?;
-    }
-
-    let backup_dir = if destination_dir.exists() {
-        let backup_dir =
-            backup_dir_for_destination(destination_dir, &snapshot_manifest.snapshot_id);
-        if backup_dir.exists() {
-            crate::helpers::remove_dir_all(&backup_dir)?;
-        }
-        std::fs::rename(destination_dir, &backup_dir)?;
-        Some(backup_dir)
-    } else {
-        None
-    };
-
-    if let Err(err) = std::fs::rename(staging_dir, destination_dir) {
-        if let Some(backup_dir) = &backup_dir {
-            let _ = std::fs::rename(backup_dir, destination_dir);
-        }
-        return Err(Error::Io(err));
-    }
-
-    if let Some(backup_dir) = &backup_dir {
-        crate::helpers::remove_dir_all(backup_dir)?;
-    }
-
-    Ok(None)
-}
-
-fn backup_dir_for_destination(destination_dir: &Path, snapshot_id: &str) -> PathBuf {
-    let destination_name = destination_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("destination");
-    let backup_name = format!(
-        ".gutch-backup-{}-{}-{}",
-        destination_name,
-        snapshot_id,
-        std::process::id()
-    );
-    destination_dir.with_file_name(backup_name)
 }
 
 #[cfg(test)]
