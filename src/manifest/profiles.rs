@@ -34,7 +34,7 @@ pub(crate) enum CompressionUnit {
 }
 
 impl ArtifactStorageMode {
-    pub fn cli_name(self) -> &'static str {
+    pub(crate) fn cli_name(self) -> &'static str {
         match self {
             Self::Bundled => "bundled",
             Self::LooseChunks => "loose_chunks",
@@ -74,22 +74,6 @@ pub enum ArtifactSizingPreset {
     Chunk1MiB,
 }
 
-impl ArtifactSizingPreset {
-    pub fn cli_name(self) -> &'static str {
-        match self {
-            Self::Chunk1KiB => "chunk_1KiB",
-            Self::Chunk4KiB => "chunk_4KiB",
-            Self::Chunk16KiB => "chunk_16KiB",
-            Self::Chunk32KiB => "chunk_32KiB",
-            Self::Chunk64KiB => "chunk_64KiB",
-            Self::Chunk128KiB => "chunk_128KiB",
-            Self::Chunk256KiB => "chunk_256KiB",
-            Self::Chunk512KiB => "chunk_512KiB",
-            Self::Chunk1MiB => "chunk_1MiB",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum BundleSizingPreset {
     #[serde(rename = "bundle_4MiB")]
@@ -111,19 +95,6 @@ pub enum BundleSizingPreset {
     #[serde(rename = "bundle_128MiB")]
     #[value(name = "bundle_128MiB")]
     Bundle128MiB,
-}
-
-impl BundleSizingPreset {
-    pub fn cli_name(self) -> &'static str {
-        match self {
-            Self::Bundle4MiB => "bundle_4MiB",
-            Self::Bundle8MiB => "bundle_8MiB",
-            Self::Bundle16MiB => "bundle_16MiB",
-            Self::Bundle32MiB => "bundle_32MiB",
-            Self::Bundle64MiB => "bundle_64MiB",
-            Self::Bundle128MiB => "bundle_128MiB",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -238,17 +209,6 @@ pub enum CompressionPreset {
     #[serde(rename = "zstd_5")]
     #[value(name = "zstd_5")]
     Zstd5,
-}
-
-impl CompressionPreset {
-    pub fn cli_name(self) -> &'static str {
-        match self {
-            Self::Uncompressed => "uncompressed",
-            Self::Zstd1 => "zstd_1",
-            Self::Zstd3 => "zstd_3",
-            Self::Zstd5 => "zstd_5",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

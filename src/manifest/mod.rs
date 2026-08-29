@@ -37,9 +37,8 @@ pub use schema_edit::{
 };
 pub(crate) use snapshot::current_host_tags;
 pub use snapshot::{
-    SnapshotBlueprint, SnapshotDirectRuntimeMetadata, SnapshotHostVariant,
-    SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction, SnapshotManifest, SnapshotMetadata,
-    SnapshotProductMetadata, SnapshotRuntimeMetadata,
+    SnapshotDirectRuntimeMetadata, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata,
+    SnapshotLaunchAction, SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata,
 };
 pub use tags::{
     AutoTaggingRules, InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,

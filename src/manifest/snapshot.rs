@@ -278,7 +278,7 @@ pub(crate) fn current_host_tags() -> SnapshotTagSet {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SnapshotMetadata {
+pub(crate) struct SnapshotMetadata {
     #[serde(rename = "snapshot_metadata_version")]
     pub metadata_version: String,
     #[serde(skip)]
@@ -294,7 +294,7 @@ pub struct SnapshotMetadata {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotBlueprint {
+pub(crate) struct SnapshotBlueprint {
     pub entries: Vec<SnapshotEntry>,
 }
 
@@ -329,7 +329,7 @@ impl SnapshotManifest {
         }
     }
 
-    pub fn metadata(&self) -> SnapshotMetadata {
+    pub(crate) fn metadata(&self) -> SnapshotMetadata {
         SnapshotMetadata {
             metadata_version: self.metadata_version.clone(),
             snapshot_id: self.snapshot_id.clone(),
@@ -338,13 +338,13 @@ impl SnapshotManifest {
         }
     }
 
-    pub fn blueprint(&self) -> SnapshotBlueprint {
+    pub(crate) fn blueprint(&self) -> SnapshotBlueprint {
         SnapshotBlueprint {
             entries: self.entries.clone(),
         }
     }
 
-    pub fn from_metadata(metadata: SnapshotMetadata) -> Self {
+    pub(crate) fn from_metadata(metadata: SnapshotMetadata) -> Self {
         Self {
             metadata_version: metadata.metadata_version,
             snapshot_id: metadata.snapshot_id,

@@ -139,14 +139,14 @@ impl GutchOperationControl {
     }
 
     /// Replaces only the progress adapter while retaining the operation's cancellation hook.
-    pub fn with_replaced_progress(&self, progress: Arc<dyn GutchProgressSink>) -> Self {
+    pub(crate) fn with_replaced_progress(&self, progress: Arc<dyn GutchProgressSink>) -> Self {
         Self {
             progress: Some(progress),
             cancellation: self.cancellation.clone(),
         }
     }
 
-    pub fn progress(&self) -> &Option<Arc<dyn GutchProgressSink>> {
+    pub(crate) fn progress(&self) -> &Option<Arc<dyn GutchProgressSink>> {
         &self.progress
     }
 
