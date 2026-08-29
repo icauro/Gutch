@@ -127,6 +127,7 @@ pub use snapshot_ops::{
     reconstruct_snapshot_from_repo, repair_snapshot_from_repo, resolve_snapshot_state,
     verify_installed_snapshot,
 };
+pub use transport::read_bounded_response;
 pub(crate) use verify::VerifyTimings;
 pub(crate) use verify::estimate_build;
 pub use verify::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode};

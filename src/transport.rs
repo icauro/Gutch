@@ -80,3 +80,25 @@ where
     checkpoint()?;
     Ok(transferred_bytes)
 }
+
+pub fn read_bounded_response<C>(
+    mut response: reqwest::blocking::Response,
+    maximum_bytes: u64,
+    checkpoint: C,
+) -> Result<Vec<u8>>
+where
+    C: FnMut() -> Result<()>,
+{
+    if response
+        .content_length()
+        .is_some_and(|length| length > maximum_bytes)
+    {
+        return Err(Error::manifest("response exceeded the allowed size"));
+    }
+    let mut bytes = Vec::new();
+    read_bounded_chunks(&mut response, Some(maximum_bytes), checkpoint, |chunk| {
+        bytes.extend_from_slice(chunk);
+        Ok(())
+    })?;
+    Ok(bytes)
+}
