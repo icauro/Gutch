@@ -74,7 +74,7 @@ pub struct RepoSnapshotCaptureResult {
     pub generated_chunk_count: usize,
     pub reused_chunk_count: usize,
     pub new_chunk_count: usize,
-    pub build_timings: crate::BuildTimings,
+    pub(crate) build_timings: crate::BuildTimings,
 }
 
 impl SnapshotCapturePlan {
@@ -149,7 +149,7 @@ pub fn plan_snapshot_capture(
     ))
 }
 
-pub fn delete_repo_snapshots(repo_root: &Path, snapshot_ids: &[String]) -> Result<()> {
+pub(crate) fn delete_repo_snapshots(repo_root: &Path, snapshot_ids: &[String]) -> Result<()> {
     for snapshot_id in snapshot_ids {
         remove_snapshot_from_repo(repo_root, snapshot_id)?;
     }
@@ -203,7 +203,7 @@ pub fn delete_repo_snapshot_and_cleanup(
     Ok(orphan_count)
 }
 
-pub fn delete_repo_snapshots_with_matching_tags(
+pub(crate) fn delete_repo_snapshots_with_matching_tags(
     repo_root: &Path,
     snapshot_tags: &SnapshotTagSet,
 ) -> Result<Vec<String>> {
@@ -293,23 +293,20 @@ pub fn capture_repo_snapshot(
         .keys()
         .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
         .collect::<Result<HashSet<_>>>()?;
-    let chunk_profile = crate::manifest::ChunkSizingProfile::for_preset(request.chunk_profile);
-    let bundle_profile = crate::manifest::BundleSizingProfile::for_preset(request.bundle_profile);
+    let mut build_config = crate::BuildConfig::for_snapshot("", &resolved_identity.snapshot_tags)
+        .with_existing_chunks(&store_state.chunk_locations)
+        .with_existing_bundles(&store_state.bundle_ids)
+        .with_previous_manifests(&store_state.previous_file_manifests)
+        .with_chunk_profile(request.chunk_profile)
+        .with_bundle_profile(request.bundle_profile)
+        .with_compression_profile(request.compression_profile)
+        .with_storage_mode(request.storage_mode)
+        .with_runtime_hints(request.runtime_hints);
     let compression_profile =
         crate::manifest::CompressionProfile::for_preset(request.compression_profile);
-    let mut build_config =
-        crate::BuildConfig::with_ids(&repo_manifest.name, "", &resolved_identity.snapshot_tags)
-            .with_existing_chunks(&store_state.chunk_locations)
-            .with_existing_bundles(&store_state.bundle_ids)
-            .with_previous_manifests(&store_state.previous_file_manifests)
-            .with_chunk_profile(&chunk_profile)
-            .with_bundle_profile(&bundle_profile)
-            .with_compression_profile(&compression_profile);
-    build_config.storage_mode = request.storage_mode;
-    build_config.runtime_hints = request.runtime_hints;
     build_config.control = request.control.clone();
 
-    let (result, timings) = crate::build_with_config(&prepared_input.dir, &build_config)?;
+    let (result, timings) = crate::build_with_config_timed(&prepared_input.dir, &build_config)?;
     request.control.checkpoint()?;
     let mut result = result;
     let snapshot_id = crate::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);

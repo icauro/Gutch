@@ -29,7 +29,7 @@ pub enum MemoryMode {
 }
 
 impl MemoryMode {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             MemoryMode::Auto => "auto",
             MemoryMode::Low => "low",
@@ -48,7 +48,7 @@ pub enum EffectiveMemoryMode {
 }
 
 impl EffectiveMemoryMode {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             EffectiveMemoryMode::Low => "low",
             EffectiveMemoryMode::Balanced => "balanced",
@@ -65,7 +65,7 @@ pub enum ChunkStorageMode {
 }
 
 impl ChunkStorageMode {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             ChunkStorageMode::Memory => "memory",
             ChunkStorageMode::TempSpill => "temp-spill",
@@ -100,7 +100,7 @@ pub struct RuntimePlan {
     pub chunk_storage_mode: ChunkStorageMode,
 }
 
-pub fn plan_build_runtime(
+pub(crate) fn plan_build_runtime(
     hints: &RuntimeResourceHints,
     compression_unit: CompressionUnit,
 ) -> RuntimePlan {
@@ -108,11 +108,11 @@ pub fn plan_build_runtime(
     plan_runtime(hints, RuntimeWorkload::Build)
 }
 
-pub fn plan_verify_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
+pub(crate) fn plan_verify_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
     plan_runtime(hints, RuntimeWorkload::Verify)
 }
 
-pub fn plan_reconstruct_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
+pub(crate) fn plan_reconstruct_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
     plan_runtime(hints, RuntimeWorkload::Reconstruct)
 }
 

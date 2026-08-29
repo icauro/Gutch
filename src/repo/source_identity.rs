@@ -67,7 +67,7 @@ fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
     })
 }
 
-pub fn compute_snapshot_id_from_entries(entries: &[SnapshotEntry]) -> String {
+pub(crate) fn compute_snapshot_id_from_entries(entries: &[SnapshotEntry]) -> String {
     let mut sorted_entries = entries.iter().collect::<Vec<_>>();
     sorted_entries.sort_by(|left, right| left.path().cmp(right.path()));
 

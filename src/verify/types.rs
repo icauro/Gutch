@@ -24,19 +24,19 @@ impl VerifyMode {
 
 #[derive(Debug, Clone, Default)]
 pub struct VerifyTimings {
-    pub verify_mode: VerifyMode,
-    pub runtime_plan: Option<RuntimePlan>,
-    pub prepare_wall: Duration,
-    pub verify_files_wall: Duration,
-    pub extra_file_scan_wall: Duration,
-    pub stat: Duration,
-    pub file_read: Duration,
-    pub file_read_bytes: u64,
-    pub file_hash: Duration,
-    pub file_hash_bytes: u64,
-    pub chunk_hash: Duration,
-    pub chunk_hash_bytes: u64,
-    pub total: Duration,
+    pub(crate) verify_mode: VerifyMode,
+    pub(crate) runtime_plan: Option<RuntimePlan>,
+    pub(crate) prepare_wall: Duration,
+    pub(crate) verify_files_wall: Duration,
+    pub(crate) extra_file_scan_wall: Duration,
+    pub(crate) stat: Duration,
+    pub(crate) file_read: Duration,
+    pub(crate) file_read_bytes: u64,
+    pub(crate) file_hash: Duration,
+    pub(crate) file_hash_bytes: u64,
+    pub(crate) chunk_hash: Duration,
+    pub(crate) chunk_hash_bytes: u64,
+    pub(crate) total: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

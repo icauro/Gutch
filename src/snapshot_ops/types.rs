@@ -1,12 +1,34 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::manifest::ExternalProductDependencyRequirement;
 use crate::manifest::launch::ResolvedLaunchConfiguration;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperationControl;
-use crate::runtime::RuntimeResourceHints;
+use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 use crate::verify::{RepairClassification, VerifyMode, VerifyTimings};
+
+#[derive(Debug, Clone, Default)]
+pub struct ReconstructTimings {
+    pub(crate) runtime_plan: Option<RuntimePlan>,
+    pub(crate) verify_chunks: bool,
+    pub(crate) verify_files: bool,
+    pub(crate) prepare_wall: Duration,
+    pub(crate) reconstruct_wall: Duration,
+    pub(crate) bundle_read: Duration,
+    pub(crate) bundle_read_compressed_bytes: u64,
+    pub(crate) bundle_read_decompressed_bytes: u64,
+    pub(crate) chunk_verify: Duration,
+    pub(crate) chunk_verify_bytes: u64,
+    pub(crate) file_rebuild: Duration,
+    pub(crate) file_rebuild_bytes: u64,
+    pub(crate) file_verify: Duration,
+    pub(crate) file_verify_bytes: u64,
+    pub(crate) file_write: Duration,
+    pub(crate) file_write_bytes: u64,
+    pub(crate) total: Duration,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,8 +69,8 @@ pub struct ResolvedSnapshotOperationState {
     pub external_product_dependencies: Vec<ExternalProductDependencyRequirement>,
 }
 
-#[derive(Debug, Clone)]
-pub struct SnapshotReconstructSource<'a> {
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SnapshotReconstructSource<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub destination_dir: &'a Path,
 }
@@ -61,8 +83,8 @@ pub struct SnapshotReconstructResult {
     pub reused_source_chunk_count: usize,
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,
-    pub reconstruct_timings: crate::ReconstructTimings,
-    pub verify_timings: VerifyTimings,
+    pub(crate) reconstruct_timings: ReconstructTimings,
+    pub(crate) verify_timings: VerifyTimings,
 }
 
 #[derive(Debug, Clone)]
@@ -101,7 +123,7 @@ pub struct SnapshotVerifyFromRepoResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
     pub classification: RepairClassification,
-    pub verify_timings: VerifyTimings,
+    pub(crate) verify_timings: VerifyTimings,
 }
 
 #[derive(Debug, Clone)]
@@ -114,7 +136,6 @@ pub struct SnapshotRepairResult {
     pub removed_extra_file_count: usize,
     pub reconstructed_extra_file_count: usize,
     pub reconstruct_result: Option<SnapshotReconstructResult>,
-    pub verify_timings: VerifyTimings,
 }
 
 #[derive(Debug, Clone)]

@@ -25,8 +25,10 @@ pub use content::{
 pub use external_dependency::ExternalProductDependencyRequirement;
 pub(crate) use external_dependency::validate_external_product_dependency_requirements;
 pub use profiles::{
-    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, BundleSizingProfile,
-    ChunkSizingProfile, CompressionKind, CompressionPreset, CompressionProfile, CompressionUnit,
+    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, CompressionPreset,
+};
+pub(crate) use profiles::{
+    BundleSizingProfile, ChunkSizingProfile, CompressionKind, CompressionProfile, CompressionUnit,
 };
 pub use schema_edit::{
     EditableSnapshotTagDefinition, SnapshotTagSchemaValidationError,
@@ -35,8 +37,9 @@ pub use schema_edit::{
 };
 pub(crate) use snapshot::current_host_tags;
 pub use snapshot::{
-    SnapshotDirectRuntimeMetadata, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata,
-    SnapshotLaunchAction, SnapshotProductMetadata, SnapshotRuntimeMetadata,
+    SnapshotBlueprint, SnapshotDirectRuntimeMetadata, SnapshotHostVariant,
+    SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction, SnapshotManifest, SnapshotMetadata,
+    SnapshotProductMetadata, SnapshotRuntimeMetadata,
 };
 pub use tags::{
     AutoTaggingRules, InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,

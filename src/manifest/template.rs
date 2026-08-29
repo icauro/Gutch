@@ -60,16 +60,6 @@ pub fn list_templates() -> Vec<TaggingRuleTemplate> {
     ]
 }
 
-/// Looks up a template by name (case-sensitive).
-pub fn template_by_name(name: &str) -> Option<TaggingRuleTemplate> {
-    match name {
-        "Default" => Some(TaggingRuleTemplate::Default),
-        "Minimal" => Some(TaggingRuleTemplate::Minimal),
-        "SubscriptionExample" => Some(TaggingRuleTemplate::SubscriptionExample),
-        _ => None,
-    }
-}
-
 /// Returns the schema for the given template.
 pub fn template_schema(template: TaggingRuleTemplate) -> SnapshotTagSchema {
     match template {
@@ -213,20 +203,6 @@ mod tests {
         assert!(templates.contains(&TaggingRuleTemplate::Default));
         assert!(templates.contains(&TaggingRuleTemplate::Minimal));
         assert!(templates.contains(&TaggingRuleTemplate::SubscriptionExample));
-    }
-
-    #[test]
-    fn template_by_name_round_trips() {
-        for template in list_templates() {
-            let name = template.name();
-            let resolved = template_by_name(name).unwrap();
-            assert_eq!(resolved, template);
-        }
-    }
-
-    #[test]
-    fn template_by_name_rejects_unknown() {
-        assert!(template_by_name("Unknown").is_none());
     }
 
     #[test]

@@ -306,12 +306,8 @@ fn build_loose_chunks(
     )
 }
 
-fn base_build_config(
-    gutch_repo_id: &str,
-    snapshot_id: &str,
-    snapshot_tags: &SnapshotTagSet,
-) -> BuildConfig<'static> {
-    BuildConfig::with_ids(gutch_repo_id, snapshot_id, snapshot_tags)
+fn base_build_config(snapshot_id: &str, snapshot_tags: &SnapshotTagSet) -> BuildConfig<'static> {
+    BuildConfig::for_snapshot(snapshot_id, snapshot_tags)
 }
 
 fn build_loose_chunk(
@@ -384,18 +380,17 @@ fn build_bundle_compressed_group(
 
 pub fn build_from_directory(
     dir: &Path,
-    gutch_repo_id: &str,
     snapshot_id: &str,
     snapshot_tags: &SnapshotTagSet,
 ) -> Result<BuildResult> {
-    Ok(build_with_config(
-        dir,
-        &base_build_config(gutch_repo_id, snapshot_id, snapshot_tags),
-    )?
-    .0)
+    Ok(build_with_config_timed(dir, &base_build_config(snapshot_id, snapshot_tags))?.0)
 }
 
-pub fn build_with_config(
+pub fn build_with_config(dir: &Path, config: &BuildConfig<'_>) -> Result<BuildResult> {
+    Ok(build_with_config_timed(dir, config)?.0)
+}
+
+pub(crate) fn build_with_config_timed(
     dir: &Path,
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {

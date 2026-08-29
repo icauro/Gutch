@@ -37,3 +37,4 @@ indicatif = "0.18.4"
 # CLI progress bars (download/install progress)
 smol_str = { version = "0.3.2", features = ["serde"] }
 # Small owned strings for clone-heavy metadata
+urlencoding = "2.1.3"

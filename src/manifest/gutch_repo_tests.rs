@@ -28,11 +28,14 @@ fn artifact_profile_expands_presets_for_the_engine() {
     );
 
     assert_eq!(
-        profile.chunk_sizing_profile().preset,
+        ChunkSizingProfile::for_preset(profile.chunk).preset,
         ArtifactSizingPreset::Chunk1MiB
     );
     assert_eq!(profile.compression_profile().zstd_level, 5);
-    assert_eq!(profile.bundle_sizing_profile().bundle_preferred_mib, 64);
+    assert_eq!(
+        BundleSizingProfile::for_preset(profile.bundle).bundle_preferred_mib,
+        64
+    );
     assert_eq!(profile.storage, ArtifactStorageMode::LooseChunks);
 }
 

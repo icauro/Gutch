@@ -123,55 +123,9 @@ pub(crate) fn from_json_bytes<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> R
     Ok(serde_json::from_slice(bytes)?)
 }
 
-/// Percent-encode one URL query component using the unreserved URI characters.
-pub fn encode_query_component(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(byte as char);
-        } else {
-            encoded.push('%');
-            encoded.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
-            encoded.push(char::from(b"0123456789ABCDEF"[(byte & 0x0F) as usize]));
-        }
-    }
-    encoded
-}
-
-/// Read a blocking HTTP response with a hard byte limit and cancellation hook.
-pub fn read_response_bounded<F>(
-    response: reqwest::blocking::Response,
-    maximum_bytes: u64,
-    checkpoint: F,
-) -> Result<Vec<u8>, Error>
-where
-    F: FnMut() -> Result<(), Error>,
-{
-    if response
-        .content_length()
-        .is_some_and(|length| length > maximum_bytes)
-    {
-        return Err(Error::manifest("response exceeded the allowed size"));
-    }
-    let mut bytes = Vec::new();
-    crate::transport::read_bounded_chunks(response, Some(maximum_bytes), checkpoint, |chunk| {
-        bytes.extend_from_slice(chunk);
-        Ok(())
-    })?;
-    Ok(bytes)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{encode_query_component, replace_directory, write, write_atomic_with};
-
-    #[test]
-    fn query_component_preserves_unreserved_bytes_and_encodes_delimiters() {
-        assert_eq!(
-            encode_query_component("bundle-a,bundle b?"),
-            "bundle-a%2Cbundle%20b%3F"
-        );
-    }
+    use super::{replace_directory, write, write_atomic_with};
 
     #[test]
     fn atomic_write_preserves_existing_file_when_writer_fails() {

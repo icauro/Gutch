@@ -1,7 +1,5 @@
-use std::path::Path;
-use std::time::Instant;
-
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 use crate::artifact::bundle;
 use crate::verify::VerifyMode;
@@ -20,16 +18,6 @@ pub struct RepoVerifyResult {
     pub snapshot_count: usize,
     pub snapshots_ok: usize,
     pub snapshots: Vec<SnapshotVerifyResult>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timings: Option<RepoVerifyTimings>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoVerifyTimings {
-    pub load_ms: u64,
-    pub verify_bundles_ms: u64,
-    pub total_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +39,6 @@ pub fn verify_gutch_repo(
     snapshot_id: Option<&str>,
     mode: VerifyMode,
 ) -> Result<RepoVerifyResult> {
-    let total_start = Instant::now();
     let check = check_gutch_repo(repo_root)?;
     if !check.is_repo {
         return Err(Error::manifest(format!(
@@ -60,10 +47,8 @@ pub fn verify_gutch_repo(
         )));
     }
 
-    let load_start = Instant::now();
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let chunk_index = load_chunk_index(&repo_paths)?;
-    let load_ms = load_start.elapsed().as_millis() as u64;
 
     let selected_snapshots: Vec<_> = check
         .snapshots
@@ -81,7 +66,6 @@ pub fn verify_gutch_repo(
         return Err(Error::manifest(format!("snapshot not found in repo: {id}")));
     }
 
-    let verify_start = Instant::now();
     let mut snapshots = Vec::new();
     for snapshot in selected_snapshots {
         snapshots.push(verify_snapshot_bundles(
@@ -92,8 +76,6 @@ pub fn verify_gutch_repo(
             mode,
         )?);
     }
-    let verify_bundles_ms = verify_start.elapsed().as_millis() as u64;
-
     let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
     let ok = snapshots_ok == snapshots.len();
 
@@ -103,11 +85,6 @@ pub fn verify_gutch_repo(
         snapshot_count: snapshots.len(),
         snapshots_ok,
         snapshots,
-        timings: Some(RepoVerifyTimings {
-            load_ms,
-            verify_bundles_ms,
-            total_ms: total_start.elapsed().as_millis() as u64,
-        }),
     })
 }
 

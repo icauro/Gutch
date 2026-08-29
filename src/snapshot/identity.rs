@@ -9,11 +9,11 @@ pub struct ResolvedSnapshotIdentity {
     pub snapshot_tags: SnapshotTagSet,
 }
 
-pub fn parse_cli_tags(tag_values: &[String]) -> Result<SnapshotTagSet> {
+pub(crate) fn parse_cli_tags(tag_values: &[String]) -> Result<SnapshotTagSet> {
     SnapshotTagSet::from_compact_strings(tag_values)
 }
 
-pub fn resolve_snapshot_identity(
+pub(crate) fn resolve_snapshot_identity(
     input_path: &std::path::Path,
     explicit_tags: &SnapshotTagSet,
     rules: &SnapshotTagSchema,
@@ -25,7 +25,7 @@ pub fn resolve_snapshot_identity(
 /// Like [`resolve_snapshot_identity`], but name-based tag inference can be
 /// disabled (explicit ingestion mode). Explicit tags still win over inferred
 /// tags; inference only fills values missing from the explicit set.
-pub fn resolve_snapshot_identity_with_inference(
+pub(crate) fn resolve_snapshot_identity_with_inference(
     input_path: &std::path::Path,
     explicit_tags: &SnapshotTagSet,
     rules: &SnapshotTagSchema,
@@ -59,16 +59,6 @@ pub fn resolve_snapshot_identity_with_inference(
     }
 
     Ok(ResolvedSnapshotIdentity { snapshot_tags })
-}
-
-pub fn resolve_snapshot_identity_from_rules(
-    input_path: &std::path::Path,
-    explicit_tags: &SnapshotTagSet,
-    rules: Option<&SnapshotTagSchema>,
-    context: &str,
-) -> Result<ResolvedSnapshotIdentity> {
-    let effective_rules = rules.cloned().unwrap_or_default();
-    resolve_snapshot_identity(input_path, explicit_tags, &effective_rules, context)
 }
 
 pub(crate) fn apply_resolved_snapshot_identity(

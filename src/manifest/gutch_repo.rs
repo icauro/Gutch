@@ -30,16 +30,8 @@ impl ArtifactProfile {
         }
     }
 
-    pub fn chunk_sizing_profile(&self) -> ChunkSizingProfile {
-        ChunkSizingProfile::for_preset(self.chunk)
-    }
-
-    pub fn compression_profile(&self) -> CompressionProfile {
+    pub(crate) fn compression_profile(&self) -> CompressionProfile {
         CompressionProfile::for_preset(self.compression)
-    }
-
-    pub fn bundle_sizing_profile(&self) -> BundleSizingProfile {
-        BundleSizingProfile::for_preset(self.bundle)
     }
 }
 
@@ -85,7 +77,7 @@ impl GutchRepoManifest {
         self.artifact_profile = ArtifactProfile::for_presets(chunk, compression, bundle, storage);
     }
 
-    pub fn compression_profile(&self) -> CompressionProfile {
+    pub(crate) fn compression_profile(&self) -> CompressionProfile {
         self.artifact_profile.compression_profile()
     }
 

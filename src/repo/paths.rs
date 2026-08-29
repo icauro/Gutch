@@ -58,7 +58,10 @@ pub(crate) fn validate_path_component(value: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn ensure_gutch_repo_layout(paths: &GutchRepoPaths, name: &str) -> Result<GutchRepoManifest> {
+pub(crate) fn ensure_gutch_repo_layout(
+    paths: &GutchRepoPaths,
+    name: &str,
+) -> Result<GutchRepoManifest> {
     crate::helpers::create_dir_all(&paths.snapshots_root)?;
     crate::helpers::create_dir_all(&paths.bundles_root)?;
     crate::helpers::create_dir_all(&paths.chunks_root)?;
@@ -93,7 +96,7 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
     Ok((paths, repo_manifest))
 }
 
-pub fn write_gutch_repo_manifest(
+pub(crate) fn write_gutch_repo_manifest(
     paths: &GutchRepoPaths,
     repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
@@ -145,26 +148,26 @@ fn apply_local_repo_config(paths: &GutchRepoPaths, manifest: &mut GutchRepoManif
     Ok(())
 }
 
-pub fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> Result<PathBuf> {
+pub(crate) fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> Result<PathBuf> {
     validate_path_component(bundle_id, "bundle ID")?;
     Ok(bundles_root.join(bundle_id))
 }
 
-pub fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> Result<PathBuf> {
+pub(crate) fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> Result<PathBuf> {
     bundle_path_in_root(&paths.bundles_root, bundle_id)
 }
 
-pub fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> Result<PathBuf> {
+pub(crate) fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> Result<PathBuf> {
     validate_path_component(chunk_hash, "chunk hash")?;
     let prefix = chunk_hash.get(0..2).unwrap_or("xx");
     Ok(chunks_root.join(prefix).join(chunk_hash))
 }
 
-pub fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> Result<PathBuf> {
+pub(crate) fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> Result<PathBuf> {
     chunk_path_in_root(&paths.chunks_root, chunk_hash)
 }
 
-pub fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
+pub(crate) fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
     let bundle_id = path.file_name().and_then(|value| value.to_str())?;
     crate::ChunkHash::parse_hex(bundle_id).ok()?;
     Some(bundle_id.to_string())

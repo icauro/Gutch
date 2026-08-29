@@ -9,7 +9,7 @@ use super::{
     snapshot_metadata_path, validate_snapshot_id,
 };
 
-pub fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<()> {
+pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<()> {
     validate_snapshot_id(snapshot_id)?;
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
     let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
@@ -33,7 +33,7 @@ pub fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<
     Ok(())
 }
 
-pub fn cleanup_orphan_bundles_in_repo(
+pub(crate) fn cleanup_orphan_bundles_in_repo(
     repo_root: &Path,
     control: &crate::GutchOperationControl,
 ) -> Result<usize> {

@@ -17,7 +17,7 @@ pub enum ArtifactStorageMode {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum CompressionKind {
+pub(crate) enum CompressionKind {
     #[serde(rename = "none")]
     None,
     #[default]
@@ -25,29 +25,12 @@ pub enum CompressionKind {
     Zstd,
 }
 
-impl CompressionKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Zstd => "zstd",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum CompressionUnit {
+pub(crate) enum CompressionUnit {
     #[default]
     #[serde(rename = "bundle")]
     Bundle,
-}
-
-impl CompressionUnit {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Bundle => "bundle",
-        }
-    }
 }
 
 impl ArtifactStorageMode {
@@ -144,7 +127,7 @@ impl BundleSizingPreset {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkSizingProfile {
+pub(crate) struct ChunkSizingProfile {
     pub preset: ArtifactSizingPreset,
     pub chunker: SmolStr,
     pub min_chunk_bytes: u32,
@@ -201,7 +184,7 @@ impl ChunkSizingProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BundleSizingProfile {
+pub(crate) struct BundleSizingProfile {
     pub preset: BundleSizingPreset,
     pub bundle_max_mib: u64,
     pub bundle_preferred_mib: u64,
@@ -269,7 +252,7 @@ impl CompressionPreset {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompressionProfile {
+pub(crate) struct CompressionProfile {
     pub preset: CompressionPreset,
     pub compression: CompressionKind,
     pub compression_unit: CompressionUnit,

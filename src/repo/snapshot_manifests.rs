@@ -34,7 +34,10 @@ pub fn snapshot_metadata_path(paths: &GutchRepoPaths, snapshot_id: &str) -> Resu
         .join(SNAPSHOT_METADATA_FILE))
 }
 
-pub fn snapshot_blueprint_path(paths: &GutchRepoPaths, snapshot_id: &str) -> Result<PathBuf> {
+pub(crate) fn snapshot_blueprint_path(
+    paths: &GutchRepoPaths,
+    snapshot_id: &str,
+) -> Result<PathBuf> {
     validate_path_component(snapshot_id, "snapshot ID")?;
     Ok(paths
         .snapshots_root
@@ -42,7 +45,7 @@ pub fn snapshot_blueprint_path(paths: &GutchRepoPaths, snapshot_id: &str) -> Res
         .join(SNAPSHOT_BLUEPRINT_FILE))
 }
 
-pub fn snapshot_product_metadata_path(
+pub(crate) fn snapshot_product_metadata_path(
     paths: &GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<PathBuf> {
@@ -77,13 +80,13 @@ pub fn load_snapshot_manifest(
     Ok(manifest)
 }
 
-pub fn serialize_snapshot_metadata_for_remote(
+pub(crate) fn serialize_snapshot_metadata_for_remote(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<Vec<u8>> {
     serde_json::to_vec_pretty(&snapshot_manifest.metadata()).map_err(Into::into)
 }
 
-pub fn serialize_snapshot_product_metadata_for_remote(
+pub(crate) fn serialize_snapshot_product_metadata_for_remote(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<Option<Vec<u8>>> {
     let mut metadata = snapshot_manifest.clone();
@@ -97,7 +100,7 @@ pub fn serialize_snapshot_product_metadata_for_remote(
         .map_err(Into::into)
 }
 
-pub fn load_snapshot_product_metadata(
+pub(crate) fn load_snapshot_product_metadata(
     paths: &GutchRepoPaths,
     snapshot_id: &str,
 ) -> Result<Option<SnapshotProductMetadata>> {
@@ -111,7 +114,7 @@ pub fn load_snapshot_product_metadata(
     Ok(Some(metadata))
 }
 
-pub fn write_snapshot_product_metadata(
+pub(crate) fn write_snapshot_product_metadata(
     paths: &GutchRepoPaths,
     snapshot_id: &str,
     metadata: Option<&SnapshotProductMetadata>,
@@ -129,18 +132,6 @@ pub fn write_snapshot_product_metadata(
         helpers::remove_file(&metadata_path)?;
     }
     Ok(None)
-}
-
-pub fn save_snapshot_product_metadata(
-    repo_root: &std::path::Path,
-    snapshot_id: &str,
-    product_metadata: Option<SnapshotProductMetadata>,
-) -> Result<()> {
-    save_snapshot_product_metadata_for_snapshots(
-        repo_root,
-        &[snapshot_id.to_string()],
-        product_metadata,
-    )
 }
 
 pub fn save_snapshot_product_metadata_for_snapshots(
@@ -176,7 +167,7 @@ pub fn save_snapshot_product_metadata_for_snapshots(
     Ok(())
 }
 
-pub fn write_snapshot_manifest_artifacts(
+pub(crate) fn write_snapshot_manifest_artifacts(
     paths: &GutchRepoPaths,
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<(PathBuf, u64)> {

@@ -124,7 +124,7 @@ fn resolve_bundle_urls(
     let separator = if endpoint.contains('?') { "&" } else { "?" };
     let request_url = format!(
         "{endpoint}{separator}ids={}",
-        g::helpers::encode_query_component(&bundle_ids.join(","))
+        urlencoding::encode(&bundle_ids.join(","))
     );
     let mut request = client.get(request_url);
     if let Some(session_id) = session_id {
@@ -139,7 +139,7 @@ fn resolve_bundle_urls(
             response.status()
         )));
     }
-    let bytes = g::helpers::read_response_bounded(response, MAX_BUNDLE_URL_RESPONSE_BYTES, || {
+    let bytes = read_response_bounded(response, MAX_BUNDLE_URL_RESPONSE_BYTES, || {
         control.checkpoint()
     })?;
     #[derive(Deserialize)]
@@ -149,6 +149,33 @@ fn resolve_bundle_urls(
         bundles: Vec<g::BundleDownload>,
     }
     Ok(serde_json::from_slice::<BundleUrlsResponse>(&bytes)?.bundles)
+}
+
+fn read_response_bounded<F>(
+    mut response: reqwest::blocking::Response,
+    maximum_bytes: u64,
+    mut checkpoint: F,
+) -> g::Result<Vec<u8>>
+where
+    F: FnMut() -> g::Result<()>,
+{
+    if response
+        .content_length()
+        .is_some_and(|length| length > maximum_bytes)
+    {
+        return Err(g::Error::manifest("response exceeded the allowed size"));
+    }
+    let mut bytes = Vec::new();
+    crate::transport::read_bounded_chunks(
+        &mut response,
+        Some(maximum_bytes),
+        &mut checkpoint,
+        |chunk| {
+            bytes.extend_from_slice(chunk);
+            Ok(())
+        },
+    )?;
+    Ok(bytes)
 }
 
 pub(crate) fn verify(

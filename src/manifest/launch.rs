@@ -23,7 +23,7 @@ pub struct ResolvedLaunchAction {
     pub working_directory: Option<String>,
 }
 
-pub fn validate_resolved_launch_for_snapshot(
+pub(crate) fn validate_resolved_launch_for_snapshot(
     configuration: &ResolvedLaunchConfiguration,
     snapshot: &SnapshotManifest,
 ) -> Result<()> {
@@ -96,7 +96,7 @@ pub(crate) fn validate_resolved_launch_for_snapshot_os(
     Ok(())
 }
 
-pub fn validate_launch_path(value: &str, allow_install_root: bool) -> Result<()> {
+pub(crate) fn validate_launch_path(value: &str, allow_install_root: bool) -> Result<()> {
     crate::validate_manifest_relative_path(value, allow_install_root).map_err(|error| {
         Error::manifest(format!(
             "launch path must be normalized inside the installation: {error}"

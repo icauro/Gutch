@@ -9,7 +9,7 @@ pub enum ExistingDestinationPathKind {
     FileOrDirectory,
 }
 
-pub fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Result<()> {
+pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Result<()> {
     let trimmed = relative.trim();
     let relative_path = Path::new(relative);
     let has_windows_drive_prefix = trimmed.as_bytes().get(1) == Some(&b':');

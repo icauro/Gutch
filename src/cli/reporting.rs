@@ -862,7 +862,7 @@ pub(crate) fn print_verify_timings(t: &g::VerifyTimings) {
     }
 }
 
-pub(crate) fn print_repo_check_timings(t: &g::RepoCheckTimings) {
+pub(crate) fn print_repo_check_timings(t: &crate::repo::check::RepoCheckTimings) {
     print_section_title("Check Timing");
     print_metric_line("load manifest", format!("{} ms", t.load_manifest_ms));
     print_metric_line("scan bundles", format!("{} ms", t.scan_bundles_ms));

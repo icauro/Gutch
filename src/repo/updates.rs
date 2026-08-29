@@ -5,17 +5,6 @@ use crate::manifest;
 
 use super::{load_gutch_repo_manifest, write_gutch_repo_manifest};
 
-pub fn initialize_gutch_repo(
-    repo_root: &Path,
-    snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
-) -> Result<()> {
-    super::init_policy::initialize_gutch_repo_with_options(
-        repo_root,
-        snapshot_tag_schema,
-        super::init_policy::RepoInitOptions { force: false },
-    )
-}
-
 pub fn update_gutch_repo_schema(
     repo_root: &Path,
     snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,

@@ -209,27 +209,19 @@ fn run_capture_one_snapshot(
         .keys()
         .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
         .collect::<g::Result<HashSet<_>>>()?;
-    let chunk_sizing_profile =
-        g::manifest::ChunkSizingProfile::for_preset(request.build_profile.chunk_profile);
-    let bundle_sizing_profile =
-        g::manifest::BundleSizingProfile::for_preset(request.build_profile.bundle_profile);
-    let compression_profile =
-        g::manifest::CompressionProfile::for_preset(request.build_profile.compression_profile);
-
-    let mut build_config =
-        g::BuildConfig::with_ids(request.repo_name, "", &resolved_identity.snapshot_tags)
-            .with_existing_chunks(&store_state.chunk_locations)
-            .with_existing_bundles(&store_state.bundle_ids)
-            .with_previous_manifests(&store_state.previous_file_manifests)
-            .with_chunk_profile(&chunk_sizing_profile)
-            .with_bundle_profile(&bundle_sizing_profile)
-            .with_compression_profile(&compression_profile);
-    build_config.storage_mode = request.build_profile.storage_mode;
-    build_config.runtime_hints = request.runtime_hints.clone();
+    let mut build_config = g::BuildConfig::for_snapshot("", &resolved_identity.snapshot_tags)
+        .with_existing_chunks(&store_state.chunk_locations)
+        .with_existing_bundles(&store_state.bundle_ids)
+        .with_previous_manifests(&store_state.previous_file_manifests)
+        .with_chunk_profile(request.build_profile.chunk_profile)
+        .with_bundle_profile(request.build_profile.bundle_profile)
+        .with_compression_profile(request.build_profile.compression_profile)
+        .with_storage_mode(request.build_profile.storage_mode)
+        .with_runtime_hints(request.runtime_hints.clone());
     build_config.control =
         g::GutchOperationControl::default().with_progress(CliProgressSink::new());
 
-    let (result, timings) = g::build_with_config(&prepared_input.dir, &build_config)?;
+    let (result, timings) = g::build_with_config_timed(&prepared_input.dir, &build_config)?;
     let mut result = result;
     let snapshot_id = g::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
@@ -830,7 +822,6 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             )?;
             let result = g::build_from_directory(
                 &prepared_input.dir,
-                "estimate",
                 "estimate",
                 &resolved_identity.snapshot_tags,
             )?;

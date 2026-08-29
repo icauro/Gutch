@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::reconstruct::VerifiedSourceTree;
 use crate::runtime::RuntimeResourceHints;
 
 use super::types::{
@@ -17,7 +16,7 @@ pub(super) fn resolve_verified_source<'a>(
     source: Option<SnapshotReconstructSource<'a>>,
     runtime_hints: &RuntimeResourceHints,
     control: &crate::GutchOperationControl,
-) -> Result<Option<VerifiedSourceTree<'a>>> {
+) -> Result<Option<SnapshotReconstructSource<'a>>> {
     control.checkpoint()?;
     match source {
         Some(source) => {
@@ -41,7 +40,7 @@ pub(super) fn resolve_verified_source<'a>(
                 return Err(Error::SourceSnapshotNotVerified(source_errors));
             }
 
-            Ok(Some(VerifiedSourceTree {
+            Ok(Some(SnapshotReconstructSource {
                 snapshot_manifest: source.snapshot_manifest,
                 destination_dir: source.destination_dir,
             }))
@@ -50,7 +49,7 @@ pub(super) fn resolve_verified_source<'a>(
     }
 }
 
-pub fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: &str) -> PathBuf {
+pub(crate) fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: &str) -> PathBuf {
     let destination_name = destination_dir
         .file_name()
         .and_then(|name| name.to_str())
@@ -159,7 +158,7 @@ pub(super) struct BuildSnapshotReconstructResultRequest<'a> {
     pub reused_source_chunk_count: usize,
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,
-    pub reconstruct_timings: crate::ReconstructTimings,
+    pub reconstruct_timings: super::types::ReconstructTimings,
     pub verify_timings: crate::verify::VerifyTimings,
 }
 

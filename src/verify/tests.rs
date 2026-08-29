@@ -32,13 +32,14 @@ fn verify_with<'a>(
     mode: VerifyMode,
     runtime_hints: &'a RuntimeResourceHints,
 ) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_directory(VerifyRequest {
+    let (classification, timings) = classify_directory(VerifyRequest {
         snapshot_manifest,
         dir,
         mode,
         runtime_hints,
         control: crate::GutchOperationControl::default(),
-    })
+    })?;
+    Ok((classification.into_messages(), timings))
 }
 
 fn verify_fast(
@@ -57,7 +58,7 @@ fn verify_fast(
 fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
     let missing_dir = test_util::temp_path("gutch_verify_pre_cancelled_missing");
     let _ = std::fs::remove_dir_all(&missing_dir);
-    let result = verify_directory(VerifyRequest {
+    let result = classify_directory(VerifyRequest {
         snapshot_manifest: &empty_manifest(),
         dir: &missing_dir,
         mode: VerifyMode::Fast,

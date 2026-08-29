@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use gutch::GutchOperationControl;
-use gutch::{ReconstructOptions, RuntimeResourceHints, VerifyMode, reconstruct_from_repo};
+use gutch::{
+    RuntimeResourceHints, SnapshotReconstructFromRepoRequest, VerifyMode,
+    reconstruct_snapshot_from_repo,
+};
 use serde::Deserialize;
 
 const FIXTURE_ROOTS: &[&str] = &[
@@ -186,9 +189,6 @@ fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
             "fixture repo verification failed for {fixture_relative_path}: {verification:?}"
         );
 
-        let repo_paths = gutch::GutchRepoPaths::from_repo_root(&repo_root);
-        let (_, repo_manifest) =
-            gutch::load_gutch_repo_manifest(&repo_root).expect("fixture repo manifest should load");
         let output_root = tempfile::tempdir().expect("reconstruction output tempdir");
 
         for snapshot in &repo_status.snapshots {
@@ -216,19 +216,16 @@ fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
                 .unwrap_or_else(|| panic!("missing expected snapshot {snapshot_path}"));
             let original_snapshot_root = original_root.join(&snapshot_path);
             let reconstructed_snapshot_root = output_root.path().join(&snapshot.snapshot_id);
-            let snapshot_manifest =
-                gutch::load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)
-                    .expect("fixture snapshot manifest should load");
-
-            reconstruct_from_repo(
-                &snapshot_manifest,
-                &repo_paths,
-                &repo_manifest.compression_profile(),
-                &reconstructed_snapshot_root,
-                &RuntimeResourceHints::default(),
-                ReconstructOptions::default(),
-                &GutchOperationControl::default(),
-            )
+            reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+                repo_path: repo_root.clone(),
+                snapshot_id: snapshot.snapshot_id.clone(),
+                destination_dir: reconstructed_snapshot_root.clone(),
+                staging_dir: None,
+                source_snapshot_id: None,
+                source_dir: None,
+                runtime_hints: RuntimeResourceHints::default(),
+                control: GutchOperationControl::default(),
+            })
             .expect("fixture snapshot should reconstruct");
 
             assert_snapshot_matches_expected(

@@ -37,7 +37,7 @@ fn empty_chunk_index() -> manifest::ChunkIndex {
     }
 }
 
-pub fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
+pub(crate) fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
     if paths.chunk_map_path.exists() {
         return binary::load_chunk_index_binary(&paths.chunk_map_path);
     }
@@ -58,16 +58,6 @@ pub fn required_chunk_hashes_typed(
         .files()
         .flat_map(|file| file.chunks.iter())
         .map(|chunk| ChunkHash::parse_hex(&chunk.chunk_hash))
-        .collect()
-}
-
-pub fn chunk_index_entries_typed(
-    chunk_index: &manifest::ChunkIndex,
-) -> Result<std::collections::HashMap<ChunkHash, &manifest::ChunkIndexEntry>> {
-    chunk_index
-        .entries
-        .iter()
-        .map(|(chunk_hash, entry)| Ok((ChunkHash::parse_hex(chunk_hash)?, entry)))
         .collect()
 }
 
@@ -161,7 +151,6 @@ pub fn existing_chunk_locations_from_index(
                 chunk_hash.clone(),
                 crate::ExistingChunkLocation {
                     bundle_id: entry.bundle_id.clone(),
-                    raw_size: entry.raw_size,
                     compressed_size: entry.compressed_size,
                     storage_mode: entry.storage_mode,
                 },
@@ -207,7 +196,7 @@ pub fn rebuild_chunk_index_from_bundles(
     })
 }
 
-pub fn add_built_bundles_to_chunk_index(
+pub(crate) fn add_built_bundles_to_chunk_index(
     chunk_index: &mut manifest::ChunkIndex,
     bundles: &[crate::BuiltBundle],
     compression_profile: &crate::manifest::CompressionProfile,
@@ -233,7 +222,7 @@ pub fn add_built_bundles_to_chunk_index(
     Ok(())
 }
 
-pub fn add_built_loose_chunks_to_chunk_index(
+pub(crate) fn add_built_loose_chunks_to_chunk_index(
     chunk_index: &mut manifest::ChunkIndex,
     chunks: &[crate::BuiltLooseChunk],
 ) -> Result<()> {
@@ -253,6 +242,9 @@ pub fn add_built_loose_chunks_to_chunk_index(
     Ok(())
 }
 
-pub fn write_chunk_index(paths: &GutchRepoPaths, index: &manifest::ChunkIndex) -> Result<()> {
+pub(crate) fn write_chunk_index(
+    paths: &GutchRepoPaths,
+    index: &manifest::ChunkIndex,
+) -> Result<()> {
     binary::write_chunk_index_binary(&paths.chunk_map_path, index)
 }

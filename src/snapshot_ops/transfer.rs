@@ -312,7 +312,7 @@ pub(super) fn write_repo_manifest(
     crate::write_gutch_repo_manifest(repo_paths, repo_manifest)
 }
 
-pub fn snapshot_manifest_from_download(
+pub(crate) fn snapshot_manifest_from_download(
     snapshot_id: &str,
     manifest_bytes: &[u8],
 ) -> Result<crate::manifest::snapshot::SnapshotManifest> {

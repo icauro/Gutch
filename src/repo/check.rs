@@ -24,7 +24,7 @@ pub struct RepoCheckStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo_manifest: Option<manifest::gutch_repo::GutchRepoManifest>,
+    pub repo_manifest: Option<serde_json::Value>,
     pub snapshots: Vec<RepoCheckSnapshotStatus>,
     #[serde(default)]
     pub bundle_count: usize,
@@ -32,18 +32,18 @@ pub struct RepoCheckStatus {
     pub bundle_bytes: u64,
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timings: Option<RepoCheckTimings>,
+    pub(crate) timings: Option<RepoCheckTimings>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoCheckTimings {
-    pub load_manifest_ms: u64,
-    pub scan_bundles_ms: u64,
-    pub load_chunk_index_ms: u64,
-    pub load_snapshot_manifests_ms: u64,
-    pub snapshot_count: usize,
-    pub total_ms: u64,
+pub(crate) struct RepoCheckTimings {
+    pub(crate) load_manifest_ms: u64,
+    pub(crate) scan_bundles_ms: u64,
+    pub(crate) load_chunk_index_ms: u64,
+    pub(crate) load_snapshot_manifests_ms: u64,
+    pub(crate) snapshot_count: usize,
+    pub(crate) total_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,7 +153,7 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         name: repo_manifest.name.clone(),
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
         snapshot_tag_schema: repo_manifest.snapshot_tag_schema.clone(),
-        repo_manifest: Some(repo_manifest),
+        repo_manifest: Some(serde_json::to_value(&repo_manifest)?),
         snapshots,
         bundle_count,
         bundle_bytes,
@@ -233,33 +233,6 @@ pub fn discover_source_snapshot_operations(
 
     candidates.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(candidates)
-}
-
-pub fn preview_source_snapshot_ops(
-    repo_root: &Path,
-    source_dir: &Path,
-) -> Result<SourceSnapshotOperationCandidate> {
-    if !source_dir.exists() {
-        return Err(Error::manifest(format!(
-            "source snapshots path does not exist: {}",
-            source_dir.display()
-        )));
-    }
-    if !source_dir.is_dir() {
-        return Err(Error::manifest(format!(
-            "source snapshots path is not a directory: {}",
-            source_dir.display()
-        )));
-    }
-
-    let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    let rules = repo_manifest.snapshot_tag_schema.unwrap_or_default();
-    build_source_snapshot_ops_candidate(
-        source_dir,
-        &rules,
-        &manifest::SnapshotTagSet::default(),
-        true,
-    )
 }
 
 fn empty_repo_check_status(

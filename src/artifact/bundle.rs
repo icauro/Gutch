@@ -227,6 +227,7 @@ pub(crate) struct BundleReader<R: Read + Seek> {
     data_start: u64,
     payload_size: u64,
     compression: CompressionKind,
+    #[cfg(test)]
     compression_unit: CompressionUnit,
     bundle_raw_cache: Option<Vec<u8>>,
     reader: R,
@@ -268,6 +269,7 @@ impl<R: Read + Seek> BundleReader<R> {
             data_start,
             payload_size,
             compression: compression_profile.compression,
+            #[cfg(test)]
             compression_unit: compression_profile.compression_unit,
             bundle_raw_cache: None,
             reader,
@@ -282,10 +284,6 @@ impl<R: Read + Seek> BundleReader<R> {
         &self.entries
     }
 
-    pub(crate) fn chunk_hashes(&self) -> &[ChunkHash] {
-        &self.chunk_hashes
-    }
-
     pub(crate) fn chunk_index(&self) -> HashMap<String, usize> {
         self.entries
             .iter()
@@ -294,20 +292,9 @@ impl<R: Read + Seek> BundleReader<R> {
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn compression_unit(&self) -> CompressionUnit {
         self.compression_unit
-    }
-
-    pub(crate) fn payload_size(&self) -> u64 {
-        self.payload_size
-    }
-
-    pub(crate) fn stage_bundle_payload_to<W: Write>(&mut self, writer: &mut W) -> Result<u64> {
-        self.reader.seek(SeekFrom::Start(self.data_start))?;
-        let mut compressed = vec![0u8; self.payload_size as usize];
-        self.reader.read_exact(&mut compressed)?;
-        let written = compress::decompress_data_to_writer(&compressed, self.compression, writer)?;
-        Ok(written)
     }
 
     pub(crate) fn read_chunk_bytes(&mut self, index: usize) -> Result<&[u8]> {
@@ -351,6 +338,7 @@ impl<R: Read + Seek> BundleReader<R> {
         Ok(chunk_data)
     }
 
+    #[cfg(test)]
     pub(crate) fn read_chunk(&mut self, index: usize) -> Result<Vec<u8>> {
         Ok(self.read_chunk_bytes(index)?.to_vec())
     }

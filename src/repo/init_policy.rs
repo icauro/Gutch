@@ -214,14 +214,9 @@ fn non_empty_risk(entry_count: usize) -> RepoInitRisk {
     }
 }
 
-pub fn repo_init_needs_confirmation_error(assessment: &RepoInitAssessment) -> Error {
+pub(crate) fn repo_init_needs_confirmation_error(assessment: &RepoInitAssessment) -> Error {
     let payload = serde_json::to_string(assessment).unwrap_or_else(|_| "{}".to_string());
     Error::manifest(format!("{REPO_INIT_NEEDS_CONFIRMATION}:{payload}"))
-}
-
-pub fn parse_repo_init_needs_confirmation_error(message: &str) -> Option<RepoInitAssessment> {
-    let payload = message.strip_prefix(&format!("{REPO_INIT_NEEDS_CONFIRMATION}:"))?;
-    serde_json::from_str(payload).ok()
 }
 
 pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {

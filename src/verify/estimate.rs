@@ -5,7 +5,7 @@ use crate::hash::ChunkHash;
 use crate::manifest::runtime::typed_file_manifest;
 use crate::manifest::{self, snapshot::SnapshotManifest};
 
-pub fn estimate_build(
+pub(crate) fn estimate_build(
     snapshot_manifest: &SnapshotManifest,
     available_chunks: &HashSet<ChunkHash>,
     available_disk_space: u64,

@@ -223,7 +223,7 @@ fn finalize_repair_result_after_reconstruction(
         )?;
     }
 
-    let (final_classification, final_verify_timings) = classify_directory(VerifyRequest {
+    let (final_classification, _final_verify_timings) = classify_directory(VerifyRequest {
         snapshot_manifest,
         dir: destination_dir,
         mode: crate::VerifyMode::Fast,
@@ -256,7 +256,6 @@ fn finalize_repair_result_after_reconstruction(
         removed_extra_file_count,
         reconstructed_extra_file_count,
         reconstruct_result: None,
-        verify_timings: final_verify_timings,
     })
 }
 

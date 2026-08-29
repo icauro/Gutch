@@ -20,7 +20,7 @@ use crate::runtime::{RuntimeResourceHints, plan_verify_runtime, run_in_thread_po
 mod estimate;
 mod types;
 
-pub use estimate::estimate_build;
+pub(crate) use estimate::estimate_build;
 pub use types::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings};
 
 // ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ impl<'a> VerifyOptions<'a> {
     }
 }
 
-pub struct VerifyRequest<'a> {
+pub(crate) struct VerifyRequest<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub dir: &'a Path,
     pub mode: VerifyMode,
@@ -250,27 +250,7 @@ fn normalize_actual_link_target(link_path: &str, raw_target: &Path) -> Result<St
     Ok(normalized.to_string_lossy().replace('\\', "/"))
 }
 
-fn verify_inner(
-    snapshot_manifest: &SnapshotManifest,
-    dir: &Path,
-    opts: &VerifyOptions,
-) -> Result<(Vec<String>, VerifyTimings)> {
-    let (classification, timings) = classify_inner(snapshot_manifest, dir, opts)?;
-    Ok((classification.into_messages(), timings))
-}
-
-pub fn verify_directory(request: VerifyRequest<'_>) -> Result<(Vec<String>, VerifyTimings)> {
-    verify_inner(
-        request.snapshot_manifest,
-        request.dir,
-        &VerifyOptions::default()
-            .with_mode(request.mode)
-            .with_hints(request.runtime_hints)
-            .with_control(&request.control),
-    )
-}
-
-pub fn classify_directory(
+pub(crate) fn classify_directory(
     request: VerifyRequest<'_>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(

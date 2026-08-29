@@ -1,6 +1,7 @@
 use super::*;
 use crate::manifest::{FileManifest, SnapshotTagSet, snapshot::SnapshotManifest};
 use crate::test_util;
+use crate::verify::{VerifyRequest, classify_directory};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -14,7 +15,7 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> SnapshotTa
 }
 
 fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String> {
-    verify_directory(VerifyRequest {
+    classify_directory(VerifyRequest {
         snapshot_manifest: manifest,
         dir,
         mode: VerifyMode::Fast,
@@ -23,6 +24,7 @@ fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String>
     })
     .unwrap()
     .0
+    .into_messages()
 }
 
 fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairClassification {
@@ -35,56 +37,6 @@ fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairCla
     })
     .unwrap()
     .0
-}
-
-#[test]
-fn test_build_and_reconstruct_roundtrip() {
-    let dir = test_util::temp_path("gutch_test_roundtrip");
-    test_util::recreate_dir(&dir);
-
-    let sub = dir.join("subdir");
-    std::fs::create_dir_all(&sub).unwrap();
-
-    std::fs::write(
-        dir.join("file1.txt"),
-        b"hello world, this is file one ".repeat(50),
-    )
-    .unwrap();
-    std::fs::write(
-        dir.join("file2.txt"),
-        b"goodbye world, this is file two ".repeat(80),
-    )
-    .unwrap();
-    std::fs::write(sub.join("nested.txt"), b"nested content here ".repeat(30)).unwrap();
-
-    let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
-
-    assert!(result.snapshot_manifest.file_count() > 0);
-
-    let out_dir = test_util::temp_path("gutch_test_output");
-    let _ = std::fs::remove_dir_all(&out_dir);
-
-    let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
-    reconstruct_from_snapshot_manifest(
-        &result.snapshot_manifest,
-        &bundle_data,
-        &manifest::CompressionProfile::default(),
-        &out_dir,
-        &GutchOperationControl::default(),
-    )
-    .unwrap();
-
-    let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
-
-    assert!(
-        verify_errors.is_empty(),
-        "verification errors: {:?}",
-        verify_errors
-    );
-
-    let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_dir_all(&out_dir);
 }
 
 #[test]
@@ -105,23 +57,17 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let v1 = build_from_directory(&v1_dir, "base", "1", &tags).unwrap();
+    let v1 = build_from_directory(&v1_dir, "1", &tags).unwrap();
     let tags_v2 = exclusive_tags("2.0.0", "windows", "x86_64", "base");
-    let v2 = build_from_directory(&v2_dir, "base", "2", &tags_v2).unwrap();
+    let v2 = build_from_directory(&v2_dir, "2", &tags_v2).unwrap();
 
-    let v1_bundle_data: Vec<Vec<u8>> = v1
-        .bundles
-        .iter()
-        .map(|bundle| bundle.data.clone())
-        .collect();
-    reconstruct_from_snapshot_manifest(
-        &v1.snapshot_manifest,
-        &v1_bundle_data,
-        &manifest::CompressionProfile::default(),
-        &destination_dir,
-        &GutchOperationControl::default(),
+    std::fs::create_dir_all(&destination_dir).unwrap();
+    std::fs::copy(
+        v1_dir.join("shared.txt"),
+        destination_dir.join("shared.txt"),
     )
     .unwrap();
+    std::fs::copy(v1_dir.join("old.txt"), destination_dir.join("old.txt")).unwrap();
     std::fs::write(destination_dir.join("player.log"), b"local runtime log").unwrap();
 
     let repo_paths = GutchRepoPaths::from_repo_root(&repo_dir);
@@ -167,145 +113,6 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     assert!(!staging_dir.exists());
 
     let verify_errors = verify_test_directory(&v2.snapshot_manifest, &destination_dir);
-    assert!(
-        verify_errors.is_empty(),
-        "verification errors: {:?}",
-        verify_errors
-    );
-
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn test_reconstruct_bundle_compressed_with_runtime_hints() {
-    let root = test_util::temp_path("gutch_test_bundle_compressed_reconstruct");
-    let input_dir = root.join("input");
-    let bundles_dir = root.join("bundles");
-    let out_dir = root.join("out");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&input_dir).unwrap();
-    std::fs::create_dir_all(&bundles_dir).unwrap();
-
-    std::fs::write(
-        input_dir.join("shared.bin"),
-        b"bundle compressed".repeat(512),
-    )
-    .unwrap();
-    std::fs::write(input_dir.join("config.json"), br#"{"mode":"bundle"}"#).unwrap();
-
-    let tags = exclusive_tags("3.0.0", "windows", "x86_64", "base");
-    let mut config = BuildConfig::with_ids("base", "300", &tags);
-    config.compression_profile =
-        manifest::CompressionProfile::for_preset(manifest::CompressionPreset::Zstd3);
-    let (result, build_timings) = build_with_config(&input_dir, &config).unwrap();
-    assert!(
-        build_timings.total
-            >= build_timings.scan_chunk_wall
-                + build_timings.dedupe_plan_wall
-                + build_timings.artifact_encode_wall
-                + build_timings.manifest_finalize_wall
-    );
-
-    for bundle in &result.bundles {
-        std::fs::write(
-            bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap(),
-            &bundle.data,
-        )
-        .unwrap();
-    }
-    let bundle_paths: Vec<PathBuf> = result
-        .bundles
-        .iter()
-        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap())
-        .collect();
-
-    let (_, timings) = reconstruct_from_bundle_paths(ReconstructRequest {
-        snapshot_manifest: &result.snapshot_manifest,
-        bundle_paths: &bundle_paths,
-        compression_profile: &manifest::CompressionProfile::default(),
-        verified_source: None,
-        output_dir: &out_dir,
-        runtime_hints: &crate::runtime::RuntimeResourceHints {
-            memory_mode: crate::runtime::MemoryMode::Low,
-            max_memory_mib: Some(1024),
-            jobs: Some(1),
-        },
-        options: ReconstructOptions::default(),
-        control: &GutchOperationControl::default(),
-    })
-    .unwrap();
-
-    let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
-    assert!(
-        verify_errors.is_empty(),
-        "verification errors: {:?}",
-        verify_errors
-    );
-    assert_eq!(
-        timings.runtime_plan.as_ref().map(|plan| plan.worker_count),
-        Some(1)
-    );
-    assert!(timings.total >= timings.prepare_wall + timings.reconstruct_wall);
-
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn test_high_memory_no_verify_reconstruct_roundtrip() {
-    let root = test_util::temp_path("gutch_test_high_memory_no_verify_reconstruct");
-    let input_dir = root.join("input");
-    let bundles_dir = root.join("bundles");
-    let out_dir = root.join("out");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&input_dir).unwrap();
-    std::fs::create_dir_all(&bundles_dir).unwrap();
-
-    std::fs::write(
-        input_dir.join("a.bin"),
-        b"direct bundle reconstruct".repeat(1024),
-    )
-    .unwrap();
-    std::fs::write(input_dir.join("b.bin"), b"second output file".repeat(512)).unwrap();
-
-    let tags = exclusive_tags("3.1.0", "windows", "x86_64", "base");
-    let mut config = BuildConfig::with_ids("base", "301", &tags);
-    config.compression_profile =
-        manifest::CompressionProfile::for_preset(manifest::CompressionPreset::Zstd3);
-    let result = build_with_config(&input_dir, &config).unwrap().0;
-
-    for bundle in &result.bundles {
-        std::fs::write(
-            bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap(),
-            &bundle.data,
-        )
-        .unwrap();
-    }
-    let bundle_paths: Vec<PathBuf> = result
-        .bundles
-        .iter()
-        .map(|bundle| bundle_path_in_root(&bundles_dir, &bundle.bundle_id).unwrap())
-        .collect();
-
-    reconstruct_from_bundle_paths(ReconstructRequest {
-        snapshot_manifest: &result.snapshot_manifest,
-        bundle_paths: &bundle_paths,
-        compression_profile: &manifest::CompressionProfile::default(),
-        verified_source: None,
-        output_dir: &out_dir,
-        runtime_hints: &crate::runtime::RuntimeResourceHints {
-            memory_mode: crate::runtime::MemoryMode::High,
-            max_memory_mib: Some(1024),
-            jobs: Some(2),
-        },
-        options: ReconstructOptions {
-            verify_chunks: false,
-            verify_files: false,
-        },
-        control: &GutchOperationControl::default(),
-    })
-    .unwrap();
-
-    let verify_errors = verify_test_directory(&result.snapshot_manifest, &out_dir);
     assert!(
         verify_errors.is_empty(),
         "verification errors: {:?}",
@@ -383,7 +190,7 @@ fn test_verify_directory_reports_extra_file() {
     std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
+    let result = build_from_directory(&dir, "1", &tags).unwrap();
 
     let mut manifest = result.snapshot_manifest.clone();
     manifest
@@ -412,7 +219,7 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let result = build_from_directory(&dir, "base", "1", &tags).unwrap();
+    let result = build_from_directory(&dir, "1", &tags).unwrap();
 
     std::fs::remove_file(dir.join("healthy.txt")).unwrap();
     std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
@@ -496,7 +303,7 @@ fn test_large_game_build_200mb() {
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let t1 = Instant::now();
-    let result = build_from_directory(&root, "base", "1", &tags).unwrap();
+    let result = build_from_directory(&root, "1", &tags).unwrap();
     let build_ms = t1.elapsed().as_millis();
 
     let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
@@ -517,17 +324,39 @@ fn test_large_game_build_200mb() {
     }
     let artifacts_total = test_util::dir_size(&artifacts_dir);
 
+    let repo_root = test_util::temp_path("gutch_test_200mb_repo");
+    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+    ensure_gutch_repo_layout(&repo_paths, "200mb-test").unwrap();
+    write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest).unwrap();
+    for bundle in &result.bundles {
+        std::fs::write(
+            bundle_path(&repo_paths, &bundle.bundle_id).unwrap(),
+            &bundle.data,
+        )
+        .unwrap();
+    }
+    let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
+    add_built_bundles_to_chunk_index(
+        &mut chunk_index,
+        &result.bundles,
+        &manifest::CompressionProfile::default(),
+    )
+    .unwrap();
+    write_chunk_index(&repo_paths, &chunk_index).unwrap();
+
     let t2 = Instant::now();
     let out_dir = test_util::temp_path("gutch_test_200mb_reconstructed");
     let _ = std::fs::remove_dir_all(&out_dir);
-    let bundle_data: Vec<Vec<u8>> = result.bundles.iter().map(|b| b.data.clone()).collect();
-    reconstruct_from_snapshot_manifest(
-        &result.snapshot_manifest,
-        &bundle_data,
-        &manifest::CompressionProfile::default(),
-        &out_dir,
-        &GutchOperationControl::default(),
-    )
+    reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+        repo_path: repo_root.clone(),
+        snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
+        destination_dir: out_dir.clone(),
+        staging_dir: None,
+        source_snapshot_id: None,
+        source_dir: None,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: GutchOperationControl::default(),
+    })
     .unwrap();
     let recon_ms = t2.elapsed().as_millis();
 
@@ -598,5 +427,6 @@ fn test_large_game_build_200mb() {
 
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&artifacts_dir);
+    let _ = std::fs::remove_dir_all(&repo_root);
     let _ = std::fs::remove_dir_all(&out_dir);
 }

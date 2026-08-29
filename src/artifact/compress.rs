@@ -1,4 +1,4 @@
-use std::io::{Cursor, Write};
+use std::io::Write;
 
 use crate::error::Result;
 use crate::manifest::CompressionKind;
@@ -8,47 +8,6 @@ pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Resu
         CompressionKind::None => Ok(data.to_vec()),
         CompressionKind::Zstd => zstd::decode_all(data)
             .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e))),
-    }
-}
-
-pub(crate) fn decompress_data_to_writer<W: Write>(
-    data: &[u8],
-    compression: CompressionKind,
-    mut writer: W,
-) -> Result<u64> {
-    struct CountingWriter<'a, W> {
-        inner: &'a mut W,
-        written: u64,
-    }
-
-    impl<W: Write> Write for CountingWriter<'_, W> {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let written = self.inner.write(buf)?;
-            self.written += written as u64;
-            Ok(written)
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.inner.flush()
-        }
-    }
-
-    match compression {
-        CompressionKind::None => {
-            writer
-                .write_all(data)
-                .map_err(|e| crate::error::Error::bundle(format!("write: {}", e)))?;
-            Ok(data.len() as u64)
-        }
-        CompressionKind::Zstd => {
-            let mut counting_writer = CountingWriter {
-                inner: &mut writer,
-                written: 0,
-            };
-            zstd::stream::copy_decode(Cursor::new(data), &mut counting_writer)
-                .map_err(|e| crate::error::Error::bundle(format!("zstd decompress: {}", e)))?;
-            Ok(counting_writer.written)
-        }
     }
 }
 

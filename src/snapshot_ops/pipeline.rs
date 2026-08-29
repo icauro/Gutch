@@ -10,7 +10,9 @@ use std::time::Instant;
 
 use super::apply::build_snapshot_reconstruct_result;
 use super::transfer::{FetchTransferProgress, PendingBundleDownload, download_pending_bundle};
-use super::types::SnapshotReconstructFromRepoResult;
+use super::types::{
+    ReconstructTimings, SnapshotReconstructFromRepoResult, SnapshotReconstructSource,
+};
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase, emit_progress,
@@ -94,9 +96,128 @@ enum BundlePipelineEvent {
 
 enum ReconstructPipelineEvent {
     Bundle(BundlePipelineEvent),
-    FileCompleted(crate::ReconstructTimings),
+    FileCompleted(ReconstructTimings),
     FileFailed(Error),
     FileWorkerDone,
+}
+
+pub(super) fn prepare_snapshot_entries(
+    snapshot_manifest: &SnapshotManifest,
+    output_dir: &Path,
+) -> Result<()> {
+    crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
+    crate::helpers::create_dir_all(output_dir)?;
+    create_snapshot_directories(snapshot_manifest, output_dir)
+}
+
+fn create_snapshot_directories(
+    snapshot_manifest: &SnapshotManifest,
+    output_dir: &Path,
+) -> Result<()> {
+    let mut directories = snapshot_manifest
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            crate::manifest::SnapshotEntry::Directory(directory) => Some(directory),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    directories.sort_by_key(|directory| directory.path.matches('/').count());
+    for directory in directories {
+        let path = crate::path_guard::resolve_manifest_relative_path(output_dir, &directory.path)?;
+        crate::helpers::create_dir_all(&path)?;
+    }
+    Ok(())
+}
+
+fn relative_link_text(link_path: &str, target_path: &str) -> PathBuf {
+    let parent = Path::new(link_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    let parent_parts = parent.components().collect::<Vec<_>>();
+    let target_parts = Path::new(target_path).components().collect::<Vec<_>>();
+    let mut common = 0usize;
+    while common < parent_parts.len()
+        && common < target_parts.len()
+        && parent_parts[common] == target_parts[common]
+    {
+        common += 1;
+    }
+    let mut relative = PathBuf::new();
+    for _ in common..parent_parts.len() {
+        relative.push("..");
+    }
+    for component in &target_parts[common..] {
+        relative.push(component.as_os_str());
+    }
+    relative
+}
+
+pub(super) fn finalize_snapshot_entries(
+    snapshot_manifest: &SnapshotManifest,
+    output_dir: &Path,
+) -> Result<()> {
+    for entry in &snapshot_manifest.entries {
+        let crate::manifest::SnapshotEntry::Symlink(link) = entry else {
+            continue;
+        };
+        let link_path = crate::path_guard::resolve_manifest_relative_path(output_dir, &link.path)?;
+        let link_text = relative_link_text(&link.path, &link.target_path);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&link_text, &link_path).map_err(|error| {
+            Error::Reconstruct(format!(
+                "failed to create symbolic link '{}': {error}",
+                link.path
+            ))
+        })?;
+        #[cfg(windows)]
+        {
+            let target_is_directory = snapshot_manifest.entries.iter().any(|target| {
+                target.path() == link.target_path
+                    && matches!(target, crate::manifest::SnapshotEntry::Directory(_))
+            });
+            let result = if target_is_directory {
+                std::os::windows::fs::symlink_dir(&link_text, &link_path)
+            } else {
+                std::os::windows::fs::symlink_file(&link_text, &link_path)
+            };
+            result.map_err(|error| Error::Reconstruct(format!(
+                "failed to create symbolic link '{}'; enable Windows Developer Mode or grant symbolic-link privilege: {error}",
+                link.path
+            )))?;
+        }
+    }
+
+    for file in snapshot_manifest.files() {
+        let path = crate::path_guard::resolve_manifest_relative_path(output_dir, &file.path)?;
+        #[cfg(unix)]
+        if file.executable {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&path)?.permissions();
+            permissions.set_mode(permissions.mode() | 0o111);
+            std::fs::set_permissions(&path, permissions)?;
+        }
+        let mut permissions = std::fs::metadata(&path)?.permissions();
+        permissions.set_readonly(file.read_only);
+        std::fs::set_permissions(&path, permissions)?;
+    }
+
+    let mut directories = snapshot_manifest
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            crate::manifest::SnapshotEntry::Directory(directory) => Some(directory),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    directories.sort_by_key(|directory| std::cmp::Reverse(directory.path.matches('/').count()));
+    for directory in directories {
+        let path = crate::path_guard::resolve_manifest_relative_path(output_dir, &directory.path)?;
+        let mut permissions = std::fs::metadata(&path)?.permissions();
+        permissions.set_readonly(directory.read_only);
+        std::fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
 }
 
 fn has_files_still_waiting_on_bundles(
@@ -114,7 +235,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
     chunk_index: &crate::manifest::ChunkIndex,
     repo_paths: &crate::GutchRepoPaths,
     existing_bundle_ids: &HashSet<String>,
-    verified_source: Option<crate::reconstruct::VerifiedSourceTree<'_>>,
+    verified_source: Option<SnapshotReconstructSource<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
     let mut bundle_to_file_indices: HashMap<String, Vec<usize>> = HashMap::new();
@@ -258,7 +379,7 @@ pub(super) fn apply_reconstruct_pipeline(
     }
 
     let main_result = (|| -> Result<SnapshotReconstructFromRepoResult> {
-        crate::reconstruct::prepare_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+        prepare_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
         let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
@@ -275,7 +396,7 @@ pub(super) fn apply_reconstruct_pipeline(
                 download_client: request.download_client,
                 transfer_progress: request.transfer_progress,
             })?;
-        crate::reconstruct::finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+        finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
         request.control.checkpoint()?;
@@ -321,7 +442,7 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
 
 pub(super) fn execute_reconstruct_pipeline_reconstruction(
     request: ExecuteReconstructPipelineRequest<'_>,
-) -> Result<(crate::ReconstructTimings, crate::verify::VerifyTimings)> {
+) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
     let ExecuteReconstructPipelineRequest {
         mut pipeline_plan,
         staging_dir,
@@ -336,10 +457,10 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     } = request;
     control.checkpoint()?;
     let reconstruct_started_at = Instant::now();
-    let mut reconstruct_timings = crate::ReconstructTimings {
+    let mut reconstruct_timings = ReconstructTimings {
         runtime_plan: Some(plan_reconstruct_runtime(runtime_hints)),
         verify_files: true,
-        ..crate::ReconstructTimings::default()
+        ..ReconstructTimings::default()
     };
     let mut verify_timings = crate::verify::VerifyTimings {
         verify_mode: crate::verify::VerifyMode::Fast,
@@ -652,7 +773,7 @@ fn reconstruct_pipeline_file(
     staging_dir: &Path,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
-) -> Result<crate::ReconstructTimings> {
+) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     match &file_plan.reconstruction {
         ReconstructPipelineReconstruction::CopyFromSource { source_path } => {
@@ -675,8 +796,8 @@ fn copy_pipeline_file_from_source(
     source_path: &Path,
     staging_dir: &Path,
     control: &GutchOperationControl,
-) -> Result<crate::ReconstructTimings> {
-    let mut timings = crate::ReconstructTimings::default();
+) -> Result<ReconstructTimings> {
+    let mut timings = ReconstructTimings::default();
     let output_path =
         crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)?;
     if let Some(parent) = output_path.parent() {
@@ -709,8 +830,8 @@ fn reconstruct_pipeline_file_from_parts(
     staging_dir: &Path,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
-) -> Result<crate::ReconstructTimings> {
-    let mut timings = crate::ReconstructTimings::default();
+) -> Result<ReconstructTimings> {
+    let mut timings = ReconstructTimings::default();
     let output_path =
         crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)?;
     if let Some(parent) = output_path.parent() {
@@ -807,7 +928,7 @@ fn write_verified_file_bytes(
     output: &mut std::io::BufWriter<File>,
     hasher: &mut blake3::Hasher,
     bytes: &[u8],
-    timings: &mut crate::ReconstructTimings,
+    timings: &mut ReconstructTimings,
 ) -> Result<()> {
     let write_started_at = Instant::now();
     output.write_all(bytes)?;
@@ -826,9 +947,9 @@ fn finish_verified_file(
     hasher: blake3::Hasher,
     written: u64,
     file_plan: &ReconstructPipelineFile,
-    mut timings: crate::ReconstructTimings,
+    mut timings: ReconstructTimings,
     operation: &str,
-) -> Result<crate::ReconstructTimings> {
+) -> Result<ReconstructTimings> {
     if written != file_plan.size {
         return Err(Error::reconstruct(format!(
             "{operation} size {} does not match expected {} for {}",
@@ -853,7 +974,7 @@ fn finish_verified_file(
 }
 
 fn build_source_chunk_locations(
-    source: crate::reconstruct::VerifiedSourceTree<'_>,
+    source: SnapshotReconstructSource<'_>,
 ) -> Result<HashMap<String, SourceChunkLocation>> {
     let mut chunk_locations = HashMap::new();
     for file_manifest in source.snapshot_manifest.files() {
@@ -877,9 +998,9 @@ fn build_source_chunk_locations(
 }
 
 fn accumulate_pipeline_timings(
-    reconstruct_timings: &mut crate::ReconstructTimings,
+    reconstruct_timings: &mut ReconstructTimings,
     verify_timings: &mut crate::verify::VerifyTimings,
-    file_timings: &crate::ReconstructTimings,
+    file_timings: &ReconstructTimings,
 ) {
     reconstruct_timings.bundle_read += file_timings.bundle_read;
     reconstruct_timings.bundle_read_compressed_bytes += file_timings.bundle_read_compressed_bytes;
@@ -994,7 +1115,7 @@ mod tests {
             &bundled_chunk_index(),
             &repo_paths,
             &HashSet::new(),
-            Some(crate::reconstruct::VerifiedSourceTree {
+            Some(SnapshotReconstructSource {
                 snapshot_manifest: &source_manifest,
                 destination_dir: &source_root,
             }),
@@ -1031,7 +1152,7 @@ mod tests {
             &bundled_chunk_index(),
             &repo_paths,
             &HashSet::new(),
-            Some(crate::reconstruct::VerifiedSourceTree {
+            Some(SnapshotReconstructSource {
                 snapshot_manifest: &source_manifest,
                 destination_dir: &source_root,
             }),
@@ -1093,7 +1214,7 @@ mod tests {
             &chunk_index,
             &repo_paths,
             &HashSet::new(),
-            Some(crate::reconstruct::VerifiedSourceTree {
+            Some(SnapshotReconstructSource {
                 snapshot_manifest: &source_manifest,
                 destination_dir: &source_root,
             }),

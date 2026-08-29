@@ -614,7 +614,7 @@ fn compute_pull_plan(
     })
 }
 
-pub fn plan_pull(
+pub(crate) fn plan_pull(
     repo_root: &Path,
     repository: &RemoteRepository,
     snapshots: &[RemoteSnapshot],
@@ -727,7 +727,7 @@ fn write_remote_snapshot_artifacts(
     crate::helpers::replace_directory(&staging_path, &destination_dir)
 }
 
-pub fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
+pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
     let (_paths, manifest) = load_gutch_repo_manifest(repo_root)?;
     if !manifest.is_linked() {
         return Err(Error::manifest(format!(
@@ -752,7 +752,7 @@ pub fn bind_repo_remote(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
     write_gutch_repo_manifest(&paths, &manifest)
 }
 
-pub fn list_remote_repositories(
+pub(crate) fn list_remote_repositories(
     provider: &dyn RemoteRepositoryCommandProvider,
 ) -> Result<Vec<RemoteRepositorySummary>> {
     provider.list_remote_repositories()
@@ -822,7 +822,7 @@ pub fn unlink_repo(
     Ok(())
 }
 
-pub fn inspect_repo_tag_requirements(
+pub(crate) fn inspect_repo_tag_requirements(
     repo_root: &Path,
     provider: &dyn RemoteRepositoryCommandProvider,
 ) -> Result<RemoteTagRequirementsResult> {
@@ -1352,7 +1352,7 @@ fn summarize_snapshot_tags_from_values(tags: &[String]) -> (String, String, Stri
     (summary.version_id, summary.os, summary.arch)
 }
 
-pub fn plan_sync_up(
+pub(crate) fn plan_sync_up(
     repo_root: &Path,
     repository: &RemoteRepository,
     remote_snapshots: &[RemoteSnapshot],
