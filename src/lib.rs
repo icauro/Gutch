@@ -48,7 +48,8 @@ pub use manifest::{
     SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagDefinition,
     SnapshotTagKind, SnapshotTagSchema, SnapshotTagSchemaValidationError,
     SnapshotTagSchemaValidationResult, SnapshotTagSet, SnapshotTagValueDefinition,
-    StructuredVersion, SymlinkManifest, sanitize_editable_snapshot_tag_schema,
+    StructuredVersion, SymlinkManifest, PUBLIC_METADATA_FORMAT_VERSION,
+    sanitize_editable_snapshot_tag_schema,
     validate_editable_snapshot_tag_schema,
 };
 pub(crate) use progress::emit_progress;
