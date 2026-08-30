@@ -139,22 +139,17 @@ pub fn save_snapshot_product_metadata_for_snapshots(
     snapshot_ids: &[String],
     product_metadata: Option<SnapshotProductMetadata>,
 ) -> Result<()> {
+    validate_snapshot_product_metadata_for_snapshots(repo_root, snapshot_ids, product_metadata.as_ref())?;
     if snapshot_ids.is_empty() {
         return Err(crate::Error::manifest(
             "at least one snapshot id is required to save product metadata",
         ));
     }
     let paths = GutchRepoPaths::from_repo_root(repo_root);
-    if let Some(metadata) = product_metadata.as_ref() {
-        metadata.validate_structure()?;
-    }
     let mut manifests = Vec::with_capacity(snapshot_ids.len());
     for snapshot_id in snapshot_ids {
         let mut snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
         snapshot_manifest.product_metadata = product_metadata.clone();
-        if let Some(metadata) = snapshot_manifest.product_metadata.as_ref() {
-            metadata.validate_for_snapshot(&snapshot_manifest)?;
-        }
         manifests.push(snapshot_manifest);
     }
     for snapshot_manifest in manifests {
@@ -163,6 +158,29 @@ pub fn save_snapshot_product_metadata_for_snapshots(
             &snapshot_manifest.snapshot_id,
             snapshot_manifest.product_metadata.as_ref(),
         )?;
+    }
+    Ok(())
+}
+
+pub fn validate_snapshot_product_metadata_for_snapshots(
+    repo_root: &std::path::Path,
+    snapshot_ids: &[String],
+    product_metadata: Option<&SnapshotProductMetadata>,
+) -> Result<()> {
+    if snapshot_ids.is_empty() {
+        return Err(crate::Error::manifest(
+            "at least one snapshot id is required to validate product metadata",
+        ));
+    }
+    if let Some(metadata) = product_metadata {
+        metadata.validate_structure()?;
+    }
+    let paths = GutchRepoPaths::from_repo_root(repo_root);
+    for snapshot_id in snapshot_ids {
+        let snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
+        if let Some(metadata) = product_metadata {
+            metadata.validate_for_snapshot(&snapshot_manifest)?;
+        }
     }
     Ok(())
 }

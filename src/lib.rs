@@ -95,7 +95,8 @@ pub(crate) use repo::remote::{
     RemoteTagRequirementsResult, inspect_repo_tag_requirements, list_remote_repositories,
 };
 pub use repo::snapshot_manifests::{
-    load_snapshot_manifest, save_snapshot_product_metadata_for_snapshots, snapshot_metadata_path,
+    load_snapshot_manifest, save_snapshot_product_metadata_for_snapshots,
+    snapshot_metadata_path, validate_snapshot_product_metadata_for_snapshots,
 };
 pub(crate) use repo::snapshot_manifests::{
     serialize_snapshot_metadata_for_remote, serialize_snapshot_product_metadata_for_remote,
