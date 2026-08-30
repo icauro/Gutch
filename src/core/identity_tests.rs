@@ -5,15 +5,9 @@ fn test_rules() -> SnapshotTagSchema {
 }
 
 #[test]
-fn test_parse_cli_tags_supports_all_three_kinds() {
-    let parsed = parse_cli_tags(&[
-        "alpha".to_string(),
-        "loader:fabric".to_string(),
-        "os::windows".to_string(),
-    ])
-    .unwrap();
+fn test_parse_cli_tags_supports_scoped_and_exclusive_kinds() {
+    let parsed = parse_cli_tags(&["loader:fabric".to_string(), "os::windows".to_string()]).unwrap();
 
-    assert!(parsed.plain.contains("alpha"));
     assert!(
         parsed
             .scoped
@@ -21,6 +15,12 @@ fn test_parse_cli_tags_supports_all_three_kinds() {
             .is_some_and(|values| values.contains("fabric"))
     );
     assert_eq!(parsed.get_exclusive("os"), Some("windows"));
+}
+
+#[test]
+fn test_parse_cli_tags_rejects_bare_values() {
+    let error = parse_cli_tags(&["alpha".to_string()]).unwrap_err();
+    assert!(error.to_string().contains("scoped:value or exclusive::value"));
 }
 
 #[test]

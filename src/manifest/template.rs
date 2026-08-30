@@ -85,7 +85,7 @@ fn os_tag() -> SnapshotTagDefinition {
     SnapshotTagDefinition {
         name: "os".to_string(),
         kind: SnapshotTagKind::Exclusive,
-        required: true,
+        required: false,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
             SnapshotTagValueDefinition {
@@ -110,7 +110,7 @@ fn arch_tag() -> SnapshotTagDefinition {
     SnapshotTagDefinition {
         name: "arch".to_string(),
         kind: SnapshotTagKind::Exclusive,
-        required: true,
+        required: false,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
             SnapshotTagValueDefinition {
@@ -135,7 +135,7 @@ fn released_at_tag() -> SnapshotTagDefinition {
     SnapshotTagDefinition {
         name: "released_at".to_string(),
         kind: SnapshotTagKind::Exclusive,
-        required: true,
+        required: false,
         inference_prefixes: vec!["-".to_string()],
         values: Vec::new(),
         default_value: None,
@@ -147,7 +147,7 @@ fn variant_tag() -> SnapshotTagDefinition {
     SnapshotTagDefinition {
         name: "variant".to_string(),
         kind: SnapshotTagKind::Exclusive,
-        required: true,
+        required: false,
         inference_prefixes: vec!["-".to_string()],
         values: vec![
             SnapshotTagValueDefinition {

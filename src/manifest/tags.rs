@@ -5,9 +5,8 @@ use serde::{Deserialize, Serialize};
 use super::template;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SnapshotTagSet {
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub plain: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub scoped: BTreeMap<String, BTreeSet<String>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -15,13 +14,6 @@ pub struct SnapshotTagSet {
 }
 
 impl SnapshotTagSet {
-    pub fn insert_plain(&mut self, value: impl Into<String>) {
-        let value = value.into();
-        if !value.is_empty() {
-            self.plain.insert(value);
-        }
-    }
-
     pub fn insert_scoped(&mut self, prefix: impl Into<String>, value: impl Into<String>) {
         let prefix = prefix.into();
         let value = value.into();
@@ -62,9 +54,6 @@ impl SnapshotTagSet {
     }
 
     pub fn extend_missing_from(&mut self, other: &Self) {
-        for value in &other.plain {
-            self.plain.insert(value.clone());
-        }
         for (prefix, values) in &other.scoped {
             self.scoped
                 .entry(prefix.clone())
@@ -80,7 +69,6 @@ impl SnapshotTagSet {
 
     pub fn to_canonical_strings(&self) -> Vec<String> {
         let mut rendered = Vec::new();
-        rendered.extend(self.plain.iter().cloned());
         for (prefix, values) in &self.scoped {
             for value in values {
                 rendered.push(format!("{}:{}", prefix, value));
@@ -95,19 +83,12 @@ impl SnapshotTagSet {
 
     pub fn to_ordered_strings(&self, schema: Option<&SnapshotTagSchema>) -> Vec<String> {
         let mut rendered = Vec::new();
-        let mut consumed_plain = BTreeSet::new();
         let mut consumed_scoped = BTreeSet::new();
         let mut consumed_exclusive = BTreeSet::new();
 
         if let Some(schema) = schema {
             for definition in &schema.snapshot_tags {
                 match definition.kind {
-                    SnapshotTagKind::Plain => {
-                        if self.plain.contains(&definition.name) {
-                            rendered.push(definition.name.clone());
-                            consumed_plain.insert(definition.name.clone());
-                        }
-                    }
                     SnapshotTagKind::Scoped => {
                         if let Some(values) = self.scoped.get(&definition.name) {
                             for value in values {
@@ -126,13 +107,6 @@ impl SnapshotTagSet {
             }
         }
 
-        for value in self
-            .plain
-            .iter()
-            .filter(|value| !consumed_plain.contains(*value))
-        {
-            rendered.push(value.clone());
-        }
         for (prefix, values) in self
             .scoped
             .iter()
@@ -165,12 +139,6 @@ impl SnapshotTagSet {
                 })
         };
         let mut rendered = Vec::new();
-        rendered.extend(
-            self.plain
-                .iter()
-                .filter(|value| !is_release_varying(value.as_str()))
-                .cloned(),
-        );
         for (prefix, values) in &self.scoped {
             if is_release_varying(prefix) {
                 continue;
@@ -209,7 +177,7 @@ impl SnapshotTagSet {
         if let Some((prefix, value)) = trimmed.split_once("::") {
             if prefix.is_empty() || value.is_empty() || value.contains("::") {
                 return Err(crate::Error::manifest(format!(
-                    "invalid tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
+                    "invalid tag '{}'. Use scoped:value or exclusive::value",
                     raw_tag
                 )));
             }
@@ -229,13 +197,13 @@ impl SnapshotTagSet {
         if trimmed.contains(':') {
             let Some((prefix, value)) = trimmed.split_once(':') else {
                 return Err(crate::Error::manifest(format!(
-                    "invalid tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
+                    "invalid tag '{}'. Use scoped:value or exclusive::value",
                     raw_tag
                 )));
             };
             if prefix.is_empty() || value.is_empty() || value.contains(':') {
                 return Err(crate::Error::manifest(format!(
-                    "invalid tag '{}'. Use plain-tag, scoped:value, or exclusive::value",
+                    "invalid tag '{}'. Use scoped:value or exclusive::value",
                     raw_tag
                 )));
             }
@@ -243,8 +211,10 @@ impl SnapshotTagSet {
             return Ok(());
         }
 
-        self.insert_plain(trimmed.to_string());
-        Ok(())
+        Err(crate::Error::manifest(format!(
+            "invalid tag '{}'. Use scoped:value or exclusive::value",
+            raw_tag
+        )))
     }
 }
 
@@ -294,7 +264,6 @@ mod update_family_tests {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SnapshotTagKind {
-    Plain,
     Scoped,
     Exclusive,
 }

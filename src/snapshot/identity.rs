@@ -32,7 +32,7 @@ pub(crate) fn resolve_snapshot_identity_with_inference(
     allow_name_inference: bool,
     context: &str,
 ) -> Result<ResolvedSnapshotIdentity> {
-    let mut snapshot_tags = explicit_tags.clone();
+    let mut snapshot_tags = normalize_explicit_tags(explicit_tags, rules, context)?;
     if allow_name_inference {
         let inferred_tags = infer_tags_from_path(input_path, rules);
         snapshot_tags.extend_missing_from(&inferred_tags);
@@ -150,9 +150,6 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &SnapshotTagSchema) -> Sn
                     .filter(|definition| definition.kind == SnapshotTagKind::Exclusive),
             )
         {
-            if definition.kind == SnapshotTagKind::Plain {
-                continue;
-            }
             if definition.kind == SnapshotTagKind::Exclusive && tags.has_exclusive(&definition.name)
             {
                 continue;
@@ -202,7 +199,6 @@ fn infer_tags_from_path(path: &std::path::Path, rules: &SnapshotTagSchema) -> Sn
 
 fn insert_tag(tags: &mut SnapshotTagSet, definition: &SnapshotTagDefinition, value: String) {
     match definition.kind {
-        SnapshotTagKind::Plain => {}
         SnapshotTagKind::Scoped => {
             tags.insert_scoped(definition.name.clone(), value);
         }
@@ -221,7 +217,6 @@ fn apply_schema_defaults(snapshot_tags: &mut SnapshotTagSet, rules: &SnapshotTag
             continue;
         }
         match definition.kind {
-            SnapshotTagKind::Plain => snapshot_tags.insert_plain(default_value.to_string()),
             SnapshotTagKind::Scoped => {
                 snapshot_tags.insert_scoped(definition.name.clone(), default_value.to_string());
             }
@@ -240,13 +235,97 @@ fn has_definition_value(
     definition: &SnapshotTagDefinition,
 ) -> bool {
     match definition.kind {
-        SnapshotTagKind::Plain => snapshot_tags.plain.contains(&definition.name),
         SnapshotTagKind::Scoped => snapshot_tags
             .scoped
             .get(&definition.name)
             .is_some_and(|values| !values.is_empty()),
         SnapshotTagKind::Exclusive => snapshot_tags.exclusive.contains_key(&definition.name),
     }
+}
+
+fn normalize_explicit_tags(
+    explicit_tags: &SnapshotTagSet,
+    rules: &SnapshotTagSchema,
+    context: &str,
+) -> Result<SnapshotTagSet> {
+    let mut normalized = SnapshotTagSet::default();
+    for (raw_name, values) in &explicit_tags.scoped {
+        let name = raw_name.trim().to_ascii_lowercase();
+        if name.is_empty() {
+            return Err(Error::manifest(format!(
+                "{context} contains a scoped tag with an empty name"
+            )));
+        }
+        if rules
+            .find_definition(&name)
+            .is_some_and(|definition| definition.kind == SnapshotTagKind::Exclusive)
+        {
+            return Err(Error::manifest(format!(
+                "{context} uses scoped syntax for exclusive tag '{name}'"
+            )));
+        }
+        let definition = rules.find_definition(&name);
+        for value in values {
+            let value = canonicalize_explicit_value(definition, value, context, &name)?;
+            normalized.insert_scoped(name.clone(), value);
+        }
+    }
+    for (raw_name, raw_value) in &explicit_tags.exclusive {
+        let name = raw_name.trim().to_ascii_lowercase();
+        if name.is_empty() {
+            return Err(Error::manifest(format!(
+                "{context} contains an exclusive tag with an empty name"
+            )));
+        }
+        if rules
+            .find_definition(&name)
+            .is_some_and(|definition| definition.kind == SnapshotTagKind::Scoped)
+        {
+            return Err(Error::manifest(format!(
+                "{context} uses exclusive syntax for scoped tag '{name}'"
+            )));
+        }
+        let value = canonicalize_explicit_value(rules.find_definition(&name), raw_value, context, &name)?;
+        if normalized.has_exclusive(&name)
+            && normalized.get_exclusive(&name) != Some(value.as_str())
+        {
+            return Err(Error::manifest(format!(
+                "{context} contains conflicting exclusive values for '{name}'"
+            )));
+        }
+        normalized.upsert_exclusive(name, value);
+    }
+    Ok(normalized)
+}
+
+fn canonicalize_explicit_value(
+    definition: Option<&SnapshotTagDefinition>,
+    raw_value: &str,
+    context: &str,
+    name: &str,
+) -> Result<String> {
+    let trimmed = raw_value.trim();
+    if trimmed.is_empty() {
+        return Err(Error::manifest(format!(
+            "{context} contains an empty value for tag '{name}'"
+        )));
+    }
+    let Some(definition) = definition else {
+        return Ok(trimmed.to_string());
+    };
+    let normalized = definition
+        .inference_handler
+        .parse_token(trimmed)
+        .ok_or_else(|| Error::manifest(format!("invalid value '{trimmed}' for tag '{name}'")))?;
+    if definition.values.is_empty() {
+        return Ok(normalized);
+    }
+    definition
+        .values
+        .iter()
+        .find(|value| value.matches_token(&normalized))
+        .map(|value| value.value.clone())
+        .ok_or_else(|| Error::manifest(format!("value '{trimmed}' is not allowed for tag '{name}'")))
 }
 
 #[cfg(test)]

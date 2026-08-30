@@ -79,12 +79,12 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
     let product_dir = temp.path().join("product");
     write_source_root_files(
         &product_dir,
-        "versions/4.6-stable/windows-x86_64/Godot_v4.6-stable_win64.exe",
+        "versions/4.6.0-stable/windows-x86_64/Godot_v4.6.0-stable_win64.exe",
         b"godot-win",
     );
     write_source_root_files(
         &product_dir,
-        "versions/4.6-stable/linux-x86_64/Godot_v4.6-stable_linux",
+        "versions/4.6.0-stable/linux-x86_64/Godot_v4.6.0-stable_linux",
         b"godot-linux",
     );
     // A nested folder that is NOT declared must be ignored by discovery.
@@ -99,8 +99,8 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
             "ingestion_mode": "explicit",
             "explicit_ingestion_rules": {
                 "snapshots": [
-                    {"path": "versions/4.6-stable/windows-x86_64", "tags": ["version::4.6-stable", "os::windows", "arch::x86_64", "released_at::2026_07_14"]},
-                    {"path": "./versions/4.6-stable/linux-x86_64", "tags": ["version::4.6-stable", "os::linux", "arch::x86_64", "released_at::2026_07_14"]}
+                    {"path": "versions/4.6.0-stable/windows-x86_64", "tags": ["version::4.6.0", "os::windows", "arch::x86_64", "released_at::2026_07_14"]},
+                    {"path": "./versions/4.6.0-stable/linux-x86_64", "tags": ["version::4.6.0", "os::linux", "arch::x86_64", "released_at::2026_07_14"]}
                 ]
             }
         }"#,
@@ -128,7 +128,7 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
         .expect("windows snapshot");
     assert_eq!(
         windows.snapshot_tags.get_exclusive("version").unwrap(),
-        "4.6-stable"
+        "4.6.0"
     );
     assert_eq!(
         windows.snapshot_tags.get_exclusive("arch").unwrap(),

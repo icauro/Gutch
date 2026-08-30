@@ -1340,8 +1340,6 @@ fn summarize_snapshot_tags_from_values(tags: &[String]) -> (String, String, Stri
                 .entry(key.to_string())
                 .or_default()
                 .insert(value.to_string());
-        } else {
-            tag_set.plain.insert(tag.clone());
         }
     }
     let summary = summarize_snapshot_tags(&tag_set, None);

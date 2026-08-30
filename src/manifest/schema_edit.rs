@@ -27,6 +27,8 @@ pub struct EditableSnapshotTagDefinition {
     pub name: String,
     pub kind: SnapshotTagKind,
     #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
     pub inference_prefixes: Vec<String>,
     #[serde(default)]
     pub values: Vec<String>,
@@ -77,20 +79,18 @@ pub fn validate_editable_snapshot_tag_schema(
                     message: String::from("Version tag must be exclusive."),
                 });
             }
+            if !tag.required {
+                errors.push(SnapshotTagSchemaValidationError {
+                    field: format!("{field_prefix}.required"),
+                    message: String::from("Version tag must be required."),
+                });
+            }
             if tag.inference_handler != InferenceHandler::Version {
                 errors.push(SnapshotTagSchemaValidationError {
                     field: format!("{field_prefix}.inferenceHandler"),
                     message: String::from("Version tag must use the version inference handler."),
                 });
             }
-        }
-
-        if tag.kind == SnapshotTagKind::Plain {
-            errors.push(SnapshotTagSchemaValidationError {
-                field: format!("{field_prefix}.kind"),
-                message: String::from("Plain tags are not allowed. Use exclusive or scoped."),
-            });
-            continue;
         }
 
         if tag.kind == SnapshotTagKind::Scoped {
@@ -211,6 +211,7 @@ pub fn validate_snapshot_tag_schema(
             .map(|definition| EditableSnapshotTagDefinition {
                 name: definition.name.clone(),
                 kind: definition.kind.clone(),
+                required: definition.required,
                 inference_prefixes: definition.inference_prefixes.clone(),
                 values: definition
                     .values
@@ -241,7 +242,7 @@ pub fn sanitize_editable_snapshot_tag_schema(
         .into_iter()
         .filter_map(|tag| {
             let name = tag.name.trim().to_string();
-            if name.is_empty() || tag.kind == SnapshotTagKind::Plain {
+            if name.is_empty() {
                 return None;
             }
 
@@ -285,7 +286,7 @@ pub fn sanitize_editable_snapshot_tag_schema(
             Some(SnapshotTagDefinition {
                 name,
                 kind: tag.kind,
-                required: true,
+                required: tag.required,
                 inference_prefixes: tag
                     .inference_prefixes
                     .into_iter()
@@ -308,7 +309,6 @@ pub fn sanitize_editable_snapshot_tag_schema(
     snapshot_tags.sort_by_key(|definition| match definition.kind {
         SnapshotTagKind::Exclusive => 0,
         SnapshotTagKind::Scoped => 1,
-        SnapshotTagKind::Plain => 2,
     });
 
     if snapshot_tags.is_empty() {
@@ -344,6 +344,7 @@ mod tests {
         let result = validate_editable_snapshot_tag_schema(vec![EditableSnapshotTagDefinition {
             name: String::from("version"),
             kind: SnapshotTagKind::Exclusive,
+            required: true,
             inference_prefixes: vec![String::from("-")],
             values: vec![String::from("1.0.0")],
             aliases: BTreeMap::new(),
@@ -364,6 +365,7 @@ mod tests {
         let result = validate_editable_snapshot_tag_schema(vec![EditableSnapshotTagDefinition {
             name: String::from("tier"),
             kind: SnapshotTagKind::Exclusive,
+            required: false,
             inference_prefixes: vec![String::from("-")],
             values: vec![String::from("base")],
             aliases: BTreeMap::new(),
@@ -385,6 +387,7 @@ mod tests {
             EditableSnapshotTagDefinition {
                 name: String::from("os"),
                 kind: SnapshotTagKind::Exclusive,
+                required: false,
                 inference_prefixes: vec![String::from("-")],
                 values: vec![String::from("windows")],
                 aliases: BTreeMap::new(),
@@ -394,6 +397,7 @@ mod tests {
             EditableSnapshotTagDefinition {
                 name: String::from("version"),
                 kind: SnapshotTagKind::Scoped,
+                required: true,
                 inference_prefixes: vec![String::from("-v")],
                 values: Vec::new(),
                 aliases: BTreeMap::new(),
@@ -421,10 +425,30 @@ mod tests {
     }
 
     #[test]
+    fn version_tag_must_be_required() {
+        let result = validate_editable_snapshot_tag_schema(vec![EditableSnapshotTagDefinition {
+            name: String::from("version"),
+            kind: SnapshotTagKind::Exclusive,
+            required: false,
+            inference_prefixes: vec![String::from("-v")],
+            values: Vec::new(),
+            aliases: BTreeMap::new(),
+            default_value: None,
+            inference_handler: InferenceHandler::Version,
+        }]);
+
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|error| {
+            error.message == "Version tag must be required."
+        }));
+    }
+
+    #[test]
     fn sanitization_trims_inference_prefixes() {
         let schema = sanitize_editable_snapshot_tag_schema(vec![EditableSnapshotTagDefinition {
             name: String::from("version"),
             kind: SnapshotTagKind::Exclusive,
+            required: true,
             inference_prefixes: vec![String::from(" -v "), String::new()],
             values: Vec::new(),
             aliases: BTreeMap::new(),
@@ -442,6 +466,7 @@ mod tests {
             EditableSnapshotTagDefinition {
                 name: String::from("version"),
                 kind: SnapshotTagKind::Exclusive,
+                required: true,
                 inference_prefixes: vec![String::from("-v")],
                 values: Vec::new(),
                 aliases: BTreeMap::new(),
@@ -451,6 +476,7 @@ mod tests {
             EditableSnapshotTagDefinition {
                 name: String::from("loader"),
                 kind: SnapshotTagKind::Scoped,
+                required: false,
                 inference_prefixes: vec![String::from("-")],
                 values: vec![String::from("fabric")],
                 aliases: BTreeMap::new(),
@@ -460,6 +486,7 @@ mod tests {
             EditableSnapshotTagDefinition {
                 name: String::from("os"),
                 kind: SnapshotTagKind::Exclusive,
+                required: false,
                 inference_prefixes: vec![String::from("os-")],
                 values: vec![String::from("windows")],
                 aliases: BTreeMap::new(),
@@ -492,6 +519,7 @@ mod tests {
             EditableSnapshotTagDefinition {
                 name: String::from("loader"),
                 kind: SnapshotTagKind::Scoped,
+                required: false,
                 inference_prefixes: vec![String::from("-loader-")],
                 values: vec![String::from("fabric")],
                 aliases: BTreeMap::new(),
@@ -501,6 +529,7 @@ mod tests {
             EditableSnapshotTagDefinition {
                 name: String::from("version"),
                 kind: SnapshotTagKind::Exclusive,
+                required: true,
                 inference_prefixes: vec![String::from("-v")],
                 values: Vec::new(),
                 aliases: BTreeMap::new(),

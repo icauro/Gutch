@@ -72,7 +72,6 @@ fn compare_tag_requirement(
     };
 
     let local_kind = match definition.kind {
-        SnapshotTagKind::Plain => "plain",
         SnapshotTagKind::Scoped => "scoped",
         SnapshotTagKind::Exclusive => "exclusive",
     };
@@ -154,7 +153,7 @@ mod tests {
             Some(&schema()),
             &[TagRequirement {
                 tag_name: "version".to_string(),
-                tag_kind: "plain".to_string(),
+                tag_kind: "scoped".to_string(),
                 allowed_values: vec!["1.0".to_string()],
                 inference_strategy: "default".to_string(),
             }],
