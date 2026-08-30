@@ -40,9 +40,10 @@ pub use snapshot::{
     SnapshotDirectRuntimeMetadata, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata,
     SnapshotLaunchAction, SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata,
 };
+pub(crate) use tags::is_valid_snapshot_tag_name;
 pub use tags::{
-    AutoTaggingRules, InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,
-    SnapshotTagSet, SnapshotTagValueDefinition, StructuredVersion,
+    InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema, SnapshotTagSet,
+    SnapshotTagValueDefinition, StructuredVersion,
 };
 
 #[cfg(test)]

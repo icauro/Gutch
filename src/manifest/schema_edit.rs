@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema,
-    SnapshotTagValueDefinition,
+    SnapshotTagValueDefinition, is_valid_snapshot_tag_name,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,13 +59,24 @@ pub fn validate_editable_snapshot_tag_schema(
             });
             continue;
         }
-        if !seen_names.insert(name.to_string()) {
+        let canonical_name = name.to_ascii_lowercase();
+        if name != canonical_name || !is_valid_snapshot_tag_name(&canonical_name) {
             errors.push(SnapshotTagSchemaValidationError {
                 field: format!("{field_prefix}.name"),
-                message: format!("Duplicate tag name '{name}'."),
+                message: format!(
+                    "Tag name '{name}' must use lower-snake-case (lowercase letters, digits, and underscores)."
+                ),
             });
         }
-        if name == "version" {
+        if !seen_names.insert(canonical_name.clone()) {
+            errors.push(SnapshotTagSchemaValidationError {
+                field: format!("{field_prefix}.name"),
+                message: format!(
+                    "Tag prefix '{canonical_name}' can only be defined once as scoped or exclusive."
+                ),
+            });
+        }
+        if canonical_name == "version" {
             has_version = true;
             if index != 0 {
                 errors.push(SnapshotTagSchemaValidationError {
@@ -438,9 +449,12 @@ mod tests {
         }]);
 
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|error| {
-            error.message == "Version tag must be required."
-        }));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| { error.message == "Version tag must be required." })
+        );
     }
 
     #[test]
@@ -541,5 +555,82 @@ mod tests {
 
         assert_eq!(schema.snapshot_tags[0].name, "version");
         assert_eq!(schema.snapshot_tags[1].name, "loader");
+    }
+
+    #[test]
+    fn rejects_noncanonical_tag_names() {
+        let result = validate_editable_snapshot_tag_schema(vec![
+            EditableSnapshotTagDefinition {
+                name: String::from("version"),
+                kind: SnapshotTagKind::Exclusive,
+                required: true,
+                inference_prefixes: Vec::new(),
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Version,
+            },
+            EditableSnapshotTagDefinition {
+                name: String::from("Build-Type"),
+                kind: SnapshotTagKind::Exclusive,
+                required: false,
+                inference_prefixes: Vec::new(),
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+        ]);
+
+        assert!(!result.valid);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| { error.message.contains("must use lower-snake-case") })
+        );
+    }
+
+    #[test]
+    fn rejects_a_prefix_defined_as_both_tag_kinds() {
+        let result = validate_editable_snapshot_tag_schema(vec![
+            EditableSnapshotTagDefinition {
+                name: String::from("version"),
+                kind: SnapshotTagKind::Exclusive,
+                required: true,
+                inference_prefixes: Vec::new(),
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Version,
+            },
+            EditableSnapshotTagDefinition {
+                name: String::from("platform"),
+                kind: SnapshotTagKind::Exclusive,
+                required: false,
+                inference_prefixes: Vec::new(),
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+            EditableSnapshotTagDefinition {
+                name: String::from("platform"),
+                kind: SnapshotTagKind::Scoped,
+                required: false,
+                inference_prefixes: vec![String::from("-platform-")],
+                values: Vec::new(),
+                aliases: BTreeMap::new(),
+                default_value: None,
+                inference_handler: InferenceHandler::Default,
+            },
+        ]);
+
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|error| {
+            error
+                .message
+                .contains("can only be defined once as scoped or exclusive")
+        }));
     }
 }

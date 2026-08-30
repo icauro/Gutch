@@ -141,13 +141,13 @@ pub(crate) fn prepare_input_path(path: &PathBuf) -> g::Result<PreparedInputPath>
 
 pub(crate) fn load_optional_rules(
     rules_path: &Option<PathBuf>,
-) -> g::Result<Option<g::manifest::AutoTaggingRules>> {
+) -> g::Result<Option<g::manifest::SnapshotTagSchema>> {
     let Some(rules_path) = rules_path else {
         return Ok(None);
     };
 
     let rules_json = crate::helpers::read_to_string(rules_path)?;
-    let rules: g::manifest::AutoTaggingRules = serde_json::from_str(&rules_json)?;
+    let rules: g::manifest::SnapshotTagSchema = serde_json::from_str(&rules_json)?;
     Ok(Some(rules))
 }
 

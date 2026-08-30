@@ -139,7 +139,11 @@ pub fn save_snapshot_product_metadata_for_snapshots(
     snapshot_ids: &[String],
     product_metadata: Option<SnapshotProductMetadata>,
 ) -> Result<()> {
-    validate_snapshot_product_metadata_for_snapshots(repo_root, snapshot_ids, product_metadata.as_ref())?;
+    validate_snapshot_product_metadata_for_snapshots(
+        repo_root,
+        snapshot_ids,
+        product_metadata.as_ref(),
+    )?;
     if snapshot_ids.is_empty() {
         return Err(crate::Error::manifest(
             "at least one snapshot id is required to save product metadata",

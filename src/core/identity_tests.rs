@@ -20,7 +20,11 @@ fn test_parse_cli_tags_supports_scoped_and_exclusive_kinds() {
 #[test]
 fn test_parse_cli_tags_rejects_bare_values() {
     let error = parse_cli_tags(&["alpha".to_string()]).unwrap_err();
-    assert!(error.to_string().contains("scoped:value or exclusive::value"));
+    assert!(
+        error
+            .to_string()
+            .contains("scoped:value or exclusive::value")
+    );
 }
 
 #[test]

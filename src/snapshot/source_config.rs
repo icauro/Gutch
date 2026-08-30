@@ -38,7 +38,7 @@ pub enum IngestionMode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
 pub struct AutoIngestionRules {
-    /// Plain folder names matched against immediate subdirectory names during
+    /// Literal folder names matched against immediate subdirectory names during
     /// `auto` discovery (simple fnmatch: `*` and `?`; no separators allowed).
     pub ignore_paths: Vec<String>,
 }

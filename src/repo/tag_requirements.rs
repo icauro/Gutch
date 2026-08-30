@@ -1,10 +1,10 @@
 //! Provider-neutral comparison of remote tag requirements with a local schema.
 
-use std::collections::HashSet;
-
 use serde::Serialize;
 
-use crate::manifest::{InferenceHandler, SnapshotTagKind, SnapshotTagSchema};
+use crate::manifest::{
+    InferenceHandler, SnapshotTagKind, SnapshotTagSchema, is_valid_snapshot_tag_name,
+};
 
 #[derive(Debug, Clone)]
 pub struct TagRequirement {
@@ -66,6 +66,27 @@ fn compare_tag_requirement(
         issue: Some("Add this tag to the local Gutch schema.".to_string()),
     };
 
+    if !is_valid_snapshot_tag_name(&requirement.tag_name) {
+        status.status = "incompatible".to_string();
+        status.issue = Some("Remote tag name is not lower-snake-case.".to_string());
+        return status;
+    }
+
+    let expected_kind = match requirement.tag_kind.as_str() {
+        "scoped" => SnapshotTagKind::Scoped,
+        "exclusive" => SnapshotTagKind::Exclusive,
+        _ => {
+            status.status = "incompatible".to_string();
+            status.issue = Some("Remote tag kind is unsupported.".to_string());
+            return status;
+        }
+    };
+    if requirement.tag_name == "version" && expected_kind != SnapshotTagKind::Exclusive {
+        status.status = "incompatible".to_string();
+        status.issue = Some("The version tag must be exclusive.".to_string());
+        return status;
+    }
+
     let Some(definition) = schema.and_then(|schema| schema.find_definition(&requirement.tag_name))
     else {
         return status;
@@ -95,15 +116,15 @@ fn compare_tag_requirement(
         return status;
     }
 
-    let local_values = definition
-        .values
-        .iter()
-        .map(|value| value.value.as_str())
-        .collect::<HashSet<_>>();
     let missing_values = requirement
         .allowed_values
         .iter()
-        .filter(|value| !local_values.contains(value.as_str()))
+        .filter(|value| {
+            !definition
+                .values
+                .iter()
+                .any(|local| local.matches_token(value))
+        })
         .cloned()
         .collect::<Vec<_>>();
     if !missing_values.is_empty() {
@@ -161,7 +182,42 @@ mod tests {
         assert_eq!(statuses[0].status, "incompatible");
         assert_eq!(
             statuses[0].issue.as_deref(),
-            Some("Local tag kind is 'exclusive'.")
+            Some("The version tag must be exclusive.")
+        );
+    }
+
+    #[test]
+    fn comparison_accepts_case_insensitive_aliases() {
+        let mut tag_schema = schema();
+        tag_schema.snapshot_tags.push(SnapshotTagDefinition {
+            name: "platform".to_string(),
+            kind: SnapshotTagKind::Exclusive,
+            required: true,
+            inference_prefixes: vec![],
+            values: vec![crate::manifest::SnapshotTagValueDefinition {
+                value: "windows".to_string(),
+                aliases: vec!["win".to_string()],
+            }],
+            default_value: None,
+            inference_handler: InferenceHandler::Default,
+        });
+
+        let statuses = compare_tag_requirements(
+            Some(&tag_schema),
+            &[TagRequirement {
+                tag_name: "platform".to_string(),
+                tag_kind: "exclusive".to_string(),
+                allowed_values: vec!["WIN".to_string()],
+                inference_strategy: "default".to_string(),
+            }],
+        );
+
+        assert_eq!(
+            statuses
+                .iter()
+                .find(|status| status.tag_name == "platform")
+                .map(|status| status.status.as_str()),
+            Some("ready")
         );
     }
 }

@@ -43,13 +43,12 @@ pub use manifest::template::{TaggingRuleTemplate, list_templates, template_schem
 pub use manifest::{
     ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, ChunkRef, CompressionPreset,
     DirectoryManifest, EditableSnapshotTagDefinition, ExternalProductDependencyRequirement,
-    FileManifest, InferenceHandler, SnapshotDirectRuntimeMetadata, SnapshotEntry,
-    SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
+    FileManifest, InferenceHandler, PUBLIC_METADATA_FORMAT_VERSION, SnapshotDirectRuntimeMetadata,
+    SnapshotEntry, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
     SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagDefinition,
     SnapshotTagKind, SnapshotTagSchema, SnapshotTagSchemaValidationError,
     SnapshotTagSchemaValidationResult, SnapshotTagSet, SnapshotTagValueDefinition,
-    StructuredVersion, SymlinkManifest, PUBLIC_METADATA_FORMAT_VERSION,
-    sanitize_editable_snapshot_tag_schema,
+    StructuredVersion, SymlinkManifest, sanitize_editable_snapshot_tag_schema,
     validate_editable_snapshot_tag_schema,
 };
 pub(crate) use progress::emit_progress;
@@ -95,8 +94,8 @@ pub(crate) use repo::remote::{
     RemoteTagRequirementsResult, inspect_repo_tag_requirements, list_remote_repositories,
 };
 pub use repo::snapshot_manifests::{
-    load_snapshot_manifest, save_snapshot_product_metadata_for_snapshots,
-    snapshot_metadata_path, validate_snapshot_product_metadata_for_snapshots,
+    load_snapshot_manifest, save_snapshot_product_metadata_for_snapshots, snapshot_metadata_path,
+    validate_snapshot_product_metadata_for_snapshots,
 };
 pub(crate) use repo::snapshot_manifests::{
     serialize_snapshot_metadata_for_remote, serialize_snapshot_product_metadata_for_remote,

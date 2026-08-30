@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 use crate::manifest::{
     SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema, SnapshotTagSet,
-    snapshot::SnapshotManifest,
+    is_valid_snapshot_tag_name, snapshot::SnapshotManifest,
 };
 
 #[derive(Debug, Clone)]
@@ -256,6 +256,21 @@ fn normalize_explicit_tags(
                 "{context} contains a scoped tag with an empty name"
             )));
         }
+        if !is_valid_snapshot_tag_name(&name) {
+            return Err(Error::manifest(format!(
+                "{context} contains invalid scoped tag prefix '{name}'; prefixes must use lower-snake-case"
+            )));
+        }
+        if name == "version" {
+            return Err(Error::manifest(format!(
+                "{context} uses scoped syntax for the exclusive version tag"
+            )));
+        }
+        if normalized.exclusive.contains_key(&name) {
+            return Err(Error::manifest(format!(
+                "{context} uses tag prefix '{name}' as both scoped and exclusive"
+            )));
+        }
         if rules
             .find_definition(&name)
             .is_some_and(|definition| definition.kind == SnapshotTagKind::Exclusive)
@@ -277,6 +292,16 @@ fn normalize_explicit_tags(
                 "{context} contains an exclusive tag with an empty name"
             )));
         }
+        if !is_valid_snapshot_tag_name(&name) {
+            return Err(Error::manifest(format!(
+                "{context} contains invalid exclusive tag prefix '{name}'; prefixes must use lower-snake-case"
+            )));
+        }
+        if normalized.scoped.contains_key(&name) {
+            return Err(Error::manifest(format!(
+                "{context} uses tag prefix '{name}' as both scoped and exclusive"
+            )));
+        }
         if rules
             .find_definition(&name)
             .is_some_and(|definition| definition.kind == SnapshotTagKind::Scoped)
@@ -285,7 +310,8 @@ fn normalize_explicit_tags(
                 "{context} uses exclusive syntax for scoped tag '{name}'"
             )));
         }
-        let value = canonicalize_explicit_value(rules.find_definition(&name), raw_value, context, &name)?;
+        let value =
+            canonicalize_explicit_value(rules.find_definition(&name), raw_value, context, &name)?;
         if normalized.has_exclusive(&name)
             && normalized.get_exclusive(&name) != Some(value.as_str())
         {
@@ -325,7 +351,9 @@ fn canonicalize_explicit_value(
         .iter()
         .find(|value| value.matches_token(&normalized))
         .map(|value| value.value.clone())
-        .ok_or_else(|| Error::manifest(format!("value '{trimmed}' is not allowed for tag '{name}'")))
+        .ok_or_else(|| {
+            Error::manifest(format!("value '{trimmed}' is not allowed for tag '{name}'"))
+        })
 }
 
 #[cfg(test)]
