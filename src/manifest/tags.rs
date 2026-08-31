@@ -362,7 +362,7 @@ mod update_family_tests {
         };
         let tags = SnapshotTagSet::from_compact_strings(&[
             "version::1.2.0".into(),
-            "released_at::2026_07_18".into(),
+            "released_at::2026-07-18".into(),
             "os::windows".into(),
             "tier::supporter".into(),
         ])
@@ -416,7 +416,7 @@ fn parse_date_token(raw: &str) -> Option<String> {
         return None;
     }
     let date = chrono::NaiveDate::from_ymd_opt(year as i32, month, day)?;
-    Some(date.format("%Y_%m_%d").to_string())
+    Some(date.format("%Y-%m-%d").to_string())
 }
 
 #[cfg(test)]
@@ -427,15 +427,15 @@ mod date_tests {
     fn date_handler_normalizes_supported_separators() {
         assert_eq!(
             parse_date_token("2026.07.14").as_deref(),
-            Some("2026_07_14")
+            Some("2026-07-14")
         );
         assert_eq!(
             parse_date_token("2026-07-14").as_deref(),
-            Some("2026_07_14")
+            Some("2026-07-14")
         );
         assert_eq!(
             parse_date_token("2026_07_14").as_deref(),
-            Some("2026_07_14")
+            Some("2026-07-14")
         );
     }
 

@@ -99,8 +99,8 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
             "ingestion_mode": "explicit",
             "explicit_ingestion_rules": {
                 "snapshots": [
-                    {"path": "versions/4.6.0-stable/windows-x86_64", "tags": ["version::4.6.0", "os::windows", "arch::x86_64", "released_at::2026_07_14"]},
-                    {"path": "./versions/4.6.0-stable/linux-x86_64", "tags": ["version::4.6.0", "os::linux", "arch::x86_64", "released_at::2026_07_14"]}
+                    {"path": "versions/4.6.0-stable/windows-x86_64", "tags": ["version::4.6.0", "os::windows", "arch::x86_64", "released_at::2026-07-14"]},
+                    {"path": "./versions/4.6.0-stable/linux-x86_64", "tags": ["version::4.6.0", "os::linux", "arch::x86_64", "released_at::2026-07-14"]}
                 ]
             }
         }"#,
