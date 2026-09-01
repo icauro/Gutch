@@ -1,8 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -20,6 +19,7 @@ struct ProfilerState {
     process_id: u32,
     events: Mutex<Vec<TraceEvent>>,
     aggregates: Mutex<BTreeMap<String, SpanAggregate>>,
+    thread_ids: Mutex<HashMap<std::thread::ThreadId, u64>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +80,7 @@ impl GutchProfiler {
             process_id,
             events: Mutex::new(Vec::new()),
             aggregates: Mutex::new(BTreeMap::new()),
+            thread_ids: Mutex::new(HashMap::new()),
         };
         let profiler = Self {
             state: Arc::new(state),
@@ -102,7 +103,7 @@ impl GutchProfiler {
     ) -> GutchProfileSpan {
         let name = name.into();
         let process_id = self.state.process_id;
-        let thread_id = current_thread_id();
+        let thread_id = self.thread_id();
         let started_at = Instant::now();
         self.record_event(TraceEvent {
             name: name.clone(),
@@ -137,7 +138,7 @@ impl GutchProfiler {
             ph: "i",
             ts: self.timestamp(Instant::now()),
             pid: self.state.process_id,
-            tid: current_thread_id(),
+            tid: self.thread_id(),
             args,
         });
     }
@@ -198,7 +199,7 @@ impl GutchProfiler {
             ph: "M",
             ts: 0,
             pid: self.state.process_id,
-            tid: current_thread_id(),
+            tid: self.thread_id(),
             args,
         });
     }
@@ -216,6 +217,21 @@ impl GutchProfiler {
             .lock()
             .expect("Gutch profiler event lock poisoned")
             .push(event);
+    }
+
+    fn thread_id(&self) -> u64 {
+        let current_thread = std::thread::current().id();
+        let mut thread_ids = self
+            .state
+            .thread_ids
+            .lock()
+            .expect("Gutch profiler thread ID lock poisoned");
+        if let Some(thread_id) = thread_ids.get(&current_thread) {
+            return *thread_id;
+        }
+        let thread_id = thread_ids.len() as u64 + 1;
+        thread_ids.insert(current_thread, thread_id);
+        thread_id
     }
 
     fn finish_span(&self, name: String, started_at: Instant, process_id: u32, thread_id: u64) {
@@ -259,13 +275,4 @@ impl Drop for GutchProfileSpan {
             self.thread_id,
         );
     }
-}
-
-fn current_thread_id() -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    thread::current().id().hash(&mut hasher);
-    hasher.finish()
 }
