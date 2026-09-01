@@ -39,7 +39,7 @@ pub struct SnapshotVerifyResult {
     pub corrupt_artifacts: Vec<String>,
 }
 
-/// Verify repo bundle integrity. When `snapshot_id` is None, all repo snapshots are verified.
+/// Verify repo artifact integrity. When `snapshot_id` is None, all repo snapshots are verified.
 pub fn verify_gutch_repo_artifacts(
     repo_root: &Path,
     snapshot_id: Option<&str>,

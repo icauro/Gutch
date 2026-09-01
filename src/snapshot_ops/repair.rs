@@ -56,7 +56,11 @@ pub fn repair_snapshot_from_repo(
     let staging_dir = request.staging_dir.unwrap_or_else(|| {
         default_snapshot_staging_dir(&request.destination_dir, &snapshot_manifest.snapshot_id)
     });
-    let resolved_bundle_file_count = repair_plan.required_artifacts.len();
+    let resolved_bundle_file_count = repair_plan
+        .required_artifacts
+        .iter()
+        .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
+        .count();
     if repair_plan.needs_rebuild {
         let mut existing_artifacts = HashSet::new();
         for artifact in &repair_plan.required_artifacts {

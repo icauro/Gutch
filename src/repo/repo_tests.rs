@@ -305,6 +305,22 @@ fn check_gutch_repo_reports_snapshots() {
 }
 
 #[test]
+fn check_gutch_repo_treats_missing_artifact_roots_as_empty() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    ensure_gutch_repo_layout(&paths, "empty-artifacts").unwrap();
+    std::fs::remove_dir_all(&paths.bundles_root).unwrap();
+    std::fs::remove_dir_all(&paths.chunks_root).unwrap();
+
+    let status = check_gutch_repo(temp.path()).unwrap();
+
+    assert!(status.is_repo);
+    assert_eq!(status.bundle_count, 0);
+    assert_eq!(status.artifact_count, 0);
+    assert!(status.snapshots.is_empty());
+}
+
+#[test]
 fn check_and_verify_report_loose_chunk_artifacts() {
     let temp = tempfile::tempdir().unwrap();
     let paths = GutchRepoPaths::from_repo_root(temp.path());

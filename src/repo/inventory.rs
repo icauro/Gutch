@@ -102,35 +102,39 @@ pub(crate) fn scan_artifact_inventory(
     let mut artifact_count = 0usize;
     let mut artifact_bytes = 0u64;
 
-    for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file() {
-            continue;
+    if paths.bundles_root.exists() {
+        for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
+            let entry = entry?;
+            if !entry.path().is_file() {
+                continue;
+            }
+            let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) else {
+                continue;
+            };
+            artifacts.insert(crate::ArtifactRef::Bundle { id: bundle_id });
+            artifact_count += 1;
+            artifact_bytes += entry.metadata()?.len();
         }
-        let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) else {
-            continue;
-        };
-        artifacts.insert(crate::ArtifactRef::Bundle { id: bundle_id });
-        artifact_count += 1;
-        artifact_bytes += entry.metadata()?.len();
     }
 
-    for entry in walkdir::WalkDir::new(&paths.chunks_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file() {
-            continue;
+    if paths.chunks_root.exists() {
+        for entry in walkdir::WalkDir::new(&paths.chunks_root).sort_by_file_name() {
+            let entry = entry?;
+            if !entry.path().is_file() {
+                continue;
+            }
+            let Some(chunk_hash) = entry.file_name().to_str() else {
+                continue;
+            };
+            if crate::ChunkHash::parse_hex(chunk_hash).is_err() {
+                continue;
+            }
+            artifacts.insert(crate::ArtifactRef::LooseChunk {
+                hash: chunk_hash.to_string(),
+            });
+            artifact_count += 1;
+            artifact_bytes += entry.metadata()?.len();
         }
-        let Some(chunk_hash) = entry.file_name().to_str() else {
-            continue;
-        };
-        if crate::ChunkHash::parse_hex(chunk_hash).is_err() {
-            continue;
-        }
-        artifacts.insert(crate::ArtifactRef::LooseChunk {
-            hash: chunk_hash.to_string(),
-        });
-        artifact_count += 1;
-        artifact_bytes += entry.metadata()?.len();
     }
 
     Ok((artifacts, artifact_count, artifact_bytes))
