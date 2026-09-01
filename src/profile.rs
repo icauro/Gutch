@@ -183,6 +183,18 @@ impl GutchProfiler {
             .lock()
             .expect("Gutch profiler event lock poisoned")
             .clone();
+        let process_name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .filter(|stem| !stem.is_empty())
+            .unwrap_or("gutch");
+        for event in &mut events {
+            if event.cat == "__metadata" && event.name == "process_name" {
+                event
+                    .args
+                    .insert(String::from("name"), serde_json::json!(process_name));
+            }
+        }
         events.sort_by_key(|event| event.ts);
         let document = TraceDocument {
             trace_events: events,
@@ -274,5 +286,32 @@ impl Drop for GutchProfileSpan {
             self.process_id,
             self.thread_id,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GutchProfiler;
+
+    #[test]
+    fn trace_process_name_uses_output_file_stem() {
+        let temporary_directory = tempfile::tempdir().expect("temporary directory");
+        let trace_path = temporary_directory.path().join("local-reconstruct.json");
+        let profiler = GutchProfiler::new();
+        let span = profiler.span("gutch.test");
+        drop(span);
+
+        profiler.write_to(&trace_path).expect("write trace");
+
+        let document: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(trace_path).expect("read trace"))
+                .expect("parse trace");
+        let process_name = document["traceEvents"]
+            .as_array()
+            .expect("trace events")
+            .iter()
+            .find(|event| event["name"] == "process_name")
+            .and_then(|event| event["args"]["name"].as_str());
+        assert_eq!(process_name, Some("local-reconstruct"));
     }
 }
