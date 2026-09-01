@@ -684,7 +684,9 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         }
 
         let next_event = loop {
-            if let Some(scheduler) = artifact_scheduler.as_ref() {
+            if completed_artifact_workers < artifact_worker_count
+                && let Some(scheduler) = artifact_scheduler.as_ref()
+            {
                 match scheduler.try_recv() {
                     Ok(event) => break Ok(map_artifact_download_event(event)),
                     Err(mpsc::TryRecvError::Disconnected) => {
