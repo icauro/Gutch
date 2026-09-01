@@ -395,6 +395,7 @@ pub(crate) fn build_with_config_timed(
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {
     config.control.checkpoint()?;
+    let _operation_span = config.control.profile_span("gutch.capture.build");
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
     let mut timings = BuildTimings {
@@ -422,57 +423,62 @@ pub(crate) fn build_with_config_timed(
         .unwrap_or(&empty_existing_bundle_ids);
 
     let scan_chunk_start = Instant::now();
-    let (mut snapshot_entries, unique_chunks, total_logical_size) = collect_scanned_chunks(
-        dir,
-        ScanDirectoryOptions {
-            previous_file_manifests,
-            chunking_profile: &config.chunk_profile,
-            existing_chunk_locations: &existing_chunk_locations_by_hash,
-            chunk_storage_mode: runtime_plan.chunk_storage_mode,
-            chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
-            worker_count: runtime_plan.worker_count,
-            control: config.control.clone(),
-        },
-        &mut timings,
-    )?;
+    let (mut snapshot_entries, unique_chunks, total_logical_size) = {
+        let _scan_span = config.control.profile_span("gutch.capture.scan");
+        collect_scanned_chunks(
+            dir,
+            ScanDirectoryOptions {
+                previous_file_manifests,
+                chunking_profile: &config.chunk_profile,
+                existing_chunk_locations: &existing_chunk_locations_by_hash,
+                chunk_storage_mode: runtime_plan.chunk_storage_mode,
+                chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
+                worker_count: runtime_plan.worker_count,
+                control: config.control.clone(),
+            },
+            &mut timings,
+        )?
+    };
     timings.scan_chunk_wall = scan_chunk_start.elapsed();
 
     let dedupe_plan_start = Instant::now();
     let mut total_compressed: u64 = 0;
     let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
-    for fm in snapshot_entries
-        .iter()
-        .filter_map(manifest::SnapshotEntry::as_file)
-    {
-        config.control.checkpoint()?;
-        for chunk_ref in &fm.chunks {
-            config.control.checkpoint()?;
-            let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
-            if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
-                && compressed_estimate_seen.insert(chunk_hash)
-            {
-                total_compressed += existing.compressed_size;
-            }
-        }
-    }
-
     let mut chunks_to_compress: Vec<ChunkPayloadEntry> = Vec::new();
-
-    let t = Instant::now();
-    for (hash, payload) in unique_chunks {
-        config.control.checkpoint()?;
-        let raw_size = payload.raw_size();
-        timings.dedupe_lookup_bytes += raw_size;
-
-        if let Some(existing) = existing_chunk_locations_by_hash.get(&hash) {
-            if compressed_estimate_seen.insert(hash) {
-                total_compressed += existing.compressed_size;
+    {
+        let _dedupe_span = config.control.profile_span("gutch.capture.dedupe");
+        for fm in snapshot_entries
+            .iter()
+            .filter_map(manifest::SnapshotEntry::as_file)
+        {
+            config.control.checkpoint()?;
+            for chunk_ref in &fm.chunks {
+                config.control.checkpoint()?;
+                let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+                if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
+                    && compressed_estimate_seen.insert(chunk_hash)
+                {
+                    total_compressed += existing.compressed_size;
+                }
             }
-        } else {
-            chunks_to_compress.push((hash, payload));
         }
+
+        let t = Instant::now();
+        for (hash, payload) in unique_chunks {
+            config.control.checkpoint()?;
+            let raw_size = payload.raw_size();
+            timings.dedupe_lookup_bytes += raw_size;
+
+            if let Some(existing) = existing_chunk_locations_by_hash.get(&hash) {
+                if compressed_estimate_seen.insert(hash) {
+                    total_compressed += existing.compressed_size;
+                }
+            } else {
+                chunks_to_compress.push((hash, payload));
+            }
+        }
+        timings.dedupe_lookup += t.elapsed();
     }
-    timings.dedupe_lookup += t.elapsed();
     timings.dedupe_plan_wall = dedupe_plan_start.elapsed();
 
     timings.compression_input_bytes = chunks_to_compress
@@ -481,74 +487,79 @@ pub(crate) fn build_with_config_timed(
         .sum();
 
     let artifact_encode_start = Instant::now();
-    let mut bundles = Vec::new();
-    let mut loose_chunks = Vec::new();
-    let bundle_size_policy = BundleSizingPolicy::new(
-        config.bundle_profile.bundle_max_size_bytes(),
-        config.bundle_profile.bundle_preferred_size_bytes(),
-    );
+    let (bundles, loose_chunks) = {
+        let _artifact_encode_span = config.control.profile_span("gutch.capture.artifact_encode");
+        let mut bundles = Vec::new();
+        let mut loose_chunks = Vec::new();
+        let bundle_size_policy = BundleSizingPolicy::new(
+            config.bundle_profile.bundle_max_size_bytes(),
+            config.bundle_profile.bundle_preferred_size_bytes(),
+        );
 
-    match config.storage_mode {
-        ArtifactStorageMode::Bundled => {
-            if compression_profile.compression_unit != manifest::CompressionUnit::Bundle {
-                return Err(crate::Error::manifest(
-                    "gutch only supports bundle-compressed storage".to_string(),
-                ));
+        match config.storage_mode {
+            ArtifactStorageMode::Bundled => {
+                if compression_profile.compression_unit != manifest::CompressionUnit::Bundle {
+                    return Err(crate::Error::manifest(
+                        "gutch only supports bundle-compressed storage".to_string(),
+                    ));
+                }
+
+                let planned_bundle_groups = plan_bundle_compressed_groups(
+                    chunks_to_compress,
+                    &compression_profile,
+                    &config.bundle_profile,
+                    bundle_size_policy,
+                )?;
+                timings.bundle_compressed_sort += planned_bundle_groups.sort_duration;
+                timings.bundle_compressed_sort_bytes += planned_bundle_groups.sort_bytes;
+                timings.bundle_compressed_ratio_probe += planned_bundle_groups.probe_duration;
+                timings.bundle_compressed_ratio_probe_bytes +=
+                    planned_bundle_groups.probe_raw_bytes;
+                let built_bundle_groups = build_bundled_chunks(
+                    planned_bundle_groups,
+                    &compression_profile,
+                    runtime_plan.worker_count,
+                    &config.control,
+                )?;
+
+                for built_bundle in built_bundle_groups {
+                    config.control.checkpoint()?;
+                    timings.bundle_compressed_payload_load += built_bundle.payload_load;
+                    timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
+                    if !existing_bundle_ids.contains(&built_bundle.bundle_id) {
+                        record_bundle_compressed_bundle_metrics(
+                            &mut timings,
+                            &mut total_compressed,
+                            built_bundle.bundle_data.len() as u64,
+                            built_bundle.bundle_metrics,
+                        );
+                        bundles.push(BuiltBundle {
+                            bundle_id: built_bundle.bundle_id,
+                            data: built_bundle.bundle_data,
+                        });
+                    }
+                }
             }
+            ArtifactStorageMode::LooseChunks => {
+                let built_chunks = build_loose_chunks(
+                    chunks_to_compress,
+                    &compression_profile,
+                    runtime_plan.worker_count,
+                    &config.control,
+                )?;
 
-            let planned_bundle_groups = plan_bundle_compressed_groups(
-                chunks_to_compress,
-                &compression_profile,
-                &config.bundle_profile,
-                bundle_size_policy,
-            )?;
-            timings.bundle_compressed_sort += planned_bundle_groups.sort_duration;
-            timings.bundle_compressed_sort_bytes += planned_bundle_groups.sort_bytes;
-            timings.bundle_compressed_ratio_probe += planned_bundle_groups.probe_duration;
-            timings.bundle_compressed_ratio_probe_bytes += planned_bundle_groups.probe_raw_bytes;
-            let built_bundle_groups = build_bundled_chunks(
-                planned_bundle_groups,
-                &compression_profile,
-                runtime_plan.worker_count,
-                &config.control,
-            )?;
-
-            for built_bundle in built_bundle_groups {
-                config.control.checkpoint()?;
-                timings.bundle_compressed_payload_load += built_bundle.payload_load;
-                timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
-                if !existing_bundle_ids.contains(&built_bundle.bundle_id) {
-                    record_bundle_compressed_bundle_metrics(
-                        &mut timings,
-                        &mut total_compressed,
-                        built_bundle.bundle_data.len() as u64,
-                        built_bundle.bundle_metrics,
-                    );
-                    bundles.push(BuiltBundle {
-                        bundle_id: built_bundle.bundle_id,
-                        data: built_bundle.bundle_data,
-                    });
+                for built_chunk in built_chunks {
+                    config.control.checkpoint()?;
+                    timings.bundle_compressed_payload_load += built_chunk.payload_load;
+                    timings.bundle_compressed_payload_load_bytes += built_chunk.payload_load_bytes;
+                    timings.compression_output_bytes += built_chunk.chunk.compressed_size;
+                    total_compressed += built_chunk.chunk.compressed_size;
+                    loose_chunks.push(built_chunk.chunk);
                 }
             }
         }
-        ArtifactStorageMode::LooseChunks => {
-            let built_chunks = build_loose_chunks(
-                chunks_to_compress,
-                &compression_profile,
-                runtime_plan.worker_count,
-                &config.control,
-            )?;
-
-            for built_chunk in built_chunks {
-                config.control.checkpoint()?;
-                timings.bundle_compressed_payload_load += built_chunk.payload_load;
-                timings.bundle_compressed_payload_load_bytes += built_chunk.payload_load_bytes;
-                timings.compression_output_bytes += built_chunk.chunk.compressed_size;
-                total_compressed += built_chunk.chunk.compressed_size;
-                loose_chunks.push(built_chunk.chunk);
-            }
-        }
-    }
+        (bundles, loose_chunks)
+    };
 
     timings.artifact_encode_wall = artifact_encode_start.elapsed();
     timings.total_compressed_bytes = total_compressed;
@@ -559,11 +570,18 @@ pub(crate) fn build_with_config_timed(
             .sum::<u64>();
 
     let manifest_finalize_start = Instant::now();
-    snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
-    let mut vm = SnapshotManifest::new(config.snapshot_id.clone(), config.snapshot_tags.clone());
-    vm.total_logical_size = total_logical_size;
-    vm.total_compressed_size_estimate = total_compressed;
-    vm.entries = snapshot_entries;
+    let vm = {
+        let _manifest_span = config
+            .control
+            .profile_span("gutch.capture.manifest_finalize");
+        snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
+        let mut vm =
+            SnapshotManifest::new(config.snapshot_id.clone(), config.snapshot_tags.clone());
+        vm.total_logical_size = total_logical_size;
+        vm.total_compressed_size_estimate = total_compressed;
+        vm.entries = snapshot_entries;
+        vm
+    };
     timings.manifest_finalize_wall = manifest_finalize_start.elapsed();
     timings.total = total_start.elapsed();
 

@@ -38,6 +38,7 @@ pub(crate) fn capture_snapshot_sources(
     repo: &Path,
     sources_path: &Path,
     options: CliSnapshotSourcesCaptureOptions,
+    profile: &crate::cli::Profile,
 ) -> g::Result<g::SnapshotSourcesCaptureResult> {
     let plan = g::plan_snapshot_sources_capture(repo, Some(sources_path))?;
     if !plan.sources_ready {
@@ -71,7 +72,7 @@ pub(crate) fn capture_snapshot_sources(
     }
 
     let progress: Arc<dyn g::GutchProgressSink> = CliProgressSink::new();
-    let control = g::GutchOperationControl::default().with_progress(progress);
+    let control = crate::cli::control_with_profile(profile).with_progress(progress);
     let result = g::capture_snapshot_sources(
         repo,
         sources_path,

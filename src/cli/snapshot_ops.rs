@@ -84,10 +84,10 @@ impl FetchCommand {
     }
 }
 
-pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
+pub(crate) fn fetch(command: FetchCommand, profile: &crate::cli::Profile) -> g::Result<()> {
     let progress = CliProgressSink::new();
     let result = g::fetch_snapshot(
-        &command.into_request(g::GutchOperationControl::default().with_progress(progress))?,
+        &command.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?,
     )?;
 
     if verbose_output_enabled() {
@@ -109,6 +109,9 @@ pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
             result.skipped_existing_artifact_count
         );
     }
+    if profile.is_some() {
+        crate::cli::reporting::print_profile_summary(profile.as_deref());
+    }
     Ok(())
 }
 
@@ -122,7 +125,10 @@ pub(crate) struct FetchAndReconstructCommand {
     pub(crate) stats_json_out: Option<std::path::PathBuf>,
 }
 
-pub(crate) fn fetch_and_reconstruct(command: FetchAndReconstructCommand) -> g::Result<()> {
+pub(crate) fn fetch_and_reconstruct(
+    command: FetchAndReconstructCommand,
+    profile: &crate::cli::Profile,
+) -> g::Result<()> {
     let FetchAndReconstructCommand {
         fetch,
         destination,
@@ -134,7 +140,7 @@ pub(crate) fn fetch_and_reconstruct(command: FetchAndReconstructCommand) -> g::R
     } = command;
     let progress = CliProgressSink::new();
     let fetch_request =
-        fetch.into_request(g::GutchOperationControl::default().with_progress(progress))?;
+        fetch.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?;
     let result = g::download_and_reconstruct_snapshot(g::SnapshotDownloadAndReconstructRequest {
         fetch_request,
         destination_dir: destination,
@@ -201,8 +207,12 @@ pub(crate) fn fetch_and_reconstruct(command: FetchAndReconstructCommand) -> g::R
             stats.skipped_existing_artifact_count
         );
     }
-    crate::cli::reporting::print_reconstruct_timings(&reconstruct.reconstruct_timings);
-    crate::cli::reporting::print_verify_timings(&reconstruct.verify_timings);
+    if profile.is_some() {
+        crate::cli::reporting::print_profile_summary(profile.as_deref());
+    } else {
+        crate::cli::reporting::print_reconstruct_timings(&reconstruct.reconstruct_timings);
+        crate::cli::reporting::print_verify_timings(&reconstruct.verify_timings);
+    }
     Ok(())
 }
 
@@ -217,7 +227,10 @@ pub(crate) struct ReconstructCommand {
     pub(crate) stats_json_out: Option<std::path::PathBuf>,
 }
 
-pub(crate) fn reconstruct(command: ReconstructCommand) -> g::Result<()> {
+pub(crate) fn reconstruct(
+    command: ReconstructCommand,
+    profile: &crate::cli::Profile,
+) -> g::Result<()> {
     actions::snapshot_ops::reconstruct_snapshot(actions::snapshot_ops::ReconstructCommand {
         repo: command.repo,
         snapshot_id: command.snapshot_id,
@@ -227,6 +240,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand) -> g::Result<()> {
         source_dir: command.source_dir,
         runtime_hints: command.runtime.hints(),
         stats_json_out: command.stats_json_out,
+        profile: profile.clone(),
     })
 }
 
@@ -297,6 +311,7 @@ pub(crate) fn verify(
     strict: bool,
     runtime: crate::cli::args::RuntimeArgs,
     stats_json_out: Option<std::path::PathBuf>,
+    profile: &crate::cli::Profile,
 ) -> g::Result<()> {
     actions::snapshot_ops::verify_snapshot(actions::snapshot_ops::VerifyCommand {
         repo,
@@ -309,5 +324,6 @@ pub(crate) fn verify(
         },
         runtime_hints: runtime.hints(),
         stats_json_out,
+        profile: profile.clone(),
     })
 }

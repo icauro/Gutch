@@ -5,7 +5,10 @@ use crate::cli::actions::snapshot_sources::{
 use crate::cli::reporting::ensure_parent_directory;
 use gutch as g;
 
-pub(crate) fn run(command: SnapshotSourcesCommands) -> g::Result<()> {
+pub(crate) fn run(
+    command: SnapshotSourcesCommands,
+    profile: &crate::cli::Profile,
+) -> g::Result<()> {
     match command {
         SnapshotSourcesCommands::Capture {
             repo,
@@ -18,6 +21,7 @@ pub(crate) fn run(command: SnapshotSourcesCommands) -> g::Result<()> {
                 &repo,
                 &source_root,
                 CliSnapshotSourcesCaptureOptions { no_prune, yes },
+                profile,
             )?;
 
             if let Some(json_out) = json_out.as_ref() {

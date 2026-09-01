@@ -91,6 +91,9 @@ pub(crate) struct Cli {
     #[arg(long, short = 'v', global = true)]
     pub(crate) verbose: bool,
 
+    #[arg(long = "trace-out", global = true, value_parser = parse_absolute_path)]
+    pub(crate) trace_out: Option<PathBuf>,
+
     #[command(subcommand)]
     pub(crate) command: Commands,
 }
@@ -615,5 +618,33 @@ mod path_tests {
         };
         Cli::try_parse_from(["gutch", "repo", "status", "--repo", repo])
             .expect("absolute repo path");
+    }
+
+    #[test]
+    fn cli_accepts_absolute_trace_output_and_rejects_relative_output() {
+        let trace_path = if cfg!(windows) {
+            r"D:\Artifacts\gutch.trace.json"
+        } else {
+            "/artifacts/gutch.trace.json"
+        };
+        let cli =
+            Cli::try_parse_from(["gutch", "repo", "remote", "list", "--trace-out", trace_path])
+                .expect("absolute trace path");
+        assert_eq!(
+            cli.trace_out.as_deref().unwrap().to_string_lossy(),
+            trace_path
+        );
+
+        let error = Cli::try_parse_from([
+            "gutch",
+            "repo",
+            "remote",
+            "list",
+            "--trace-out",
+            "relative.trace.json",
+        ])
+        .err()
+        .expect("relative trace path must be rejected");
+        assert!(error.to_string().contains("path must be absolute"));
     }
 }

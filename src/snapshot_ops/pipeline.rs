@@ -403,6 +403,9 @@ pub(super) fn apply_reconstruct_pipeline(
     pipeline_plan: ReconstructPipelinePlan,
 ) -> Result<SnapshotReconstructFromRepoResult> {
     request.control.checkpoint()?;
+    let _operation_span = request
+        .control
+        .profile_span("gutch.snapshot.reconstruct.apply");
     let staging_dir = request
         .staging_dir
         .map(Path::to_path_buf)
@@ -509,6 +512,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         transfer_progress,
     } = request;
     control.checkpoint()?;
+    let _pipeline_span = control.profile_span("gutch.snapshot.reconstruct.pipeline");
     let reconstruct_started_at = Instant::now();
     let mut reconstruct_timings = ReconstructTimings {
         runtime_plan: Some(plan_reconstruct_runtime(runtime_hints)),
@@ -654,6 +658,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let mut completed_file_workers = 0usize;
     let mut dispatched_file_count = 0usize;
     let mut pipeline_error: Option<Error> = None;
+    let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch");
     let queue_ready_file = |file_index: usize| -> Result<()> {
         file_task_tx
             .send(file_index)
@@ -833,6 +838,7 @@ fn reconstruct_pipeline_file(
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
+    let _file_span = control.profile_span("gutch.snapshot.reconstruct.file");
     match &file_plan.reconstruction {
         ReconstructPipelineReconstruction::CopyFromSource { source_path } => {
             copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)

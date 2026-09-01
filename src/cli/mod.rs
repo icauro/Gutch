@@ -13,11 +13,15 @@ pub(crate) mod snapshot;
 pub(crate) mod snapshot_ops;
 pub(crate) mod snapshot_sources;
 
+use std::sync::Arc;
+
 pub(crate) use args::{
     BundleCommands, Cli, Commands, PathCommands, RemoteCommands, RepoCommands, RepoNameCommands,
     RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands, SnapshotSourcesCommands,
 };
 pub(crate) use common::prompt_yes_no;
+
+pub(crate) type Profile = Option<Arc<crate::GutchProfiler>>;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -92,7 +96,33 @@ where
         Err(error) => return Err(crate::Error::manifest(error.to_string())),
     };
     set_verbose_output_enabled(cli.verbose);
-    commands::run(cli, remote_provider)
+    let trace_out = cli.trace_out.clone();
+    let profiler = trace_out
+        .as_ref()
+        .map(|_| Arc::new(crate::GutchProfiler::new()));
+    let command_result = {
+        let _command_span = profiler
+            .as_ref()
+            .map(|profiler| profiler.span("gutch.cli.command"));
+        commands::run(cli, remote_provider, &profiler)
+    };
+    let trace_result = match (trace_out.as_ref(), profiler.as_ref()) {
+        (Some(path), Some(profiler)) => profiler.write_to(path),
+        _ => Ok(()),
+    };
+    match (command_result, trace_result) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
+    }
+}
+
+pub(crate) fn control_with_profile(profile: &Profile) -> crate::GutchOperationControl {
+    profile
+        .as_ref()
+        .map_or_else(crate::GutchOperationControl::default, |profiler| {
+            crate::GutchOperationControl::default().with_profiler(Arc::clone(profiler))
+        })
 }
 
 #[cfg(test)]

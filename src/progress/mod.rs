@@ -125,6 +125,7 @@ pub trait GutchCancellationHook: Send + Sync + std::fmt::Debug {
 pub struct GutchOperationControl {
     progress: Option<Arc<dyn GutchProgressSink>>,
     cancellation: Option<Arc<dyn GutchCancellationHook>>,
+    profiler: Option<Arc<crate::GutchProfiler>>,
 }
 
 impl GutchOperationControl {
@@ -138,11 +139,41 @@ impl GutchOperationControl {
         self
     }
 
+    pub fn with_profiler(mut self, profiler: Arc<crate::GutchProfiler>) -> Self {
+        self.profiler = Some(profiler);
+        self
+    }
+
     /// Replaces only the progress adapter while retaining the operation's cancellation hook.
     pub(crate) fn with_replaced_progress(&self, progress: Arc<dyn GutchProgressSink>) -> Self {
         Self {
             progress: Some(progress),
             cancellation: self.cancellation.clone(),
+            profiler: self.profiler.clone(),
+        }
+    }
+
+    pub(crate) fn profile_span(&self, name: impl Into<String>) -> Option<crate::GutchProfileSpan> {
+        self.profiler.as_ref().map(|profiler| profiler.span(name))
+    }
+
+    pub(crate) fn profile_span_with_args(
+        &self,
+        name: impl Into<String>,
+        args: std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Option<crate::GutchProfileSpan> {
+        self.profiler
+            .as_ref()
+            .map(|profiler| profiler.span_with_args(name, args))
+    }
+
+    pub(crate) fn profile_event_with_args(
+        &self,
+        name: impl Into<String>,
+        args: std::collections::BTreeMap<String, serde_json::Value>,
+    ) {
+        if let Some(profiler) = &self.profiler {
+            profiler.event_with_args(name, args);
         }
     }
 

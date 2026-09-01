@@ -10,6 +10,7 @@ mod config;
 mod error;
 mod helpers;
 mod manifest;
+mod profile;
 mod progress;
 mod repo;
 mod runtime;
@@ -52,6 +53,7 @@ pub use manifest::{
     StructuredVersion, SymlinkManifest, sanitize_editable_snapshot_tag_schema,
     validate_editable_snapshot_tag_schema,
 };
+pub use profile::{GutchProfileSpan, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler};
 pub(crate) use progress::emit_progress;
 pub use progress::{
     GutchCancellationHook, GutchOperation, GutchOperationControl, GutchProgressEvent,

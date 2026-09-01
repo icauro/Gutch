@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::cli::reporting::ensure_parent_directory;
 use crate::{
-    Error, GutchOperationControl, GutchProgressEvent, GutchProgressSink, PullConflictPolicy,
+    Error, GutchProgressEvent, GutchProgressSink, PullConflictPolicy,
     RemoteRepositoryCommandProvider, RemoteRepositorySummary, RemoteTagRequirementsResult,
 };
 
@@ -28,6 +28,7 @@ pub(crate) fn push(
     repo: PathBuf,
     yes: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    profile: &crate::cli::Profile,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let repository_provider = provider.repository_provider();
@@ -42,7 +43,7 @@ pub(crate) fn push(
     let stats = crate::sync_up_repo(
         repo,
         repository_provider,
-        GutchOperationControl::default().with_progress(progress),
+        crate::cli::control_with_profile(profile).with_progress(progress),
     )?;
     println!(
         "synced repo {} to remote repo {}",
@@ -75,6 +76,7 @@ pub(crate) fn pull(
     prune: bool,
     yes: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    profile: &crate::cli::Profile,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let policy = PullConflictPolicy::parse(&on_conflict)?;
@@ -94,7 +96,7 @@ pub(crate) fn pull(
         remote,
         policy,
         prune,
-        GutchOperationControl::default().with_progress(progress),
+        crate::cli::control_with_profile(profile).with_progress(progress),
     )?;
     println!(
         "pulled repo {} from remote repo {} ({})",

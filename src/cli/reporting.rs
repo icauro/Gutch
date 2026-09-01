@@ -109,6 +109,49 @@ fn print_table_row(
     print_table_border();
 }
 
+pub(crate) fn print_profile_summary(profile: Option<&g::GutchProfiler>) {
+    let Some(profile) = profile else {
+        return;
+    };
+    let summary = profile.summary();
+    let spans = summary
+        .spans
+        .iter()
+        .filter(|span| span.name != "gutch.cli.command")
+        .collect::<Vec<_>>();
+    print_section_title("Perfetto Profile Summary");
+    print_metric_line(
+        "completed spans",
+        spans.iter().map(|span| span.count).sum::<usize>(),
+    );
+    print_metric_line(
+        "sum of spans",
+        format!(
+            "{:.3} s",
+            spans.iter().map(|span| span.total_seconds).sum::<f64>()
+        ),
+    );
+    println!("  +--------------------------------------+----------+------------+------------+");
+    println!(
+        "  | {:<36} | {:>8} | {:>10} | {:>10} |",
+        "span", "count", "sum", "max"
+    );
+    println!("  +--------------------------------------+----------+------------+------------+");
+    for span in spans.into_iter().take(24) {
+        let name = if span.name.len() > 36 {
+            format!("{}…", &span.name[..35])
+        } else {
+            span.name.clone()
+        };
+        println!(
+            "  | {:<36} | {:>8} | {:>9.3} s | {:>9.3} s |",
+            name, span.count, span.total_seconds, span.maximum_seconds
+        );
+    }
+    println!("  +--------------------------------------+----------+------------+------------+");
+    print_metric_line("trace format", "Chrome JSON (Perfetto)");
+}
+
 pub(crate) fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
     if denominator == 0 {
         0.0

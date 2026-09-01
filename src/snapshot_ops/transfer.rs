@@ -321,12 +321,14 @@ impl ArtifactDownloadScheduler {
             let shared = Arc::clone(&shared);
             let transfer_progress = Arc::clone(&transfer_progress);
             let controller_stop_for_thread = Arc::clone(&controller_stop);
+            let control = control.clone();
             Some(thread::spawn(move || {
                 run_adaptive_transfer_controller(
                     policy,
                     shared,
                     transfer_progress,
                     controller_stop_for_thread,
+                    control,
                 );
             }))
         } else {
@@ -469,6 +471,19 @@ fn artifact_download_worker(
             let _ = event_tx.send(ArtifactDownloadEvent::WorkerDone);
             return;
         };
+        let _artifact_span = control.profile_span_with_args(
+            "gutch.fetch.artifact",
+            std::collections::BTreeMap::from([
+                (
+                    "ordinal".to_string(),
+                    serde_json::json!(bundle_download.ordinal),
+                ),
+                (
+                    "total".to_string(),
+                    serde_json::json!(bundle_download.total_missing_bundle_count),
+                ),
+            ]),
+        );
         let result = download_pending_bundle(
             &download_client,
             &bundle_download,
@@ -589,6 +604,7 @@ fn run_adaptive_transfer_controller(
     shared: Arc<ArtifactDownloadQueueShared>,
     transfer_progress: Arc<FetchTransferProgress>,
     controller_stop: Arc<AtomicBool>,
+    control: GutchOperationControl,
 ) {
     let TransferConcurrencyPolicy::Adaptive { initial, maximum } = policy else {
         return;
@@ -615,6 +631,13 @@ fn run_adaptive_transfer_controller(
         shared
             .target_worker_count
             .store(new_target, AtomicOrdering::Release);
+        control.profile_event_with_args(
+            "gutch.fetch.transfer_concurrency",
+            std::collections::BTreeMap::from([(
+                "target_workers".to_string(),
+                serde_json::json!(new_target),
+            )]),
+        );
         transfer_progress.adjustment_recorded();
         shared.wake.notify_all();
     }
@@ -803,6 +826,19 @@ pub(super) fn download_pending_bundle(
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<usize> {
     control.checkpoint()?;
+    let _artifact_span = control.profile_span_with_args(
+        "gutch.fetch.artifact.transfer",
+        std::collections::BTreeMap::from([
+            (
+                "ordinal".to_string(),
+                serde_json::json!(bundle_download.ordinal),
+            ),
+            (
+                "total".to_string(),
+                serde_json::json!(bundle_download.total_missing_bundle_count),
+            ),
+        ]),
+    );
     if let Some(parent) = bundle_download.bundle_path.parent() {
         crate::helpers::create_dir_all(parent)?;
     }

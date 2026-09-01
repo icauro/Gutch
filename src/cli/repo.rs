@@ -8,6 +8,7 @@ use gutch as g;
 pub(crate) fn run(
     command: RepoCommands,
     remote_provider: Option<&dyn g::RemoteRepositoryCommandProvider>,
+    profile: &crate::cli::Profile,
 ) -> g::Result<()> {
     match command {
         RepoCommands::Init {
@@ -19,7 +20,7 @@ pub(crate) fn run(
         }
 
         RepoCommands::Push { repo, yes } => {
-            crate::cli::remote::push(repo, yes, remote_provider)?;
+            crate::cli::remote::push(repo, yes, remote_provider, profile)?;
         }
 
         RepoCommands::Pull {
@@ -29,7 +30,15 @@ pub(crate) fn run(
             prune,
             yes,
         } => {
-            crate::cli::remote::pull(repo, remote, on_conflict, prune, yes, remote_provider)?;
+            crate::cli::remote::pull(
+                repo,
+                remote,
+                on_conflict,
+                prune,
+                yes,
+                remote_provider,
+                profile,
+            )?;
         }
 
         RepoCommands::Remote { command } => match command {
@@ -194,7 +203,7 @@ pub(crate) fn run(
         }
 
         RepoCommands::Sources { command } => {
-            crate::cli::snapshot_sources::run(command)?;
+            crate::cli::snapshot_sources::run(command, profile)?;
         }
     }
 

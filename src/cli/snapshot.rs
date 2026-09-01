@@ -13,7 +13,7 @@ use crate::cli::common::{
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::{
     build_timings_summary, ensure_parent_directory, optional_output_paths, print_build_timings,
-    ratio_pct,
+    print_profile_summary, ratio_pct,
 };
 use crate::cli::verbose_output_enabled;
 use crate::hash::ChunkHash;
@@ -55,6 +55,7 @@ struct CaptureOneSnapshotRequest<'a> {
     build_profile: ArtifactBuildProfileArgs,
     runtime_hints: g::RuntimeResourceHints,
     stats_json_out: &'a Option<PathBuf>,
+    profile: crate::cli::Profile,
     command_name: &'static str,
     yes: bool,
     skip_confirmation: bool,
@@ -155,7 +156,7 @@ fn run_capture_one_snapshot(
         )?;
         let _ = g::cleanup_orphan_bundles_in_repo(
             request.repo_paths.repo_root.as_path(),
-            &g::GutchOperationControl::default(),
+            &crate::cli::control_with_profile(&request.profile),
         );
     }
     if capture_plan.kind == g::SnapshotCaptureKind::Relabel {
@@ -219,7 +220,7 @@ fn run_capture_one_snapshot(
         .with_storage_mode(request.build_profile.storage_mode)
         .with_runtime_hints(request.runtime_hints.clone());
     build_config.control =
-        g::GutchOperationControl::default().with_progress(CliProgressSink::new());
+        crate::cli::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
 
     let (result, timings) = g::build_with_config_timed(&prepared_input.dir, &build_config)?;
     let mut result = result;
@@ -312,7 +313,9 @@ fn run_capture_one_snapshot(
         }
     }
 
-    print_build_timings(&timings);
+    if request.profile.is_none() {
+        print_build_timings(&timings);
+    }
 
     let required_chunk_count = count_required_chunks(&result.snapshot_manifest);
     let required_bundle_count = count_required_bundles_for_build(
@@ -462,7 +465,7 @@ fn single_capture_source_resolution(
     }
 }
 
-pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
+pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g::Result<()> {
     match command {
         SnapshotCommands::Capture {
             source_dirs,
@@ -513,7 +516,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
                     compression_profile: build_profile.compression_profile,
                     storage_mode: build_profile.storage_mode,
                     runtime_hints: runtime.hints(),
-                    control: g::GutchOperationControl::default().with_progress(progress),
+                    control: crate::cli::control_with_profile(profile).with_progress(progress),
                 })?;
                 let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
                 let stats = SnapshotCaptureStats {
@@ -626,6 +629,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
                             build_profile,
                             runtime_hints: runtime.hints(),
                             stats_json_out: &empty_output,
+                            profile: profile.clone(),
                             command_name: "snapshot capture",
                             yes,
                             skip_confirmation: true,
@@ -688,6 +692,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
                 g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
                 write_report(&stats_json_out, &aggregate_stats)?;
             }
+            print_profile_summary(profile.as_deref());
         }
 
         SnapshotCommands::List { repo, json_out } => {
@@ -731,7 +736,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             }
 
             let progress = CliProgressSink::new();
-            let control = g::GutchOperationControl::default().with_progress(progress);
+            let control = crate::cli::control_with_profile(profile).with_progress(progress);
             let orphan_count = g::delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
 
             println!(
@@ -749,16 +754,19 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             source_dir,
             runtime,
             stats_json_out,
-        } => crate::cli::snapshot_ops::reconstruct(crate::cli::snapshot_ops::ReconstructCommand {
-            repo,
-            snapshot_id,
-            destination,
-            staging_dir,
-            source_snapshot_id,
-            source_dir,
-            runtime,
-            stats_json_out,
-        })?,
+        } => crate::cli::snapshot_ops::reconstruct(
+            crate::cli::snapshot_ops::ReconstructCommand {
+                repo,
+                snapshot_id,
+                destination,
+                staging_dir,
+                source_snapshot_id,
+                source_dir,
+                runtime,
+                stats_json_out,
+            },
+            profile,
+        )?,
 
         SnapshotCommands::FetchReconstruct {
             repo,
@@ -802,6 +810,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
                 runtime_hints: runtime.hints(),
                 stats_json_out,
             },
+            profile,
         )?,
 
         SnapshotCommands::Fetch {
@@ -817,20 +826,23 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             bundles,
             artifact_url_manifest,
             transfer,
-        } => crate::cli::snapshot_ops::fetch(crate::cli::snapshot_ops::FetchCommand {
-            repo,
-            snapshot_id,
-            metadata_url,
-            product_metadata_url,
-            blueprint_url,
-            repo_metadata_url,
-            chunk_index_url,
-            bundle_downloads_endpoint,
-            session_id,
-            bundles,
-            artifact_url_manifest,
-            transfer_policy: transfer.policy(),
-        })?,
+        } => crate::cli::snapshot_ops::fetch(
+            crate::cli::snapshot_ops::FetchCommand {
+                repo,
+                snapshot_id,
+                metadata_url,
+                product_metadata_url,
+                blueprint_url,
+                repo_metadata_url,
+                chunk_index_url,
+                bundle_downloads_endpoint,
+                session_id,
+                bundles,
+                artifact_url_manifest,
+                transfer_policy: transfer.policy(),
+            },
+            profile,
+        )?,
 
         SnapshotCommands::Verify {
             repo,
@@ -846,6 +858,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             strict,
             runtime,
             stats_json_out,
+            profile,
         )?,
 
         SnapshotCommands::Estimate {

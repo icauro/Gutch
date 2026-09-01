@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use crate::cli::common::{SnapshotReconstructStats, SnapshotVerifyStats, write_report};
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::{
-    optional_output_paths, print_reconstruct_timings, print_verify_timings, ratio_pct,
-    reconstruct_timings_summary, verify_timings_summary,
+    optional_output_paths, print_profile_summary, print_reconstruct_timings, print_verify_timings,
+    ratio_pct, reconstruct_timings_summary, verify_timings_summary,
 };
 use crate::cli::verbose_output_enabled;
 use gutch as g;
@@ -18,6 +18,7 @@ pub(crate) struct ReconstructCommand {
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
+    pub(crate) profile: crate::cli::Profile,
 }
 
 pub(crate) struct VerifyCommand {
@@ -27,6 +28,7 @@ pub(crate) struct VerifyCommand {
     pub(crate) verify_mode: g::VerifyMode,
     pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
+    pub(crate) profile: crate::cli::Profile,
 }
 
 pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()> {
@@ -38,7 +40,7 @@ pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()>
         source_snapshot_id: command.source_snapshot.clone(),
         source_dir: command.source_dir.clone(),
         runtime_hints: command.runtime_hints,
-        control: g::GutchOperationControl::default(),
+        control: crate::cli::control_with_profile(&command.profile),
     })?;
     let tm = execution.snapshot_manifest;
     let result = execution.reconstruct_result;
@@ -85,8 +87,12 @@ pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()>
             stats.reused_source_chunk_percent
         );
     }
-    print_reconstruct_timings(&result.reconstruct_timings);
-    print_verify_timings(&result.verify_timings);
+    if command.profile.is_some() {
+        print_profile_summary(command.profile.as_deref());
+    } else {
+        print_reconstruct_timings(&result.reconstruct_timings);
+        print_verify_timings(&result.verify_timings);
+    }
     Ok(())
 }
 
@@ -98,7 +104,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
         destination_dir: command.destination.clone(),
         verify_mode: command.verify_mode,
         runtime_hints: command.runtime_hints,
-        control: g::GutchOperationControl::default().with_progress(progress),
+        control: crate::cli::control_with_profile(&command.profile).with_progress(progress),
     })?;
     let repo_root = execution.repo_root;
     let tm = execution.snapshot_manifest;
@@ -129,7 +135,11 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
         if verbose_output_enabled() {
             println!("verification passed for {}", command.destination.display());
         }
-        print_verify_timings(&timings);
+        if command.profile.is_some() {
+            print_profile_summary(command.profile.as_deref());
+        } else {
+            print_verify_timings(&timings);
+        }
     } else {
         eprintln!("{} verification errors:", errors.len());
         for err in &errors {

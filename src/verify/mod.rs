@@ -79,6 +79,7 @@ fn classify_inner(
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     opts.control.checkpoint()?;
+    let _operation_span = opts.control.profile_span("gutch.snapshot.verify");
     let mut classification = RepairClassification::default();
     let runtime_plan = plan_verify_runtime(opts.hints);
     let mut timings = VerifyTimings {
@@ -163,26 +164,29 @@ fn classify_inner(
         }
     }
     let verify_files_start = Instant::now();
-    let per_file_results = run_in_thread_pool(runtime_plan.worker_count, || {
-        snapshot_manifest
-            .entries
-            .par_iter()
-            .filter_map(crate::manifest::SnapshotEntry::as_file)
-            .map(|fm| {
-                opts.control.checkpoint()?;
-                let result =
-                    verify_manifest_file(snapshot_manifest, dir, fm, opts.mode, opts.control);
-                let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
-                emit_verify_progress(
-                    opts.control.progress(),
-                    current,
-                    snapshot_manifest.file_count(),
-                    false,
-                );
-                result
-            })
-            .collect::<Vec<_>>()
-    })?;
+    let per_file_results = {
+        let _file_span = opts.control.profile_span("gutch.verify.files");
+        run_in_thread_pool(runtime_plan.worker_count, || {
+            snapshot_manifest
+                .entries
+                .par_iter()
+                .filter_map(crate::manifest::SnapshotEntry::as_file)
+                .map(|fm| {
+                    opts.control.checkpoint()?;
+                    let result =
+                        verify_manifest_file(snapshot_manifest, dir, fm, opts.mode, opts.control);
+                    let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
+                    emit_verify_progress(
+                        opts.control.progress(),
+                        current,
+                        snapshot_manifest.file_count(),
+                        false,
+                    );
+                    result
+                })
+                .collect::<Vec<_>>()
+        })?
+    };
 
     for result in per_file_results {
         let (issues, file_timings) = result?;
@@ -195,6 +199,7 @@ fn classify_inner(
 
     // Detect extra filesystem entries without following symbolic links.
     let extra_file_scan_start = Instant::now();
+    let _extra_scan_span = opts.control.profile_span("gutch.verify.extra_scan");
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
         opts.control.checkpoint()?;
         let entry = entry?;
