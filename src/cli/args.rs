@@ -274,6 +274,43 @@ pub(crate) enum SnapshotCommands {
         #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
     },
+    #[command(name = "fetch-reconstruct")]
+    FetchReconstruct {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "snapshot-id")]
+        snapshot_id: String,
+        #[arg(short, long, value_parser = parse_absolute_path)]
+        destination: PathBuf,
+        #[arg(long = "staging-dir", value_parser = parse_absolute_path)]
+        staging_dir: Option<PathBuf>,
+        #[arg(long = "source-snapshot-id")]
+        source_snapshot_id: Option<String>,
+        #[arg(long = "source-dir", value_parser = parse_absolute_path)]
+        source_dir: Option<PathBuf>,
+        #[arg(long = "metadata-url")]
+        metadata_url: String,
+        #[arg(long = "product-metadata-url")]
+        product_metadata_url: Option<String>,
+        #[arg(long = "blueprint-url")]
+        blueprint_url: String,
+        #[arg(long = "repo-metadata-url")]
+        repo_metadata_url: Option<String>,
+        #[arg(long = "chunk-index-url")]
+        chunk_index_url: Option<String>,
+        #[arg(long = "bundle-downloads-endpoint")]
+        bundle_downloads_endpoint: Option<String>,
+        #[arg(long = "session-id")]
+        session_id: Option<String>,
+        #[arg(long = "bundle")]
+        bundles: Vec<String>,
+        #[arg(long = "artifact-url-manifest", value_parser = parse_absolute_path)]
+        artifact_url_manifest: Option<PathBuf>,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        stats_json_out: Option<PathBuf>,
+    },
     Estimate {
         #[arg(short, long = "source-dir", value_parser = parse_absolute_path)]
         source_dir: PathBuf,
@@ -324,7 +361,7 @@ pub(crate) enum SnapshotCommands {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, RemoteCommands, RepoCommands, RepoTagsCommands};
+    use super::{Cli, Commands, RemoteCommands, RepoCommands, RepoTagsCommands, SnapshotCommands};
     use clap::Parser;
 
     #[test]
@@ -435,6 +472,41 @@ mod tests {
                 command: RepoCommands::Remote {
                     command: RemoteCommands::List
                 }
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_fetch_reconstruct_command() {
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "snapshot",
+            "fetch-reconstruct",
+            "--repo",
+            if cfg!(windows) {
+                r"D:\Repos\fetched"
+            } else {
+                "/repos/fetched"
+            },
+            "--snapshot-id",
+            "snapshot-1",
+            "--destination",
+            if cfg!(windows) {
+                r"D:\Installs\product"
+            } else {
+                "/installs/product"
+            },
+            "--metadata-url",
+            "https://objects.example/snapshot.json",
+            "--blueprint-url",
+            "https://objects.example/blueprint.gtcbin",
+        ])
+        .expect("fetch-reconstruct args should parse");
+
+        assert!(matches!(
+            cli.command,
+            Commands::Snapshot {
+                command: SnapshotCommands::FetchReconstruct { .. }
             }
         ));
     }

@@ -1,5 +1,5 @@
 use crate::cli::actions;
-use crate::cli::common::parse_bundle_downloads;
+use crate::cli::common::{SnapshotFetchReconstructStats, parse_bundle_downloads, write_report};
 use crate::cli::progress::CliProgressSink;
 use crate::cli::verbose_output_enabled;
 use gutch as g;
@@ -23,61 +23,69 @@ pub(crate) struct FetchCommand {
     pub(crate) artifact_url_manifest: Option<std::path::PathBuf>,
 }
 
-pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
-    let FetchCommand {
-        repo,
-        snapshot_id,
-        metadata_url,
-        product_metadata_url,
-        blueprint_url,
-        repo_metadata_url,
-        chunk_index_url,
-        bundle_downloads_endpoint,
-        session_id,
-        bundles,
-        artifact_url_manifest,
-    } = command;
-    let progress = CliProgressSink::new();
-    let bundle_url_provider = bundle_downloads_endpoint
-        .map(|endpoint| {
-            let client = reqwest::blocking::Client::builder()
-                .user_agent("Gutch CLI")
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(30 * 60))
-                .build()
-                .map_err(|err| {
-                    g::Error::manifest(format!("failed to create download client: {err}"))
-                })?;
-            let session_id = session_id.clone();
-            Ok::<Arc<dyn g::BundleUrlProvider>, g::Error>(Arc::new(
-                move |bundle_ids: &[String], control: &g::GutchOperationControl| {
-                    resolve_bundle_urls(
-                        &client,
-                        &endpoint,
-                        session_id.as_deref(),
-                        bundle_ids,
-                        control,
-                    )
-                },
-            ))
+impl FetchCommand {
+    fn into_request(self, control: g::GutchOperationControl) -> g::Result<g::SnapshotFetchRequest> {
+        let FetchCommand {
+            repo,
+            snapshot_id,
+            metadata_url,
+            product_metadata_url,
+            blueprint_url,
+            repo_metadata_url,
+            chunk_index_url,
+            bundle_downloads_endpoint,
+            session_id,
+            bundles,
+            artifact_url_manifest,
+        } = self;
+        let bundle_url_provider = bundle_downloads_endpoint
+            .map(|endpoint| {
+                let client = reqwest::blocking::Client::builder()
+                    .user_agent("Gutch CLI")
+                    .connect_timeout(Duration::from_secs(10))
+                    .timeout(Duration::from_secs(30 * 60))
+                    .build()
+                    .map_err(|err| {
+                        g::Error::manifest(format!("failed to create download client: {err}"))
+                    })?;
+                let session_id = session_id.clone();
+                Ok::<Arc<dyn g::BundleUrlProvider>, g::Error>(Arc::new(
+                    move |bundle_ids: &[String], control: &g::GutchOperationControl| {
+                        resolve_bundle_urls(
+                            &client,
+                            &endpoint,
+                            session_id.as_deref(),
+                            bundle_ids,
+                            control,
+                        )
+                    },
+                ))
+            })
+            .transpose()?;
+        let mut direct_downloads = parse_bundle_downloads(&bundles)?;
+        if let Some(manifest_path) = artifact_url_manifest {
+            direct_downloads.extend(parse_artifact_url_manifest(&manifest_path)?);
+        }
+        Ok(g::SnapshotFetchRequest {
+            repo_path: repo,
+            snapshot_id,
+            repo_metadata_url,
+            metadata_url,
+            product_metadata_url,
+            blueprint_url,
+            chunk_index_url,
+            bundles: direct_downloads,
+            bundle_url_provider,
+            control,
         })
-        .transpose()?;
-    let mut direct_downloads = parse_bundle_downloads(&bundles)?;
-    if let Some(manifest_path) = artifact_url_manifest {
-        direct_downloads.extend(parse_artifact_url_manifest(&manifest_path)?);
     }
-    let result = g::fetch_snapshot(&g::SnapshotFetchRequest {
-        repo_path: repo,
-        snapshot_id,
-        repo_metadata_url,
-        metadata_url,
-        product_metadata_url,
-        blueprint_url,
-        chunk_index_url,
-        bundles: direct_downloads,
-        bundle_url_provider,
-        control: g::GutchOperationControl::default().with_progress(progress),
-    })?;
+}
+
+pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
+    let progress = CliProgressSink::new();
+    let result = g::fetch_snapshot(
+        &command.into_request(g::GutchOperationControl::default().with_progress(progress))?,
+    )?;
 
     if verbose_output_enabled() {
         println!(
@@ -98,6 +106,94 @@ pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
             result.skipped_existing_artifact_count
         );
     }
+    Ok(())
+}
+
+pub(crate) struct FetchAndReconstructCommand {
+    pub(crate) fetch: FetchCommand,
+    pub(crate) destination: std::path::PathBuf,
+    pub(crate) staging_dir: Option<std::path::PathBuf>,
+    pub(crate) source_snapshot_id: Option<String>,
+    pub(crate) source_dir: Option<std::path::PathBuf>,
+    pub(crate) runtime_hints: g::RuntimeResourceHints,
+    pub(crate) stats_json_out: Option<std::path::PathBuf>,
+}
+
+pub(crate) fn fetch_and_reconstruct(command: FetchAndReconstructCommand) -> g::Result<()> {
+    let FetchAndReconstructCommand {
+        fetch,
+        destination,
+        staging_dir,
+        source_snapshot_id,
+        source_dir,
+        runtime_hints,
+        stats_json_out,
+    } = command;
+    let progress = CliProgressSink::new();
+    let fetch_request =
+        fetch.into_request(g::GutchOperationControl::default().with_progress(progress))?;
+    let result = g::download_and_reconstruct_snapshot(g::SnapshotDownloadAndReconstructRequest {
+        fetch_request,
+        destination_dir: destination,
+        staging_dir,
+        source_snapshot_id: source_snapshot_id.clone(),
+        source_dir: source_dir.clone(),
+        runtime_hints,
+    })?;
+    let g::SnapshotDownloadAndReconstructResult {
+        fetch_result,
+        reconstruct_result: reconstruct_execution,
+    } = result;
+    let snapshot_manifest = reconstruct_execution.snapshot_manifest;
+    let reconstruct = reconstruct_execution.reconstruct_result;
+    let reused_source_chunk_percent = crate::cli::reporting::ratio_pct(
+        reconstruct.reused_source_chunk_count as u64,
+        reconstruct.required_chunk_count as u64,
+    );
+    let stats = SnapshotFetchReconstructStats {
+        command: "snapshot fetch-reconstruct",
+        repo_root: fetch_result.repo_path.display().to_string(),
+        snapshot_id: fetch_result.snapshot_id.clone(),
+        destination_dir: reconstruct.destination_dir.display().to_string(),
+        staging_dir: reconstruct.staging_dir.display().to_string(),
+        source_snapshot_id,
+        source_destination_dir: reconstruct_execution
+            .source_destination_dir
+            .map(|path| path.display().to_string()),
+        file_count: snapshot_manifest.file_count(),
+        required_chunk_count: reconstruct.required_chunk_count,
+        required_bundle_count: fetch_result.required_bundle_count,
+        downloaded_bundle_count: fetch_result.downloaded_bundle_count,
+        skipped_existing_bundle_count: fetch_result.skipped_existing_bundle_count,
+        required_artifact_count: fetch_result.required_artifact_count,
+        downloaded_artifact_count: fetch_result.downloaded_artifact_count,
+        skipped_existing_artifact_count: fetch_result.skipped_existing_artifact_count,
+        reused_source_chunk_count: reconstruct.reused_source_chunk_count,
+        reused_source_chunk_percent,
+        total_logical_size: snapshot_manifest.total_logical_size,
+        total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
+        reconstruct_timings: crate::cli::reporting::reconstruct_timings_summary(
+            &reconstruct.reconstruct_timings,
+        ),
+        verify_timings: crate::cli::reporting::verify_timings_summary(&reconstruct.verify_timings),
+        outputs: crate::cli::reporting::optional_output_paths(&stats_json_out),
+    };
+    write_report(&stats_json_out, &stats)?;
+
+    if verbose_output_enabled() {
+        println!(
+            "downloaded and reconstructed snapshot {} to {}",
+            stats.snapshot_id, stats.destination_dir
+        );
+        println!(
+            "artifacts: required={}, downloaded={}, existing={}",
+            stats.required_artifact_count,
+            stats.downloaded_artifact_count,
+            stats.skipped_existing_artifact_count
+        );
+    }
+    crate::cli::reporting::print_reconstruct_timings(&reconstruct.reconstruct_timings);
+    crate::cli::reporting::print_verify_timings(&reconstruct.verify_timings);
     Ok(())
 }
 
