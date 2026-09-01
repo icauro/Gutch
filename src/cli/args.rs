@@ -303,6 +303,8 @@ pub(crate) enum SnapshotCommands {
         session_id: Option<String>,
         #[arg(long = "bundle")]
         bundles: Vec<String>,
+        #[arg(long = "artifact-url-manifest", value_parser = parse_absolute_path)]
+        artifact_url_manifest: Option<PathBuf>,
     },
     Verify {
         #[arg(long = "repo", value_parser = parse_absolute_path)]

@@ -20,6 +20,7 @@ pub(crate) struct FetchCommand {
     pub(crate) bundle_downloads_endpoint: Option<String>,
     pub(crate) session_id: Option<String>,
     pub(crate) bundles: Vec<String>,
+    pub(crate) artifact_url_manifest: Option<std::path::PathBuf>,
 }
 
 pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
@@ -34,6 +35,7 @@ pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
         bundle_downloads_endpoint,
         session_id,
         bundles,
+        artifact_url_manifest,
     } = command;
     let progress = CliProgressSink::new();
     let bundle_url_provider = bundle_downloads_endpoint
@@ -60,6 +62,10 @@ pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
             ))
         })
         .transpose()?;
+    let mut direct_downloads = parse_bundle_downloads(&bundles)?;
+    if let Some(manifest_path) = artifact_url_manifest {
+        direct_downloads.extend(parse_artifact_url_manifest(&manifest_path)?);
+    }
     let result = g::fetch_snapshot(&g::SnapshotFetchRequest {
         repo_path: repo,
         snapshot_id,
@@ -68,7 +74,7 @@ pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
         product_metadata_url,
         blueprint_url,
         chunk_index_url,
-        bundles: parse_bundle_downloads(&bundles)?,
+        bundles: direct_downloads,
         bundle_url_provider,
         control: g::GutchOperationControl::default().with_progress(progress),
     })?;
@@ -84,6 +90,12 @@ pub(crate) fn fetch(command: FetchCommand) -> g::Result<()> {
             result.required_bundle_count,
             result.downloaded_bundle_count,
             result.skipped_existing_bundle_count
+        );
+        println!(
+            "artifacts: required={}, downloaded={}, existing={}",
+            result.required_artifact_count,
+            result.downloaded_artifact_count,
+            result.skipped_existing_artifact_count
         );
     }
     Ok(())
@@ -149,6 +161,28 @@ fn resolve_bundle_urls(
         bundles: Vec<g::BundleDownload>,
     }
     Ok(serde_json::from_slice::<BundleUrlsResponse>(&bytes)?.bundles)
+}
+
+fn parse_artifact_url_manifest(path: &std::path::Path) -> g::Result<Vec<g::BundleDownload>> {
+    let bytes = std::fs::read(path)?;
+    let urls = serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&bytes)
+        .map_err(|error| {
+            g::Error::manifest(format!(
+                "invalid artifact URL manifest '{}': {error}",
+                path.display()
+            ))
+        })?;
+    urls.into_iter()
+        .map(|(bundle_id, url)| {
+            if bundle_id.trim().is_empty() || url.trim().is_empty() {
+                return Err(g::Error::manifest(format!(
+                    "artifact URL manifest '{}' contains an empty artifact ID or URL",
+                    path.display()
+                )));
+            }
+            Ok(g::BundleDownload { bundle_id, url })
+        })
+        .collect()
 }
 
 pub(crate) fn verify(

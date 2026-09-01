@@ -305,6 +305,79 @@ fn check_gutch_repo_reports_snapshots() {
 }
 
 #[test]
+fn check_and_verify_report_loose_chunk_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    ensure_gutch_repo_layout(&paths, "loose-repo").unwrap();
+
+    let raw_bytes = b"loose artifact content";
+    let chunk_hash = test_hash("loose artifact content");
+    let compression_profile = manifest::CompressionProfile::default();
+    let compressed_bytes =
+        crate::compress::compress_with_level(raw_bytes, compression_profile.zstd_level).unwrap();
+    let chunk_path = chunk_path(&paths, &chunk_hash).unwrap();
+    std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
+    std::fs::write(&chunk_path, &compressed_bytes).unwrap();
+
+    let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
+    repo_manifest.set_artifact_profile(
+        manifest::ArtifactSizingPreset::Chunk128KiB,
+        manifest::CompressionPreset::Zstd3,
+        manifest::BundleSizingPreset::Bundle16MiB,
+        manifest::ArtifactStorageMode::LooseChunks,
+    );
+    write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
+
+    let snapshot_id = test_hash("loose snapshot");
+    let mut snapshot = SnapshotManifest::new(
+        snapshot_id.clone(),
+        exclusive_tags("1.0.0", "windows", "x86_64", "base"),
+    );
+    snapshot.push_file(manifest::FileManifest {
+        path: "game.exe".to_string(),
+        size: raw_bytes.len() as u64,
+        executable: true,
+        read_only: false,
+        full_file_hash: chunk_hash.clone(),
+        chunks: vec![manifest::ChunkRef {
+            chunk_hash: chunk_hash.clone(),
+            raw_size: raw_bytes.len() as u64,
+        }],
+    });
+    write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+
+    let index = manifest::ChunkIndex {
+        format_version: manifest::FORMAT_VERSION.to_string(),
+        updated_at: String::new(),
+        entries: BTreeMap::from([(
+            chunk_hash.clone(),
+            manifest::ChunkIndexEntry {
+                bundle_id: chunk_hash,
+                raw_size: raw_bytes.len() as u64,
+                compressed_size: compressed_bytes.len() as u64,
+                storage_mode: manifest::ArtifactStorageMode::LooseChunks,
+            },
+        )]),
+    };
+    write_chunk_index(&paths, &index).unwrap();
+
+    let status = check_gutch_repo(temp.path()).unwrap();
+    assert_eq!(status.artifact_count, 1);
+    assert_eq!(status.snapshots[0].required_artifact_count, 1);
+    assert_eq!(status.snapshots[0].missing_artifact_count, 0);
+
+    let verification = crate::verify_gutch_repo_artifacts(
+        temp.path(),
+        Some(&snapshot_id),
+        crate::VerifyMode::Strict,
+    )
+    .unwrap();
+    assert!(verification.ok);
+    assert_eq!(verification.snapshots[0].required_artifact_count, 1);
+    assert_eq!(verification.snapshots[0].corrupt_artifact_count, 0);
+}
+
+#[test]
 fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
     let root = std::env::temp_dir().join(format!(
         "gutch_source_discover_test_{}_{}",

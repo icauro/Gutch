@@ -3,10 +3,10 @@ use std::path::Path;
 
 use crate::Result;
 
-use super::inventory::{list_repo_bundle_paths, list_repo_snapshot_ids};
+use super::inventory::{list_repo_artifact_paths, list_repo_snapshot_ids};
 use super::{
-    load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest, required_bundle_ids,
-    snapshot_metadata_path, validate_snapshot_id,
+    load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest, snapshot_metadata_path,
+    validate_snapshot_id,
 };
 
 pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<()> {
@@ -62,7 +62,7 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
     let remaining_snapshots = list_repo_snapshot_ids(&repo_paths)?;
 
     let chunk_index = load_chunk_index(&repo_paths)?;
-    let mut still_required_bundle_ids = HashSet::new();
+    let mut still_required_artifacts = HashSet::new();
     let snapshot_count = remaining_snapshots.len().max(1);
     for (i, snapshot_id) in remaining_snapshots.iter().enumerate() {
         control.checkpoint()?;
@@ -87,24 +87,27 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
             },
         );
         let manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
-        still_required_bundle_ids.extend(required_bundle_ids(&manifest, &chunk_index));
+        still_required_artifacts.extend(crate::required_artifacts_from_index(
+            &manifest,
+            &chunk_index,
+        ));
     }
 
-    let bundle_files = list_repo_bundle_paths(&repo_paths);
+    let artifact_files = list_repo_artifact_paths(&repo_paths)?;
 
-    let bundle_count = bundle_files.len().max(1);
-    let mut orphan_bundles = Vec::new();
-    for (i, bundle_path) in bundle_files.iter().enumerate() {
+    let artifact_count = artifact_files.len().max(1);
+    let mut orphan_artifacts = Vec::new();
+    for (i, (artifact, artifact_path)) in artifact_files.iter().enumerate() {
         control.checkpoint()?;
-        if i % 50 == 0 || i == bundle_files.len() - 1 {
+        if i % 50 == 0 || i == artifact_files.len() - 1 {
             let progress_current =
-                SCAN_BUNDLES_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / bundle_count;
+                SCAN_BUNDLES_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / artifact_count;
             emit_progress(
                 control.progress(),
                 GutchProgressEvent {
                     operation: GutchOperation::SnapshotDelete,
                     phase: GutchProgressPhase::ScanBundles,
-                    message: format!("Scanning bundles ({}/{})", i + 1, bundle_files.len()),
+                    message: format!("Scanning artifacts ({}/{})", i + 1, artifact_files.len()),
                     current: progress_current.min(SCAN_BUNDLES_END),
                     total: TOTAL,
                     transferred_bytes: 0,
@@ -114,10 +117,8 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
                 },
             );
         }
-        if let Some(bundle_id) = crate::bundle_id_from_bundle_path(bundle_path)
-            && !still_required_bundle_ids.contains(&bundle_id)
-        {
-            orphan_bundles.push(bundle_path.clone());
+        if !still_required_artifacts.contains(artifact) {
+            orphan_artifacts.push(artifact_path.clone());
         }
     }
 
@@ -126,7 +127,7 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
         GutchProgressEvent {
             operation: GutchOperation::SnapshotDelete,
             phase: GutchProgressPhase::DeleteOrphans,
-            message: format!("Removing {} orphan bundle(s)", orphan_bundles.len()),
+            message: format!("Removing {} orphan artifact(s)", orphan_artifacts.len()),
             current: SCAN_BUNDLES_END,
             total: TOTAL,
             transferred_bytes: 0,
@@ -135,9 +136,9 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
             done: false,
         },
     );
-    for orphan_path in &orphan_bundles {
+    for orphan_path in &orphan_artifacts {
         control.checkpoint()?;
         std::fs::remove_file(orphan_path)?;
     }
-    Ok(orphan_bundles.len())
+    Ok(orphan_artifacts.len())
 }

@@ -19,6 +19,9 @@ pub struct ReconstructTimings {
     pub(crate) bundle_read: Duration,
     pub(crate) bundle_read_compressed_bytes: u64,
     pub(crate) bundle_read_decompressed_bytes: u64,
+    pub(crate) artifact_read: Duration,
+    pub(crate) artifact_read_compressed_bytes: u64,
+    pub(crate) artifact_read_decompressed_bytes: u64,
     pub(crate) chunk_verify: Duration,
     pub(crate) chunk_verify_bytes: u64,
     pub(crate) file_rebuild: Duration,
@@ -83,6 +86,7 @@ pub struct SnapshotReconstructResult {
     pub reused_source_chunk_count: usize,
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,
+    pub required_artifact_count: usize,
     pub(crate) reconstruct_timings: ReconstructTimings,
     pub(crate) verify_timings: VerifyTimings,
 }
@@ -105,6 +109,7 @@ pub struct SnapshotReconstructFromRepoResult {
     pub snapshot_manifest: SnapshotManifest,
     pub reconstruct_result: SnapshotReconstructResult,
     pub resolved_bundle_file_count: usize,
+    pub resolved_artifact_file_count: usize,
     pub source_destination_dir: Option<PathBuf>,
 }
 
@@ -199,6 +204,9 @@ pub struct SnapshotFetchResult {
     pub required_bundle_count: usize,
     pub downloaded_bundle_count: usize,
     pub skipped_existing_bundle_count: usize,
+    pub required_artifact_count: usize,
+    pub downloaded_artifact_count: usize,
+    pub skipped_existing_artifact_count: usize,
 }
 
 #[derive(Clone)]

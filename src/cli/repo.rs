@@ -115,13 +115,13 @@ pub(crate) fn run(
                 println!("Snapshots");
                 for snapshot in &status.snapshots {
                     println!(
-                        "{} | version={} | os={} | arch={} | files={} | missing_bundles={}",
+                        "{} | version={} | os={} | arch={} | files={} | missing_artifacts={}",
                         snapshot.snapshot_id,
                         snapshot.version_id,
                         snapshot.os,
                         snapshot.arch,
                         snapshot.file_count,
-                        snapshot.missing_bundle_count
+                        snapshot.missing_artifact_count
                     );
                 }
                 println!("{SECTION_SEPARATOR}");
@@ -139,6 +139,8 @@ pub(crate) fn run(
                 println!("snapshots: {}", status.snapshots.len());
                 println!("bundles: {}", status.bundle_count);
                 println!("bundle_bytes: {}", status.bundle_bytes);
+                println!("artifacts: {}", status.artifact_count);
+                println!("artifact_bytes: {}", status.artifact_bytes);
                 if let Some(repo_timings) = status.timings.as_ref() {
                     println!();
                     print_repo_check_timings(repo_timings);
@@ -176,17 +178,17 @@ pub(crate) fn run(
             );
             for snapshot_result in &result.snapshots {
                 println!(
-                    "{} | ok={} | missing={} | corrupt={}",
+                    "{} | ok={} | missing_artifacts={} | corrupt_artifacts={}",
                     snapshot_result.snapshot_id,
                     snapshot_result.ok,
-                    snapshot_result.missing_bundle_count,
-                    snapshot_result.corrupt_bundle_count
+                    snapshot_result.missing_artifact_count,
+                    snapshot_result.corrupt_artifact_count
                 );
-                for missing in &snapshot_result.missing_bundles {
-                    println!("  missing bundle: {missing}");
+                for missing in &snapshot_result.missing_artifacts {
+                    println!("  missing artifact: {missing}");
                 }
-                for corrupt in &snapshot_result.corrupt_bundles {
-                    println!("  corrupt bundle: {corrupt}");
+                for corrupt in &snapshot_result.corrupt_artifacts {
+                    println!("  corrupt artifact: {corrupt}");
                 }
             }
         }

@@ -22,10 +22,11 @@ use crate::{Error, Result};
 
 pub(super) struct ReconstructPipelinePlan {
     files: Vec<ReconstructPipelineFile>,
-    bundle_to_file_indices: HashMap<String, Vec<usize>>,
-    remaining_bundle_dependencies: Vec<usize>,
-    pub required_bundle_ids: HashSet<String>,
+    artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>>,
+    remaining_artifact_dependencies: Vec<usize>,
     pub required_bundle_count: usize,
+    pub required_artifacts: HashSet<crate::ArtifactRef>,
+    pub required_artifact_count: usize,
     required_chunk_count: usize,
     reused_source_chunk_count: usize,
 }
@@ -38,7 +39,7 @@ pub(super) struct ReconstructPipelineApplyRequest<'a> {
     pub staging_dir: Option<&'a Path>,
     pub source_destination_dir: Option<PathBuf>,
     pub runtime_hints: &'a RuntimeResourceHints,
-    pub existing_bundle_ids: &'a HashSet<String>,
+    pub existing_artifacts: &'a HashSet<crate::ArtifactRef>,
     pub pending_bundle_downloads: &'a [PendingBundleDownload],
     pub control: &'a GutchOperationControl,
     pub download_client: Option<&'a reqwest::blocking::Client>,
@@ -71,7 +72,7 @@ enum ReconstructPipelineChunkInput {
         source_path: PathBuf,
         source_offset: u64,
     },
-    Bundle(ReconstructPipelineChunk),
+    Artifact(ReconstructPipelineChunk),
 }
 
 #[derive(Clone)]
@@ -79,8 +80,8 @@ struct ReconstructPipelineChunk {
     chunk_hash: String,
     raw_size: u64,
     compressed_size: u64,
-    bundle_id: String,
-    bundle_path: PathBuf,
+    artifact: crate::ArtifactRef,
+    artifact_path: PathBuf,
 }
 
 struct SourceChunkLocation {
@@ -88,14 +89,14 @@ struct SourceChunkLocation {
     offset: u64,
 }
 
-enum BundlePipelineEvent {
-    Ready(String),
+enum ArtifactPipelineEvent {
+    Ready(crate::ArtifactRef),
     Failed(Error),
     WorkerDone,
 }
 
 enum ReconstructPipelineEvent {
-    Bundle(BundlePipelineEvent),
+    Artifact(ArtifactPipelineEvent),
     FileCompleted(ReconstructTimings),
     FileFailed(Error),
     FileWorkerDone,
@@ -220,13 +221,13 @@ pub(super) fn finalize_snapshot_entries(
     Ok(())
 }
 
-fn has_files_still_waiting_on_bundles(
+fn has_files_still_waiting_on_artifacts(
     scheduled_files: &[bool],
-    remaining_bundle_dependencies: &[usize],
+    remaining_artifact_dependencies: &[usize],
 ) -> bool {
     scheduled_files
         .iter()
-        .zip(remaining_bundle_dependencies.iter())
+        .zip(remaining_artifact_dependencies.iter())
         .any(|(scheduled, remaining)| !scheduled && *remaining > 0)
 }
 
@@ -234,13 +235,14 @@ pub(super) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &crate::manifest::ChunkIndex,
     repo_paths: &crate::GutchRepoPaths,
-    existing_bundle_ids: &HashSet<String>,
+    existing_artifacts: &HashSet<crate::ArtifactRef>,
     verified_source: Option<SnapshotReconstructSource<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
-    let mut bundle_to_file_indices: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut remaining_bundle_dependencies = Vec::with_capacity(snapshot_manifest.file_count());
-    let mut required_bundle_ids = HashSet::new();
+    let mut artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>> = HashMap::new();
+    let mut remaining_artifact_dependencies = Vec::with_capacity(snapshot_manifest.file_count());
+    let mut bundled_artifacts = HashSet::new();
+    let mut required_artifacts = HashSet::new();
     let mut reused_source_chunk_count = 0usize;
     let source_files_by_path = verified_source
         .map(|source| {
@@ -273,13 +275,13 @@ pub(super) fn build_reconstruct_pipeline_plan(
                     )?,
                 },
             });
-            remaining_bundle_dependencies.push(0);
+            remaining_artifact_dependencies.push(0);
             reused_source_chunk_count += file_manifest.chunks.len();
             continue;
         }
 
         let mut chunks = Vec::with_capacity(file_manifest.chunks.len());
-        let mut missing_bundle_dependencies = HashSet::new();
+        let mut missing_artifact_dependencies = HashSet::new();
         for chunk_ref in &file_manifest.chunks {
             if let Some(source_chunk) = source_chunk_locations.get(&chunk_ref.chunk_hash) {
                 chunks.push(ReconstructPipelineChunkInput::Source {
@@ -300,35 +302,33 @@ pub(super) fn build_reconstruct_pipeline_plan(
                         chunk_ref.chunk_hash
                     ))
                 })?;
-            if entry.storage_mode != crate::manifest::ArtifactStorageMode::Bundled {
-                return Err(Error::manifest(format!(
-                    "fresh reconstruction pipeline only supports bundled chunk storage, but '{}' uses {:?}",
-                    file_manifest.path, entry.storage_mode
-                )));
+            let artifact = crate::ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry);
+            if let crate::ArtifactRef::Bundle { .. } = &artifact {
+                bundled_artifacts.insert(artifact.clone());
             }
-            chunks.push(ReconstructPipelineChunkInput::Bundle(
+            required_artifacts.insert(artifact.clone());
+            if !existing_artifacts.contains(&artifact) {
+                missing_artifact_dependencies.insert(artifact.clone());
+            }
+            chunks.push(ReconstructPipelineChunkInput::Artifact(
                 ReconstructPipelineChunk {
                     chunk_hash: chunk_ref.chunk_hash.clone(),
                     raw_size: chunk_ref.raw_size,
                     compressed_size: entry.compressed_size,
-                    bundle_id: entry.bundle_id.clone(),
-                    bundle_path: crate::bundle_path(repo_paths, &entry.bundle_id)?,
+                    artifact_path: artifact.local_path(repo_paths)?,
+                    artifact,
                 },
             ));
-            required_bundle_ids.insert(entry.bundle_id.clone());
-            if !existing_bundle_ids.contains(&entry.bundle_id) {
-                missing_bundle_dependencies.insert(entry.bundle_id.clone());
-            }
         }
 
         let file_index = files.len();
-        for bundle_id in &missing_bundle_dependencies {
-            bundle_to_file_indices
-                .entry(bundle_id.clone())
+        for artifact in &missing_artifact_dependencies {
+            artifact_to_file_indices
+                .entry(artifact.clone())
                 .or_default()
                 .push(file_index);
         }
-        remaining_bundle_dependencies.push(missing_bundle_dependencies.len());
+        remaining_artifact_dependencies.push(missing_artifact_dependencies.len());
         files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
@@ -339,10 +339,11 @@ pub(super) fn build_reconstruct_pipeline_plan(
 
     Ok(ReconstructPipelinePlan {
         files,
-        bundle_to_file_indices,
-        remaining_bundle_dependencies,
-        required_bundle_ids: required_bundle_ids.clone(),
-        required_bundle_count: required_bundle_ids.len(),
+        artifact_to_file_indices,
+        remaining_artifact_dependencies,
+        required_bundle_count: bundled_artifacts.len(),
+        required_artifact_count: required_artifacts.len(),
+        required_artifacts,
         required_chunk_count: snapshot_manifest
             .files()
             .map(|file| file.chunks.len())
@@ -382,6 +383,7 @@ pub(super) fn apply_reconstruct_pipeline(
         prepare_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
+        let required_artifact_count = pipeline_plan.required_artifact_count;
         let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
         let (reconstruct_timings, verify_timings) =
             execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
@@ -390,7 +392,7 @@ pub(super) fn apply_reconstruct_pipeline(
                 snapshot_id: &request.snapshot_manifest.snapshot_id,
                 compression_profile: &request.compression_profile,
                 runtime_hints: request.runtime_hints,
-                existing_bundle_ids: request.existing_bundle_ids,
+                existing_artifacts: request.existing_artifacts,
                 pending_bundle_downloads: request.pending_bundle_downloads,
                 control: request.control,
                 download_client: request.download_client,
@@ -412,11 +414,13 @@ pub(super) fn apply_reconstruct_pipeline(
                     reused_source_chunk_count,
                     required_chunk_count,
                     required_bundle_count,
+                    required_artifact_count,
                     reconstruct_timings,
                     verify_timings,
                 },
             ),
             resolved_bundle_file_count: required_bundle_count,
+            resolved_artifact_file_count: required_artifact_count,
             source_destination_dir: request.source_destination_dir.clone(),
         })
     })();
@@ -433,7 +437,7 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) snapshot_id: &'a str,
     pub(super) compression_profile: &'a crate::manifest::CompressionProfile,
     pub(super) runtime_hints: &'a RuntimeResourceHints,
-    pub(super) existing_bundle_ids: &'a HashSet<String>,
+    pub(super) existing_artifacts: &'a HashSet<crate::ArtifactRef>,
     pub(super) pending_bundle_downloads: &'a [PendingBundleDownload],
     pub(super) control: &'a GutchOperationControl,
     pub(super) download_client: Option<&'a reqwest::blocking::Client>,
@@ -449,7 +453,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         snapshot_id,
         compression_profile,
         runtime_hints,
-        existing_bundle_ids,
+        existing_artifacts,
         pending_bundle_downloads,
         control,
         download_client,
@@ -470,10 +474,10 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let mut ready_files = VecDeque::new();
     let mut scheduled_files = vec![false; pipeline_plan.files.len()];
     let mut completed_file_count = 0usize;
-    let mut available_bundle_ids = existing_bundle_ids.clone();
+    let mut available_artifacts = existing_artifacts.clone();
 
     for (file_index, remaining) in pipeline_plan
-        .remaining_bundle_dependencies
+        .remaining_artifact_dependencies
         .iter()
         .enumerate()
     {
@@ -503,10 +507,10 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         .as_ref()
         .map(|plan| plan.worker_count.max(1))
         .unwrap_or(1);
-    let bundle_worker_count = pending_bundle_downloads.len();
-    if bundle_worker_count == 0
+    let artifact_worker_count = pending_bundle_downloads.len();
+    if artifact_worker_count == 0
         && pipeline_plan
-            .remaining_bundle_dependencies
+            .remaining_artifact_dependencies
             .iter()
             .any(|remaining| *remaining > 0)
     {
@@ -516,7 +520,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     }
 
     let (pipeline_event_tx, pipeline_event_rx) = mpsc::channel::<ReconstructPipelineEvent>();
-    let bundle_task_receiver = Arc::new(Mutex::new(
+    let artifact_task_receiver = Arc::new(Mutex::new(
         pending_bundle_downloads
             .iter()
             .cloned()
@@ -525,36 +529,36 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let (file_task_tx, file_task_rx) = mpsc::channel::<usize>();
     let file_task_rx = Arc::new(Mutex::new(file_task_rx));
     let file_plans = Arc::new(pipeline_plan.files.clone());
-    let mut bundle_worker_handles = Vec::new();
+    let mut artifact_worker_handles = Vec::new();
     if let (Some(download_client), Some(transfer_progress)) = (download_client, transfer_progress) {
-        for _ in 0..bundle_worker_count {
+        for _ in 0..artifact_worker_count {
             let event_tx = pipeline_event_tx.clone();
-            let task_receiver = Arc::clone(&bundle_task_receiver);
+            let task_receiver = Arc::clone(&artifact_task_receiver);
             let control = control.clone();
             let transfer_progress = Arc::clone(transfer_progress);
             let download_client = download_client.clone();
-            bundle_worker_handles.push(thread::spawn(move || {
+            artifact_worker_handles.push(thread::spawn(move || {
                 loop {
                     let next_task = match task_receiver.lock() {
                         Ok(mut tasks) => tasks.pop_front(),
                         Err(_) => {
-                            let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
-                                BundlePipelineEvent::Failed(Error::reconstruct(
-                                    "bundle task state is unavailable",
+                            let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
+                                ArtifactPipelineEvent::Failed(Error::reconstruct(
+                                    "artifact task state is unavailable",
                                 )),
                             ));
                             return;
                         }
                     };
                     let Some(bundle_download) = next_task else {
-                        let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
-                            BundlePipelineEvent::WorkerDone,
+                        let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
+                            ArtifactPipelineEvent::WorkerDone,
                         ));
                         return;
                     };
                     if let Err(error) = control.checkpoint() {
-                        let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
-                            BundlePipelineEvent::Failed(error),
+                        let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
+                            ArtifactPipelineEvent::Failed(error),
                         ));
                         return;
                     }
@@ -566,13 +570,13 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     );
                     match result {
                         Ok(_) => {
-                            let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
-                                BundlePipelineEvent::Ready(bundle_download.bundle_id),
+                            let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
+                                ArtifactPipelineEvent::Ready(bundle_download.artifact.clone()),
                             ));
                         }
                         Err(error) => {
-                            let _ = event_tx.send(ReconstructPipelineEvent::Bundle(
-                                BundlePipelineEvent::Failed(error),
+                            let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
+                                ArtifactPipelineEvent::Failed(error),
                             ));
                             return;
                         }
@@ -633,7 +637,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     }
     drop(pipeline_event_tx);
 
-    let mut completed_bundle_workers = 0usize;
+    let mut completed_artifact_workers = 0usize;
     let mut completed_file_workers = 0usize;
     let mut pipeline_error: Option<Error> = None;
     let queue_ready_file = |file_index: usize| -> Result<()> {
@@ -658,16 +662,17 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         }
 
         match pipeline_event_rx.recv() {
-            Ok(ReconstructPipelineEvent::Bundle(BundlePipelineEvent::Ready(bundle_id))) => {
-                if available_bundle_ids.insert(bundle_id.clone())
-                    && let Some(file_indices) = pipeline_plan.bundle_to_file_indices.get(&bundle_id)
+            Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::Ready(artifact))) => {
+                if available_artifacts.insert(artifact.clone())
+                    && let Some(file_indices) =
+                        pipeline_plan.artifact_to_file_indices.get(&artifact)
                 {
                     for &file_index in file_indices {
-                        if pipeline_plan.remaining_bundle_dependencies[file_index] == 0 {
+                        if pipeline_plan.remaining_artifact_dependencies[file_index] == 0 {
                             continue;
                         }
-                        pipeline_plan.remaining_bundle_dependencies[file_index] -= 1;
-                        if pipeline_plan.remaining_bundle_dependencies[file_index] == 0
+                        pipeline_plan.remaining_artifact_dependencies[file_index] -= 1;
+                        if pipeline_plan.remaining_artifact_dependencies[file_index] == 0
                             && !scheduled_files[file_index]
                         {
                             scheduled_files[file_index] = true;
@@ -676,17 +681,17 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     }
                 }
             }
-            Ok(ReconstructPipelineEvent::Bundle(BundlePipelineEvent::Failed(error))) => {
+            Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::Failed(error))) => {
                 pipeline_error = Some(error);
                 break;
             }
-            Ok(ReconstructPipelineEvent::Bundle(BundlePipelineEvent::WorkerDone)) => {
-                completed_bundle_workers += 1;
-                if completed_bundle_workers == bundle_worker_count
+            Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::WorkerDone)) => {
+                completed_artifact_workers += 1;
+                if completed_artifact_workers == artifact_worker_count
                     && completed_file_count < pipeline_plan.files.len()
-                    && has_files_still_waiting_on_bundles(
+                    && has_files_still_waiting_on_artifacts(
                         &scheduled_files,
-                        &pipeline_plan.remaining_bundle_dependencies,
+                        &pipeline_plan.remaining_artifact_dependencies,
                     )
                 {
                     pipeline_error = Some(Error::reconstruct(
@@ -746,10 +751,10 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     }
 
     drop(file_task_tx);
-    for handle in bundle_worker_handles {
+    for handle in artifact_worker_handles {
         handle
             .join()
-            .map_err(|_| Error::reconstruct("bundle download worker panicked"))?;
+            .map_err(|_| Error::reconstruct("artifact download worker panicked"))?;
     }
     for handle in file_worker_handles {
         handle
@@ -841,7 +846,7 @@ fn reconstruct_pipeline_file_from_parts(
     let mut file_hasher = blake3::Hasher::new();
     let mut written = 0u64;
     let mut bundle_readers: HashMap<
-        String,
+        crate::ArtifactRef,
         (crate::bundle::BundleReader<File>, HashMap<String, usize>),
     > = HashMap::new();
     let mut source_readers: HashMap<PathBuf, std::io::BufReader<File>> = HashMap::new();
@@ -878,26 +883,45 @@ fn reconstruct_pipeline_file_from_parts(
                 }
                 chunk_bytes
             }
-            ReconstructPipelineChunkInput::Bundle(chunk) => {
-                let reader_entry = match bundle_readers.entry(chunk.bundle_id.clone()) {
-                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        let file = File::open(&chunk.bundle_path)?;
-                        let reader = crate::bundle::BundleReader::open(file, compression_profile)?;
-                        let chunk_index = reader.chunk_index();
-                        entry.insert((reader, chunk_index))
+            ReconstructPipelineChunkInput::Artifact(chunk) => {
+                let read_started_at = Instant::now();
+                let chunk_bytes = match &chunk.artifact {
+                    crate::ArtifactRef::Bundle { .. } => {
+                        let reader_entry = match bundle_readers.entry(chunk.artifact.clone()) {
+                            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                            std::collections::hash_map::Entry::Vacant(entry) => {
+                                let file = File::open(&chunk.artifact_path)?;
+                                let reader =
+                                    crate::bundle::BundleReader::open(file, compression_profile)?;
+                                let chunk_index = reader.chunk_index();
+                                entry.insert((reader, chunk_index))
+                            }
+                        };
+                        let chunk_index = reader_entry
+                            .1
+                            .get(&chunk.chunk_hash)
+                            .copied()
+                            .ok_or_else(|| Error::MissingChunk(chunk.chunk_hash.clone()))?;
+                        reader_entry.0.read_chunk_bytes(chunk_index)?.to_vec()
+                    }
+                    crate::ArtifactRef::LooseChunk { hash } => {
+                        crate::artifact::store::read_loose_chunk(
+                            &chunk.artifact_path,
+                            hash,
+                            chunk.raw_size,
+                            compression_profile,
+                        )?
                     }
                 };
-                let chunk_index = reader_entry
-                    .1
-                    .get(&chunk.chunk_hash)
-                    .copied()
-                    .ok_or_else(|| Error::MissingChunk(chunk.chunk_hash.clone()))?;
-                let read_started_at = Instant::now();
-                let chunk_bytes = reader_entry.0.read_chunk_bytes(chunk_index)?.to_vec();
-                timings.bundle_read += read_started_at.elapsed();
-                timings.bundle_read_compressed_bytes += chunk.compressed_size;
-                timings.bundle_read_decompressed_bytes += chunk_bytes.len() as u64;
+                let read_elapsed = read_started_at.elapsed();
+                timings.artifact_read += read_elapsed;
+                timings.artifact_read_compressed_bytes += chunk.compressed_size;
+                timings.artifact_read_decompressed_bytes += chunk_bytes.len() as u64;
+                if matches!(chunk.artifact, crate::ArtifactRef::Bundle { .. }) {
+                    timings.bundle_read += read_elapsed;
+                    timings.bundle_read_compressed_bytes += chunk.compressed_size;
+                    timings.bundle_read_decompressed_bytes += chunk_bytes.len() as u64;
+                }
                 if chunk_bytes.len() as u64 != chunk.raw_size {
                     return Err(Error::reconstruct(format!(
                         "chunk size mismatch for '{}' in {}: expected {}, got {}",
@@ -1002,6 +1026,11 @@ fn accumulate_pipeline_timings(
     verify_timings: &mut crate::verify::VerifyTimings,
     file_timings: &ReconstructTimings,
 ) {
+    reconstruct_timings.artifact_read += file_timings.artifact_read;
+    reconstruct_timings.artifact_read_compressed_bytes +=
+        file_timings.artifact_read_compressed_bytes;
+    reconstruct_timings.artifact_read_decompressed_bytes +=
+        file_timings.artifact_read_decompressed_bytes;
     reconstruct_timings.bundle_read += file_timings.bundle_read;
     reconstruct_timings.bundle_read_compressed_bytes += file_timings.bundle_read_compressed_bytes;
     reconstruct_timings.bundle_read_decompressed_bytes +=
@@ -1227,7 +1256,7 @@ mod tests {
             &plan.files[0].reconstruction,
             ReconstructPipelineReconstruction::ReconstructFromParts { chunks }
                 if matches!(chunks[0], ReconstructPipelineChunkInput::Source { .. })
-                    && matches!(chunks[1], ReconstructPipelineChunkInput::Bundle(_))
+                    && matches!(chunks[1], ReconstructPipelineChunkInput::Artifact(_))
         ));
 
         let _ = std::fs::remove_dir_all(&source_root);
@@ -1235,9 +1264,102 @@ mod tests {
     }
 
     #[test]
-    fn bundle_completion_check_only_fails_when_files_still_wait_on_bundles() {
-        assert!(!has_files_still_waiting_on_bundles(&[true, true], &[0, 1]));
-        assert!(!has_files_still_waiting_on_bundles(&[true, true], &[0, 0]));
-        assert!(has_files_still_waiting_on_bundles(&[true, false], &[0, 1]));
+    fn pipeline_reconstructs_from_loose_chunk_artifact() {
+        let repo_root = crate::test_util::temp_path("gutch_pipeline_loose_repo");
+        let destination = crate::test_util::temp_path("gutch_pipeline_loose_destination");
+        let _ = std::fs::remove_dir_all(&repo_root);
+        let _ = std::fs::remove_dir_all(&destination);
+        let repo_paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
+        crate::ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
+
+        let chunk_hash = test_hash(b"game");
+        let artifact = crate::ArtifactRef::LooseChunk {
+            hash: chunk_hash.clone(),
+        };
+        let chunk_path = artifact.local_path(&repo_paths).unwrap();
+        std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &chunk_path,
+            crate::compress::compress_with_level(
+                b"game",
+                crate::manifest::CompressionProfile::for_preset(
+                    crate::manifest::CompressionPreset::Zstd3,
+                )
+                .zstd_level,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let chunk_index = crate::manifest::ChunkIndex {
+            format_version: "1".to_string(),
+            updated_at: String::new(),
+            entries: std::collections::BTreeMap::from([(
+                chunk_hash.clone(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: chunk_hash.clone(),
+                    raw_size: 4,
+                    compressed_size: std::fs::metadata(&chunk_path).unwrap().len(),
+                    storage_mode: manifest::ArtifactStorageMode::LooseChunks,
+                },
+            )]),
+        };
+        let snapshot_manifest =
+            snapshot_manifest_with_chunk("loose-snapshot", &test_hash(b"game"), chunk_hash);
+        let existing_artifacts = HashSet::from([artifact]);
+        let plan = build_reconstruct_pipeline_plan(
+            &snapshot_manifest,
+            &chunk_index,
+            &repo_paths,
+            &existing_artifacts,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(plan.required_bundle_count, 0);
+        assert_eq!(plan.required_artifact_count, 1);
+        let result = apply_reconstruct_pipeline(
+            ReconstructPipelineApplyRequest {
+                repo_root: &repo_root,
+                compression_profile: crate::manifest::CompressionProfile::for_preset(
+                    crate::manifest::CompressionPreset::Zstd3,
+                ),
+                snapshot_manifest: &snapshot_manifest,
+                destination_dir: &destination,
+                staging_dir: None,
+                source_destination_dir: None,
+                runtime_hints: &RuntimeResourceHints::default(),
+                existing_artifacts: &existing_artifacts,
+                pending_bundle_downloads: &[],
+                control: &crate::GutchOperationControl::default(),
+                download_client: None,
+                transfer_progress: None,
+            },
+            plan,
+        )
+        .unwrap();
+
+        assert_eq!(result.reconstruct_result.required_artifact_count, 1);
+        assert_eq!(
+            std::fs::read(destination.join("game.exe")).unwrap(),
+            b"game"
+        );
+        let _ = std::fs::remove_dir_all(&repo_root);
+        let _ = std::fs::remove_dir_all(&destination);
+    }
+
+    #[test]
+    fn artifact_completion_check_only_fails_when_files_still_wait_on_artifacts() {
+        assert!(!has_files_still_waiting_on_artifacts(
+            &[true, true],
+            &[0, 1]
+        ));
+        assert!(!has_files_still_waiting_on_artifacts(
+            &[true, true],
+            &[0, 0]
+        ));
+        assert!(has_files_still_waiting_on_artifacts(
+            &[true, false],
+            &[0, 1]
+        ));
     }
 }

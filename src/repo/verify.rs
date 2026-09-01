@@ -2,11 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::artifact::bundle;
+use crate::artifact::store::ArtifactRef;
 use crate::verify::VerifyMode;
 use crate::{Error, Result};
 
 use super::{
-    GutchRepoPaths, bundle_path, check_gutch_repo, load_chunk_index, load_gutch_repo_manifest,
+    GutchRepoPaths, check_gutch_repo, load_chunk_index, load_gutch_repo_manifest,
     load_snapshot_manifest, required_bundle_ids,
 };
 
@@ -27,10 +28,15 @@ pub struct SnapshotVerifyResult {
     pub ok: bool,
     pub check_passed: bool,
     pub required_bundle_count: usize,
+    pub required_artifact_count: usize,
     pub missing_bundle_count: usize,
     pub missing_bundles: Vec<String>,
+    pub missing_artifact_count: usize,
+    pub missing_artifacts: Vec<String>,
     pub corrupt_bundle_count: usize,
     pub corrupt_bundles: Vec<String>,
+    pub corrupt_artifact_count: usize,
+    pub corrupt_artifacts: Vec<String>,
 }
 
 /// Verify repo bundle integrity. When `snapshot_id` is None, all repo snapshots are verified.
@@ -68,7 +74,7 @@ pub fn verify_gutch_repo_artifacts(
 
     let mut snapshots = Vec::new();
     for snapshot in selected_snapshots {
-        snapshots.push(verify_snapshot_bundles(
+        snapshots.push(verify_snapshot_artifacts(
             &repo_paths,
             &chunk_index,
             &repo_manifest.compression_profile(),
@@ -88,7 +94,7 @@ pub fn verify_gutch_repo_artifacts(
     })
 }
 
-fn verify_snapshot_bundles(
+fn verify_snapshot_artifacts(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::manifest::ChunkIndex,
     compression_profile: &crate::manifest::CompressionProfile,
@@ -96,34 +102,67 @@ fn verify_snapshot_bundles(
     mode: VerifyMode,
 ) -> Result<SnapshotVerifyResult> {
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
-    let required = required_bundle_ids(&snapshot_manifest, chunk_index);
+    let required_artifacts = crate::required_artifacts(&snapshot_manifest, chunk_index)?;
+    let required_bundles = required_bundle_ids(&snapshot_manifest, chunk_index);
 
-    let mut missing = Vec::new();
-    let mut corrupt = Vec::new();
+    let mut missing_bundles = Vec::new();
+    let mut missing_artifacts = Vec::new();
+    let mut corrupt_bundles = Vec::new();
+    let mut corrupt_artifacts = Vec::new();
 
-    for bundle_id in &required {
-        let path = bundle_path(repo_paths, bundle_id)?;
+    for artifact in &required_artifacts {
+        let path = artifact.local_path(repo_paths)?;
         if !path.exists() {
-            missing.push(bundle_id.clone());
+            if let ArtifactRef::Bundle { id } = artifact {
+                missing_bundles.push(id.clone());
+            }
+            missing_artifacts.push(artifact.id().to_string());
             continue;
         }
-        if let Err(err) = verify_bundle_file(&path, compression_profile, mode) {
-            corrupt.push(format!("{bundle_id}: {err}"));
+        let result = match artifact {
+            ArtifactRef::Bundle { .. } => verify_bundle_file(&path, compression_profile, mode),
+            ArtifactRef::LooseChunk { hash } => {
+                let entry = chunk_index.entries.get(hash).ok_or_else(|| {
+                    Error::manifest(format!(
+                        "missing chunk index entry for required chunk '{hash}'"
+                    ))
+                });
+                entry.and_then(|entry| {
+                    crate::artifact::store::read_loose_chunk(
+                        &path,
+                        hash,
+                        entry.raw_size,
+                        compression_profile,
+                    )
+                    .map(|_| ())
+                })
+            }
+        };
+        if let Err(err) = result {
+            if let ArtifactRef::Bundle { id } = artifact {
+                corrupt_bundles.push(format!("{id}: {err}"));
+            }
+            corrupt_artifacts.push(format!("{}: {err}", artifact.id()));
         }
     }
 
-    let check_passed = missing.is_empty();
-    let ok = check_passed && corrupt.is_empty();
+    let check_passed = missing_artifacts.is_empty();
+    let ok = check_passed && corrupt_artifacts.is_empty();
 
     Ok(SnapshotVerifyResult {
         snapshot_id: snapshot_id.to_string(),
         ok,
         check_passed,
-        required_bundle_count: required.len(),
-        missing_bundle_count: missing.len(),
-        missing_bundles: missing,
-        corrupt_bundle_count: corrupt.len(),
-        corrupt_bundles: corrupt,
+        required_bundle_count: required_bundles.len(),
+        required_artifact_count: required_artifacts.len(),
+        missing_bundle_count: missing_bundles.len(),
+        missing_bundles,
+        missing_artifact_count: missing_artifacts.len(),
+        missing_artifacts,
+        corrupt_bundle_count: corrupt_bundles.len(),
+        corrupt_bundles,
+        corrupt_artifact_count: corrupt_artifacts.len(),
+        corrupt_artifacts,
     })
 }
 

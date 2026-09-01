@@ -179,6 +179,13 @@ pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkInde
     })
 }
 
+pub(crate) fn load_chunk_index_binary_from_bytes(bytes: &[u8]) -> Result<manifest::ChunkIndex> {
+    let mut temporary = tempfile::NamedTempFile::new()?;
+    temporary.write_all(bytes)?;
+    temporary.flush()?;
+    load_chunk_index_binary(temporary.path())
+}
+
 pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex) -> Result<()> {
     crate::helpers::write_atomic_with(path, |file| {
         let mut writer = BufWriter::new(file);

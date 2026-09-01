@@ -262,6 +262,9 @@ pub(crate) struct ReconstructReconstructPhaseSummary {
 #[derive(Debug, Serialize)]
 pub(crate) struct ReconstructReconstructDetailsSummary {
     pub(crate) artifact_read_decode_worker_seconds: f64,
+    pub(crate) artifact_read_compressed_bytes: u64,
+    pub(crate) artifact_read_decompressed_bytes: u64,
+    pub(crate) artifact_read_decompressed_mib_per_second: f64,
     pub(crate) bundle_read_compressed_bytes: u64,
     pub(crate) bundle_read_decompressed_bytes: u64,
     pub(crate) bundle_read_decompressed_mib_per_second: f64,
@@ -475,7 +478,13 @@ pub(crate) fn reconstruct_timings_summary(
             reconstruct: ReconstructReconstructPhaseSummary {
                 wall_seconds: secs(timings.reconstruct_wall),
                 details: ReconstructReconstructDetailsSummary {
-                    artifact_read_decode_worker_seconds: secs(timings.bundle_read),
+                    artifact_read_decode_worker_seconds: secs(timings.artifact_read),
+                    artifact_read_compressed_bytes: timings.artifact_read_compressed_bytes,
+                    artifact_read_decompressed_bytes: timings.artifact_read_decompressed_bytes,
+                    artifact_read_decompressed_mib_per_second: mib_per_s(
+                        timings.artifact_read_decompressed_bytes,
+                        timings.artifact_read,
+                    ),
                     bundle_read_compressed_bytes: timings.bundle_read_compressed_bytes,
                     bundle_read_decompressed_bytes: timings.bundle_read_decompressed_bytes,
                     bundle_read_decompressed_mib_per_second: mib_per_s(
@@ -806,10 +815,10 @@ pub(crate) fn print_reconstruct_timings(t: &g::ReconstructTimings) {
         "artifact read/decode",
         format!(
             "{:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
-            secs(t.bundle_read),
-            mib(t.bundle_read_compressed_bytes),
-            mib(t.bundle_read_decompressed_bytes),
-            mib_per_s(t.bundle_read_decompressed_bytes, t.bundle_read)
+            secs(t.artifact_read),
+            mib(t.artifact_read_compressed_bytes),
+            mib(t.artifact_read_decompressed_bytes),
+            mib_per_s(t.artifact_read_decompressed_bytes, t.artifact_read)
         ),
     );
     if t.verify_chunks {
@@ -866,6 +875,7 @@ pub(crate) fn print_repo_check_timings(t: &crate::repo::check::RepoCheckTimings)
     print_section_title("Check Timing");
     print_metric_line("load manifest", format!("{} ms", t.load_manifest_ms));
     print_metric_line("scan bundles", format!("{} ms", t.scan_bundles_ms));
+    print_metric_line("scan artifacts", format!("{} ms", t.scan_artifacts_ms));
     print_metric_line("load chunk index", format!("{} ms", t.load_chunk_index_ms));
     print_metric_line(
         "load snapshot manifests",

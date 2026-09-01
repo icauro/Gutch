@@ -94,10 +94,11 @@ pub fn reconstruct_snapshot_from_repo(
     )?;
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
-    let mut existing_bundle_ids = HashSet::new();
-    for bundle_id in crate::repo::required_bundle_ids(&snapshot_manifest, &chunk_index) {
-        if crate::bundle_path(&repo_paths, &bundle_id)?.is_file() {
-            existing_bundle_ids.insert(bundle_id);
+    let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
+    let mut existing_artifacts = HashSet::new();
+    for artifact in &required_artifacts {
+        if artifact.local_path(&repo_paths)?.is_file() {
+            existing_artifacts.insert(artifact.clone());
         }
     }
 
@@ -129,7 +130,7 @@ pub fn reconstruct_snapshot_from_repo(
         &snapshot_manifest,
         &chunk_index,
         &repo_paths,
-        &existing_bundle_ids,
+        &existing_artifacts,
         verified_source,
     )?;
     super::pipeline::apply_reconstruct_pipeline(
@@ -141,7 +142,7 @@ pub fn reconstruct_snapshot_from_repo(
             staging_dir: request.staging_dir.as_deref(),
             source_destination_dir,
             runtime_hints: &request.runtime_hints,
-            existing_bundle_ids: &existing_bundle_ids,
+            existing_artifacts: &existing_artifacts,
             pending_bundle_downloads: &[],
             control: &request.control,
             download_client: None,
@@ -158,6 +159,7 @@ pub(super) struct BuildSnapshotReconstructResultRequest<'a> {
     pub reused_source_chunk_count: usize,
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,
+    pub required_artifact_count: usize,
     pub reconstruct_timings: super::types::ReconstructTimings,
     pub verify_timings: crate::verify::VerifyTimings,
 }
@@ -172,6 +174,7 @@ pub(super) fn build_snapshot_reconstruct_result(
         reused_source_chunk_count: request.reused_source_chunk_count,
         required_chunk_count: request.required_chunk_count,
         required_bundle_count: request.required_bundle_count,
+        required_artifact_count: request.required_artifact_count,
         reconstruct_timings: request.reconstruct_timings,
         verify_timings: request.verify_timings,
     }

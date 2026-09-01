@@ -20,6 +20,7 @@ mod test_util;
 mod transport;
 mod verify;
 
+pub(crate) use artifact::store::{ArtifactRef, required_artifacts, required_artifacts_from_index};
 pub(crate) use artifact::{bundle, chunk, compress, hash};
 pub(crate) use build::scan as build_scan;
 pub(crate) use build::types as build_types;

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::inventory::{list_repo_snapshot_ids, scan_bundle_inventory};
+use super::inventory::{list_repo_snapshot_ids, scan_artifact_inventory, scan_bundle_inventory};
 use super::snapshot_descriptor::{preview_snapshot_identity, summarize_snapshot_tags};
 use super::{
     GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest,
@@ -30,6 +30,10 @@ pub struct RepoCheckStatus {
     pub bundle_count: usize,
     #[serde(default)]
     pub bundle_bytes: u64,
+    #[serde(default)]
+    pub artifact_count: usize,
+    #[serde(default)]
+    pub artifact_bytes: u64,
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) timings: Option<RepoCheckTimings>,
@@ -40,6 +44,7 @@ pub struct RepoCheckStatus {
 pub(crate) struct RepoCheckTimings {
     pub(crate) load_manifest_ms: u64,
     pub(crate) scan_bundles_ms: u64,
+    pub(crate) scan_artifacts_ms: u64,
     pub(crate) load_chunk_index_ms: u64,
     pub(crate) load_snapshot_manifests_ms: u64,
     pub(crate) snapshot_count: usize,
@@ -55,9 +60,13 @@ pub struct RepoCheckSnapshotStatus {
     pub arch: String,
     pub file_count: usize,
     pub required_bundle_count: usize,
+    #[serde(default)]
+    pub required_artifact_count: usize,
     pub total_logical_size: u64,
     pub manifest_path: String,
     pub missing_bundle_count: usize,
+    #[serde(default)]
+    pub missing_artifact_count: usize,
     pub source_modified_at: String,
     pub snapshot_tags: manifest::SnapshotTagSet,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,15 +141,19 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo_path)?;
     let load_manifest_ms = manifest_start.elapsed().as_millis() as u64;
 
-    let scan_start = std::time::Instant::now();
-    let (available_bundle_ids, bundle_count, bundle_bytes) =
+    let bundle_scan_start = std::time::Instant::now();
+    let (_available_bundle_ids, bundle_count, bundle_bytes) =
         scan_bundle_inventory(&repo_paths.bundles_root)?;
-    let scan_bundles_ms = scan_start.elapsed().as_millis() as u64;
+    let scan_bundles_ms = bundle_scan_start.elapsed().as_millis() as u64;
+    let artifact_scan_start = std::time::Instant::now();
+    let (available_artifacts, artifact_count, artifact_bytes) =
+        scan_artifact_inventory(&repo_paths)?;
+    let scan_artifacts_ms = artifact_scan_start.elapsed().as_millis() as u64;
 
     let (snapshots, snapshot_check_timings) = check_snapshot_manifests(
         &repo_paths,
         &repo_paths.snapshots_root,
-        &available_bundle_ids,
+        &available_artifacts,
     )?;
     let snapshot_count = snapshots.len();
 
@@ -157,10 +170,13 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         snapshots,
         bundle_count,
         bundle_bytes,
+        artifact_count,
+        artifact_bytes,
         error: None,
         timings: Some(RepoCheckTimings {
             load_manifest_ms,
             scan_bundles_ms,
+            scan_artifacts_ms,
             load_chunk_index_ms: snapshot_check_timings.load_chunk_index_ms,
             load_snapshot_manifests_ms: snapshot_check_timings.load_snapshot_manifests_ms,
             snapshot_count,
@@ -251,6 +267,8 @@ fn empty_repo_check_status(
         snapshots: Vec::new(),
         bundle_count: 0,
         bundle_bytes: 0,
+        artifact_count: 0,
+        artifact_bytes: 0,
         error,
         timings: None,
     }
@@ -259,7 +277,7 @@ fn empty_repo_check_status(
 fn check_snapshot_manifests(
     repo_paths: &GutchRepoPaths,
     snapshots_root: &Path,
-    available_bundle_ids: &HashSet<String>,
+    available_artifacts: &HashSet<crate::ArtifactRef>,
 ) -> Result<(Vec<RepoCheckSnapshotStatus>, SnapshotManifestCheckTimings)> {
     if !snapshots_root.exists() {
         return Ok((Vec::new(), SnapshotManifestCheckTimings::default()));
@@ -281,10 +299,19 @@ fn check_snapshot_manifests(
         let snapshot_product_metadata_hash_b3 =
             crate::serialize_snapshot_product_metadata_for_remote(&manifest)?
                 .map(|bytes| crate::hash::hash_hex(&blake3::hash(&bytes)));
+        let required_artifacts = crate::required_artifacts_from_index(&manifest, &chunk_index);
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
         let missing_bundle_count = required_bundle_ids
             .iter()
-            .filter(|bundle_id| !available_bundle_ids.contains(*bundle_id))
+            .filter(|bundle_id| {
+                !available_artifacts.contains(&crate::ArtifactRef::Bundle {
+                    id: (*bundle_id).clone(),
+                })
+            })
+            .count();
+        let missing_artifact_count = required_artifacts
+            .iter()
+            .filter(|artifact| !available_artifacts.contains(*artifact))
             .count();
         let launch_readiness_error =
             if manifest.product_metadata.is_some() && manifest.launch.is_none() {
@@ -301,9 +328,11 @@ fn check_snapshot_manifests(
             arch: summary.arch,
             file_count: manifest.file_count(),
             required_bundle_count: required_bundle_ids.len(),
+            required_artifact_count: required_artifacts.len(),
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),
             missing_bundle_count,
+            missing_artifact_count,
             source_modified_at: manifest.source_modified_at.clone(),
             snapshot_tags: manifest.snapshot_tags.clone(),
             snapshot_metadata,

@@ -31,19 +31,44 @@ pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<Strin
     Ok(snapshot_ids)
 }
 
-pub(crate) fn list_repo_bundle_paths(paths: &GutchRepoPaths) -> Vec<PathBuf> {
-    if !paths.bundles_root.exists() {
-        return Vec::new();
+pub(crate) fn list_repo_artifact_paths(
+    paths: &GutchRepoPaths,
+) -> Result<Vec<(crate::ArtifactRef, PathBuf)>> {
+    let mut artifacts = Vec::new();
+    if paths.bundles_root.exists() {
+        for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
+            let entry = entry?;
+            if !entry.path().is_file() {
+                continue;
+            }
+            if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
+                artifacts.push((
+                    crate::ArtifactRef::Bundle { id: bundle_id },
+                    entry.path().to_path_buf(),
+                ));
+            }
+        }
     }
-
-    walkdir::WalkDir::new(&paths.bundles_root)
-        .sort_by_file_name()
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_file())
-        .filter(|entry| bundle_id_from_bundle_path(entry.path()).is_some())
-        .map(|entry| entry.path().to_path_buf())
-        .collect()
+    if paths.chunks_root.exists() {
+        for entry in walkdir::WalkDir::new(&paths.chunks_root).sort_by_file_name() {
+            let entry = entry?;
+            if !entry.path().is_file() {
+                continue;
+            }
+            let Some(hash) = entry.file_name().to_str() else {
+                continue;
+            };
+            if crate::ChunkHash::parse_hex(hash).is_ok() {
+                artifacts.push((
+                    crate::ArtifactRef::LooseChunk {
+                        hash: hash.to_string(),
+                    },
+                    entry.path().to_path_buf(),
+                ));
+            }
+        }
+    }
+    Ok(artifacts)
 }
 
 pub(crate) fn scan_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usize, u64)> {
@@ -68,4 +93,45 @@ pub(crate) fn scan_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<Stri
     }
 
     Ok((bundle_ids, bundle_count, bundle_bytes))
+}
+
+pub(crate) fn scan_artifact_inventory(
+    paths: &GutchRepoPaths,
+) -> Result<(HashSet<crate::ArtifactRef>, usize, u64)> {
+    let mut artifacts = HashSet::new();
+    let mut artifact_count = 0usize;
+    let mut artifact_bytes = 0u64;
+
+    for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() {
+            continue;
+        }
+        let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) else {
+            continue;
+        };
+        artifacts.insert(crate::ArtifactRef::Bundle { id: bundle_id });
+        artifact_count += 1;
+        artifact_bytes += entry.metadata()?.len();
+    }
+
+    for entry in walkdir::WalkDir::new(&paths.chunks_root).sort_by_file_name() {
+        let entry = entry?;
+        if !entry.path().is_file() {
+            continue;
+        }
+        let Some(chunk_hash) = entry.file_name().to_str() else {
+            continue;
+        };
+        if crate::ChunkHash::parse_hex(chunk_hash).is_err() {
+            continue;
+        }
+        artifacts.insert(crate::ArtifactRef::LooseChunk {
+            hash: chunk_hash.to_string(),
+        });
+        artifact_count += 1;
+        artifact_bytes += entry.metadata()?.len();
+    }
+
+    Ok((artifacts, artifact_count, artifact_bytes))
 }

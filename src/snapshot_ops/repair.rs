@@ -24,7 +24,7 @@ struct PlannedRepair {
     corrupt_file_count: usize,
     extra_file_count: usize,
     needs_rebuild: bool,
-    required_bundle_ids: HashSet<String>,
+    required_artifacts: HashSet<crate::ArtifactRef>,
 }
 
 fn manifest_paths_set(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
@@ -56,19 +56,19 @@ pub fn repair_snapshot_from_repo(
     let staging_dir = request.staging_dir.unwrap_or_else(|| {
         default_snapshot_staging_dir(&request.destination_dir, &snapshot_manifest.snapshot_id)
     });
-    let resolved_bundle_file_count = repair_plan.required_bundle_ids.len();
+    let resolved_bundle_file_count = repair_plan.required_artifacts.len();
     if repair_plan.needs_rebuild {
-        let mut existing_bundle_ids = HashSet::new();
-        for bundle_id in &repair_plan.required_bundle_ids {
-            if crate::bundle_path(&repo_paths, bundle_id)?.is_file() {
-                existing_bundle_ids.insert(bundle_id.clone());
+        let mut existing_artifacts = HashSet::new();
+        for artifact in &repair_plan.required_artifacts {
+            if artifact.local_path(&repo_paths)?.is_file() {
+                existing_artifacts.insert(artifact.clone());
             }
         }
         let pipeline_plan = build_reconstruct_pipeline_plan(
             &repair_plan.affected_manifest,
             &chunk_index,
             &repo_paths,
-            &existing_bundle_ids,
+            &existing_artifacts,
             None,
         )?;
         let compression_profile = repo_manifest.compression_profile();
@@ -78,7 +78,7 @@ pub fn repair_snapshot_from_repo(
             snapshot_id: &snapshot_manifest.snapshot_id,
             compression_profile: &compression_profile,
             runtime_hints: &request.runtime_hints,
-            existing_bundle_ids: &existing_bundle_ids,
+            existing_artifacts: &existing_artifacts,
             pending_bundle_downloads: &[],
             control: &request.control,
             download_client: None,
@@ -128,7 +128,11 @@ pub fn plan_repair_snapshot_from_repo(
         corrupt_file_count: repair_plan.corrupt_file_count,
         extra_file_count: repair_plan.extra_file_count,
         needs_rebuild: repair_plan.needs_rebuild,
-        required_bundle_ids: repair_plan.required_bundle_ids.into_iter().collect(),
+        required_bundle_ids: repair_plan
+            .required_artifacts
+            .into_iter()
+            .map(|artifact| artifact.id().to_string())
+            .collect(),
     })
 }
 
@@ -160,9 +164,10 @@ fn build_repair_plan_from_classification(
     let extra_file_count = classification.extra_files.len();
     let needs_rebuild = missing_file_count > 0 || corrupt_file_count > 0;
     let affected_manifest = subset_manifest_for_issues(snapshot_manifest, &classification)?;
-    let required_bundle_ids = if needs_rebuild {
+    let required_artifacts = if needs_rebuild {
         chunk_index
-            .map(|index| crate::repo::required_bundle_ids(&affected_manifest, index))
+            .map(|index| crate::required_artifacts(&affected_manifest, index))
+            .transpose()?
             .unwrap_or_default()
     } else {
         HashSet::new()
@@ -175,7 +180,7 @@ fn build_repair_plan_from_classification(
         corrupt_file_count,
         extra_file_count,
         needs_rebuild,
-        required_bundle_ids,
+        required_artifacts,
     })
 }
 

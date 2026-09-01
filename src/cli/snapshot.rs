@@ -771,6 +771,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             bundle_downloads_endpoint,
             session_id,
             bundles,
+            artifact_url_manifest,
         } => crate::cli::snapshot_ops::fetch(crate::cli::snapshot_ops::FetchCommand {
             repo,
             snapshot_id,
@@ -782,6 +783,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             bundle_downloads_endpoint,
             session_id,
             bundles,
+            artifact_url_manifest,
         })?,
 
         SnapshotCommands::Verify {

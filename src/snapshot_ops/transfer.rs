@@ -133,6 +133,7 @@ impl<'a> TransferDownloadRequest<'a> {
 
 #[derive(Clone)]
 pub(super) struct PendingBundleDownload {
+    pub artifact: crate::ArtifactRef,
     pub bundle_id: String,
     pub url: String,
     pub bundle_path: PathBuf,
@@ -204,7 +205,7 @@ impl<'a> TransferProgressReporter<'a> {
             GutchProgressEvent {
                 operation: GutchOperation::Fetch,
                 phase: self.phase,
-                message: "Downloaded snapshot bundles".to_string(),
+                message: "Downloaded snapshot artifacts".to_string(),
                 current: self
                     .counters
                     .total
@@ -337,7 +338,7 @@ pub(super) fn download_pending_bundle(
         crate::helpers::create_dir_all(parent)?;
     }
     let message = format!(
-        "Downloading bundles ({}/{})",
+        "Downloading artifacts ({}/{})",
         bundle_download.ordinal + 1,
         bundle_download.total_missing_bundle_count.max(1)
     );

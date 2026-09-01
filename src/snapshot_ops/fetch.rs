@@ -32,8 +32,8 @@ struct PreparedSnapshotFetch {
     compression_profile: crate::manifest::CompressionProfile,
     snapshot_manifest: SnapshotManifest,
     chunk_index: crate::manifest::ChunkIndex,
-    required_bundle_ids: HashSet<String>,
-    existing_bundle_ids: HashSet<String>,
+    required_artifacts: HashSet<crate::ArtifactRef>,
+    existing_artifacts: HashSet<crate::ArtifactRef>,
     pending_bundle_downloads: Vec<PendingBundleDownload>,
 }
 
@@ -62,18 +62,33 @@ pub fn fetch_snapshot_for_required_bundle_ids(
     let transfer_progress = Arc::new(FetchTransferProgress::default());
     let prepared =
         prepare_snapshot_fetch(request, &download_client, &progress, &transfer_progress)?;
-    let required_bundle_ids = required_bundle_ids_override
-        .cloned()
-        .unwrap_or_else(|| prepared.required_bundle_ids.clone());
+    let required_artifacts = required_bundle_ids_override
+        .map(|ids| {
+            prepared
+                .required_artifacts
+                .iter()
+                .filter(|artifact| ids.contains(artifact.id()))
+                .cloned()
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_else(|| prepared.required_artifacts.clone());
     let pending_bundle_downloads =
-        select_pending_bundle_downloads(&prepared.pending_bundle_downloads, &required_bundle_ids);
-    let downloaded_bundle_count = download_pending_bundle_files(
+        select_pending_bundle_downloads(&prepared.pending_bundle_downloads, &required_artifacts);
+    let downloaded_artifact_count = download_pending_bundle_files(
         request,
         &download_client,
         &progress,
         &transfer_progress,
         &pending_bundle_downloads,
     )?;
+    let required_bundle_count = required_artifacts
+        .iter()
+        .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
+        .count();
+    let downloaded_bundle_count = pending_bundle_downloads
+        .iter()
+        .filter(|download| matches!(download.artifact, crate::ArtifactRef::Bundle { .. }))
+        .count();
 
     emit_progress(
         &progress,
@@ -81,8 +96,8 @@ pub fn fetch_snapshot_for_required_bundle_ids(
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Done,
             message: "Snapshot fetched".to_string(),
-            current: required_bundle_ids.len(),
-            total: required_bundle_ids.len().max(1),
+            current: required_artifacts.len(),
+            total: required_artifacts.len().max(1),
             transferred_bytes: transfer_progress.transferred_bytes(),
             total_bytes: transfer_progress.total_bytes(),
             detail: Some(request.snapshot_id.clone()),
@@ -93,7 +108,9 @@ pub fn fetch_snapshot_for_required_bundle_ids(
     Ok(build_fetch_result(
         &prepared.repo_paths.repo_root,
         &request.snapshot_id,
-        required_bundle_ids.len(),
+        required_artifacts.len(),
+        required_bundle_count,
+        downloaded_artifact_count,
         downloaded_bundle_count,
     ))
 }
@@ -131,19 +148,24 @@ fn download_and_apply_unified_snapshot_ops(
         &prepared.snapshot_manifest,
         &prepared.chunk_index,
         &prepared.repo_paths,
-        &prepared.existing_bundle_ids,
+        &prepared.existing_artifacts,
         verified_source,
     )?;
     let pending_bundle_downloads = select_pending_bundle_downloads(
         &prepared.pending_bundle_downloads,
-        &pipeline_plan.required_bundle_ids,
+        &pipeline_plan.required_artifacts,
     );
 
     let fetch_result = build_fetch_result(
         &prepared.repo_paths.repo_root,
         &request.fetch_request.snapshot_id,
+        pipeline_plan.required_artifact_count,
         pipeline_plan.required_bundle_count,
         pending_bundle_downloads.len(),
+        pending_bundle_downloads
+            .iter()
+            .filter(|download| matches!(download.artifact, crate::ArtifactRef::Bundle { .. }))
+            .count(),
     );
     let reconstruct_result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
@@ -154,7 +176,7 @@ fn download_and_apply_unified_snapshot_ops(
             staging_dir: request.staging_dir.as_deref(),
             source_destination_dir: resolved_source.source_destination_dir,
             runtime_hints: &request.runtime_hints,
-            existing_bundle_ids: &prepared.existing_bundle_ids,
+            existing_artifacts: &prepared.existing_artifacts,
             pending_bundle_downloads: &pending_bundle_downloads,
             control: &request.fetch_request.control,
             download_client: Some(&download_client),
@@ -337,7 +359,17 @@ fn prepare_snapshot_fetch(
         }
         .download_bounded(MAX_CHUNK_INDEX_BYTES)?;
         let chunk_index: crate::manifest::ChunkIndex =
-            crate::helpers::from_json_bytes(&chunk_index_bytes)?;
+            match crate::helpers::from_json_bytes(&chunk_index_bytes) {
+                Ok(index) => index,
+                Err(json_error) => crate::manifest::binary::load_chunk_index_binary_from_bytes(
+                    &chunk_index_bytes,
+                )
+                .map_err(|binary_error| {
+                    Error::manifest(format!(
+                        "chunk index is neither valid JSON ({json_error}) nor valid Gutch binary ({binary_error})"
+                    ))
+                })?,
+            };
         crate::write_chunk_index(&repo_paths, &chunk_index)?;
     }
 
@@ -345,17 +377,25 @@ fn prepare_snapshot_fetch(
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let compression_profile = repo_manifest.compression_profile();
-    let required_bundle_ids = crate::repo::required_bundle_ids(&snapshot_manifest, &chunk_index);
-    let mut existing_bundle_ids = HashSet::new();
-    for bundle_id in &required_bundle_ids {
-        if crate::bundle_path(&repo_paths, bundle_id)?.is_file() {
-            existing_bundle_ids.insert(bundle_id.clone());
+    let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
+    let mut existing_artifacts = HashSet::new();
+    for artifact in &required_artifacts {
+        if artifact.local_path(&repo_paths)?.is_file() {
+            existing_artifacts.insert(artifact.clone());
         }
     }
-    let bundle_urls = fetch_bundle_urls(request, &required_bundle_ids, &existing_bundle_ids)?;
+    let required_artifact_ids = required_artifacts
+        .iter()
+        .map(|artifact| artifact.id().to_string())
+        .collect::<HashSet<_>>();
+    let existing_artifact_ids = existing_artifacts
+        .iter()
+        .map(|artifact| artifact.id().to_string())
+        .collect::<HashSet<_>>();
+    let bundle_urls = fetch_bundle_urls(request, &required_artifact_ids, &existing_artifact_ids)?;
     let pending_bundle_downloads = build_pending_bundle_downloads(
-        &required_bundle_ids,
-        &existing_bundle_ids,
+        &required_artifacts,
+        &existing_artifacts,
         &bundle_urls,
         &repo_paths,
     )?;
@@ -365,36 +405,37 @@ fn prepare_snapshot_fetch(
         compression_profile,
         snapshot_manifest,
         chunk_index,
-        required_bundle_ids,
-        existing_bundle_ids,
+        required_artifacts,
+        existing_artifacts,
         pending_bundle_downloads,
     })
 }
 
 fn build_pending_bundle_downloads(
-    required_bundle_ids: &HashSet<String>,
-    existing_bundle_ids: &HashSet<String>,
+    required_artifacts: &HashSet<crate::ArtifactRef>,
+    existing_artifacts: &HashSet<crate::ArtifactRef>,
     bundle_urls: &HashMap<String, String>,
     repo_paths: &crate::GutchRepoPaths,
 ) -> Result<Vec<PendingBundleDownload>> {
-    let total_missing_bundle_count = required_bundle_ids
+    let total_missing_bundle_count = required_artifacts
         .len()
-        .saturating_sub(existing_bundle_ids.len());
-    required_bundle_ids
+        .saturating_sub(existing_artifacts.len());
+    required_artifacts
         .iter()
-        .filter(|bundle_id| !existing_bundle_ids.contains(*bundle_id))
+        .filter(|artifact| !existing_artifacts.contains(*artifact))
         .enumerate()
-        .map(|(ordinal, bundle_id)| {
-            let url = bundle_urls.get(bundle_id).ok_or_else(|| {
+        .map(|(ordinal, artifact)| {
+            let url = bundle_urls.get(artifact.id()).ok_or_else(|| {
                 Error::manifest(format!(
-                    "missing download URL for required bundle '{}'",
-                    bundle_id
+                    "missing download URL for required artifact '{}'",
+                    artifact.id()
                 ))
             })?;
             Ok(PendingBundleDownload {
-                bundle_id: bundle_id.clone(),
+                artifact: artifact.clone(),
+                bundle_id: artifact.id().to_string(),
                 url: url.clone(),
-                bundle_path: crate::bundle_path(repo_paths, bundle_id)?,
+                bundle_path: artifact.local_path(repo_paths)?,
                 ordinal,
                 total_missing_bundle_count,
             })
@@ -427,11 +468,11 @@ fn resolve_snapshot_source(
 
 fn select_pending_bundle_downloads(
     pending_bundle_downloads: &[PendingBundleDownload],
-    required_bundle_ids: &HashSet<String>,
+    required_artifacts: &HashSet<crate::ArtifactRef>,
 ) -> Vec<PendingBundleDownload> {
     pending_bundle_downloads
         .iter()
-        .filter(|bundle_download| required_bundle_ids.contains(&bundle_download.bundle_id))
+        .filter(|download| required_artifacts.contains(&download.artifact))
         .cloned()
         .collect()
 }
@@ -439,7 +480,9 @@ fn select_pending_bundle_downloads(
 fn build_fetch_result(
     repo_root: &std::path::Path,
     snapshot_id: &str,
+    required_artifact_count: usize,
     required_bundle_count: usize,
+    downloaded_artifact_count: usize,
     downloaded_bundle_count: usize,
 ) -> SnapshotFetchResult {
     SnapshotFetchResult {
@@ -449,6 +492,10 @@ fn build_fetch_result(
         downloaded_bundle_count,
         skipped_existing_bundle_count: required_bundle_count
             .saturating_sub(downloaded_bundle_count),
+        required_artifact_count,
+        downloaded_artifact_count,
+        skipped_existing_artifact_count: required_artifact_count
+            .saturating_sub(downloaded_artifact_count),
     }
 }
 
@@ -476,7 +523,7 @@ fn download_pending_bundle_files(
                             operation: GutchOperation::Fetch,
                             phase: GutchProgressPhase::Bundle,
                             message: format!(
-                                "Downloading bundles ({}/{})",
+                                "Downloading artifacts ({}/{})",
                                 bundle_download.ordinal + 1,
                                 bundle_download.total_missing_bundle_count.max(1)
                             ),
@@ -500,7 +547,7 @@ fn download_pending_bundle_files(
                             operation: GutchOperation::Fetch,
                             phase: GutchProgressPhase::Bundle,
                             message: format!(
-                                "Downloaded bundles ({}/{})",
+                                "Downloaded artifacts ({}/{})",
                                 completed_bundle_count,
                                 bundle_download.total_missing_bundle_count.max(1)
                             ),
