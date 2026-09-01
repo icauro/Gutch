@@ -791,8 +791,8 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     break;
                 }
             }
-            Err(_) => {
-                pipeline_error = Some(Error::reconstruct("reconstruct pipeline event failed"));
+            Err(error) => {
+                pipeline_error = Some(error);
                 break;
             }
         }
