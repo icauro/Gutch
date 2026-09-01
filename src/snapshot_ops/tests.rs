@@ -72,6 +72,7 @@ fn bundle_url_provider_rejects_unexpected_bundle_ids() {
             },
         )),
         control: crate::GutchOperationControl::default(),
+        transfer_policy: crate::TransferConcurrencyPolicy::default(),
     };
 
     let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
@@ -102,6 +103,7 @@ fn direct_bundle_urls_reject_duplicate_bundle_ids() {
         ],
         bundle_url_provider: None,
         control: crate::GutchOperationControl::default(),
+        transfer_policy: crate::TransferConcurrencyPolicy::default(),
     };
 
     let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
@@ -410,6 +412,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
             },
         )),
         control: crate::GutchOperationControl::default(),
+        transfer_policy: crate::TransferConcurrencyPolicy::default(),
     })
     .unwrap();
 

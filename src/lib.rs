@@ -118,16 +118,17 @@ pub(crate) use snapshot::path_guard::validate_manifest_relative_path;
 pub use snapshot::path_guard::{ExistingDestinationPathKind, resolve_existing_destination_path};
 pub(crate) use snapshot_ops::ReconstructTimings;
 pub use snapshot_ops::{
-    BundleDownload, BundleUrlProvider, ResolvedSnapshotOperationState,
+    BundleDownload, BundleUrlProvider, DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM,
+    DEFAULT_TRANSFER_CONCURRENCY, ResolvedSnapshotOperationState,
     SnapshotDownloadAndReconstructRequest, SnapshotDownloadAndReconstructResult,
     SnapshotFetchRequest, SnapshotFetchResult, SnapshotReconstructFromRepoRequest,
     SnapshotReconstructFromRepoResult, SnapshotReconstructResult, SnapshotRepairFromRepoRequest,
     SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
     SnapshotRepairPlanFromRepoResult, SnapshotRepairResult, SnapshotVerifyFromRepoRequest,
-    SnapshotVerifyFromRepoResult, download_and_reconstruct_snapshot, fetch_snapshot,
-    fetch_snapshot_for_required_bundle_ids, plan_repair_snapshot_from_repo,
-    reconstruct_snapshot_from_repo, repair_snapshot_from_repo, resolve_snapshot_state,
-    verify_installed_snapshot,
+    SnapshotVerifyFromRepoResult, TransferConcurrencyPolicy, TransferStats,
+    download_and_reconstruct_snapshot, fetch_snapshot, fetch_snapshot_for_required_bundle_ids,
+    plan_repair_snapshot_from_repo, reconstruct_snapshot_from_repo, repair_snapshot_from_repo,
+    resolve_snapshot_state, verify_installed_snapshot,
 };
 pub use transport::read_bounded_response;
 pub(crate) use verify::VerifyTimings;

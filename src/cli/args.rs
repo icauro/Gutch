@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use gutch as g;
 
 pub(crate) fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
@@ -28,6 +28,43 @@ impl RuntimeArgs {
             memory_mode: self.memory_mode,
             max_memory_mib: self.max_memory_mib,
             jobs: self.jobs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub(crate) enum TransferPolicyArg {
+    Fixed,
+    Adaptive,
+}
+
+#[derive(Debug, Clone, Copy, Args)]
+pub(crate) struct TransferArgs {
+    #[arg(
+        long = "transfer-policy",
+        value_enum,
+        default_value_t = TransferPolicyArg::Fixed
+    )]
+    pub(crate) policy: TransferPolicyArg,
+    #[arg(
+        long = "transfer-concurrency",
+        default_value_t = g::DEFAULT_TRANSFER_CONCURRENCY
+    )]
+    pub(crate) concurrency: usize,
+    #[arg(
+        long = "transfer-max-concurrency",
+        default_value_t = g::DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM
+    )]
+    pub(crate) maximum: usize,
+}
+
+impl TransferArgs {
+    pub(crate) fn policy(self) -> g::TransferConcurrencyPolicy {
+        match self.policy {
+            TransferPolicyArg::Fixed => g::TransferConcurrencyPolicy::fixed(self.concurrency),
+            TransferPolicyArg::Adaptive => {
+                g::TransferConcurrencyPolicy::adaptive(self.concurrency, self.maximum)
+            }
         }
     }
 }
@@ -308,6 +345,8 @@ pub(crate) enum SnapshotCommands {
         artifact_url_manifest: Option<PathBuf>,
         #[command(flatten)]
         runtime: RuntimeArgs,
+        #[command(flatten)]
+        transfer: TransferArgs,
         #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
     },
@@ -342,6 +381,8 @@ pub(crate) enum SnapshotCommands {
         bundles: Vec<String>,
         #[arg(long = "artifact-url-manifest", value_parser = parse_absolute_path)]
         artifact_url_manifest: Option<PathBuf>,
+        #[command(flatten)]
+        transfer: TransferArgs,
     },
     Verify {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
@@ -361,7 +402,10 @@ pub(crate) enum SnapshotCommands {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, RemoteCommands, RepoCommands, RepoTagsCommands, SnapshotCommands};
+    use super::{
+        Cli, Commands, RemoteCommands, RepoCommands, RepoTagsCommands, SnapshotCommands,
+        TransferPolicyArg,
+    };
     use clap::Parser;
 
     #[test]
@@ -500,15 +544,24 @@ mod tests {
             "https://objects.example/snapshot.json",
             "--blueprint-url",
             "https://objects.example/blueprint.gtcbin",
+            "--transfer-policy",
+            "adaptive",
+            "--transfer-concurrency",
+            "4",
+            "--transfer-max-concurrency",
+            "12",
         ])
         .expect("fetch-reconstruct args should parse");
 
-        assert!(matches!(
-            cli.command,
-            Commands::Snapshot {
-                command: SnapshotCommands::FetchReconstruct { .. }
-            }
-        ));
+        let Commands::Snapshot {
+            command: SnapshotCommands::FetchReconstruct { transfer, .. },
+        } = cli.command
+        else {
+            panic!("expected fetch-reconstruct command");
+        };
+        assert!(matches!(transfer.policy, TransferPolicyArg::Adaptive));
+        assert_eq!(transfer.concurrency, 4);
+        assert_eq!(transfer.maximum, 12);
     }
 }
 

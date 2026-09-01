@@ -9,6 +9,61 @@ use crate::progress::GutchOperationControl;
 use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 use crate::verify::{RepairClassification, VerifyMode, VerifyTimings};
 
+pub const DEFAULT_TRANSFER_CONCURRENCY: usize = 4;
+pub const DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM: usize = 16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferConcurrencyPolicy {
+    Fixed(usize),
+    Adaptive { initial: usize, maximum: usize },
+}
+
+impl Default for TransferConcurrencyPolicy {
+    fn default() -> Self {
+        Self::Fixed(DEFAULT_TRANSFER_CONCURRENCY)
+    }
+}
+
+impl TransferConcurrencyPolicy {
+    pub const fn fixed(concurrency: usize) -> Self {
+        Self::Fixed(concurrency)
+    }
+
+    pub const fn adaptive(initial: usize, maximum: usize) -> Self {
+        Self::Adaptive { initial, maximum }
+    }
+
+    pub const fn initial(self) -> usize {
+        match self {
+            Self::Fixed(concurrency) => concurrency,
+            Self::Adaptive { initial, .. } => initial,
+        }
+    }
+
+    pub const fn maximum(self) -> usize {
+        match self {
+            Self::Fixed(concurrency) => concurrency,
+            Self::Adaptive { maximum, .. } => maximum,
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Fixed(_) => "fixed",
+            Self::Adaptive { .. } => "adaptive",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TransferStats {
+    pub initial_concurrency: usize,
+    pub maximum_concurrency: usize,
+    pub peak_concurrency: usize,
+    pub adjustment_count: usize,
+    pub retry_count: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ReconstructTimings {
     pub(crate) runtime_plan: Option<RuntimePlan>,
@@ -194,6 +249,7 @@ pub struct SnapshotFetchRequest {
     pub chunk_index_url: Option<String>,
     pub bundles: Vec<BundleDownload>,
     pub bundle_url_provider: Option<std::sync::Arc<dyn BundleUrlProvider>>,
+    pub transfer_policy: TransferConcurrencyPolicy,
     pub control: GutchOperationControl,
 }
 
@@ -207,6 +263,8 @@ pub struct SnapshotFetchResult {
     pub required_artifact_count: usize,
     pub downloaded_artifact_count: usize,
     pub skipped_existing_artifact_count: usize,
+    pub transfer_policy: TransferConcurrencyPolicy,
+    pub transfer_stats: TransferStats,
 }
 
 #[derive(Clone)]

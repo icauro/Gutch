@@ -28,12 +28,15 @@ where
     let response = client
         .get(url)
         .send()
-        .map_err(|error| Error::manifest(format!("download request failed: {error}")))?;
+        .map_err(|error| Error::download(format!("download request failed: {error}"), true))?;
     if !response.status().is_success() {
-        return Err(Error::manifest(format!(
-            "download request failed with status {}",
-            response.status()
-        )));
+        let status = response.status();
+        return Err(Error::download(
+            format!("download request failed with status {status}"),
+            status.is_server_error()
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || status == reqwest::StatusCode::REQUEST_TIMEOUT,
+        ));
     }
 
     let total_bytes = response.content_length();

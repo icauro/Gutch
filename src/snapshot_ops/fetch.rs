@@ -2,18 +2,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rayon::prelude::*;
-
 use super::apply::resolve_verified_source;
 use super::pipeline::{
     ReconstructPipelineApplyRequest, apply_reconstruct_pipeline, build_reconstruct_pipeline_plan,
 };
 use super::transfer::{
-    FetchTransferProgress, MAX_CHUNK_INDEX_BYTES, MAX_SNAPSHOT_BLUEPRINT_BYTES,
-    MAX_SNAPSHOT_METADATA_BYTES, PendingBundleDownload, TransferDownloadRequest,
-    TransferPhaseCounters, build_download_client, bundle_download_worker_count,
-    download_pending_bundle, fetch_bundle_urls, snapshot_manifest_from_download,
-    write_repo_manifest,
+    ArtifactDownloadEvent, ArtifactDownloadScheduler, ArtifactPriority, FetchTransferProgress,
+    MAX_CHUNK_INDEX_BYTES, MAX_SNAPSHOT_BLUEPRINT_BYTES, MAX_SNAPSHOT_METADATA_BYTES,
+    PendingBundleDownload, TransferDownloadRequest, TransferPhaseCounters, build_download_client,
+    fetch_bundle_urls, snapshot_manifest_from_download, write_repo_manifest,
 };
 use super::types::{
     SnapshotDownloadAndReconstructRequest, SnapshotDownloadAndReconstructResult,
@@ -24,7 +21,6 @@ use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::{
     GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink, emit_progress,
 };
-use crate::runtime::run_in_thread_pool;
 use crate::{Error, Result};
 
 struct PreparedSnapshotFetch {
@@ -77,10 +73,10 @@ pub fn fetch_snapshot_for_required_bundle_ids(
     let downloaded_artifact_count = download_pending_bundle_files(
         request,
         &download_client,
-        &progress,
         &transfer_progress,
         &pending_bundle_downloads,
     )?;
+    let transfer_stats = transfer_progress.stats(request.transfer_policy);
     let required_bundle_count = required_artifacts
         .iter()
         .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
@@ -112,6 +108,8 @@ pub fn fetch_snapshot_for_required_bundle_ids(
         required_bundle_count,
         downloaded_artifact_count,
         downloaded_bundle_count,
+        request.transfer_policy,
+        transfer_stats,
     ))
 }
 
@@ -156,17 +154,6 @@ fn download_and_apply_unified_snapshot_ops(
         &pipeline_plan.required_artifacts,
     );
 
-    let fetch_result = build_fetch_result(
-        &prepared.repo_paths.repo_root,
-        &request.fetch_request.snapshot_id,
-        pipeline_plan.required_artifact_count,
-        pipeline_plan.required_bundle_count,
-        pending_bundle_downloads.len(),
-        pending_bundle_downloads
-            .iter()
-            .filter(|download| matches!(download.artifact, crate::ArtifactRef::Bundle { .. }))
-            .count(),
-    );
     let reconstruct_result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
             repo_root: &prepared.repo_paths.repo_root,
@@ -178,12 +165,29 @@ fn download_and_apply_unified_snapshot_ops(
             runtime_hints: &request.runtime_hints,
             existing_artifacts: &prepared.existing_artifacts,
             pending_bundle_downloads: &pending_bundle_downloads,
+            transfer_policy: request.fetch_request.transfer_policy,
             control: &request.fetch_request.control,
             download_client: Some(&download_client),
             transfer_progress: Some(&transfer_progress),
         },
         pipeline_plan,
     )?;
+    let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);
+    let fetch_result = build_fetch_result(
+        &prepared.repo_paths.repo_root,
+        &request.fetch_request.snapshot_id,
+        reconstruct_result
+            .reconstruct_result
+            .required_artifact_count,
+        reconstruct_result.reconstruct_result.required_bundle_count,
+        pending_bundle_downloads.len(),
+        pending_bundle_downloads
+            .iter()
+            .filter(|download| matches!(download.artifact, crate::ArtifactRef::Bundle { .. }))
+            .count(),
+        request.fetch_request.transfer_policy,
+        transfer_stats,
+    );
 
     Ok(SnapshotDownloadAndReconstructResult {
         fetch_result,
@@ -420,9 +424,14 @@ fn build_pending_bundle_downloads(
     let total_missing_bundle_count = required_artifacts
         .len()
         .saturating_sub(existing_artifacts.len());
-    required_artifacts
+    let mut pending_artifacts = required_artifacts
         .iter()
         .filter(|artifact| !existing_artifacts.contains(*artifact))
+        .cloned()
+        .collect::<Vec<_>>();
+    pending_artifacts.sort_by(|left, right| left.id().cmp(right.id()));
+    pending_artifacts
+        .into_iter()
         .enumerate()
         .map(|(ordinal, artifact)| {
             let url = bundle_urls.get(artifact.id()).ok_or_else(|| {
@@ -431,11 +440,13 @@ fn build_pending_bundle_downloads(
                     artifact.id()
                 ))
             })?;
+            let bundle_id = artifact.id().to_string();
+            let bundle_path = artifact.local_path(repo_paths)?;
             Ok(PendingBundleDownload {
-                artifact: artifact.clone(),
-                bundle_id: artifact.id().to_string(),
+                artifact,
+                bundle_id,
                 url: url.clone(),
-                bundle_path: artifact.local_path(repo_paths)?,
+                bundle_path,
                 ordinal,
                 total_missing_bundle_count,
             })
@@ -484,6 +495,8 @@ fn build_fetch_result(
     required_bundle_count: usize,
     downloaded_artifact_count: usize,
     downloaded_bundle_count: usize,
+    transfer_policy: super::types::TransferConcurrencyPolicy,
+    transfer_stats: super::types::TransferStats,
 ) -> SnapshotFetchResult {
     SnapshotFetchResult {
         repo_path: repo_root.to_path_buf(),
@@ -496,13 +509,14 @@ fn build_fetch_result(
         downloaded_artifact_count,
         skipped_existing_artifact_count: required_artifact_count
             .saturating_sub(downloaded_artifact_count),
+        transfer_policy,
+        transfer_stats,
     }
 }
 
 fn download_pending_bundle_files(
     request: &SnapshotFetchRequest,
     download_client: &reqwest::blocking::Client,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
     pending_bundle_downloads: &[PendingBundleDownload],
 ) -> Result<usize> {
@@ -510,61 +524,44 @@ fn download_pending_bundle_files(
         return Ok(0);
     }
 
-    run_in_thread_pool(
-        bundle_download_worker_count(pending_bundle_downloads.len()),
-        || {
-            pending_bundle_downloads
-                .par_iter()
-                .map(|bundle_download| {
-                    request.control.checkpoint()?;
-                    emit_progress(
-                        progress,
-                        GutchProgressEvent {
-                            operation: GutchOperation::Fetch,
-                            phase: GutchProgressPhase::Bundle,
-                            message: format!(
-                                "Downloading artifacts ({}/{})",
-                                bundle_download.ordinal + 1,
-                                bundle_download.total_missing_bundle_count.max(1)
-                            ),
-                            current: transfer_progress.completed_bundle_count(),
-                            total: bundle_download.total_missing_bundle_count.max(1),
-                            transferred_bytes: transfer_progress.transferred_bytes(),
-                            total_bytes: transfer_progress.total_bytes(),
-                            detail: Some(bundle_download.bundle_id.clone()),
-                            done: false,
-                        },
-                    );
-                    let completed_bundle_count = download_pending_bundle(
-                        download_client,
-                        bundle_download,
-                        &request.control,
-                        transfer_progress,
-                    )?;
-                    emit_progress(
-                        progress,
-                        GutchProgressEvent {
-                            operation: GutchOperation::Fetch,
-                            phase: GutchProgressPhase::Bundle,
-                            message: format!(
-                                "Downloaded artifacts ({}/{})",
-                                completed_bundle_count,
-                                bundle_download.total_missing_bundle_count.max(1)
-                            ),
-                            current: completed_bundle_count,
-                            total: bundle_download.total_missing_bundle_count.max(1),
-                            transferred_bytes: transfer_progress.transferred_bytes(),
-                            total_bytes: transfer_progress.total_bytes(),
-                            detail: Some(bundle_download.bundle_id.clone()),
-                            done: false,
-                        },
-                    );
-                    Ok::<(), Error>(())
-                })
-                .collect::<Vec<_>>()
-        },
-    )?
-    .into_iter()
-    .collect::<Result<Vec<_>>>()?;
-    Ok(pending_bundle_downloads.len())
+    let priorities = pending_bundle_downloads
+        .iter()
+        .map(|download| (download.artifact.clone(), ArtifactPriority::default()))
+        .collect();
+    let scheduler = ArtifactDownloadScheduler::new(
+        pending_bundle_downloads,
+        priorities,
+        request.transfer_policy,
+        download_client,
+        &request.control,
+        Arc::clone(transfer_progress),
+    )?;
+    let worker_count = scheduler.worker_count();
+    let mut completed_workers = 0usize;
+    let mut downloaded_count = 0usize;
+    loop {
+        match scheduler.recv() {
+            Ok(ArtifactDownloadEvent::Ready(_)) => downloaded_count += 1,
+            Ok(ArtifactDownloadEvent::Failed(error)) => {
+                scheduler.cancel();
+                scheduler.join()?;
+                return Err(error);
+            }
+            Ok(ArtifactDownloadEvent::WorkerDone) => {
+                completed_workers += 1;
+                if completed_workers == worker_count {
+                    break;
+                }
+            }
+            Err(_) => {
+                scheduler.cancel();
+                scheduler.join()?;
+                return Err(Error::reconstruct(
+                    "artifact download scheduler channel closed unexpectedly",
+                ));
+            }
+        }
+    }
+    scheduler.join()?;
+    Ok(downloaded_count)
 }

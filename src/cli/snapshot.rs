@@ -777,6 +777,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             bundles,
             artifact_url_manifest,
             runtime,
+            transfer,
             stats_json_out,
         } => crate::cli::snapshot_ops::fetch_and_reconstruct(
             crate::cli::snapshot_ops::FetchAndReconstructCommand {
@@ -792,6 +793,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
                     session_id,
                     bundles,
                     artifact_url_manifest,
+                    transfer_policy: transfer.policy(),
                 },
                 destination,
                 staging_dir,
@@ -814,6 +816,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             session_id,
             bundles,
             artifact_url_manifest,
+            transfer,
         } => crate::cli::snapshot_ops::fetch(crate::cli::snapshot_ops::FetchCommand {
             repo,
             snapshot_id,
@@ -826,6 +829,7 @@ pub(crate) fn run(command: SnapshotCommands) -> g::Result<()> {
             session_id,
             bundles,
             artifact_url_manifest,
+            transfer_policy: transfer.policy(),
         })?,
 
         SnapshotCommands::Verify {

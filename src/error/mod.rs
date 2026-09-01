@@ -25,6 +25,9 @@ pub enum Error {
     #[error("Manifest error: {0}")]
     Manifest(String),
 
+    #[error("Download error: {message}")]
+    Download { message: String, retryable: bool },
+
     #[error("Verification error: {0}")]
     Verify(String),
 
@@ -82,6 +85,21 @@ impl Error {
 
     pub fn manifest(msg: impl Into<String>) -> Self {
         Error::Manifest(msg.into())
+    }
+
+    pub fn download(msg: impl Into<String>, retryable: bool) -> Self {
+        Error::Download {
+            message: msg.into(),
+            retryable,
+        }
+    }
+
+    pub fn is_retryable_download(&self) -> bool {
+        match self {
+            Error::Download { retryable, .. } => *retryable,
+            Error::Io(_) => true,
+            _ => false,
+        }
     }
 
     pub fn verify(msg: impl Into<String>) -> Self {

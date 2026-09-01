@@ -21,6 +21,7 @@ pub(crate) struct FetchCommand {
     pub(crate) session_id: Option<String>,
     pub(crate) bundles: Vec<String>,
     pub(crate) artifact_url_manifest: Option<std::path::PathBuf>,
+    pub(crate) transfer_policy: g::TransferConcurrencyPolicy,
 }
 
 impl FetchCommand {
@@ -37,6 +38,7 @@ impl FetchCommand {
             session_id,
             bundles,
             artifact_url_manifest,
+            transfer_policy,
         } = self;
         let bundle_url_provider = bundle_downloads_endpoint
             .map(|endpoint| {
@@ -77,6 +79,7 @@ impl FetchCommand {
             bundles: direct_downloads,
             bundle_url_provider,
             control,
+            transfer_policy,
         })
     }
 }
@@ -168,6 +171,12 @@ pub(crate) fn fetch_and_reconstruct(command: FetchAndReconstructCommand) -> g::R
         required_artifact_count: fetch_result.required_artifact_count,
         downloaded_artifact_count: fetch_result.downloaded_artifact_count,
         skipped_existing_artifact_count: fetch_result.skipped_existing_artifact_count,
+        transfer_policy: fetch_result.transfer_policy.name(),
+        initial_transfer_concurrency: fetch_result.transfer_stats.initial_concurrency,
+        maximum_transfer_concurrency: fetch_result.transfer_stats.maximum_concurrency,
+        peak_transfer_concurrency: fetch_result.transfer_stats.peak_concurrency,
+        transfer_adjustment_count: fetch_result.transfer_stats.adjustment_count,
+        transfer_retry_count: fetch_result.transfer_stats.retry_count,
         reused_source_chunk_count: reconstruct.reused_source_chunk_count,
         reused_source_chunk_percent,
         total_logical_size: snapshot_manifest.total_logical_size,

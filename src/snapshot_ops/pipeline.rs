@@ -6,10 +6,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::apply::build_snapshot_reconstruct_result;
-use super::transfer::{FetchTransferProgress, PendingBundleDownload, download_pending_bundle};
+use super::transfer::{
+    ArtifactDownloadEvent, ArtifactDownloadScheduler, ArtifactPriority, FetchTransferProgress,
+    PendingBundleDownload,
+};
 use super::types::{
     ReconstructTimings, SnapshotReconstructFromRepoResult, SnapshotReconstructSource,
 };
@@ -41,6 +44,7 @@ pub(super) struct ReconstructPipelineApplyRequest<'a> {
     pub runtime_hints: &'a RuntimeResourceHints,
     pub existing_artifacts: &'a HashSet<crate::ArtifactRef>,
     pub pending_bundle_downloads: &'a [PendingBundleDownload],
+    pub transfer_policy: super::types::TransferConcurrencyPolicy,
     pub control: &'a GutchOperationControl,
     pub download_client: Option<&'a reqwest::blocking::Client>,
     pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
@@ -231,6 +235,48 @@ fn has_files_still_waiting_on_artifacts(
         .any(|(scheduled, remaining)| !scheduled && *remaining > 0)
 }
 
+fn build_artifact_priorities(
+    pipeline_plan: &ReconstructPipelinePlan,
+    pending_bundle_downloads: &[PendingBundleDownload],
+) -> HashMap<crate::ArtifactRef, ArtifactPriority> {
+    pending_bundle_downloads
+        .iter()
+        .map(|download| {
+            let mut priority = ArtifactPriority::default();
+            if let Some(file_indices) = pipeline_plan
+                .artifact_to_file_indices
+                .get(&download.artifact)
+            {
+                for &file_index in file_indices {
+                    let remaining = pipeline_plan.remaining_artifact_dependencies[file_index];
+                    if remaining == 0 {
+                        continue;
+                    }
+                    if remaining == 1 {
+                        priority.ready_file_bytes = priority
+                            .ready_file_bytes
+                            .saturating_add(pipeline_plan.files[file_index].size);
+                    } else {
+                        priority.near_ready_score = priority.near_ready_score.saturating_add(
+                            pipeline_plan.files[file_index].size / remaining as u64,
+                        );
+                    }
+                    priority.dependent_file_count += 1;
+                }
+            }
+            (download.artifact.clone(), priority)
+        })
+        .collect()
+}
+
+fn map_artifact_download_event(event: ArtifactDownloadEvent) -> ReconstructPipelineEvent {
+    ReconstructPipelineEvent::Artifact(match event {
+        ArtifactDownloadEvent::Ready(artifact) => ArtifactPipelineEvent::Ready(artifact),
+        ArtifactDownloadEvent::Failed(error) => ArtifactPipelineEvent::Failed(error),
+        ArtifactDownloadEvent::WorkerDone => ArtifactPipelineEvent::WorkerDone,
+    })
+}
+
 pub(super) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &crate::manifest::ChunkIndex,
@@ -394,6 +440,7 @@ pub(super) fn apply_reconstruct_pipeline(
                 runtime_hints: request.runtime_hints,
                 existing_artifacts: request.existing_artifacts,
                 pending_bundle_downloads: request.pending_bundle_downloads,
+                transfer_policy: request.transfer_policy,
                 control: request.control,
                 download_client: request.download_client,
                 transfer_progress: request.transfer_progress,
@@ -439,6 +486,7 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) runtime_hints: &'a RuntimeResourceHints,
     pub(super) existing_artifacts: &'a HashSet<crate::ArtifactRef>,
     pub(super) pending_bundle_downloads: &'a [PendingBundleDownload],
+    pub(super) transfer_policy: super::types::TransferConcurrencyPolicy,
     pub(super) control: &'a GutchOperationControl,
     pub(super) download_client: Option<&'a reqwest::blocking::Client>,
     pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
@@ -455,6 +503,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         runtime_hints,
         existing_artifacts,
         pending_bundle_downloads,
+        transfer_policy,
         control,
         download_client,
         transfer_progress,
@@ -507,8 +556,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         .as_ref()
         .map(|plan| plan.worker_count.max(1))
         .unwrap_or(1);
-    let artifact_worker_count = pending_bundle_downloads.len();
-    if artifact_worker_count == 0
+    if pending_bundle_downloads.is_empty()
         && pipeline_plan
             .remaining_artifact_dependencies
             .iter()
@@ -519,73 +567,38 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         ));
     }
 
+    let artifact_worker_priorities =
+        build_artifact_priorities(&pipeline_plan, pending_bundle_downloads);
+    let artifact_scheduler = if pending_bundle_downloads.is_empty() {
+        None
+    } else {
+        let Some(download_client) = download_client else {
+            return Err(Error::reconstruct(
+                "reconstruct pipeline requires a download client for pending bundles",
+            ));
+        };
+        let Some(transfer_progress) = transfer_progress else {
+            return Err(Error::reconstruct(
+                "reconstruct pipeline requires transfer progress for pending bundles",
+            ));
+        };
+        Some(ArtifactDownloadScheduler::new(
+            pending_bundle_downloads,
+            artifact_worker_priorities,
+            transfer_policy,
+            download_client,
+            control,
+            Arc::clone(transfer_progress),
+        )?)
+    };
+    let artifact_worker_count = artifact_scheduler
+        .as_ref()
+        .map(ArtifactDownloadScheduler::worker_count)
+        .unwrap_or(0);
     let (pipeline_event_tx, pipeline_event_rx) = mpsc::channel::<ReconstructPipelineEvent>();
-    let artifact_task_receiver = Arc::new(Mutex::new(
-        pending_bundle_downloads
-            .iter()
-            .cloned()
-            .collect::<VecDeque<_>>(),
-    ));
     let (file_task_tx, file_task_rx) = mpsc::channel::<usize>();
     let file_task_rx = Arc::new(Mutex::new(file_task_rx));
     let file_plans = Arc::new(pipeline_plan.files.clone());
-    let mut artifact_worker_handles = Vec::new();
-    if let (Some(download_client), Some(transfer_progress)) = (download_client, transfer_progress) {
-        for _ in 0..artifact_worker_count {
-            let event_tx = pipeline_event_tx.clone();
-            let task_receiver = Arc::clone(&artifact_task_receiver);
-            let control = control.clone();
-            let transfer_progress = Arc::clone(transfer_progress);
-            let download_client = download_client.clone();
-            artifact_worker_handles.push(thread::spawn(move || {
-                loop {
-                    let next_task = match task_receiver.lock() {
-                        Ok(mut tasks) => tasks.pop_front(),
-                        Err(_) => {
-                            let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
-                                ArtifactPipelineEvent::Failed(Error::reconstruct(
-                                    "artifact task state is unavailable",
-                                )),
-                            ));
-                            return;
-                        }
-                    };
-                    let Some(bundle_download) = next_task else {
-                        let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
-                            ArtifactPipelineEvent::WorkerDone,
-                        ));
-                        return;
-                    };
-                    if let Err(error) = control.checkpoint() {
-                        let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
-                            ArtifactPipelineEvent::Failed(error),
-                        ));
-                        return;
-                    }
-                    let result = download_pending_bundle(
-                        &download_client,
-                        &bundle_download,
-                        &control,
-                        &transfer_progress,
-                    );
-                    match result {
-                        Ok(_) => {
-                            let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
-                                ArtifactPipelineEvent::Ready(bundle_download.artifact.clone()),
-                            ));
-                        }
-                        Err(error) => {
-                            let _ = event_tx.send(ReconstructPipelineEvent::Artifact(
-                                ArtifactPipelineEvent::Failed(error),
-                            ));
-                            return;
-                        }
-                    }
-                }
-            }));
-        }
-    }
-
     let mut file_worker_handles = Vec::new();
     let compression_profile = compression_profile.clone();
     for _ in 0..reconstruct_worker_count {
@@ -639,6 +652,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
 
     let mut completed_artifact_workers = 0usize;
     let mut completed_file_workers = 0usize;
+    let mut dispatched_file_count = 0usize;
     let mut pipeline_error: Option<Error> = None;
     let queue_ready_file = |file_index: usize| -> Result<()> {
         file_task_tx
@@ -655,13 +669,43 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                 pipeline_error = Some(error);
                 break;
             }
+            dispatched_file_count += 1;
+        }
+        if let Some(scheduler) = artifact_scheduler.as_ref() {
+            let reconstruct_backlog =
+                ready_files.len() + dispatched_file_count.saturating_sub(completed_file_count);
+            scheduler.set_downstream_backpressure(
+                reconstruct_backlog >= reconstruct_worker_count.saturating_mul(2),
+            );
         }
 
         if pipeline_error.is_some() || completed_file_count == pipeline_plan.files.len() {
             break;
         }
 
-        match pipeline_event_rx.recv() {
+        let next_event = loop {
+            if let Some(scheduler) = artifact_scheduler.as_ref() {
+                match scheduler.try_recv() {
+                    Ok(event) => break Ok(map_artifact_download_event(event)),
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        break Err(Error::reconstruct(
+                            "artifact download scheduler channel closed unexpectedly",
+                        ));
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                }
+            }
+            match pipeline_event_rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(event) => break Ok(event),
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    break Err(Error::reconstruct(
+                        "reconstruct pipeline event channel closed unexpectedly",
+                    ));
+                }
+            }
+        };
+        match next_event {
             Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::Ready(artifact))) => {
                 if available_artifacts.insert(artifact.clone())
                     && let Some(file_indices) =
@@ -679,6 +723,12 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                             ready_files.push_back(file_index);
                         }
                     }
+                }
+                if let Some(scheduler) = artifact_scheduler.as_ref() {
+                    scheduler.update_priorities(build_artifact_priorities(
+                        &pipeline_plan,
+                        pending_bundle_downloads,
+                    ));
                 }
             }
             Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::Failed(error))) => {
@@ -742,19 +792,20 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                 }
             }
             Err(_) => {
-                pipeline_error = Some(Error::reconstruct(
-                    "reconstruct pipeline event channel closed unexpectedly",
-                ));
+                pipeline_error = Some(Error::reconstruct("reconstruct pipeline event failed"));
                 break;
             }
         }
     }
 
     drop(file_task_tx);
-    for handle in artifact_worker_handles {
-        handle
-            .join()
-            .map_err(|_| Error::reconstruct("artifact download worker panicked"))?;
+    if pipeline_error.is_some() {
+        if let Some(scheduler) = artifact_scheduler.as_ref() {
+            scheduler.cancel();
+        }
+    }
+    if let Some(scheduler) = artifact_scheduler {
+        scheduler.join()?;
     }
     for handle in file_worker_handles {
         handle
@@ -1330,6 +1381,7 @@ mod tests {
                 runtime_hints: &RuntimeResourceHints::default(),
                 existing_artifacts: &existing_artifacts,
                 pending_bundle_downloads: &[],
+                transfer_policy: crate::snapshot_ops::types::TransferConcurrencyPolicy::default(),
                 control: &crate::GutchOperationControl::default(),
                 download_client: None,
                 transfer_progress: None,

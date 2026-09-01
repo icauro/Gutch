@@ -84,6 +84,7 @@ pub fn repair_snapshot_from_repo(
             runtime_hints: &request.runtime_hints,
             existing_artifacts: &existing_artifacts,
             pending_bundle_downloads: &[],
+            transfer_policy: super::types::TransferConcurrencyPolicy::default(),
             control: &request.control,
             download_client: None,
             transfer_progress: None,
