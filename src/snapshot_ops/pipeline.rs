@@ -608,11 +608,13 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
 }
 
 enum ReconstructWorkItem {
+    PrepareOutput(usize),
     Job(usize),
     VerifyFile(usize),
 }
 
 enum ReconstructJobEvent {
+    OutputPrepared,
     Completed(ReconstructTimings),
     Verified(ReconstructedFileVerification),
     Failed(Error),
@@ -657,11 +659,12 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
     };
     let prepare_started_at = Instant::now();
-    let output_paths = Arc::new({
-        let _outputs_span = control.profile_span("gutch.snapshot.reconstruct.prepare.outputs");
-        prepare_reconstruct_output_files(&pipeline_plan.files, staging_dir, control)?
-    });
-    reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
+    let mut output_prepare_span =
+        Some(control.profile_span("gutch.snapshot.reconstruct.prepare.outputs"));
+    let output_paths = Arc::new(resolve_reconstruct_output_paths(
+        &pipeline_plan.files,
+        staging_dir,
+    )?);
     let file_plans = Arc::new(pipeline_plan.files);
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
@@ -726,9 +729,9 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Reconstruct,
-            message: "Reconstructing jobs (0/0)".to_string(),
+            message: format!("Preparing files (0/{})", file_plans.len().max(1)),
             current: 0,
-            total: jobs.len().max(1),
+            total: file_plans.len().max(1),
             transferred_bytes: 0,
             total_bytes: 0,
             detail: Some(snapshot_id.to_string()),
@@ -736,10 +739,11 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         },
     );
 
-    let worker_count = if jobs.is_empty() {
+    let work_item_count = jobs.len().max(file_plans.len());
+    let worker_count = if work_item_count == 0 {
         0
     } else {
-        runtime_plan.worker_count.min(jobs.len()).max(1)
+        runtime_plan.worker_count.min(work_item_count).max(1)
     };
     let (task_tx, task_rx) = crossbeam_channel::unbounded::<ReconstructWorkItem>();
     let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
@@ -763,6 +767,14 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     }
                 };
                 let result = match work_item {
+                    ReconstructWorkItem::PrepareOutput(file_index) => {
+                        prepare_reconstruct_output_file(
+                            &file_plans[file_index],
+                            &output_paths[file_index],
+                            &control,
+                        )
+                        .map(|_| ReconstructJobEvent::OutputPrepared)
+                    }
                     ReconstructWorkItem::Job(job_index) => reconstruct_job(
                         &jobs[job_index],
                         &file_plans,
@@ -798,33 +810,35 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     drop(event_tx);
     let mut task_tx = Some(task_tx);
     {
-        let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
-        for (job_index, job) in jobs.iter().enumerate() {
-            let ready = match job {
-                ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
-                ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
-            };
-            if ready {
-                task_tx
-                    .as_ref()
-                    .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))?
-                    .send(ReconstructWorkItem::Job(job_index))
-                    .map_err(|_| Error::reconstruct("reconstruction queue closed unexpectedly"))?;
-            }
+        let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.outputs");
+        for file_index in 0..file_plans.len() {
+            task_tx
+                .as_ref()
+                .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))?
+                .send(ReconstructWorkItem::PrepareOutput(file_index))
+                .map_err(|_| Error::reconstruct("reconstruction queue closed unexpectedly"))?;
         }
     }
     let mut downloads_done = artifact_scheduler.is_none();
     let mut completed_download_worker_count = 0usize;
 
+    let mut prepared_output_count = 0usize;
     let mut completed_job_count = 0usize;
     let mut completed_file_count = 0usize;
     let mut completed_worker_count = 0usize;
+    let mut reconstruction_dispatched = false;
+    let mut downloaded_job_indices = HashSet::new();
     let mut verification_queued = false;
     let mut verify_started_at = None;
     let mut verify_span = None;
     let mut verified_file_bytes = 0u64;
     let mut pipeline_error = None;
+    if file_plans.is_empty() {
+        reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
+        drop(output_prepare_span.take());
+    }
     while completed_worker_count < worker_count
+        || prepared_output_count < file_plans.len()
         || completed_job_count < jobs.len()
         || completed_file_count < file_plans.len()
     {
@@ -858,7 +872,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                             )));
                             break;
                         }
-                        let queue_result = {
+                        let queue_result = if reconstruction_dispatched {
                             let _dispatch_span = control
                                 .profile_span("gutch.snapshot.reconstruct.dispatch.downloaded");
                             task_tx
@@ -875,6 +889,9 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                                             )
                                         })
                                 })
+                        } else {
+                            downloaded_job_indices.insert(job_index);
+                            Ok(())
                         };
                         if let Err(error) = queue_result {
                             pipeline_error = Some(error);
@@ -902,6 +919,45 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                         break;
                     }
                 }
+            }
+        }
+
+        if !reconstruction_dispatched && prepared_output_count == file_plans.len() {
+            reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
+            drop(output_prepare_span.take());
+            let queue_result = {
+                let _dispatch_span =
+                    control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
+                task_tx
+                    .as_ref()
+                    .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))
+                    .and_then(|sender| {
+                        for (job_index, job) in jobs.iter().enumerate() {
+                            let ready = match job {
+                                ReconstructJob::Artifact(job) => {
+                                    existing_artifacts.contains(&job.artifact)
+                                        || downloaded_job_indices.remove(&job_index)
+                                }
+                                ReconstructJob::SourceChunk(_)
+                                | ReconstructJob::CopySourceFile { .. } => true,
+                            };
+                            if ready {
+                                sender
+                                    .send(ReconstructWorkItem::Job(job_index))
+                                    .map_err(|_| {
+                                        Error::reconstruct(
+                                            "reconstruction queue closed unexpectedly",
+                                        )
+                                    })?;
+                            }
+                        }
+                        Ok(())
+                    })
+            };
+            if let Err(error) = queue_result {
+                pipeline_error = Some(error);
+            } else {
+                reconstruction_dispatched = true;
             }
         }
 
@@ -938,6 +994,27 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             break;
         }
         match event_rx.recv_timeout(Duration::from_millis(10)) {
+            Ok(ReconstructJobEvent::OutputPrepared) => {
+                prepared_output_count += 1;
+                emit_progress(
+                    control.progress(),
+                    GutchProgressEvent {
+                        operation: GutchOperation::Fetch,
+                        phase: GutchProgressPhase::Reconstruct,
+                        message: format!(
+                            "Preparing files ({}/{})",
+                            prepared_output_count,
+                            file_plans.len().max(1)
+                        ),
+                        current: prepared_output_count,
+                        total: file_plans.len().max(1),
+                        transferred_bytes: 0,
+                        total_bytes: 0,
+                        detail: None,
+                        done: false,
+                    },
+                );
+            }
             Ok(ReconstructJobEvent::Completed(job_timings)) => {
                 completed_job_count += 1;
                 accumulate_pipeline_timings(
@@ -1068,31 +1145,37 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     Ok((reconstruct_timings, verify_timings))
 }
 
-fn prepare_reconstruct_output_files(
+fn resolve_reconstruct_output_paths(
     files: &[ReconstructPipelineFile],
     staging_dir: &Path,
-    control: &GutchOperationControl,
 ) -> Result<Vec<PathBuf>> {
-    let mut output_paths = Vec::with_capacity(files.len());
-    for file_plan in files {
-        let _file_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.prepare.file",
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-        );
-        let output_path =
-            crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)?;
-        if let Some(parent) = output_path.parent() {
-            crate::helpers::create_dir_all(parent)?;
-        }
-        let output = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&output_path)?;
-        output.set_len(file_plan.size)?;
-        output_paths.push(output_path);
+    files
+        .iter()
+        .map(|file_plan| {
+            crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)
+        })
+        .collect()
+}
+
+fn prepare_reconstruct_output_file(
+    file_plan: &ReconstructPipelineFile,
+    output_path: &Path,
+    control: &GutchOperationControl,
+) -> Result<()> {
+    let _file_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.prepare.file",
+        crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+    );
+    if let Some(parent) = output_path.parent() {
+        crate::helpers::create_dir_all(parent)?;
     }
-    Ok(output_paths)
+    let output = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(output_path)?;
+    output.set_len(file_plan.size)?;
+    Ok(())
 }
 
 fn reconstruct_job(
