@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rayon::prelude::*;
+
 use super::apply::build_snapshot_reconstruct_result;
 use super::transfer::{
     ArtifactDownloadEvent, ArtifactDownloadScheduler, ArtifactPriority, FetchTransferProgress,
@@ -937,6 +939,7 @@ fn execute_bundled_reconstruct_pipeline(
     let verified_file_bytes = verify_bundled_output_files(
         &file_plans,
         &output_paths,
+        runtime_plan.worker_count,
         control,
         &mut reconstruct_timings,
     )?;
@@ -1217,49 +1220,89 @@ fn bundle_target_trace_args(
 fn verify_bundled_output_files(
     files: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
+    worker_count: usize,
     control: &GutchOperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<u64> {
+    let verify_results = if worker_count <= 1 {
+        files
+            .iter()
+            .enumerate()
+            .map(|(file_index, file_plan)| {
+                verify_bundled_output_file(file_index, file_plan, output_paths, control)
+            })
+            .collect::<Vec<_>>()
+    } else {
+        crate::runtime::run_in_thread_pool(worker_count, || {
+            files
+                .par_iter()
+                .enumerate()
+                .map(|(file_index, file_plan)| {
+                    verify_bundled_output_file(file_index, file_plan, output_paths, control)
+                })
+                .collect::<Vec<_>>()
+        })?
+    };
+
     let mut verified_bytes = 0u64;
-    for (file_index, file_plan) in files.iter().enumerate() {
-        control.checkpoint()?;
-        let _file_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file",
-            reconstruct_file_trace_args(file_plan),
-        );
-        let _hash_span = control.profile_span("gutch.snapshot.reconstruct.file.full_hash");
-        let mut input = File::open(&output_paths[file_index])?;
-        let actual_size = input.metadata()?.len();
-        if actual_size != file_plan.size {
-            return Err(Error::reconstruct(format!(
-                "reconstructed size {} does not match expected {} for {}",
-                actual_size, file_plan.size, file_plan.path
-            )));
-        }
-        let mut hasher = blake3::Hasher::new();
-        let mut buffer = vec![0u8; 1024 * 1024];
-        let mut file_bytes = 0u64;
-        loop {
-            let started_at = Instant::now();
-            let read = input.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-            timings.file_verify += started_at.elapsed();
-            timings.file_verify_bytes = timings.file_verify_bytes.saturating_add(read as u64);
-            file_bytes = file_bytes.saturating_add(read as u64);
-        }
-        let actual_hash = crate::hash::hash_hex(&hasher.finalize());
-        if actual_hash != file_plan.full_file_hash {
-            return Err(Error::HashMismatch {
-                expected: file_plan.full_file_hash.clone(),
-                actual: actual_hash,
-            });
-        }
-        verified_bytes = verified_bytes.saturating_add(file_bytes);
+    for result in verify_results {
+        let result = result?;
+        timings.file_verify += result.elapsed;
+        timings.file_verify_bytes = timings.file_verify_bytes.saturating_add(result.bytes);
+        verified_bytes = verified_bytes.saturating_add(result.bytes);
     }
     Ok(verified_bytes)
+}
+
+struct BundledFileVerification {
+    elapsed: Duration,
+    bytes: u64,
+}
+
+fn verify_bundled_output_file(
+    file_index: usize,
+    file_plan: &ReconstructPipelineFile,
+    output_paths: &[PathBuf],
+    control: &GutchOperationControl,
+) -> Result<BundledFileVerification> {
+    control.checkpoint()?;
+    let _file_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.file",
+        reconstruct_file_trace_args(file_plan),
+    );
+    let _hash_span = control.profile_span("gutch.snapshot.reconstruct.file.full_hash");
+    let started_at = Instant::now();
+    let mut input = File::open(&output_paths[file_index])?;
+    let actual_size = input.metadata()?.len();
+    if actual_size != file_plan.size {
+        return Err(Error::reconstruct(format!(
+            "reconstructed size {} does not match expected {} for {}",
+            actual_size, file_plan.size, file_plan.path
+        )));
+    }
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut file_bytes = 0u64;
+    loop {
+        control.checkpoint()?;
+        let read = input.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        file_bytes = file_bytes.saturating_add(read as u64);
+    }
+    let actual_hash = crate::hash::hash_hex(&hasher.finalize());
+    if actual_hash != file_plan.full_file_hash {
+        return Err(Error::HashMismatch {
+            expected: file_plan.full_file_hash.clone(),
+            actual: actual_hash,
+        });
+    }
+    Ok(BundledFileVerification {
+        elapsed: started_at.elapsed(),
+        bytes: file_bytes,
+    })
 }
 
 pub(super) fn execute_reconstruct_pipeline_reconstruction(
