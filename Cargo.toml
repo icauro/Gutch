@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+crossbeam-channel = "0.5.15"
 fastcdc = "4.0.1"
 # Fast Content-Defined Chunking (file splitting for dedup)
 blake3 = "1.8.5"

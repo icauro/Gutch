@@ -621,24 +621,13 @@ fn execute_bundled_reconstruct_pipeline(
         snapshot_id,
         compression_profile,
         runtime_hints,
+        existing_artifacts,
         pending_bundle_downloads,
+        transfer_policy,
         control,
-        ..
+        download_client,
+        transfer_progress,
     } = request;
-    if !pending_bundle_downloads.is_empty() {
-        return Err(Error::reconstruct(
-            "bundled reconstruction cannot run before pending downloads complete",
-        ));
-    }
-    if pipeline_plan
-        .remaining_artifact_dependencies
-        .iter()
-        .any(|remaining| *remaining > 0)
-    {
-        return Err(Error::reconstruct(
-            "bundled reconstruction requires all bundles to be available locally",
-        ));
-    }
 
     control.checkpoint()?;
     let _pipeline_span = control.profile_span("gutch.snapshot.reconstruct.pipeline");
@@ -655,6 +644,7 @@ fn execute_bundled_reconstruct_pipeline(
         ..crate::verify::VerifyTimings::default()
     };
 
+    let artifact_priorities = build_artifact_priorities(&pipeline_plan, pending_bundle_downloads);
     let prepare_started_at = Instant::now();
     let output_paths = Arc::new(prepare_bundled_output_files(
         &pipeline_plan.files,
@@ -663,8 +653,19 @@ fn execute_bundled_reconstruct_pipeline(
     reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
     let file_plans = Arc::new(pipeline_plan.files);
     let bundle_jobs = Arc::new(pipeline_plan.bundle_jobs);
+    let pending_artifacts = pending_bundle_downloads
+        .iter()
+        .map(|download| download.artifact.clone())
+        .collect::<HashSet<_>>();
     for job in bundle_jobs.iter() {
-        if !job.artifact_path.is_file() {
+        if !existing_artifacts.contains(&job.artifact) && !pending_artifacts.contains(&job.artifact)
+        {
+            return Err(Error::reconstruct(format!(
+                "required bundle '{}' is neither local nor scheduled for download",
+                job.artifact.id()
+            )));
+        }
+        if existing_artifacts.contains(&job.artifact) && !job.artifact_path.is_file() {
             return Err(Error::reconstruct(format!(
                 "required bundle '{}' is not available at {}",
                 job.artifact.id(),
@@ -672,6 +673,32 @@ fn execute_bundled_reconstruct_pipeline(
             )));
         }
     }
+    let artifact_scheduler = if pending_bundle_downloads.is_empty() {
+        None
+    } else {
+        let Some(download_client) = download_client else {
+            return Err(Error::reconstruct(
+                "bundled reconstruction requires a download client for pending bundles",
+            ));
+        };
+        let Some(transfer_progress) = transfer_progress else {
+            return Err(Error::reconstruct(
+                "bundled reconstruction requires transfer progress for pending bundles",
+            ));
+        };
+        Some(ArtifactDownloadScheduler::new(
+            pending_bundle_downloads,
+            artifact_priorities,
+            transfer_policy,
+            download_client,
+            control,
+            Arc::clone(transfer_progress),
+        )?)
+    };
+    let artifact_worker_count = artifact_scheduler
+        .as_ref()
+        .map(ArtifactDownloadScheduler::worker_count)
+        .unwrap_or(0);
 
     emit_progress(
         control.progress(),
@@ -688,16 +715,21 @@ fn execute_bundled_reconstruct_pipeline(
         },
     );
 
-    let worker_count = runtime_plan
-        .worker_count
-        .min(bundle_jobs.len())
-        .max(1.min(bundle_jobs.len()));
-    let (task_tx, task_rx) = mpsc::channel::<usize>();
-    let task_rx = Arc::new(Mutex::new(task_rx));
+    let worker_count = if bundle_jobs.is_empty() {
+        0
+    } else {
+        runtime_plan.worker_count.min(bundle_jobs.len()).max(1)
+    };
+    let bundle_job_indices = bundle_jobs
+        .iter()
+        .enumerate()
+        .map(|(index, job)| (job.artifact.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let (task_tx, task_rx) = crossbeam_channel::unbounded::<usize>();
     let (event_tx, event_rx) = mpsc::channel::<BundledReconstructEvent>();
     let mut worker_handles = Vec::with_capacity(worker_count);
     for _ in 0..worker_count {
-        let task_rx = Arc::clone(&task_rx);
+        let task_rx = task_rx.clone();
         let event_tx = event_tx.clone();
         let bundle_jobs = Arc::clone(&bundle_jobs);
         let file_plans = Arc::clone(&file_plans);
@@ -706,15 +738,7 @@ fn execute_bundled_reconstruct_pipeline(
         let control = control.clone();
         worker_handles.push(thread::spawn(move || {
             loop {
-                let next_job = match task_rx.lock() {
-                    Ok(receiver) => receiver.recv(),
-                    Err(_) => {
-                        let _ = event_tx.send(BundledReconstructEvent::Failed(Error::reconstruct(
-                            "bundled reconstruction task state is unavailable",
-                        )));
-                        return;
-                    }
-                };
+                let next_job = task_rx.recv();
                 let job_index = match next_job {
                     Ok(job_index) => job_index,
                     Err(_) => {
@@ -747,18 +771,108 @@ fn execute_bundled_reconstruct_pipeline(
         }));
     }
     drop(event_tx);
-    for job_index in 0..bundle_jobs.len() {
-        task_tx
-            .send(job_index)
-            .map_err(|_| Error::reconstruct("bundled reconstruction queue closed unexpectedly"))?;
+    let mut task_tx = Some(task_tx);
+    let mut queued_bundle_count = 0usize;
+    for (job_index, job) in bundle_jobs.iter().enumerate() {
+        if existing_artifacts.contains(&job.artifact) {
+            task_tx
+                .as_ref()
+                .ok_or_else(|| Error::reconstruct("bundled reconstruction queue is unavailable"))?
+                .send(job_index)
+                .map_err(|_| {
+                    Error::reconstruct("bundled reconstruction queue closed unexpectedly")
+                })?;
+            queued_bundle_count += 1;
+        }
     }
-    drop(task_tx);
+    let mut downloads_done = artifact_scheduler.is_none();
+    let mut completed_download_worker_count = 0usize;
+    if downloads_done && queued_bundle_count == bundle_jobs.len() {
+        task_tx.take();
+    }
 
     let mut completed_bundle_count = 0usize;
     let mut completed_worker_count = 0usize;
     let mut pipeline_error = None;
-    while completed_worker_count < worker_count {
-        match event_rx.recv() {
+    while completed_worker_count < worker_count || completed_bundle_count < bundle_jobs.len() {
+        if let Err(error) = control.checkpoint() {
+            pipeline_error = Some(error);
+            break;
+        }
+        if !downloads_done {
+            if let Some(scheduler) = artifact_scheduler.as_ref() {
+                loop {
+                    match scheduler.try_recv() {
+                        Ok(ArtifactDownloadEvent::Ready(artifact)) => {
+                            let Some(&job_index) = bundle_job_indices.get(&artifact) else {
+                                pipeline_error = Some(Error::reconstruct(format!(
+                                    "downloaded unexpected bundle '{}'",
+                                    artifact.id()
+                                )));
+                                break;
+                            };
+                            if !bundle_jobs[job_index].artifact_path.is_file() {
+                                pipeline_error = Some(Error::reconstruct(format!(
+                                    "downloaded bundle '{}' is missing at {}",
+                                    artifact.id(),
+                                    bundle_jobs[job_index].artifact_path.display()
+                                )));
+                                break;
+                            }
+                            let queue_result = task_tx
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    Error::reconstruct(
+                                        "bundled reconstruction queue is unavailable",
+                                    )
+                                })
+                                .and_then(|sender| {
+                                    sender.send(job_index).map_err(|_| {
+                                        Error::reconstruct(
+                                            "bundled reconstruction queue closed unexpectedly",
+                                        )
+                                    })
+                                });
+                            if let Err(error) = queue_result {
+                                pipeline_error = Some(error);
+                                break;
+                            }
+                            queued_bundle_count += 1;
+                        }
+                        Ok(ArtifactDownloadEvent::Failed(error)) => {
+                            pipeline_error = Some(error);
+                            break;
+                        }
+                        Ok(ArtifactDownloadEvent::WorkerDone) => {
+                            completed_download_worker_count += 1;
+                            if completed_download_worker_count == artifact_worker_count {
+                                downloads_done = true;
+                                if let Some(transfer_progress) = transfer_progress {
+                                    transfer_progress.finish();
+                                }
+                            }
+                        }
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            pipeline_error = Some(Error::reconstruct(
+                                "artifact download scheduler channel closed unexpectedly",
+                            ));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if downloads_done && queued_bundle_count == bundle_jobs.len() {
+            task_tx.take();
+        }
+        if pipeline_error.is_some() {
+            break;
+        }
+        if completed_worker_count == worker_count && completed_bundle_count == bundle_jobs.len() {
+            break;
+        }
+        match event_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(BundledReconstructEvent::BundleCompleted(bundle_timings)) => {
                 completed_bundle_count += 1;
                 accumulate_pipeline_timings(
@@ -790,13 +904,23 @@ fn execute_bundled_reconstruct_pipeline(
                 break;
             }
             Ok(BundledReconstructEvent::WorkerDone) => completed_worker_count += 1,
-            Err(_) => {
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
                 pipeline_error = Some(Error::reconstruct(
                     "bundled reconstruction event channel closed unexpectedly",
                 ));
                 break;
             }
         }
+    }
+    drop(task_tx);
+    if pipeline_error.is_some() {
+        if let Some(scheduler) = artifact_scheduler.as_ref() {
+            scheduler.cancel();
+        }
+    }
+    if let Some(scheduler) = artifact_scheduler {
+        scheduler.join()?;
     }
     for handle in worker_handles {
         handle
@@ -1142,7 +1266,7 @@ fn verify_bundled_output_files(
 pub(super) fn execute_reconstruct_pipeline_reconstruction(
     request: ExecuteReconstructPipelineRequest<'_>,
 ) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
-    if request.pending_bundle_downloads.is_empty() && request.pipeline_plan.bundle_only {
+    if request.pipeline_plan.bundle_only {
         return execute_bundled_reconstruct_pipeline(request);
     }
 
