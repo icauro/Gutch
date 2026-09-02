@@ -843,7 +843,10 @@ fn reconstruct_pipeline_file(
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
-    let _file_span = control.profile_span("gutch.snapshot.reconstruct.file");
+    let _file_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.file",
+        crate::profile::file_trace_args(&file_plan.path, file_plan.size),
+    );
     match &file_plan.reconstruction {
         ReconstructPipelineReconstruction::CopyFromSource { source_path } => {
             copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)

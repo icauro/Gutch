@@ -7,6 +7,20 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 const TRACE_CATEGORY: &str = "gutch";
+const BYTES_PER_MIB: f64 = 1024.0 * 1024.0;
+
+pub(crate) fn file_trace_args(
+    path: impl Into<String>,
+    size_bytes: u64,
+) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
+        ("path".to_string(), serde_json::json!(path.into())),
+        (
+            "size_mib".to_string(),
+            serde_json::json!(size_bytes as f64 / BYTES_PER_MIB),
+        ),
+    ])
+}
 
 #[derive(Debug, Clone)]
 pub struct GutchProfiler {
@@ -291,7 +305,15 @@ impl Drop for GutchProfileSpan {
 
 #[cfg(test)]
 mod tests {
-    use super::GutchProfiler;
+    use super::{GutchProfiler, file_trace_args};
+
+    #[test]
+    fn file_trace_args_use_mib_and_relative_path() {
+        let args = file_trace_args("bin/game.exe", 3 * 1024 * 1024 + 512 * 1024);
+
+        assert_eq!(args["path"], serde_json::json!("bin/game.exe"));
+        assert_eq!(args["size_mib"], serde_json::json!(3.5));
+    }
 
     #[test]
     fn trace_process_name_uses_output_file_stem() {

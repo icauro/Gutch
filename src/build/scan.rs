@@ -201,6 +201,10 @@ pub(crate) fn scan_directory_into_file_entries(
                 .get(&normalized_relative)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
+            let _file_span = control_for_scan.profile_span_with_args(
+                "gutch.capture.scan.file",
+                crate::profile::file_trace_args(&normalized_relative, source_metadata.len()),
+            );
 
             scan_changed_file(ScanChangedFileRequest {
                 path,

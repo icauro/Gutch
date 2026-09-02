@@ -322,6 +322,10 @@ fn verify_manifest_file(
     verify_mode: VerifyMode,
     control: &GutchOperationControl,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
+    let _file_span = control.profile_span_with_args(
+        "gutch.verify.file",
+        crate::profile::file_trace_args(&fm.path, fm.size),
+    );
     control.checkpoint()?;
     let mut timings = VerifyTimings {
         verify_mode,
