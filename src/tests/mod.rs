@@ -75,9 +75,9 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     write_snapshot_manifest_artifacts(&repo_paths, &v1.snapshot_manifest).unwrap();
     write_snapshot_manifest_artifacts(&repo_paths, &v2.snapshot_manifest).unwrap();
     for bundle in &v2.bundles {
-        std::fs::write(
+        std::fs::copy(
+            bundle.staged_file.path(),
             bundle_path(&repo_paths, &bundle.bundle_id).unwrap(),
-            &bundle.data,
         )
         .unwrap();
     }
@@ -306,7 +306,7 @@ fn test_large_game_build_200mb() {
     let result = build_from_directory(&root, "1", &tags).unwrap();
     let build_ms = t1.elapsed().as_millis();
 
-    let bundle_total: u64 = result.bundles.iter().map(|b| b.data.len() as u64).sum();
+    let bundle_total: u64 = result.bundles.iter().map(|b| b.size).sum();
     let compression_pct = if result.snapshot_manifest.total_logical_size > 0 {
         100.0 * bundle_total as f64 / result.snapshot_manifest.total_logical_size as f64
     } else {
@@ -320,7 +320,7 @@ fn test_large_game_build_200mb() {
         let bundle_dir = artifacts_dir.join("bundles");
         std::fs::create_dir_all(&bundle_dir).unwrap();
         let bundle_path = bundle_path_in_root(&bundle_dir, &bundle.bundle_id).unwrap();
-        std::fs::write(bundle_path, &bundle.data).unwrap();
+        std::fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
     }
     let artifacts_total = test_util::dir_size(&artifacts_dir);
 
@@ -329,9 +329,9 @@ fn test_large_game_build_200mb() {
     ensure_gutch_repo_layout(&repo_paths, "200mb-test").unwrap();
     write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest).unwrap();
     for bundle in &result.bundles {
-        std::fs::write(
+        std::fs::copy(
+            bundle.staged_file.path(),
             bundle_path(&repo_paths, &bundle.bundle_id).unwrap(),
-            &bundle.data,
         )
         .unwrap();
     }

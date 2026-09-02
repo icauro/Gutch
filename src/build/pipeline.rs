@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 
+use rayon::ThreadPool;
 use rayon::prelude::*;
 
 use crate::Result;
@@ -9,13 +10,13 @@ use crate::build::progress::BuildProgressTracker;
 use crate::build_scan::{ScanDirectoryOptions, collect_scanned_chunks};
 use crate::build_types::{
     BuildConfig, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk, ChunkPayload,
-    ExistingChunkLocation,
+    ExistingChunkLocation, StagedBundleFile,
 };
 use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
 use crate::hash::ChunkHash;
 use crate::manifest::{self, ArtifactStorageMode, SnapshotTagSet, snapshot::SnapshotManifest};
-use crate::runtime::{plan_build_runtime, run_in_thread_pool};
+use crate::runtime::{build_thread_pool, plan_build_runtime};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
@@ -124,6 +125,8 @@ fn plan_bundle_compressed_groups(
     compression_profile: &manifest::CompressionProfile,
     bundle_profile: &manifest::BundleSizingProfile,
     bundle_policy: BundleSizingPolicy,
+    pool: &ThreadPool,
+    control: &crate::GutchOperationControl,
 ) -> Result<PlannedBundleGroups> {
     if chunks.is_empty() {
         return Ok(PlannedBundleGroups {
@@ -135,17 +138,34 @@ fn plan_bundle_compressed_groups(
         });
     }
 
-    let sort_start = Instant::now();
     let sort_bytes: u64 = chunks.iter().map(|(_, payload)| payload.raw_size()).sum();
-    chunks.sort_by_key(|a| a.0);
-    let sort_duration = sort_start.elapsed();
-    let probe_start = Instant::now();
-    let (bundle_compression_ratio, probe_raw_bytes) = estimate_bundle_compression_ratio_from_probe(
-        &chunks,
-        compression_profile,
-        bundle_profile.bundle_preferred_size_bytes(),
-    )?;
-    let probe_duration = probe_start.elapsed();
+    let sort_duration = {
+        let _sort_span = control.profile_span_with_args(
+            "gutch.capture.plan_artifact_groups.sort_chunks_by_hash",
+            capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
+        );
+        let sort_start = Instant::now();
+        pool.install(|| chunks.par_sort_unstable_by(|left, right| left.0.cmp(&right.0)));
+        sort_start.elapsed()
+    };
+    let (bundle_compression_ratio, probe_raw_bytes, probe_duration) = {
+        let _probe_span = control.profile_span_with_args(
+            "gutch.capture.plan_artifact_groups.estimate_compression_ratio",
+            BTreeMap::from([(
+                "probe_target_mib".to_string(),
+                serde_json::json!(
+                    bundle_profile.bundle_preferred_size_bytes() as f64 / (1024.0 * 1024.0)
+                ),
+            )]),
+        );
+        let probe_start = Instant::now();
+        let (ratio, raw_bytes) = estimate_bundle_compression_ratio_from_probe(
+            &chunks,
+            compression_profile,
+            bundle_profile.bundle_preferred_size_bytes(),
+        )?;
+        (ratio, raw_bytes, probe_start.elapsed())
+    };
     let new_raw_bytes = sort_bytes;
     let estimated_total_compressed_bytes =
         ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
@@ -156,25 +176,33 @@ fn plan_bundle_compressed_groups(
         bundle_policy,
     );
 
-    let mut planned_groups = Vec::new();
-    let mut current_group = Vec::new();
-    let mut current_group_raw_size: u64 = 0;
+    let planned_groups = {
+        let _group_span = control.profile_span_with_args(
+            "gutch.capture.plan_artifact_groups.assign_chunks_to_bundles",
+            capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
+        );
+        let mut planned_groups = Vec::new();
+        let mut current_group = Vec::new();
+        let mut current_group_raw_size: u64 = 0;
 
-    for (hash, payload) in chunks {
-        let raw_size = payload.raw_size();
-        if !current_group.is_empty() && current_group_raw_size + raw_size > bundle_raw_size_size {
-            planned_groups.push(current_group);
-            current_group = Vec::new();
-            current_group_raw_size = 0;
+        for (hash, payload) in chunks {
+            let raw_size = payload.raw_size();
+            if !current_group.is_empty() && current_group_raw_size + raw_size > bundle_raw_size_size
+            {
+                planned_groups.push(current_group);
+                current_group = Vec::new();
+                current_group_raw_size = 0;
+            }
+
+            current_group.push((hash, payload));
+            current_group_raw_size += raw_size;
         }
 
-        current_group.push((hash, payload));
-        current_group_raw_size += raw_size;
-    }
-
-    if !current_group.is_empty() {
-        planned_groups.push(current_group);
-    }
+        if !current_group.is_empty() {
+            planned_groups.push(current_group);
+        }
+        planned_groups
+    };
 
     Ok(PlannedBundleGroups {
         groups: planned_groups,
@@ -193,29 +221,19 @@ fn record_bundle_compressed_bundle_metrics(
 ) {
     timings.compression_output_bytes += bundle_data_len;
     *total_compressed += bundle_data_len;
-    timings.bundle_compressed_payload_assembly += bundle_metrics.payload_assembly;
-    timings.bundle_compressed_payload_assembly_bytes += bundle_metrics.payload_assembly_bytes;
-    timings.bundle_compressed_stream_compression += bundle_metrics.stream_compression;
-    timings.bundle_compressed_stream_input_bytes += bundle_metrics.stream_input_bytes;
-    timings.bundle_compressed_stream_output_bytes += bundle_metrics.stream_output_bytes;
-    timings.bundle_compressed_serialization += bundle_metrics.serialization;
-    timings.bundle_compressed_serialization_bytes += bundle_metrics.serialization_bytes;
-}
-
-fn bundle_compression_worker_count(
-    planned_bundle_count: usize,
-    runtime_worker_count: usize,
-) -> usize {
-    if planned_bundle_count == 0 {
-        1
-    } else {
-        runtime_worker_count.max(1).min(planned_bundle_count)
-    }
+    timings.bundle_compressed_frame_compression += bundle_metrics.frame_compression;
+    timings.bundle_compressed_frame_input_bytes += bundle_metrics.frame_input_bytes;
+    timings.bundle_compressed_frame_output_bytes += bundle_metrics.frame_output_bytes;
+    timings.bundle_compressed_footer_serialization += bundle_metrics.footer_serialization;
+    timings.bundle_compressed_footer_serialization_bytes +=
+        bundle_metrics.footer_serialization_bytes;
 }
 
 struct BuiltBundleCompressedGroup {
     bundle_id: String,
-    bundle_data: Vec<u8>,
+    staged_file: StagedBundleFile,
+    bundle_size: u64,
+    bundle_entries: Vec<manifest::BundleTableEntry>,
     bundle_metrics: crate::bundle::BundleBuildMetrics,
     payload_load: std::time::Duration,
     payload_load_bytes: u64,
@@ -229,7 +247,7 @@ struct BuiltLooseChunkResult {
 
 fn run_parallel_chunk_work<T, U, F>(
     work_items: Vec<T>,
-    worker_count: usize,
+    pool: &ThreadPool,
     control: &crate::GutchOperationControl,
     work: F,
 ) -> Result<Vec<U>>
@@ -240,7 +258,7 @@ where
 {
     control.checkpoint()?;
     let control_for_work = control.clone();
-    run_in_thread_pool(worker_count, || {
+    pool.install(|| {
         work_items
             .into_par_iter()
             .map(|work_item| {
@@ -248,13 +266,14 @@ where
                 work(work_item, &control_for_work)
             })
             .collect::<Result<Vec<_>>>()
-    })?
+    })
 }
 
 fn build_bundled_chunks(
     planned_bundle_groups: PlannedBundleGroups,
     compression_profile: &manifest::CompressionProfile,
-    runtime_worker_count: usize,
+    artifact_staging_root: &Path,
+    pool: &ThreadPool,
     control: &crate::GutchOperationControl,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
     control.checkpoint()?;
@@ -265,16 +284,55 @@ fn build_bundled_chunks(
     );
     progress.start(planned_bundle_groups.groups.len());
     let compression_profile_for_work = compression_profile.clone();
+    let artifact_staging_root = artifact_staging_root.to_path_buf();
     let progress_for_work = progress.clone();
-    let bundle_worker_count =
-        bundle_compression_worker_count(planned_bundle_groups.groups.len(), runtime_worker_count);
+    let total_bundle_count = planned_bundle_groups.groups.len();
+    let work_items = planned_bundle_groups
+        .groups
+        .into_iter()
+        .enumerate()
+        .collect::<Vec<_>>();
     run_parallel_chunk_work(
-        planned_bundle_groups.groups,
-        bundle_worker_count,
+        work_items,
+        pool,
         control,
-        move |planned_bundle, control| {
-            build_bundle_compressed_group(planned_bundle, &compression_profile_for_work, control)
-                .inspect(|_| progress_for_work.completed())
+        move |(bundle_index, planned_bundle), control| {
+            let raw_size = planned_bundle
+                .iter()
+                .map(|(_, payload)| payload.raw_size())
+                .sum();
+            let chunk_count = planned_bundle.len();
+            let _bundle_span = control.profile_span_with_args(
+                "gutch.capture.compress_bundle_artifact",
+                capture_artifact_trace_args(
+                    "bundle",
+                    bundle_index,
+                    total_bundle_count,
+                    chunk_count,
+                    raw_size,
+                    None,
+                ),
+            );
+            build_bundle_compressed_group(
+                planned_bundle,
+                &compression_profile_for_work,
+                &artifact_staging_root,
+                control,
+            )
+            .inspect(|built| {
+                progress_for_work.completed();
+                control.profile_event_with_args(
+                    "gutch.capture.compress_bundle_artifact.complete",
+                    capture_artifact_trace_args(
+                        "bundle",
+                        bundle_index,
+                        total_bundle_count,
+                        chunk_count,
+                        raw_size,
+                        Some((&built.bundle_id, built.bundle_size)),
+                    ),
+                );
+            })
         },
     )
 }
@@ -282,7 +340,7 @@ fn build_bundled_chunks(
 fn build_loose_chunks(
     chunks_to_compress: Vec<ChunkPayloadEntry>,
     compression_profile: &manifest::CompressionProfile,
-    runtime_worker_count: usize,
+    pool: &ThreadPool,
     control: &crate::GutchOperationControl,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
     control.checkpoint()?;
@@ -294,15 +352,95 @@ fn build_loose_chunks(
     progress.start(chunks_to_compress.len());
     let compression_profile_for_work = compression_profile.clone();
     let progress_for_work = progress.clone();
+    let total_chunk_count = chunks_to_compress.len();
     run_parallel_chunk_work(
         chunks_to_compress,
-        runtime_worker_count,
+        pool,
         control,
         move |(chunk_hash, payload), control| {
-            build_loose_chunk(chunk_hash, payload, &compression_profile_for_work, control)
-                .inspect(|_| progress_for_work.completed())
+            let raw_size = payload.raw_size();
+            let _chunk_span = control.profile_span_with_args(
+                "gutch.capture.compress_loose_chunk_artifact",
+                capture_chunk_trace_args(&chunk_hash, raw_size, total_chunk_count),
+            );
+            build_loose_chunk(chunk_hash, payload, &compression_profile_for_work, control).inspect(
+                |built| {
+                    progress_for_work.completed();
+                    control.profile_event_with_args(
+                        "gutch.capture.compress_loose_chunk_artifact.complete",
+                        capture_chunk_trace_args(
+                            &built.chunk.chunk_hash,
+                            built.chunk.compressed_size,
+                            total_chunk_count,
+                        ),
+                    );
+                },
+            )
         },
     )
+}
+
+fn capture_bytes_trace_args(
+    count_name: &str,
+    count: usize,
+    bytes: u64,
+) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
+        (count_name.to_string(), serde_json::json!(count)),
+        (
+            "bytes_mib".to_string(),
+            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
+        ),
+    ])
+}
+
+fn capture_artifact_trace_args(
+    kind: &str,
+    ordinal: usize,
+    total: usize,
+    chunk_count: usize,
+    raw_bytes: u64,
+    completed: Option<(&str, u64)>,
+) -> BTreeMap<String, serde_json::Value> {
+    let mut args = BTreeMap::from([
+        ("artifact_kind".to_string(), serde_json::json!(kind)),
+        ("ordinal".to_string(), serde_json::json!(ordinal + 1)),
+        ("total".to_string(), serde_json::json!(total)),
+        ("chunk_count".to_string(), serde_json::json!(chunk_count)),
+        (
+            "raw_size_mib".to_string(),
+            serde_json::json!(raw_bytes as f64 / (1024.0 * 1024.0)),
+        ),
+    ]);
+    if let Some((artifact_id, compressed_bytes)) = completed {
+        args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));
+        args.insert(
+            "compressed_size_mib".to_string(),
+            serde_json::json!(compressed_bytes as f64 / (1024.0 * 1024.0)),
+        );
+    }
+    args
+}
+
+fn capture_chunk_trace_args(
+    chunk_hash: &ChunkHash,
+    bytes: u64,
+    total_chunk_count: usize,
+) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
+        (
+            "chunk_hash".to_string(),
+            serde_json::json!(chunk_hash.to_hex()),
+        ),
+        (
+            "size_mib".to_string(),
+            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
+        ),
+        (
+            "total_chunk_count".to_string(),
+            serde_json::json!(total_chunk_count),
+        ),
+    ])
 }
 
 fn base_build_config(snapshot_id: &str, snapshot_tags: &SnapshotTagSet) -> BuildConfig<'static> {
@@ -342,6 +480,7 @@ fn build_loose_chunk(
 fn build_bundle_compressed_group(
     planned_bundle: Vec<(ChunkHash, ChunkPayload)>,
     compression_profile: &manifest::CompressionProfile,
+    artifact_staging_root: &Path,
     control: &crate::GutchOperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
     control.checkpoint()?;
@@ -358,11 +497,13 @@ fn build_bundle_compressed_group(
         builder.add_shared_chunk(hash, bytes);
     }
 
-    let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
+    let built = builder.write_to_staging(artifact_staging_root, control.profiler())?;
     Ok(BuiltBundleCompressedGroup {
-        bundle_id,
-        bundle_data,
-        bundle_metrics,
+        bundle_id: built.bundle_id,
+        staged_file: StagedBundleFile::new(built.staged_path),
+        bundle_size: built.size,
+        bundle_entries: built.entries,
+        bundle_metrics: built.metrics,
         payload_load,
         payload_load_bytes,
     })
@@ -384,10 +525,32 @@ pub(crate) fn build_with_config_timed(
     dir: &Path,
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {
+    let runtime_plan = plan_build_runtime(&config.runtime_hints);
+    let _pool_span = config.control.profile_span_with_args(
+        "gutch.capture.create_worker_pool",
+        BTreeMap::from([(
+            "worker_count".to_string(),
+            serde_json::json!(runtime_plan.worker_count),
+        )]),
+    );
+    let build_pool = build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+    drop(_pool_span);
+    build_with_config_timed_on_pool(dir, config, &build_pool)
+}
+
+pub(crate) fn build_with_config_timed_on_pool(
+    dir: &Path,
+    config: &BuildConfig<'_>,
+    build_pool: &ThreadPool,
+) -> Result<(BuildResult, BuildTimings)> {
     config.control.checkpoint()?;
-    let _operation_span = config.control.profile_span("gutch.capture.build");
+    let _operation_span = config.control.profile_span("gutch.capture.build_snapshot");
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
+    let artifact_staging_root = config
+        .artifact_staging_root
+        .clone()
+        .unwrap_or_else(std::env::temp_dir);
     let mut timings = BuildTimings {
         storage_mode: config.storage_mode,
         ..BuildTimings::default()
@@ -412,7 +575,7 @@ pub(crate) fn build_with_config_timed(
 
     let scan_chunk_start = Instant::now();
     let (mut snapshot_entries, unique_chunks, total_logical_size) = {
-        let _scan_span = config.control.profile_span("gutch.capture.scan");
+        let _scan_span = config.control.profile_span("gutch.capture.scan_source");
         collect_scanned_chunks(
             dir,
             ScanDirectoryOptions {
@@ -420,6 +583,7 @@ pub(crate) fn build_with_config_timed(
                 chunking_profile: &config.chunk_profile,
                 existing_chunk_locations: &existing_chunk_locations_by_hash,
                 worker_count: runtime_plan.worker_count,
+                worker_pool: build_pool,
                 control: config.control.clone(),
             },
             &mut timings,
@@ -432,38 +596,63 @@ pub(crate) fn build_with_config_timed(
     let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
     let mut chunks_to_compress: Vec<ChunkPayloadEntry> = Vec::new();
     {
-        let _dedupe_span = config.control.profile_span("gutch.capture.dedupe");
-        for fm in snapshot_entries
-            .iter()
-            .filter_map(manifest::SnapshotEntry::as_file)
+        let _dedupe_span = config
+            .control
+            .profile_span("gutch.capture.plan_deduplicated_chunks");
         {
-            config.control.checkpoint()?;
-            for chunk_ref in &fm.chunks {
+            let _existing_refs_span = config
+                .control
+                .profile_span("gutch.capture.plan_deduplicated_chunks.account_existing_chunks");
+            for fm in snapshot_entries
+                .iter()
+                .filter_map(manifest::SnapshotEntry::as_file)
+            {
                 config.control.checkpoint()?;
-                let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
-                if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
-                    && compressed_estimate_seen.insert(chunk_hash)
-                {
-                    total_compressed += existing.compressed_size;
+                for chunk_ref in &fm.chunks {
+                    config.control.checkpoint()?;
+                    let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+                    if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
+                        && compressed_estimate_seen.insert(chunk_hash)
+                    {
+                        total_compressed += existing.compressed_size;
+                    }
                 }
             }
         }
 
-        let t = Instant::now();
-        for (hash, payload) in unique_chunks {
-            config.control.checkpoint()?;
-            let raw_size = payload.raw_size();
-            timings.dedupe_lookup_bytes += raw_size;
+        {
+            let _new_chunks_span = config
+                .control
+                .profile_span("gutch.capture.plan_deduplicated_chunks.select_new_chunks");
+            let t = Instant::now();
+            for (hash, payload) in unique_chunks {
+                config.control.checkpoint()?;
+                let raw_size = payload.raw_size();
+                timings.dedupe_lookup_bytes += raw_size;
 
-            if let Some(existing) = existing_chunk_locations_by_hash.get(&hash) {
-                if compressed_estimate_seen.insert(hash) {
-                    total_compressed += existing.compressed_size;
+                if let Some(existing) = existing_chunk_locations_by_hash.get(&hash) {
+                    if compressed_estimate_seen.insert(hash) {
+                        total_compressed += existing.compressed_size;
+                    }
+                } else {
+                    chunks_to_compress.push((hash, payload));
                 }
-            } else {
-                chunks_to_compress.push((hash, payload));
             }
+            timings.dedupe_lookup += t.elapsed();
         }
-        timings.dedupe_lookup += t.elapsed();
+        config.control.profile_event_with_args(
+            "gutch.capture.plan_deduplicated_chunks.complete",
+            BTreeMap::from([
+                (
+                    "unique_chunk_count".to_string(),
+                    serde_json::json!(compressed_estimate_seen.len() + chunks_to_compress.len()),
+                ),
+                (
+                    "new_chunk_count".to_string(),
+                    serde_json::json!(chunks_to_compress.len()),
+                ),
+            ]),
+        );
     }
     timings.dedupe_plan_wall = dedupe_plan_start.elapsed();
 
@@ -474,7 +663,7 @@ pub(crate) fn build_with_config_timed(
 
     let artifact_encode_start = Instant::now();
     let (bundles, loose_chunks) = {
-        let _artifact_encode_span = config.control.profile_span("gutch.capture.artifact_encode");
+        let _artifact_encode_span = config.control.profile_span("gutch.capture.build_artifacts");
         let mut bundles = Vec::new();
         let mut loose_chunks = Vec::new();
         let bundle_size_policy = BundleSizingPolicy::new(
@@ -490,23 +679,36 @@ pub(crate) fn build_with_config_timed(
                     ));
                 }
 
-                let planned_bundle_groups = plan_bundle_compressed_groups(
-                    chunks_to_compress,
-                    &compression_profile,
-                    &config.bundle_profile,
-                    bundle_size_policy,
-                )?;
+                let planned_bundle_groups = {
+                    let _plan_span = config
+                        .control
+                        .profile_span("gutch.capture.plan_artifact_groups");
+                    plan_bundle_compressed_groups(
+                        chunks_to_compress,
+                        &compression_profile,
+                        &config.bundle_profile,
+                        bundle_size_policy,
+                        build_pool,
+                        &config.control,
+                    )?
+                };
                 timings.bundle_compressed_sort += planned_bundle_groups.sort_duration;
                 timings.bundle_compressed_sort_bytes += planned_bundle_groups.sort_bytes;
                 timings.bundle_compressed_ratio_probe += planned_bundle_groups.probe_duration;
                 timings.bundle_compressed_ratio_probe_bytes +=
                     planned_bundle_groups.probe_raw_bytes;
-                let built_bundle_groups = build_bundled_chunks(
-                    planned_bundle_groups,
-                    &compression_profile,
-                    runtime_plan.worker_count,
-                    &config.control,
-                )?;
+                let built_bundle_groups = {
+                    let _compression_span = config
+                        .control
+                        .profile_span("gutch.capture.compress_artifacts");
+                    build_bundled_chunks(
+                        planned_bundle_groups,
+                        &compression_profile,
+                        &artifact_staging_root,
+                        build_pool,
+                        &config.control,
+                    )?
+                };
 
                 for built_bundle in built_bundle_groups {
                     config.control.checkpoint()?;
@@ -516,23 +718,32 @@ pub(crate) fn build_with_config_timed(
                         record_bundle_compressed_bundle_metrics(
                             &mut timings,
                             &mut total_compressed,
-                            built_bundle.bundle_data.len() as u64,
+                            built_bundle.bundle_size,
                             built_bundle.bundle_metrics,
                         );
                         bundles.push(BuiltBundle {
                             bundle_id: built_bundle.bundle_id,
-                            data: built_bundle.bundle_data,
+                            staged_file: built_bundle.staged_file,
+                            size: built_bundle.bundle_size,
+                            entries: built_bundle.bundle_entries,
                         });
+                    } else {
+                        drop(built_bundle.staged_file);
                     }
                 }
             }
             ArtifactStorageMode::LooseChunks => {
-                let built_chunks = build_loose_chunks(
-                    chunks_to_compress,
-                    &compression_profile,
-                    runtime_plan.worker_count,
-                    &config.control,
-                )?;
+                let built_chunks = {
+                    let _compression_span = config
+                        .control
+                        .profile_span("gutch.capture.compress_artifacts");
+                    build_loose_chunks(
+                        chunks_to_compress,
+                        &compression_profile,
+                        build_pool,
+                        &config.control,
+                    )?
+                };
 
                 for built_chunk in built_chunks {
                     config.control.checkpoint()?;
@@ -549,7 +760,7 @@ pub(crate) fn build_with_config_timed(
 
     timings.artifact_encode_wall = artifact_encode_start.elapsed();
     timings.total_compressed_bytes = total_compressed;
-    timings.artifact_output_bytes = bundles.iter().map(|b| b.data.len() as u64).sum::<u64>()
+    timings.artifact_output_bytes = bundles.iter().map(|b| b.size).sum::<u64>()
         + loose_chunks
             .iter()
             .map(|chunk| chunk.data.len() as u64)
@@ -559,8 +770,17 @@ pub(crate) fn build_with_config_timed(
     let vm = {
         let _manifest_span = config
             .control
-            .profile_span("gutch.capture.manifest_finalize");
-        snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
+            .profile_span("gutch.capture.build_snapshot_manifest");
+        {
+            let _sort_span = config.control.profile_span_with_args(
+                "gutch.capture.build_snapshot_manifest.sort_entries",
+                capture_bytes_trace_args("entry_count", snapshot_entries.len(), 0),
+            );
+            snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
+        }
+        let _construct_span = config
+            .control
+            .profile_span("gutch.capture.build_snapshot_manifest.construct");
         let mut vm =
             SnapshotManifest::new(config.snapshot_id.clone(), config.snapshot_tags.clone());
         vm.total_logical_size = total_logical_size;

@@ -1,3 +1,4 @@
+use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
@@ -24,6 +25,17 @@ pub(crate) fn plan_reconstruct_runtime(hints: &RuntimeResourceHints) -> RuntimeP
     plan_runtime(hints)
 }
 
+pub(crate) fn build_thread_pool(
+    worker_count: usize,
+    thread_name: &'static str,
+) -> Result<ThreadPool> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(worker_count.max(1))
+        .thread_name(move |index| format!("{thread_name}-{index}"))
+        .build()
+        .map_err(|err| Error::manifest(format!("failed to create thread pool: {err}")))
+}
+
 fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
     let logical_workers = std::thread::available_parallelism()
         .map(|value| value.get())
@@ -47,10 +59,7 @@ pub(crate) fn run_in_thread_pool<T: Send, F: FnOnce() -> T + Send>(
         return Ok(work());
     }
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(worker_count)
-        .build()
-        .map_err(|err| Error::manifest(format!("failed to create thread pool: {}", err)))?;
+    let pool = build_thread_pool(worker_count, "gutch-worker")?;
     Ok(pool.install(work))
 }
 

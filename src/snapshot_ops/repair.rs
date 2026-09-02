@@ -3,13 +3,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::{SnapshotEntry, snapshot::SnapshotManifest};
-use crate::runtime::RuntimeResourceHints;
+use crate::runtime::{RuntimeResourceHints, plan_reconstruct_runtime};
 use crate::verify::{RepairClassification, RepairIssue, VerifyRequest, classify_directory};
 use crate::{Error, Result};
 
 use super::apply::default_snapshot_staging_dir;
 use super::pipeline::{
-    ExecuteReconstructPipelineRequest, build_reconstruct_pipeline_plan,
+    ExecuteReconstructPipelineRequest, build_reconstruct_pipeline_plan, build_reconstruct_pool,
     execute_reconstruct_pipeline_reconstruction,
 };
 use super::types::{
@@ -81,6 +81,13 @@ pub fn repair_snapshot_from_repo(
             )?
         };
         let compression_profile = repo_manifest.compression_profile();
+        let reconstruct_pool = if repair_plan.affected_manifest.entries.is_empty() {
+            None
+        } else {
+            Some(build_reconstruct_pool(
+                plan_reconstruct_runtime(&request.runtime_hints).worker_count,
+            )?)
+        };
         let _ = execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
             pipeline_plan,
             staging_dir: &staging_dir,
@@ -93,6 +100,7 @@ pub fn repair_snapshot_from_repo(
             control: &request.control,
             download_client: None,
             transfer_progress: None,
+            reconstruct_pool: reconstruct_pool.as_ref(),
         })?;
     }
     let repair_result = finalize_repair_result_after_reconstruction(

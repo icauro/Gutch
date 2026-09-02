@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +23,7 @@ pub struct BuildConfig<'a> {
     pub(crate) compression_profile: CompressionProfile,
     pub(crate) storage_mode: ArtifactStorageMode,
     pub(crate) runtime_hints: RuntimeResourceHints,
+    pub(crate) artifact_staging_root: Option<PathBuf>,
     pub(crate) control: crate::GutchOperationControl,
 }
 
@@ -38,6 +40,7 @@ impl<'a> BuildConfig<'a> {
             compression_profile: CompressionProfile::default(),
             storage_mode: ArtifactStorageMode::default(),
             runtime_hints: RuntimeResourceHints::default(),
+            artifact_staging_root: None,
             control: crate::GutchOperationControl::default(),
         }
     }
@@ -92,6 +95,11 @@ impl<'a> BuildConfig<'a> {
         self.runtime_hints = runtime_hints;
         self
     }
+
+    pub fn with_artifact_staging_root(mut self, path: impl Into<PathBuf>) -> Self {
+        self.artifact_staging_root = Some(path.into());
+        self
+    }
 }
 
 pub struct BuildResult {
@@ -100,10 +108,48 @@ pub struct BuildResult {
     pub loose_chunks: Vec<BuiltLooseChunk>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub(crate) struct StagedBundleFile {
+    path: PathBuf,
+}
+
+impl StagedBundleFile {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    pub(crate) fn promote_to(&self, destination: &std::path::Path) -> crate::Result<()> {
+        std::fs::rename(&self.path, destination)?;
+        Ok(())
+    }
+
+    pub(crate) fn discard(&self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+impl Drop for StagedBundleFile {
+    fn drop(&mut self) {
+        self.discard();
+    }
+}
+
+#[derive(Debug)]
 pub struct BuiltBundle {
     pub bundle_id: String,
-    pub data: Vec<u8>,
+    pub(crate) staged_file: StagedBundleFile,
+    pub(crate) size: u64,
+    pub(crate) entries: Vec<crate::manifest::BundleTableEntry>,
+}
+
+impl BuiltBundle {
+    pub(crate) fn discard_staged_file(&self) {
+        let _ = std::fs::remove_file(self.staged_file.path());
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -169,13 +215,11 @@ pub struct BuildTimings {
     pub(crate) bundle_compressed_ratio_probe_bytes: u64,
     pub(crate) bundle_compressed_payload_load: Duration,
     pub(crate) bundle_compressed_payload_load_bytes: u64,
-    pub(crate) bundle_compressed_payload_assembly: Duration,
-    pub(crate) bundle_compressed_payload_assembly_bytes: u64,
-    pub(crate) bundle_compressed_stream_compression: Duration,
-    pub(crate) bundle_compressed_stream_input_bytes: u64,
-    pub(crate) bundle_compressed_stream_output_bytes: u64,
-    pub(crate) bundle_compressed_serialization: Duration,
-    pub(crate) bundle_compressed_serialization_bytes: u64,
+    pub(crate) bundle_compressed_frame_compression: Duration,
+    pub(crate) bundle_compressed_frame_input_bytes: u64,
+    pub(crate) bundle_compressed_frame_output_bytes: u64,
+    pub(crate) bundle_compressed_footer_serialization: Duration,
+    pub(crate) bundle_compressed_footer_serialization_bytes: u64,
     pub(crate) artifact_output_bytes: u64,
     pub(crate) manifest_finalize_wall: Duration,
     pub(crate) total: Duration,

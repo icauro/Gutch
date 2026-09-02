@@ -81,10 +81,10 @@ pub enum BundleSizingPreset {
     Bundle4MiB,
     #[serde(rename = "bundle_8MiB")]
     #[value(name = "bundle_8MiB")]
+    #[default]
     Bundle8MiB,
     #[serde(rename = "bundle_16MiB")]
     #[value(name = "bundle_16MiB")]
-    #[default]
     Bundle16MiB,
     #[serde(rename = "bundle_32MiB")]
     #[value(name = "bundle_32MiB")]
@@ -190,7 +190,7 @@ impl BundleSizingProfile {
 
 impl Default for BundleSizingProfile {
     fn default() -> Self {
-        Self::for_preset(BundleSizingPreset::Bundle16MiB)
+        Self::for_preset(BundleSizingPreset::Bundle8MiB)
     }
 }
 

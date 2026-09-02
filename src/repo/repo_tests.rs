@@ -41,7 +41,13 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
         write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
     }
 
-    let state = scan_existing_store_state(&paths).unwrap();
+    let pool = crate::build_thread_pool(1, "gutch-test").unwrap();
+    let state = scan_existing_store_state_with_pool(
+        &paths,
+        &pool,
+        &crate::GutchOperationControl::default(),
+    )
+    .unwrap();
     let candidates = state.previous_file_manifests.get("game.bin").unwrap();
 
     assert_eq!(candidates.len(), 2);
@@ -600,9 +606,15 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let mut builder = crate::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
     builder.add_chunk(chunk_hash, b"hello".to_vec());
     let (bundle_id, data) = builder.build_with_id().unwrap();
+    let staged_path = root.join("staged-bundle");
+    std::fs::write(&staged_path, &data).unwrap();
+    let reader =
+        crate::bundle::read_bundle(&data, &manifest::CompressionProfile::default()).unwrap();
     let built_bundle = crate::BuiltBundle {
         bundle_id: bundle_id.clone(),
-        data,
+        staged_file: crate::build_types::StagedBundleFile::new(staged_path),
+        size: data.len() as u64,
+        entries: reader.entries().to_vec(),
     };
 
     let mut incremental = manifest::ChunkIndex {
@@ -617,9 +629,18 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     )
     .unwrap();
 
-    std::fs::write(bundle_path(&paths, &bundle_id).unwrap(), &built_bundle.data).unwrap();
-    let rebuilt =
-        rebuild_chunk_index_from_bundles(&paths, &manifest::CompressionProfile::default()).unwrap();
+    std::fs::copy(
+        built_bundle.staged_file.path(),
+        bundle_path(&paths, &bundle_id).unwrap(),
+    )
+    .unwrap();
+    let pool = crate::build_thread_pool(1, "gutch-test").unwrap();
+    let rebuilt = rebuild_chunk_index_from_bundles_with_pool(
+        &paths,
+        &manifest::CompressionProfile::default(),
+        &pool,
+    )
+    .unwrap();
 
     assert_eq!(incremental.entries, rebuilt.entries);
     assert_eq!(

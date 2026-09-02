@@ -99,3 +99,38 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_parallel_chunk_hashing_matches_streaming_results() {
+    let dir = test_util::temp_path("gutch_parallel_chunk_hashing");
+    test_util::recreate_dir(&dir);
+    let path = dir.join("sample.bin");
+    let data = b"parallel chunk hashing payload with varied boundaries ".repeat(150_000);
+    std::fs::write(&path, &data).unwrap();
+
+    let profile = ChunkSizingProfile::default();
+    let serial = chunk_file_streaming_with_file_hash(&path, &profile).unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let parallel = chunk_file_streaming_with_file_hash_and_control_on_pool(
+        &path,
+        &profile,
+        &crate::GutchOperationControl::default(),
+        &pool,
+    )
+    .unwrap();
+
+    assert_eq!(serial.0.file_size, parallel.0.file_size);
+    assert_eq!(serial.0.full_file_hash, parallel.0.full_file_hash);
+    assert_eq!(serial.0.chunks.len(), parallel.0.chunks.len());
+    assert_eq!(serial.1.hash_judgment_bytes, parallel.1.hash_judgment_bytes);
+    for (serial_chunk, parallel_chunk) in serial.0.chunks.iter().zip(parallel.0.chunks.iter()) {
+        assert_eq!(serial_chunk.offset, parallel_chunk.offset);
+        assert_eq!(serial_chunk.hash, parallel_chunk.hash);
+        assert_eq!(serial_chunk.data, parallel_chunk.data);
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

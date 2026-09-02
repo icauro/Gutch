@@ -9,6 +9,42 @@ pub enum ExistingDestinationPathKind {
     FileOrDirectory,
 }
 
+/// Resolves manifest paths beneath one root while reusing the root's canonical path.
+///
+/// The per-component checks are intentionally retained: an existing symlinked
+/// ancestor must still be rejected even when several paths share the same root.
+#[derive(Debug, Clone)]
+pub(crate) struct ManifestPathResolver {
+    root: PathBuf,
+    canonical_root: Option<PathBuf>,
+}
+
+impl ManifestPathResolver {
+    pub(crate) fn new(root: &Path) -> Result<Self> {
+        let canonical_root = if root.exists() {
+            Some(root.canonicalize().map_err(|error| Error::PathError {
+                path: root.to_path_buf(),
+                reason: format!("failed to resolve snapshot root: {error}"),
+            })?)
+        } else {
+            None
+        };
+        Ok(Self {
+            root: root.to_path_buf(),
+            canonical_root,
+        })
+    }
+
+    pub(crate) fn resolve(&self, relative: &str) -> Result<PathBuf> {
+        validate_manifest_relative_path(relative, false)?;
+        let candidate = self.root.join(relative);
+        if let Some(canonical_root) = self.canonical_root.as_deref() {
+            ensure_existing_ancestors_stay_within_root(&self.root, &candidate, canonical_root)?;
+        }
+        Ok(candidate)
+    }
+}
+
 pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Result<()> {
     let trimmed = relative.trim();
     let relative_path = Path::new(relative);
@@ -62,20 +98,14 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
 }
 
 pub(crate) fn resolve_manifest_relative_path(root: &Path, relative: &str) -> Result<PathBuf> {
-    validate_manifest_relative_path(relative, false)?;
-    let candidate = root.join(relative);
-    ensure_existing_ancestors_stay_within_root(root, &candidate)?;
-    Ok(candidate)
+    ManifestPathResolver::new(root)?.resolve(relative)
 }
 
-fn ensure_existing_ancestors_stay_within_root(root: &Path, candidate: &Path) -> Result<()> {
-    if !root.exists() {
-        return Ok(());
-    }
-    let canonical_root = root.canonicalize().map_err(|error| Error::PathError {
-        path: root.to_path_buf(),
-        reason: format!("failed to resolve snapshot root: {error}"),
-    })?;
+fn ensure_existing_ancestors_stay_within_root(
+    root: &Path,
+    candidate: &Path,
+    canonical_root: &Path,
+) -> Result<()> {
     let mut current = root.to_path_buf();
     let relative = candidate.strip_prefix(root).map_err(|_| Error::PathError {
         path: candidate.to_path_buf(),

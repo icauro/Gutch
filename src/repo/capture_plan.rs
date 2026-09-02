@@ -2,12 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::{
     ExistingStoreState, Result, SourceSnapshotOperationCandidate,
     check::build_source_snapshot_ops_candidate, check_gutch_repo, remove_snapshot_from_repo,
-    scan_existing_store_state,
+    scan_existing_store_state_with_pool,
 };
 use crate::hash::ChunkHash;
 use crate::manifest::SnapshotTagSet;
@@ -223,32 +224,84 @@ pub fn capture_repo_snapshot(
     request: RepoSnapshotCaptureRequest,
 ) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
-    let _prepare_span = request.control.profile_span("gutch.capture.prepare");
+    let runtime_plan = crate::plan_build_runtime(&request.runtime_hints);
+    let _pool_span = request.control.profile_span_with_args(
+        "gutch.capture.create_worker_pool",
+        std::collections::BTreeMap::from([(
+            "worker_count".to_string(),
+            serde_json::json!(runtime_plan.worker_count),
+        )]),
+    );
+    let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+    drop(_pool_span);
+
+    let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_root);
+    let _existing_state_span = request
+        .control
+        .profile_span("gutch.capture.prepare_source.load_existing_store_state");
+    let mut store_state =
+        scan_existing_store_state_with_pool(&repo_paths, &build_pool, &request.control)?;
+    drop(_existing_state_span);
+
+    capture_repo_snapshot_with_existing_store_state(request, &mut store_state, &build_pool)
+}
+
+pub(crate) fn capture_repo_snapshot_with_existing_store_state(
+    request: RepoSnapshotCaptureRequest,
+    store_state: &mut ExistingStoreState,
+    build_pool: &rayon::ThreadPool,
+) -> Result<RepoSnapshotCaptureResult> {
+    request.control.checkpoint()?;
+    let _prepare_span = request.control.profile_span_with_args(
+        "gutch.capture.prepare_source",
+        std::collections::BTreeMap::from([(
+            "source_path".to_string(),
+            serde_json::json!(request.source_dir.display().to_string()),
+        )]),
+    );
+    let _repo_state_span = request
+        .control
+        .profile_span("gutch.capture.prepare_source.load_repo_state");
     let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
     let rules = repo_manifest
         .snapshot_tag_schema
         .clone()
         .unwrap_or_default();
+    drop(_repo_state_span);
+
+    let _plan_span = request
+        .control
+        .profile_span("gutch.capture.prepare_source.plan_snapshot");
     let capture_plan = plan_snapshot_capture(
         request.repo_root.as_path(),
         request.source_dir.as_path(),
         &request.explicit_tags,
         request.allow_name_inference,
     )?;
+    drop(_plan_span);
 
-    let mut store_state =
-        MutableCaptureStoreState::from_existing(scan_existing_store_state(&repo_paths)?);
     if capture_plan.kind == SnapshotCaptureKind::ReplaceSlot {
         request.control.checkpoint()?;
+        let _replace_span = request.control.profile_span_with_args(
+            "gutch.capture.prepare_source.replace_snapshot_slot",
+            std::collections::BTreeMap::from([(
+                "replaced_snapshot_count".to_string(),
+                serde_json::json!(capture_plan.replaced_snapshot_ids.len()),
+            )]),
+        );
         delete_repo_snapshots(
             request.repo_root.as_path(),
             &capture_plan.replaced_snapshot_ids,
         )?;
         let _ =
             crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path(), &request.control);
+        drop(_replace_span);
     }
     if capture_plan.kind == SnapshotCaptureKind::Relabel {
         request.control.checkpoint()?;
+        let _relabel_span = request
+            .control
+            .profile_span("gutch.capture.prepare_source.relabel_existing_snapshot");
         let existing_manifest =
             crate::load_snapshot_manifest(&repo_paths, &capture_plan.snapshot_id)?;
         let mut updated_manifest = existing_manifest;
@@ -256,7 +309,7 @@ pub fn capture_repo_snapshot(
         let (manifest_path, _) =
             crate::write_snapshot_manifest_artifacts(&repo_paths, &updated_manifest)?;
         let chunk_index = crate::load_chunk_index(&repo_paths)?;
-        return Ok(RepoSnapshotCaptureResult {
+        let result = RepoSnapshotCaptureResult {
             repo_root: repo_paths.repo_root,
             snapshot_id: updated_manifest.snapshot_id.clone(),
             manifest_path,
@@ -277,10 +330,20 @@ pub fn capture_repo_snapshot(
             reused_chunk_count: crate::repo::required_chunk_hashes(&updated_manifest).len(),
             new_chunk_count: 0,
             build_timings: crate::BuildTimings::default(),
-        });
+        };
+        drop(_relabel_span);
+        return Ok(result);
     }
 
+    let _input_span = request
+        .control
+        .profile_span("gutch.capture.prepare_source.prepare_input");
     let prepared_input = prepare_input_path(&request.source_dir)?;
+    drop(_input_span);
+
+    let _identity_span = request
+        .control
+        .profile_span("gutch.capture.prepare_source.resolve_identity");
     let resolved_identity = crate::resolve_snapshot_identity_with_inference(
         request.source_dir.as_path(),
         &request.explicit_tags,
@@ -288,12 +351,49 @@ pub fn capture_repo_snapshot(
         request.allow_name_inference,
         &format!("snapshot capture input '{}'", request.source_dir.display()),
     )?;
+    drop(_identity_span);
 
+    let _existing_chunks_span = request.control.profile_span_with_args(
+        "gutch.capture.prepare_source.collect_existing_chunk_ids",
+        std::collections::BTreeMap::from([
+            (
+                "existing_chunk_location_count".to_string(),
+                serde_json::json!(store_state.chunk_locations.len()),
+            ),
+            (
+                "previous_file_manifest_path_count".to_string(),
+                serde_json::json!(store_state.previous_file_manifests.len()),
+            ),
+        ]),
+    );
     let existing_chunk_ids = store_state
         .chunk_locations
         .keys()
         .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
         .collect::<Result<HashSet<_>>>()?;
+    drop(_existing_chunks_span);
+
+    let _config_span = request.control.profile_span_with_args(
+        "gutch.capture.prepare_source.configure_build",
+        std::collections::BTreeMap::from([
+            (
+                "capture_kind".to_string(),
+                serde_json::json!(format!("{:?}", capture_plan.kind)),
+            ),
+            (
+                "existing_bundle_count".to_string(),
+                serde_json::json!(store_state.bundle_ids.len()),
+            ),
+            (
+                "existing_chunk_location_count".to_string(),
+                serde_json::json!(store_state.chunk_locations.len()),
+            ),
+            (
+                "previous_file_manifest_path_count".to_string(),
+                serde_json::json!(store_state.previous_file_manifests.len()),
+            ),
+        ]),
+    );
     let mut build_config = crate::BuildConfig::for_snapshot("", &resolved_identity.snapshot_tags)
         .with_existing_chunks(&store_state.chunk_locations)
         .with_existing_bundles(&store_state.bundle_ids)
@@ -302,14 +402,19 @@ pub fn capture_repo_snapshot(
         .with_bundle_profile(request.bundle_profile)
         .with_compression_profile(request.compression_profile)
         .with_storage_mode(request.storage_mode)
-        .with_runtime_hints(request.runtime_hints);
+        .with_runtime_hints(request.runtime_hints)
+        .with_artifact_staging_root(repo_paths.bundles_root.clone());
     let compression_profile =
         crate::manifest::CompressionProfile::for_preset(request.compression_profile);
     build_config.control = request.control.clone();
+    drop(_config_span);
 
     drop(_prepare_span);
-    let (result, timings) = crate::build_with_config_timed(&prepared_input.dir, &build_config)?;
-    let _finalize_span = request.control.profile_span("gutch.capture.finalize");
+    let (result, timings) =
+        crate::build_with_config_timed_on_pool(&prepared_input.dir, &build_config, build_pool)?;
+    let _publish_span = request
+        .control
+        .profile_span("gutch.capture.publish_snapshot");
     request.control.checkpoint()?;
     let mut result = result;
     let snapshot_id = crate::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
@@ -370,25 +475,63 @@ pub fn capture_repo_snapshot(
     // Artifact publication below persists the captured snapshot. Check once before it and then complete the
     // internally consistent manifest/bundle/index write set.
     request.control.checkpoint()?;
+    let _manifest_write_span = request
+        .control
+        .profile_span("gutch.capture.publish_snapshot.write_snapshot_manifest");
     let (manifest_path, _) =
         crate::write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest)?;
-    write_bundles(&repo_paths.bundles_root, &result.bundles)?;
-    write_loose_chunks(&repo_paths.chunks_root, &result.loose_chunks)?;
-    crate::add_built_bundles_to_chunk_index(
-        &mut store_state.chunk_index,
+    drop(_manifest_write_span);
+    let _artifact_write_span = request
+        .control
+        .profile_span("gutch.capture.publish_snapshot.write_artifacts");
+    write_bundles(
+        &repo_paths.bundles_root,
         &result.bundles,
-        &compression_profile,
+        build_pool,
+        &request.control,
     )?;
-    crate::add_built_loose_chunks_to_chunk_index(
-        &mut store_state.chunk_index,
+    write_loose_chunks(
+        &repo_paths.chunks_root,
         &result.loose_chunks,
+        build_pool,
+        &request.control,
     )?;
+    drop(_artifact_write_span);
+    let _index_span = request
+        .control
+        .profile_span("gutch.capture.publish_snapshot.update_chunk_index");
+    {
+        let _bundle_index_span = request
+            .control
+            .profile_span("gutch.capture.publish_snapshot.index_bundle_entries");
+        crate::add_built_bundles_to_chunk_index(
+            &mut store_state.chunk_index,
+            &result.bundles,
+            &compression_profile,
+        )?;
+    }
+    {
+        let _chunk_index_span = request
+            .control
+            .profile_span("gutch.capture.publish_snapshot.index_loose_chunk_entries");
+        crate::add_built_loose_chunks_to_chunk_index(
+            &mut store_state.chunk_index,
+            &result.loose_chunks,
+        )?;
+    }
+    drop(_index_span);
 
+    let _state_span = request
+        .control
+        .profile_span("gutch.capture.publish_snapshot.update_capture_state");
     for bundle in &result.bundles {
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
     }
-    store_state.chunk_locations =
-        crate::repo::existing_chunk_locations_from_index(&store_state.chunk_index, &repo_paths)?;
+    store_state.chunk_locations = crate::repo::existing_chunk_locations_from_index_with_pool(
+        &store_state.chunk_index,
+        &repo_paths,
+        build_pool,
+    )?;
     for file in result.snapshot_manifest.files() {
         let candidates = store_state
             .previous_file_manifests
@@ -400,7 +543,11 @@ pub fn capture_repo_snapshot(
             candidates.push(file.clone());
         }
     }
+    let _chunk_index_write_span = request
+        .control
+        .profile_span("gutch.capture.publish_snapshot.write_chunk_index");
     crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
+    drop(_chunk_index_write_span);
     let required_chunks = crate::repo::required_chunk_hashes_typed(&result.snapshot_manifest)?;
     let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
@@ -467,24 +614,6 @@ impl RepoSnapshotCaptureResult {
     }
 }
 
-struct MutableCaptureStoreState {
-    bundle_ids: HashSet<String>,
-    chunk_index: crate::manifest::ChunkIndex,
-    chunk_locations: HashMap<String, crate::ExistingChunkLocation>,
-    previous_file_manifests: HashMap<String, Vec<crate::manifest::FileManifest>>,
-}
-
-impl MutableCaptureStoreState {
-    fn from_existing(state: ExistingStoreState) -> Self {
-        Self {
-            bundle_ids: state.bundle_ids,
-            chunk_index: state.chunk_index,
-            chunk_locations: state.chunk_locations,
-            previous_file_manifests: state.previous_file_manifests,
-        }
-    }
-}
-
 fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
     if path.is_dir() {
         return Ok(PreparedInputPath {
@@ -510,24 +639,110 @@ fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
     )))
 }
 
-fn write_bundles(bundles_root: &Path, bundles: &[crate::BuiltBundle]) -> Result<()> {
-    for bundle in bundles {
-        let bundle_path = crate::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
-        crate::helpers::write(&bundle_path, &bundle.data)?;
-    }
+fn write_bundles(
+    bundles_root: &Path,
+    bundles: &[crate::BuiltBundle],
+    pool: &rayon::ThreadPool,
+    control: &crate::GutchOperationControl,
+) -> Result<()> {
+    let total_bytes = bundles.iter().map(|bundle| bundle.size).sum::<u64>();
+    let _phase_span = control.profile_span_with_args(
+        "gutch.capture.publish_snapshot.write_bundle_artifacts",
+        capture_count_bytes_trace_args(bundles.len(), total_bytes),
+    );
+    let control_for_work = control.clone();
+    pool.install(|| {
+        bundles
+            .par_iter()
+            .map(|bundle| {
+                control_for_work.checkpoint()?;
+                let bundle_path = crate::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
+                let _bundle_span = control_for_work.profile_span_with_args(
+                    "gutch.capture.publish_snapshot.write_bundle_artifact",
+                    capture_artifact_write_trace_args(
+                        "bundle",
+                        &bundle.bundle_id,
+                        &bundle_path,
+                        bundle.size,
+                    ),
+                );
+                if bundle_path.exists() {
+                    bundle.discard_staged_file();
+                } else {
+                    bundle.staged_file.promote_to(&bundle_path)?;
+                }
+                Ok(())
+            })
+            .collect::<Result<Vec<_>>>()
+    })?;
     Ok(())
 }
 
-fn write_loose_chunks(chunks_root: &Path, chunks: &[crate::BuiltLooseChunk]) -> Result<()> {
-    for chunk in chunks {
-        let chunk_hash = chunk.chunk_hash.to_string();
-        let chunk_path = crate::chunk_path_in_root(chunks_root, &chunk_hash)?;
-        if let Some(parent) = chunk_path.parent() {
-            crate::helpers::create_dir_all(parent)?;
-        }
-        crate::helpers::write(&chunk_path, &chunk.data)?;
-    }
+fn write_loose_chunks(
+    chunks_root: &Path,
+    chunks: &[crate::BuiltLooseChunk],
+    pool: &rayon::ThreadPool,
+    control: &crate::GutchOperationControl,
+) -> Result<()> {
+    let total_bytes = chunks
+        .iter()
+        .map(|chunk| chunk.data.len() as u64)
+        .sum::<u64>();
+    let _phase_span = control.profile_span_with_args(
+        "gutch.capture.publish_snapshot.write_loose_chunk_artifacts",
+        capture_count_bytes_trace_args(chunks.len(), total_bytes),
+    );
+    let control_for_work = control.clone();
+    pool.install(|| {
+        chunks
+            .par_iter()
+            .map(|chunk| {
+                control_for_work.checkpoint()?;
+                let chunk_hash = chunk.chunk_hash.to_string();
+                let chunk_path = crate::chunk_path_in_root(chunks_root, &chunk_hash)?;
+                if let Some(parent) = chunk_path.parent() {
+                    crate::helpers::create_dir_all(parent)?;
+                }
+                let _chunk_span = control_for_work.profile_span_with_args(
+                    "gutch.capture.publish_snapshot.write_loose_chunk_artifact",
+                    capture_artifact_write_trace_args(
+                        "loose_chunk",
+                        &chunk_hash,
+                        &chunk_path,
+                        chunk.data.len() as u64,
+                    ),
+                );
+                crate::helpers::write(&chunk_path, &chunk.data)?;
+                Ok(())
+            })
+            .collect::<Result<Vec<_>>>()
+    })?;
     Ok(())
+}
+
+fn capture_count_bytes_trace_args(
+    count: usize,
+    bytes: u64,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        ("count".to_string(), serde_json::json!(count)),
+        (
+            "bytes_mib".to_string(),
+            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
+        ),
+    ])
+}
+
+fn capture_artifact_write_trace_args(
+    kind: &str,
+    artifact_id: &str,
+    path: &Path,
+    bytes: u64,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::file_trace_args(path.display().to_string(), bytes);
+    args.insert("artifact_kind".to_string(), serde_json::json!(kind));
+    args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));
+    args
 }
 
 fn count_required_bundles_for_build(

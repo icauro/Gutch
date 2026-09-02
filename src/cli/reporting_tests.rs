@@ -41,9 +41,9 @@ fn build_summary_separates_wall_phases_from_worker_details() {
         compression_output_bytes: 5 * 1024 * 1024,
         bundle_compressed_sort: Duration::from_millis(400),
         bundle_compressed_sort_bytes: 20 * 1024 * 1024,
-        bundle_compressed_stream_compression: Duration::from_secs(5),
-        bundle_compressed_stream_input_bytes: 20 * 1024 * 1024,
-        bundle_compressed_stream_output_bytes: 5 * 1024 * 1024,
+        bundle_compressed_frame_compression: Duration::from_secs(5),
+        bundle_compressed_frame_input_bytes: 20 * 1024 * 1024,
+        bundle_compressed_frame_output_bytes: 5 * 1024 * 1024,
         manifest_finalize_wall: Duration::from_secs(1),
         total: Duration::from_secs(10),
         ..g::BuildTimings::default()

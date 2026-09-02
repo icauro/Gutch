@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
@@ -9,6 +9,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use rayon::ThreadPool;
+use rayon::prelude::*;
 
 use super::apply::build_snapshot_reconstruct_result;
 use super::transfer::{
@@ -130,30 +131,111 @@ struct SourceChunkLocation {
 pub(super) fn prepare_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
     output_dir: &Path,
+    control: &GutchOperationControl,
+    reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
-    crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
-    crate::helpers::create_dir_all(output_dir)?;
-    create_snapshot_directories(snapshot_manifest, output_dir)
+    {
+        let _validate_span =
+            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.validate");
+        crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
+    }
+    {
+        let _root_span =
+            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.create_root");
+        crate::helpers::create_dir_all(output_dir)?;
+    }
+    let path_resolver = {
+        let _resolver_span =
+            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.path_resolver");
+        crate::path_guard::ManifestPathResolver::new(output_dir)?
+    };
+    {
+        let _directories_span =
+            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.directories");
+        create_snapshot_directories(snapshot_manifest, control, &path_resolver, reconstruct_pool)?;
+    }
+    Ok(())
 }
 
 fn create_snapshot_directories(
     snapshot_manifest: &SnapshotManifest,
-    output_dir: &Path,
+    control: &GutchOperationControl,
+    path_resolver: &crate::path_guard::ManifestPathResolver,
+    reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
-    let mut directories = snapshot_manifest
-        .entries
-        .iter()
-        .filter_map(|entry| match entry {
-            crate::manifest::SnapshotEntry::Directory(directory) => Some(directory),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    directories.sort_by_key(|directory| directory.path.matches('/').count());
-    for directory in directories {
-        let path = crate::path_guard::resolve_manifest_relative_path(output_dir, &directory.path)?;
-        crate::helpers::create_dir_all(&path)?;
+    let mut directories = BTreeMap::<String, Option<bool>>::new();
+    for entry in &snapshot_manifest.entries {
+        if let crate::manifest::SnapshotEntry::Directory(directory) = entry {
+            add_manifest_directory_prefixes(&mut directories, &directory.path);
+            directories.insert(directory.path.clone(), Some(directory.read_only));
+        }
+    }
+    for entry in &snapshot_manifest.entries {
+        let crate::manifest::SnapshotEntry::File(file) = entry else {
+            continue;
+        };
+        let parent = file.path.rsplit_once('/').map(|(parent, _)| parent);
+        if let Some(parent) = parent {
+            add_manifest_directory_prefixes(&mut directories, parent);
+        }
+    }
+    let mut directories_by_depth = BTreeMap::<usize, Vec<_>>::new();
+    for (path, read_only) in directories {
+        directories_by_depth
+            .entry(path.matches('/').count())
+            .or_default()
+            .push((path, read_only));
+    }
+    for directories in directories_by_depth.values_mut() {
+        directories.sort_by(|left, right| left.0.cmp(&right.0));
+    }
+    for directories in directories_by_depth.values() {
+        let create_directory = |(path, read_only): &(String, Option<bool>)| {
+            let _directory_span = control.profile_span_with_args(
+                "gutch.snapshot.reconstruct.prepare.entries.directory",
+                prepare_directory_trace_args(path, *read_only),
+            );
+            let resolved_path = path_resolver.resolve(path)?;
+            create_snapshot_directory(&resolved_path)
+        };
+        if directories.len() >= 2 {
+            if let Some(reconstruct_pool) = reconstruct_pool {
+                reconstruct_pool
+                    .install(|| directories.par_iter().try_for_each(create_directory))?;
+            } else {
+                directories.iter().try_for_each(create_directory)?;
+            }
+        } else {
+            directories.iter().try_for_each(create_directory)?;
+        }
     }
     Ok(())
+}
+
+fn add_manifest_directory_prefixes(directories: &mut BTreeMap<String, Option<bool>>, path: &str) {
+    let components = path.split('/').collect::<Vec<_>>();
+    let mut prefix = String::new();
+    for component in components {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(component);
+        directories.entry(prefix.clone()).or_insert(None);
+    }
+}
+
+fn create_snapshot_directory(path: &Path) -> Result<()> {
+    match std::fs::create_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if std::fs::metadata(path)?.is_dir() {
+                Ok(())
+            } else {
+                Err(error.into())
+            }
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn relative_link_text(link_path: &str, target_path: &str) -> PathBuf {
@@ -182,68 +264,290 @@ fn relative_link_text(link_path: &str, target_path: &str) -> PathBuf {
 pub(super) fn finalize_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
     output_dir: &Path,
+    control: &GutchOperationControl,
+    metadata_worker_count: usize,
+    reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
-    for entry in &snapshot_manifest.entries {
-        let crate::manifest::SnapshotEntry::Symlink(link) = entry else {
-            continue;
-        };
-        let link_path = crate::path_guard::resolve_manifest_relative_path(output_dir, &link.path)?;
-        let link_text = relative_link_text(&link.path, &link.target_path);
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&link_text, &link_path).map_err(|error| {
-            Error::Reconstruct(format!(
-                "failed to create symbolic link '{}': {error}",
-                link.path
-            ))
-        })?;
-        #[cfg(windows)]
-        {
-            let target_is_directory = snapshot_manifest.entries.iter().any(|target| {
-                target.path() == link.target_path
-                    && matches!(target, crate::manifest::SnapshotEntry::Directory(_))
-            });
-            let result = if target_is_directory {
-                std::os::windows::fs::symlink_dir(&link_text, &link_path)
-            } else {
-                std::os::windows::fs::symlink_file(&link_text, &link_path)
-            };
-            result.map_err(|error| Error::Reconstruct(format!(
-                "failed to create symbolic link '{}'; enable Windows Developer Mode or grant symbolic-link privilege: {error}",
-                link.path
-            )))?;
-        }
-    }
-
-    for file in snapshot_manifest.files() {
-        let path = crate::path_guard::resolve_manifest_relative_path(output_dir, &file.path)?;
-        #[cfg(unix)]
-        if file.executable {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = std::fs::metadata(&path)?.permissions();
-            permissions.set_mode(permissions.mode() | 0o111);
-            std::fs::set_permissions(&path, permissions)?;
-        }
-        let mut permissions = std::fs::metadata(&path)?.permissions();
-        permissions.set_readonly(file.read_only);
-        std::fs::set_permissions(&path, permissions)?;
-    }
-
-    let mut directories = snapshot_manifest
+    let path_resolver = crate::path_guard::ManifestPathResolver::new(output_dir)?;
+    let symlinks = snapshot_manifest
         .entries
         .iter()
         .filter_map(|entry| match entry {
-            crate::manifest::SnapshotEntry::Directory(directory) => Some(directory),
+            crate::manifest::SnapshotEntry::Symlink(link) => Some(link),
             _ => None,
         })
         .collect::<Vec<_>>();
-    directories.sort_by_key(|directory| std::cmp::Reverse(directory.path.matches('/').count()));
-    for directory in directories {
-        let path = crate::path_guard::resolve_manifest_relative_path(output_dir, &directory.path)?;
-        let mut permissions = std::fs::metadata(&path)?.permissions();
-        permissions.set_readonly(directory.read_only);
-        std::fs::set_permissions(path, permissions)?;
+    {
+        let _symlink_phase = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.finalize.entries.symlinks",
+            finalize_phase_trace_args(
+                symlinks.len(),
+                symlinks.len(),
+                metadata_worker_count,
+                should_parallelize_finalize(symlinks.len(), metadata_worker_count),
+            ),
+        );
+        run_finalize_entries(&symlinks, metadata_worker_count, reconstruct_pool, |link| {
+            let _entry_span = control.profile_span_with_args(
+                "gutch.snapshot.reconstruct.finalize.entries.symlink",
+                finalize_symlink_trace_args(link),
+            );
+            let link_path = path_resolver.resolve(&link.path)?;
+            let link_text = relative_link_text(&link.path, &link.target_path);
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&link_text, &link_path).map_err(|error| {
+                Error::Reconstruct(format!(
+                    "failed to create symbolic link '{}': {error}",
+                    link.path
+                ))
+            })?;
+            #[cfg(windows)]
+            {
+                let target_is_directory = snapshot_manifest.entries.iter().any(|target| {
+                    target.path() == link.target_path
+                        && matches!(target, crate::manifest::SnapshotEntry::Directory(_))
+                });
+                let result = if target_is_directory {
+                    std::os::windows::fs::symlink_dir(&link_text, &link_path)
+                } else {
+                    std::os::windows::fs::symlink_file(&link_text, &link_path)
+                };
+                result.map_err(|error| Error::Reconstruct(format!(
+                    "failed to create symbolic link '{}'; enable Windows Developer Mode or grant symbolic-link privilege: {error}",
+                    link.path
+                )))?;
+            }
+            Ok(())
+        })?;
+    }
+
+    let file_count = snapshot_manifest.files().count();
+    let files_needing_metadata = snapshot_manifest
+        .files()
+        .filter(|file| file.read_only || (cfg!(unix) && file.executable))
+        .collect::<Vec<_>>();
+    {
+        let _file_phase = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.finalize.entries.files",
+            finalize_phase_trace_args(
+                file_count,
+                files_needing_metadata.len(),
+                metadata_worker_count,
+                should_parallelize_finalize(files_needing_metadata.len(), metadata_worker_count),
+            ),
+        );
+        run_finalize_entries(
+            &files_needing_metadata,
+            metadata_worker_count,
+            reconstruct_pool,
+            |file| {
+                let _entry_span = control.profile_span_with_args(
+                    "gutch.snapshot.reconstruct.finalize.entries.file",
+                    finalize_file_trace_args(file),
+                );
+                let path = path_resolver.resolve(&file.path)?;
+                let mut permissions = std::fs::metadata(&path)?.permissions();
+                let mut changed = false;
+                #[cfg(unix)]
+                if file.executable {
+                    use std::os::unix::fs::PermissionsExt;
+                    if permissions.mode() & 0o111 == 0 {
+                        permissions.set_mode(permissions.mode() | 0o111);
+                        changed = true;
+                    }
+                }
+                if permissions.readonly() != file.read_only {
+                    permissions.set_readonly(file.read_only);
+                    changed = true;
+                }
+                if changed {
+                    std::fs::set_permissions(&path, permissions)?;
+                }
+                Ok(())
+            },
+        )?;
+    }
+
+    let directory_count = snapshot_manifest
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry, crate::manifest::SnapshotEntry::Directory(_)))
+        .count();
+    let mut directories_by_depth = BTreeMap::<usize, Vec<_>>::new();
+    for directory in snapshot_manifest
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            crate::manifest::SnapshotEntry::Directory(directory) if directory.read_only => {
+                Some(directory)
+            }
+            _ => None,
+        })
+    {
+        directories_by_depth
+            .entry(directory.path.matches('/').count())
+            .or_default()
+            .push(directory);
+    }
+    let directories_needing_metadata = directories_by_depth.values().map(Vec::len).sum();
+    let directories_parallel = directories_by_depth
+        .values()
+        .any(|directories| should_parallelize_finalize(directories.len(), metadata_worker_count));
+    {
+        let _directory_phase = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.finalize.entries.directories",
+            finalize_phase_trace_args(
+                directory_count,
+                directories_needing_metadata,
+                metadata_worker_count,
+                directories_parallel,
+            ),
+        );
+        run_finalize_directory_levels(
+            &directories_by_depth,
+            metadata_worker_count,
+            reconstruct_pool,
+            |directory| {
+                let _entry_span = control.profile_span_with_args(
+                    "gutch.snapshot.reconstruct.finalize.entries.directory",
+                    finalize_directory_trace_args(directory),
+                );
+                let path = path_resolver.resolve(&directory.path)?;
+                let mut permissions = std::fs::metadata(&path)?.permissions();
+                if permissions.readonly() != directory.read_only {
+                    permissions.set_readonly(directory.read_only);
+                    std::fs::set_permissions(path, permissions)?;
+                }
+                Ok(())
+            },
+        )?;
     }
     Ok(())
+}
+
+const FINALIZE_ENTRIES_PARALLEL_MIN: usize = 8;
+
+fn run_finalize_entries<T, F>(
+    entries: &[T],
+    worker_count: usize,
+    reconstruct_pool: Option<&ThreadPool>,
+    work: F,
+) -> Result<()>
+where
+    T: Sync,
+    F: Fn(&T) -> Result<()> + Send + Sync,
+{
+    if !should_parallelize_finalize(entries.len(), worker_count) || reconstruct_pool.is_none() {
+        return entries.iter().try_for_each(|entry| work(entry));
+    }
+    reconstruct_pool
+        .expect("parallel finalization pool should exist")
+        .install(|| entries.par_iter().try_for_each(|entry| work(entry)))
+}
+
+fn run_finalize_directory_levels<'a, F>(
+    levels: &BTreeMap<usize, Vec<&'a crate::manifest::DirectoryManifest>>,
+    worker_count: usize,
+    reconstruct_pool: Option<&ThreadPool>,
+    work: F,
+) -> Result<()>
+where
+    F: Fn(&crate::manifest::DirectoryManifest) -> Result<()> + Send + Sync,
+{
+    for directories in levels.values().rev() {
+        if should_parallelize_finalize(directories.len(), worker_count)
+            && let Some(reconstruct_pool) = reconstruct_pool
+        {
+            reconstruct_pool.install(|| {
+                directories
+                    .par_iter()
+                    .try_for_each(|directory| work(directory))
+            })?;
+        } else {
+            directories
+                .iter()
+                .try_for_each(|directory| work(directory))?;
+        }
+    }
+    Ok(())
+}
+
+fn should_parallelize_finalize(entry_count: usize, worker_count: usize) -> bool {
+    entry_count >= FINALIZE_ENTRIES_PARALLEL_MIN && worker_count >= 2
+}
+
+fn finalize_phase_trace_args(
+    total_entries: usize,
+    changed_entries: usize,
+    worker_count: usize,
+    parallel: bool,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        (
+            "total_entries".to_string(),
+            serde_json::json!(total_entries),
+        ),
+        (
+            "changed_entries".to_string(),
+            serde_json::json!(changed_entries),
+        ),
+        ("parallel".to_string(), serde_json::json!(parallel)),
+        (
+            "parallel_workers".to_string(),
+            serde_json::json!(if parallel { worker_count } else { 1 }),
+        ),
+    ])
+}
+
+fn prepare_directory_trace_args(
+    path: &str,
+    read_only: Option<bool>,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        ("path".to_string(), serde_json::json!(path)),
+        (
+            "depth".to_string(),
+            serde_json::json!(path.matches('/').count()),
+        ),
+        ("read_only".to_string(), serde_json::json!(read_only)),
+        (
+            "implicit".to_string(),
+            serde_json::json!(read_only.is_none()),
+        ),
+    ])
+}
+
+fn finalize_symlink_trace_args(
+    link: &crate::manifest::SymlinkManifest,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        ("path".to_string(), serde_json::json!(link.path)),
+        (
+            "target_path".to_string(),
+            serde_json::json!(link.target_path),
+        ),
+    ])
+}
+
+fn finalize_file_trace_args(
+    file: &crate::manifest::FileManifest,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::profile::file_trace_args(&file.path, file.size);
+    args.insert("read_only".to_string(), serde_json::json!(file.read_only));
+    args.insert("executable".to_string(), serde_json::json!(file.executable));
+    args
+}
+
+fn finalize_directory_trace_args(
+    directory: &crate::manifest::DirectoryManifest,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        ("path".to_string(), serde_json::json!(directory.path)),
+        (
+            "read_only".to_string(),
+            serde_json::json!(directory.read_only),
+        ),
+    ])
 }
 
 fn build_artifact_priorities(
@@ -499,6 +803,15 @@ pub(super) fn apply_reconstruct_pipeline(
     let _operation_span = request
         .control
         .profile_span("gutch.snapshot.reconstruct.apply");
+    let reconstruct_worker_count = plan_reconstruct_runtime(request.runtime_hints).worker_count;
+    let reconstruct_pool = if request.snapshot_manifest.entries.is_empty() {
+        None
+    } else {
+        let _pool_span = request
+            .control
+            .profile_span("gutch.snapshot.reconstruct.prepare.pool");
+        Some(build_reconstruct_pool(reconstruct_worker_count)?)
+    };
     let staging_dir = {
         let _staging_span = request
             .control
@@ -532,7 +845,12 @@ pub(super) fn apply_reconstruct_pipeline(
             let _prepare_span = request
                 .control
                 .profile_span("gutch.snapshot.reconstruct.prepare.entries");
-            prepare_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+            prepare_snapshot_entries(
+                request.snapshot_manifest,
+                &staging_dir,
+                request.control,
+                reconstruct_pool.as_ref(),
+            )?;
         }
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
@@ -551,12 +869,21 @@ pub(super) fn apply_reconstruct_pipeline(
                 control: request.control,
                 download_client: request.download_client,
                 transfer_progress: request.transfer_progress,
+                reconstruct_pool: reconstruct_pool.as_ref(),
             })?;
         {
             let _finalize_span = request
                 .control
                 .profile_span("gutch.snapshot.reconstruct.finalize.entries");
-            finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+            let metadata_worker_count =
+                plan_reconstruct_runtime(request.runtime_hints).worker_count;
+            finalize_snapshot_entries(
+                request.snapshot_manifest,
+                &staging_dir,
+                request.control,
+                metadata_worker_count,
+                reconstruct_pool.as_ref(),
+            )?;
         }
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
@@ -595,6 +922,18 @@ pub(super) fn apply_reconstruct_pipeline(
     main_result
 }
 
+pub(super) fn build_reconstruct_pool(worker_count: usize) -> Result<ThreadPool> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(worker_count)
+        .thread_name(|index| format!("gutch-reconstruct-{index}"))
+        .build()
+        .map_err(|error| {
+            Error::reconstruct(format!(
+                "failed to create reconstruction thread pool: {error}"
+            ))
+        })
+}
+
 pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) pipeline_plan: ReconstructPipelinePlan,
     pub(super) staging_dir: &'a Path,
@@ -607,6 +946,7 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) control: &'a GutchOperationControl,
     pub(super) download_client: Option<&'a reqwest::blocking::Client>,
     pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
+    pub(super) reconstruct_pool: Option<&'a ThreadPool>,
 }
 
 enum ReconstructWorkItem {
@@ -628,6 +968,7 @@ struct ReconstructWorkContext {
     output_paths: Arc<Vec<PathBuf>>,
     compression_profile: Arc<crate::manifest::CompressionProfile>,
     control: GutchOperationControl,
+    reconstruct_worker_count: usize,
 }
 
 fn spawn_reconstruct_work(
@@ -659,6 +1000,7 @@ fn spawn_reconstruct_work(
                 &context.file_plans[file_index],
                 &context.output_paths,
                 &context.control,
+                context.reconstruct_worker_count,
             )
             .map(ReconstructJobEvent::Verified),
         }));
@@ -692,6 +1034,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         control,
         download_client,
         transfer_progress,
+        reconstruct_pool,
     } = request;
 
     control.checkpoint()?;
@@ -717,10 +1060,17 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let prepare_started_at = Instant::now();
     let mut output_prepare_span =
         Some(control.profile_span("gutch.snapshot.reconstruct.prepare.outputs"));
-    let output_paths = Arc::new(resolve_reconstruct_output_paths(
-        &pipeline_plan.files,
-        staging_dir,
-    )?);
+    let output_paths = Arc::new({
+        let _resolve_paths_span =
+            control.profile_span("gutch.snapshot.reconstruct.prepare.outputs.resolve_paths");
+        let path_resolver = crate::path_guard::ManifestPathResolver::new(staging_dir)?;
+        resolve_reconstruct_output_paths(
+            &pipeline_plan.files,
+            control,
+            &path_resolver,
+            reconstruct_pool,
+        )?
+    });
     let file_plans = Arc::new(pipeline_plan.files);
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
@@ -795,28 +1145,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         },
     );
 
-    let work_item_count = jobs.len().max(file_plans.len());
-    let worker_count = if work_item_count == 0 {
-        0
-    } else {
-        runtime_plan.worker_count.min(work_item_count).max(1)
-    };
     let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
-    let reconstruct_pool = if worker_count == 0 {
-        None
-    } else {
-        Some(
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(worker_count)
-                .thread_name(|index| format!("gutch-reconstruct-{index}"))
-                .build()
-                .map_err(|error| {
-                    Error::reconstruct(format!(
-                        "failed to create reconstruction thread pool: {error}"
-                    ))
-                })?,
-        )
-    };
     let compression_profile = Arc::new((*compression_profile).clone());
     let work_context = Arc::new(ReconstructWorkContext {
         jobs: Arc::clone(&jobs),
@@ -824,13 +1153,20 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         output_paths: Arc::clone(&output_paths),
         compression_profile,
         control: control.clone(),
+        reconstruct_worker_count: runtime_plan.worker_count,
     });
     let mut submitted_work_count = 0usize;
+    let mut output_files_span = None;
+    if !file_plans.is_empty() {
+        output_files_span =
+            Some(control.profile_span("gutch.snapshot.reconstruct.prepare.outputs.files"));
+    }
     {
         let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.outputs");
+        let _file_dispatch_span =
+            control.profile_span("gutch.snapshot.reconstruct.prepare.outputs.files.dispatch");
         for file_index in 0..file_plans.len() {
             let pool = reconstruct_pool
-                .as_ref()
                 .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"))?;
             spawn_reconstruct_work(
                 pool,
@@ -897,7 +1233,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                             let _dispatch_span = control
                                 .profile_span("gutch.snapshot.reconstruct.dispatch.downloaded");
                             reconstruct_pool
-                                .as_ref()
                                 .ok_or_else(|| {
                                     Error::reconstruct("reconstruction thread pool is unavailable")
                                 })
@@ -947,12 +1282,12 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
 
         if !reconstruction_dispatched && prepared_output_count == file_plans.len() {
             reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
+            drop(output_files_span.take());
             drop(output_prepare_span.take());
             let queue_result = {
                 let _dispatch_span =
                     control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
                 let pool = reconstruct_pool
-                    .as_ref()
                     .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"));
                 pool.map(|pool| {
                     for (job_index, job) in jobs.iter().enumerate() {
@@ -987,7 +1322,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             verify_started_at = Some(Instant::now());
             verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
             let queue_result = reconstruct_pool
-                .as_ref()
                 .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"))
                 .map(|pool| {
                     for file_index in 0..file_plans.len() {
@@ -1117,7 +1451,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             Err(_) => break,
         }
     }
-    drop(reconstruct_pool);
     if let Some(error) = pipeline_error {
         return Err(error);
     }
@@ -1170,14 +1503,23 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
 
 fn resolve_reconstruct_output_paths(
     files: &[ReconstructPipelineFile],
-    staging_dir: &Path,
+    control: &GutchOperationControl,
+    path_resolver: &crate::path_guard::ManifestPathResolver,
+    reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<Vec<PathBuf>> {
-    files
-        .iter()
-        .map(|file_plan| {
-            crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)
-        })
-        .collect()
+    let resolve = |file_plan: &ReconstructPipelineFile| {
+        let _path_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.prepare.outputs.resolve_path",
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+        );
+        path_resolver.resolve(&file_plan.path)
+    };
+    let resolved = if let Some(reconstruct_pool) = reconstruct_pool {
+        reconstruct_pool.install(|| files.par_iter().map(resolve).collect::<Vec<_>>())
+    } else {
+        files.iter().map(resolve).collect::<Vec<_>>()
+    };
+    resolved.into_iter().collect()
 }
 
 fn prepare_reconstruct_output_file(
@@ -1189,15 +1531,24 @@ fn prepare_reconstruct_output_file(
         "gutch.snapshot.reconstruct.prepare.file",
         crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
     );
-    if let Some(parent) = output_path.parent() {
-        crate::helpers::create_dir_all(parent)?;
+    let output = {
+        let _create_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.prepare.file.create",
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+        );
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(output_path)?
+    };
+    {
+        let _size_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.prepare.file.set_len",
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+        );
+        output.set_len(file_plan.size)?;
     }
-    let output = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(output_path)?;
-    output.set_len(file_plan.size)?;
     Ok(())
 }
 
@@ -1210,7 +1561,7 @@ fn reconstruct_job(
 ) -> Result<ReconstructTimings> {
     match job {
         ReconstructJob::Artifact(job) => {
-            reconstruct_artifact_job(job, file_plans, output_paths, compression_profile, control)
+            reconstruct_artifact_job(job, output_paths, compression_profile, control)
         }
         ReconstructJob::SourceChunk(job) => {
             reconstruct_source_chunk_job(job, file_plans, output_paths, control)
@@ -1224,16 +1575,17 @@ fn reconstruct_job(
 
 fn reconstruct_artifact_job(
     job: &ReconstructArtifactJob,
-    file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
-    let _artifact_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.job.artifact",
-        reconstruct_artifact_trace_args(job),
-    );
+    let artifact_span_name = match &job.artifact {
+        crate::ArtifactRef::Bundle { .. } => "gutch.snapshot.reconstruct.bundle",
+        crate::ArtifactRef::LooseChunk { .. } => "gutch.snapshot.reconstruct.job.loose_chunk",
+    };
+    let _artifact_span =
+        control.profile_span_with_args(artifact_span_name, reconstruct_artifact_trace_args(job));
     let profiler = control.profiler();
     let compressed_bytes = std::fs::metadata(&job.artifact_path)?.len();
     let mut output_handles = OutputHandleCache::new(output_paths);
@@ -1241,57 +1593,100 @@ fn reconstruct_artifact_job(
 
     match &job.artifact {
         crate::ArtifactRef::Bundle { .. } => {
-            let mut reader = crate::bundle::BundleReader::open_with_profiler(
+            let mut reader = crate::bundle::BundleReader::open(
                 File::open(&job.artifact_path)?,
                 compression_profile,
-                profiler,
             )?;
-            let mut remaining_chunks = job.chunks.keys().cloned().collect::<HashSet<_>>();
-            let stream_metrics = reader.stream_chunks(profiler, |_, entry, bytes| {
-                let Some(chunk) = job.chunks.get(&entry.chunk_hash) else {
-                    return Ok(());
-                };
-                if chunk.raw_size != entry.raw_size
-                    || chunk.compressed_size != entry.compressed_size
-                    || bytes.len() as u64 != chunk.raw_size
-                {
-                    return Err(Error::reconstruct(format!(
-                        "bundle chunk '{}' size mismatch in '{}': expected raw {}, compressed {}, got raw {}, compressed {}",
-                        entry.chunk_hash,
-                        job.artifact.id(),
-                        chunk.raw_size,
-                        chunk.compressed_size,
-                        bytes.len(),
-                        entry.compressed_size
-                    )));
+            let mut required = vec![false; reader.entries().len()];
+            let mut required_chunks = vec![None; reader.entries().len()];
+            for (index, entry) in reader.entries().iter().enumerate() {
+                if let Some(chunk) = job.chunks.get(&entry.chunk_hash).cloned() {
+                    required[index] = true;
+                    required_chunks[index] = Some((entry.clone(), chunk));
                 }
-                remaining_chunks.remove(&entry.chunk_hash);
-                write_reconstruct_targets(
-                    job,
-                    chunk,
-                    bytes,
-                    file_plans,
-                    &mut output_handles,
-                    control,
-                    &mut timings,
-                )
-            })?;
-            if !remaining_chunks.is_empty() {
+            }
+            let required_count = required.iter().filter(|required| **required).count();
+            if required_count != job.chunks.len() {
                 return Err(Error::reconstruct(format!(
                     "bundle '{}' is missing {} required chunks",
                     job.artifact.id(),
-                    remaining_chunks.len()
+                    job.chunks.len().saturating_sub(required_count)
                 )));
             }
-            let artifact_read_elapsed = stream_metrics.read + stream_metrics.hash_verify;
+            // Bundle jobs are parallelized by the outer reconstruction pool.
+            // Each worker reads one bundle once and streams decoded chunks
+            // directly into verification and positional fan-out. At most one
+            // required chunk is retained while the next range is decoded.
+            let decoded_payload_bytes = reader
+                .entries()
+                .iter()
+                .try_fold(0u64, |total, entry| total.checked_add(entry.raw_size))
+                .ok_or_else(|| Error::reconstruct("bundle raw size overflows"))?;
+            let _fanout_span = profiler.map(|profiler| {
+                profiler.span_with_args(
+                    "gutch.snapshot.reconstruct.bundle.fanout_chunks",
+                    bundle_fanout_trace_args(job, decoded_payload_bytes),
+                )
+            });
+            let read_metrics = reader.stream_bundle_chunks_with_profiler(
+                profiler,
+                &required,
+                |index, bytes| {
+                    control.checkpoint()?;
+                    let (entry, chunk) = required_chunks
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .ok_or_else(|| {
+                            Error::reconstruct(format!(
+                                "bundle streamed unexpected unselected chunk {}",
+                                index
+                            ))
+                        })?;
+                    if chunk.raw_size != entry.raw_size
+                        || chunk.compressed_size != entry.compressed_size
+                    {
+                        return Err(Error::reconstruct(format!(
+                            "bundle chunk '{}' size mismatch in '{}': expected raw {}, compressed {}; table has raw {}, compressed {}",
+                            entry.chunk_hash,
+                            job.artifact.id(),
+                            chunk.raw_size,
+                            chunk.compressed_size,
+                            entry.raw_size,
+                            entry.compressed_size
+                        )));
+                    }
+                    let hash_started_at = Instant::now();
+                    let actual_hash =
+                        crate::hash::ChunkHash::from_blake3(crate::hash::hash_chunk(bytes));
+                    timings.chunk_verify += hash_started_at.elapsed();
+                    timings.chunk_verify_bytes = timings
+                        .chunk_verify_bytes
+                        .saturating_add(bytes.len() as u64);
+                    if actual_hash.to_string() != chunk.chunk_hash {
+                        return Err(Error::HashMismatch {
+                            expected: chunk.chunk_hash.clone(),
+                            actual: actual_hash.to_string(),
+                        });
+                    }
+                    write_reconstruct_targets(
+                        chunk,
+                        bytes,
+                        &mut output_handles,
+                        control,
+                        &mut timings,
+                    )?;
+                    Ok(())
+                },
+            )?;
+            let artifact_read_elapsed = read_metrics.read + read_metrics.decompress;
             timings.artifact_read = artifact_read_elapsed;
-            timings.artifact_read_compressed_bytes = compressed_bytes;
-            timings.artifact_read_decompressed_bytes = stream_metrics.raw_bytes;
+            timings.artifact_read_compressed_bytes = read_metrics.compressed_bytes;
+            timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
             timings.bundle_read = artifact_read_elapsed;
+            drop(_fanout_span);
+            timings.artifact_read_compressed_bytes = compressed_bytes;
             timings.bundle_read_compressed_bytes = compressed_bytes;
-            timings.bundle_read_decompressed_bytes = stream_metrics.raw_bytes;
-            timings.chunk_verify = stream_metrics.hash_verify;
-            timings.chunk_verify_bytes = stream_metrics.raw_bytes;
+            timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
         }
         crate::ArtifactRef::LooseChunk { hash } => {
             if job.chunks.len() != 1 || !job.chunks.contains_key(hash) {
@@ -1322,15 +1717,7 @@ fn reconstruct_artifact_job(
             timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
             timings.chunk_verify = read_metrics.hash_verify;
             timings.chunk_verify_bytes = read_metrics.raw_bytes;
-            write_reconstruct_targets(
-                job,
-                chunk,
-                &bytes,
-                file_plans,
-                &mut output_handles,
-                control,
-                &mut timings,
-            )?;
+            write_reconstruct_targets(chunk, &bytes, &mut output_handles, control, &mut timings)?;
         }
     }
     Ok(timings)
@@ -1495,10 +1882,8 @@ fn copy_source_file_job(
 }
 
 fn write_reconstruct_targets(
-    job: &ReconstructArtifactJob,
     chunk: &ReconstructArtifactChunk,
     bytes: &[u8],
-    file_plans: &[ReconstructPipelineFile],
     output_handles: &mut OutputHandleCache<'_>,
     control: &GutchOperationControl,
     timings: &mut ReconstructTimings,
@@ -1514,20 +1899,6 @@ fn write_reconstruct_targets(
     let rebuild_started_at = Instant::now();
     for target in &chunk.targets {
         control.checkpoint()?;
-        let file_plan = file_plans.get(target.file_index).ok_or_else(|| {
-            Error::reconstruct(format!(
-                "artifact chunk '{}' references unknown file {}",
-                chunk.chunk_hash, target.file_index
-            ))
-        })?;
-        let _target_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.artifact_chunk",
-            artifact_target_trace_args(job, target, chunk, file_plan),
-        );
-        let _write_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.artifact_chunk.write",
-            artifact_target_trace_args(job, target, chunk, file_plan),
-        );
         let write_started_at = Instant::now();
         output_handles.write_at(target.file_index, target.file_offset, bytes)?;
         timings.file_write += write_started_at.elapsed();
@@ -1650,43 +2021,18 @@ fn reconstruct_artifact_trace_args(
     ])
 }
 
-fn artifact_target_trace_args(
+fn bundle_fanout_trace_args(
     job: &ReconstructArtifactJob,
-    target: &ReconstructTarget,
-    chunk: &ReconstructArtifactChunk,
-    file_plan: &ReconstructPipelineFile,
+    decoded_payload_bytes: u64,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size);
+    let mut args = reconstruct_artifact_trace_args(job);
     args.insert(
-        "artifact_kind".to_string(),
-        serde_json::json!(match &job.artifact {
-            crate::ArtifactRef::Bundle { .. } => "bundle",
-            crate::ArtifactRef::LooseChunk { .. } => "loose_chunk",
-        }),
+        "decoded_payload_mib".to_string(),
+        serde_json::json!(decoded_payload_bytes as f64 / (1024.0 * 1024.0)),
     );
     args.insert(
-        "artifact_id".to_string(),
-        serde_json::json!(job.artifact.id()),
-    );
-    args.insert(
-        "artifact_path".to_string(),
-        serde_json::json!(job.artifact_path.display().to_string()),
-    );
-    args.insert(
-        "chunk_hash".to_string(),
-        serde_json::json!(chunk.chunk_hash),
-    );
-    args.insert(
-        "raw_size_mib".to_string(),
-        serde_json::json!(chunk.raw_size as f64 / (1024.0 * 1024.0)),
-    );
-    args.insert(
-        "compressed_size_mib".to_string(),
-        serde_json::json!(chunk.compressed_size as f64 / (1024.0 * 1024.0)),
-    );
-    args.insert(
-        "file_offset".to_string(),
-        serde_json::json!(target.file_offset),
+        "fanout_chunk_count".to_string(),
+        serde_json::json!(job.chunks.len()),
     );
     args
 }
@@ -1777,16 +2123,18 @@ fn verify_reconstructed_output_file(
     file_plan: &ReconstructPipelineFile,
     output_paths: &[PathBuf],
     control: &GutchOperationControl,
+    reconstruct_worker_count: usize,
 ) -> Result<ReconstructedFileVerification> {
     control.checkpoint()?;
     let _file_span = control.profile_span_with_args(
         "gutch.snapshot.reconstruct.file",
         reconstruct_file_trace_args(file_plan),
     );
-    let _hash_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.file.full_hash",
-        crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-    );
+    let hash_mode = if file_plan.size >= PARALLEL_FULL_HASH_MIN_BYTES {
+        "mmap_rayon"
+    } else {
+        "stream"
+    };
     let started_at = Instant::now();
     let output_path = &output_paths[file_index];
     let actual_size = std::fs::metadata(output_path)?.len();
@@ -1796,10 +2144,15 @@ fn verify_reconstructed_output_file(
             actual_size, file_plan.size, file_plan.path
         )));
     }
-    let actual_hash = if file_plan.size >= PARALLEL_FULL_HASH_MIN_BYTES {
+    let _hash_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.file.full_hash",
+        full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
+    );
+    let hash_started_at = Instant::now();
+    let actual_hash = if hash_mode == "mmap_rayon" {
         let _parallel_hash_span = control.profile_span_with_args(
             "gutch.snapshot.reconstruct.file.full_hash.parallel",
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
         );
         let mut hasher = blake3::Hasher::new();
         hasher.update_mmap_rayon(output_path)?;
@@ -1818,6 +2171,26 @@ fn verify_reconstructed_output_file(
         }
         crate::hash::hash_hex(&hasher.finalize())
     };
+    let hash_elapsed = hash_started_at.elapsed();
+    let hash_elapsed_seconds = hash_elapsed.as_secs_f64();
+    let mut hash_complete_args =
+        full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count);
+    hash_complete_args.insert(
+        "hash_elapsed_ms".to_string(),
+        serde_json::json!(hash_elapsed_seconds * 1000.0),
+    );
+    hash_complete_args.insert(
+        "hash_speed_mib_s".to_string(),
+        serde_json::json!(if hash_elapsed_seconds > 0.0 {
+            (file_plan.size as f64 / (1024.0 * 1024.0)) / hash_elapsed_seconds
+        } else {
+            0.0
+        }),
+    );
+    control.profile_event_with_args(
+        "gutch.snapshot.reconstruct.file.full_hash.complete",
+        hash_complete_args,
+    );
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {
             expected: file_plan.full_file_hash.clone(),
@@ -1828,6 +2201,24 @@ fn verify_reconstructed_output_file(
         elapsed: started_at.elapsed(),
         bytes: actual_size,
     })
+}
+
+fn full_hash_trace_args(
+    file_plan: &ReconstructPipelineFile,
+    hash_mode: &str,
+    reconstruct_worker_count: usize,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
+    args.insert("hash_mode".to_string(), serde_json::json!(hash_mode));
+    args.insert(
+        "hash_threshold_mib".to_string(),
+        serde_json::json!(PARALLEL_FULL_HASH_MIN_BYTES as f64 / (1024.0 * 1024.0)),
+    );
+    args.insert(
+        "configured_workers".to_string(),
+        serde_json::json!(reconstruct_worker_count),
+    );
+    args
 }
 
 fn reconstruct_file_trace_args(
@@ -2376,7 +2767,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_pipeline_decodes_once_and_writes_shared_chunks_to_ranges() {
+    fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         let repo_root = crate::test_util::temp_path("gutch_pipeline_bundled_repo");
         let destination = crate::test_util::temp_path("gutch_pipeline_bundled_destination");
         let _ = std::fs::remove_dir_all(&repo_root);

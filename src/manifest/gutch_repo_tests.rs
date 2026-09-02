@@ -11,10 +11,7 @@ fn test_gutch_repo_manifest_new() {
         ArtifactSizingPreset::Chunk128KiB
     );
     assert_eq!(repo.artifact_profile.compression, CompressionPreset::Zstd3);
-    assert_eq!(
-        repo.artifact_profile.bundle,
-        BundleSizingPreset::Bundle16MiB
-    );
+    assert_eq!(repo.artifact_profile.bundle, BundleSizingPreset::Bundle8MiB);
     assert_eq!(repo.artifact_profile.storage, ArtifactStorageMode::Bundled);
 }
 
@@ -57,7 +54,7 @@ fn repo_manifest_serializes_the_compact_artifact_profile() {
     );
     assert_eq!(
         artifact_profile.get("bundle_size_profile").unwrap(),
-        "bundle_16MiB"
+        "bundle_8MiB"
     );
     assert_eq!(artifact_profile.get("storage_mode").unwrap(), "bundled");
     assert!(json.get("artifact_profile").is_none());

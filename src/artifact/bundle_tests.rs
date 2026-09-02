@@ -76,7 +76,7 @@ fn test_verify_bundle() {
 }
 
 #[test]
-fn test_build_and_read_bundle_compressed_stream() {
+fn test_build_and_read_bundle_compressed_payload() {
     let chunk1 = b"bundle compression test chunk one ".repeat(8);
     let chunk2 = b"bundle compression test chunk two ".repeat(8);
 
@@ -98,8 +98,90 @@ fn test_build_and_read_bundle_compressed_stream() {
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data, &profile).unwrap();
 
+    let payload = &bundle_data[reader.data_start as usize..reader.payload_end as usize];
+    let frame_size = zstd::zstd_safe::find_frame_compressed_size(payload).unwrap();
+    assert_eq!(
+        frame_size,
+        payload.len(),
+        "a bundled payload must be exactly one zstd frame"
+    );
+    assert_eq!(reader.entries()[0].compressed_offset, 0);
+    assert_eq!(reader.entries()[1].compressed_offset, 0);
+    assert!(
+        reader
+            .entries()
+            .iter()
+            .all(|entry| entry.compressed_size > 0)
+    );
     assert_eq!(reader.read_chunk(0).unwrap(), chunk1.to_vec());
     assert_eq!(reader.read_chunk(1).unwrap(), chunk2.to_vec());
+
+    let staged = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(staged.path(), &bundle_data).unwrap();
+    let mut file_reader =
+        BundleReader::open(std::fs::File::open(staged.path()).unwrap(), &profile).unwrap();
+    let profiler = crate::GutchProfiler::new();
+    let (read, metrics) = file_reader
+        .read_bundle_payload_with_profiler(Some(&profiler))
+        .unwrap();
+    let second = &read[reader.entries()[1].raw_offset as usize
+        ..(reader.entries()[1].raw_offset + reader.entries()[1].raw_size) as usize];
+    assert_eq!(second, chunk2.as_slice());
+    assert_eq!(metrics.raw_bytes, (chunk1.len() + chunk2.len()) as u64);
+    let spans = profiler.summary().spans;
+    for name in [
+        "gutch.snapshot.reconstruct.bundle.read_payload",
+        "gutch.snapshot.reconstruct.bundle.decompress_payload",
+    ] {
+        assert_eq!(
+            spans
+                .iter()
+                .find(|span| span.name == name)
+                .map(|span| span.count),
+            Some(1),
+            "missing expected bundle phase marker {name}"
+        );
+    }
+}
+
+#[test]
+fn test_stream_bundle_chunks_only_delivers_required_chunks() {
+    let chunks = [
+        b"streamed chunk one".to_vec(),
+        b"streamed chunk two".to_vec(),
+        b"streamed chunk three".to_vec(),
+    ];
+    let hashes = chunks
+        .iter()
+        .map(|chunk| ChunkHash::from_blake3(hash::hash_chunk(chunk)))
+        .collect::<Vec<_>>();
+    let profile = CompressionProfile {
+        compression_unit: CompressionUnit::Bundle,
+        ..CompressionProfile::default()
+    };
+    let mut builder = BundleBuilder::new(profile.clone());
+    for (hash, chunk) in hashes.iter().zip(&chunks) {
+        builder.add_chunk(*hash, chunk.clone());
+    }
+
+    let bundle_data = builder.build().unwrap();
+    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
+    let mut delivered = Vec::new();
+    let metrics = reader
+        .stream_bundle_chunks_with_profiler(None, &[false, true, true], |index, chunk| {
+            delivered.push((index, chunk.to_vec()));
+            Ok(())
+        })
+        .unwrap();
+
+    assert_eq!(
+        delivered,
+        vec![(1, chunks[1].clone()), (2, chunks[2].clone())]
+    );
+    assert_eq!(
+        metrics.raw_bytes,
+        chunks.iter().map(|chunk| chunk.len() as u64).sum::<u64>()
+    );
 }
 
 #[test]

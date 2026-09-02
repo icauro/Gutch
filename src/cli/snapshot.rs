@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::cli::SECTION_SEPARATOR;
@@ -17,32 +17,14 @@ use crate::cli::reporting::{
 };
 use crate::cli::verbose_output_enabled;
 use crate::hash::ChunkHash;
-use g::repo::scan_existing_store_state;
+use g::repo::{ExistingStoreState, scan_existing_store_state_with_pool};
 use g::snapshot::identity::{apply_resolved_snapshot_identity, parse_cli_tags};
 use gutch as g;
-
-struct MutableCaptureStoreState {
-    bundle_ids: HashSet<String>,
-    chunk_index: g::manifest::ChunkIndex,
-    chunk_locations: HashMap<String, g::ExistingChunkLocation>,
-    previous_file_manifests: HashMap<String, Vec<g::manifest::FileManifest>>,
-}
 
 struct SnapshotIdentityStrings {
     version_id: String,
     os: String,
     arch: String,
-}
-
-impl From<g::repo::ExistingStoreState> for MutableCaptureStoreState {
-    fn from(state: g::repo::ExistingStoreState) -> Self {
-        Self {
-            bundle_ids: state.bundle_ids,
-            chunk_index: state.chunk_index,
-            chunk_locations: state.chunk_locations,
-            previous_file_manifests: state.previous_file_manifests,
-        }
-    }
 }
 
 struct CaptureOneSnapshotRequest<'a> {
@@ -57,6 +39,7 @@ struct CaptureOneSnapshotRequest<'a> {
     stats_json_out: &'a Option<PathBuf>,
     profile: crate::cli::Profile,
     command_name: &'static str,
+    snapshot_sequence: usize,
     yes: bool,
     skip_confirmation: bool,
 }
@@ -131,17 +114,36 @@ fn unchanged_snapshot_capture_stats(
 
 fn run_capture_one_snapshot(
     request: CaptureOneSnapshotRequest<'_>,
-    store_state: &mut MutableCaptureStoreState,
+    store_state: &mut ExistingStoreState,
+    build_pool: &rayon::ThreadPool,
 ) -> g::Result<SnapshotCaptureStats> {
     let capture_control =
         crate::cli::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
-    let _prepare_span = capture_control.profile_span("gutch.capture.prepare");
+    let _prepare_span = capture_control.profile_span_with_args(
+        "gutch.capture.prepare_source",
+        std::collections::BTreeMap::from([
+            (
+                "source_path".to_string(),
+                serde_json::json!(request.input_dir.display().to_string()),
+            ),
+            (
+                "snapshot_sequence".to_string(),
+                serde_json::json!(request.snapshot_sequence),
+            ),
+            (
+                "is_first_snapshot".to_string(),
+                serde_json::json!(request.snapshot_sequence == 1),
+            ),
+        ]),
+    );
+    let _plan_span = capture_control.profile_span("gutch.capture.prepare_source.plan_snapshot");
     let capture_plan = g::plan_snapshot_capture(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
         request.explicit_tags,
         request.allow_name_inference,
     )?;
+    drop(_plan_span);
     if !request.yes && !request.skip_confirmation {
         println!("snapshot capture plan:");
         println!("  {}", g::describe_snapshot_capture_plan(&capture_plan));
@@ -153,6 +155,13 @@ fn run_capture_one_snapshot(
         }
     }
     if capture_plan.kind == g::SnapshotCaptureKind::ReplaceSlot {
+        let _replace_span = capture_control.profile_span_with_args(
+            "gutch.capture.prepare_source.replace_snapshot_slot",
+            std::collections::BTreeMap::from([(
+                "replaced_snapshot_count".to_string(),
+                serde_json::json!(capture_plan.replaced_snapshot_ids.len()),
+            )]),
+        );
         g::delete_repo_snapshots(
             request.repo_paths.repo_root.as_path(),
             &capture_plan.replaced_snapshot_ids,
@@ -161,8 +170,11 @@ fn run_capture_one_snapshot(
             request.repo_paths.repo_root.as_path(),
             &crate::cli::control_with_profile(&request.profile),
         );
+        drop(_replace_span);
     }
     if capture_plan.kind == g::SnapshotCaptureKind::Relabel {
+        let _relabel_span =
+            capture_control.profile_span("gutch.capture.prepare_source.relabel_existing_snapshot");
         let existing_manifest =
             g::load_snapshot_manifest(request.repo_paths, &capture_plan.snapshot_id)?;
         let mut updated_manifest = existing_manifest;
@@ -177,29 +189,34 @@ fn run_capture_one_snapshot(
         let required_chunk_count = count_required_chunks(&updated_manifest);
         let required_bundle_count =
             count_required_bundles_from_chunk_index(&updated_manifest, &store_state.chunk_index);
-        return Ok(unchanged_snapshot_capture_stats(
-            UnchangedSnapshotCaptureRequest {
-                command_name: request.command_name,
-                repo_root: &request.repo_paths.repo_root,
-                input_path: request.input_dir,
-                manifest_path: &manifest_path,
-                repo_name: request.repo_name,
-                snapshot_manifest: &updated_manifest,
-                identity: SnapshotIdentityStrings {
-                    version_id: capture_plan.version_id.clone(),
-                    os: capture_plan.os.clone(),
-                    arch: capture_plan.arch.clone(),
-                },
-                storage_mode: request.build_profile.storage_mode,
-                required_chunk_count,
-                required_bundle_count,
-                timings: &g::BuildTimings::default(),
-                stats_json_out: request.stats_json_out,
+        let stats = unchanged_snapshot_capture_stats(UnchangedSnapshotCaptureRequest {
+            command_name: request.command_name,
+            repo_root: &request.repo_paths.repo_root,
+            input_path: request.input_dir,
+            manifest_path: &manifest_path,
+            repo_name: request.repo_name,
+            snapshot_manifest: &updated_manifest,
+            identity: SnapshotIdentityStrings {
+                version_id: capture_plan.version_id.clone(),
+                os: capture_plan.os.clone(),
+                arch: capture_plan.arch.clone(),
             },
-        ));
+            storage_mode: request.build_profile.storage_mode,
+            required_chunk_count,
+            required_bundle_count,
+            timings: &g::BuildTimings::default(),
+            stats_json_out: request.stats_json_out,
+        });
+        drop(_relabel_span);
+        return Ok(stats);
     }
 
+    let _input_span = capture_control.profile_span("gutch.capture.prepare_source.prepare_input");
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
+    drop(_input_span);
+
+    let _identity_span =
+        capture_control.profile_span("gutch.capture.prepare_source.resolve_identity");
     let context = format!("snapshot capture input '{}'", request.input_dir.display());
     let resolved_identity = g::snapshot::identity::resolve_snapshot_identity_with_inference(
         request.input_dir,
@@ -208,11 +225,49 @@ fn run_capture_one_snapshot(
         request.allow_name_inference,
         &context,
     )?;
+    drop(_identity_span);
+
+    let _existing_chunks_span = capture_control.profile_span_with_args(
+        "gutch.capture.prepare_source.collect_existing_chunk_ids",
+        std::collections::BTreeMap::from([
+            (
+                "existing_chunk_location_count".to_string(),
+                serde_json::json!(store_state.chunk_locations.len()),
+            ),
+            (
+                "previous_file_manifest_path_count".to_string(),
+                serde_json::json!(store_state.previous_file_manifests.len()),
+            ),
+        ]),
+    );
     let existing_chunk_ids = store_state
         .chunk_locations
         .keys()
         .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
         .collect::<g::Result<HashSet<_>>>()?;
+    drop(_existing_chunks_span);
+
+    let _config_span = capture_control.profile_span_with_args(
+        "gutch.capture.prepare_source.configure_build",
+        std::collections::BTreeMap::from([
+            (
+                "capture_kind".to_string(),
+                serde_json::json!(format!("{:?}", capture_plan.kind)),
+            ),
+            (
+                "existing_bundle_count".to_string(),
+                serde_json::json!(store_state.bundle_ids.len()),
+            ),
+            (
+                "existing_chunk_location_count".to_string(),
+                serde_json::json!(store_state.chunk_locations.len()),
+            ),
+            (
+                "previous_file_manifest_path_count".to_string(),
+                serde_json::json!(store_state.previous_file_manifests.len()),
+            ),
+        ]),
+    );
     let mut build_config = g::BuildConfig::for_snapshot("", &resolved_identity.snapshot_tags)
         .with_existing_chunks(&store_state.chunk_locations)
         .with_existing_bundles(&store_state.bundle_ids)
@@ -221,12 +276,17 @@ fn run_capture_one_snapshot(
         .with_bundle_profile(request.build_profile.bundle_profile)
         .with_compression_profile(request.build_profile.compression_profile)
         .with_storage_mode(request.build_profile.storage_mode)
-        .with_runtime_hints(request.runtime_hints.clone());
-    build_config.control = capture_control;
+        .with_runtime_hints(request.runtime_hints.clone())
+        .with_artifact_staging_root(request.repo_paths.bundles_root.clone());
+    build_config.control = capture_control.clone();
+    drop(_config_span);
 
     drop(_prepare_span);
-    let (result, timings) = g::build_with_config_timed(&prepared_input.dir, &build_config)?;
-    let _finalize_span = build_config.control.profile_span("gutch.capture.finalize");
+    let (result, timings) =
+        g::build_with_config_timed_on_pool(&prepared_input.dir, &build_config, build_pool)?;
+    let _publish_span = build_config
+        .control
+        .profile_span("gutch.capture.publish_snapshot");
     let mut result = result;
     let snapshot_id = g::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
@@ -271,24 +331,59 @@ fn run_capture_one_snapshot(
         }
     }
 
+    let _manifest_write_span =
+        capture_control.profile_span("gutch.capture.publish_snapshot.write_snapshot_manifest");
     let (manifest_path, _) =
         write_snapshot_manifest(request.repo_paths, &result.snapshot_manifest)?;
-    write_bundles(&request.repo_paths.bundles_root, &result.bundles)?;
-    write_loose_chunks(&request.repo_paths.chunks_root, &result.loose_chunks)?;
+    drop(_manifest_write_span);
+    let _artifact_write_span =
+        capture_control.profile_span("gutch.capture.publish_snapshot.write_artifacts");
+    write_bundles(
+        &request.repo_paths.bundles_root,
+        &result.bundles,
+        build_pool,
+        &capture_control,
+    )?;
+    write_loose_chunks(
+        &request.repo_paths.chunks_root,
+        &result.loose_chunks,
+        build_pool,
+        &capture_control,
+    )?;
+    drop(_artifact_write_span);
+    let _index_span =
+        capture_control.profile_span("gutch.capture.publish_snapshot.update_chunk_index");
     let compression_profile =
         g::manifest::CompressionProfile::for_preset(request.build_profile.compression_profile);
-    g::add_built_bundles_to_chunk_index(
-        &mut store_state.chunk_index,
-        &result.bundles,
-        &compression_profile,
-    )?;
-    g::add_built_loose_chunks_to_chunk_index(&mut store_state.chunk_index, &result.loose_chunks)?;
+    {
+        let _bundle_index_span =
+            capture_control.profile_span("gutch.capture.publish_snapshot.index_bundle_entries");
+        g::add_built_bundles_to_chunk_index(
+            &mut store_state.chunk_index,
+            &result.bundles,
+            &compression_profile,
+        )?;
+    }
+    {
+        let _chunk_index_span = capture_control
+            .profile_span("gutch.capture.publish_snapshot.index_loose_chunk_entries");
+        g::add_built_loose_chunks_to_chunk_index(
+            &mut store_state.chunk_index,
+            &result.loose_chunks,
+        )?;
+    }
+    drop(_index_span);
 
+    let _state_span =
+        capture_control.profile_span("gutch.capture.publish_snapshot.update_capture_state");
     for bundle in &result.bundles {
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
     }
-    store_state.chunk_locations =
-        g::repo::existing_chunk_locations_from_index(&store_state.chunk_index, request.repo_paths)?;
+    store_state.chunk_locations = g::repo::existing_chunk_locations_from_index_with_pool(
+        &store_state.chunk_index,
+        request.repo_paths,
+        build_pool,
+    )?;
     for file in result.snapshot_manifest.files() {
         let candidates = store_state
             .previous_file_manifests
@@ -329,11 +424,7 @@ fn run_capture_one_snapshot(
         &result.loose_chunks,
     );
     let generated_bundle_count = result.bundles.len();
-    let generated_bundle_bytes: u64 = result
-        .bundles
-        .iter()
-        .map(|bundle| bundle.data.len() as u64)
-        .sum::<u64>();
+    let generated_bundle_bytes: u64 = result.bundles.iter().map(|bundle| bundle.size).sum::<u64>();
     let generated_chunk_count = result.loose_chunks.len();
     let generated_chunk_bytes = result
         .loose_chunks
@@ -580,6 +671,14 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                     .clone()
                     .unwrap_or_default();
                 let repo_name = repo_manifest.name.clone();
+                let prepare_control = crate::cli::control_with_profile(profile);
+                let _plan_all_span = prepare_control.profile_span_with_args(
+                    "gutch.capture.prepare_source.plan_all_snapshots",
+                    std::collections::BTreeMap::from([(
+                        "source_count".to_string(),
+                        serde_json::json!(sources.len()),
+                    )]),
+                );
                 let capture_plans: Vec<g::SnapshotCapturePlan> = sources
                     .iter()
                     .map(|source| {
@@ -595,6 +694,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         )
                     })
                     .collect::<g::Result<_>>()?;
+                drop(_plan_all_span);
                 if !yes {
                     println!("snapshot capture plan:");
                     for plan in &capture_plans {
@@ -612,12 +712,33 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         return Err(g::Error::manifest("snapshot capture cancelled"));
                     }
                 }
-                let mut store_state: MutableCaptureStoreState =
-                    scan_existing_store_state(&repo_paths)?.into();
+                let runtime_plan = g::plan_build_runtime(&runtime.hints());
+                let _pool_span = prepare_control.profile_span_with_args(
+                    "gutch.capture.create_worker_pool",
+                    std::collections::BTreeMap::from([(
+                        "worker_count".to_string(),
+                        serde_json::json!(runtime_plan.worker_count),
+                    )]),
+                );
+                let build_pool = g::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+                drop(_pool_span);
+                let _existing_state_span = prepare_control.profile_span_with_args(
+                    "gutch.capture.prepare_source.load_existing_store_state",
+                    std::collections::BTreeMap::from([(
+                        "source_count".to_string(),
+                        serde_json::json!(sources.len()),
+                    )]),
+                );
+                let mut store_state: ExistingStoreState = scan_existing_store_state_with_pool(
+                    &repo_paths,
+                    &build_pool,
+                    &prepare_control,
+                )?;
+                drop(_existing_state_span);
                 let empty_output = None;
 
                 let mut snapshot_stats = Vec::with_capacity(sources.len());
-                for source in &sources {
+                for (source_index, source) in sources.iter().enumerate() {
                     let mut effective_tags = cli_tags.clone();
                     if let Some(config_tags) = &source.config_tags {
                         effective_tags.extend_missing_from(config_tags);
@@ -635,10 +756,12 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                             stats_json_out: &empty_output,
                             profile: profile.clone(),
                             command_name: "snapshot capture",
+                            snapshot_sequence: source_index + 1,
                             yes,
                             skip_confirmation: true,
                         },
                         &mut store_state,
+                        &build_pool,
                     )?);
                 }
 

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use rayon::prelude::*;
 use serde::Serialize;
 use tempfile::TempDir;
 
@@ -295,18 +296,47 @@ pub(crate) fn write_snapshot_manifest(
 pub(crate) fn write_bundles(
     bundles_root: &std::path::Path,
     bundles: &[g::BuiltBundle],
+    pool: &rayon::ThreadPool,
+    control: &g::GutchOperationControl,
 ) -> g::Result<std::collections::HashMap<String, u64>> {
-    let mut bundle_sizes = std::collections::HashMap::with_capacity(bundles.len());
-    for bundle in bundles {
-        let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
-        crate::helpers::write(&bundle_path, &bundle.data)?;
-        let bundle_size = bundle.data.len() as u64;
-        bundle_sizes.insert(bundle.bundle_id.clone(), bundle_size);
+    let total_bytes = bundles.iter().map(|bundle| bundle.size).sum::<u64>();
+    let _phase_span = control.profile_span_with_args(
+        "gutch.capture.publish_snapshot.write_bundle_artifacts",
+        capture_count_bytes_trace_args(bundles.len(), total_bytes),
+    );
+    let control_for_work = control.clone();
+    let written = pool.install(|| {
+        bundles
+            .par_iter()
+            .map(|bundle| {
+                control_for_work.checkpoint()?;
+                let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
+                let _bundle_span = control_for_work.profile_span_with_args(
+                    "gutch.capture.publish_snapshot.write_bundle_artifact",
+                    capture_artifact_write_trace_args(
+                        "bundle",
+                        &bundle.bundle_id,
+                        &bundle_path,
+                        bundle.size,
+                    ),
+                );
+                if bundle_path.exists() {
+                    bundle.discard_staged_file();
+                } else {
+                    bundle.staged_file.promote_to(&bundle_path)?;
+                }
+                Ok((bundle.bundle_id.clone(), bundle_path, bundle.size as usize))
+            })
+            .collect::<g::Result<Vec<_>>>()
+    })?;
+    let mut bundle_sizes = std::collections::HashMap::with_capacity(written.len());
+    for (bundle_id, bundle_path, bundle_size) in written {
+        bundle_sizes.insert(bundle_id, bundle_size as u64);
         if verbose_output_enabled() {
             println!(
                 "wrote bundle: {} ({} bytes)",
                 bundle_path.display(),
-                bundle.data.len()
+                bundle_size
             );
         }
     }
@@ -316,26 +346,79 @@ pub(crate) fn write_bundles(
 pub(crate) fn write_loose_chunks(
     chunks_root: &std::path::Path,
     chunks: &[g::BuiltLooseChunk],
+    pool: &rayon::ThreadPool,
+    control: &g::GutchOperationControl,
 ) -> g::Result<std::collections::HashMap<String, u64>> {
-    let mut chunk_sizes = std::collections::HashMap::with_capacity(chunks.len());
-    for chunk in chunks {
-        let chunk_hash = chunk.chunk_hash.to_string();
-        let chunk_path = g::chunk_path_in_root(chunks_root, &chunk_hash)?;
-        if let Some(parent) = chunk_path.parent() {
-            crate::helpers::create_dir_all(parent)?;
-        }
-        crate::helpers::write(&chunk_path, &chunk.data)?;
-        let chunk_size = chunk.data.len() as u64;
-        chunk_sizes.insert(chunk_hash, chunk_size);
+    let total_bytes = chunks
+        .iter()
+        .map(|chunk| chunk.data.len() as u64)
+        .sum::<u64>();
+    let _phase_span = control.profile_span_with_args(
+        "gutch.capture.publish_snapshot.write_loose_chunk_artifacts",
+        capture_count_bytes_trace_args(chunks.len(), total_bytes),
+    );
+    let control_for_work = control.clone();
+    let written = pool.install(|| {
+        chunks
+            .par_iter()
+            .map(|chunk| {
+                control_for_work.checkpoint()?;
+                let chunk_hash = chunk.chunk_hash.to_string();
+                let chunk_path = g::chunk_path_in_root(chunks_root, &chunk_hash)?;
+                if let Some(parent) = chunk_path.parent() {
+                    crate::helpers::create_dir_all(parent)?;
+                }
+                let _chunk_span = control_for_work.profile_span_with_args(
+                    "gutch.capture.publish_snapshot.write_loose_chunk_artifact",
+                    capture_artifact_write_trace_args(
+                        "loose_chunk",
+                        &chunk_hash,
+                        &chunk_path,
+                        chunk.data.len() as u64,
+                    ),
+                );
+                crate::helpers::write(&chunk_path, &chunk.data)?;
+                Ok((chunk_hash, chunk_path, chunk.data.len()))
+            })
+            .collect::<g::Result<Vec<_>>>()
+    })?;
+    let mut chunk_sizes = std::collections::HashMap::with_capacity(written.len());
+    for (chunk_hash, chunk_path, chunk_size) in written {
+        chunk_sizes.insert(chunk_hash, chunk_size as u64);
         if verbose_output_enabled() {
             println!(
                 "wrote chunk: {} ({} bytes)",
                 chunk_path.display(),
-                chunk.data.len()
+                chunk_size
             );
         }
     }
     Ok(chunk_sizes)
+}
+
+fn capture_count_bytes_trace_args(
+    count: usize,
+    bytes: u64,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        ("count".to_string(), serde_json::json!(count)),
+        (
+            "bytes_mib".to_string(),
+            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
+        ),
+    ])
+}
+
+fn capture_artifact_write_trace_args(
+    kind: &str,
+    artifact_id: &str,
+    path: &std::path::Path,
+    bytes: u64,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = g::file_trace_args(path.display().to_string(), bytes);
+    args.insert("artifact_kind".to_string(), serde_json::json!(kind));
+    args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));
+    args
 }
 
 pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> g::Result<bool> {

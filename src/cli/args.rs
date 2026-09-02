@@ -65,7 +65,7 @@ impl TransferArgs {
 pub(crate) struct ArtifactBuildProfileArgs {
     #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = g::manifest::ArtifactSizingPreset::Chunk128KiB)]
     pub(crate) chunk_profile: g::manifest::ArtifactSizingPreset,
-    #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle16MiB)]
+    #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = g::manifest::BundleSizingPreset::Bundle8MiB)]
     pub(crate) bundle_profile: g::manifest::BundleSizingPreset,
     #[arg(long = "compression-profile", value_enum, default_value_t = g::manifest::CompressionPreset::Zstd3)]
     pub(crate) compression_profile: g::manifest::CompressionPreset,

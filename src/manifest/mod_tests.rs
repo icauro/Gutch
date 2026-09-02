@@ -52,11 +52,11 @@ fn test_chunk_profile_1mib_uses_expected_range() {
 #[test]
 fn test_bundle_sizing_profile_defaults() {
     let p = BundleSizingProfile::default();
-    assert_eq!(p.preset, BundleSizingPreset::Bundle16MiB);
-    assert_eq!(p.bundle_max_mib, 32);
-    assert_eq!(p.bundle_preferred_mib, 16);
-    assert_eq!(p.bundle_max_size_bytes(), 32 * 1024 * 1024);
-    assert_eq!(p.bundle_preferred_size_bytes(), 16 * 1024 * 1024);
+    assert_eq!(p.preset, BundleSizingPreset::Bundle8MiB);
+    assert_eq!(p.bundle_max_mib, 16);
+    assert_eq!(p.bundle_preferred_mib, 8);
+    assert_eq!(p.bundle_max_size_bytes(), 16 * 1024 * 1024);
+    assert_eq!(p.bundle_preferred_size_bytes(), 8 * 1024 * 1024);
 }
 
 #[test]

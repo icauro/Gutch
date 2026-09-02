@@ -313,17 +313,14 @@ pub(crate) struct BuildArtifactEncodeDetailsSummary {
     pub(crate) ratio_probe_worker_seconds: Option<f64>,
     pub(crate) bundle_compressed_ratio_probe_bytes: u64,
     pub(crate) bundle_compressed_ratio_probe_mib_per_second: Option<f64>,
-    pub(crate) payload_assembly_worker_seconds: Option<f64>,
-    pub(crate) bundle_compressed_payload_assembly_bytes: u64,
-    pub(crate) bundle_compressed_payload_assembly_mib_per_second: Option<f64>,
-    pub(crate) zstd_worker_seconds: Option<f64>,
-    pub(crate) bundle_compressed_stream_input_bytes: u64,
-    pub(crate) bundle_compressed_stream_output_bytes: u64,
-    pub(crate) bundle_compressed_stream_input_mib_per_second: Option<f64>,
-    pub(crate) bundle_compressed_stream_ratio_percent: Option<f64>,
-    pub(crate) serialization_worker_seconds: Option<f64>,
-    pub(crate) bundle_compressed_serialization_bytes: u64,
-    pub(crate) bundle_compressed_serialization_mib_per_second: Option<f64>,
+    pub(crate) frame_compression_worker_seconds: Option<f64>,
+    pub(crate) bundle_compressed_frame_input_bytes: u64,
+    pub(crate) bundle_compressed_frame_output_bytes: u64,
+    pub(crate) bundle_compressed_frame_input_mib_per_second: Option<f64>,
+    pub(crate) bundle_compressed_frame_ratio_percent: Option<f64>,
+    pub(crate) footer_serialization_worker_seconds: Option<f64>,
+    pub(crate) bundle_compressed_footer_serialization_bytes: u64,
+    pub(crate) bundle_compressed_footer_serialization_mib_per_second: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -501,42 +498,32 @@ pub(crate) fn build_timings_summary(timings: &g::BuildTimings) -> BuildTimingsSu
                             timings.bundle_compressed_ratio_probe,
                         )
                     }),
-                    payload_assembly_worker_seconds: bundled
-                        .then(|| secs(timings.bundle_compressed_payload_assembly)),
-                    bundle_compressed_payload_assembly_bytes: timings
-                        .bundle_compressed_payload_assembly_bytes,
-                    bundle_compressed_payload_assembly_mib_per_second: bundled.then(|| {
+                    frame_compression_worker_seconds: bundled
+                        .then(|| secs(timings.bundle_compressed_frame_compression)),
+                    bundle_compressed_frame_input_bytes: timings
+                        .bundle_compressed_frame_input_bytes,
+                    bundle_compressed_frame_output_bytes: timings
+                        .bundle_compressed_frame_output_bytes,
+                    bundle_compressed_frame_input_mib_per_second: bundled.then(|| {
                         mib_per_s(
-                            timings.bundle_compressed_payload_assembly_bytes,
-                            timings.bundle_compressed_payload_assembly,
+                            timings.bundle_compressed_frame_input_bytes,
+                            timings.bundle_compressed_frame_compression,
                         )
                     }),
-                    zstd_worker_seconds: bundled
-                        .then(|| secs(timings.bundle_compressed_stream_compression)),
-                    bundle_compressed_stream_input_bytes: timings
-                        .bundle_compressed_stream_input_bytes,
-                    bundle_compressed_stream_output_bytes: timings
-                        .bundle_compressed_stream_output_bytes,
-                    bundle_compressed_stream_input_mib_per_second: bundled.then(|| {
-                        mib_per_s(
-                            timings.bundle_compressed_stream_input_bytes,
-                            timings.bundle_compressed_stream_compression,
-                        )
-                    }),
-                    bundle_compressed_stream_ratio_percent: bundled.then(|| {
+                    bundle_compressed_frame_ratio_percent: bundled.then(|| {
                         ratio_pct(
-                            timings.bundle_compressed_stream_output_bytes,
-                            timings.bundle_compressed_stream_input_bytes,
+                            timings.bundle_compressed_frame_output_bytes,
+                            timings.bundle_compressed_frame_input_bytes,
                         )
                     }),
-                    serialization_worker_seconds: bundled
-                        .then(|| secs(timings.bundle_compressed_serialization)),
-                    bundle_compressed_serialization_bytes: timings
-                        .bundle_compressed_serialization_bytes,
-                    bundle_compressed_serialization_mib_per_second: bundled.then(|| {
+                    footer_serialization_worker_seconds: bundled
+                        .then(|| secs(timings.bundle_compressed_footer_serialization)),
+                    bundle_compressed_footer_serialization_bytes: timings
+                        .bundle_compressed_footer_serialization_bytes,
+                    bundle_compressed_footer_serialization_mib_per_second: bundled.then(|| {
                         mib_per_s(
-                            timings.bundle_compressed_serialization_bytes,
-                            timings.bundle_compressed_serialization,
+                            timings.bundle_compressed_footer_serialization_bytes,
+                            timings.bundle_compressed_footer_serialization,
                         )
                     }),
                 },
@@ -761,32 +748,26 @@ pub(crate) fn print_build_timings(t: &g::BuildTimings) {
             t.bundle_compressed_ratio_probe_bytes,
         );
     }
-    if t.bundle_compressed_stream_input_bytes > 0 {
+    if t.bundle_compressed_frame_input_bytes > 0 {
         print_throughput_row(
             "bundle payload load",
             2,
             t.bundle_compressed_payload_load,
             t.bundle_compressed_payload_load_bytes,
         );
-        print_throughput_row(
-            "bundle payload asm",
-            2,
-            t.bundle_compressed_payload_assembly,
-            t.bundle_compressed_payload_assembly_bytes,
-        );
         print_in_out_throughput_row_with_rate(
-            "bundle stream zstd",
+            "bundle frame zstd",
             2,
-            t.bundle_compressed_stream_compression,
-            t.bundle_compressed_stream_input_bytes,
-            t.bundle_compressed_stream_output_bytes,
-            t.bundle_compressed_stream_input_bytes,
+            t.bundle_compressed_frame_compression,
+            t.bundle_compressed_frame_input_bytes,
+            t.bundle_compressed_frame_output_bytes,
+            t.bundle_compressed_frame_input_bytes,
         );
         print_throughput_row(
-            "bundle serialize",
+            "bundle footer serialize",
             2,
-            t.bundle_compressed_serialization,
-            t.bundle_compressed_serialization_bytes,
+            t.bundle_compressed_footer_serialization,
+            t.bundle_compressed_footer_serialization_bytes,
         );
     }
     print_metric_line(

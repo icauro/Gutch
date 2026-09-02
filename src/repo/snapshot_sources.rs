@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     RepoCheckStatus, Result, SourceSnapshotOperationCandidate, check_gutch_repo,
     discover_source_snapshot_operations, is_source_modified_at_newer,
+    scan_existing_store_state_with_pool,
 };
 use crate::manifest::SnapshotTagSet;
 use crate::progress::{
@@ -239,6 +240,28 @@ pub fn capture_snapshot_sources(
     let mut current_step = 0usize;
     let mut removed_count = 0usize;
 
+    let runtime_plan = crate::plan_build_runtime(&crate::RuntimeResourceHints::default());
+    let _pool_span = control.profile_span_with_args(
+        "gutch.capture.create_worker_pool",
+        std::collections::BTreeMap::from([(
+            "worker_count".to_string(),
+            serde_json::json!(runtime_plan.worker_count),
+        )]),
+    );
+    let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+    drop(_pool_span);
+
+    let repo_paths = crate::GutchRepoPaths::from_repo_root(repo_root);
+    let _existing_state_span = control.profile_span_with_args(
+        "gutch.capture.prepare_source.load_existing_store_state",
+        std::collections::BTreeMap::from([(
+            "source_count".to_string(),
+            serde_json::json!(plan.to_apply.len()),
+        )]),
+    );
+    let mut store_state = scan_existing_store_state_with_pool(&repo_paths, &build_pool, control)?;
+    drop(_existing_state_span);
+
     if options.prune_removed_snapshots {
         for snapshot_id in &plan.to_remove {
             control.checkpoint()?;
@@ -290,7 +313,7 @@ pub fn capture_snapshot_sources(
         removed_count +=
             crate::delete_repo_snapshots_with_matching_tags(repo_root, &candidate.snapshot_tags)?
                 .len();
-        capture_source_snapshot(repo_root, candidate, control)?;
+        capture_source_snapshot(repo_root, candidate, control, &mut store_state, &build_pool)?;
         if refresh_paths.contains(&candidate.path) {
             refreshed_count += 1;
         } else {
@@ -327,6 +350,8 @@ fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotOperationCandidate,
     control: &crate::GutchOperationControl,
+    store_state: &mut super::ExistingStoreState,
+    build_pool: &rayon::ThreadPool,
 ) -> Result<()> {
     let candidate_control = if let Some(sink) = control.progress() {
         control.with_replaced_progress(Arc::new(SnapshotSourcesCandidateProgress {
@@ -336,18 +361,22 @@ fn capture_source_snapshot(
     } else {
         control.clone()
     };
-    crate::capture_repo_snapshot(crate::RepoSnapshotCaptureRequest {
-        repo_root: repo_root.to_path_buf(),
-        source_dir: std::path::PathBuf::from(&candidate.path),
-        explicit_tags: candidate.snapshot_tags.clone(),
-        allow_name_inference: true,
-        chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
-        bundle_profile: crate::manifest::BundleSizingPreset::Bundle16MiB,
-        compression_profile: crate::manifest::CompressionPreset::Zstd3,
-        storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-        runtime_hints: crate::RuntimeResourceHints::default(),
-        control: candidate_control,
-    })
+    crate::capture_repo_snapshot_with_existing_store_state(
+        crate::RepoSnapshotCaptureRequest {
+            repo_root: repo_root.to_path_buf(),
+            source_dir: std::path::PathBuf::from(&candidate.path),
+            explicit_tags: candidate.snapshot_tags.clone(),
+            allow_name_inference: true,
+            chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
+            bundle_profile: crate::manifest::BundleSizingPreset::Bundle8MiB,
+            compression_profile: crate::manifest::CompressionPreset::Zstd3,
+            storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+            runtime_hints: crate::RuntimeResourceHints::default(),
+            control: candidate_control,
+        },
+        store_state,
+        build_pool,
+    )
     .map(|_| ())
 }
 

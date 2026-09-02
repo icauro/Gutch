@@ -33,7 +33,7 @@ pub use artifact::hash::{hash_chunk, hash_hex};
 pub use config::{GutchConfig, TrackedRepo, load_config, save_config};
 pub(crate) use snapshot_ops::snapshot_manifest_from_download;
 
-pub(crate) use build::pipeline::build_with_config_timed;
+pub(crate) use build::pipeline::build_with_config_timed_on_pool;
 pub use build::pipeline::{build_from_directory, build_with_config};
 pub(crate) use build::types::BuildTimings;
 pub(crate) use build::types::ExistingChunkLocation;
@@ -53,6 +53,7 @@ pub use manifest::{
     StructuredVersion, SymlinkManifest, sanitize_editable_snapshot_tag_schema,
     validate_editable_snapshot_tag_schema,
 };
+pub(crate) use profile::file_trace_args;
 pub use profile::{GutchProfileSpan, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler};
 pub(crate) use progress::emit_progress;
 pub use progress::{
@@ -65,7 +66,8 @@ pub use repo::capture_plan::{
     describe_snapshot_capture_plan, plan_snapshot_capture,
 };
 pub(crate) use repo::capture_plan::{
-    delete_repo_snapshots, delete_repo_snapshots_with_matching_tags,
+    capture_repo_snapshot_with_existing_store_state, delete_repo_snapshots,
+    delete_repo_snapshots_with_matching_tags,
 };
 pub use repo::check::{
     RepoCheckSnapshotStatus, RepoCheckStatus, SourceSnapshotOperationCandidate,
@@ -113,8 +115,8 @@ pub(crate) use repo::source_identity::compute_snapshot_id_from_entries;
 pub use repo::tag_requirements::{TagRequirement, TagRequirementStatus, compare_tag_requirements};
 pub use repo::updates::{update_gutch_repo_name, update_gutch_repo_schema};
 pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo_artifacts};
-pub(crate) use runtime::RuntimePlan;
 pub use runtime::RuntimeResourceHints;
+pub(crate) use runtime::{RuntimePlan, build_thread_pool, plan_build_runtime};
 pub(crate) use snapshot::identity::resolve_snapshot_identity_with_inference;
 pub(crate) use snapshot::path_guard::validate_manifest_relative_path;
 pub use snapshot::path_guard::{ExistingDestinationPathKind, resolve_existing_destination_path};

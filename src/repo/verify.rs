@@ -171,8 +171,7 @@ fn verify_bundle_file(
     compression_profile: &crate::manifest::CompressionProfile,
     mode: VerifyMode,
 ) -> Result<()> {
-    let data = std::fs::read(path)?;
-    let mut reader = bundle::read_bundle(&data, compression_profile)?;
+    let mut reader = bundle::BundleReader::open(std::fs::File::open(path)?, compression_profile)?;
     if mode == VerifyMode::Strict {
         reader.verify()?;
     }
