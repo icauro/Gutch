@@ -2,11 +2,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::thread;
 use std::time::{Duration, Instant};
+
+use rayon::ThreadPool;
 
 use super::apply::build_snapshot_reconstruct_result;
 use super::transfer::{
@@ -618,7 +620,61 @@ enum ReconstructJobEvent {
     Completed(ReconstructTimings),
     Verified(ReconstructedFileVerification),
     Failed(Error),
-    WorkerDone,
+}
+
+struct ReconstructWorkContext {
+    jobs: Arc<Vec<ReconstructJob>>,
+    file_plans: Arc<Vec<ReconstructPipelineFile>>,
+    output_paths: Arc<Vec<PathBuf>>,
+    compression_profile: Arc<crate::manifest::CompressionProfile>,
+    control: GutchOperationControl,
+}
+
+fn spawn_reconstruct_work(
+    pool: &ThreadPool,
+    work_item: ReconstructWorkItem,
+    context: &Arc<ReconstructWorkContext>,
+    event_tx: &mpsc::Sender<ReconstructJobEvent>,
+) {
+    let context = Arc::clone(context);
+    let event_tx = event_tx.clone();
+    pool.spawn(move || {
+        let result = catch_unwind(AssertUnwindSafe(|| match work_item {
+            ReconstructWorkItem::PrepareOutput(file_index) => prepare_reconstruct_output_file(
+                &context.file_plans[file_index],
+                &context.output_paths[file_index],
+                &context.control,
+            )
+            .map(|_| ReconstructJobEvent::OutputPrepared),
+            ReconstructWorkItem::Job(job_index) => reconstruct_job(
+                &context.jobs[job_index],
+                &context.file_plans,
+                &context.output_paths,
+                &context.compression_profile,
+                &context.control,
+            )
+            .map(ReconstructJobEvent::Completed),
+            ReconstructWorkItem::VerifyFile(file_index) => verify_reconstructed_output_file(
+                file_index,
+                &context.file_plans[file_index],
+                &context.output_paths,
+                &context.control,
+            )
+            .map(ReconstructJobEvent::Verified),
+        }));
+        let result = match result {
+            Ok(result) => result,
+            Err(_) => Err(Error::reconstruct("reconstruction worker panicked")),
+        };
+        match result {
+            Ok(event) => {
+                let _ = event_tx.send(event);
+            }
+            Err(error) => {
+                let _ = event_tx.send(ReconstructJobEvent::Failed(error));
+            }
+        }
+    });
 }
 
 pub(super) fn execute_reconstruct_pipeline_reconstruction(
@@ -745,78 +801,44 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     } else {
         runtime_plan.worker_count.min(work_item_count).max(1)
     };
-    let (task_tx, task_rx) = crossbeam_channel::unbounded::<ReconstructWorkItem>();
     let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
-    let mut worker_handles = Vec::with_capacity(worker_count);
-    for _ in 0..worker_count {
-        let task_rx = task_rx.clone();
-        let event_tx = event_tx.clone();
-        let jobs = Arc::clone(&jobs);
-        let file_plans = Arc::clone(&file_plans);
-        let output_paths = Arc::clone(&output_paths);
-        let compression_profile = compression_profile.clone();
-        let control = control.clone();
-        worker_handles.push(thread::spawn(move || {
-            loop {
-                let next_job = task_rx.recv();
-                let work_item = match next_job {
-                    Ok(work_item) => work_item,
-                    Err(_) => {
-                        let _ = event_tx.send(ReconstructJobEvent::WorkerDone);
-                        return;
-                    }
-                };
-                let result = match work_item {
-                    ReconstructWorkItem::PrepareOutput(file_index) => {
-                        prepare_reconstruct_output_file(
-                            &file_plans[file_index],
-                            &output_paths[file_index],
-                            &control,
-                        )
-                        .map(|_| ReconstructJobEvent::OutputPrepared)
-                    }
-                    ReconstructWorkItem::Job(job_index) => reconstruct_job(
-                        &jobs[job_index],
-                        &file_plans,
-                        &output_paths,
-                        &compression_profile,
-                        &control,
-                    )
-                    .map(ReconstructJobEvent::Completed),
-                    ReconstructWorkItem::VerifyFile(file_index) => {
-                        verify_reconstructed_output_file(
-                            file_index,
-                            &file_plans[file_index],
-                            &output_paths,
-                            &control,
-                        )
-                        .map(ReconstructJobEvent::Verified)
-                    }
-                };
-                match result {
-                    Ok(event) => {
-                        if event_tx.send(event).is_err() {
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        let _ = event_tx.send(ReconstructJobEvent::Failed(error));
-                        return;
-                    }
-                }
-            }
-        }));
-    }
-    drop(event_tx);
-    let mut task_tx = Some(task_tx);
+    let reconstruct_pool = if worker_count == 0 {
+        None
+    } else {
+        Some(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(worker_count)
+                .thread_name(|index| format!("gutch-reconstruct-{index}"))
+                .build()
+                .map_err(|error| {
+                    Error::reconstruct(format!(
+                        "failed to create reconstruction thread pool: {error}"
+                    ))
+                })?,
+        )
+    };
+    let compression_profile = Arc::new((*compression_profile).clone());
+    let work_context = Arc::new(ReconstructWorkContext {
+        jobs: Arc::clone(&jobs),
+        file_plans: Arc::clone(&file_plans),
+        output_paths: Arc::clone(&output_paths),
+        compression_profile,
+        control: control.clone(),
+    });
+    let mut submitted_work_count = 0usize;
     {
         let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.outputs");
         for file_index in 0..file_plans.len() {
-            task_tx
+            let pool = reconstruct_pool
                 .as_ref()
-                .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))?
-                .send(ReconstructWorkItem::PrepareOutput(file_index))
-                .map_err(|_| Error::reconstruct("reconstruction queue closed unexpectedly"))?;
+                .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"))?;
+            spawn_reconstruct_work(
+                pool,
+                ReconstructWorkItem::PrepareOutput(file_index),
+                &work_context,
+                &event_tx,
+            );
+            submitted_work_count += 1;
         }
     }
     let mut downloads_done = artifact_scheduler.is_none();
@@ -825,7 +847,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let mut prepared_output_count = 0usize;
     let mut completed_job_count = 0usize;
     let mut completed_file_count = 0usize;
-    let mut completed_worker_count = 0usize;
     let mut reconstruction_dispatched = false;
     let mut downloaded_job_indices = HashSet::new();
     let mut verification_queued = false;
@@ -833,12 +854,12 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let mut verify_span = None;
     let mut verified_file_bytes = 0u64;
     let mut pipeline_error = None;
+    let mut finished_work_count = 0usize;
     if file_plans.is_empty() {
         reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
         drop(output_prepare_span.take());
     }
-    while completed_worker_count < worker_count
-        || prepared_output_count < file_plans.len()
+    while prepared_output_count < file_plans.len()
         || completed_job_count < jobs.len()
         || completed_file_count < file_plans.len()
     {
@@ -875,24 +896,26 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                         let queue_result = if reconstruction_dispatched {
                             let _dispatch_span = control
                                 .profile_span("gutch.snapshot.reconstruct.dispatch.downloaded");
-                            task_tx
+                            reconstruct_pool
                                 .as_ref()
                                 .ok_or_else(|| {
-                                    Error::reconstruct("reconstruction queue is unavailable")
+                                    Error::reconstruct("reconstruction thread pool is unavailable")
                                 })
-                                .and_then(|sender| {
-                                    sender
-                                        .send(ReconstructWorkItem::Job(job_index))
-                                        .map_err(|_| {
-                                            Error::reconstruct(
-                                                "reconstruction queue closed unexpectedly",
-                                            )
-                                        })
+                                .map(|pool| {
+                                    spawn_reconstruct_work(
+                                        pool,
+                                        ReconstructWorkItem::Job(job_index),
+                                        &work_context,
+                                        &event_tx,
+                                    )
                                 })
                         } else {
                             downloaded_job_indices.insert(job_index);
                             Ok(())
                         };
+                        if reconstruction_dispatched && queue_result.is_ok() {
+                            submitted_work_count += 1;
+                        }
                         if let Err(error) = queue_result {
                             pipeline_error = Some(error);
                             break;
@@ -928,31 +951,30 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             let queue_result = {
                 let _dispatch_span =
                     control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
-                task_tx
+                let pool = reconstruct_pool
                     .as_ref()
-                    .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))
-                    .and_then(|sender| {
-                        for (job_index, job) in jobs.iter().enumerate() {
-                            let ready = match job {
-                                ReconstructJob::Artifact(job) => {
-                                    existing_artifacts.contains(&job.artifact)
-                                        || downloaded_job_indices.remove(&job_index)
-                                }
-                                ReconstructJob::SourceChunk(_)
-                                | ReconstructJob::CopySourceFile { .. } => true,
-                            };
-                            if ready {
-                                sender
-                                    .send(ReconstructWorkItem::Job(job_index))
-                                    .map_err(|_| {
-                                        Error::reconstruct(
-                                            "reconstruction queue closed unexpectedly",
-                                        )
-                                    })?;
+                    .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"));
+                pool.map(|pool| {
+                    for (job_index, job) in jobs.iter().enumerate() {
+                        let ready = match job {
+                            ReconstructJob::Artifact(job) => {
+                                existing_artifacts.contains(&job.artifact)
+                                    || downloaded_job_indices.remove(&job_index)
                             }
+                            ReconstructJob::SourceChunk(_)
+                            | ReconstructJob::CopySourceFile { .. } => true,
+                        };
+                        if ready {
+                            spawn_reconstruct_work(
+                                pool,
+                                ReconstructWorkItem::Job(job_index),
+                                &work_context,
+                                &event_tx,
+                            );
+                            submitted_work_count += 1;
                         }
-                        Ok(())
-                    })
+                    }
+                })
             };
             if let Err(error) = queue_result {
                 pipeline_error = Some(error);
@@ -964,37 +986,35 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         if !verification_queued && downloads_done && completed_job_count == jobs.len() {
             verify_started_at = Some(Instant::now());
             verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
-            let queue_result = task_tx
+            let queue_result = reconstruct_pool
                 .as_ref()
-                .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))
-                .and_then(|sender| {
+                .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"))
+                .map(|pool| {
                     for file_index in 0..file_plans.len() {
-                        sender
-                            .send(ReconstructWorkItem::VerifyFile(file_index))
-                            .map_err(|_| {
-                                Error::reconstruct("reconstruction queue closed unexpectedly")
-                            })?;
+                        spawn_reconstruct_work(
+                            pool,
+                            ReconstructWorkItem::VerifyFile(file_index),
+                            &work_context,
+                            &event_tx,
+                        );
+                        submitted_work_count += 1;
                     }
-                    Ok(())
                 });
             if let Err(error) = queue_result {
                 pipeline_error = Some(error);
             } else {
                 verification_queued = true;
-                task_tx.take();
             }
         }
         if pipeline_error.is_some() {
             break;
         }
-        if completed_worker_count == worker_count
-            && completed_job_count == jobs.len()
-            && completed_file_count == file_plans.len()
-        {
+        if completed_job_count == jobs.len() && completed_file_count == file_plans.len() {
             break;
         }
         match event_rx.recv_timeout(Duration::from_millis(10)) {
             Ok(ReconstructJobEvent::OutputPrepared) => {
+                finished_work_count += 1;
                 prepared_output_count += 1;
                 emit_progress(
                     control.progress(),
@@ -1016,6 +1036,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                 );
             }
             Ok(ReconstructJobEvent::Completed(job_timings)) => {
+                finished_work_count += 1;
                 completed_job_count += 1;
                 accumulate_pipeline_timings(
                     &mut reconstruct_timings,
@@ -1042,6 +1063,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                 );
             }
             Ok(ReconstructJobEvent::Verified(file_verification)) => {
+                finished_work_count += 1;
                 completed_file_count += 1;
                 reconstruct_timings.file_verify += file_verification.elapsed;
                 reconstruct_timings.file_verify_bytes = reconstruct_timings
@@ -1068,10 +1090,10 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                 );
             }
             Ok(ReconstructJobEvent::Failed(error)) => {
+                finished_work_count += 1;
                 pipeline_error = Some(error);
                 break;
             }
-            Ok(ReconstructJobEvent::WorkerDone) => completed_worker_count += 1,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 pipeline_error = Some(Error::reconstruct(
@@ -1081,7 +1103,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             }
         }
     }
-    drop(task_tx);
     if pipeline_error.is_some()
         && let Some(scheduler) = artifact_scheduler.as_ref()
     {
@@ -1090,11 +1111,13 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     if let Some(scheduler) = artifact_scheduler {
         scheduler.join()?;
     }
-    for handle in worker_handles {
-        handle
-            .join()
-            .map_err(|_| Error::reconstruct("reconstruction worker panicked"))?;
+    while pipeline_error.is_some() && finished_work_count < submitted_work_count {
+        match event_rx.recv() {
+            Ok(_) => finished_work_count += 1,
+            Err(_) => break,
+        }
     }
+    drop(reconstruct_pool);
     if let Some(error) = pipeline_error {
         return Err(error);
     }
@@ -1747,6 +1770,8 @@ struct ReconstructedFileVerification {
     bytes: u64,
 }
 
+const PARALLEL_FULL_HASH_MIN_BYTES: u64 = 128 * 1024 * 1024;
+
 fn verify_reconstructed_output_file(
     file_index: usize,
     file_plan: &ReconstructPipelineFile,
@@ -1758,29 +1783,41 @@ fn verify_reconstructed_output_file(
         "gutch.snapshot.reconstruct.file",
         reconstruct_file_trace_args(file_plan),
     );
-    let _hash_span = control.profile_span("gutch.snapshot.reconstruct.file.full_hash");
+    let _hash_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.file.full_hash",
+        crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+    );
     let started_at = Instant::now();
-    let mut input = File::open(&output_paths[file_index])?;
-    let actual_size = input.metadata()?.len();
+    let output_path = &output_paths[file_index];
+    let actual_size = std::fs::metadata(output_path)?.len();
     if actual_size != file_plan.size {
         return Err(Error::reconstruct(format!(
             "reconstructed size {} does not match expected {} for {}",
             actual_size, file_plan.size, file_plan.path
         )));
     }
-    let mut hasher = blake3::Hasher::new();
-    let mut buffer = vec![0u8; 1024 * 1024];
-    let mut file_bytes = 0u64;
-    loop {
-        control.checkpoint()?;
-        let read = input.read(&mut buffer)?;
-        if read == 0 {
-            break;
+    let actual_hash = if file_plan.size >= PARALLEL_FULL_HASH_MIN_BYTES {
+        let _parallel_hash_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.full_hash.parallel",
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+        );
+        let mut hasher = blake3::Hasher::new();
+        hasher.update_mmap_rayon(output_path)?;
+        crate::hash::hash_hex(&hasher.finalize())
+    } else {
+        let mut input = File::open(output_path)?;
+        let mut hasher = blake3::Hasher::new();
+        let mut buffer = vec![0u8; 1024 * 1024];
+        loop {
+            control.checkpoint()?;
+            let read = input.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
         }
-        hasher.update(&buffer[..read]);
-        file_bytes = file_bytes.saturating_add(read as u64);
-    }
-    let actual_hash = crate::hash::hash_hex(&hasher.finalize());
+        crate::hash::hash_hex(&hasher.finalize())
+    };
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {
             expected: file_plan.full_file_hash.clone(),
@@ -1789,7 +1826,7 @@ fn verify_reconstructed_output_file(
     }
     Ok(ReconstructedFileVerification {
         elapsed: started_at.elapsed(),
-        bytes: file_bytes,
+        bytes: actual_size,
     })
 }
 

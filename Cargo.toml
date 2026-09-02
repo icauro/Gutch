@@ -4,10 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-crossbeam-channel = "0.5.15"
 fastcdc = "4.0.1"
 # Fast Content-Defined Chunking (file splitting for dedup)
-blake3 = "1.8.5"
+blake3 = { version = "1.8.5", features = ["mmap", "rayon"] }
 # BLAKE3 hashing (chunk/bundle integrity)
 zstd = "0.13.3"
 # Zstandard compression (bundle compression)
