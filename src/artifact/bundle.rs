@@ -392,6 +392,114 @@ impl<R: Read + Seek> BundleReader<R> {
         Ok(true)
     }
 
+    /// Decode a bundle once and visit its chunks in payload order.
+    ///
+    /// Bundle-compressed payloads are a single stream, so seeking to an
+    /// individual chunk requires decoding from the beginning. Reconstruction
+    /// uses this method to decode each required bundle once and fan each chunk
+    /// out to all of its destination ranges.
+    pub(crate) fn stream_chunks<F>(
+        &mut self,
+        profiler: Option<&crate::GutchProfiler>,
+        visit: F,
+    ) -> Result<()>
+    where
+        F: FnMut(usize, &BundleTableEntry, &[u8]) -> Result<()>,
+    {
+        self.reader.seek(SeekFrom::Start(self.data_start))?;
+        let entries = &self.entries;
+        let chunk_hashes = &self.chunk_hashes;
+        let payload_size = self.payload_size;
+        let _payload_span = profiler.map(|profiler| {
+            profiler.span("gutch.snapshot.reconstruct.bundle.payload")
+        });
+
+        match self.compression {
+            CompressionKind::None => Self::stream_chunks_from_reader(
+                self.reader.by_ref().take(payload_size),
+                entries,
+                chunk_hashes,
+                profiler,
+                visit,
+            ),
+            CompressionKind::Zstd => {
+                let compressed = self.reader.by_ref().take(payload_size);
+                let decoder = zstd::stream::read::Decoder::new(compressed)
+                    .map_err(|error| crate::error::Error::bundle(format!("zstd decompress: {error}")))?;
+                Self::stream_chunks_from_reader(
+                    decoder,
+                    entries,
+                    chunk_hashes,
+                    profiler,
+                    visit,
+                )
+            }
+        }
+    }
+
+    fn stream_chunks_from_reader<R, F>(
+        mut reader: R,
+        entries: &[BundleTableEntry],
+        chunk_hashes: &[ChunkHash],
+        profiler: Option<&crate::GutchProfiler>,
+        mut visit: F,
+    ) -> Result<()>
+    where
+        R: Read,
+        F: FnMut(usize, &BundleTableEntry, &[u8]) -> Result<()>,
+    {
+        let mut expected_raw_offset = 0u64;
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.raw_offset != expected_raw_offset {
+                return Err(crate::error::Error::InvalidBundle(format!(
+                    "bundle chunk {} starts at {}, expected {}",
+                    index, entry.raw_offset, expected_raw_offset
+                )));
+            }
+            expected_raw_offset = expected_raw_offset
+                .checked_add(entry.raw_size)
+                .ok_or_else(|| {
+                    crate::error::Error::InvalidBundle(
+                        "bundle raw payload size overflows u64".into(),
+                    )
+                })?;
+            let raw_size = usize::try_from(entry.raw_size).map_err(|_| {
+                crate::error::Error::InvalidBundle(format!(
+                    "bundle chunk {} is too large for this platform",
+                    index
+                ))
+            })?;
+            let mut chunk_data = vec![0u8; raw_size];
+            {
+                let _read_span = profiler.map(|profiler| {
+                    profiler.span("gutch.snapshot.reconstruct.bundle.chunk_read")
+                });
+                reader.read_exact(&mut chunk_data)?;
+            }
+            let actual_hash = {
+                let _hash_span = profiler.map(|profiler| {
+                    profiler.span("gutch.snapshot.reconstruct.bundle.chunk_hash_verify")
+                });
+                ChunkHash::from_blake3(hash::hash_chunk(&chunk_data))
+            };
+            if actual_hash != chunk_hashes[index] {
+                return Err(crate::error::Error::HashMismatch {
+                    expected: chunk_hashes[index].to_hex(),
+                    actual: actual_hash.to_hex(),
+                });
+            }
+            visit(index, entry, &chunk_data)?;
+        }
+
+        let mut extra = [0u8; 1];
+        if reader.read(&mut extra)? != 0 {
+            return Err(crate::error::Error::InvalidBundle(
+                "bundle payload contains bytes after the declared chunks".into(),
+            ));
+        }
+        Ok(())
+    }
+
     fn ensure_bundle_raw_cache(&mut self, profiler: Option<&crate::GutchProfiler>) -> Result<()> {
         if self.bundle_raw_cache.is_some() {
             return Ok(());
