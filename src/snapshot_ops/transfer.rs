@@ -284,7 +284,6 @@ struct ArtifactDownloadQueueShared {
     wake: Condvar,
     target_worker_count: Arc<AtomicUsize>,
     cancelled: Arc<AtomicBool>,
-    backpressure: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -320,7 +319,6 @@ impl ArtifactDownloadScheduler {
             resolve_transfer_worker_limits(policy, pending.len())?;
         let target_worker_count = Arc::new(AtomicUsize::new(initial_workers));
         let cancelled = Arc::new(AtomicBool::new(false));
-        let backpressure = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(ArtifactDownloadQueueShared {
             state: Mutex::new(ArtifactDownloadQueueState {
                 pending: pending.to_vec(),
@@ -331,7 +329,6 @@ impl ArtifactDownloadScheduler {
             wake: Condvar::new(),
             target_worker_count: Arc::clone(&target_worker_count),
             cancelled: Arc::clone(&cancelled),
-            backpressure: Arc::clone(&backpressure),
         });
         let (event_tx, events) = mpsc::channel();
         let worker_control =
@@ -397,23 +394,6 @@ impl ArtifactDownloadScheduler {
         &self,
     ) -> std::result::Result<ArtifactDownloadEvent, mpsc::TryRecvError> {
         self.events.try_recv()
-    }
-
-    pub(super) fn update_priorities(
-        &self,
-        priorities: HashMap<crate::ArtifactRef, ArtifactPriority>,
-    ) {
-        if let Ok(mut state) = self.shared.state.lock() {
-            state.priorities = priorities;
-            self.shared.wake.notify_all();
-        }
-    }
-
-    pub(super) fn set_downstream_backpressure(&self, pressured: bool) {
-        self.shared
-            .backpressure
-            .store(pressured, AtomicOrdering::Release);
-        self.shared.wake.notify_all();
     }
 
     pub(super) fn cancel(&self) {
@@ -589,7 +569,6 @@ impl AdaptiveTransferState {
         now: Instant,
         transferred_bytes: u64,
         retry_count: usize,
-        backpressure: bool,
     ) -> Option<usize> {
         let elapsed = now.saturating_duration_since(self.previous_sample_at);
         if elapsed < ADAPTIVE_SAMPLE_INTERVAL {
@@ -604,7 +583,7 @@ impl AdaptiveTransferState {
         self.previous_rate = Some(rate);
         self.last_retry_count = retry_count;
 
-        if had_new_retry || backpressure {
+        if had_new_retry {
             self.stable_windows = 0;
             return self.reduce_target();
         }
@@ -669,7 +648,6 @@ fn run_adaptive_transfer_controller(
             Instant::now(),
             transfer_progress.transferred_bytes(),
             transfer_progress.retry_count(),
-            shared.backpressure.load(AtomicOrdering::Acquire),
         ) else {
             continue;
         };
@@ -1008,30 +986,27 @@ mod tests {
         let mut state = AdaptiveTransferState::new(4, 8);
         let start = state.previous_sample_at;
         assert_eq!(
-            state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false),
+            state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0),
             None
         );
+        assert_eq!(state.observe(start + Duration::from_secs(4), 220, 0), None);
         assert_eq!(
-            state.observe(start + Duration::from_secs(4), 220, 0, false),
-            None
-        );
-        assert_eq!(
-            state.observe(start + Duration::from_secs(6), 360, 0, false),
+            state.observe(start + Duration::from_secs(6), 360, 0),
             Some(5)
         );
     }
 
     #[test]
-    fn adaptive_transfer_state_reduces_on_regression_or_backpressure() {
+    fn adaptive_transfer_state_reduces_on_regression() {
         let mut state = AdaptiveTransferState::new(4, 8);
         let start = state.previous_sample_at;
-        state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false);
+        state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0);
         assert_eq!(
-            state.observe(start + Duration::from_secs(4), 140, 0, true),
+            state.observe(start + Duration::from_secs(4), 140, 0),
             Some(3)
         );
         assert_eq!(
-            state.observe(start + Duration::from_secs(6), 150, 0, false),
+            state.observe(start + Duration::from_secs(6), 150, 0),
             Some(2)
         );
     }

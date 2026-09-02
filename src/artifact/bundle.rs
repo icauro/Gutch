@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Arc;
@@ -40,6 +41,7 @@ struct ChunkData {
 }
 
 enum ChunkRawData {
+    #[cfg(test)]
     Owned(Vec<u8>),
     Shared(Arc<[u8]>),
 }
@@ -47,6 +49,7 @@ enum ChunkRawData {
 impl ChunkRawData {
     fn as_slice(&self) -> &[u8] {
         match self {
+            #[cfg(test)]
             ChunkRawData::Owned(bytes) => bytes.as_slice(),
             ChunkRawData::Shared(bytes) => bytes.as_ref(),
         }
@@ -61,6 +64,7 @@ impl BundleBuilder {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn add_chunk(&mut self, chunk_hash: ChunkHash, raw_data: Vec<u8>) {
         let raw_size = raw_data.len() as u64;
         self.chunks.push(ChunkData {
@@ -250,9 +254,7 @@ impl<R: Read + Seek> BundleReader<R> {
         compression_profile: &CompressionProfile,
         profiler: Option<&crate::GutchProfiler>,
     ) -> Result<Self> {
-        let _open_span = profiler.map(|profiler| {
-            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.reader_open")
-        });
+        let _open_span = profiler.map(|profiler| profiler.span("gutch.artifact.bundle.open"));
         if compression_profile.compression_unit != CompressionUnit::Bundle {
             return Err(crate::error::Error::InvalidBundle(
                 "gutch only supports bundle-compressed bundles".into(),
@@ -302,14 +304,6 @@ impl<R: Read + Seek> BundleReader<R> {
         &self.entries
     }
 
-    pub(crate) fn chunk_index(&self) -> HashMap<String, usize> {
-        self.entries
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (e.chunk_hash.clone(), i))
-            .collect()
-    }
-
     #[cfg(test)]
     pub(crate) fn compression_unit(&self) -> CompressionUnit {
         self.compression_unit
@@ -353,15 +347,13 @@ impl<R: Read + Seek> BundleReader<R> {
         }
 
         let chunk_data = {
-            let _extract_span = profiler.map(|profiler| {
-                profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.extract")
-            });
+            let _extract_span =
+                profiler.map(|profiler| profiler.span("gutch.artifact.bundle.chunk_extract"));
             &raw[start..end]
         };
         let actual_hash = {
-            let _hash_span = profiler.map(|profiler| {
-                profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.hash_verify")
-            });
+            let _hash_span =
+                profiler.map(|profiler| profiler.span("gutch.artifact.bundle.chunk_hash_verify"));
             ChunkHash::from_blake3(hash::hash_chunk(chunk_data))
         };
         if actual_hash != expected_hash {
@@ -417,8 +409,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let entries = &self.entries;
         let chunk_hashes = &self.chunk_hashes;
         let payload_size = self.payload_size;
-        let _payload_span =
-            profiler.map(|profiler| profiler.span("gutch.snapshot.reconstruct.bundle.payload"));
+        let _payload_span = profiler.map(|profiler| profiler.span("gutch.artifact.bundle.stream"));
 
         match self.compression {
             CompressionKind::None => Self::stream_chunks_from_reader(
@@ -476,17 +467,16 @@ impl<R: Read + Seek> BundleReader<R> {
             chunk_data.resize(raw_size, 0);
             {
                 let read_started_at = Instant::now();
-                let _read_span = profiler
-                    .map(|profiler| profiler.span("gutch.snapshot.reconstruct.bundle.chunk_read"));
+                let _read_span =
+                    profiler.map(|profiler| profiler.span("gutch.artifact.bundle.chunk_read"));
                 reader.read_exact(&mut chunk_data)?;
                 metrics.read += read_started_at.elapsed();
             }
             metrics.raw_bytes = metrics.raw_bytes.saturating_add(entry.raw_size);
             let hash_started_at = Instant::now();
             let actual_hash = {
-                let _hash_span = profiler.map(|profiler| {
-                    profiler.span("gutch.snapshot.reconstruct.bundle.chunk_hash_verify")
-                });
+                let _hash_span = profiler
+                    .map(|profiler| profiler.span("gutch.artifact.bundle.chunk_hash_verify"));
                 ChunkHash::from_blake3(hash::hash_chunk(&chunk_data))
             };
             metrics.hash_verify += hash_started_at.elapsed();
@@ -514,18 +504,16 @@ impl<R: Read + Seek> BundleReader<R> {
         }
 
         let compressed = {
-            let _read_span = profiler.map(|profiler| {
-                profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.payload_read")
-            });
+            let _read_span =
+                profiler.map(|profiler| profiler.span("gutch.artifact.bundle.payload_read"));
             self.reader.seek(SeekFrom::Start(self.data_start))?;
             let mut compressed = vec![0u8; self.payload_size as usize];
             self.reader.read_exact(&mut compressed)?;
             compressed
         };
         let decompressed = {
-            let _decompress_span = profiler.map(|profiler| {
-                profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.payload_decompress")
-            });
+            let _decompress_span =
+                profiler.map(|profiler| profiler.span("gutch.artifact.bundle.payload_decompress"));
             compress::decompress_data(&compressed, self.compression)?
         };
         self.bundle_raw_cache = Some(decompressed);

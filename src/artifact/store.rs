@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use crate::manifest::{ArtifactStorageMode, ChunkIndexEntry, CompressionProfile};
 use crate::{Error, GutchRepoPaths, Result};
@@ -6,8 +7,8 @@ use crate::{Error, GutchRepoPaths, Result};
 /// A persisted artifact that can satisfy one or more logical chunks.
 ///
 /// Bundles and loose chunks differ only at this boundary. Snapshot planning,
-/// transfer scheduling, reconstruction, and verification operate on this
-/// type instead of branching on the storage mode.
+/// reconstruction, and verification operate on this type; the remote transfer
+/// layer resolves bundle URLs at its provider-specific boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ArtifactRef {
     Bundle { id: String },
@@ -95,22 +96,49 @@ pub(crate) fn read_loose_chunk_with_profiler(
     compression_profile: &CompressionProfile,
     profiler: Option<&crate::GutchProfiler>,
 ) -> Result<Vec<u8>> {
+    Ok(read_loose_chunk_with_metrics(path, chunk_hash, raw_size, compression_profile, profiler)?.0)
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct LooseChunkReadMetrics {
+    pub(crate) compressed_bytes: u64,
+    pub(crate) raw_bytes: u64,
+    pub(crate) read: Duration,
+    pub(crate) decompress: Duration,
+    pub(crate) size_verify: Duration,
+    pub(crate) hash_verify: Duration,
+}
+
+pub(crate) fn read_loose_chunk_with_metrics(
+    path: &std::path::Path,
+    chunk_hash: &str,
+    raw_size: u64,
+    compression_profile: &CompressionProfile,
+    profiler: Option<&crate::GutchProfiler>,
+) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
+    let mut metrics = LooseChunkReadMetrics::default();
     let compressed = {
-        let _read_span = profiler.map(|profiler| {
-            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.payload_read")
-        });
-        std::fs::read(path)?
+        let started_at = Instant::now();
+        let _read_span =
+            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.payload_read"));
+        let compressed = std::fs::read(path)?;
+        metrics.read = started_at.elapsed();
+        metrics.compressed_bytes = compressed.len() as u64;
+        compressed
     };
     let bytes = {
-        let _decompress_span = profiler.map(|profiler| {
-            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.payload_decompress")
-        });
-        crate::compress::decompress_data(&compressed, compression_profile.compression)?
+        let started_at = Instant::now();
+        let _decompress_span =
+            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.payload_decompress"));
+        let bytes = crate::compress::decompress_data(&compressed, compression_profile.compression)?;
+        metrics.decompress = started_at.elapsed();
+        metrics.raw_bytes = bytes.len() as u64;
+        bytes
     };
     {
-        let _size_span = profiler.map(|profiler| {
-            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.size_verify")
-        });
+        let started_at = Instant::now();
+        let _size_span =
+            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.size_verify"));
         if bytes.len() as u64 != raw_size {
             return Err(Error::reconstruct(format!(
                 "loose chunk '{}' has size {}, expected {}",
@@ -119,11 +147,12 @@ pub(crate) fn read_loose_chunk_with_profiler(
                 raw_size
             )));
         }
+        metrics.size_verify = started_at.elapsed();
     }
     {
-        let _hash_span = profiler.map(|profiler| {
-            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.hash_verify")
-        });
+        let started_at = Instant::now();
+        let _hash_span =
+            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.hash_verify"));
         let actual_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&bytes));
         if actual_hash != chunk_hash {
             return Err(Error::HashMismatch {
@@ -131,6 +160,7 @@ pub(crate) fn read_loose_chunk_with_profiler(
                 actual: actual_hash,
             });
         }
+        metrics.hash_verify = started_at.elapsed();
     }
-    Ok(bytes)
+    Ok((bytes, metrics))
 }

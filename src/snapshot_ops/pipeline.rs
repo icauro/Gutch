@@ -3,8 +3,8 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -27,10 +27,9 @@ use crate::{Error, Result};
 
 pub(super) struct ReconstructPipelinePlan {
     files: Vec<ReconstructPipelineFile>,
-    bundle_jobs: Vec<BundleReconstructJob>,
-    bundle_only: bool,
-    artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>>,
-    remaining_artifact_dependencies: Vec<usize>,
+    jobs: Vec<ReconstructJob>,
+    missing_artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>>,
+    missing_artifact_counts: Vec<usize>,
     pub required_bundle_count: usize,
     pub required_artifacts: HashSet<crate::ArtifactRef>,
     pub required_artifact_count: usize,
@@ -64,9 +63,7 @@ struct ReconstructPipelineFile {
 
 #[derive(Clone)]
 enum ReconstructPipelineReconstruction {
-    CopyFromSource {
-        source_path: PathBuf,
-    },
+    CopyFromSource,
     ReconstructFromParts {
         chunks: Vec<ReconstructPipelineChunkInput>,
     },
@@ -74,39 +71,52 @@ enum ReconstructPipelineReconstruction {
 
 #[derive(Clone)]
 enum ReconstructPipelineChunkInput {
-    Source {
-        chunk_hash: String,
-        raw_size: u64,
-        source_path: PathBuf,
-        source_offset: u64,
-    },
+    Source { chunk_hash: String },
     Artifact(ReconstructPipelineChunk),
 }
 
 #[derive(Clone)]
 struct ReconstructPipelineChunk {
     chunk_hash: String,
+    artifact: crate::ArtifactRef,
+}
+
+#[derive(Clone)]
+enum ReconstructJob {
+    Artifact(ReconstructArtifactJob),
+    SourceChunk(ReconstructSourceChunkJob),
+    CopySourceFile {
+        file_index: usize,
+        source_path: PathBuf,
+    },
+}
+
+#[derive(Clone)]
+struct ReconstructArtifactJob {
+    artifact: crate::ArtifactRef,
+    artifact_path: PathBuf,
+    chunks: HashMap<String, ReconstructArtifactChunk>,
+}
+
+#[derive(Clone)]
+struct ReconstructArtifactChunk {
+    chunk_hash: String,
     raw_size: u64,
     compressed_size: u64,
-    artifact: crate::ArtifactRef,
-    artifact_path: PathBuf,
+    targets: Vec<ReconstructTarget>,
 }
 
 #[derive(Clone)]
-struct BundleReconstructJob {
-    artifact: crate::ArtifactRef,
-    artifact_path: PathBuf,
-    chunks: HashMap<String, BundleReconstructChunk>,
-}
-
-#[derive(Clone)]
-struct BundleReconstructChunk {
+struct ReconstructSourceChunkJob {
+    chunk_hash: String,
     raw_size: u64,
-    targets: Vec<BundleReconstructTarget>,
+    source_path: PathBuf,
+    source_offset: u64,
+    targets: Vec<ReconstructTarget>,
 }
 
 #[derive(Clone)]
-struct BundleReconstructTarget {
+struct ReconstructTarget {
     file_index: usize,
     file_offset: u64,
 }
@@ -114,19 +124,7 @@ struct BundleReconstructTarget {
 struct SourceChunkLocation {
     path: PathBuf,
     offset: u64,
-}
-
-enum ArtifactPipelineEvent {
-    Ready(crate::ArtifactRef),
-    Failed(Error),
-    WorkerDone,
-}
-
-enum ReconstructPipelineEvent {
-    Artifact(ArtifactPipelineEvent),
-    FileCompleted(ReconstructTimings),
-    FileFailed(Error),
-    FileWorkerDone,
+    raw_size: u64,
 }
 
 pub(super) fn prepare_snapshot_entries(
@@ -248,16 +246,6 @@ pub(super) fn finalize_snapshot_entries(
     Ok(())
 }
 
-fn has_files_still_waiting_on_artifacts(
-    scheduled_files: &[bool],
-    remaining_artifact_dependencies: &[usize],
-) -> bool {
-    scheduled_files
-        .iter()
-        .zip(remaining_artifact_dependencies.iter())
-        .any(|(scheduled, remaining)| !scheduled && *remaining > 0)
-}
-
 fn build_artifact_priorities(
     pipeline_plan: &ReconstructPipelinePlan,
     pending_bundle_downloads: &[PendingBundleDownload],
@@ -267,11 +255,11 @@ fn build_artifact_priorities(
         .map(|download| {
             let mut priority = ArtifactPriority::default();
             if let Some(file_indices) = pipeline_plan
-                .artifact_to_file_indices
+                .missing_artifact_to_file_indices
                 .get(&download.artifact)
             {
                 for &file_index in file_indices {
-                    let remaining = pipeline_plan.remaining_artifact_dependencies[file_index];
+                    let remaining = pipeline_plan.missing_artifact_counts[file_index];
                     if remaining == 0 {
                         continue;
                     }
@@ -292,14 +280,6 @@ fn build_artifact_priorities(
         .collect()
 }
 
-fn map_artifact_download_event(event: ArtifactDownloadEvent) -> ReconstructPipelineEvent {
-    ReconstructPipelineEvent::Artifact(match event {
-        ArtifactDownloadEvent::Ready(artifact) => ArtifactPipelineEvent::Ready(artifact),
-        ArtifactDownloadEvent::Failed(error) => ArtifactPipelineEvent::Failed(error),
-        ArtifactDownloadEvent::WorkerDone => ArtifactPipelineEvent::WorkerDone,
-    })
-}
-
 pub(super) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &crate::manifest::ChunkIndex,
@@ -308,11 +288,13 @@ pub(super) fn build_reconstruct_pipeline_plan(
     verified_source: Option<SnapshotReconstructSource<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
-    let mut bundle_jobs = Vec::new();
-    let mut bundle_job_indices: HashMap<crate::ArtifactRef, usize> = HashMap::new();
-    let mut artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>> = HashMap::new();
-    let mut remaining_artifact_dependencies = Vec::with_capacity(snapshot_manifest.file_count());
-    let mut bundled_artifacts = HashSet::new();
+    let mut jobs = Vec::new();
+    let mut artifact_job_indices: HashMap<crate::ArtifactRef, usize> = HashMap::new();
+    let mut source_chunk_job_indices: HashMap<(PathBuf, u64, u64, String), usize> = HashMap::new();
+    let mut missing_artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>> =
+        HashMap::new();
+    let mut missing_artifact_counts = Vec::with_capacity(snapshot_manifest.file_count());
+    let mut bundle_artifacts = HashSet::new();
     let mut required_artifacts = HashSet::new();
     let mut reused_source_chunk_count = 0usize;
     let source_files_by_path = verified_source
@@ -335,18 +317,22 @@ pub(super) fn build_reconstruct_pipeline_plan(
             && source_file.size == file_manifest.size
         {
             let source_root = verified_source.expect("source files map only exists with source");
+            let file_index = files.len();
+            let source_path = crate::path_guard::resolve_manifest_relative_path(
+                source_root.destination_dir,
+                &file_manifest.path,
+            )?;
             files.push(ReconstructPipelineFile {
                 path: file_manifest.path.clone(),
                 size: file_manifest.size,
                 full_file_hash: file_manifest.full_file_hash.clone(),
-                reconstruction: ReconstructPipelineReconstruction::CopyFromSource {
-                    source_path: crate::path_guard::resolve_manifest_relative_path(
-                        source_root.destination_dir,
-                        &file_manifest.path,
-                    )?,
-                },
+                reconstruction: ReconstructPipelineReconstruction::CopyFromSource,
             });
-            remaining_artifact_dependencies.push(0);
+            jobs.push(ReconstructJob::CopySourceFile {
+                file_index,
+                source_path,
+            });
+            missing_artifact_counts.push(0);
             reused_source_chunk_count += file_manifest.chunks.len();
             continue;
         }
@@ -356,12 +342,40 @@ pub(super) fn build_reconstruct_pipeline_plan(
         let mut missing_artifact_dependencies = HashSet::new();
         let mut file_offset = 0u64;
         for chunk_ref in &file_manifest.chunks {
-            if let Some(source_chunk) = source_chunk_locations.get(&chunk_ref.chunk_hash) {
+            if let Some(source_chunk) = source_chunk_locations
+                .get(&chunk_ref.chunk_hash)
+                .filter(|source_chunk| source_chunk.raw_size == chunk_ref.raw_size)
+            {
+                let source_key = (
+                    source_chunk.path.clone(),
+                    source_chunk.offset,
+                    chunk_ref.raw_size,
+                    chunk_ref.chunk_hash.clone(),
+                );
+                let source_job_index =
+                    if let Some(&job_index) = source_chunk_job_indices.get(&source_key) {
+                        job_index
+                    } else {
+                        let job_index = jobs.len();
+                        jobs.push(ReconstructJob::SourceChunk(ReconstructSourceChunkJob {
+                            chunk_hash: chunk_ref.chunk_hash.clone(),
+                            raw_size: chunk_ref.raw_size,
+                            source_path: source_chunk.path.clone(),
+                            source_offset: source_chunk.offset,
+                            targets: Vec::new(),
+                        }));
+                        source_chunk_job_indices.insert(source_key, job_index);
+                        job_index
+                    };
+                let ReconstructJob::SourceChunk(source_job) = &mut jobs[source_job_index] else {
+                    unreachable!("source chunk job index points to another job kind");
+                };
+                source_job.targets.push(ReconstructTarget {
+                    file_index,
+                    file_offset,
+                });
                 chunks.push(ReconstructPipelineChunkInput::Source {
                     chunk_hash: chunk_ref.chunk_hash.clone(),
-                    raw_size: chunk_ref.raw_size,
-                    source_path: source_chunk.path.clone(),
-                    source_offset: source_chunk.offset,
                 });
                 reused_source_chunk_count += 1;
                 file_offset = file_offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
@@ -386,40 +400,45 @@ pub(super) fn build_reconstruct_pipeline_plan(
             }
             let artifact = crate::ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry);
             if let crate::ArtifactRef::Bundle { .. } = &artifact {
-                bundled_artifacts.insert(artifact.clone());
-                let job_index = match bundle_job_indices.entry(artifact.clone()) {
-                    std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        let job_index = bundle_jobs.len();
-                        bundle_jobs.push(BundleReconstructJob {
-                            artifact: artifact.clone(),
-                            artifact_path: artifact.local_path(repo_paths)?,
-                            chunks: HashMap::new(),
-                        });
-                        entry.insert(job_index);
-                        job_index
-                    }
-                };
-                let bundle_job = &mut bundle_jobs[job_index];
-                let bundle_chunk = bundle_job
-                    .chunks
-                    .entry(chunk_ref.chunk_hash.clone())
-                    .or_insert_with(|| BundleReconstructChunk {
-                        raw_size: chunk_ref.raw_size,
-                        targets: Vec::new(),
-                    });
-                if bundle_chunk.raw_size != chunk_ref.raw_size {
-                    return Err(Error::manifest(format!(
-                        "chunk '{}' has inconsistent sizes in bundle '{}'",
-                        chunk_ref.chunk_hash,
-                        artifact.id()
-                    )));
-                }
-                bundle_chunk.targets.push(BundleReconstructTarget {
-                    file_index,
-                    file_offset,
-                });
+                bundle_artifacts.insert(artifact.clone());
             }
+            let job_index = if let Some(&job_index) = artifact_job_indices.get(&artifact) {
+                job_index
+            } else {
+                let job_index = jobs.len();
+                jobs.push(ReconstructJob::Artifact(ReconstructArtifactJob {
+                    artifact: artifact.clone(),
+                    artifact_path: artifact.local_path(repo_paths)?,
+                    chunks: HashMap::new(),
+                }));
+                artifact_job_indices.insert(artifact.clone(), job_index);
+                job_index
+            };
+            let ReconstructJob::Artifact(artifact_job) = &mut jobs[job_index] else {
+                unreachable!("artifact job index points to another job kind");
+            };
+            let artifact_chunk = artifact_job
+                .chunks
+                .entry(chunk_ref.chunk_hash.clone())
+                .or_insert_with(|| ReconstructArtifactChunk {
+                    chunk_hash: chunk_ref.chunk_hash.clone(),
+                    raw_size: chunk_ref.raw_size,
+                    compressed_size: entry.compressed_size,
+                    targets: Vec::new(),
+                });
+            if artifact_chunk.raw_size != chunk_ref.raw_size
+                || artifact_chunk.compressed_size != entry.compressed_size
+            {
+                return Err(Error::manifest(format!(
+                    "chunk '{}' has inconsistent sizes in artifact '{}'",
+                    chunk_ref.chunk_hash,
+                    artifact.id()
+                )));
+            }
+            artifact_chunk.targets.push(ReconstructTarget {
+                file_index,
+                file_offset,
+            });
             required_artifacts.insert(artifact.clone());
             if !existing_artifacts.contains(&artifact) {
                 missing_artifact_dependencies.insert(artifact.clone());
@@ -427,9 +446,6 @@ pub(super) fn build_reconstruct_pipeline_plan(
             chunks.push(ReconstructPipelineChunkInput::Artifact(
                 ReconstructPipelineChunk {
                     chunk_hash: chunk_ref.chunk_hash.clone(),
-                    raw_size: chunk_ref.raw_size,
-                    compressed_size: entry.compressed_size,
-                    artifact_path: artifact.local_path(repo_paths)?,
                     artifact,
                 },
             ));
@@ -445,12 +461,12 @@ pub(super) fn build_reconstruct_pipeline_plan(
             )));
         }
         for artifact in &missing_artifact_dependencies {
-            artifact_to_file_indices
+            missing_artifact_to_file_indices
                 .entry(artifact.clone())
                 .or_default()
                 .push(file_index);
         }
-        remaining_artifact_dependencies.push(missing_artifact_dependencies.len());
+        missing_artifact_counts.push(missing_artifact_dependencies.len());
         files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
@@ -459,27 +475,12 @@ pub(super) fn build_reconstruct_pipeline_plan(
         });
     }
 
-    let bundle_only = files.iter().all(|file| {
-        matches!(
-            &file.reconstruction,
-            ReconstructPipelineReconstruction::ReconstructFromParts { chunks }
-                if chunks.iter().all(|chunk| matches!(
-                    chunk,
-                    ReconstructPipelineChunkInput::Artifact(ReconstructPipelineChunk {
-                        artifact: crate::ArtifactRef::Bundle { .. },
-                        ..
-                    })
-                ))
-        )
-    });
-
     Ok(ReconstructPipelinePlan {
         files,
-        bundle_jobs,
-        bundle_only,
-        artifact_to_file_indices,
-        remaining_artifact_dependencies,
-        required_bundle_count: bundled_artifacts.len(),
+        jobs,
+        missing_artifact_to_file_indices,
+        missing_artifact_counts,
+        required_bundle_count: bundle_artifacts.len(),
         required_artifact_count: required_artifacts.len(),
         required_artifacts,
         required_chunk_count: snapshot_manifest
@@ -608,13 +609,13 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
 }
 
-enum BundledReconstructEvent {
-    BundleCompleted(ReconstructTimings),
+enum ReconstructJobEvent {
+    Completed(ReconstructTimings),
     Failed(Error),
     WorkerDone,
 }
 
-fn execute_bundled_reconstruct_pipeline(
+pub(super) fn execute_reconstruct_pipeline_reconstruction(
     request: ExecuteReconstructPipelineRequest<'_>,
 ) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
     let ExecuteReconstructPipelineRequest {
@@ -648,28 +649,33 @@ fn execute_bundled_reconstruct_pipeline(
 
     let artifact_priorities = build_artifact_priorities(&pipeline_plan, pending_bundle_downloads);
     let prepare_started_at = Instant::now();
-    let output_paths = Arc::new(prepare_bundled_output_files(
+    let output_paths = Arc::new(prepare_reconstruct_output_files(
         &pipeline_plan.files,
         staging_dir,
     )?);
     reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
     let file_plans = Arc::new(pipeline_plan.files);
-    let bundle_jobs = Arc::new(pipeline_plan.bundle_jobs);
+    let jobs = Arc::new(pipeline_plan.jobs);
     let pending_artifacts = pending_bundle_downloads
         .iter()
         .map(|download| download.artifact.clone())
         .collect::<HashSet<_>>();
-    for job in bundle_jobs.iter() {
+    let mut artifact_job_indices = HashMap::new();
+    for (job_index, job) in jobs.iter().enumerate() {
+        let ReconstructJob::Artifact(job) = job else {
+            continue;
+        };
+        artifact_job_indices.insert(job.artifact.clone(), job_index);
         if !existing_artifacts.contains(&job.artifact) && !pending_artifacts.contains(&job.artifact)
         {
             return Err(Error::reconstruct(format!(
-                "required bundle '{}' is neither local nor scheduled for download",
+                "required artifact '{}' is neither local nor scheduled for download",
                 job.artifact.id()
             )));
         }
         if existing_artifacts.contains(&job.artifact) && !job.artifact_path.is_file() {
             return Err(Error::reconstruct(format!(
-                "required bundle '{}' is not available at {}",
+                "required artifact '{}' is not available at {}",
                 job.artifact.id(),
                 job.artifact_path.display()
             )));
@@ -707,9 +713,9 @@ fn execute_bundled_reconstruct_pipeline(
         GutchProgressEvent {
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Reconstruct,
-            message: "Reconstructing bundled artifacts (0/0)".to_string(),
+            message: "Reconstructing jobs (0/0)".to_string(),
             current: 0,
-            total: bundle_jobs.len().max(1),
+            total: jobs.len().max(1),
             transferred_bytes: 0,
             total_bytes: 0,
             detail: Some(snapshot_id.to_string()),
@@ -717,23 +723,18 @@ fn execute_bundled_reconstruct_pipeline(
         },
     );
 
-    let worker_count = if bundle_jobs.is_empty() {
+    let worker_count = if jobs.is_empty() {
         0
     } else {
-        runtime_plan.worker_count.min(bundle_jobs.len()).max(1)
+        runtime_plan.worker_count.min(jobs.len()).max(1)
     };
-    let bundle_job_indices = bundle_jobs
-        .iter()
-        .enumerate()
-        .map(|(index, job)| (job.artifact.clone(), index))
-        .collect::<HashMap<_, _>>();
     let (task_tx, task_rx) = crossbeam_channel::unbounded::<usize>();
-    let (event_tx, event_rx) = mpsc::channel::<BundledReconstructEvent>();
+    let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
     let mut worker_handles = Vec::with_capacity(worker_count);
     for _ in 0..worker_count {
         let task_rx = task_rx.clone();
         let event_tx = event_tx.clone();
-        let bundle_jobs = Arc::clone(&bundle_jobs);
+        let jobs = Arc::clone(&jobs);
         let file_plans = Arc::clone(&file_plans);
         let output_paths = Arc::clone(&output_paths);
         let compression_profile = compression_profile.clone();
@@ -744,12 +745,12 @@ fn execute_bundled_reconstruct_pipeline(
                 let job_index = match next_job {
                     Ok(job_index) => job_index,
                     Err(_) => {
-                        let _ = event_tx.send(BundledReconstructEvent::WorkerDone);
+                        let _ = event_tx.send(ReconstructJobEvent::WorkerDone);
                         return;
                     }
                 };
-                let result = reconstruct_bundle_job(
-                    &bundle_jobs[job_index],
+                let result = reconstruct_job(
+                    &jobs[job_index],
                     &file_plans,
                     &output_paths,
                     &compression_profile,
@@ -758,14 +759,14 @@ fn execute_bundled_reconstruct_pipeline(
                 match result {
                     Ok(timings) => {
                         if event_tx
-                            .send(BundledReconstructEvent::BundleCompleted(timings))
+                            .send(ReconstructJobEvent::Completed(timings))
                             .is_err()
                         {
                             return;
                         }
                     }
                     Err(error) => {
-                        let _ = event_tx.send(BundledReconstructEvent::Failed(error));
+                        let _ = event_tx.send(ReconstructJobEvent::Failed(error));
                         return;
                     }
                 }
@@ -774,29 +775,31 @@ fn execute_bundled_reconstruct_pipeline(
     }
     drop(event_tx);
     let mut task_tx = Some(task_tx);
-    let mut queued_bundle_count = 0usize;
-    for (job_index, job) in bundle_jobs.iter().enumerate() {
-        if existing_artifacts.contains(&job.artifact) {
+    let mut queued_job_count = 0usize;
+    for (job_index, job) in jobs.iter().enumerate() {
+        let ready = match job {
+            ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
+            ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
+        };
+        if ready {
             task_tx
                 .as_ref()
-                .ok_or_else(|| Error::reconstruct("bundled reconstruction queue is unavailable"))?
+                .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))?
                 .send(job_index)
-                .map_err(|_| {
-                    Error::reconstruct("bundled reconstruction queue closed unexpectedly")
-                })?;
-            queued_bundle_count += 1;
+                .map_err(|_| Error::reconstruct("reconstruction queue closed unexpectedly"))?;
+            queued_job_count += 1;
         }
     }
     let mut downloads_done = artifact_scheduler.is_none();
     let mut completed_download_worker_count = 0usize;
-    if downloads_done && queued_bundle_count == bundle_jobs.len() {
+    if downloads_done && queued_job_count == jobs.len() {
         task_tx.take();
     }
 
-    let mut completed_bundle_count = 0usize;
+    let mut completed_job_count = 0usize;
     let mut completed_worker_count = 0usize;
     let mut pipeline_error = None;
-    while completed_worker_count < worker_count || completed_bundle_count < bundle_jobs.len() {
+    while completed_worker_count < worker_count || completed_job_count < jobs.len() {
         if let Err(error) = control.checkpoint() {
             pipeline_error = Some(error);
             break;
@@ -805,38 +808,43 @@ fn execute_bundled_reconstruct_pipeline(
             loop {
                 match scheduler.try_recv() {
                     Ok(ArtifactDownloadEvent::Ready(artifact)) => {
-                        let Some(&job_index) = bundle_job_indices.get(&artifact) else {
+                        let Some(&job_index) = artifact_job_indices.get(&artifact) else {
                             pipeline_error = Some(Error::reconstruct(format!(
-                                "downloaded unexpected bundle '{}'",
+                                "downloaded unexpected artifact '{}'",
                                 artifact.id()
                             )));
                             break;
                         };
-                        if !bundle_jobs[job_index].artifact_path.is_file() {
+                        let ReconstructJob::Artifact(job) = &jobs[job_index] else {
                             pipeline_error = Some(Error::reconstruct(format!(
-                                "downloaded bundle '{}' is missing at {}",
+                                "downloaded artifact '{}' is not an artifact job",
+                                artifact.id()
+                            )));
+                            break;
+                        };
+                        if !job.artifact_path.is_file() {
+                            pipeline_error = Some(Error::reconstruct(format!(
+                                "downloaded artifact '{}' is missing at {}",
                                 artifact.id(),
-                                bundle_jobs[job_index].artifact_path.display()
+                                job.artifact_path.display()
                             )));
                             break;
                         }
                         let queue_result = task_tx
                             .as_ref()
                             .ok_or_else(|| {
-                                Error::reconstruct("bundled reconstruction queue is unavailable")
+                                Error::reconstruct("reconstruction queue is unavailable")
                             })
                             .and_then(|sender| {
                                 sender.send(job_index).map_err(|_| {
-                                    Error::reconstruct(
-                                        "bundled reconstruction queue closed unexpectedly",
-                                    )
+                                    Error::reconstruct("reconstruction queue closed unexpectedly")
                                 })
                             });
                         if let Err(error) = queue_result {
                             pipeline_error = Some(error);
                             break;
                         }
-                        queued_bundle_count += 1;
+                        queued_job_count += 1;
                     }
                     Ok(ArtifactDownloadEvent::Failed(error)) => {
                         pipeline_error = Some(error);
@@ -861,22 +869,22 @@ fn execute_bundled_reconstruct_pipeline(
                 }
             }
         }
-        if downloads_done && queued_bundle_count == bundle_jobs.len() {
+        if downloads_done && queued_job_count == jobs.len() {
             task_tx.take();
         }
         if pipeline_error.is_some() {
             break;
         }
-        if completed_worker_count == worker_count && completed_bundle_count == bundle_jobs.len() {
+        if completed_worker_count == worker_count && completed_job_count == jobs.len() {
             break;
         }
         match event_rx.recv_timeout(Duration::from_millis(10)) {
-            Ok(BundledReconstructEvent::BundleCompleted(bundle_timings)) => {
-                completed_bundle_count += 1;
+            Ok(ReconstructJobEvent::Completed(job_timings)) => {
+                completed_job_count += 1;
                 accumulate_pipeline_timings(
                     &mut reconstruct_timings,
                     &mut verify_timings,
-                    &bundle_timings,
+                    &job_timings,
                 );
                 emit_progress(
                     control.progress(),
@@ -884,12 +892,12 @@ fn execute_bundled_reconstruct_pipeline(
                         operation: GutchOperation::Fetch,
                         phase: GutchProgressPhase::Reconstruct,
                         message: format!(
-                            "Reconstructing bundled artifacts ({}/{})",
-                            completed_bundle_count,
-                            bundle_jobs.len().max(1)
+                            "Reconstructing jobs ({}/{})",
+                            completed_job_count,
+                            jobs.len().max(1)
                         ),
-                        current: completed_bundle_count,
-                        total: bundle_jobs.len().max(1),
+                        current: completed_job_count,
+                        total: jobs.len().max(1),
                         transferred_bytes: 0,
                         total_bytes: 0,
                         detail: None,
@@ -897,15 +905,15 @@ fn execute_bundled_reconstruct_pipeline(
                     },
                 );
             }
-            Ok(BundledReconstructEvent::Failed(error)) => {
+            Ok(ReconstructJobEvent::Failed(error)) => {
                 pipeline_error = Some(error);
                 break;
             }
-            Ok(BundledReconstructEvent::WorkerDone) => completed_worker_count += 1,
+            Ok(ReconstructJobEvent::WorkerDone) => completed_worker_count += 1,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 pipeline_error = Some(Error::reconstruct(
-                    "bundled reconstruction event channel closed unexpectedly",
+                    "reconstruction job event channel closed unexpectedly",
                 ));
                 break;
             }
@@ -923,20 +931,20 @@ fn execute_bundled_reconstruct_pipeline(
     for handle in worker_handles {
         handle
             .join()
-            .map_err(|_| Error::reconstruct("bundled reconstruction worker panicked"))?;
+            .map_err(|_| Error::reconstruct("reconstruction worker panicked"))?;
     }
     if let Some(error) = pipeline_error {
         return Err(error);
     }
-    if completed_bundle_count != bundle_jobs.len() {
+    if completed_job_count != jobs.len() {
         return Err(Error::reconstruct(format!(
-            "bundled reconstruction completed {completed_bundle_count} of {} bundles",
-            bundle_jobs.len()
+            "reconstruction completed {completed_job_count} of {} jobs",
+            jobs.len()
         )));
     }
 
     let verify_started_at = Instant::now();
-    let verified_file_bytes = verify_bundled_output_files(
+    let verified_file_bytes = verify_reconstructed_output_files(
         &file_plans,
         &output_paths,
         runtime_plan.worker_count,
@@ -974,7 +982,7 @@ fn execute_bundled_reconstruct_pipeline(
     Ok((reconstruct_timings, verify_timings))
 }
 
-fn prepare_bundled_output_files(
+fn prepare_reconstruct_output_files(
     files: &[ReconstructPipelineFile],
     staging_dir: &Path,
 ) -> Result<Vec<PathBuf>> {
@@ -996,98 +1004,316 @@ fn prepare_bundled_output_files(
     Ok(output_paths)
 }
 
-fn reconstruct_bundle_job(
-    job: &BundleReconstructJob,
+fn reconstruct_job(
+    job: &ReconstructJob,
+    file_plans: &[ReconstructPipelineFile],
+    output_paths: &[PathBuf],
+    compression_profile: &crate::manifest::CompressionProfile,
+    control: &GutchOperationControl,
+) -> Result<ReconstructTimings> {
+    match job {
+        ReconstructJob::Artifact(job) => {
+            reconstruct_artifact_job(job, file_plans, output_paths, compression_profile, control)
+        }
+        ReconstructJob::SourceChunk(job) => {
+            reconstruct_source_chunk_job(job, file_plans, output_paths, control)
+        }
+        ReconstructJob::CopySourceFile {
+            file_index,
+            source_path,
+        } => copy_source_file_job(*file_index, source_path, file_plans, output_paths, control),
+    }
+}
+
+fn reconstruct_artifact_job(
+    job: &ReconstructArtifactJob,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
-    let _bundle_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.bundle",
-        bundle_reconstruct_trace_args(job),
+    let _artifact_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.job.artifact",
+        reconstruct_artifact_trace_args(job),
     );
     let profiler = control.profiler();
     let compressed_bytes = std::fs::metadata(&job.artifact_path)?.len();
-    let mut reader = crate::bundle::BundleReader::open_with_profiler(
-        File::open(&job.artifact_path)?,
-        compression_profile,
-        profiler,
-    )?;
-    let mut output_handles = BundleOutputHandleCache::new(output_paths);
-    let mut remaining_chunks = job.chunks.keys().cloned().collect::<HashSet<_>>();
+    let mut output_handles = OutputHandleCache::new(output_paths);
     let mut timings = ReconstructTimings::default();
-    let stream_metrics = reader.stream_chunks(profiler, |_, entry, bytes| {
-        let Some(chunk) = job.chunks.get(&entry.chunk_hash) else {
-            return Ok(());
-        };
-        if chunk.raw_size != entry.raw_size || bytes.len() as u64 != chunk.raw_size {
-            return Err(Error::reconstruct(format!(
-                "bundle chunk '{}' size mismatch: expected {}, got {}",
-                entry.chunk_hash,
-                chunk.raw_size,
-                bytes.len()
-            )));
-        }
-        remaining_chunks.remove(&entry.chunk_hash);
-        let rebuild_started_at = Instant::now();
-        for target in &chunk.targets {
-            control.checkpoint()?;
-            let _chunk_span = if control.profiler().is_some() {
-                control.profile_span_with_args(
-                    "gutch.snapshot.reconstruct.file.artifact_chunk",
-                    bundle_target_trace_args(
-                        job,
-                        &entry.chunk_hash,
-                        target,
-                        &file_plans[target.file_index],
-                    ),
+
+    match &job.artifact {
+        crate::ArtifactRef::Bundle { .. } => {
+            let mut reader = crate::bundle::BundleReader::open_with_profiler(
+                File::open(&job.artifact_path)?,
+                compression_profile,
+                profiler,
+            )?;
+            let mut remaining_chunks = job.chunks.keys().cloned().collect::<HashSet<_>>();
+            let stream_metrics = reader.stream_chunks(profiler, |_, entry, bytes| {
+                let Some(chunk) = job.chunks.get(&entry.chunk_hash) else {
+                    return Ok(());
+                };
+                if chunk.raw_size != entry.raw_size
+                    || chunk.compressed_size != entry.compressed_size
+                    || bytes.len() as u64 != chunk.raw_size
+                {
+                    return Err(Error::reconstruct(format!(
+                        "bundle chunk '{}' size mismatch in '{}': expected raw {}, compressed {}, got raw {}, compressed {}",
+                        entry.chunk_hash,
+                        job.artifact.id(),
+                        chunk.raw_size,
+                        chunk.compressed_size,
+                        bytes.len(),
+                        entry.compressed_size
+                    )));
+                }
+                remaining_chunks.remove(&entry.chunk_hash);
+                write_reconstruct_targets(
+                    job,
+                    chunk,
+                    bytes,
+                    file_plans,
+                    &mut output_handles,
+                    control,
+                    &mut timings,
                 )
-            } else {
-                None
-            };
-            let write_started_at = Instant::now();
-            output_handles.write_at(target.file_index, target.file_offset, bytes)?;
-            let write_elapsed = write_started_at.elapsed();
-            timings.file_write += write_elapsed;
-            timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
-            timings.file_rebuild_bytes = timings
-                .file_rebuild_bytes
-                .saturating_add(bytes.len() as u64);
+            })?;
+            if !remaining_chunks.is_empty() {
+                return Err(Error::reconstruct(format!(
+                    "bundle '{}' is missing {} required chunks",
+                    job.artifact.id(),
+                    remaining_chunks.len()
+                )));
+            }
+            let artifact_read_elapsed = stream_metrics.read + stream_metrics.hash_verify;
+            timings.artifact_read = artifact_read_elapsed;
+            timings.artifact_read_compressed_bytes = compressed_bytes;
+            timings.artifact_read_decompressed_bytes = stream_metrics.raw_bytes;
+            timings.bundle_read = artifact_read_elapsed;
+            timings.bundle_read_compressed_bytes = compressed_bytes;
+            timings.bundle_read_decompressed_bytes = stream_metrics.raw_bytes;
+            timings.chunk_verify = stream_metrics.hash_verify;
+            timings.chunk_verify_bytes = stream_metrics.raw_bytes;
         }
-        timings.file_rebuild += rebuild_started_at.elapsed();
-        Ok(())
-    })?;
-
-    if !remaining_chunks.is_empty() {
-        return Err(Error::reconstruct(format!(
-            "bundle '{}' is missing {} required chunks",
-            job.artifact.id(),
-            remaining_chunks.len()
-        )));
+        crate::ArtifactRef::LooseChunk { hash } => {
+            if job.chunks.len() != 1 || !job.chunks.contains_key(hash) {
+                return Err(Error::reconstruct(format!(
+                    "loose artifact '{}' does not contain exactly its requested chunk",
+                    hash
+                )));
+            }
+            let chunk = job.chunks.get(hash).expect("validated loose chunk entry");
+            if compressed_bytes != chunk.compressed_size {
+                return Err(Error::reconstruct(format!(
+                    "loose artifact '{}' has compressed size {}, expected {}",
+                    hash, compressed_bytes, chunk.compressed_size
+                )));
+            }
+            let (bytes, read_metrics) = crate::artifact::store::read_loose_chunk_with_metrics(
+                &job.artifact_path,
+                hash,
+                chunk.raw_size,
+                compression_profile,
+                profiler,
+            )?;
+            timings.artifact_read = read_metrics.read
+                + read_metrics.decompress
+                + read_metrics.size_verify
+                + read_metrics.hash_verify;
+            timings.artifact_read_compressed_bytes = read_metrics.compressed_bytes;
+            timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
+            timings.chunk_verify = read_metrics.hash_verify;
+            timings.chunk_verify_bytes = read_metrics.raw_bytes;
+            write_reconstruct_targets(
+                job,
+                chunk,
+                &bytes,
+                file_plans,
+                &mut output_handles,
+                control,
+                &mut timings,
+            )?;
+        }
     }
-
-    let artifact_read_elapsed = stream_metrics.read + stream_metrics.hash_verify;
-    timings.artifact_read = artifact_read_elapsed;
-    timings.artifact_read_compressed_bytes = compressed_bytes;
-    timings.artifact_read_decompressed_bytes = stream_metrics.raw_bytes;
-    timings.bundle_read = artifact_read_elapsed;
-    timings.bundle_read_compressed_bytes = compressed_bytes;
-    timings.bundle_read_decompressed_bytes = stream_metrics.raw_bytes;
-    timings.chunk_verify = stream_metrics.hash_verify;
-    timings.chunk_verify_bytes = stream_metrics.raw_bytes;
     Ok(timings)
 }
 
-struct BundleOutputHandleCache<'a> {
+fn reconstruct_source_chunk_job(
+    job: &ReconstructSourceChunkJob,
+    file_plans: &[ReconstructPipelineFile],
+    output_paths: &[PathBuf],
+    control: &GutchOperationControl,
+) -> Result<ReconstructTimings> {
+    control.checkpoint()?;
+    let _source_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.job.source_chunk",
+        source_chunk_trace_args(job),
+    );
+    let mut input = File::open(&job.source_path)?;
+    let read_started_at = Instant::now();
+    input.seek(SeekFrom::Start(job.source_offset))?;
+    let mut bytes = vec![
+        0u8;
+        usize::try_from(job.raw_size).map_err(|_| {
+            Error::reconstruct(format!(
+                "source chunk '{}' is too large for this platform",
+                job.chunk_hash
+            ))
+        })?
+    ];
+    {
+        let _read_span = control.profile_span("gutch.snapshot.reconstruct.source_chunk.read");
+        input.read_exact(&mut bytes)?;
+    }
+    let read_elapsed = read_started_at.elapsed();
+    let hash_started_at = Instant::now();
+    let actual_hash = {
+        let _hash_span =
+            control.profile_span("gutch.snapshot.reconstruct.source_chunk.hash_verify");
+        crate::hash::hash_hex(&crate::hash::hash_chunk(&bytes))
+    };
+    let hash_elapsed = hash_started_at.elapsed();
+    if actual_hash != job.chunk_hash {
+        return Err(Error::HashMismatch {
+            expected: job.chunk_hash.clone(),
+            actual: actual_hash,
+        });
+    }
+
+    let mut output_handles = OutputHandleCache::new(output_paths);
+    let mut timings = ReconstructTimings {
+        artifact_read: read_elapsed,
+        artifact_read_decompressed_bytes: bytes.len() as u64,
+        chunk_verify: hash_elapsed,
+        chunk_verify_bytes: bytes.len() as u64,
+        ..ReconstructTimings::default()
+    };
+    let rebuild_started_at = Instant::now();
+    for target in &job.targets {
+        control.checkpoint()?;
+        let _target_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.source_chunk",
+            source_target_trace_args(job, target, &file_plans[target.file_index]),
+        );
+        let write_started_at = Instant::now();
+        output_handles.write_at(target.file_index, target.file_offset, &bytes)?;
+        timings.file_write += write_started_at.elapsed();
+        timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
+        timings.file_rebuild_bytes = timings
+            .file_rebuild_bytes
+            .saturating_add(bytes.len() as u64);
+    }
+    timings.file_rebuild = rebuild_started_at.elapsed();
+    Ok(timings)
+}
+
+fn copy_source_file_job(
+    file_index: usize,
+    source_path: &Path,
+    file_plans: &[ReconstructPipelineFile],
+    output_paths: &[PathBuf],
+    control: &GutchOperationControl,
+) -> Result<ReconstructTimings> {
+    let file_plan = file_plans.get(file_index).ok_or_else(|| {
+        Error::reconstruct(format!("source file job references file {file_index}"))
+    })?;
+    control.checkpoint()?;
+    let _source_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.job.source_file",
+        source_file_trace_args(file_plan, source_path),
+    );
+    let mut input = File::open(source_path)?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&output_paths[file_index])?;
+    let mut timings = ReconstructTimings::default();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut copied = 0u64;
+    loop {
+        control.checkpoint()?;
+        let read = {
+            let _read_span = control.profile_span("gutch.snapshot.reconstruct.source_file.read");
+            input.read(&mut buffer)?
+        };
+        if read == 0 {
+            break;
+        }
+        let _write_span = control.profile_span("gutch.snapshot.reconstruct.file.source_write");
+        let write_started_at = Instant::now();
+        output.write_all(&buffer[..read])?;
+        timings.file_write += write_started_at.elapsed();
+        timings.file_write_bytes = timings.file_write_bytes.saturating_add(read as u64);
+        timings.file_rebuild_bytes = timings.file_rebuild_bytes.saturating_add(read as u64);
+        copied = copied.saturating_add(read as u64);
+    }
+    {
+        let _flush_span = control.profile_span("gutch.snapshot.reconstruct.file.output_flush");
+        let flush_started_at = Instant::now();
+        output.flush()?;
+        timings.file_write += flush_started_at.elapsed();
+    }
+    timings.file_rebuild = timings.file_write;
+    if copied != file_plan.size {
+        return Err(Error::reconstruct(format!(
+            "copied source file '{}' has size {}, expected {}",
+            file_plan.path, copied, file_plan.size
+        )));
+    }
+    Ok(timings)
+}
+
+fn write_reconstruct_targets(
+    job: &ReconstructArtifactJob,
+    chunk: &ReconstructArtifactChunk,
+    bytes: &[u8],
+    file_plans: &[ReconstructPipelineFile],
+    output_handles: &mut OutputHandleCache<'_>,
+    control: &GutchOperationControl,
+    timings: &mut ReconstructTimings,
+) -> Result<()> {
+    if bytes.len() as u64 != chunk.raw_size {
+        return Err(Error::reconstruct(format!(
+            "artifact chunk '{}' has size {}, expected {}",
+            chunk.chunk_hash,
+            bytes.len(),
+            chunk.raw_size
+        )));
+    }
+    let rebuild_started_at = Instant::now();
+    for target in &chunk.targets {
+        control.checkpoint()?;
+        let file_plan = file_plans.get(target.file_index).ok_or_else(|| {
+            Error::reconstruct(format!(
+                "artifact chunk '{}' references unknown file {}",
+                chunk.chunk_hash, target.file_index
+            ))
+        })?;
+        let _target_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.artifact_chunk",
+            artifact_target_trace_args(job, target, chunk, file_plan),
+        );
+        let write_started_at = Instant::now();
+        output_handles.write_at(target.file_index, target.file_offset, bytes)?;
+        timings.file_write += write_started_at.elapsed();
+        timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
+        timings.file_rebuild_bytes = timings
+            .file_rebuild_bytes
+            .saturating_add(bytes.len() as u64);
+    }
+    timings.file_rebuild += rebuild_started_at.elapsed();
+    Ok(())
+}
+
+struct OutputHandleCache<'a> {
     output_paths: &'a [PathBuf],
     handles: HashMap<usize, File>,
     lru: VecDeque<usize>,
     max_open: usize,
 }
 
-impl<'a> BundleOutputHandleCache<'a> {
+impl<'a> OutputHandleCache<'a> {
     fn new(output_paths: &'a [PathBuf]) -> Self {
         Self {
             output_paths,
@@ -1155,8 +1381,8 @@ fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn bundle_reconstruct_trace_args(
-    job: &BundleReconstructJob,
+fn reconstruct_artifact_trace_args(
+    job: &ReconstructArtifactJob,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let logical_bytes = job
         .chunks
@@ -1164,7 +1390,13 @@ fn bundle_reconstruct_trace_args(
         .map(|chunk| chunk.raw_size.saturating_mul(chunk.targets.len() as u64))
         .sum::<u64>();
     std::collections::BTreeMap::from([
-        ("artifact_kind".to_string(), serde_json::json!("bundle")),
+        (
+            "artifact_kind".to_string(),
+            serde_json::json!(match &job.artifact {
+                crate::ArtifactRef::Bundle { .. } => "bundle",
+                crate::ArtifactRef::LooseChunk { .. } => "loose_chunk",
+            }),
+        ),
         (
             "artifact_id".to_string(),
             serde_json::json!(job.artifact.id()),
@@ -1184,14 +1416,20 @@ fn bundle_reconstruct_trace_args(
     ])
 }
 
-fn bundle_target_trace_args(
-    job: &BundleReconstructJob,
-    chunk_hash: &str,
-    target: &BundleReconstructTarget,
+fn artifact_target_trace_args(
+    job: &ReconstructArtifactJob,
+    target: &ReconstructTarget,
+    chunk: &ReconstructArtifactChunk,
     file_plan: &ReconstructPipelineFile,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let mut args = crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size);
-    args.insert("artifact_kind".to_string(), serde_json::json!("bundle"));
+    args.insert(
+        "artifact_kind".to_string(),
+        serde_json::json!(match &job.artifact {
+            crate::ArtifactRef::Bundle { .. } => "bundle",
+            crate::ArtifactRef::LooseChunk { .. } => "loose_chunk",
+        }),
+    );
     args.insert(
         "artifact_id".to_string(),
         serde_json::json!(job.artifact.id()),
@@ -1200,15 +1438,17 @@ fn bundle_target_trace_args(
         "artifact_path".to_string(),
         serde_json::json!(job.artifact_path.display().to_string()),
     );
-    args.insert("chunk_hash".to_string(), serde_json::json!(chunk_hash));
+    args.insert(
+        "chunk_hash".to_string(),
+        serde_json::json!(chunk.chunk_hash),
+    );
     args.insert(
         "raw_size_mib".to_string(),
-        serde_json::json!(
-            job.chunks
-                .get(chunk_hash)
-                .map(|chunk| chunk.raw_size as f64 / (1024.0 * 1024.0))
-                .unwrap_or_default()
-        ),
+        serde_json::json!(chunk.raw_size as f64 / (1024.0 * 1024.0)),
+    );
+    args.insert(
+        "compressed_size_mib".to_string(),
+        serde_json::json!(chunk.compressed_size as f64 / (1024.0 * 1024.0)),
     );
     args.insert(
         "file_offset".to_string(),
@@ -1217,7 +1457,69 @@ fn bundle_target_trace_args(
     args
 }
 
-fn verify_bundled_output_files(
+fn source_chunk_trace_args(
+    job: &ReconstructSourceChunkJob,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        ("chunk_hash".to_string(), serde_json::json!(job.chunk_hash)),
+        (
+            "source_path".to_string(),
+            serde_json::json!(job.source_path.display().to_string()),
+        ),
+        (
+            "source_offset".to_string(),
+            serde_json::json!(job.source_offset),
+        ),
+        (
+            "raw_size_mib".to_string(),
+            serde_json::json!(job.raw_size as f64 / (1024.0 * 1024.0)),
+        ),
+        (
+            "target_count".to_string(),
+            serde_json::json!(job.targets.len()),
+        ),
+    ])
+}
+
+fn source_target_trace_args(
+    job: &ReconstructSourceChunkJob,
+    target: &ReconstructTarget,
+    file_plan: &ReconstructPipelineFile,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size);
+    args.insert("chunk_hash".to_string(), serde_json::json!(job.chunk_hash));
+    args.insert(
+        "source_path".to_string(),
+        serde_json::json!(job.source_path.display().to_string()),
+    );
+    args.insert(
+        "source_offset".to_string(),
+        serde_json::json!(job.source_offset),
+    );
+    args.insert(
+        "raw_size_mib".to_string(),
+        serde_json::json!(job.raw_size as f64 / (1024.0 * 1024.0)),
+    );
+    args.insert(
+        "file_offset".to_string(),
+        serde_json::json!(target.file_offset),
+    );
+    args
+}
+
+fn source_file_trace_args(
+    file_plan: &ReconstructPipelineFile,
+    source_path: &Path,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size);
+    args.insert(
+        "source_path".to_string(),
+        serde_json::json!(source_path.display().to_string()),
+    );
+    args
+}
+
+fn verify_reconstructed_output_files(
     files: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
     worker_count: usize,
@@ -1229,7 +1531,7 @@ fn verify_bundled_output_files(
             .iter()
             .enumerate()
             .map(|(file_index, file_plan)| {
-                verify_bundled_output_file(file_index, file_plan, output_paths, control)
+                verify_reconstructed_output_file(file_index, file_plan, output_paths, control)
             })
             .collect::<Vec<_>>()
     } else {
@@ -1238,7 +1540,7 @@ fn verify_bundled_output_files(
                 .par_iter()
                 .enumerate()
                 .map(|(file_index, file_plan)| {
-                    verify_bundled_output_file(file_index, file_plan, output_paths, control)
+                    verify_reconstructed_output_file(file_index, file_plan, output_paths, control)
                 })
                 .collect::<Vec<_>>()
         })?
@@ -1254,17 +1556,17 @@ fn verify_bundled_output_files(
     Ok(verified_bytes)
 }
 
-struct BundledFileVerification {
+struct ReconstructedFileVerification {
     elapsed: Duration,
     bytes: u64,
 }
 
-fn verify_bundled_output_file(
+fn verify_reconstructed_output_file(
     file_index: usize,
     file_plan: &ReconstructPipelineFile,
     output_paths: &[PathBuf],
     control: &GutchOperationControl,
-) -> Result<BundledFileVerification> {
+) -> Result<ReconstructedFileVerification> {
     control.checkpoint()?;
     let _file_span = control.profile_span_with_args(
         "gutch.snapshot.reconstruct.file",
@@ -1299,384 +1601,10 @@ fn verify_bundled_output_file(
             actual: actual_hash,
         });
     }
-    Ok(BundledFileVerification {
+    Ok(ReconstructedFileVerification {
         elapsed: started_at.elapsed(),
         bytes: file_bytes,
     })
-}
-
-pub(super) fn execute_reconstruct_pipeline_reconstruction(
-    request: ExecuteReconstructPipelineRequest<'_>,
-) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
-    if request.pipeline_plan.bundle_only {
-        return execute_bundled_reconstruct_pipeline(request);
-    }
-
-    let ExecuteReconstructPipelineRequest {
-        mut pipeline_plan,
-        staging_dir,
-        snapshot_id,
-        compression_profile,
-        runtime_hints,
-        existing_artifacts,
-        pending_bundle_downloads,
-        transfer_policy,
-        control,
-        download_client,
-        transfer_progress,
-    } = request;
-    control.checkpoint()?;
-    let _pipeline_span = control.profile_span("gutch.snapshot.reconstruct.pipeline");
-    let reconstruct_started_at = Instant::now();
-    let mut reconstruct_timings = ReconstructTimings {
-        runtime_plan: Some(plan_reconstruct_runtime(runtime_hints)),
-        verify_files: true,
-        ..ReconstructTimings::default()
-    };
-    let mut verify_timings = crate::verify::VerifyTimings {
-        verify_mode: crate::verify::VerifyMode::Fast,
-        runtime_plan: Some(plan_verify_runtime(runtime_hints)),
-        ..crate::verify::VerifyTimings::default()
-    };
-    let mut ready_files = VecDeque::new();
-    let mut scheduled_files = vec![false; pipeline_plan.files.len()];
-    let mut completed_file_count = 0usize;
-    let mut available_artifacts = existing_artifacts.clone();
-
-    for (file_index, remaining) in pipeline_plan
-        .remaining_artifact_dependencies
-        .iter()
-        .enumerate()
-    {
-        if *remaining == 0 {
-            scheduled_files[file_index] = true;
-            ready_files.push_back(file_index);
-        }
-    }
-
-    emit_progress(
-        control.progress(),
-        GutchProgressEvent {
-            operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::Reconstruct,
-            message: "Reconstructing files (0/0)".to_string(),
-            current: 0,
-            total: pipeline_plan.files.len().max(1),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: Some(snapshot_id.to_string()),
-            done: false,
-        },
-    );
-
-    let reconstruct_worker_count = reconstruct_timings
-        .runtime_plan
-        .as_ref()
-        .map(|plan| plan.worker_count.max(1))
-        .unwrap_or(1);
-    if pending_bundle_downloads.is_empty()
-        && pipeline_plan
-            .remaining_artifact_dependencies
-            .iter()
-            .any(|remaining| *remaining > 0)
-    {
-        return Err(Error::reconstruct(
-            "reconstruct pipeline requires bundles that are not available locally",
-        ));
-    }
-
-    let artifact_worker_priorities =
-        build_artifact_priorities(&pipeline_plan, pending_bundle_downloads);
-    let artifact_scheduler = if pending_bundle_downloads.is_empty() {
-        None
-    } else {
-        let Some(download_client) = download_client else {
-            return Err(Error::reconstruct(
-                "reconstruct pipeline requires a download client for pending bundles",
-            ));
-        };
-        let Some(transfer_progress) = transfer_progress else {
-            return Err(Error::reconstruct(
-                "reconstruct pipeline requires transfer progress for pending bundles",
-            ));
-        };
-        Some(ArtifactDownloadScheduler::new(
-            pending_bundle_downloads,
-            artifact_worker_priorities,
-            transfer_policy,
-            download_client,
-            control,
-            Arc::clone(transfer_progress),
-        )?)
-    };
-    let artifact_worker_count = artifact_scheduler
-        .as_ref()
-        .map(ArtifactDownloadScheduler::worker_count)
-        .unwrap_or(0);
-    let (pipeline_event_tx, pipeline_event_rx) = mpsc::channel::<ReconstructPipelineEvent>();
-    let (file_task_tx, file_task_rx) = mpsc::channel::<usize>();
-    let file_task_rx = Arc::new(Mutex::new(file_task_rx));
-    let file_plans = Arc::new(pipeline_plan.files.clone());
-    let mut file_worker_handles = Vec::new();
-    let compression_profile = compression_profile.clone();
-    for _ in 0..reconstruct_worker_count {
-        let compression_profile = compression_profile.clone();
-        let event_tx = pipeline_event_tx.clone();
-        let file_task_rx = Arc::clone(&file_task_rx);
-        let staging_dir = staging_dir.to_path_buf();
-        let file_plans = Arc::clone(&file_plans);
-        let control = control.clone();
-        file_worker_handles.push(thread::spawn(move || {
-            loop {
-                let next_file_index = match file_task_rx.lock() {
-                    Ok(receiver) => receiver.recv(),
-                    Err(_) => {
-                        let _ = event_tx.send(ReconstructPipelineEvent::FileFailed(
-                            Error::reconstruct("file task state is unavailable"),
-                        ));
-                        return;
-                    }
-                };
-                let file_index = match next_file_index {
-                    Ok(file_index) => file_index,
-                    Err(_) => {
-                        let _ = event_tx.send(ReconstructPipelineEvent::FileWorkerDone);
-                        return;
-                    }
-                };
-                if let Err(error) = control.checkpoint() {
-                    let _ = event_tx.send(ReconstructPipelineEvent::FileFailed(error));
-                    return;
-                }
-                match reconstruct_pipeline_file(
-                    &file_plans[file_index],
-                    &staging_dir,
-                    &compression_profile,
-                    &control,
-                ) {
-                    Ok(file_timings) => {
-                        let _ =
-                            event_tx.send(ReconstructPipelineEvent::FileCompleted(file_timings));
-                    }
-                    Err(error) => {
-                        let _ = event_tx.send(ReconstructPipelineEvent::FileFailed(error));
-                        return;
-                    }
-                }
-            }
-        }));
-    }
-    drop(pipeline_event_tx);
-
-    let mut completed_artifact_workers = 0usize;
-    let mut completed_file_workers = 0usize;
-    let mut dispatched_file_count = 0usize;
-    let mut pipeline_error: Option<Error> = None;
-    let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch");
-    let queue_ready_file = |file_index: usize| -> Result<()> {
-        file_task_tx
-            .send(file_index)
-            .map_err(|_| Error::reconstruct("reconstruct pipeline file queue closed unexpectedly"))
-    };
-    while completed_file_count < pipeline_plan.files.len() {
-        if let Err(error) = control.checkpoint() {
-            pipeline_error = Some(error);
-            break;
-        }
-        while let Some(file_index) = ready_files.pop_front() {
-            if let Err(error) = queue_ready_file(file_index) {
-                pipeline_error = Some(error);
-                break;
-            }
-            dispatched_file_count += 1;
-        }
-        if let Some(scheduler) = artifact_scheduler.as_ref() {
-            let reconstruct_backlog =
-                ready_files.len() + dispatched_file_count.saturating_sub(completed_file_count);
-            scheduler.set_downstream_backpressure(
-                reconstruct_backlog >= reconstruct_worker_count.saturating_mul(2),
-            );
-        }
-
-        if pipeline_error.is_some() || completed_file_count == pipeline_plan.files.len() {
-            break;
-        }
-
-        let next_event = loop {
-            if completed_artifact_workers < artifact_worker_count
-                && let Some(scheduler) = artifact_scheduler.as_ref()
-            {
-                match scheduler.try_recv() {
-                    Ok(event) => break Ok(map_artifact_download_event(event)),
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        break Err(Error::reconstruct(
-                            "artifact download scheduler channel closed unexpectedly",
-                        ));
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {}
-                }
-            }
-            match pipeline_event_rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(event) => break Ok(event),
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    break Err(Error::reconstruct(
-                        "reconstruct pipeline event channel closed unexpectedly",
-                    ));
-                }
-            }
-        };
-        match next_event {
-            Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::Ready(artifact))) => {
-                if available_artifacts.insert(artifact.clone())
-                    && let Some(file_indices) =
-                        pipeline_plan.artifact_to_file_indices.get(&artifact)
-                {
-                    for &file_index in file_indices {
-                        if pipeline_plan.remaining_artifact_dependencies[file_index] == 0 {
-                            continue;
-                        }
-                        pipeline_plan.remaining_artifact_dependencies[file_index] -= 1;
-                        if pipeline_plan.remaining_artifact_dependencies[file_index] == 0
-                            && !scheduled_files[file_index]
-                        {
-                            scheduled_files[file_index] = true;
-                            ready_files.push_back(file_index);
-                        }
-                    }
-                }
-                if let Some(scheduler) = artifact_scheduler.as_ref() {
-                    scheduler.update_priorities(build_artifact_priorities(
-                        &pipeline_plan,
-                        pending_bundle_downloads,
-                    ));
-                }
-            }
-            Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::Failed(error))) => {
-                pipeline_error = Some(error);
-                break;
-            }
-            Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::WorkerDone)) => {
-                completed_artifact_workers += 1;
-                if completed_artifact_workers == artifact_worker_count
-                    && let Some(transfer_progress) = transfer_progress
-                {
-                    transfer_progress.finish();
-                }
-                if completed_artifact_workers == artifact_worker_count
-                    && completed_file_count < pipeline_plan.files.len()
-                    && has_files_still_waiting_on_artifacts(
-                        &scheduled_files,
-                        &pipeline_plan.remaining_artifact_dependencies,
-                    )
-                {
-                    pipeline_error = Some(Error::reconstruct(
-                        "reconstruct pipeline stopped before all files became ready",
-                    ));
-                    break;
-                }
-            }
-            Ok(ReconstructPipelineEvent::FileCompleted(file_timings)) => {
-                completed_file_count += 1;
-                accumulate_pipeline_timings(
-                    &mut reconstruct_timings,
-                    &mut verify_timings,
-                    &file_timings,
-                );
-                emit_progress(
-                    control.progress(),
-                    GutchProgressEvent {
-                        operation: GutchOperation::Fetch,
-                        phase: GutchProgressPhase::Reconstruct,
-                        message: format!(
-                            "Reconstructing files ({}/{})",
-                            completed_file_count,
-                            pipeline_plan.files.len().max(1)
-                        ),
-                        current: completed_file_count,
-                        total: pipeline_plan.files.len().max(1),
-                        transferred_bytes: 0,
-                        total_bytes: 0,
-                        detail: None,
-                        done: false,
-                    },
-                );
-            }
-            Ok(ReconstructPipelineEvent::FileFailed(error)) => {
-                pipeline_error = Some(error);
-                break;
-            }
-            Ok(ReconstructPipelineEvent::FileWorkerDone) => {
-                completed_file_workers += 1;
-                if completed_file_workers == reconstruct_worker_count
-                    && completed_file_count < pipeline_plan.files.len()
-                {
-                    pipeline_error = Some(Error::reconstruct(
-                        "reconstruct pipeline file workers stopped before reconstruction completed",
-                    ));
-                    break;
-                }
-            }
-            Err(error) => {
-                pipeline_error = Some(error);
-                break;
-            }
-        }
-    }
-
-    drop(file_task_tx);
-    if pipeline_error.is_some() {
-        if let Some(scheduler) = artifact_scheduler.as_ref() {
-            scheduler.cancel();
-        }
-    }
-    if let Some(scheduler) = artifact_scheduler {
-        scheduler.join()?;
-    }
-    for handle in file_worker_handles {
-        handle
-            .join()
-            .map_err(|_| Error::reconstruct("file reconstruct worker panicked"))?;
-    }
-
-    if let Some(error) = pipeline_error {
-        return Err(error);
-    }
-
-    reconstruct_timings.reconstruct_wall = reconstruct_started_at.elapsed();
-    reconstruct_timings.total = reconstruct_timings.reconstruct_wall;
-    verify_timings.verify_files_wall = reconstruct_timings.reconstruct_wall;
-    verify_timings.total = reconstruct_timings.reconstruct_wall;
-    Ok((reconstruct_timings, verify_timings))
-}
-
-fn reconstruct_pipeline_file(
-    file_plan: &ReconstructPipelineFile,
-    staging_dir: &Path,
-    compression_profile: &crate::manifest::CompressionProfile,
-    control: &GutchOperationControl,
-) -> Result<ReconstructTimings> {
-    control.checkpoint()?;
-    let _file_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.file",
-        reconstruct_file_trace_args(file_plan),
-    );
-    match &file_plan.reconstruction {
-        ReconstructPipelineReconstruction::CopyFromSource { source_path } => {
-            let _strategy_span =
-                control.profile_span("gutch.snapshot.reconstruct.file.copy_source");
-            copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)
-        }
-        ReconstructPipelineReconstruction::ReconstructFromParts { chunks } => {
-            reconstruct_pipeline_file_from_parts(
-                file_plan,
-                chunks,
-                staging_dir,
-                compression_profile,
-                control,
-            )
-        }
-    }
 }
 
 fn reconstruct_file_trace_args(
@@ -1684,7 +1612,9 @@ fn reconstruct_file_trace_args(
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
     let mut chunk_hashes = HashSet::new();
+    let mut artifacts = HashSet::new();
     let mut bundle_artifacts = HashSet::new();
+    let mut loose_chunk_artifacts = HashSet::new();
 
     if let ReconstructPipelineReconstruction::ReconstructFromParts { chunks } =
         &file_plan.reconstruction
@@ -1696,8 +1626,14 @@ fn reconstruct_file_trace_args(
                 }
                 ReconstructPipelineChunkInput::Artifact(chunk) => {
                     chunk_hashes.insert(&chunk.chunk_hash);
-                    if matches!(&chunk.artifact, crate::ArtifactRef::Bundle { .. }) {
-                        bundle_artifacts.insert(&chunk.artifact);
+                    artifacts.insert(&chunk.artifact);
+                    match &chunk.artifact {
+                        crate::ArtifactRef::Bundle { .. } => {
+                            bundle_artifacts.insert(&chunk.artifact);
+                        }
+                        crate::ArtifactRef::LooseChunk { .. } => {
+                            loose_chunk_artifacts.insert(&chunk.artifact);
+                        }
                     }
                 }
             }
@@ -1709,284 +1645,18 @@ fn reconstruct_file_trace_args(
         serde_json::json!(chunk_hashes.len()),
     );
     args.insert(
+        "required_distinct_artifacts".to_string(),
+        serde_json::json!(artifacts.len()),
+    );
+    args.insert(
         "required_distinct_bundles".to_string(),
         serde_json::json!(bundle_artifacts.len()),
     );
+    args.insert(
+        "required_distinct_loose_chunks".to_string(),
+        serde_json::json!(loose_chunk_artifacts.len()),
+    );
     args
-}
-
-fn artifact_chunk_trace_args(
-    chunk: &ReconstructPipelineChunk,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let artifact_kind = match &chunk.artifact {
-        crate::ArtifactRef::Bundle { .. } => "bundle",
-        crate::ArtifactRef::LooseChunk { .. } => "loose_chunk",
-    };
-    std::collections::BTreeMap::from([
-        (
-            "artifact_kind".to_string(),
-            serde_json::json!(artifact_kind),
-        ),
-        (
-            "artifact_id".to_string(),
-            serde_json::json!(chunk.artifact.id()),
-        ),
-        (
-            "artifact_path".to_string(),
-            serde_json::json!(chunk.artifact_path.display().to_string()),
-        ),
-        (
-            "chunk_hash".to_string(),
-            serde_json::json!(chunk.chunk_hash),
-        ),
-        (
-            "raw_size_mib".to_string(),
-            serde_json::json!(chunk.raw_size as f64 / (1024.0 * 1024.0)),
-        ),
-        (
-            "compressed_size_mib".to_string(),
-            serde_json::json!(chunk.compressed_size as f64 / (1024.0 * 1024.0)),
-        ),
-    ])
-}
-
-fn copy_pipeline_file_from_source(
-    file_plan: &ReconstructPipelineFile,
-    source_path: &Path,
-    staging_dir: &Path,
-    control: &GutchOperationControl,
-) -> Result<ReconstructTimings> {
-    let mut timings = ReconstructTimings::default();
-    let output_path =
-        crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)?;
-    if let Some(parent) = output_path.parent() {
-        crate::helpers::create_dir_all(parent)?;
-    }
-    let mut input = File::open(source_path)?;
-    let mut output = std::io::BufWriter::new(File::create(&output_path)?);
-    let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut written = 0u64;
-
-    loop {
-        control.checkpoint()?;
-        let read = {
-            let _read_span = control.profile_span("gutch.snapshot.reconstruct.file.source_read");
-            let rebuild_started_at = Instant::now();
-            let read = std::io::Read::read(&mut input, &mut buffer)?;
-            timings.file_rebuild += rebuild_started_at.elapsed();
-            read
-        };
-        if read == 0 {
-            break;
-        }
-        {
-            let _write_span = control.profile_span("gutch.snapshot.reconstruct.file.output_write");
-            write_verified_file_bytes(&mut output, &mut hasher, &buffer[..read], &mut timings)?;
-        }
-        written += read as u64;
-    }
-
-    finish_verified_file(
-        output, hasher, written, file_plan, timings, control, "copied",
-    )
-}
-
-fn reconstruct_pipeline_file_from_parts(
-    file_plan: &ReconstructPipelineFile,
-    chunks: &[ReconstructPipelineChunkInput],
-    staging_dir: &Path,
-    compression_profile: &crate::manifest::CompressionProfile,
-    control: &GutchOperationControl,
-) -> Result<ReconstructTimings> {
-    let mut timings = ReconstructTimings::default();
-    let output_path =
-        crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)?;
-    if let Some(parent) = output_path.parent() {
-        crate::helpers::create_dir_all(parent)?;
-    }
-    let mut output = std::io::BufWriter::new(File::create(&output_path)?);
-    let mut file_hasher = blake3::Hasher::new();
-    let mut written = 0u64;
-    let mut bundle_readers: HashMap<
-        crate::ArtifactRef,
-        (crate::bundle::BundleReader<File>, HashMap<String, usize>),
-    > = HashMap::new();
-    let mut source_readers: HashMap<PathBuf, std::io::BufReader<File>> = HashMap::new();
-
-    for chunk in chunks {
-        control.checkpoint()?;
-        let chunk_bytes = match chunk {
-            ReconstructPipelineChunkInput::Source {
-                chunk_hash,
-                raw_size,
-                source_path,
-                source_offset,
-            } => {
-                let _source_chunk_span =
-                    control.profile_span("gutch.snapshot.reconstruct.file.source_chunk");
-                let reader = match source_readers.entry(source_path.clone()) {
-                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(std::io::BufReader::new(File::open(source_path)?))
-                    }
-                };
-                let read_started_at = Instant::now();
-                reader.seek(SeekFrom::Start(*source_offset))?;
-                let mut chunk_bytes = vec![0u8; *raw_size as usize];
-                reader.read_exact(&mut chunk_bytes)?;
-                timings.file_rebuild += read_started_at.elapsed();
-                let verify_started_at = Instant::now();
-                let actual_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&chunk_bytes));
-                timings.chunk_verify += verify_started_at.elapsed();
-                timings.chunk_verify_bytes += chunk_bytes.len() as u64;
-                if actual_hash != *chunk_hash {
-                    return Err(Error::HashMismatch {
-                        expected: chunk_hash.clone(),
-                        actual: actual_hash,
-                    });
-                }
-                chunk_bytes
-            }
-            ReconstructPipelineChunkInput::Artifact(chunk) => {
-                let _artifact_chunk_span = control.profile_span_with_args(
-                    "gutch.snapshot.reconstruct.file.artifact_chunk",
-                    artifact_chunk_trace_args(chunk),
-                );
-                let profiler = control.profiler();
-                let read_started_at = Instant::now();
-                let chunk_bytes = match &chunk.artifact {
-                    crate::ArtifactRef::Bundle { .. } => {
-                        let reader_entry = match bundle_readers.entry(chunk.artifact.clone()) {
-                            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                            std::collections::hash_map::Entry::Vacant(entry) => {
-                                let file = File::open(&chunk.artifact_path)?;
-                                let reader = crate::bundle::BundleReader::open_with_profiler(
-                                    file,
-                                    compression_profile,
-                                    profiler,
-                                )?;
-                                let chunk_index = reader.chunk_index();
-                                entry.insert((reader, chunk_index))
-                            }
-                        };
-                        let chunk_index = reader_entry
-                            .1
-                            .get(&chunk.chunk_hash)
-                            .copied()
-                            .ok_or_else(|| Error::MissingChunk(chunk.chunk_hash.clone()))?;
-                        let chunk_bytes = reader_entry
-                            .0
-                            .read_chunk_bytes_with_profiler(chunk_index, profiler)?;
-                        let _materialize_span = control.profile_span(
-                            "gutch.snapshot.reconstruct.file.artifact_chunk.materialize",
-                        );
-                        chunk_bytes.to_vec()
-                    }
-                    crate::ArtifactRef::LooseChunk { hash } => {
-                        crate::artifact::store::read_loose_chunk_with_profiler(
-                            &chunk.artifact_path,
-                            hash,
-                            chunk.raw_size,
-                            compression_profile,
-                            profiler,
-                        )?
-                    }
-                };
-                let read_elapsed = read_started_at.elapsed();
-                timings.artifact_read += read_elapsed;
-                timings.artifact_read_compressed_bytes += chunk.compressed_size;
-                timings.artifact_read_decompressed_bytes += chunk_bytes.len() as u64;
-                if matches!(chunk.artifact, crate::ArtifactRef::Bundle { .. }) {
-                    timings.bundle_read += read_elapsed;
-                    timings.bundle_read_compressed_bytes += chunk.compressed_size;
-                    timings.bundle_read_decompressed_bytes += chunk_bytes.len() as u64;
-                }
-                if chunk_bytes.len() as u64 != chunk.raw_size {
-                    return Err(Error::reconstruct(format!(
-                        "chunk size mismatch for '{}' in {}: expected {}, got {}",
-                        chunk.chunk_hash,
-                        file_plan.path,
-                        chunk.raw_size,
-                        chunk_bytes.len()
-                    )));
-                }
-                chunk_bytes
-            }
-        };
-        {
-            let _write_span = control.profile_span("gutch.snapshot.reconstruct.file.output_write");
-            write_verified_file_bytes(&mut output, &mut file_hasher, &chunk_bytes, &mut timings)?;
-        }
-        written += chunk_bytes.len() as u64;
-    }
-
-    finish_verified_file(
-        output,
-        file_hasher,
-        written,
-        file_plan,
-        timings,
-        control,
-        "reconstructed",
-    )
-}
-
-fn write_verified_file_bytes(
-    output: &mut std::io::BufWriter<File>,
-    hasher: &mut blake3::Hasher,
-    bytes: &[u8],
-    timings: &mut ReconstructTimings,
-) -> Result<()> {
-    let write_started_at = Instant::now();
-    output.write_all(bytes)?;
-    timings.file_write += write_started_at.elapsed();
-    timings.file_write_bytes += bytes.len() as u64;
-    timings.file_rebuild_bytes += bytes.len() as u64;
-    let verify_started_at = Instant::now();
-    hasher.update(bytes);
-    timings.file_verify += verify_started_at.elapsed();
-    timings.file_verify_bytes += bytes.len() as u64;
-    Ok(())
-}
-
-fn finish_verified_file(
-    mut output: std::io::BufWriter<File>,
-    hasher: blake3::Hasher,
-    written: u64,
-    file_plan: &ReconstructPipelineFile,
-    mut timings: ReconstructTimings,
-    control: &GutchOperationControl,
-    operation: &str,
-) -> Result<ReconstructTimings> {
-    if written != file_plan.size {
-        return Err(Error::reconstruct(format!(
-            "{operation} size {} does not match expected {} for {}",
-            written, file_plan.size, file_plan.path
-        )));
-    }
-
-    {
-        let _flush_span = control.profile_span("gutch.snapshot.reconstruct.file.output_flush");
-        let flush_started_at = Instant::now();
-        output.flush()?;
-        timings.file_write += flush_started_at.elapsed();
-    }
-    let actual_hash = {
-        let _hash_span = control.profile_span("gutch.snapshot.reconstruct.file.full_hash");
-        let verify_started_at = Instant::now();
-        let actual_hash = crate::hash::hash_hex(&hasher.finalize());
-        timings.file_verify += verify_started_at.elapsed();
-        actual_hash
-    };
-    if actual_hash != file_plan.full_file_hash {
-        return Err(Error::HashMismatch {
-            expected: file_plan.full_file_hash.clone(),
-            actual: actual_hash,
-        });
-    }
-
-    Ok(timings)
 }
 
 fn build_source_chunk_locations(
@@ -2006,8 +1676,14 @@ fn build_source_chunk_locations(
                 .or_insert_with(|| SourceChunkLocation {
                     path: source_path.clone(),
                     offset,
+                    raw_size: chunk_ref.raw_size,
                 });
-            offset += chunk_ref.raw_size;
+            offset = offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
+                Error::manifest(format!(
+                    "source file '{}' chunk sizes overflow u64",
+                    file_manifest.path
+                ))
+            })?;
         }
     }
     Ok(chunk_locations)
@@ -2122,7 +1798,9 @@ mod tests {
     #[test]
     fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
         let source_root = crate::test_util::temp_path("gutch_pipeline_copy_source");
+        let destination = crate::test_util::temp_path("gutch_pipeline_copy_destination");
         let _ = std::fs::remove_dir_all(&source_root);
+        let _ = std::fs::remove_dir_all(&destination);
         std::fs::create_dir_all(&source_root).unwrap();
         std::fs::write(source_root.join("game.exe"), b"game").unwrap();
         let source_manifest = snapshot_manifest_with_file("source", &test_hash(b"game"));
@@ -2147,11 +1825,36 @@ mod tests {
         assert_eq!(plan.reused_source_chunk_count, 1);
         assert!(matches!(
             plan.files[0].reconstruction,
-            ReconstructPipelineReconstruction::CopyFromSource { .. }
+            ReconstructPipelineReconstruction::CopyFromSource
         ));
+
+        apply_reconstruct_pipeline(
+            ReconstructPipelineApplyRequest {
+                repo_root: &repo_root,
+                compression_profile: crate::manifest::CompressionProfile::default(),
+                snapshot_manifest: &snapshot_manifest,
+                destination_dir: &destination,
+                staging_dir: None,
+                source_destination_dir: Some(source_root.clone()),
+                runtime_hints: &RuntimeResourceHints::default(),
+                existing_artifacts: &HashSet::new(),
+                pending_bundle_downloads: &[],
+                transfer_policy: crate::snapshot_ops::types::TransferConcurrencyPolicy::default(),
+                control: &crate::GutchOperationControl::default(),
+                download_client: None,
+                transfer_progress: None,
+            },
+            plan,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("game.exe")).unwrap(),
+            b"game"
+        );
 
         let _ = std::fs::remove_dir_all(&source_root);
         let _ = std::fs::remove_dir_all(&repo_root);
+        let _ = std::fs::remove_dir_all(&destination);
     }
 
     #[test]
@@ -2253,6 +1956,115 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&source_root);
         let _ = std::fs::remove_dir_all(&repo_root);
+    }
+
+    #[test]
+    fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
+        let source_root = crate::test_util::temp_path("gutch_pipeline_mixed_loose_source");
+        let repo_root = crate::test_util::temp_path("gutch_pipeline_mixed_loose_repo");
+        let destination = crate::test_util::temp_path("gutch_pipeline_mixed_loose_destination");
+        let _ = std::fs::remove_dir_all(&source_root);
+        let _ = std::fs::remove_dir_all(&repo_root);
+        let _ = std::fs::remove_dir_all(&destination);
+        std::fs::create_dir_all(&source_root).unwrap();
+        std::fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
+        let repo_paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
+        crate::ensure_gutch_repo_layout(&repo_paths, "mixed-loose-test").unwrap();
+
+        let shared_chunk_hash = test_hash(b"game");
+        let source_only_chunk_hash = test_hash(b"old!");
+        let replacement_chunk_hash = test_hash(b"new!");
+        let compression_profile =
+            manifest::CompressionProfile::for_preset(manifest::CompressionPreset::Zstd3);
+        let replacement_artifact = crate::ArtifactRef::LooseChunk {
+            hash: replacement_chunk_hash.clone(),
+        };
+        let replacement_path = replacement_artifact.local_path(&repo_paths).unwrap();
+        std::fs::create_dir_all(replacement_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &replacement_path,
+            crate::compress::compress_with_level(b"new!", compression_profile.zstd_level).unwrap(),
+        )
+        .unwrap();
+
+        let source_manifest = snapshot_manifest_with_two_chunks(
+            "source",
+            &test_hash(b"gameold!"),
+            shared_chunk_hash.clone(),
+            source_only_chunk_hash,
+        );
+        let snapshot_manifest = snapshot_manifest_with_two_chunks(
+            "snapshot",
+            &test_hash(b"gamenew!"),
+            shared_chunk_hash.clone(),
+            replacement_chunk_hash.clone(),
+        );
+        let chunk_index = manifest::ChunkIndex {
+            format_version: "1".to_string(),
+            updated_at: String::new(),
+            entries: std::collections::BTreeMap::from([(
+                replacement_chunk_hash.clone(),
+                manifest::ChunkIndexEntry {
+                    bundle_id: replacement_chunk_hash.clone(),
+                    raw_size: 4,
+                    compressed_size: std::fs::metadata(&replacement_path).unwrap().len(),
+                    storage_mode: manifest::ArtifactStorageMode::LooseChunks,
+                },
+            )]),
+        };
+        let existing_artifacts = HashSet::from([replacement_artifact]);
+        let plan = build_reconstruct_pipeline_plan(
+            &snapshot_manifest,
+            &chunk_index,
+            &repo_paths,
+            &existing_artifacts,
+            Some(SnapshotReconstructSource {
+                snapshot_manifest: &source_manifest,
+                destination_dir: &source_root,
+            }),
+        )
+        .unwrap();
+        assert_eq!(plan.jobs.len(), 2);
+        assert!(
+            plan.jobs
+                .iter()
+                .any(|job| matches!(job, ReconstructJob::SourceChunk(_)))
+        );
+        assert!(plan.jobs.iter().any(|job| matches!(
+            job,
+            ReconstructJob::Artifact(ReconstructArtifactJob {
+                artifact: crate::ArtifactRef::LooseChunk { .. },
+                ..
+            })
+        )));
+
+        apply_reconstruct_pipeline(
+            ReconstructPipelineApplyRequest {
+                repo_root: &repo_root,
+                compression_profile,
+                snapshot_manifest: &snapshot_manifest,
+                destination_dir: &destination,
+                staging_dir: None,
+                source_destination_dir: Some(source_root.clone()),
+                runtime_hints: &RuntimeResourceHints { jobs: Some(2) },
+                existing_artifacts: &existing_artifacts,
+                pending_bundle_downloads: &[],
+                transfer_policy: crate::snapshot_ops::types::TransferConcurrencyPolicy::default(),
+                control: &crate::GutchOperationControl::default(),
+                download_client: None,
+                transfer_progress: None,
+            },
+            plan,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("game.exe")).unwrap(),
+            b"gamenew!"
+        );
+
+        let _ = std::fs::remove_dir_all(&source_root);
+        let _ = std::fs::remove_dir_all(&repo_root);
+        let _ = std::fs::remove_dir_all(&destination);
     }
 
     #[test]
@@ -2370,6 +2182,16 @@ mod tests {
             third.to_vec(),
         );
         let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
+        let bundle_reader = crate::bundle::BundleReader::open(
+            std::io::Cursor::new(bundle_bytes.as_slice()),
+            &compression_profile,
+        )
+        .unwrap();
+        let compressed_sizes = bundle_reader
+            .entries()
+            .iter()
+            .map(|entry| (entry.chunk_hash.clone(), entry.compressed_size))
+            .collect::<HashMap<_, _>>();
         let bundle = crate::ArtifactRef::Bundle {
             id: bundle_id.clone(),
         };
@@ -2421,7 +2243,7 @@ mod tests {
                     manifest::ChunkIndexEntry {
                         bundle_id: bundle_id.clone(),
                         raw_size: 4,
-                        compressed_size: 4,
+                        compressed_size: compressed_sizes[&test_hash(first)],
                         storage_mode: manifest::ArtifactStorageMode::Bundled,
                     },
                 ),
@@ -2430,7 +2252,7 @@ mod tests {
                     manifest::ChunkIndexEntry {
                         bundle_id: bundle_id.clone(),
                         raw_size: 4,
-                        compressed_size: 4,
+                        compressed_size: compressed_sizes[&test_hash(second)],
                         storage_mode: manifest::ArtifactStorageMode::Bundled,
                     },
                 ),
@@ -2439,7 +2261,7 @@ mod tests {
                     manifest::ChunkIndexEntry {
                         bundle_id,
                         raw_size: 4,
-                        compressed_size: 4,
+                        compressed_size: compressed_sizes[&test_hash(third)],
                         storage_mode: manifest::ArtifactStorageMode::Bundled,
                     },
                 ),
@@ -2454,9 +2276,13 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(plan.bundle_only);
-        assert_eq!(plan.bundle_jobs.len(), 1);
-        assert_eq!(plan.bundle_jobs[0].chunks.len(), 3);
+        assert_eq!(plan.jobs.len(), 1);
+        assert!(matches!(
+            &plan.jobs[0],
+            ReconstructJob::Artifact(job)
+                if matches!(job.artifact, crate::ArtifactRef::Bundle { .. })
+                    && job.chunks.len() == 3
+        ));
 
         apply_reconstruct_pipeline(
             ReconstructPipelineApplyRequest {
@@ -2488,21 +2314,5 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&repo_root);
         let _ = std::fs::remove_dir_all(&destination);
-    }
-
-    #[test]
-    fn artifact_completion_check_only_fails_when_files_still_wait_on_artifacts() {
-        assert!(!has_files_still_waiting_on_artifacts(
-            &[true, true],
-            &[0, 1]
-        ));
-        assert!(!has_files_still_waiting_on_artifacts(
-            &[true, true],
-            &[0, 0]
-        ));
-        assert!(has_files_still_waiting_on_artifacts(
-            &[true, false],
-            &[0, 1]
-        ));
     }
 }
