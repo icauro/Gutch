@@ -223,6 +223,7 @@ pub fn capture_repo_snapshot(
     request: RepoSnapshotCaptureRequest,
 ) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
+    let _prepare_span = request.control.profile_span("gutch.capture.prepare");
     let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
     let rules = repo_manifest
         .snapshot_tag_schema
@@ -306,7 +307,9 @@ pub fn capture_repo_snapshot(
         crate::manifest::CompressionProfile::for_preset(request.compression_profile);
     build_config.control = request.control.clone();
 
+    drop(_prepare_span);
     let (result, timings) = crate::build_with_config_timed(&prepared_input.dir, &build_config)?;
+    let _finalize_span = request.control.profile_span("gutch.capture.finalize");
     request.control.checkpoint()?;
     let mut result = result;
     let snapshot_id = crate::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);

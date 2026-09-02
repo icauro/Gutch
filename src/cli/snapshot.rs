@@ -133,6 +133,9 @@ fn run_capture_one_snapshot(
     request: CaptureOneSnapshotRequest<'_>,
     store_state: &mut MutableCaptureStoreState,
 ) -> g::Result<SnapshotCaptureStats> {
+    let capture_control =
+        crate::cli::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
+    let _prepare_span = capture_control.profile_span("gutch.capture.prepare");
     let capture_plan = g::plan_snapshot_capture(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
@@ -219,10 +222,11 @@ fn run_capture_one_snapshot(
         .with_compression_profile(request.build_profile.compression_profile)
         .with_storage_mode(request.build_profile.storage_mode)
         .with_runtime_hints(request.runtime_hints.clone());
-    build_config.control =
-        crate::cli::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
+    build_config.control = capture_control;
 
+    drop(_prepare_span);
     let (result, timings) = g::build_with_config_timed(&prepared_input.dir, &build_config)?;
+    let _finalize_span = build_config.control.profile_span("gutch.capture.finalize");
     let mut result = result;
     let snapshot_id = g::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
