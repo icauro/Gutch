@@ -451,6 +451,7 @@ impl<R: Read + Seek> BundleReader<R> {
     {
         let mut expected_raw_offset = 0u64;
         let mut metrics = BundleStreamMetrics::default();
+        let mut chunk_data = Vec::new();
         for (index, entry) in entries.iter().enumerate() {
             if entry.raw_offset != expected_raw_offset {
                 return Err(crate::error::Error::InvalidBundle(format!(
@@ -472,7 +473,7 @@ impl<R: Read + Seek> BundleReader<R> {
                     index
                 ))
             })?;
-            let mut chunk_data = vec![0u8; raw_size];
+            chunk_data.resize(raw_size, 0);
             {
                 let read_started_at = Instant::now();
                 let _read_span = profiler

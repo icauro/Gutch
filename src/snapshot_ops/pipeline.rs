@@ -868,7 +868,7 @@ fn execute_bundled_reconstruct_pipeline(
         if completed_worker_count == worker_count && completed_bundle_count == bundle_jobs.len() {
             break;
         }
-        match event_rx.recv_timeout(Duration::from_millis(100)) {
+        match event_rx.recv_timeout(Duration::from_millis(10)) {
             Ok(BundledReconstructEvent::BundleCompleted(bundle_timings)) => {
                 completed_bundle_count += 1;
                 accumulate_pipeline_timings(
@@ -1031,15 +1031,19 @@ fn reconstruct_bundle_job(
         let rebuild_started_at = Instant::now();
         for target in &chunk.targets {
             control.checkpoint()?;
-            let _chunk_span = control.profile_span_with_args(
-                "gutch.snapshot.reconstruct.file.artifact_chunk",
-                bundle_target_trace_args(
-                    job,
-                    &entry.chunk_hash,
-                    target,
-                    &file_plans[target.file_index],
-                ),
-            );
+            let _chunk_span = if control.profiler().is_some() {
+                control.profile_span_with_args(
+                    "gutch.snapshot.reconstruct.file.artifact_chunk",
+                    bundle_target_trace_args(
+                        job,
+                        &entry.chunk_hash,
+                        target,
+                        &file_plans[target.file_index],
+                    ),
+                )
+            } else {
+                None
+            };
             let write_started_at = Instant::now();
             output_handles.write_at(target.file_index, target.file_offset, bytes)?;
             let write_elapsed = write_started_at.elapsed();
