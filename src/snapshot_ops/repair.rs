@@ -68,13 +68,18 @@ pub fn repair_snapshot_from_repo(
                 existing_artifacts.insert(artifact.clone());
             }
         }
-        let pipeline_plan = build_reconstruct_pipeline_plan(
-            &repair_plan.affected_manifest,
-            &chunk_index,
-            &repo_paths,
-            &existing_artifacts,
-            None,
-        )?;
+        let pipeline_plan = {
+            let _plan_span = request
+                .control
+                .profile_span("gutch.snapshot.reconstruct.prepare.plan");
+            build_reconstruct_pipeline_plan(
+                &repair_plan.affected_manifest,
+                &chunk_index,
+                &repo_paths,
+                &existing_artifacts,
+                None,
+            )?
+        };
         let compression_profile = repo_manifest.compression_profile();
         let _ = execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
             pipeline_plan,

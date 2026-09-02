@@ -148,13 +148,19 @@ fn download_and_apply_unified_snapshot_ops(
         &request.fetch_request.control,
     )?;
 
-    let pipeline_plan = build_reconstruct_pipeline_plan(
-        &prepared.snapshot_manifest,
-        &prepared.chunk_index,
-        &prepared.repo_paths,
-        &prepared.existing_artifacts,
-        verified_source,
-    )?;
+    let pipeline_plan = {
+        let _plan_span = request
+            .fetch_request
+            .control
+            .profile_span("gutch.snapshot.reconstruct.prepare.plan");
+        build_reconstruct_pipeline_plan(
+            &prepared.snapshot_manifest,
+            &prepared.chunk_index,
+            &prepared.repo_paths,
+            &prepared.existing_artifacts,
+            verified_source,
+        )?
+    };
     let pending_bundle_downloads = select_pending_bundle_downloads(
         &prepared.pending_bundle_downloads,
         &pipeline_plan.required_artifacts,

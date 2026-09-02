@@ -647,61 +647,70 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         ..crate::verify::VerifyTimings::default()
     };
 
-    let artifact_priorities = build_artifact_priorities(&pipeline_plan, pending_bundle_downloads);
+    let artifact_priorities = {
+        let _priorities_span =
+            control.profile_span("gutch.snapshot.reconstruct.prepare.priorities");
+        build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
+    };
     let prepare_started_at = Instant::now();
-    let output_paths = Arc::new(prepare_reconstruct_output_files(
-        &pipeline_plan.files,
-        staging_dir,
-    )?);
+    let output_paths = Arc::new({
+        let _outputs_span = control.profile_span("gutch.snapshot.reconstruct.prepare.outputs");
+        prepare_reconstruct_output_files(&pipeline_plan.files, staging_dir, control)?
+    });
     reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
     let file_plans = Arc::new(pipeline_plan.files);
     let jobs = Arc::new(pipeline_plan.jobs);
-    let pending_artifacts = pending_bundle_downloads
-        .iter()
-        .map(|download| download.artifact.clone())
-        .collect::<HashSet<_>>();
-    let mut artifact_job_indices = HashMap::new();
-    for (job_index, job) in jobs.iter().enumerate() {
-        let ReconstructJob::Artifact(job) = job else {
-            continue;
-        };
-        artifact_job_indices.insert(job.artifact.clone(), job_index);
-        if !existing_artifacts.contains(&job.artifact) && !pending_artifacts.contains(&job.artifact)
-        {
-            return Err(Error::reconstruct(format!(
-                "required artifact '{}' is neither local nor scheduled for download",
-                job.artifact.id()
-            )));
+    let (artifact_job_indices, artifact_scheduler) = {
+        let _artifacts_span = control.profile_span("gutch.snapshot.reconstruct.prepare.artifacts");
+        let pending_artifacts = pending_bundle_downloads
+            .iter()
+            .map(|download| download.artifact.clone())
+            .collect::<HashSet<_>>();
+        let mut artifact_job_indices = HashMap::new();
+        for (job_index, job) in jobs.iter().enumerate() {
+            let ReconstructJob::Artifact(job) = job else {
+                continue;
+            };
+            artifact_job_indices.insert(job.artifact.clone(), job_index);
+            if !existing_artifacts.contains(&job.artifact)
+                && !pending_artifacts.contains(&job.artifact)
+            {
+                return Err(Error::reconstruct(format!(
+                    "required artifact '{}' is neither local nor scheduled for download",
+                    job.artifact.id()
+                )));
+            }
+            if existing_artifacts.contains(&job.artifact) && !job.artifact_path.is_file() {
+                return Err(Error::reconstruct(format!(
+                    "required artifact '{}' is not available at {}",
+                    job.artifact.id(),
+                    job.artifact_path.display()
+                )));
+            }
         }
-        if existing_artifacts.contains(&job.artifact) && !job.artifact_path.is_file() {
-            return Err(Error::reconstruct(format!(
-                "required artifact '{}' is not available at {}",
-                job.artifact.id(),
-                job.artifact_path.display()
-            )));
-        }
-    }
-    let artifact_scheduler = if pending_bundle_downloads.is_empty() {
-        None
-    } else {
-        let Some(download_client) = download_client else {
-            return Err(Error::reconstruct(
-                "bundled reconstruction requires a download client for pending bundles",
-            ));
+        let artifact_scheduler = if pending_bundle_downloads.is_empty() {
+            None
+        } else {
+            let Some(download_client) = download_client else {
+                return Err(Error::reconstruct(
+                    "bundled reconstruction requires a download client for pending bundles",
+                ));
+            };
+            let Some(transfer_progress) = transfer_progress else {
+                return Err(Error::reconstruct(
+                    "bundled reconstruction requires transfer progress for pending bundles",
+                ));
+            };
+            Some(ArtifactDownloadScheduler::new(
+                pending_bundle_downloads,
+                artifact_priorities,
+                transfer_policy,
+                download_client,
+                control,
+                Arc::clone(transfer_progress),
+            )?)
         };
-        let Some(transfer_progress) = transfer_progress else {
-            return Err(Error::reconstruct(
-                "bundled reconstruction requires transfer progress for pending bundles",
-            ));
-        };
-        Some(ArtifactDownloadScheduler::new(
-            pending_bundle_downloads,
-            artifact_priorities,
-            transfer_policy,
-            download_client,
-            control,
-            Arc::clone(transfer_progress),
-        )?)
+        (artifact_job_indices, artifact_scheduler)
     };
     let artifact_worker_count = artifact_scheduler
         .as_ref()
@@ -776,18 +785,21 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     drop(event_tx);
     let mut task_tx = Some(task_tx);
     let mut queued_job_count = 0usize;
-    for (job_index, job) in jobs.iter().enumerate() {
-        let ready = match job {
-            ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
-            ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
-        };
-        if ready {
-            task_tx
-                .as_ref()
-                .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))?
-                .send(job_index)
-                .map_err(|_| Error::reconstruct("reconstruction queue closed unexpectedly"))?;
-            queued_job_count += 1;
+    {
+        let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
+        for (job_index, job) in jobs.iter().enumerate() {
+            let ready = match job {
+                ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
+                ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
+            };
+            if ready {
+                task_tx
+                    .as_ref()
+                    .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))?
+                    .send(job_index)
+                    .map_err(|_| Error::reconstruct("reconstruction queue closed unexpectedly"))?;
+                queued_job_count += 1;
+            }
         }
     }
     let mut downloads_done = artifact_scheduler.is_none();
@@ -830,16 +842,22 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                             )));
                             break;
                         }
-                        let queue_result = task_tx
-                            .as_ref()
-                            .ok_or_else(|| {
-                                Error::reconstruct("reconstruction queue is unavailable")
-                            })
-                            .and_then(|sender| {
-                                sender.send(job_index).map_err(|_| {
-                                    Error::reconstruct("reconstruction queue closed unexpectedly")
+                        let queue_result = {
+                            let _dispatch_span = control
+                                .profile_span("gutch.snapshot.reconstruct.dispatch.downloaded");
+                            task_tx
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    Error::reconstruct("reconstruction queue is unavailable")
                                 })
-                            });
+                                .and_then(|sender| {
+                                    sender.send(job_index).map_err(|_| {
+                                        Error::reconstruct(
+                                            "reconstruction queue closed unexpectedly",
+                                        )
+                                    })
+                                })
+                        };
                         if let Err(error) = queue_result {
                             pipeline_error = Some(error);
                             break;
@@ -943,15 +961,18 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         )));
     }
 
-    let verify_started_at = Instant::now();
-    let verified_file_bytes = verify_reconstructed_output_files(
-        &file_plans,
-        &output_paths,
-        runtime_plan.worker_count,
-        control,
-        &mut reconstruct_timings,
-    )?;
-    let verify_elapsed = verify_started_at.elapsed();
+    let (verified_file_bytes, verify_elapsed) = {
+        let _verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
+        let verify_started_at = Instant::now();
+        let verified_file_bytes = verify_reconstructed_output_files(
+            &file_plans,
+            &output_paths,
+            runtime_plan.worker_count,
+            control,
+            &mut reconstruct_timings,
+        )?;
+        (verified_file_bytes, verify_started_at.elapsed())
+    };
     verify_timings.file_hash += verify_elapsed;
     verify_timings.file_hash_bytes = verify_timings
         .file_hash_bytes
@@ -985,9 +1006,14 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
 fn prepare_reconstruct_output_files(
     files: &[ReconstructPipelineFile],
     staging_dir: &Path,
+    control: &GutchOperationControl,
 ) -> Result<Vec<PathBuf>> {
     let mut output_paths = Vec::with_capacity(files.len());
     for file_plan in files {
+        let _file_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.prepare.file",
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+        );
         let output_path =
             crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)?;
         if let Some(parent) = output_path.parent() {
@@ -1150,9 +1176,10 @@ fn reconstruct_source_chunk_job(
         "gutch.snapshot.reconstruct.job.source_chunk",
         source_chunk_trace_args(job),
     );
-    let mut input = File::open(&job.source_path)?;
-    let read_started_at = Instant::now();
-    input.seek(SeekFrom::Start(job.source_offset))?;
+    let mut input = {
+        let _open_span = control.profile_span("gutch.snapshot.reconstruct.source_chunk.open");
+        File::open(&job.source_path)?
+    };
     let mut bytes = vec![
         0u8;
         usize::try_from(job.raw_size).map_err(|_| {
@@ -1162,15 +1189,22 @@ fn reconstruct_source_chunk_job(
             ))
         })?
     ];
+    let read_started_at = Instant::now();
     {
-        let _read_span = control.profile_span("gutch.snapshot.reconstruct.source_chunk.read");
+        let _read_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.source_chunk.read",
+            source_chunk_trace_args(job),
+        );
+        input.seek(SeekFrom::Start(job.source_offset))?;
         input.read_exact(&mut bytes)?;
     }
     let read_elapsed = read_started_at.elapsed();
     let hash_started_at = Instant::now();
     let actual_hash = {
-        let _hash_span =
-            control.profile_span("gutch.snapshot.reconstruct.source_chunk.hash_verify");
+        let _hash_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.source_chunk.hash_verify",
+            source_chunk_trace_args(job),
+        );
         crate::hash::hash_hex(&crate::hash::hash_chunk(&bytes))
     };
     let hash_elapsed = hash_started_at.elapsed();
@@ -1194,6 +1228,10 @@ fn reconstruct_source_chunk_job(
         control.checkpoint()?;
         let _target_span = control.profile_span_with_args(
             "gutch.snapshot.reconstruct.file.source_chunk",
+            source_target_trace_args(job, target, &file_plans[target.file_index]),
+        );
+        let _write_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.source_chunk.write",
             source_target_trace_args(job, target, &file_plans[target.file_index]),
         );
         let write_started_at = Instant::now();
@@ -1223,24 +1261,42 @@ fn copy_source_file_job(
         "gutch.snapshot.reconstruct.job.source_file",
         source_file_trace_args(file_plan, source_path),
     );
-    let mut input = File::open(source_path)?;
-    let mut output = OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(&output_paths[file_index])?;
+    let mut input = {
+        let _open_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.source_file.open",
+            source_file_trace_args(file_plan, source_path),
+        );
+        File::open(source_path)?
+    };
+    let mut output = {
+        let _open_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.source_file.output_open",
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+        );
+        OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&output_paths[file_index])?
+    };
     let mut timings = ReconstructTimings::default();
     let mut buffer = vec![0u8; 1024 * 1024];
     let mut copied = 0u64;
     loop {
         control.checkpoint()?;
         let read = {
-            let _read_span = control.profile_span("gutch.snapshot.reconstruct.source_file.read");
+            let _read_span = control.profile_span_with_args(
+                "gutch.snapshot.reconstruct.source_file.read",
+                source_file_trace_args(file_plan, source_path),
+            );
             input.read(&mut buffer)?
         };
         if read == 0 {
             break;
         }
-        let _write_span = control.profile_span("gutch.snapshot.reconstruct.file.source_write");
+        let _write_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.source_file.write",
+            file_write_trace_args(file_plan, read as u64),
+        );
         let write_started_at = Instant::now();
         output.write_all(&buffer[..read])?;
         timings.file_write += write_started_at.elapsed();
@@ -1249,7 +1305,10 @@ fn copy_source_file_job(
         copied = copied.saturating_add(read as u64);
     }
     {
-        let _flush_span = control.profile_span("gutch.snapshot.reconstruct.file.output_flush");
+        let _flush_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.source_file.flush",
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
+        );
         let flush_started_at = Instant::now();
         output.flush()?;
         timings.file_write += flush_started_at.elapsed();
@@ -1292,6 +1351,10 @@ fn write_reconstruct_targets(
         })?;
         let _target_span = control.profile_span_with_args(
             "gutch.snapshot.reconstruct.file.artifact_chunk",
+            artifact_target_trace_args(job, target, chunk, file_plan),
+        );
+        let _write_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.artifact_chunk.write",
             artifact_target_trace_args(job, target, chunk, file_plan),
         );
         let write_started_at = Instant::now();
@@ -1515,6 +1578,18 @@ fn source_file_trace_args(
     args.insert(
         "source_path".to_string(),
         serde_json::json!(source_path.display().to_string()),
+    );
+    args
+}
+
+fn file_write_trace_args(
+    file_plan: &ReconstructPipelineFile,
+    write_size: u64,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
+    args.insert(
+        "write_size_mib".to_string(),
+        serde_json::json!(write_size as f64 / (1024.0 * 1024.0)),
     );
     args
 }

@@ -498,16 +498,7 @@ fn artifact_download_worker(
         };
         let _artifact_span = control.profile_span_with_args(
             "gutch.fetch.artifact",
-            std::collections::BTreeMap::from([
-                (
-                    "ordinal".to_string(),
-                    serde_json::json!(bundle_download.ordinal),
-                ),
-                (
-                    "total".to_string(),
-                    serde_json::json!(bundle_download.total_missing_bundle_count),
-                ),
-            ]),
+            artifact_transfer_trace_args(&bundle_download),
         );
         let result = download_pending_bundle(
             &download_client,
@@ -851,16 +842,7 @@ pub(super) fn download_pending_bundle(
     control.checkpoint()?;
     let _artifact_span = control.profile_span_with_args(
         "gutch.fetch.artifact.transfer",
-        std::collections::BTreeMap::from([
-            (
-                "ordinal".to_string(),
-                serde_json::json!(bundle_download.ordinal),
-            ),
-            (
-                "total".to_string(),
-                serde_json::json!(bundle_download.total_missing_bundle_count),
-            ),
-        ]),
+        artifact_transfer_trace_args(bundle_download),
     );
     if let Some(parent) = bundle_download.bundle_path.parent() {
         crate::helpers::create_dir_all(parent)?;
@@ -905,6 +887,29 @@ pub(super) fn download_pending_bundle(
     transfer_progress.download_finished();
     result?;
     Ok(transfer_progress.mark_bundle_completed())
+}
+
+fn artifact_transfer_trace_args(
+    bundle_download: &PendingBundleDownload,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    std::collections::BTreeMap::from([
+        (
+            "artifact_id".to_string(),
+            serde_json::json!(bundle_download.artifact.id()),
+        ),
+        (
+            "artifact_path".to_string(),
+            serde_json::json!(bundle_download.bundle_path.display().to_string()),
+        ),
+        (
+            "ordinal".to_string(),
+            serde_json::json!(bundle_download.ordinal),
+        ),
+        (
+            "total".to_string(),
+            serde_json::json!(bundle_download.total_missing_bundle_count),
+        ),
+    ])
 }
 
 fn retry_delay(attempt: usize) -> Duration {
