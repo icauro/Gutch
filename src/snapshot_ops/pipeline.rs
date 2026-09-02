@@ -866,7 +866,7 @@ fn reconstruct_pipeline_file(
     control.checkpoint()?;
     let _file_span = control.profile_span_with_args(
         "gutch.snapshot.reconstruct.file",
-        crate::profile::file_trace_args(&file_plan.path, file_plan.size),
+        reconstruct_file_trace_args(file_plan),
     );
     match &file_plan.reconstruction {
         ReconstructPipelineReconstruction::CopyFromSource { source_path } => {
@@ -884,6 +884,42 @@ fn reconstruct_pipeline_file(
             )
         }
     }
+}
+
+fn reconstruct_file_trace_args(
+    file_plan: &ReconstructPipelineFile,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
+    let mut chunk_hashes = HashSet::new();
+    let mut bundle_artifacts = HashSet::new();
+
+    if let ReconstructPipelineReconstruction::ReconstructFromParts { chunks } =
+        &file_plan.reconstruction
+    {
+        for chunk in chunks {
+            match chunk {
+                ReconstructPipelineChunkInput::Source { chunk_hash, .. } => {
+                    chunk_hashes.insert(chunk_hash);
+                }
+                ReconstructPipelineChunkInput::Artifact(chunk) => {
+                    chunk_hashes.insert(&chunk.chunk_hash);
+                    if matches!(&chunk.artifact, crate::ArtifactRef::Bundle { .. }) {
+                        bundle_artifacts.insert(&chunk.artifact);
+                    }
+                }
+            }
+        }
+    }
+
+    args.insert(
+        "required_distinct_chunks".to_string(),
+        serde_json::json!(chunk_hashes.len()),
+    );
+    args.insert(
+        "required_distinct_bundles".to_string(),
+        serde_json::json!(bundle_artifacts.len()),
+    );
+    args
 }
 
 fn copy_pipeline_file_from_source(
