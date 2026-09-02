@@ -854,7 +854,6 @@ fn reconstruct_pipeline_file(
             copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)
         }
         ReconstructPipelineReconstruction::ReconstructFromParts { chunks } => {
-            let _strategy_span = control.profile_span("gutch.snapshot.reconstruct.file.from_parts");
             reconstruct_pipeline_file_from_parts(
                 file_plan,
                 chunks,
