@@ -157,6 +157,10 @@ impl GutchOperationControl {
         self.profiler.as_ref().map(|profiler| profiler.span(name))
     }
 
+    pub(crate) fn profiler(&self) -> Option<&crate::GutchProfiler> {
+        self.profiler.as_deref()
+    }
+
     pub(crate) fn profile_span_with_args(
         &self,
         name: impl Into<String>,

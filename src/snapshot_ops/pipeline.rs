@@ -922,6 +922,41 @@ fn reconstruct_file_trace_args(
     args
 }
 
+fn artifact_chunk_trace_args(
+    chunk: &ReconstructPipelineChunk,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let artifact_kind = match &chunk.artifact {
+        crate::ArtifactRef::Bundle { .. } => "bundle",
+        crate::ArtifactRef::LooseChunk { .. } => "loose_chunk",
+    };
+    std::collections::BTreeMap::from([
+        (
+            "artifact_kind".to_string(),
+            serde_json::json!(artifact_kind),
+        ),
+        (
+            "artifact_id".to_string(),
+            serde_json::json!(chunk.artifact.id()),
+        ),
+        (
+            "artifact_path".to_string(),
+            serde_json::json!(chunk.artifact_path.display().to_string()),
+        ),
+        (
+            "chunk_hash".to_string(),
+            serde_json::json!(chunk.chunk_hash),
+        ),
+        (
+            "raw_size_mib".to_string(),
+            serde_json::json!(chunk.raw_size as f64 / (1024.0 * 1024.0)),
+        ),
+        (
+            "compressed_size_mib".to_string(),
+            serde_json::json!(chunk.compressed_size as f64 / (1024.0 * 1024.0)),
+        ),
+    ])
+}
+
 fn copy_pipeline_file_from_source(
     file_plan: &ReconstructPipelineFile,
     source_path: &Path,
@@ -1021,8 +1056,11 @@ fn reconstruct_pipeline_file_from_parts(
                 chunk_bytes
             }
             ReconstructPipelineChunkInput::Artifact(chunk) => {
-                let _artifact_chunk_span =
-                    control.profile_span("gutch.snapshot.reconstruct.file.artifact_chunk");
+                let _artifact_chunk_span = control.profile_span_with_args(
+                    "gutch.snapshot.reconstruct.file.artifact_chunk",
+                    artifact_chunk_trace_args(chunk),
+                );
+                let profiler = control.profiler();
                 let read_started_at = Instant::now();
                 let chunk_bytes = match &chunk.artifact {
                     crate::ArtifactRef::Bundle { .. } => {
@@ -1030,8 +1068,11 @@ fn reconstruct_pipeline_file_from_parts(
                             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                             std::collections::hash_map::Entry::Vacant(entry) => {
                                 let file = File::open(&chunk.artifact_path)?;
-                                let reader =
-                                    crate::bundle::BundleReader::open(file, compression_profile)?;
+                                let reader = crate::bundle::BundleReader::open_with_profiler(
+                                    file,
+                                    compression_profile,
+                                    profiler,
+                                )?;
                                 let chunk_index = reader.chunk_index();
                                 entry.insert((reader, chunk_index))
                             }
@@ -1041,14 +1082,21 @@ fn reconstruct_pipeline_file_from_parts(
                             .get(&chunk.chunk_hash)
                             .copied()
                             .ok_or_else(|| Error::MissingChunk(chunk.chunk_hash.clone()))?;
-                        reader_entry.0.read_chunk_bytes(chunk_index)?.to_vec()
+                        let chunk_bytes = reader_entry
+                            .0
+                            .read_chunk_bytes_with_profiler(chunk_index, profiler)?;
+                        let _materialize_span = control.profile_span(
+                            "gutch.snapshot.reconstruct.file.artifact_chunk.materialize",
+                        );
+                        chunk_bytes.to_vec()
                     }
                     crate::ArtifactRef::LooseChunk { hash } => {
-                        crate::artifact::store::read_loose_chunk(
+                        crate::artifact::store::read_loose_chunk_with_profiler(
                             &chunk.artifact_path,
                             hash,
                             chunk.raw_size,
                             compression_profile,
+                            profiler,
                         )?
                     }
                 };

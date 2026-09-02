@@ -85,22 +85,52 @@ pub(crate) fn read_loose_chunk(
     raw_size: u64,
     compression_profile: &CompressionProfile,
 ) -> Result<Vec<u8>> {
-    let compressed = std::fs::read(path)?;
-    let bytes = crate::compress::decompress_data(&compressed, compression_profile.compression)?;
-    if bytes.len() as u64 != raw_size {
-        return Err(Error::reconstruct(format!(
-            "loose chunk '{}' has size {}, expected {}",
-            chunk_hash,
-            bytes.len(),
-            raw_size
-        )));
-    }
-    let actual_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&bytes));
-    if actual_hash != chunk_hash {
-        return Err(Error::HashMismatch {
-            expected: chunk_hash.to_string(),
-            actual: actual_hash,
+    read_loose_chunk_with_profiler(path, chunk_hash, raw_size, compression_profile, None)
+}
+
+pub(crate) fn read_loose_chunk_with_profiler(
+    path: &std::path::Path,
+    chunk_hash: &str,
+    raw_size: u64,
+    compression_profile: &CompressionProfile,
+    profiler: Option<&crate::GutchProfiler>,
+) -> Result<Vec<u8>> {
+    let compressed = {
+        let _read_span = profiler.map(|profiler| {
+            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.payload_read")
         });
+        std::fs::read(path)?
+    };
+    let bytes = {
+        let _decompress_span = profiler.map(|profiler| {
+            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.payload_decompress")
+        });
+        crate::compress::decompress_data(&compressed, compression_profile.compression)?
+    };
+    {
+        let _size_span = profiler.map(|profiler| {
+            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.size_verify")
+        });
+        if bytes.len() as u64 != raw_size {
+            return Err(Error::reconstruct(format!(
+                "loose chunk '{}' has size {}, expected {}",
+                chunk_hash,
+                bytes.len(),
+                raw_size
+            )));
+        }
+    }
+    {
+        let _hash_span = profiler.map(|profiler| {
+            profiler.span("gutch.snapshot.reconstruct.file.artifact_chunk.hash_verify")
+        });
+        let actual_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&bytes));
+        if actual_hash != chunk_hash {
+            return Err(Error::HashMismatch {
+                expected: chunk_hash.to_string(),
+                actual: actual_hash,
+            });
+        }
     }
     Ok(bytes)
 }
