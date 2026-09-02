@@ -24,6 +24,8 @@ thiserror = "2.0.18"
 # Custom error type derivation
 rayon = "1.12.0"
 # Data parallelism (parallel chunk hashing)
+num_cpus = "1.17.0"
+# Physical and logical CPU counts for runtime defaults
 tempfile = "3.27.0"
 # Temporary files/dirs (staging during reconstruct)
 reqwest = { version = "0.13.4", features = [

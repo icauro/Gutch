@@ -25,15 +25,16 @@ pub(crate) fn plan_reconstruct_runtime(hints: &RuntimeResourceHints) -> RuntimeP
 }
 
 fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    let available_workers = std::thread::available_parallelism()
+    let logical_workers = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1)
         .max(1);
+    let default_workers = num_cpus::get_physical().max(1).min(logical_workers);
     let worker_count = hints
         .jobs
-        .unwrap_or(available_workers)
+        .unwrap_or(default_workers)
         .max(1)
-        .min(available_workers);
+        .min(logical_workers);
 
     RuntimePlan { worker_count }
 }
@@ -58,25 +59,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_jobs_use_available_parallelism() {
-        let available_workers = std::thread::available_parallelism()
+    fn default_jobs_use_physical_parallelism() {
+        let logical_workers = std::thread::available_parallelism()
             .map(|value| value.get())
             .unwrap_or(1)
             .max(1);
+        let physical_workers = num_cpus::get_physical().max(1).min(logical_workers);
         let plan = plan_build_runtime(&RuntimeResourceHints::default());
-        assert_eq!(plan.worker_count, available_workers);
+        assert_eq!(plan.worker_count, physical_workers);
     }
 
     #[test]
     fn explicit_jobs_override_the_default_and_respect_cpu_limit() {
-        let available_workers = std::thread::available_parallelism()
+        let logical_workers = std::thread::available_parallelism()
             .map(|value| value.get())
             .unwrap_or(1)
             .max(1);
         let plan = plan_reconstruct_runtime(&RuntimeResourceHints {
-            jobs: Some(available_workers.saturating_add(8)),
+            jobs: Some(logical_workers.saturating_add(8)),
         });
-        assert_eq!(plan.worker_count, available_workers);
+        assert_eq!(plan.worker_count, logical_workers);
 
         let plan = plan_verify_runtime(&RuntimeResourceHints { jobs: Some(1) });
         assert_eq!(plan.worker_count, 1);
