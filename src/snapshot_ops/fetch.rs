@@ -77,6 +77,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
         &transfer_progress,
         &pending_bundle_downloads,
     )?;
+    transfer_progress.finish();
     let transfer_stats = transfer_progress.stats(request.transfer_policy);
     let required_bundle_count = required_artifacts
         .iter()
@@ -158,6 +159,9 @@ fn download_and_apply_unified_snapshot_ops(
         &prepared.pending_bundle_downloads,
         &pipeline_plan.required_artifacts,
     );
+    if pending_bundle_downloads.is_empty() {
+        transfer_progress.finish();
+    }
 
     let reconstruct_result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
@@ -570,5 +574,6 @@ fn download_pending_bundle_files(
         }
     }
     scheduler.join()?;
+    transfer_progress.finish();
     Ok(downloaded_count)
 }

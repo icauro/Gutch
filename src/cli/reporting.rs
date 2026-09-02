@@ -36,6 +36,25 @@ fn print_blank_line() {
     println!();
 }
 
+const TABLE_PHASE_WIDTH: usize = 24;
+const TABLE_SECONDS_WIDTH: usize = 14;
+const TABLE_BYTES_WIDTH: usize = 32;
+const TABLE_THROUGHPUT_WIDTH: usize = 20;
+
+fn fit_table_cell(value: &str, width: usize) -> String {
+    let character_count = value.chars().count();
+    if character_count <= width {
+        return value.to_string();
+    }
+    if width <= 3 {
+        return ".".repeat(width);
+    }
+
+    let mut shortened = value.chars().take(width - 3).collect::<String>();
+    shortened.push_str("...");
+    shortened
+}
+
 fn runtime_plan_detail(plan: &g::RuntimePlan, include_storage: bool) -> String {
     let storage = if include_storage {
         format!(" storage={}", plan.chunk_storage_mode.as_str())
@@ -61,29 +80,28 @@ fn print_runtime_plan(plan: Option<&g::RuntimePlan>, include_storage: bool) {
     }
 }
 
-fn print_timing_throughput_line(label: &str, duration: std::time::Duration, bytes: u64) {
-    print_metric_line(
-        label,
-        format!(
-            "{:.2} s  {:.2} MiB  {:.2} MiB/s",
-            secs(duration),
-            mib(bytes),
-            mib_per_s(bytes, duration)
-        ),
-    );
-}
-
 fn print_table_border() {
     println!(
-        "  +------------------------+------------+--------------------------+--------------------+"
+        "  +{}+{}+{}+{}+",
+        "-".repeat(TABLE_PHASE_WIDTH + 2),
+        "-".repeat(TABLE_SECONDS_WIDTH + 2),
+        "-".repeat(TABLE_BYTES_WIDTH + 2),
+        "-".repeat(TABLE_THROUGHPUT_WIDTH + 2),
     );
 }
 
-fn print_table_header() {
+fn print_table_header(seconds_label: &str) {
     print_table_border();
+    let phase = fit_table_cell("phase", TABLE_PHASE_WIDTH);
+    let seconds = fit_table_cell(seconds_label, TABLE_SECONDS_WIDTH);
+    let bytes = fit_table_cell("bytes", TABLE_BYTES_WIDTH);
+    let throughput = fit_table_cell("throughput", TABLE_THROUGHPUT_WIDTH);
     println!(
-        "  | {:<22} | {:>10} | {:<24} | {:>18} |",
-        "phase", "seconds", "bytes", "throughput"
+        "  | {phase:<phase_width$} | {seconds:>seconds_width$} | {bytes:<bytes_width$} | {throughput:>throughput_width$} |",
+        phase_width = TABLE_PHASE_WIDTH,
+        seconds_width = TABLE_SECONDS_WIDTH,
+        bytes_width = TABLE_BYTES_WIDTH,
+        throughput_width = TABLE_THROUGHPUT_WIDTH,
     );
     print_table_border();
 }
@@ -95,18 +113,74 @@ fn print_table_row(
     bytes: Option<String>,
     throughput: Option<String>,
 ) {
-    let indent = "  ".repeat(level);
-    let phase = format!("{indent}{phase}");
+    let phase = fit_table_cell(
+        &format!("{}{}", "  ".repeat(level), phase),
+        TABLE_PHASE_WIDTH,
+    );
+    let seconds = seconds
+        .map(|value| format!("{value:.2} s"))
+        .unwrap_or_else(|| "-".to_string());
+    let bytes = bytes.unwrap_or_else(|| "-".to_string());
+    let throughput = throughput.unwrap_or_else(|| "-".to_string());
+    let seconds = fit_table_cell(&seconds, TABLE_SECONDS_WIDTH);
+    let bytes = fit_table_cell(&bytes, TABLE_BYTES_WIDTH);
+    let throughput = fit_table_cell(&throughput, TABLE_THROUGHPUT_WIDTH);
     println!(
-        "  | {:<22} | {:>10} | {:<24} | {:>18} |",
-        phase,
-        seconds
-            .map(|value| format!("{value:.2} s"))
-            .unwrap_or_else(|| "-".to_string()),
-        bytes.unwrap_or_else(|| "-".to_string()),
-        throughput.unwrap_or_else(|| "-".to_string()),
+        "  | {phase:<phase_width$} | {seconds:>seconds_width$} | {bytes:<bytes_width$} | {throughput:>throughput_width$} |",
+        phase_width = TABLE_PHASE_WIDTH,
+        seconds_width = TABLE_SECONDS_WIDTH,
+        bytes_width = TABLE_BYTES_WIDTH,
+        throughput_width = TABLE_THROUGHPUT_WIDTH,
     );
     print_table_border();
+}
+
+fn print_throughput_row(phase: &str, level: usize, duration: std::time::Duration, bytes: u64) {
+    print_table_row(
+        phase,
+        level,
+        Some(secs(duration)),
+        Some(format!("{:.2} MiB", mib(bytes))),
+        Some(format!("{:.2} MiB/s", mib_per_s(bytes, duration))),
+    );
+}
+
+fn print_in_out_throughput_row(
+    phase: &str,
+    level: usize,
+    duration: std::time::Duration,
+    input_bytes: u64,
+    output_bytes: u64,
+) {
+    print_in_out_throughput_row_with_rate(
+        phase,
+        level,
+        duration,
+        input_bytes,
+        output_bytes,
+        output_bytes,
+    );
+}
+
+fn print_in_out_throughput_row_with_rate(
+    phase: &str,
+    level: usize,
+    duration: std::time::Duration,
+    input_bytes: u64,
+    output_bytes: u64,
+    rate_bytes: u64,
+) {
+    print_table_row(
+        phase,
+        level,
+        Some(secs(duration)),
+        Some(format!(
+            "in {:.2} / out {:.2} MiB",
+            mib(input_bytes),
+            mib(output_bytes)
+        )),
+        Some(format!("{:.2} MiB/s", mib_per_s(rate_bytes, duration))),
+    );
 }
 
 pub(crate) fn print_profile_summary(profile: Option<&g::GutchProfiler>) {
@@ -138,11 +212,7 @@ pub(crate) fn print_profile_summary(profile: Option<&g::GutchProfiler>) {
     );
     println!("  +--------------------------------------+----------+------------+------------+");
     for span in spans.into_iter().take(24) {
-        let name = if span.name.len() > 36 {
-            format!("{}…", &span.name[..35])
-        } else {
-            span.name.clone()
-        };
+        let name = fit_table_cell(&span.name, 36);
         println!(
             "  | {:<36} | {:>8} | {:>9.3} s | {:>9.3} s |",
             name, span.count, span.total_seconds, span.maximum_seconds
@@ -311,6 +381,9 @@ pub(crate) struct ReconstructReconstructDetailsSummary {
     pub(crate) bundle_read_compressed_bytes: u64,
     pub(crate) bundle_read_decompressed_bytes: u64,
     pub(crate) bundle_read_decompressed_mib_per_second: f64,
+    pub(crate) file_rebuild_worker_seconds: f64,
+    pub(crate) file_rebuild_bytes: u64,
+    pub(crate) file_rebuild_mib_per_second: f64,
     pub(crate) chunk_verify_worker_seconds: Option<f64>,
     pub(crate) chunk_verify_bytes: Option<u64>,
     pub(crate) chunk_verify_mib_per_second: Option<f64>,
@@ -534,6 +607,12 @@ pub(crate) fn reconstruct_timings_summary(
                         timings.bundle_read_decompressed_bytes,
                         timings.bundle_read,
                     ),
+                    file_rebuild_worker_seconds: secs(timings.file_rebuild),
+                    file_rebuild_bytes: timings.file_rebuild_bytes,
+                    file_rebuild_mib_per_second: mib_per_s(
+                        timings.file_rebuild_bytes,
+                        timings.file_rebuild,
+                    ),
                     chunk_verify_worker_seconds: timings
                         .verify_chunks
                         .then(|| secs(timings.chunk_verify)),
@@ -641,21 +720,19 @@ pub(crate) fn write_stats_json_output<T: Serialize>(
 pub(crate) fn print_build_timings(t: &g::BuildTimings) {
     print_section_title("Build Timing Summary");
     print_runtime_plan(t.runtime_plan.as_ref(), true);
-    print_table_header();
-    print_table_row("scan + chunk", 0, Some(secs(t.scan_chunk_wall)), None, None);
-    print_table_row(
+    print_table_header("wall seconds");
+    print_throughput_row("scan + chunk", 0, t.scan_chunk_wall, t.logical_bytes);
+    print_throughput_row(
         "dedupe + plan",
         0,
-        Some(secs(t.dedupe_plan_wall)),
-        None,
-        None,
+        t.dedupe_plan_wall,
+        t.dedupe_lookup_bytes,
     );
-    print_table_row(
+    print_throughput_row(
         "artifact encode",
         0,
-        Some(secs(t.artifact_encode_wall)),
-        None,
-        None,
+        t.artifact_encode_wall,
+        t.compression_input_bytes,
     );
     print_table_row(
         "manifest finalize",
@@ -674,151 +751,67 @@ pub(crate) fn print_build_timings(t: &g::BuildTimings) {
         ],
     );
     print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
-    print_table_row("total", 0, Some(secs(t.total)), None, None);
+    print_throughput_row("total", 0, t.total, t.logical_bytes);
 
     if !super::verbose_output_enabled() {
         return;
     }
 
     print_blank_line();
-    print_section_title("Build Worker Timing Details");
-    print_table_header();
-    print_table_row(
-        "file hashing",
-        0,
-        Some(secs(t.file_hash)),
-        Some(format!("{:.2} MiB", mib(t.file_hash_bytes))),
-        Some(format!(
-            "{:.2} MiB/s",
-            mib_per_s(t.file_hash_bytes, t.file_hash)
-        )),
-    );
-    print_table_row(
-        "stream chunk",
-        0,
-        Some(secs(t.stream_chunk)),
-        Some(format!("{:.2} MiB", mib(t.stream_chunk_bytes))),
-        Some(format!(
-            "{:.2} MiB/s",
-            mib_per_s(t.stream_chunk_bytes, t.stream_chunk)
-        )),
-    );
-    print_table_row(
+    print_section_title("Build Worker Timing Details (worker time)");
+    print_table_header("worker seconds");
+    print_throughput_row("file hashing", 0, t.file_hash, t.file_hash_bytes);
+    print_throughput_row("stream chunk", 0, t.stream_chunk, t.stream_chunk_bytes);
+    print_throughput_row(
         "chunk hash",
         0,
-        Some(secs(t.chunk_hash_judgment)),
-        Some(format!("{:.2} MiB", mib(t.chunk_hash_judgment_bytes))),
-        Some(format!(
-            "{:.2} MiB/s",
-            mib_per_s(t.chunk_hash_judgment_bytes, t.chunk_hash_judgment)
-        )),
+        t.chunk_hash_judgment,
+        t.chunk_hash_judgment_bytes,
     );
     print_table_row("metadata", 0, Some(secs(t.metadata)), None, None);
-    print_table_row(
-        "dedupe lookup",
-        0,
-        Some(secs(t.dedupe_lookup)),
-        Some(format!("{:.2} MiB", mib(t.dedupe_lookup_bytes))),
-        Some(format!(
-            "{:.2} MiB/s",
-            mib_per_s(t.dedupe_lookup_bytes, t.dedupe_lookup)
-        )),
-    );
+    print_throughput_row("dedupe lookup", 0, t.dedupe_lookup, t.dedupe_lookup_bytes);
     if t.bundle_compressed_sort_bytes > 0 {
-        print_table_row(
+        print_throughput_row(
             "bundle sort",
             1,
-            Some(secs(t.bundle_compressed_sort)),
-            Some(format!("{:.2} MiB", mib(t.bundle_compressed_sort_bytes))),
-            Some(format!(
-                "{:.2} MiB/s",
-                mib_per_s(t.bundle_compressed_sort_bytes, t.bundle_compressed_sort)
-            )),
+            t.bundle_compressed_sort,
+            t.bundle_compressed_sort_bytes,
         );
     }
     if t.bundle_compressed_ratio_probe_bytes > 0 {
-        print_table_row(
+        print_throughput_row(
             "bundle ratio probe",
             1,
-            Some(secs(t.bundle_compressed_ratio_probe)),
-            Some(format!(
-                "{:.2} MiB",
-                mib(t.bundle_compressed_ratio_probe_bytes)
-            )),
-            Some(format!(
-                "{:.2} MiB/s",
-                mib_per_s(
-                    t.bundle_compressed_ratio_probe_bytes,
-                    t.bundle_compressed_ratio_probe
-                )
-            )),
+            t.bundle_compressed_ratio_probe,
+            t.bundle_compressed_ratio_probe_bytes,
         );
     }
     if t.bundle_compressed_stream_input_bytes > 0 {
-        print_table_row(
+        print_throughput_row(
             "bundle payload load",
             2,
-            Some(secs(t.bundle_compressed_payload_load)),
-            Some(format!(
-                "{:.2} MiB",
-                mib(t.bundle_compressed_payload_load_bytes)
-            )),
-            Some(format!(
-                "{:.2} MiB/s",
-                mib_per_s(
-                    t.bundle_compressed_payload_load_bytes,
-                    t.bundle_compressed_payload_load
-                )
-            )),
+            t.bundle_compressed_payload_load,
+            t.bundle_compressed_payload_load_bytes,
         );
-        print_table_row(
+        print_throughput_row(
             "bundle payload asm",
             2,
-            Some(secs(t.bundle_compressed_payload_assembly)),
-            Some(format!(
-                "{:.2} MiB",
-                mib(t.bundle_compressed_payload_assembly_bytes)
-            )),
-            Some(format!(
-                "{:.2} MiB/s",
-                mib_per_s(
-                    t.bundle_compressed_payload_assembly_bytes,
-                    t.bundle_compressed_payload_assembly
-                )
-            )),
+            t.bundle_compressed_payload_assembly,
+            t.bundle_compressed_payload_assembly_bytes,
         );
-        print_table_row(
+        print_in_out_throughput_row_with_rate(
             "bundle stream zstd",
             2,
-            Some(secs(t.bundle_compressed_stream_compression)),
-            Some(format!(
-                "{:.2} / {:.2} MiB",
-                mib(t.bundle_compressed_stream_input_bytes),
-                mib(t.bundle_compressed_stream_output_bytes)
-            )),
-            Some(format!(
-                "{:.2} MiB/s",
-                mib_per_s(
-                    t.bundle_compressed_stream_input_bytes,
-                    t.bundle_compressed_stream_compression
-                )
-            )),
+            t.bundle_compressed_stream_compression,
+            t.bundle_compressed_stream_input_bytes,
+            t.bundle_compressed_stream_output_bytes,
+            t.bundle_compressed_stream_input_bytes,
         );
-        print_table_row(
+        print_throughput_row(
             "bundle serialize",
             2,
-            Some(secs(t.bundle_compressed_serialization)),
-            Some(format!(
-                "{:.2} MiB",
-                mib(t.bundle_compressed_serialization_bytes)
-            )),
-            Some(format!(
-                "{:.2} MiB/s",
-                mib_per_s(
-                    t.bundle_compressed_serialization_bytes,
-                    t.bundle_compressed_serialization
-                )
-            )),
+            t.bundle_compressed_serialization,
+            t.bundle_compressed_serialization_bytes,
         );
     }
     print_metric_line(
@@ -840,52 +833,57 @@ pub(crate) fn print_build_timings(t: &g::BuildTimings) {
 pub(crate) fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_section_title("Reconstruct Timing Summary");
     print_runtime_plan(t.runtime_plan.as_ref(), false);
-    print_table_header();
+    print_table_header("wall seconds");
     print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
-    print_table_row("reconstruct", 0, Some(secs(t.reconstruct_wall)), None, None);
+    print_throughput_row("reconstruct", 0, t.reconstruct_wall, t.file_write_bytes);
     let (_, unaccounted_seconds) =
         wall_timing_fields(t.total, &[t.prepare_wall, t.reconstruct_wall]);
     print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
-    print_table_row("total", 0, Some(secs(t.total)), None, None);
+    print_throughput_row("total", 0, t.total, t.file_write_bytes);
 
     if !super::verbose_output_enabled() {
         return;
     }
 
     print_blank_line();
-    print_section_title("Reconstruct Worker Timing Details");
-    print_metric_line(
+    print_section_title("Reconstruct Worker Timing Details (worker time)");
+    print_table_header("worker seconds");
+    print_in_out_throughput_row(
         "artifact read/decode",
-        format!(
-            "{:.2} s  in {:.2} MiB  out {:.2} MiB  {:.2} MiB/s",
-            secs(t.artifact_read),
-            mib(t.artifact_read_compressed_bytes),
-            mib(t.artifact_read_decompressed_bytes),
-            mib_per_s(t.artifact_read_decompressed_bytes, t.artifact_read)
-        ),
+        0,
+        t.artifact_read,
+        t.artifact_read_compressed_bytes,
+        t.artifact_read_decompressed_bytes,
     );
+    if t.bundle_read_compressed_bytes > 0 {
+        print_in_out_throughput_row(
+            "bundle read/decode",
+            1,
+            t.bundle_read,
+            t.bundle_read_compressed_bytes,
+            t.bundle_read_decompressed_bytes,
+        );
+    }
+    if t.file_rebuild > std::time::Duration::ZERO || t.file_rebuild_bytes > 0 {
+        print_throughput_row("file rebuild", 0, t.file_rebuild, t.file_rebuild_bytes);
+    }
     if t.verify_chunks {
-        print_timing_throughput_line("chunk verify", t.chunk_verify, t.chunk_verify_bytes);
+        print_throughput_row("chunk verify", 0, t.chunk_verify, t.chunk_verify_bytes);
     }
     if t.verify_files {
-        print_timing_throughput_line("file hash", t.file_verify, t.file_verify_bytes);
+        print_throughput_row("file hash", 0, t.file_verify, t.file_verify_bytes);
     }
-    print_timing_throughput_line("file write", t.file_write, t.file_write_bytes);
+    print_throughput_row("file write", 0, t.file_write, t.file_write_bytes);
 }
 
 pub(crate) fn print_verify_timings(t: &g::VerifyTimings) {
     print_section_title("Verify Timing Summary");
     print_metric_line("mode", t.verify_mode.as_str());
     print_runtime_plan(t.runtime_plan.as_ref(), false);
-    print_table_header();
+    print_table_header("wall seconds");
     print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
-    print_table_row(
-        "verify files",
-        0,
-        Some(secs(t.verify_files_wall)),
-        None,
-        None,
-    );
+    let wall_bytes = t.file_read_bytes.max(t.file_hash_bytes);
+    print_throughput_row("verify files", 0, t.verify_files_wall, wall_bytes);
     print_table_row(
         "extra file scan",
         0,
@@ -898,20 +896,43 @@ pub(crate) fn print_verify_timings(t: &g::VerifyTimings) {
         &[t.prepare_wall, t.verify_files_wall, t.extra_file_scan_wall],
     );
     print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
-    print_table_row("total", 0, Some(secs(t.total)), None, None);
+    print_throughput_row("total", 0, t.total, wall_bytes);
 
     if !super::verbose_output_enabled() {
         return;
     }
 
     print_blank_line();
-    print_section_title("Verify Worker Timing Details");
-    print_metric_line("stat", format!("{:.2} s", secs(t.stat)));
-    print_timing_throughput_line("file read", t.file_read, t.file_read_bytes);
-    print_timing_throughput_line("file hash", t.file_hash, t.file_hash_bytes);
+    print_section_title("Verify Worker Timing Details (worker time)");
+    print_table_header("worker seconds");
+    print_table_row("stat", 0, Some(secs(t.stat)), None, None);
+    print_throughput_row("file read", 0, t.file_read, t.file_read_bytes);
+    print_throughput_row("file hash", 0, t.file_hash, t.file_hash_bytes);
     if t.verify_mode.checks_chunk_hashes() {
-        print_timing_throughput_line("chunk hash", t.chunk_hash, t.chunk_hash_bytes);
+        print_throughput_row("chunk hash", 0, t.chunk_hash, t.chunk_hash_bytes);
     }
+}
+
+pub(crate) fn print_transfer_timings(t: &g::TransferStats) {
+    print_section_title("Fetch Transfer Timing");
+    print_table_header("wall seconds");
+    print_table_row(
+        "download",
+        0,
+        Some(t.elapsed_seconds),
+        Some(format!("{:.2} MiB", mib(t.transferred_bytes))),
+        Some(format!("{:.2} MiB/s", t.mib_per_second)),
+    );
+    print_metric_line("expected", format!("{:.2} MiB", mib(t.total_bytes)));
+    print_metric_line(
+        "concurrency",
+        format!(
+            "initial={} max={} peak={}",
+            t.initial_concurrency, t.maximum_concurrency, t.peak_concurrency
+        ),
+    );
+    print_metric_line("adjustments", t.adjustment_count);
+    print_metric_line("retries", t.retry_count);
 }
 
 pub(crate) fn print_repo_check_timings(t: &crate::repo::check::RepoCheckTimings) {

@@ -28,8 +28,10 @@ pub(super) const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
 pub(super) const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct FetchTransferProgress {
+    started_at: Instant,
+    finished_at: Mutex<Option<Instant>>,
     transferred_bytes: AtomicU64,
     total_bytes: AtomicU64,
     completed_bundle_count: AtomicUsize,
@@ -37,6 +39,22 @@ pub(super) struct FetchTransferProgress {
     peak_download_count: AtomicUsize,
     retry_count: AtomicUsize,
     adjustment_count: AtomicUsize,
+}
+
+impl Default for FetchTransferProgress {
+    fn default() -> Self {
+        Self {
+            started_at: Instant::now(),
+            finished_at: Mutex::new(None),
+            transferred_bytes: AtomicU64::default(),
+            total_bytes: AtomicU64::default(),
+            completed_bundle_count: AtomicUsize::default(),
+            active_download_count: AtomicUsize::default(),
+            peak_download_count: AtomicUsize::default(),
+            retry_count: AtomicUsize::default(),
+            adjustment_count: AtomicUsize::default(),
+        }
+    }
 }
 
 impl FetchTransferProgress {
@@ -66,6 +84,14 @@ impl FetchTransferProgress {
 
     pub(super) fn total_bytes(&self) -> u64 {
         self.total_bytes.load(AtomicOrdering::Relaxed)
+    }
+
+    pub(super) fn finish(&self) {
+        if let Ok(mut finished_at) = self.finished_at.lock() {
+            if finished_at.is_none() {
+                *finished_at = Some(Instant::now());
+            }
+        }
     }
 
     fn download_started(&self) {
@@ -105,12 +131,31 @@ impl FetchTransferProgress {
     }
 
     pub(super) fn stats(&self, policy: TransferConcurrencyPolicy) -> TransferStats {
+        let transferred_bytes = self.transferred_bytes();
+        let total_bytes = self.total_bytes();
+        let finished_at = self
+            .finished_at
+            .lock()
+            .ok()
+            .and_then(|finished_at| *finished_at)
+            .unwrap_or_else(Instant::now);
+        let elapsed_seconds = finished_at
+            .saturating_duration_since(self.started_at)
+            .as_secs_f64();
         TransferStats {
             initial_concurrency: policy.initial(),
             maximum_concurrency: policy.maximum(),
             peak_concurrency: self.peak_download_count.load(AtomicOrdering::Acquire),
             adjustment_count: self.adjustment_count.load(AtomicOrdering::Acquire),
             retry_count: self.retry_count.load(AtomicOrdering::Acquire),
+            transferred_bytes,
+            total_bytes,
+            elapsed_seconds,
+            mib_per_second: if elapsed_seconds > f64::EPSILON {
+                transferred_bytes as f64 / (1024.0 * 1024.0) / elapsed_seconds
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -936,7 +981,7 @@ fn non_empty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ADAPTIVE_SAMPLE_INTERVAL, AdaptiveTransferState, ArtifactPriority,
+        ADAPTIVE_SAMPLE_INTERVAL, AdaptiveTransferState, ArtifactPriority, FetchTransferProgress,
         resolve_transfer_worker_limits,
     };
     use crate::TransferConcurrencyPolicy;
@@ -1004,5 +1049,20 @@ mod tests {
             dependent_file_count: 4,
         };
         assert!(ready.compare(near_ready).is_gt());
+    }
+
+    #[test]
+    fn transfer_stats_report_bytes_and_average_rate() {
+        let progress = FetchTransferProgress::default();
+        progress.add_total_bytes(8 * 1024 * 1024);
+        progress.add_transferred_bytes(4 * 1024 * 1024);
+        progress.finish();
+
+        let stats = progress.stats(TransferConcurrencyPolicy::fixed(4));
+
+        assert_eq!(stats.transferred_bytes, 4 * 1024 * 1024);
+        assert_eq!(stats.total_bytes, 8 * 1024 * 1024);
+        assert!(stats.elapsed_seconds >= 0.0);
+        assert!(stats.mib_per_second > 0.0);
     }
 }

@@ -1,6 +1,7 @@
 use crate::cli::actions;
 use crate::cli::common::{SnapshotFetchReconstructStats, parse_bundle_downloads, write_report};
 use crate::cli::progress::CliProgressSink;
+use crate::cli::reporting::print_transfer_timings;
 use crate::cli::verbose_output_enabled;
 use gutch as g;
 use serde::Deserialize;
@@ -108,6 +109,7 @@ pub(crate) fn fetch(command: FetchCommand, profile: &crate::cli::Profile) -> g::
             result.downloaded_artifact_count,
             result.skipped_existing_artifact_count
         );
+        print_transfer_timings(&result.transfer_stats);
     }
     if profile.is_some() {
         crate::cli::reporting::print_profile_summary(profile.as_deref());
@@ -183,6 +185,10 @@ pub(crate) fn fetch_and_reconstruct(
         peak_transfer_concurrency: fetch_result.transfer_stats.peak_concurrency,
         transfer_adjustment_count: fetch_result.transfer_stats.adjustment_count,
         transfer_retry_count: fetch_result.transfer_stats.retry_count,
+        transfer_bytes: fetch_result.transfer_stats.transferred_bytes,
+        transfer_total_bytes: fetch_result.transfer_stats.total_bytes,
+        transfer_seconds: fetch_result.transfer_stats.elapsed_seconds,
+        transfer_mib_per_second: fetch_result.transfer_stats.mib_per_second,
         reused_source_chunk_count: reconstruct.reused_source_chunk_count,
         reused_source_chunk_percent,
         total_logical_size: snapshot_manifest.total_logical_size,
@@ -206,6 +212,7 @@ pub(crate) fn fetch_and_reconstruct(
             stats.downloaded_artifact_count,
             stats.skipped_existing_artifact_count
         );
+        print_transfer_timings(&fetch_result.transfer_stats);
     }
     if profile.is_some() {
         crate::cli::reporting::print_profile_summary(profile.as_deref());

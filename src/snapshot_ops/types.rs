@@ -62,6 +62,10 @@ pub struct TransferStats {
     pub peak_concurrency: usize,
     pub adjustment_count: usize,
     pub retry_count: usize,
+    pub transferred_bytes: u64,
+    pub total_bytes: u64,
+    pub elapsed_seconds: f64,
+    pub mib_per_second: f64,
 }
 
 #[derive(Debug, Clone, Default)]

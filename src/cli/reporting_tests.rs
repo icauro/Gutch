@@ -13,6 +13,15 @@ fn ratio_pct_half() {
 }
 
 #[test]
+fn table_cells_are_truncated_without_breaking_width() {
+    let value = fit_table_cell("a very long throughput value", 12);
+    assert_eq!(value.chars().count(), 12);
+    assert!(value.ends_with("..."));
+    assert_eq!(fit_table_cell("MiB/s", 12), "MiB/s");
+    assert_eq!(fit_table_cell("anything", 0), "");
+}
+
+#[test]
 fn build_summary_separates_wall_phases_from_worker_details() {
     let timings = g::BuildTimings {
         storage_mode: g::manifest::ArtifactStorageMode::Bundled,
@@ -83,6 +92,8 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
         prepare_wall: Duration::from_secs(1),
         reconstruct_wall: Duration::from_secs(7),
         bundle_read: Duration::from_secs(9),
+        file_rebuild: Duration::from_secs(2),
+        file_rebuild_bytes: 4 * 1024 * 1024,
         file_write: Duration::from_secs(11),
         total: Duration::from_secs(9),
         ..g::ReconstructTimings::default()
@@ -95,6 +106,14 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
     assert_eq!(summary.phases.reconstruct.wall_seconds, 7.0);
     assert!(json["phases"]["reconstruct"]["details"]["chunk_verify_worker_seconds"].is_null());
     assert!(json["phases"]["reconstruct"]["details"]["file_hash_worker_seconds"].is_null());
+    assert_eq!(
+        json["phases"]["reconstruct"]["details"]["file_rebuild_bytes"],
+        4 * 1024 * 1024
+    );
+    assert_eq!(
+        json["phases"]["reconstruct"]["details"]["file_rebuild_mib_per_second"],
+        2.0
+    );
 }
 
 #[test]

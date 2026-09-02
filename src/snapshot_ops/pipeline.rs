@@ -745,6 +745,11 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             Ok(ReconstructPipelineEvent::Artifact(ArtifactPipelineEvent::WorkerDone)) => {
                 completed_artifact_workers += 1;
                 if completed_artifact_workers == artifact_worker_count
+                    && let Some(transfer_progress) = transfer_progress
+                {
+                    transfer_progress.finish();
+                }
+                if completed_artifact_workers == artifact_worker_count
                     && completed_file_count < pipeline_plan.files.len()
                     && has_files_still_waiting_on_artifacts(
                         &scheduled_files,
