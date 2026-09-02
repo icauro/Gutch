@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -11,7 +10,7 @@ use crate::hash::ChunkHash;
 use crate::manifest::{
     self, ChunkRef, DirectoryManifest, FileManifest, SnapshotEntry, SymlinkManifest,
 };
-use crate::runtime::{ChunkStorageMode, run_in_thread_pool};
+use crate::runtime::run_in_thread_pool;
 use crate::{Error, Result};
 
 pub(crate) struct FileBuildEntry {
@@ -31,8 +30,6 @@ pub(crate) struct ScanDirectoryOptions<'a> {
     pub previous_file_manifests: &'a HashMap<String, Vec<FileManifest>>,
     pub chunking_profile: &'a manifest::ChunkSizingProfile,
     pub existing_chunk_locations: &'a HashMap<ChunkHash, ExistingChunkLocation>,
-    pub chunk_storage_mode: ChunkStorageMode,
-    pub chunk_spool_root: Option<&'a Path>,
     pub worker_count: usize,
     pub control: crate::GutchOperationControl,
 }
@@ -185,7 +182,6 @@ pub(crate) fn scan_directory_into_file_entries(
     );
     progress.start(file_paths.len());
 
-    let spool_root = options.chunk_spool_root.map(PathBuf::from);
     let progress_for_scan = progress.clone();
     let control_for_scan = options.control.clone();
     let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
@@ -208,14 +204,12 @@ pub(crate) fn scan_directory_into_file_entries(
 
             scan_changed_file(ScanChangedFileRequest {
                 path,
-                relative,
                 normalized_relative,
                 source_metadata: &source_metadata,
                 metadata,
                 previous_candidates,
                 options: &options,
                 control: &control_for_scan,
-                spool_root: spool_root.as_deref(),
             })
         })();
 
@@ -240,27 +234,23 @@ pub(crate) fn scan_directory_into_file_entries(
 
 struct ScanChangedFileRequest<'a> {
     path: &'a Path,
-    relative: &'a Path,
     normalized_relative: String,
     source_metadata: &'a std::fs::Metadata,
     metadata: Duration,
     previous_candidates: &'a [FileManifest],
     options: &'a ScanDirectoryOptions<'a>,
     control: &'a crate::GutchOperationControl,
-    spool_root: Option<&'a Path>,
 }
 
 fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEntry> {
     let ScanChangedFileRequest {
         path,
-        relative,
         normalized_relative,
         source_metadata,
         metadata,
         previous_candidates,
         options,
         control,
-        spool_root,
     } = request;
     let read_only = source_metadata.permissions().readonly();
     #[cfg(unix)]
@@ -304,9 +294,6 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
 
     let mut chunk_refs = Vec::with_capacity(chunk_scan.chunks.len());
     let mut chunks = Vec::with_capacity(chunk_scan.chunks.len());
-    let mut spill_file = None;
-    let mut spill_path = None;
-    let mut spill_offset: u64 = 0;
     for cr in chunk_scan.chunks {
         control.checkpoint()?;
         let chunk_hash = ChunkHash::from_blake3(cr.hash);
@@ -315,39 +302,8 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
             raw_size: cr.data.len() as u64,
         });
         if !options.existing_chunk_locations.contains_key(&chunk_hash) {
-            let payload = match options.chunk_storage_mode {
-                ChunkStorageMode::Memory => ChunkPayload::InMemory {
-                    bytes: std::sync::Arc::<[u8]>::from(cr.data),
-                },
-                ChunkStorageMode::TempSpill => {
-                    let spool_root = spool_root.as_ref().ok_or_else(|| {
-                        Error::manifest("temp spill mode requires a chunk spool directory")
-                    })?;
-                    if spill_path.is_none() {
-                        let relative_name = relative.to_string_lossy().replace(['\\', '/'], "__");
-                        spill_path = Some(spool_root.join(format!("{relative_name}.spill")));
-                    }
-                    if spill_file.is_none() {
-                        let path = spill_path.as_ref().ok_or_else(|| {
-                            Error::manifest("temp spill path missing after initialization")
-                        })?;
-                        spill_file = Some(std::fs::File::create(path)?);
-                    }
-                    let local_spill_path = spill_path.as_ref().ok_or_else(|| {
-                        Error::manifest("temp spill path missing after file creation")
-                    })?;
-                    let file = spill_file
-                        .as_mut()
-                        .ok_or_else(|| Error::manifest("temp spill file missing after creation"))?;
-                    let chunk_offset = spill_offset;
-                    file.write_all(&cr.data)?;
-                    spill_offset += cr.data.len() as u64;
-                    ChunkPayload::TempFile {
-                        path: local_spill_path.clone(),
-                        offset: chunk_offset,
-                        raw_size: cr.data.len() as u64,
-                    }
-                }
+            let payload = ChunkPayload::InMemory {
+                bytes: std::sync::Arc::<[u8]>::from(cr.data),
             };
             chunks.push((chunk_hash, payload));
         }

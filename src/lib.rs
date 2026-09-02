@@ -114,7 +114,7 @@ pub use repo::tag_requirements::{TagRequirement, TagRequirementStatus, compare_t
 pub use repo::updates::{update_gutch_repo_name, update_gutch_repo_schema};
 pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo_artifacts};
 pub(crate) use runtime::RuntimePlan;
-pub use runtime::{MemoryMode, RuntimeResourceHints};
+pub use runtime::RuntimeResourceHints;
 pub(crate) use snapshot::identity::resolve_snapshot_identity_with_inference;
 pub(crate) use snapshot::path_guard::validate_manifest_relative_path;
 pub use snapshot::path_guard::{ExistingDestinationPathKind, resolve_existing_destination_path};

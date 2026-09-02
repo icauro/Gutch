@@ -1,6 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Seek, SeekFrom};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -125,21 +123,13 @@ pub(crate) struct ExistingChunkLocation {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ChunkPayload {
-    InMemory {
-        bytes: Arc<[u8]>,
-    },
-    TempFile {
-        path: PathBuf,
-        offset: u64,
-        raw_size: u64,
-    },
+    InMemory { bytes: Arc<[u8]> },
 }
 
 impl ChunkPayload {
     pub(crate) fn raw_size(&self) -> u64 {
         match self {
             ChunkPayload::InMemory { bytes } => bytes.len() as u64,
-            ChunkPayload::TempFile { raw_size, .. } => *raw_size,
         }
     }
 
@@ -150,17 +140,6 @@ impl ChunkPayload {
     pub(crate) fn with_bytes<T>(&self, f: impl FnOnce(&[u8]) -> T) -> crate::Result<T> {
         match self {
             ChunkPayload::InMemory { bytes } => Ok(f(bytes.as_ref())),
-            ChunkPayload::TempFile {
-                path,
-                offset,
-                raw_size,
-            } => {
-                let mut file = std::fs::File::open(path)?;
-                file.seek(SeekFrom::Start(*offset))?;
-                let mut bytes = vec![0u8; *raw_size as usize];
-                file.read_exact(&mut bytes)?;
-                Ok(f(&bytes))
-            }
         }
     }
 }

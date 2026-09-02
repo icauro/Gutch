@@ -55,28 +55,13 @@ fn fit_table_cell(value: &str, width: usize) -> String {
     shortened
 }
 
-fn runtime_plan_detail(plan: &g::RuntimePlan, include_storage: bool) -> String {
-    let storage = if include_storage {
-        format!(" storage={}", plan.chunk_storage_mode.as_str())
-    } else {
-        String::new()
-    };
-    format!(
-        "requested={} effective={}{} workers={} budget={} MiB{}",
-        plan.requested_memory_mode.as_str(),
-        plan.effective_memory_mode.as_str(),
-        storage,
-        plan.worker_count,
-        plan.memory_budget_mib,
-        plan.available_memory_mib
-            .map(|mib| format!(" available={} MiB", mib))
-            .unwrap_or_default()
-    )
+fn runtime_plan_detail(plan: &g::RuntimePlan) -> String {
+    format!("workers={}", plan.worker_count)
 }
 
-fn print_runtime_plan(plan: Option<&g::RuntimePlan>, include_storage: bool) {
+fn print_runtime_plan(plan: Option<&g::RuntimePlan>) {
     if let Some(plan) = plan {
-        print_metric_line("runtime plan", runtime_plan_detail(plan, include_storage));
+        print_metric_line("runtime plan", runtime_plan_detail(plan));
     }
 }
 
@@ -232,22 +217,12 @@ pub(crate) fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RuntimePlanSummary {
-    requested_memory_mode: Option<String>,
-    effective_memory_mode: Option<String>,
-    chunk_storage_mode: Option<String>,
     worker_count: Option<usize>,
-    available_memory_mib: Option<u64>,
-    memory_budget_mib: Option<u64>,
 }
 
 fn runtime_plan_summary(plan: Option<&g::RuntimePlan>) -> RuntimePlanSummary {
     RuntimePlanSummary {
-        requested_memory_mode: plan.map(|plan| plan.requested_memory_mode.as_str().to_string()),
-        effective_memory_mode: plan.map(|plan| plan.effective_memory_mode.as_str().to_string()),
-        chunk_storage_mode: plan.map(|plan| plan.chunk_storage_mode.as_str().to_string()),
         worker_count: plan.map(|plan| plan.worker_count),
-        available_memory_mib: plan.and_then(|plan| plan.available_memory_mib),
-        memory_budget_mib: plan.map(|plan| plan.memory_budget_mib),
     }
 }
 
@@ -719,7 +694,7 @@ pub(crate) fn write_stats_json_output<T: Serialize>(
 
 pub(crate) fn print_build_timings(t: &g::BuildTimings) {
     print_section_title("Build Timing Summary");
-    print_runtime_plan(t.runtime_plan.as_ref(), true);
+    print_runtime_plan(t.runtime_plan.as_ref());
     print_table_header("wall seconds");
     print_throughput_row("scan + chunk", 0, t.scan_chunk_wall, t.logical_bytes);
     print_throughput_row(
@@ -832,7 +807,7 @@ pub(crate) fn print_build_timings(t: &g::BuildTimings) {
 
 pub(crate) fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_section_title("Reconstruct Timing Summary");
-    print_runtime_plan(t.runtime_plan.as_ref(), false);
+    print_runtime_plan(t.runtime_plan.as_ref());
     print_table_header("wall seconds");
     print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
     print_throughput_row("reconstruct", 0, t.reconstruct_wall, t.file_write_bytes);
@@ -879,7 +854,7 @@ pub(crate) fn print_reconstruct_timings(t: &g::ReconstructTimings) {
 pub(crate) fn print_verify_timings(t: &g::VerifyTimings) {
     print_section_title("Verify Timing Summary");
     print_metric_line("mode", t.verify_mode.as_str());
-    print_runtime_plan(t.runtime_plan.as_ref(), false);
+    print_runtime_plan(t.runtime_plan.as_ref());
     print_table_header("wall seconds");
     print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
     let wall_bytes = t.file_read_bytes.max(t.file_hash_bytes);

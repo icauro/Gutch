@@ -356,11 +356,7 @@ fn verify_with_hints_records_runtime_plan() {
         &manifest,
         &dir,
         VerifyMode::Fast,
-        &crate::runtime::RuntimeResourceHints {
-            memory_mode: crate::runtime::MemoryMode::Low,
-            max_memory_mib: Some(1024),
-            jobs: Some(1),
-        },
+        &crate::runtime::RuntimeResourceHints { jobs: Some(1) },
     )
     .unwrap();
 

@@ -14,21 +14,13 @@ pub(crate) fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
 
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct RuntimeArgs {
-    #[arg(long = "memory-mode", value_enum, default_value_t = g::MemoryMode::Auto)]
-    pub(crate) memory_mode: g::MemoryMode,
-    #[arg(long = "max-memory-mib")]
-    pub(crate) max_memory_mib: Option<u64>,
     #[arg(long = "jobs")]
     pub(crate) jobs: Option<usize>,
 }
 
 impl RuntimeArgs {
     pub(crate) fn hints(self) -> g::RuntimeResourceHints {
-        g::RuntimeResourceHints {
-            memory_mode: self.memory_mode,
-            max_memory_mib: self.max_memory_mib,
-            jobs: self.jobs,
-        }
+        g::RuntimeResourceHints { jobs: self.jobs }
     }
 }
 

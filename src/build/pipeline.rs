@@ -3,7 +3,6 @@ use std::path::Path;
 use std::time::Instant;
 
 use rayon::prelude::*;
-use tempfile::TempDir;
 
 use crate::Result;
 use crate::build::progress::BuildProgressTracker;
@@ -16,7 +15,7 @@ use crate::bundle::BundleBuilder;
 use crate::compress::compress_with_level;
 use crate::hash::ChunkHash;
 use crate::manifest::{self, ArtifactStorageMode, SnapshotTagSet, snapshot::SnapshotManifest};
-use crate::runtime::{ChunkStorageMode, plan_build_runtime, run_in_thread_pool};
+use crate::runtime::{plan_build_runtime, run_in_thread_pool};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
@@ -353,19 +352,10 @@ fn build_bundle_compressed_group(
     for (hash, payload) in planned_bundle {
         control.checkpoint()?;
         let load_start = Instant::now();
-        match payload {
-            ChunkPayload::InMemory { bytes } => {
-                payload_load += load_start.elapsed();
-                payload_load_bytes += bytes.len() as u64;
-                builder.add_shared_chunk(hash, bytes);
-            }
-            ChunkPayload::TempFile { raw_size, .. } => {
-                let data = payload.load_bytes()?;
-                payload_load += load_start.elapsed();
-                payload_load_bytes += raw_size;
-                builder.add_chunk(hash, data);
-            }
-        }
+        let ChunkPayload::InMemory { bytes } = payload;
+        payload_load += load_start.elapsed();
+        payload_load_bytes += bytes.len() as u64;
+        builder.add_shared_chunk(hash, bytes);
     }
 
     let (bundle_id, bundle_data, bundle_metrics) = builder.build_with_id_and_metrics()?;
@@ -402,10 +392,8 @@ pub(crate) fn build_with_config_timed(
         storage_mode: config.storage_mode,
         ..BuildTimings::default()
     };
-    let runtime_plan =
-        plan_build_runtime(&config.runtime_hints, compression_profile.compression_unit);
+    let runtime_plan = plan_build_runtime(&config.runtime_hints);
     timings.runtime_plan = Some(runtime_plan.clone());
-    let chunk_spool_dir = prepare_chunk_spool_dir(runtime_plan.chunk_storage_mode)?;
 
     let empty_previous_file_manifests = HashMap::new();
     let previous_file_manifests = config
@@ -431,8 +419,6 @@ pub(crate) fn build_with_config_timed(
                 previous_file_manifests,
                 chunking_profile: &config.chunk_profile,
                 existing_chunk_locations: &existing_chunk_locations_by_hash,
-                chunk_storage_mode: runtime_plan.chunk_storage_mode,
-                chunk_spool_root: chunk_spool_dir.as_ref().map(|dir| dir.path()),
                 worker_count: runtime_plan.worker_count,
                 control: config.control.clone(),
             },
@@ -602,13 +588,4 @@ fn parse_existing_chunk_locations(
         .iter()
         .map(|(chunk_hash, location)| Ok((ChunkHash::parse_hex(chunk_hash)?, location.clone())))
         .collect()
-}
-
-fn prepare_chunk_spool_dir(chunk_storage_mode: ChunkStorageMode) -> Result<Option<TempDir>> {
-    match chunk_storage_mode {
-        ChunkStorageMode::Memory => Ok(None),
-        ChunkStorageMode::TempSpill => Ok(Some(tempfile::tempdir().map_err(|err| {
-            crate::Error::manifest(format!("failed to create chunk spool directory: {}", err))
-        })?)),
-    }
 }
