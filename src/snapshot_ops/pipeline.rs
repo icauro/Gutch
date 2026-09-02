@@ -849,9 +849,12 @@ fn reconstruct_pipeline_file(
     );
     match &file_plan.reconstruction {
         ReconstructPipelineReconstruction::CopyFromSource { source_path } => {
+            let _strategy_span =
+                control.profile_span("gutch.snapshot.reconstruct.file.copy_source");
             copy_pipeline_file_from_source(file_plan, source_path, staging_dir, control)
         }
         ReconstructPipelineReconstruction::ReconstructFromParts { chunks } => {
+            let _strategy_span = control.profile_span("gutch.snapshot.reconstruct.file.from_parts");
             reconstruct_pipeline_file_from_parts(
                 file_plan,
                 chunks,
@@ -883,17 +886,26 @@ fn copy_pipeline_file_from_source(
 
     loop {
         control.checkpoint()?;
-        let rebuild_started_at = Instant::now();
-        let read = std::io::Read::read(&mut input, &mut buffer)?;
-        timings.file_rebuild += rebuild_started_at.elapsed();
+        let read = {
+            let _read_span = control.profile_span("gutch.snapshot.reconstruct.file.source_read");
+            let rebuild_started_at = Instant::now();
+            let read = std::io::Read::read(&mut input, &mut buffer)?;
+            timings.file_rebuild += rebuild_started_at.elapsed();
+            read
+        };
         if read == 0 {
             break;
         }
-        write_verified_file_bytes(&mut output, &mut hasher, &buffer[..read], &mut timings)?;
+        {
+            let _write_span = control.profile_span("gutch.snapshot.reconstruct.file.output_write");
+            write_verified_file_bytes(&mut output, &mut hasher, &buffer[..read], &mut timings)?;
+        }
         written += read as u64;
     }
 
-    finish_verified_file(output, hasher, written, file_plan, timings, "copied")
+    finish_verified_file(
+        output, hasher, written, file_plan, timings, control, "copied",
+    )
 }
 
 fn reconstruct_pipeline_file_from_parts(
@@ -927,6 +939,8 @@ fn reconstruct_pipeline_file_from_parts(
                 source_path,
                 source_offset,
             } => {
+                let _source_chunk_span =
+                    control.profile_span("gutch.snapshot.reconstruct.file.source_chunk");
                 let reader = match source_readers.entry(source_path.clone()) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
@@ -951,6 +965,8 @@ fn reconstruct_pipeline_file_from_parts(
                 chunk_bytes
             }
             ReconstructPipelineChunkInput::Artifact(chunk) => {
+                let _artifact_chunk_span =
+                    control.profile_span("gutch.snapshot.reconstruct.file.artifact_chunk");
                 let read_started_at = Instant::now();
                 let chunk_bytes = match &chunk.artifact {
                     crate::ArtifactRef::Bundle { .. } => {
@@ -1001,7 +1017,10 @@ fn reconstruct_pipeline_file_from_parts(
                 chunk_bytes
             }
         };
-        write_verified_file_bytes(&mut output, &mut file_hasher, &chunk_bytes, &mut timings)?;
+        {
+            let _write_span = control.profile_span("gutch.snapshot.reconstruct.file.output_write");
+            write_verified_file_bytes(&mut output, &mut file_hasher, &chunk_bytes, &mut timings)?;
+        }
         written += chunk_bytes.len() as u64;
     }
 
@@ -1011,6 +1030,7 @@ fn reconstruct_pipeline_file_from_parts(
         written,
         file_plan,
         timings,
+        control,
         "reconstructed",
     )
 }
@@ -1039,6 +1059,7 @@ fn finish_verified_file(
     written: u64,
     file_plan: &ReconstructPipelineFile,
     mut timings: ReconstructTimings,
+    control: &GutchOperationControl,
     operation: &str,
 ) -> Result<ReconstructTimings> {
     if written != file_plan.size {
@@ -1048,12 +1069,19 @@ fn finish_verified_file(
         )));
     }
 
-    let flush_started_at = Instant::now();
-    output.flush()?;
-    timings.file_write += flush_started_at.elapsed();
-    let verify_started_at = Instant::now();
-    let actual_hash = crate::hash::hash_hex(&hasher.finalize());
-    timings.file_verify += verify_started_at.elapsed();
+    {
+        let _flush_span = control.profile_span("gutch.snapshot.reconstruct.file.output_flush");
+        let flush_started_at = Instant::now();
+        output.flush()?;
+        timings.file_write += flush_started_at.elapsed();
+    }
+    let actual_hash = {
+        let _hash_span = control.profile_span("gutch.snapshot.reconstruct.file.full_hash");
+        let verify_started_at = Instant::now();
+        let actual_hash = crate::hash::hash_hex(&hasher.finalize());
+        timings.file_verify += verify_started_at.elapsed();
+        actual_hash
+    };
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {
             expected: file_plan.full_file_hash.clone(),
