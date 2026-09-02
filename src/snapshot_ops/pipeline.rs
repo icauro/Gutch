@@ -8,8 +8,6 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rayon::prelude::*;
-
 use super::apply::build_snapshot_reconstruct_result;
 use super::transfer::{
     ArtifactDownloadEvent, ArtifactDownloadScheduler, ArtifactPriority, FetchTransferProgress,
@@ -609,8 +607,14 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
 }
 
+enum ReconstructWorkItem {
+    Job(usize),
+    VerifyFile(usize),
+}
+
 enum ReconstructJobEvent {
     Completed(ReconstructTimings),
+    Verified(ReconstructedFileVerification),
     Failed(Error),
     WorkerDone,
 }
@@ -737,7 +741,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     } else {
         runtime_plan.worker_count.min(jobs.len()).max(1)
     };
-    let (task_tx, task_rx) = crossbeam_channel::unbounded::<usize>();
+    let (task_tx, task_rx) = crossbeam_channel::unbounded::<ReconstructWorkItem>();
     let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
     let mut worker_handles = Vec::with_capacity(worker_count);
     for _ in 0..worker_count {
@@ -751,26 +755,35 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         worker_handles.push(thread::spawn(move || {
             loop {
                 let next_job = task_rx.recv();
-                let job_index = match next_job {
-                    Ok(job_index) => job_index,
+                let work_item = match next_job {
+                    Ok(work_item) => work_item,
                     Err(_) => {
                         let _ = event_tx.send(ReconstructJobEvent::WorkerDone);
                         return;
                     }
                 };
-                let result = reconstruct_job(
-                    &jobs[job_index],
-                    &file_plans,
-                    &output_paths,
-                    &compression_profile,
-                    &control,
-                );
+                let result = match work_item {
+                    ReconstructWorkItem::Job(job_index) => reconstruct_job(
+                        &jobs[job_index],
+                        &file_plans,
+                        &output_paths,
+                        &compression_profile,
+                        &control,
+                    )
+                    .map(ReconstructJobEvent::Completed),
+                    ReconstructWorkItem::VerifyFile(file_index) => {
+                        verify_reconstructed_output_file(
+                            file_index,
+                            &file_plans[file_index],
+                            &output_paths,
+                            &control,
+                        )
+                        .map(ReconstructJobEvent::Verified)
+                    }
+                };
                 match result {
-                    Ok(timings) => {
-                        if event_tx
-                            .send(ReconstructJobEvent::Completed(timings))
-                            .is_err()
-                        {
+                    Ok(event) => {
+                        if event_tx.send(event).is_err() {
                             return;
                         }
                     }
@@ -784,7 +797,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     }
     drop(event_tx);
     let mut task_tx = Some(task_tx);
-    let mut queued_job_count = 0usize;
     {
         let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
         for (job_index, job) in jobs.iter().enumerate() {
@@ -796,22 +808,26 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                 task_tx
                     .as_ref()
                     .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))?
-                    .send(job_index)
+                    .send(ReconstructWorkItem::Job(job_index))
                     .map_err(|_| Error::reconstruct("reconstruction queue closed unexpectedly"))?;
-                queued_job_count += 1;
             }
         }
     }
     let mut downloads_done = artifact_scheduler.is_none();
     let mut completed_download_worker_count = 0usize;
-    if downloads_done && queued_job_count == jobs.len() {
-        task_tx.take();
-    }
 
     let mut completed_job_count = 0usize;
+    let mut completed_file_count = 0usize;
     let mut completed_worker_count = 0usize;
+    let mut verification_queued = false;
+    let mut verify_started_at = None;
+    let mut verify_span = None;
+    let mut verified_file_bytes = 0u64;
     let mut pipeline_error = None;
-    while completed_worker_count < worker_count || completed_job_count < jobs.len() {
+    while completed_worker_count < worker_count
+        || completed_job_count < jobs.len()
+        || completed_file_count < file_plans.len()
+    {
         if let Err(error) = control.checkpoint() {
             pipeline_error = Some(error);
             break;
@@ -851,18 +867,19 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                                     Error::reconstruct("reconstruction queue is unavailable")
                                 })
                                 .and_then(|sender| {
-                                    sender.send(job_index).map_err(|_| {
-                                        Error::reconstruct(
-                                            "reconstruction queue closed unexpectedly",
-                                        )
-                                    })
+                                    sender
+                                        .send(ReconstructWorkItem::Job(job_index))
+                                        .map_err(|_| {
+                                            Error::reconstruct(
+                                                "reconstruction queue closed unexpectedly",
+                                            )
+                                        })
                                 })
                         };
                         if let Err(error) = queue_result {
                             pipeline_error = Some(error);
                             break;
                         }
-                        queued_job_count += 1;
                     }
                     Ok(ArtifactDownloadEvent::Failed(error)) => {
                         pipeline_error = Some(error);
@@ -887,13 +904,37 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                 }
             }
         }
-        if downloads_done && queued_job_count == jobs.len() {
-            task_tx.take();
+
+        if !verification_queued && downloads_done && completed_job_count == jobs.len() {
+            verify_started_at = Some(Instant::now());
+            verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
+            let queue_result = task_tx
+                .as_ref()
+                .ok_or_else(|| Error::reconstruct("reconstruction queue is unavailable"))
+                .and_then(|sender| {
+                    for file_index in 0..file_plans.len() {
+                        sender
+                            .send(ReconstructWorkItem::VerifyFile(file_index))
+                            .map_err(|_| {
+                                Error::reconstruct("reconstruction queue closed unexpectedly")
+                            })?;
+                    }
+                    Ok(())
+                });
+            if let Err(error) = queue_result {
+                pipeline_error = Some(error);
+            } else {
+                verification_queued = true;
+                task_tx.take();
+            }
         }
         if pipeline_error.is_some() {
             break;
         }
-        if completed_worker_count == worker_count && completed_job_count == jobs.len() {
+        if completed_worker_count == worker_count
+            && completed_job_count == jobs.len()
+            && completed_file_count == file_plans.len()
+        {
             break;
         }
         match event_rx.recv_timeout(Duration::from_millis(10)) {
@@ -916,6 +957,32 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                         ),
                         current: completed_job_count,
                         total: jobs.len().max(1),
+                        transferred_bytes: 0,
+                        total_bytes: 0,
+                        detail: None,
+                        done: false,
+                    },
+                );
+            }
+            Ok(ReconstructJobEvent::Verified(file_verification)) => {
+                completed_file_count += 1;
+                reconstruct_timings.file_verify += file_verification.elapsed;
+                reconstruct_timings.file_verify_bytes = reconstruct_timings
+                    .file_verify_bytes
+                    .saturating_add(file_verification.bytes);
+                verified_file_bytes = verified_file_bytes.saturating_add(file_verification.bytes);
+                emit_progress(
+                    control.progress(),
+                    GutchProgressEvent {
+                        operation: GutchOperation::Fetch,
+                        phase: GutchProgressPhase::Reconstruct,
+                        message: format!(
+                            "Reconstructing files ({}/{})",
+                            completed_file_count,
+                            file_plans.len().max(1)
+                        ),
+                        current: completed_file_count,
+                        total: file_plans.len().max(1),
                         transferred_bytes: 0,
                         total_bytes: 0,
                         detail: None,
@@ -960,19 +1027,17 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             jobs.len()
         )));
     }
+    if completed_file_count != file_plans.len() {
+        return Err(Error::reconstruct(format!(
+            "verification completed {completed_file_count} of {} files",
+            file_plans.len()
+        )));
+    }
 
-    let (verified_file_bytes, verify_elapsed) = {
-        let _verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
-        let verify_started_at = Instant::now();
-        let verified_file_bytes = verify_reconstructed_output_files(
-            &file_plans,
-            &output_paths,
-            runtime_plan.worker_count,
-            control,
-            &mut reconstruct_timings,
-        )?;
-        (verified_file_bytes, verify_started_at.elapsed())
-    };
+    let verify_elapsed = verify_started_at
+        .map(|started_at| started_at.elapsed())
+        .unwrap_or_default();
+    drop(verify_span);
     verify_timings.file_hash += verify_elapsed;
     verify_timings.file_hash_bytes = verify_timings
         .file_hash_bytes
@@ -1592,43 +1657,6 @@ fn file_write_trace_args(
         serde_json::json!(write_size as f64 / (1024.0 * 1024.0)),
     );
     args
-}
-
-fn verify_reconstructed_output_files(
-    files: &[ReconstructPipelineFile],
-    output_paths: &[PathBuf],
-    worker_count: usize,
-    control: &GutchOperationControl,
-    timings: &mut ReconstructTimings,
-) -> Result<u64> {
-    let verify_results = if worker_count <= 1 {
-        files
-            .iter()
-            .enumerate()
-            .map(|(file_index, file_plan)| {
-                verify_reconstructed_output_file(file_index, file_plan, output_paths, control)
-            })
-            .collect::<Vec<_>>()
-    } else {
-        crate::runtime::run_in_thread_pool(worker_count, || {
-            files
-                .par_iter()
-                .enumerate()
-                .map(|(file_index, file_plan)| {
-                    verify_reconstructed_output_file(file_index, file_plan, output_paths, control)
-                })
-                .collect::<Vec<_>>()
-        })?
-    };
-
-    let mut verified_bytes = 0u64;
-    for result in verify_results {
-        let result = result?;
-        timings.file_verify += result.elapsed;
-        timings.file_verify_bytes = timings.file_verify_bytes.saturating_add(result.bytes);
-        verified_bytes = verified_bytes.saturating_add(result.bytes);
-    }
-    Ok(verified_bytes)
 }
 
 struct ReconstructedFileVerification {
