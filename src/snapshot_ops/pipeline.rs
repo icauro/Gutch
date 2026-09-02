@@ -1019,7 +1019,6 @@ fn reconstruct_bundle_job(
     let mut output_handles = BundleOutputHandleCache::new(output_paths);
     let mut remaining_chunks = job.chunks.keys().cloned().collect::<HashSet<_>>();
     let mut timings = ReconstructTimings::default();
-    let stream_started_at = Instant::now();
     let stream_metrics = reader.stream_chunks(profiler, |_, entry, bytes| {
         let Some(chunk) = job.chunks.get(&entry.chunk_hash) else {
             return Ok(());
@@ -1057,7 +1056,6 @@ fn reconstruct_bundle_job(
         timings.file_rebuild += rebuild_started_at.elapsed();
         Ok(())
     })?;
-    let stream_elapsed = stream_started_at.elapsed();
 
     if !remaining_chunks.is_empty() {
         return Err(Error::reconstruct(format!(
@@ -1067,10 +1065,11 @@ fn reconstruct_bundle_job(
         )));
     }
 
-    timings.artifact_read = stream_elapsed;
+    let artifact_read_elapsed = stream_metrics.read + stream_metrics.hash_verify;
+    timings.artifact_read = artifact_read_elapsed;
     timings.artifact_read_compressed_bytes = compressed_bytes;
     timings.artifact_read_decompressed_bytes = stream_metrics.raw_bytes;
-    timings.bundle_read = stream_elapsed;
+    timings.bundle_read = artifact_read_elapsed;
     timings.bundle_read_compressed_bytes = compressed_bytes;
     timings.bundle_read_decompressed_bytes = stream_metrics.raw_bytes;
     timings.chunk_verify = stream_metrics.hash_verify;
