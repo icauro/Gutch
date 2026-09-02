@@ -2175,6 +2175,156 @@ mod tests {
     }
 
     #[test]
+    fn bundled_pipeline_decodes_once_and_writes_shared_chunks_to_ranges() {
+        let repo_root = crate::test_util::temp_path("gutch_pipeline_bundled_repo");
+        let destination = crate::test_util::temp_path("gutch_pipeline_bundled_destination");
+        let _ = std::fs::remove_dir_all(&repo_root);
+        let _ = std::fs::remove_dir_all(&destination);
+        let repo_paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
+        crate::ensure_gutch_repo_layout(&repo_paths, "bundled-test").unwrap();
+
+        let first = b"1111";
+        let second = b"2222";
+        let third = b"3333";
+        let first_hash = test_hash(first);
+        let second_hash = test_hash(second);
+        let third_hash = test_hash(third);
+        let compression_profile = manifest::CompressionProfile::default();
+        let mut builder = crate::bundle::BundleBuilder::new(compression_profile.clone());
+        builder.add_chunk(
+            crate::hash::ChunkHash::from_blake3(crate::hash::hash_chunk(first)),
+            first.to_vec(),
+        );
+        builder.add_chunk(
+            crate::hash::ChunkHash::from_blake3(crate::hash::hash_chunk(second)),
+            second.to_vec(),
+        );
+        builder.add_chunk(
+            crate::hash::ChunkHash::from_blake3(crate::hash::hash_chunk(third)),
+            third.to_vec(),
+        );
+        let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
+        let bundle = crate::ArtifactRef::Bundle {
+            id: bundle_id.clone(),
+        };
+        let bundle_path = bundle.local_path(&repo_paths).unwrap();
+        std::fs::write(bundle_path, bundle_bytes).unwrap();
+
+        let mut snapshot_manifest =
+            SnapshotManifest::new("bundled-snapshot".to_string(), SnapshotTagSet::default());
+        snapshot_manifest.push_file(FileManifest {
+            path: "first.bin".to_string(),
+            size: 8,
+            executable: false,
+            read_only: false,
+            full_file_hash: test_hash(b"11112222"),
+            chunks: vec![
+                ChunkRef {
+                    chunk_hash: first_hash.clone(),
+                    raw_size: 4,
+                },
+                ChunkRef {
+                    chunk_hash: second_hash.clone(),
+                    raw_size: 4,
+                },
+            ],
+        });
+        snapshot_manifest.push_file(FileManifest {
+            path: "second.bin".to_string(),
+            size: 8,
+            executable: false,
+            read_only: false,
+            full_file_hash: test_hash(b"33331111"),
+            chunks: vec![
+                ChunkRef {
+                    chunk_hash: third_hash.clone(),
+                    raw_size: 4,
+                },
+                ChunkRef {
+                    chunk_hash: first_hash.clone(),
+                    raw_size: 4,
+                },
+            ],
+        });
+        let chunk_index = manifest::ChunkIndex {
+            format_version: "1".to_string(),
+            updated_at: String::new(),
+            entries: std::collections::BTreeMap::from([
+                (
+                    first_hash,
+                    manifest::ChunkIndexEntry {
+                        bundle_id: bundle_id.clone(),
+                        raw_size: 4,
+                        compressed_size: 4,
+                        storage_mode: manifest::ArtifactStorageMode::Bundled,
+                    },
+                ),
+                (
+                    second_hash,
+                    manifest::ChunkIndexEntry {
+                        bundle_id: bundle_id.clone(),
+                        raw_size: 4,
+                        compressed_size: 4,
+                        storage_mode: manifest::ArtifactStorageMode::Bundled,
+                    },
+                ),
+                (
+                    third_hash,
+                    manifest::ChunkIndexEntry {
+                        bundle_id,
+                        raw_size: 4,
+                        compressed_size: 4,
+                        storage_mode: manifest::ArtifactStorageMode::Bundled,
+                    },
+                ),
+            ]),
+        };
+        let existing_artifacts = HashSet::from([bundle]);
+        let plan = build_reconstruct_pipeline_plan(
+            &snapshot_manifest,
+            &chunk_index,
+            &repo_paths,
+            &existing_artifacts,
+            None,
+        )
+        .unwrap();
+        assert!(plan.bundle_only);
+        assert_eq!(plan.bundle_jobs.len(), 1);
+        assert_eq!(plan.bundle_jobs[0].chunks.len(), 3);
+
+        apply_reconstruct_pipeline(
+            ReconstructPipelineApplyRequest {
+                repo_root: &repo_root,
+                compression_profile,
+                snapshot_manifest: &snapshot_manifest,
+                destination_dir: &destination,
+                staging_dir: None,
+                source_destination_dir: None,
+                runtime_hints: &RuntimeResourceHints { jobs: Some(2) },
+                existing_artifacts: &existing_artifacts,
+                pending_bundle_downloads: &[],
+                transfer_policy: crate::snapshot_ops::types::TransferConcurrencyPolicy::default(),
+                control: &crate::GutchOperationControl::default(),
+                download_client: None,
+                transfer_progress: None,
+            },
+            plan,
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(destination.join("first.bin")).unwrap(),
+            b"11112222"
+        );
+        assert_eq!(
+            std::fs::read(destination.join("second.bin")).unwrap(),
+            b"33331111"
+        );
+        let _ = std::fs::remove_dir_all(&repo_root);
+        let _ = std::fs::remove_dir_all(&destination);
+    }
+
+    #[test]
     fn artifact_completion_check_only_fails_when_files_still_wait_on_artifacts() {
         assert!(!has_files_still_waiting_on_artifacts(
             &[true, true],
