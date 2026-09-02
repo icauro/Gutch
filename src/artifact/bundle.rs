@@ -21,6 +21,13 @@ pub(crate) struct BundleBuildMetrics {
     pub(crate) serialization_bytes: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BundleStreamMetrics {
+    pub(crate) raw_bytes: u64,
+    pub(crate) read: Duration,
+    pub(crate) hash_verify: Duration,
+}
+
 pub(crate) struct BundleBuilder {
     chunks: Vec<ChunkData>,
     pub(crate) profile: CompressionProfile,
@@ -402,7 +409,7 @@ impl<R: Read + Seek> BundleReader<R> {
         &mut self,
         profiler: Option<&crate::GutchProfiler>,
         visit: F,
-    ) -> Result<()>
+    ) -> Result<BundleStreamMetrics>
     where
         F: FnMut(usize, &BundleTableEntry, &[u8]) -> Result<()>,
     {
@@ -443,12 +450,13 @@ impl<R: Read + Seek> BundleReader<R> {
         chunk_hashes: &[ChunkHash],
         profiler: Option<&crate::GutchProfiler>,
         mut visit: F,
-    ) -> Result<()>
+    ) -> Result<BundleStreamMetrics>
     where
         R: Read,
         F: FnMut(usize, &BundleTableEntry, &[u8]) -> Result<()>,
     {
         let mut expected_raw_offset = 0u64;
+        let mut metrics = BundleStreamMetrics::default();
         for (index, entry) in entries.iter().enumerate() {
             if entry.raw_offset != expected_raw_offset {
                 return Err(crate::error::Error::InvalidBundle(format!(
@@ -471,17 +479,22 @@ impl<R: Read + Seek> BundleReader<R> {
             })?;
             let mut chunk_data = vec![0u8; raw_size];
             {
+                let read_started_at = Instant::now();
                 let _read_span = profiler.map(|profiler| {
                     profiler.span("gutch.snapshot.reconstruct.bundle.chunk_read")
                 });
                 reader.read_exact(&mut chunk_data)?;
+                metrics.read += read_started_at.elapsed();
             }
+            metrics.raw_bytes = metrics.raw_bytes.saturating_add(entry.raw_size);
+            let hash_started_at = Instant::now();
             let actual_hash = {
                 let _hash_span = profiler.map(|profiler| {
                     profiler.span("gutch.snapshot.reconstruct.bundle.chunk_hash_verify")
                 });
                 ChunkHash::from_blake3(hash::hash_chunk(&chunk_data))
             };
+            metrics.hash_verify += hash_started_at.elapsed();
             if actual_hash != chunk_hashes[index] {
                 return Err(crate::error::Error::HashMismatch {
                     expected: chunk_hashes[index].to_hex(),
@@ -497,7 +510,7 @@ impl<R: Read + Seek> BundleReader<R> {
                 "bundle payload contains bytes after the declared chunks".into(),
             ));
         }
-        Ok(())
+        Ok(metrics)
     }
 
     fn ensure_bundle_raw_cache(&mut self, profiler: Option<&crate::GutchProfiler>) -> Result<()> {
