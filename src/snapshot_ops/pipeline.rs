@@ -1770,7 +1770,7 @@ struct ReconstructedFileVerification {
     bytes: u64,
 }
 
-const PARALLEL_FULL_HASH_MIN_BYTES: u64 = 128 * 1024 * 1024;
+const PARALLEL_FULL_HASH_MIN_BYTES: u64 = 64 * 1024 * 1024;
 
 fn verify_reconstructed_output_file(
     file_index: usize,
