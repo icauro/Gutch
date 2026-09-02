@@ -799,66 +799,62 @@ fn execute_bundled_reconstruct_pipeline(
             pipeline_error = Some(error);
             break;
         }
-        if !downloads_done {
-            if let Some(scheduler) = artifact_scheduler.as_ref() {
-                loop {
-                    match scheduler.try_recv() {
-                        Ok(ArtifactDownloadEvent::Ready(artifact)) => {
-                            let Some(&job_index) = bundle_job_indices.get(&artifact) else {
-                                pipeline_error = Some(Error::reconstruct(format!(
-                                    "downloaded unexpected bundle '{}'",
-                                    artifact.id()
-                                )));
-                                break;
-                            };
-                            if !bundle_jobs[job_index].artifact_path.is_file() {
-                                pipeline_error = Some(Error::reconstruct(format!(
-                                    "downloaded bundle '{}' is missing at {}",
-                                    artifact.id(),
-                                    bundle_jobs[job_index].artifact_path.display()
-                                )));
-                                break;
-                            }
-                            let queue_result = task_tx
-                                .as_ref()
-                                .ok_or_else(|| {
+        if !downloads_done && let Some(scheduler) = artifact_scheduler.as_ref() {
+            loop {
+                match scheduler.try_recv() {
+                    Ok(ArtifactDownloadEvent::Ready(artifact)) => {
+                        let Some(&job_index) = bundle_job_indices.get(&artifact) else {
+                            pipeline_error = Some(Error::reconstruct(format!(
+                                "downloaded unexpected bundle '{}'",
+                                artifact.id()
+                            )));
+                            break;
+                        };
+                        if !bundle_jobs[job_index].artifact_path.is_file() {
+                            pipeline_error = Some(Error::reconstruct(format!(
+                                "downloaded bundle '{}' is missing at {}",
+                                artifact.id(),
+                                bundle_jobs[job_index].artifact_path.display()
+                            )));
+                            break;
+                        }
+                        let queue_result = task_tx
+                            .as_ref()
+                            .ok_or_else(|| {
+                                Error::reconstruct("bundled reconstruction queue is unavailable")
+                            })
+                            .and_then(|sender| {
+                                sender.send(job_index).map_err(|_| {
                                     Error::reconstruct(
-                                        "bundled reconstruction queue is unavailable",
+                                        "bundled reconstruction queue closed unexpectedly",
                                     )
                                 })
-                                .and_then(|sender| {
-                                    sender.send(job_index).map_err(|_| {
-                                        Error::reconstruct(
-                                            "bundled reconstruction queue closed unexpectedly",
-                                        )
-                                    })
-                                });
-                            if let Err(error) = queue_result {
-                                pipeline_error = Some(error);
-                                break;
-                            }
-                            queued_bundle_count += 1;
-                        }
-                        Ok(ArtifactDownloadEvent::Failed(error)) => {
+                            });
+                        if let Err(error) = queue_result {
                             pipeline_error = Some(error);
                             break;
                         }
-                        Ok(ArtifactDownloadEvent::WorkerDone) => {
-                            completed_download_worker_count += 1;
-                            if completed_download_worker_count == artifact_worker_count {
-                                downloads_done = true;
-                                if let Some(transfer_progress) = transfer_progress {
-                                    transfer_progress.finish();
-                                }
+                        queued_bundle_count += 1;
+                    }
+                    Ok(ArtifactDownloadEvent::Failed(error)) => {
+                        pipeline_error = Some(error);
+                        break;
+                    }
+                    Ok(ArtifactDownloadEvent::WorkerDone) => {
+                        completed_download_worker_count += 1;
+                        if completed_download_worker_count == artifact_worker_count {
+                            downloads_done = true;
+                            if let Some(transfer_progress) = transfer_progress {
+                                transfer_progress.finish();
                             }
                         }
-                        Err(mpsc::TryRecvError::Empty) => break,
-                        Err(mpsc::TryRecvError::Disconnected) => {
-                            pipeline_error = Some(Error::reconstruct(
-                                "artifact download scheduler channel closed unexpectedly",
-                            ));
-                            break;
-                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        pipeline_error = Some(Error::reconstruct(
+                            "artifact download scheduler channel closed unexpectedly",
+                        ));
+                        break;
                     }
                 }
             }
@@ -914,10 +910,10 @@ fn execute_bundled_reconstruct_pipeline(
         }
     }
     drop(task_tx);
-    if pipeline_error.is_some() {
-        if let Some(scheduler) = artifact_scheduler.as_ref() {
-            scheduler.cancel();
-        }
+    if pipeline_error.is_some()
+        && let Some(scheduler) = artifact_scheduler.as_ref()
+    {
+        scheduler.cancel();
     }
     if let Some(scheduler) = artifact_scheduler {
         scheduler.join()?;
