@@ -406,30 +406,41 @@ pub(super) fn apply_reconstruct_pipeline(
     let _operation_span = request
         .control
         .profile_span("gutch.snapshot.reconstruct.apply");
-    let staging_dir = request
-        .staging_dir
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| {
-            super::apply::default_snapshot_staging_dir(
-                request.destination_dir,
-                &request.snapshot_manifest.snapshot_id,
-            )
-        });
-    if request.destination_dir == staging_dir {
-        return Err(Error::PathError {
-            path: request.destination_dir.to_path_buf(),
-            reason: "destination and staging directories must be different".to_string(),
-        });
-    }
-    if staging_dir.exists() {
-        crate::helpers::remove_dir_all(&staging_dir)?;
-    }
-    if let Some(parent) = staging_dir.parent() {
-        crate::helpers::create_dir_all(parent)?;
-    }
+    let staging_dir = {
+        let _staging_span = request
+            .control
+            .profile_span("gutch.snapshot.reconstruct.prepare.staging");
+        let staging_dir = request
+            .staging_dir
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| {
+                super::apply::default_snapshot_staging_dir(
+                    request.destination_dir,
+                    &request.snapshot_manifest.snapshot_id,
+                )
+            });
+        if request.destination_dir == staging_dir {
+            return Err(Error::PathError {
+                path: request.destination_dir.to_path_buf(),
+                reason: "destination and staging directories must be different".to_string(),
+            });
+        }
+        if staging_dir.exists() {
+            crate::helpers::remove_dir_all(&staging_dir)?;
+        }
+        if let Some(parent) = staging_dir.parent() {
+            crate::helpers::create_dir_all(parent)?;
+        }
+        staging_dir
+    };
 
     let main_result = (|| -> Result<SnapshotReconstructFromRepoResult> {
-        prepare_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+        {
+            let _prepare_span = request
+                .control
+                .profile_span("gutch.snapshot.reconstruct.prepare.entries");
+            prepare_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+        }
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
         let required_artifact_count = pipeline_plan.required_artifact_count;
@@ -448,11 +459,21 @@ pub(super) fn apply_reconstruct_pipeline(
                 download_client: request.download_client,
                 transfer_progress: request.transfer_progress,
             })?;
-        finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+        {
+            let _finalize_span = request
+                .control
+                .profile_span("gutch.snapshot.reconstruct.finalize.entries");
+            finalize_snapshot_entries(request.snapshot_manifest, &staging_dir)?;
+        }
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
-        request.control.checkpoint()?;
-        crate::helpers::replace_directory(&staging_dir, request.destination_dir)?;
+        {
+            let _promote_span = request
+                .control
+                .profile_span("gutch.snapshot.reconstruct.finalize.promote");
+            request.control.checkpoint()?;
+            crate::helpers::replace_directory(&staging_dir, request.destination_dir)?;
+        }
         Ok(SnapshotReconstructFromRepoResult {
             repo_root: request.repo_root.to_path_buf(),
             snapshot_manifest: request.snapshot_manifest.clone(),
