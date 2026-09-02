@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -25,6 +25,8 @@ use crate::{Error, Result};
 
 pub(super) struct ReconstructPipelinePlan {
     files: Vec<ReconstructPipelineFile>,
+    bundle_jobs: Vec<BundleReconstructJob>,
+    bundle_only: bool,
     artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>>,
     remaining_artifact_dependencies: Vec<usize>,
     pub required_bundle_count: usize,
@@ -86,6 +88,25 @@ struct ReconstructPipelineChunk {
     compressed_size: u64,
     artifact: crate::ArtifactRef,
     artifact_path: PathBuf,
+}
+
+#[derive(Clone)]
+struct BundleReconstructJob {
+    artifact: crate::ArtifactRef,
+    artifact_path: PathBuf,
+    chunks: HashMap<String, BundleReconstructChunk>,
+}
+
+#[derive(Clone)]
+struct BundleReconstructChunk {
+    raw_size: u64,
+    targets: Vec<BundleReconstructTarget>,
+}
+
+#[derive(Clone)]
+struct BundleReconstructTarget {
+    file_index: usize,
+    file_offset: u64,
 }
 
 struct SourceChunkLocation {
@@ -285,6 +306,8 @@ pub(super) fn build_reconstruct_pipeline_plan(
     verified_source: Option<SnapshotReconstructSource<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
+    let mut bundle_jobs = Vec::new();
+    let mut bundle_job_indices: HashMap<crate::ArtifactRef, usize> = HashMap::new();
     let mut artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>> = HashMap::new();
     let mut remaining_artifact_dependencies = Vec::with_capacity(snapshot_manifest.file_count());
     let mut bundled_artifacts = HashSet::new();
@@ -326,8 +349,10 @@ pub(super) fn build_reconstruct_pipeline_plan(
             continue;
         }
 
+        let file_index = files.len();
         let mut chunks = Vec::with_capacity(file_manifest.chunks.len());
         let mut missing_artifact_dependencies = HashSet::new();
+        let mut file_offset = 0u64;
         for chunk_ref in &file_manifest.chunks {
             if let Some(source_chunk) = source_chunk_locations.get(&chunk_ref.chunk_hash) {
                 chunks.push(ReconstructPipelineChunkInput::Source {
@@ -337,6 +362,12 @@ pub(super) fn build_reconstruct_pipeline_plan(
                     source_offset: source_chunk.offset,
                 });
                 reused_source_chunk_count += 1;
+                file_offset = file_offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
+                    Error::manifest(format!(
+                        "file '{}' size overflows u64",
+                        file_manifest.path
+                    ))
+                })?;
                 continue;
             }
             let entry = chunk_index
@@ -348,9 +379,50 @@ pub(super) fn build_reconstruct_pipeline_plan(
                         chunk_ref.chunk_hash
                     ))
                 })?;
+            if entry.raw_size != chunk_ref.raw_size {
+                return Err(Error::manifest(format!(
+                    "chunk '{}' size mismatch in file '{}': manifest {}, index {}",
+                    chunk_ref.chunk_hash,
+                    file_manifest.path,
+                    chunk_ref.raw_size,
+                    entry.raw_size
+                )));
+            }
             let artifact = crate::ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry);
             if let crate::ArtifactRef::Bundle { .. } = &artifact {
                 bundled_artifacts.insert(artifact.clone());
+                let job_index = match bundle_job_indices.entry(artifact.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let job_index = bundle_jobs.len();
+                        bundle_jobs.push(BundleReconstructJob {
+                            artifact: artifact.clone(),
+                            artifact_path: artifact.local_path(repo_paths)?,
+                            chunks: HashMap::new(),
+                        });
+                        entry.insert(job_index);
+                        job_index
+                    }
+                };
+                let bundle_job = &mut bundle_jobs[job_index];
+                let bundle_chunk = bundle_job
+                    .chunks
+                    .entry(chunk_ref.chunk_hash.clone())
+                    .or_insert_with(|| BundleReconstructChunk {
+                        raw_size: chunk_ref.raw_size,
+                        targets: Vec::new(),
+                    });
+                if bundle_chunk.raw_size != chunk_ref.raw_size {
+                    return Err(Error::manifest(format!(
+                        "chunk '{}' has inconsistent sizes in bundle '{}'",
+                        chunk_ref.chunk_hash,
+                        artifact.id()
+                    )));
+                }
+                bundle_chunk.targets.push(BundleReconstructTarget {
+                    file_index,
+                    file_offset,
+                });
             }
             required_artifacts.insert(artifact.clone());
             if !existing_artifacts.contains(&artifact) {
@@ -365,9 +437,20 @@ pub(super) fn build_reconstruct_pipeline_plan(
                     artifact,
                 },
             ));
+            file_offset = file_offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
+                Error::manifest(format!(
+                    "file '{}' size overflows u64",
+                    file_manifest.path
+                ))
+            })?;
         }
 
-        let file_index = files.len();
+        if file_offset != file_manifest.size {
+            return Err(Error::manifest(format!(
+                "file '{}' chunk sizes total {}, expected {}",
+                file_manifest.path, file_offset, file_manifest.size
+            )));
+        }
         for artifact in &missing_artifact_dependencies {
             artifact_to_file_indices
                 .entry(artifact.clone())
@@ -383,8 +466,24 @@ pub(super) fn build_reconstruct_pipeline_plan(
         });
     }
 
+    let bundle_only = files.iter().all(|file| {
+        matches!(
+            &file.reconstruction,
+            ReconstructPipelineReconstruction::ReconstructFromParts { chunks }
+                if chunks.iter().all(|chunk| matches!(
+                    chunk,
+                    ReconstructPipelineChunkInput::Artifact(ReconstructPipelineChunk {
+                        artifact: crate::ArtifactRef::Bundle { .. },
+                        ..
+                    })
+                ))
+        )
+    });
+
     Ok(ReconstructPipelinePlan {
         files,
+        bundle_jobs,
+        bundle_only,
         artifact_to_file_indices,
         remaining_artifact_dependencies,
         required_bundle_count: bundled_artifacts.len(),
@@ -519,6 +618,10 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
 pub(super) fn execute_reconstruct_pipeline_reconstruction(
     request: ExecuteReconstructPipelineRequest<'_>,
 ) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
+    if request.pending_bundle_downloads.is_empty() && request.pipeline_plan.bundle_only {
+        return execute_bundled_reconstruct_pipeline(request);
+    }
+
     let ExecuteReconstructPipelineRequest {
         mut pipeline_plan,
         staging_dir,
