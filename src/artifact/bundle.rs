@@ -417,9 +417,8 @@ impl<R: Read + Seek> BundleReader<R> {
         let entries = &self.entries;
         let chunk_hashes = &self.chunk_hashes;
         let payload_size = self.payload_size;
-        let _payload_span = profiler.map(|profiler| {
-            profiler.span("gutch.snapshot.reconstruct.bundle.payload")
-        });
+        let _payload_span =
+            profiler.map(|profiler| profiler.span("gutch.snapshot.reconstruct.bundle.payload"));
 
         match self.compression {
             CompressionKind::None => Self::stream_chunks_from_reader(
@@ -431,28 +430,23 @@ impl<R: Read + Seek> BundleReader<R> {
             ),
             CompressionKind::Zstd => {
                 let compressed = self.reader.by_ref().take(payload_size);
-                let decoder = zstd::stream::read::Decoder::new(compressed)
-                    .map_err(|error| crate::error::Error::bundle(format!("zstd decompress: {error}")))?;
-                Self::stream_chunks_from_reader(
-                    decoder,
-                    entries,
-                    chunk_hashes,
-                    profiler,
-                    visit,
-                )
+                let decoder = zstd::stream::read::Decoder::new(compressed).map_err(|error| {
+                    crate::error::Error::bundle(format!("zstd decompress: {error}"))
+                })?;
+                Self::stream_chunks_from_reader(decoder, entries, chunk_hashes, profiler, visit)
             }
         }
     }
 
-    fn stream_chunks_from_reader<R, F>(
-        mut reader: R,
+    fn stream_chunks_from_reader<S, F>(
+        mut reader: S,
         entries: &[BundleTableEntry],
         chunk_hashes: &[ChunkHash],
         profiler: Option<&crate::GutchProfiler>,
         mut visit: F,
     ) -> Result<BundleStreamMetrics>
     where
-        R: Read,
+        S: Read,
         F: FnMut(usize, &BundleTableEntry, &[u8]) -> Result<()>,
     {
         let mut expected_raw_offset = 0u64;
@@ -464,13 +458,14 @@ impl<R: Read + Seek> BundleReader<R> {
                     index, entry.raw_offset, expected_raw_offset
                 )));
             }
-            expected_raw_offset = expected_raw_offset
-                .checked_add(entry.raw_size)
-                .ok_or_else(|| {
-                    crate::error::Error::InvalidBundle(
-                        "bundle raw payload size overflows u64".into(),
-                    )
-                })?;
+            expected_raw_offset =
+                expected_raw_offset
+                    .checked_add(entry.raw_size)
+                    .ok_or_else(|| {
+                        crate::error::Error::InvalidBundle(
+                            "bundle raw payload size overflows u64".into(),
+                        )
+                    })?;
             let raw_size = usize::try_from(entry.raw_size).map_err(|_| {
                 crate::error::Error::InvalidBundle(format!(
                     "bundle chunk {} is too large for this platform",
@@ -480,9 +475,8 @@ impl<R: Read + Seek> BundleReader<R> {
             let mut chunk_data = vec![0u8; raw_size];
             {
                 let read_started_at = Instant::now();
-                let _read_span = profiler.map(|profiler| {
-                    profiler.span("gutch.snapshot.reconstruct.bundle.chunk_read")
-                });
+                let _read_span = profiler
+                    .map(|profiler| profiler.span("gutch.snapshot.reconstruct.bundle.chunk_read"));
                 reader.read_exact(&mut chunk_data)?;
                 metrics.read += read_started_at.elapsed();
             }

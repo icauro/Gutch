@@ -363,10 +363,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
                 });
                 reused_source_chunk_count += 1;
                 file_offset = file_offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
-                    Error::manifest(format!(
-                        "file '{}' size overflows u64",
-                        file_manifest.path
-                    ))
+                    Error::manifest(format!("file '{}' size overflows u64", file_manifest.path))
                 })?;
                 continue;
             }
@@ -382,10 +379,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
             if entry.raw_size != chunk_ref.raw_size {
                 return Err(Error::manifest(format!(
                     "chunk '{}' size mismatch in file '{}': manifest {}, index {}",
-                    chunk_ref.chunk_hash,
-                    file_manifest.path,
-                    chunk_ref.raw_size,
-                    entry.raw_size
+                    chunk_ref.chunk_hash, file_manifest.path, chunk_ref.raw_size, entry.raw_size
                 )));
             }
             let artifact = crate::ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry);
@@ -438,10 +432,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
                 },
             ));
             file_offset = file_offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
-                Error::manifest(format!(
-                    "file '{}' size overflows u64",
-                    file_manifest.path
-                ))
+                Error::manifest(format!("file '{}' size overflows u64", file_manifest.path))
             })?;
         }
 
@@ -613,6 +604,539 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) control: &'a GutchOperationControl,
     pub(super) download_client: Option<&'a reqwest::blocking::Client>,
     pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
+}
+
+enum BundledReconstructEvent {
+    BundleCompleted(ReconstructTimings),
+    Failed(Error),
+    WorkerDone,
+}
+
+fn execute_bundled_reconstruct_pipeline(
+    request: ExecuteReconstructPipelineRequest<'_>,
+) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
+    let ExecuteReconstructPipelineRequest {
+        pipeline_plan,
+        staging_dir,
+        snapshot_id,
+        compression_profile,
+        runtime_hints,
+        pending_bundle_downloads,
+        control,
+        ..
+    } = request;
+    if !pending_bundle_downloads.is_empty() {
+        return Err(Error::reconstruct(
+            "bundled reconstruction cannot run before pending downloads complete",
+        ));
+    }
+    if pipeline_plan
+        .remaining_artifact_dependencies
+        .iter()
+        .any(|remaining| *remaining > 0)
+    {
+        return Err(Error::reconstruct(
+            "bundled reconstruction requires all bundles to be available locally",
+        ));
+    }
+
+    control.checkpoint()?;
+    let _pipeline_span = control.profile_span("gutch.snapshot.reconstruct.pipeline");
+    let reconstruct_started_at = Instant::now();
+    let runtime_plan = plan_reconstruct_runtime(runtime_hints);
+    let mut reconstruct_timings = ReconstructTimings {
+        runtime_plan: Some(runtime_plan.clone()),
+        verify_files: true,
+        ..ReconstructTimings::default()
+    };
+    let mut verify_timings = crate::verify::VerifyTimings {
+        verify_mode: crate::verify::VerifyMode::Fast,
+        runtime_plan: Some(plan_verify_runtime(runtime_hints)),
+        ..crate::verify::VerifyTimings::default()
+    };
+
+    let prepare_started_at = Instant::now();
+    let output_paths = Arc::new(prepare_bundled_output_files(
+        &pipeline_plan.files,
+        staging_dir,
+    )?);
+    reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
+    let file_plans = Arc::new(pipeline_plan.files);
+    let bundle_jobs = Arc::new(pipeline_plan.bundle_jobs);
+    for job in bundle_jobs.iter() {
+        if !job.artifact_path.is_file() {
+            return Err(Error::reconstruct(format!(
+                "required bundle '{}' is not available at {}",
+                job.artifact.id(),
+                job.artifact_path.display()
+            )));
+        }
+    }
+
+    emit_progress(
+        control.progress(),
+        GutchProgressEvent {
+            operation: GutchOperation::Fetch,
+            phase: GutchProgressPhase::Reconstruct,
+            message: "Reconstructing bundled artifacts (0/0)".to_string(),
+            current: 0,
+            total: bundle_jobs.len().max(1),
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: Some(snapshot_id.to_string()),
+            done: false,
+        },
+    );
+
+    let worker_count = runtime_plan
+        .worker_count
+        .min(bundle_jobs.len())
+        .max(1.min(bundle_jobs.len()));
+    let (task_tx, task_rx) = mpsc::channel::<usize>();
+    let task_rx = Arc::new(Mutex::new(task_rx));
+    let (event_tx, event_rx) = mpsc::channel::<BundledReconstructEvent>();
+    let mut worker_handles = Vec::with_capacity(worker_count);
+    for _ in 0..worker_count {
+        let task_rx = Arc::clone(&task_rx);
+        let event_tx = event_tx.clone();
+        let bundle_jobs = Arc::clone(&bundle_jobs);
+        let file_plans = Arc::clone(&file_plans);
+        let output_paths = Arc::clone(&output_paths);
+        let compression_profile = compression_profile.clone();
+        let control = control.clone();
+        worker_handles.push(thread::spawn(move || {
+            loop {
+                let next_job = match task_rx.lock() {
+                    Ok(receiver) => receiver.recv(),
+                    Err(_) => {
+                        let _ = event_tx.send(BundledReconstructEvent::Failed(Error::reconstruct(
+                            "bundled reconstruction task state is unavailable",
+                        )));
+                        return;
+                    }
+                };
+                let job_index = match next_job {
+                    Ok(job_index) => job_index,
+                    Err(_) => {
+                        let _ = event_tx.send(BundledReconstructEvent::WorkerDone);
+                        return;
+                    }
+                };
+                let result = reconstruct_bundle_job(
+                    &bundle_jobs[job_index],
+                    &file_plans,
+                    &output_paths,
+                    &compression_profile,
+                    &control,
+                );
+                match result {
+                    Ok(timings) => {
+                        if event_tx
+                            .send(BundledReconstructEvent::BundleCompleted(timings))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = event_tx.send(BundledReconstructEvent::Failed(error));
+                        return;
+                    }
+                }
+            }
+        }));
+    }
+    drop(event_tx);
+    for job_index in 0..bundle_jobs.len() {
+        task_tx
+            .send(job_index)
+            .map_err(|_| Error::reconstruct("bundled reconstruction queue closed unexpectedly"))?;
+    }
+    drop(task_tx);
+
+    let mut completed_bundle_count = 0usize;
+    let mut completed_worker_count = 0usize;
+    let mut pipeline_error = None;
+    while completed_worker_count < worker_count {
+        match event_rx.recv() {
+            Ok(BundledReconstructEvent::BundleCompleted(bundle_timings)) => {
+                completed_bundle_count += 1;
+                accumulate_pipeline_timings(
+                    &mut reconstruct_timings,
+                    &mut verify_timings,
+                    &bundle_timings,
+                );
+                emit_progress(
+                    control.progress(),
+                    GutchProgressEvent {
+                        operation: GutchOperation::Fetch,
+                        phase: GutchProgressPhase::Reconstruct,
+                        message: format!(
+                            "Reconstructing bundled artifacts ({}/{})",
+                            completed_bundle_count,
+                            bundle_jobs.len().max(1)
+                        ),
+                        current: completed_bundle_count,
+                        total: bundle_jobs.len().max(1),
+                        transferred_bytes: 0,
+                        total_bytes: 0,
+                        detail: None,
+                        done: false,
+                    },
+                );
+            }
+            Ok(BundledReconstructEvent::Failed(error)) => {
+                pipeline_error = Some(error);
+                break;
+            }
+            Ok(BundledReconstructEvent::WorkerDone) => completed_worker_count += 1,
+            Err(_) => {
+                pipeline_error = Some(Error::reconstruct(
+                    "bundled reconstruction event channel closed unexpectedly",
+                ));
+                break;
+            }
+        }
+    }
+    for handle in worker_handles {
+        handle
+            .join()
+            .map_err(|_| Error::reconstruct("bundled reconstruction worker panicked"))?;
+    }
+    if let Some(error) = pipeline_error {
+        return Err(error);
+    }
+    if completed_bundle_count != bundle_jobs.len() {
+        return Err(Error::reconstruct(format!(
+            "bundled reconstruction completed {completed_bundle_count} of {} bundles",
+            bundle_jobs.len()
+        )));
+    }
+
+    let verify_started_at = Instant::now();
+    let verified_file_bytes = verify_bundled_output_files(
+        &file_plans,
+        &output_paths,
+        control,
+        &mut reconstruct_timings,
+    )?;
+    let verify_elapsed = verify_started_at.elapsed();
+    verify_timings.file_hash += verify_elapsed;
+    verify_timings.file_hash_bytes = verify_timings
+        .file_hash_bytes
+        .saturating_add(verified_file_bytes);
+    emit_progress(
+        control.progress(),
+        GutchProgressEvent {
+            operation: GutchOperation::Fetch,
+            phase: GutchProgressPhase::Reconstruct,
+            message: format!(
+                "Reconstructing files ({}/{})",
+                file_plans.len(),
+                file_plans.len().max(1)
+            ),
+            current: file_plans.len(),
+            total: file_plans.len().max(1),
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        },
+    );
+
+    reconstruct_timings.reconstruct_wall = reconstruct_started_at.elapsed();
+    reconstruct_timings.total = reconstruct_timings.reconstruct_wall;
+    verify_timings.verify_files_wall = reconstruct_timings.reconstruct_wall;
+    verify_timings.total = reconstruct_timings.reconstruct_wall;
+    Ok((reconstruct_timings, verify_timings))
+}
+
+fn prepare_bundled_output_files(
+    files: &[ReconstructPipelineFile],
+    staging_dir: &Path,
+) -> Result<Vec<PathBuf>> {
+    let mut output_paths = Vec::with_capacity(files.len());
+    for file_plan in files {
+        let output_path =
+            crate::path_guard::resolve_manifest_relative_path(staging_dir, &file_plan.path)?;
+        if let Some(parent) = output_path.parent() {
+            crate::helpers::create_dir_all(parent)?;
+        }
+        let output = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&output_path)?;
+        output.set_len(file_plan.size)?;
+        output_paths.push(output_path);
+    }
+    Ok(output_paths)
+}
+
+fn reconstruct_bundle_job(
+    job: &BundleReconstructJob,
+    file_plans: &[ReconstructPipelineFile],
+    output_paths: &[PathBuf],
+    compression_profile: &crate::manifest::CompressionProfile,
+    control: &GutchOperationControl,
+) -> Result<ReconstructTimings> {
+    control.checkpoint()?;
+    let _bundle_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.bundle",
+        bundle_reconstruct_trace_args(job),
+    );
+    let profiler = control.profiler();
+    let compressed_bytes = std::fs::metadata(&job.artifact_path)?.len();
+    let mut reader = crate::bundle::BundleReader::open_with_profiler(
+        File::open(&job.artifact_path)?,
+        compression_profile,
+        profiler,
+    )?;
+    let mut output_handles = BundleOutputHandleCache::new(output_paths);
+    let mut remaining_chunks = job.chunks.keys().cloned().collect::<HashSet<_>>();
+    let mut timings = ReconstructTimings::default();
+    let stream_started_at = Instant::now();
+    let stream_metrics = reader.stream_chunks(profiler, |_, entry, bytes| {
+        let Some(chunk) = job.chunks.get(&entry.chunk_hash) else {
+            return Ok(());
+        };
+        if chunk.raw_size != entry.raw_size || bytes.len() as u64 != chunk.raw_size {
+            return Err(Error::reconstruct(format!(
+                "bundle chunk '{}' size mismatch: expected {}, got {}",
+                entry.chunk_hash,
+                chunk.raw_size,
+                bytes.len()
+            )));
+        }
+        remaining_chunks.remove(&entry.chunk_hash);
+        let rebuild_started_at = Instant::now();
+        for target in &chunk.targets {
+            control.checkpoint()?;
+            let _chunk_span = control.profile_span_with_args(
+                "gutch.snapshot.reconstruct.file.artifact_chunk",
+                bundle_target_trace_args(
+                    job,
+                    &entry.chunk_hash,
+                    target,
+                    &file_plans[target.file_index],
+                ),
+            );
+            let write_started_at = Instant::now();
+            output_handles.write_at(target.file_index, target.file_offset, bytes)?;
+            let write_elapsed = write_started_at.elapsed();
+            timings.file_write += write_elapsed;
+            timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
+            timings.file_rebuild_bytes = timings
+                .file_rebuild_bytes
+                .saturating_add(bytes.len() as u64);
+        }
+        timings.file_rebuild += rebuild_started_at.elapsed();
+        Ok(())
+    })?;
+    let stream_elapsed = stream_started_at.elapsed();
+
+    if !remaining_chunks.is_empty() {
+        return Err(Error::reconstruct(format!(
+            "bundle '{}' is missing {} required chunks",
+            job.artifact.id(),
+            remaining_chunks.len()
+        )));
+    }
+
+    timings.artifact_read = stream_elapsed;
+    timings.artifact_read_compressed_bytes = compressed_bytes;
+    timings.artifact_read_decompressed_bytes = stream_metrics.raw_bytes;
+    timings.bundle_read = stream_elapsed;
+    timings.bundle_read_compressed_bytes = compressed_bytes;
+    timings.bundle_read_decompressed_bytes = stream_metrics.raw_bytes;
+    timings.chunk_verify = stream_metrics.hash_verify;
+    timings.chunk_verify_bytes = stream_metrics.raw_bytes;
+    Ok(timings)
+}
+
+struct BundleOutputHandleCache<'a> {
+    output_paths: &'a [PathBuf],
+    handles: HashMap<usize, File>,
+    lru: VecDeque<usize>,
+    max_open: usize,
+}
+
+impl<'a> BundleOutputHandleCache<'a> {
+    fn new(output_paths: &'a [PathBuf]) -> Self {
+        Self {
+            output_paths,
+            handles: HashMap::new(),
+            lru: VecDeque::new(),
+            max_open: 128,
+        }
+    }
+
+    fn write_at(&mut self, file_index: usize, offset: u64, bytes: &[u8]) -> Result<()> {
+        if file_index >= self.output_paths.len() {
+            return Err(Error::reconstruct(format!(
+                "bundle target references unknown file index {}",
+                file_index
+            )));
+        }
+        if !self.handles.contains_key(&file_index) {
+            while self.handles.len() >= self.max_open {
+                if let Some(oldest) = self.lru.pop_front() {
+                    self.handles.remove(&oldest);
+                }
+            }
+            let file = OpenOptions::new()
+                .write(true)
+                .open(&self.output_paths[file_index])?;
+            self.handles.insert(file_index, file);
+        }
+        self.lru.retain(|index| *index != file_index);
+        self.lru.push_back(file_index);
+        let file = self
+            .handles
+            .get_mut(&file_index)
+            .ok_or_else(|| Error::reconstruct("output file handle disappeared"))?;
+        write_file_at(file, offset, bytes)
+    }
+}
+
+#[cfg(windows)]
+fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
+    use std::os::windows::fs::FileExt;
+
+    let mut written = 0usize;
+    while written < bytes.len() {
+        let count = file.seek_write(&bytes[written..], offset + written as u64)?;
+        if count == 0 {
+            return Err(Error::reconstruct("output file write returned zero bytes"));
+        }
+        written += count;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
+    use std::os::unix::fs::FileExt;
+
+    file.write_all_at(bytes, offset)?;
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
+    file.seek(SeekFrom::Start(offset))?;
+    file.write_all(bytes)?;
+    Ok(())
+}
+
+fn bundle_reconstruct_trace_args(
+    job: &BundleReconstructJob,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let logical_bytes = job
+        .chunks
+        .values()
+        .map(|chunk| chunk.raw_size.saturating_mul(chunk.targets.len() as u64))
+        .sum::<u64>();
+    std::collections::BTreeMap::from([
+        ("artifact_kind".to_string(), serde_json::json!("bundle")),
+        (
+            "artifact_id".to_string(),
+            serde_json::json!(job.artifact.id()),
+        ),
+        (
+            "artifact_path".to_string(),
+            serde_json::json!(job.artifact_path.display().to_string()),
+        ),
+        (
+            "required_chunk_count".to_string(),
+            serde_json::json!(job.chunks.len()),
+        ),
+        (
+            "logical_write_mib".to_string(),
+            serde_json::json!(logical_bytes as f64 / (1024.0 * 1024.0)),
+        ),
+    ])
+}
+
+fn bundle_target_trace_args(
+    job: &BundleReconstructJob,
+    chunk_hash: &str,
+    target: &BundleReconstructTarget,
+    file_plan: &ReconstructPipelineFile,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut args = crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size);
+    args.insert("artifact_kind".to_string(), serde_json::json!("bundle"));
+    args.insert(
+        "artifact_id".to_string(),
+        serde_json::json!(job.artifact.id()),
+    );
+    args.insert(
+        "artifact_path".to_string(),
+        serde_json::json!(job.artifact_path.display().to_string()),
+    );
+    args.insert("chunk_hash".to_string(), serde_json::json!(chunk_hash));
+    args.insert(
+        "raw_size_mib".to_string(),
+        serde_json::json!(
+            job.chunks
+                .get(chunk_hash)
+                .map(|chunk| chunk.raw_size as f64 / (1024.0 * 1024.0))
+                .unwrap_or_default()
+        ),
+    );
+    args.insert(
+        "file_offset".to_string(),
+        serde_json::json!(target.file_offset),
+    );
+    args
+}
+
+fn verify_bundled_output_files(
+    files: &[ReconstructPipelineFile],
+    output_paths: &[PathBuf],
+    control: &GutchOperationControl,
+    timings: &mut ReconstructTimings,
+) -> Result<u64> {
+    let mut verified_bytes = 0u64;
+    for (file_index, file_plan) in files.iter().enumerate() {
+        control.checkpoint()?;
+        let _file_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file",
+            reconstruct_file_trace_args(file_plan),
+        );
+        let _hash_span = control.profile_span("gutch.snapshot.reconstruct.file.full_hash");
+        let mut input = File::open(&output_paths[file_index])?;
+        let actual_size = input.metadata()?.len();
+        if actual_size != file_plan.size {
+            return Err(Error::reconstruct(format!(
+                "reconstructed size {} does not match expected {} for {}",
+                actual_size, file_plan.size, file_plan.path
+            )));
+        }
+        let mut hasher = blake3::Hasher::new();
+        let mut buffer = vec![0u8; 1024 * 1024];
+        let mut file_bytes = 0u64;
+        loop {
+            let started_at = Instant::now();
+            let read = input.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            timings.file_verify += started_at.elapsed();
+            timings.file_verify_bytes = timings.file_verify_bytes.saturating_add(read as u64);
+            file_bytes = file_bytes.saturating_add(read as u64);
+        }
+        let actual_hash = crate::hash::hash_hex(&hasher.finalize());
+        if actual_hash != file_plan.full_file_hash {
+            return Err(Error::HashMismatch {
+                expected: file_plan.full_file_hash.clone(),
+                actual: actual_hash,
+            });
+        }
+        verified_bytes = verified_bytes.saturating_add(file_bytes);
+    }
+    Ok(verified_bytes)
 }
 
 pub(super) fn execute_reconstruct_pipeline_reconstruction(
