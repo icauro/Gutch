@@ -1065,8 +1065,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
     };
     let output_paths = Arc::new({
-        let _resolve_paths_span =
-            control.profile_span("gutch.snapshot.reconstruct.prepare.outputs.resolve_paths");
         let path_resolver = crate::path_guard::ManifestPathResolver::new(staging_dir)?;
         resolve_reconstruct_output_paths(
             &pipeline_plan.files,
