@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fs::Metadata;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -70,6 +71,34 @@ pub(crate) struct VerifyRequest<'a> {
 struct PreparedVerifyFile<'a> {
     manifest: &'a manifest::FileManifest,
     path: PathBuf,
+    metadata: PreparedFileMetadata,
+}
+
+enum PreparedFileMetadata {
+    Inventory(Option<Metadata>),
+    ResolveDuringVerification,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InventoryEntryKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+#[derive(Debug)]
+struct FilesystemInventoryEntry {
+    path: PathBuf,
+    kind: InventoryEntryKind,
+    metadata: Option<Metadata>,
+}
+
+#[derive(Debug)]
+struct FilesystemInventory {
+    canonical_root: PathBuf,
+    entries: HashMap<String, FilesystemInventoryEntry>,
+    extra_paths: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -93,41 +122,112 @@ fn classify_inner(
         ..VerifyTimings::default()
     };
     let verify_pool = build_thread_pool(runtime_plan.worker_count, "gutch-verify")?;
-    let path_resolver = crate::path_guard::ManifestPathResolver::new(dir)?;
-    let resolved_paths = {
+    let (inventory, resolved_paths) = if scan_extra_files {
         let _resolve_paths_span = opts.control.profile_span_with_args(
             "verify.prepare.paths",
-            std::collections::BTreeMap::from([(
-                "path_count".to_string(),
-                serde_json::json!(snapshot_manifest.entries.len()),
-            )]),
+            std::collections::BTreeMap::from([
+                (
+                    "path_count".to_string(),
+                    serde_json::json!(snapshot_manifest.entries.len()),
+                ),
+                (
+                    "strategy".to_string(),
+                    serde_json::json!("filesystem_inventory"),
+                ),
+            ]),
         );
-        verify_pool.install(|| {
-            snapshot_manifest
-                .entries
-                .par_iter()
-                .map(|entry| match entry {
-                    manifest::SnapshotEntry::Symlink(_) => path_resolver.resolve(entry.path()),
-                    manifest::SnapshotEntry::File(_) | manifest::SnapshotEntry::Directory(_) => {
-                        path_resolver.resolve_entry(entry.path())
-                    }
-                })
-                .collect::<Vec<_>>()
-        })
-    };
-    let resolved_paths = resolved_paths.into_iter().collect::<Result<Vec<_>>>()?;
-    let mut prepared_files = snapshot_manifest
-        .entries
-        .iter()
-        .zip(&resolved_paths)
-        .filter_map(|(entry, path)| {
-            let file = entry.as_file()?;
-            Some(PreparedVerifyFile {
-                manifest: file,
-                path: path.clone(),
+        let mut inventory = build_filesystem_inventory(snapshot_manifest, dir, opts.control)?;
+        augment_inventory_for_symlinked_parents(
+            snapshot_manifest,
+            dir,
+            &mut inventory,
+            opts.control,
+        )?;
+        opts.control.profile_event_with_args(
+            "verify.prepare.paths.inventory",
+            std::collections::BTreeMap::from([
+                (
+                    "inventory_entry_count".to_string(),
+                    serde_json::json!(inventory.entries.len()),
+                ),
+                (
+                    "extra_path_count".to_string(),
+                    serde_json::json!(inventory.extra_paths.len()),
+                ),
+            ]),
+        );
+        (Some(inventory), None)
+    } else {
+        let path_resolver = crate::path_guard::ManifestPathResolver::new(dir)?;
+        let resolved_paths = {
+            let _resolve_paths_span = opts.control.profile_span_with_args(
+                "verify.prepare.paths",
+                std::collections::BTreeMap::from([
+                    (
+                        "path_count".to_string(),
+                        serde_json::json!(snapshot_manifest.entries.len()),
+                    ),
+                    (
+                        "strategy".to_string(),
+                        serde_json::json!("targeted_resolver"),
+                    ),
+                ]),
+            );
+            verify_pool.install(|| {
+                snapshot_manifest
+                    .entries
+                    .par_iter()
+                    .map(|entry| match entry {
+                        manifest::SnapshotEntry::Symlink(_) => path_resolver.resolve(entry.path()),
+                        manifest::SnapshotEntry::File(_)
+                        | manifest::SnapshotEntry::Directory(_) => {
+                            path_resolver.resolve_entry(entry.path())
+                        }
+                    })
+                    .collect::<Vec<_>>()
             })
-        })
-        .collect::<Vec<_>>();
+        };
+        (
+            None,
+            Some(resolved_paths.into_iter().collect::<Result<Vec<_>>>()?),
+        )
+    };
+    let mut prepared_files = if let Some(inventory) = inventory.as_ref() {
+        snapshot_manifest
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let file = entry.as_file()?;
+                let actual = inventory.entries.get(&inventory_path_key(&file.path));
+                Some(PreparedVerifyFile {
+                    manifest: file,
+                    path: actual
+                        .map(|entry| entry.path.clone())
+                        .unwrap_or_else(|| inventory.canonical_root.join(&file.path)),
+                    metadata: PreparedFileMetadata::Inventory(
+                        actual.and_then(|entry| entry.metadata.clone()),
+                    ),
+                })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        let resolved_paths = resolved_paths
+            .as_ref()
+            .expect("targeted verification paths must be prepared");
+        snapshot_manifest
+            .entries
+            .iter()
+            .zip(resolved_paths)
+            .filter_map(|(entry, path)| {
+                let file = entry.as_file()?;
+                Some(PreparedVerifyFile {
+                    manifest: file,
+                    path: path.clone(),
+                    metadata: PreparedFileMetadata::ResolveDuringVerification,
+                })
+            })
+            .collect::<Vec<_>>()
+    };
     prepared_files.sort_unstable_by(|left, right| {
         right
             .manifest
@@ -135,11 +235,6 @@ fn classify_inner(
             .cmp(&left.manifest.size)
             .then_with(|| left.manifest.path.cmp(&right.manifest.path))
     });
-    let manifest_paths: HashSet<&str> = snapshot_manifest
-        .entries
-        .iter()
-        .map(crate::manifest::SnapshotEntry::path)
-        .collect();
     let completed_files = AtomicUsize::new(0);
     emit_verify_progress(
         opts.control.progress(),
@@ -149,64 +244,13 @@ fn classify_inner(
     );
 
     timings.prepare_wall = total_start.elapsed();
-    for (entry, path) in snapshot_manifest.entries.iter().zip(&resolved_paths) {
-        match entry {
-            manifest::SnapshotEntry::File(_) => {}
-            manifest::SnapshotEntry::Directory(directory) => {
-                match std::fs::symlink_metadata(path) {
-                    Ok(metadata) if metadata.file_type().is_dir() => {
-                        if metadata.permissions().readonly() != directory.read_only {
-                            classification.push(RepairIssue {
-                                kind: RepairIssueKind::Corrupt,
-                                path: directory.path.clone(),
-                                detail: format!(
-                                    "read-only mismatch for directory: {}",
-                                    directory.path
-                                ),
-                            });
-                        }
-                    }
-                    Ok(_) => classification.push(RepairIssue {
-                        kind: RepairIssueKind::Corrupt,
-                        path: directory.path.clone(),
-                        detail: format!("entry type mismatch for directory: {}", directory.path),
-                    }),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => classification
-                        .push(RepairIssue {
-                            kind: RepairIssueKind::Missing,
-                            path: directory.path.clone(),
-                            detail: format!("missing directory: {}", directory.path),
-                        }),
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            manifest::SnapshotEntry::Symlink(link) => match std::fs::symlink_metadata(path) {
-                Ok(metadata) if metadata.file_type().is_symlink() => {
-                    let raw_target = std::fs::read_link(path)?;
-                    let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
-                    if actual_target != link.target_path {
-                        classification.push(RepairIssue {
-                            kind: RepairIssueKind::Corrupt,
-                            path: link.path.clone(),
-                            detail: format!("symbolic-link target mismatch for {}", link.path),
-                        });
-                    }
-                }
-                Ok(_) => classification.push(RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: link.path.clone(),
-                    detail: format!("entry type mismatch for symbolic link: {}", link.path),
-                }),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    classification.push(RepairIssue {
-                        kind: RepairIssueKind::Missing,
-                        path: link.path.clone(),
-                        detail: format!("missing symbolic link: {}", link.path),
-                    })
-                }
-                Err(error) => return Err(error.into()),
-            },
-        }
+    if let Some(inventory) = inventory.as_ref() {
+        classify_inventory_non_files(snapshot_manifest, inventory, &mut classification)?;
+    } else {
+        let resolved_paths = resolved_paths
+            .as_ref()
+            .expect("targeted verification paths must be prepared");
+        classify_resolved_non_files(snapshot_manifest, resolved_paths, &mut classification)?;
     }
     let verify_files_start = Instant::now();
     let per_file_results = {
@@ -271,23 +315,11 @@ fn classify_inner(
     }
     timings.verify_files_wall = verify_files_start.elapsed();
 
-    if scan_extra_files {
-        // Detect extra filesystem entries without following symbolic links.
+    if let Some(inventory) = inventory.as_ref() {
         let extra_file_scan_start = Instant::now();
         let _extra_scan_span = opts.control.profile_span("verify.extra_scan");
-        for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        for relative in &inventory.extra_paths {
             opts.control.checkpoint()?;
-            let entry = entry?;
-            if entry.depth() == 0 {
-                continue;
-            }
-            let Ok(relative_path) = entry.path().strip_prefix(dir) else {
-                continue;
-            };
-            let relative = relative_path.to_string_lossy().replace('\\', "/");
-            if manifest_paths.contains(relative.as_str()) {
-                continue;
-            }
             classification.push(RepairIssue {
                 kind: RepairIssueKind::Extra,
                 path: relative.clone(),
@@ -305,6 +337,330 @@ fn classify_inner(
         true,
     );
     Ok((classification, timings))
+}
+
+fn build_filesystem_inventory(
+    snapshot_manifest: &SnapshotManifest,
+    dir: &Path,
+    control: &GutchOperationControl,
+) -> Result<FilesystemInventory> {
+    let expected_paths: Vec<&str> = snapshot_manifest
+        .entries
+        .iter()
+        .map(crate::manifest::SnapshotEntry::path)
+        .collect();
+    for path in &expected_paths {
+        crate::validate_manifest_relative_path(path, false)?;
+    }
+    let canonical_root = match dir.canonicalize() {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(FilesystemInventory {
+                canonical_root: dir.to_path_buf(),
+                entries: HashMap::new(),
+                extra_paths: Vec::new(),
+            });
+        }
+        Err(error) => {
+            return Err(crate::Error::PathError {
+                path: dir.to_path_buf(),
+                reason: format!("failed to resolve snapshot root: {error}"),
+            });
+        }
+    };
+
+    let expected_path_keys = expected_paths
+        .iter()
+        .map(|path| inventory_path_key(path))
+        .collect::<HashSet<_>>();
+    let mut entries = HashMap::with_capacity(expected_path_keys.len());
+    let mut extra_paths = Vec::new();
+    for entry in walkdir::WalkDir::new(&canonical_root)
+        .follow_links(false)
+        .sort_by_file_name()
+    {
+        control.checkpoint()?;
+        let entry = entry?;
+        if entry.depth() == 0 {
+            continue;
+        }
+        let Ok(relative_path) = entry.path().strip_prefix(&canonical_root) else {
+            continue;
+        };
+        let relative = relative_path.to_string_lossy().replace('\\', "/");
+        let kind = if entry.file_type().is_symlink() {
+            InventoryEntryKind::Symlink
+        } else if entry.file_type().is_file() {
+            InventoryEntryKind::File
+        } else if entry.file_type().is_dir() {
+            InventoryEntryKind::Directory
+        } else {
+            InventoryEntryKind::Other
+        };
+        if kind == InventoryEntryKind::Directory {
+            let canonical_entry =
+                entry
+                    .path()
+                    .canonicalize()
+                    .map_err(|error| crate::Error::PathError {
+                        path: entry.path().to_path_buf(),
+                        reason: format!("failed to resolve snapshot path component: {error}"),
+                    })?;
+            if !canonical_entry.starts_with(&canonical_root) {
+                return Err(crate::Error::PathError {
+                    path: entry.path().to_path_buf(),
+                    reason: "snapshot path resolves outside the snapshot root".into(),
+                });
+            }
+        }
+        let key = inventory_path_key(&relative);
+        let metadata = if expected_path_keys.contains(&key) {
+            Some(entry.metadata()?)
+        } else {
+            extra_paths.push(relative.clone());
+            None
+        };
+        entries.insert(
+            key,
+            FilesystemInventoryEntry {
+                path: entry.path().to_path_buf(),
+                kind,
+                metadata,
+            },
+        );
+    }
+    Ok(FilesystemInventory {
+        canonical_root,
+        entries,
+        extra_paths,
+    })
+}
+
+fn augment_inventory_for_symlinked_parents(
+    snapshot_manifest: &SnapshotManifest,
+    dir: &Path,
+    inventory: &mut FilesystemInventory,
+    control: &GutchOperationControl,
+) -> Result<()> {
+    let needs_fallback = snapshot_manifest.entries.iter().any(|entry| {
+        !inventory
+            .entries
+            .contains_key(&inventory_path_key(entry.path()))
+            && inventory_has_symlink_parent(entry.path(), inventory)
+    });
+    if !needs_fallback {
+        return Ok(());
+    }
+    let path_resolver = crate::path_guard::ManifestPathResolver::new(dir)?;
+    for entry in &snapshot_manifest.entries {
+        control.checkpoint()?;
+        let key = inventory_path_key(entry.path());
+        if inventory.entries.contains_key(&key)
+            || !inventory_has_symlink_parent(entry.path(), inventory)
+        {
+            continue;
+        }
+        let path = match entry {
+            manifest::SnapshotEntry::Symlink(_) => path_resolver.resolve(entry.path())?,
+            manifest::SnapshotEntry::File(_) | manifest::SnapshotEntry::Directory(_) => {
+                path_resolver.resolve_entry(entry.path())?
+            }
+        };
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let kind = if metadata.file_type().is_symlink() {
+            InventoryEntryKind::Symlink
+        } else if metadata.file_type().is_file() {
+            InventoryEntryKind::File
+        } else if metadata.file_type().is_dir() {
+            InventoryEntryKind::Directory
+        } else {
+            InventoryEntryKind::Other
+        };
+        inventory.entries.insert(
+            key,
+            FilesystemInventoryEntry {
+                path,
+                kind,
+                metadata: Some(metadata),
+            },
+        );
+    }
+    Ok(())
+}
+
+fn inventory_has_symlink_parent(relative: &str, inventory: &FilesystemInventory) -> bool {
+    let mut parent = String::new();
+    let mut components = relative.split('/').peekable();
+    while let Some(component) = components.next() {
+        if components.peek().is_none() {
+            break;
+        }
+        if !parent.is_empty() {
+            parent.push('/');
+        }
+        parent.push_str(component);
+        if inventory
+            .entries
+            .get(&inventory_path_key(&parent))
+            .is_some_and(|entry| entry.kind == InventoryEntryKind::Symlink)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn classify_inventory_non_files(
+    snapshot_manifest: &SnapshotManifest,
+    inventory: &FilesystemInventory,
+    classification: &mut RepairClassification,
+) -> Result<()> {
+    for entry in &snapshot_manifest.entries {
+        match entry {
+            manifest::SnapshotEntry::File(_) => {}
+            manifest::SnapshotEntry::Directory(directory) => {
+                match inventory.entries.get(&inventory_path_key(&directory.path)) {
+                    Some(actual) if actual.kind == InventoryEntryKind::Directory => {
+                        if actual
+                            .metadata
+                            .as_ref()
+                            .expect("expected inventory directory metadata")
+                            .permissions()
+                            .readonly()
+                            != directory.read_only
+                        {
+                            classification.push(RepairIssue {
+                                kind: RepairIssueKind::Corrupt,
+                                path: directory.path.clone(),
+                                detail: format!(
+                                    "read-only mismatch for directory: {}",
+                                    directory.path
+                                ),
+                            });
+                        }
+                    }
+                    Some(_) => classification.push(RepairIssue {
+                        kind: RepairIssueKind::Corrupt,
+                        path: directory.path.clone(),
+                        detail: format!("entry type mismatch for directory: {}", directory.path),
+                    }),
+                    None => classification.push(RepairIssue {
+                        kind: RepairIssueKind::Missing,
+                        path: directory.path.clone(),
+                        detail: format!("missing directory: {}", directory.path),
+                    }),
+                }
+            }
+            manifest::SnapshotEntry::Symlink(link) => {
+                match inventory.entries.get(&inventory_path_key(&link.path)) {
+                    Some(actual) if actual.kind == InventoryEntryKind::Symlink => {
+                        let raw_target = std::fs::read_link(&actual.path)?;
+                        let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
+                        if actual_target != link.target_path {
+                            classification.push(RepairIssue {
+                                kind: RepairIssueKind::Corrupt,
+                                path: link.path.clone(),
+                                detail: format!("symbolic-link target mismatch for {}", link.path),
+                            });
+                        }
+                    }
+                    Some(_) => classification.push(RepairIssue {
+                        kind: RepairIssueKind::Corrupt,
+                        path: link.path.clone(),
+                        detail: format!("entry type mismatch for symbolic link: {}", link.path),
+                    }),
+                    None => classification.push(RepairIssue {
+                        kind: RepairIssueKind::Missing,
+                        path: link.path.clone(),
+                        detail: format!("missing symbolic link: {}", link.path),
+                    }),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn classify_resolved_non_files(
+    snapshot_manifest: &SnapshotManifest,
+    resolved_paths: &[PathBuf],
+    classification: &mut RepairClassification,
+) -> Result<()> {
+    for (entry, path) in snapshot_manifest.entries.iter().zip(resolved_paths) {
+        match entry {
+            manifest::SnapshotEntry::File(_) => {}
+            manifest::SnapshotEntry::Directory(directory) => {
+                match std::fs::symlink_metadata(path) {
+                    Ok(metadata) if metadata.file_type().is_dir() => {
+                        if metadata.permissions().readonly() != directory.read_only {
+                            classification.push(RepairIssue {
+                                kind: RepairIssueKind::Corrupt,
+                                path: directory.path.clone(),
+                                detail: format!(
+                                    "read-only mismatch for directory: {}",
+                                    directory.path
+                                ),
+                            });
+                        }
+                    }
+                    Ok(_) => classification.push(RepairIssue {
+                        kind: RepairIssueKind::Corrupt,
+                        path: directory.path.clone(),
+                        detail: format!("entry type mismatch for directory: {}", directory.path),
+                    }),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => classification
+                        .push(RepairIssue {
+                            kind: RepairIssueKind::Missing,
+                            path: directory.path.clone(),
+                            detail: format!("missing directory: {}", directory.path),
+                        }),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            manifest::SnapshotEntry::Symlink(link) => match std::fs::symlink_metadata(path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    let raw_target = std::fs::read_link(path)?;
+                    let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
+                    if actual_target != link.target_path {
+                        classification.push(RepairIssue {
+                            kind: RepairIssueKind::Corrupt,
+                            path: link.path.clone(),
+                            detail: format!("symbolic-link target mismatch for {}", link.path),
+                        });
+                    }
+                }
+                Ok(_) => classification.push(RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: link.path.clone(),
+                    detail: format!("entry type mismatch for symbolic link: {}", link.path),
+                }),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    classification.push(RepairIssue {
+                        kind: RepairIssueKind::Missing,
+                        path: link.path.clone(),
+                        detail: format!("missing symbolic link: {}", link.path),
+                    })
+                }
+                Err(error) => return Err(error.into()),
+            },
+        }
+    }
+    Ok(())
+}
+
+fn inventory_path_key(relative: &str) -> String {
+    #[cfg(windows)]
+    {
+        relative.to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        relative.to_string()
+    }
 }
 
 fn serpentine_worker_index(sorted_index: usize, worker_count: usize) -> usize {
@@ -433,10 +789,9 @@ fn verify_manifest_file(
         verify_mode,
         ..VerifyTimings::default()
     };
-    let t = Instant::now();
-    let metadata = match std::fs::symlink_metadata(&prepared_file.path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+    let metadata = match &prepared_file.metadata {
+        PreparedFileMetadata::Inventory(Some(metadata)) => metadata.clone(),
+        PreparedFileMetadata::Inventory(None) => {
             return Ok((
                 vec![RepairIssue {
                     kind: RepairIssueKind::Missing,
@@ -446,9 +801,26 @@ fn verify_manifest_file(
                 timings,
             ));
         }
-        Err(error) => return Err(error.into()),
+        PreparedFileMetadata::ResolveDuringVerification => {
+            let t = Instant::now();
+            let metadata = match std::fs::symlink_metadata(&prepared_file.path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok((
+                        vec![RepairIssue {
+                            kind: RepairIssueKind::Missing,
+                            path: fm.path.clone(),
+                            detail: format!("missing file: {}", fm.path),
+                        }],
+                        timings,
+                    ));
+                }
+                Err(error) => return Err(error.into()),
+            };
+            timings.stat += t.elapsed();
+            metadata
+        }
     };
-    timings.stat += t.elapsed();
     if !metadata.file_type().is_file() {
         return Ok((
             vec![RepairIssue {

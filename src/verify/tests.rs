@@ -404,6 +404,52 @@ fn verify_with_hints_records_runtime_plan() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn verify_inventory_supports_symlinked_parent_inside_root() {
+    use std::os::unix::fs::symlink;
+
+    let dir = test_util::temp_path("gutch_verify_inventory_symlink_parent");
+    test_util::recreate_dir(&dir);
+    std::fs::create_dir(dir.join("real")).unwrap();
+    std::fs::write(dir.join("real/data.bin"), b"symlink parent").unwrap();
+    symlink("real", dir.join("link")).unwrap();
+
+    let hash = crate::hash::hash_hex(&crate::hash::hash_chunk(b"symlink parent"));
+    let mut manifest = empty_manifest();
+    manifest.entries = vec![
+        crate::manifest::SnapshotEntry::Directory(crate::manifest::DirectoryManifest {
+            path: "real".into(),
+            read_only: false,
+        }),
+        crate::manifest::SnapshotEntry::Symlink(crate::manifest::SymlinkManifest {
+            path: "link".into(),
+            target_path: "real".into(),
+        }),
+        crate::manifest::SnapshotEntry::File(crate::manifest::FileManifest {
+            path: "real/data.bin".into(),
+            size: 14,
+            executable: false,
+            read_only: false,
+            full_file_hash: hash.clone(),
+            chunks: Vec::new(),
+        }),
+        crate::manifest::SnapshotEntry::File(crate::manifest::FileManifest {
+            path: "link/data.bin".into(),
+            size: 14,
+            executable: false,
+            read_only: false,
+            full_file_hash: hash,
+            chunks: Vec::new(),
+        }),
+    ];
+
+    let (errors, _) = verify_fast(&manifest, &dir).unwrap();
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn serpentine_worker_lanes_alternate_direction_each_round() {
     let assignments = (0..9)
