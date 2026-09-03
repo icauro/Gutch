@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -11,12 +11,11 @@ use crate::Result;
 use crate::hash::ChunkHash;
 use crate::manifest::runtime::typed_file_manifest;
 use crate::manifest::{self, snapshot::SnapshotManifest};
-use crate::path_guard::resolve_manifest_relative_path;
 use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
     GutchProgressSink, emit_progress,
 };
-use crate::runtime::{RuntimeResourceHints, plan_verify_runtime, run_in_thread_pool};
+use crate::runtime::{RuntimeResourceHints, build_thread_pool, plan_verify_runtime};
 mod estimate;
 mod types;
 
@@ -68,6 +67,11 @@ pub(crate) struct VerifyRequest<'a> {
     pub control: GutchOperationControl,
 }
 
+struct PreparedVerifyFile<'a> {
+    manifest: &'a manifest::FileManifest,
+    path: PathBuf,
+}
+
 // ---------------------------------------------------------------------------
 // Core implementation
 // ---------------------------------------------------------------------------
@@ -76,6 +80,7 @@ fn classify_inner(
     snapshot_manifest: &SnapshotManifest,
     dir: &Path,
     opts: &VerifyOptions,
+    scan_extra_files: bool,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     opts.control.checkpoint()?;
@@ -87,6 +92,49 @@ fn classify_inner(
         runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };
+    let verify_pool = build_thread_pool(runtime_plan.worker_count, "gutch-verify")?;
+    let path_resolver = crate::path_guard::ManifestPathResolver::new(dir)?;
+    let resolved_paths = {
+        let _resolve_paths_span = opts.control.profile_span_with_args(
+            "verify.prepare.paths",
+            std::collections::BTreeMap::from([(
+                "path_count".to_string(),
+                serde_json::json!(snapshot_manifest.entries.len()),
+            )]),
+        );
+        verify_pool.install(|| {
+            snapshot_manifest
+                .entries
+                .par_iter()
+                .map(|entry| match entry {
+                    manifest::SnapshotEntry::Symlink(_) => path_resolver.resolve(entry.path()),
+                    manifest::SnapshotEntry::File(_) | manifest::SnapshotEntry::Directory(_) => {
+                        path_resolver.resolve_entry(entry.path())
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    let resolved_paths = resolved_paths.into_iter().collect::<Result<Vec<_>>>()?;
+    let mut prepared_files = snapshot_manifest
+        .entries
+        .iter()
+        .zip(&resolved_paths)
+        .filter_map(|(entry, path)| {
+            let file = entry.as_file()?;
+            Some(PreparedVerifyFile {
+                manifest: file,
+                path: path.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    prepared_files.sort_unstable_by(|left, right| {
+        right
+            .manifest
+            .size
+            .cmp(&left.manifest.size)
+            .then_with(|| left.manifest.path.cmp(&right.manifest.path))
+    });
     let manifest_paths: HashSet<&str> = snapshot_manifest
         .entries
         .iter()
@@ -101,12 +149,11 @@ fn classify_inner(
     );
 
     timings.prepare_wall = total_start.elapsed();
-    for entry in &snapshot_manifest.entries {
+    for (entry, path) in snapshot_manifest.entries.iter().zip(&resolved_paths) {
         match entry {
             manifest::SnapshotEntry::File(_) => {}
             manifest::SnapshotEntry::Directory(directory) => {
-                let path = resolve_manifest_relative_path(dir, &directory.path)?;
-                match std::fs::symlink_metadata(&path) {
+                match std::fs::symlink_metadata(path) {
                     Ok(metadata) if metadata.file_type().is_dir() => {
                         if metadata.permissions().readonly() != directory.read_only {
                             classification.push(RepairIssue {
@@ -133,48 +180,48 @@ fn classify_inner(
                     Err(error) => return Err(error.into()),
                 }
             }
-            manifest::SnapshotEntry::Symlink(link) => {
-                let path = resolve_manifest_relative_path(dir, &link.path)?;
-                match std::fs::symlink_metadata(&path) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        let raw_target = std::fs::read_link(&path)?;
-                        let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
-                        if actual_target != link.target_path {
-                            classification.push(RepairIssue {
-                                kind: RepairIssueKind::Corrupt,
-                                path: link.path.clone(),
-                                detail: format!("symbolic-link target mismatch for {}", link.path),
-                            });
-                        }
-                    }
-                    Ok(_) => classification.push(RepairIssue {
-                        kind: RepairIssueKind::Corrupt,
-                        path: link.path.clone(),
-                        detail: format!("entry type mismatch for symbolic link: {}", link.path),
-                    }),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => classification
-                        .push(RepairIssue {
-                            kind: RepairIssueKind::Missing,
+            manifest::SnapshotEntry::Symlink(link) => match std::fs::symlink_metadata(path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    let raw_target = std::fs::read_link(path)?;
+                    let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
+                    if actual_target != link.target_path {
+                        classification.push(RepairIssue {
+                            kind: RepairIssueKind::Corrupt,
                             path: link.path.clone(),
-                            detail: format!("missing symbolic link: {}", link.path),
-                        }),
-                    Err(error) => return Err(error.into()),
+                            detail: format!("symbolic-link target mismatch for {}", link.path),
+                        });
+                    }
                 }
-            }
+                Ok(_) => classification.push(RepairIssue {
+                    kind: RepairIssueKind::Corrupt,
+                    path: link.path.clone(),
+                    detail: format!("entry type mismatch for symbolic link: {}", link.path),
+                }),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    classification.push(RepairIssue {
+                        kind: RepairIssueKind::Missing,
+                        path: link.path.clone(),
+                        detail: format!("missing symbolic link: {}", link.path),
+                    })
+                }
+                Err(error) => return Err(error.into()),
+            },
         }
     }
     let verify_files_start = Instant::now();
     let per_file_results = {
         let _file_span = opts.control.profile_span("verify.files");
-        run_in_thread_pool(runtime_plan.worker_count, || {
-            snapshot_manifest
-                .entries
+        let verify = || {
+            prepared_files
                 .par_iter()
-                .filter_map(crate::manifest::SnapshotEntry::as_file)
-                .map(|fm| {
+                .map(|prepared_file| {
                     opts.control.checkpoint()?;
-                    let result =
-                        verify_manifest_file(snapshot_manifest, dir, fm, opts.mode, opts.control);
+                    let result = verify_manifest_file(
+                        prepared_file,
+                        opts.mode,
+                        opts.control,
+                        runtime_plan.worker_count,
+                    );
                     let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
                     emit_verify_progress(
                         opts.control.progress(),
@@ -185,7 +232,8 @@ fn classify_inner(
                     result
                 })
                 .collect::<Vec<_>>()
-        })?
+        };
+        verify_pool.install(verify)
     };
 
     for result in per_file_results {
@@ -197,29 +245,31 @@ fn classify_inner(
     }
     timings.verify_files_wall = verify_files_start.elapsed();
 
-    // Detect extra filesystem entries without following symbolic links.
-    let extra_file_scan_start = Instant::now();
-    let _extra_scan_span = opts.control.profile_span("verify.extra_scan");
-    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
-        opts.control.checkpoint()?;
-        let entry = entry?;
-        if entry.depth() == 0 {
-            continue;
+    if scan_extra_files {
+        // Detect extra filesystem entries without following symbolic links.
+        let extra_file_scan_start = Instant::now();
+        let _extra_scan_span = opts.control.profile_span("verify.extra_scan");
+        for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+            opts.control.checkpoint()?;
+            let entry = entry?;
+            if entry.depth() == 0 {
+                continue;
+            }
+            let Ok(relative_path) = entry.path().strip_prefix(dir) else {
+                continue;
+            };
+            let relative = relative_path.to_string_lossy().replace('\\', "/");
+            if manifest_paths.contains(relative.as_str()) {
+                continue;
+            }
+            classification.push(RepairIssue {
+                kind: RepairIssueKind::Extra,
+                path: relative.clone(),
+                detail: format!("extra filesystem entry: {}", relative),
+            });
         }
-        let Ok(relative_path) = entry.path().strip_prefix(dir) else {
-            continue;
-        };
-        let relative = relative_path.to_string_lossy().replace('\\', "/");
-        if manifest_paths.contains(relative.as_str()) {
-            continue;
-        }
-        classification.push(RepairIssue {
-            kind: RepairIssueKind::Extra,
-            path: relative.clone(),
-            detail: format!("extra filesystem entry: {}", relative),
-        });
+        timings.extra_file_scan_wall = extra_file_scan_start.elapsed();
     }
-    timings.extra_file_scan_wall = extra_file_scan_start.elapsed();
 
     timings.total = total_start.elapsed();
     emit_verify_progress(
@@ -265,6 +315,21 @@ pub(crate) fn classify_directory(
             .with_mode(request.mode)
             .with_hints(request.runtime_hints)
             .with_control(&request.control),
+        true,
+    )
+}
+
+pub(crate) fn classify_expected_entries(
+    request: VerifyRequest<'_>,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_inner(
+        request.snapshot_manifest,
+        request.dir,
+        &VerifyOptions::default()
+            .with_mode(request.mode)
+            .with_hints(request.runtime_hints)
+            .with_control(&request.control),
+        false,
     )
 }
 
@@ -316,12 +381,12 @@ fn accumulate_timings(total: &mut VerifyTimings, add: &VerifyTimings) {
 // ---------------------------------------------------------------------------
 
 fn verify_manifest_file(
-    _snapshot_manifest: &SnapshotManifest,
-    dir: &Path,
-    fm: &manifest::FileManifest,
+    prepared_file: &PreparedVerifyFile<'_>,
     verify_mode: VerifyMode,
     control: &GutchOperationControl,
+    worker_count: usize,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
+    let fm = prepared_file.manifest;
     let _file_span = control.profile_span_with_args(
         "verify.file",
         crate::profile::file_trace_args(&fm.path, fm.size),
@@ -331,9 +396,8 @@ fn verify_manifest_file(
         verify_mode,
         ..VerifyTimings::default()
     };
-    let file_path = resolve_manifest_relative_path(dir, &fm.path)?;
-
-    let source_metadata = match std::fs::symlink_metadata(&file_path) {
+    let t = Instant::now();
+    let metadata = match std::fs::symlink_metadata(&prepared_file.path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok((
@@ -347,7 +411,8 @@ fn verify_manifest_file(
         }
         Err(error) => return Err(error.into()),
     };
-    if !source_metadata.file_type().is_file() {
+    timings.stat += t.elapsed();
+    if !metadata.file_type().is_file() {
         return Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
@@ -357,22 +422,6 @@ fn verify_manifest_file(
             timings,
         ));
     }
-
-    let t = Instant::now();
-    let metadata = match std::fs::metadata(&file_path) {
-        Ok(m) => m,
-        Err(e) => {
-            return Ok((
-                vec![RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: fm.path.clone(),
-                    detail: format!("cannot stat {}: {}", fm.path, e),
-                }],
-                timings,
-            ));
-        }
-    };
-    timings.stat += t.elapsed();
 
     if metadata.permissions().readonly() != fm.read_only {
         return Ok((
@@ -415,9 +464,25 @@ fn verify_manifest_file(
         ));
     }
 
-    match verify_file_streaming(fm, &file_path, verify_mode, &mut timings, control) {
+    let verification = if verify_mode == VerifyMode::Fast {
+        verify_file_fast(prepared_file, worker_count, &mut timings, control)
+    } else {
+        verify_file_streaming(fm, &prepared_file.path, verify_mode, &mut timings, control)
+    };
+    match verification {
         Ok(issues) => Ok((issues, timings)),
         Err(crate::Error::Cancelled) => Err(crate::Error::Cancelled),
+        Err(crate::Error::HashMismatch { expected, actual }) => Ok((
+            vec![RepairIssue {
+                kind: RepairIssueKind::Corrupt,
+                path: fm.path.clone(),
+                detail: format!(
+                    "hash mismatch for {}: expected {}, got {}",
+                    fm.path, expected, actual
+                ),
+            }],
+            timings,
+        )),
         Err(e) => Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
@@ -427,6 +492,28 @@ fn verify_manifest_file(
             timings,
         )),
     }
+}
+
+fn verify_file_fast(
+    prepared_file: &PreparedVerifyFile<'_>,
+    worker_count: usize,
+    timings: &mut VerifyTimings,
+    control: &GutchOperationControl,
+) -> Result<Vec<RepairIssue>> {
+    let expected_full_hash = ChunkHash::parse_hex(&prepared_file.manifest.full_file_hash)?;
+    let integrity = crate::file_integrity::verify_full_file_integrity(
+        &prepared_file.path,
+        prepared_file.manifest.size,
+        expected_full_hash,
+        None,
+        worker_count,
+        control,
+    )?;
+    timings.file_read += integrity.read_elapsed;
+    timings.file_read_bytes += integrity.bytes;
+    timings.file_hash += integrity.hash_elapsed;
+    timings.file_hash_bytes += integrity.bytes;
+    Ok(Vec::new())
 }
 
 fn verify_file_streaming(

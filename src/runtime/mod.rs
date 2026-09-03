@@ -51,18 +51,6 @@ fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
     RuntimePlan { worker_count }
 }
 
-pub(crate) fn run_in_thread_pool<T: Send, F: FnOnce() -> T + Send>(
-    worker_count: usize,
-    work: F,
-) -> Result<T> {
-    if worker_count <= 1 {
-        return Ok(work());
-    }
-
-    let pool = build_thread_pool(worker_count, "gutch-worker")?;
-    Ok(pool.install(work))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

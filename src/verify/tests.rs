@@ -245,6 +245,38 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
 }
 
 #[test]
+fn expected_entry_classification_ignores_unrelated_extra_files() {
+    let dir = test_util::temp_path("gutch_verify_expected_entries_only");
+    test_util::recreate_dir(&dir);
+
+    let expected = b"expected";
+    std::fs::write(dir.join("expected.bin"), b"corrupt!").unwrap();
+    std::fs::write(dir.join("unrelated.txt"), b"user data").unwrap();
+    let mut manifest = empty_manifest();
+    manifest.push_file(crate::manifest::FileManifest {
+        path: "expected.bin".into(),
+        size: expected.len() as u64,
+        executable: false,
+        read_only: false,
+        full_file_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(expected)),
+        chunks: Vec::new(),
+    });
+
+    let (classification, _) = super::classify_expected_entries(super::VerifyRequest {
+        snapshot_manifest: &manifest,
+        dir: &dir,
+        mode: VerifyMode::Fast,
+        runtime_hints: default_runtime_hints(),
+        control: crate::GutchOperationControl::default(),
+    })
+    .unwrap();
+
+    assert_eq!(classification.corrupt_files.len(), 1);
+    assert!(classification.extra_files.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn verify_strict_mode_checks_chunk_hashing() {
     let dir = test_util::temp_path("gutch_verify_strict_mode");
     test_util::recreate_dir(&dir);

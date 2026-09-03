@@ -19,7 +19,7 @@ pub(super) fn reconstruct_job(
     job: &ReconstructJob,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
-    precomputed_file_hashes: &[Mutex<Option<String>>],
+    precomputed_file_hashes: &[Mutex<Option<crate::ChunkHash>>],
     output_handles: &OutputHandleCache,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
@@ -290,7 +290,7 @@ fn copy_source_file_job(
     source_path: &Path,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
-    precomputed_file_hashes: &[Mutex<Option<String>>],
+    precomputed_file_hashes: &[Mutex<Option<crate::ChunkHash>>],
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     let file_plan = file_plans.get(file_index).ok_or_else(|| {
@@ -363,11 +363,11 @@ fn copy_source_file_job(
             file_plan.path, copied, file_plan.size
         )));
     }
-    let actual_hash = crate::hash::hash_hex(&full_file_hasher.finalize());
+    let actual_hash = crate::ChunkHash::from_blake3(full_file_hasher.finalize());
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {
-            expected: file_plan.full_file_hash.clone(),
-            actual: actual_hash,
+            expected: file_plan.full_file_hash.to_hex(),
+            actual: actual_hash.to_hex(),
         });
     }
     let hash_slot = precomputed_file_hashes.get(file_index).ok_or_else(|| {
@@ -667,13 +667,11 @@ pub(super) struct ReconstructedFileVerification {
     pub(super) bytes: u64,
 }
 
-const PARALLEL_FULL_HASH_MIN_BYTES: u64 = 16 * 1024 * 1024;
-
 pub(super) fn verify_reconstructed_output_file(
     file_index: usize,
     file_plan: &ReconstructPipelineFile,
     output_paths: &[PathBuf],
-    precomputed_file_hashes: &[Mutex<Option<String>>],
+    precomputed_file_hashes: &[Mutex<Option<crate::ChunkHash>>],
     control: &GutchOperationControl,
     reconstruct_worker_count: usize,
 ) -> Result<ReconstructedFileVerification> {
@@ -682,24 +680,18 @@ pub(super) fn verify_reconstructed_output_file(
         "snapshot.reconstruct.file",
         reconstruct_file_trace_args(file_plan),
     );
-    let precomputed_hash = precomputed_file_hashes
+    let precomputed_hash = *precomputed_file_hashes
         .get(file_index)
         .ok_or_else(|| {
             Error::reconstruct(format!("verification references unknown file {file_index}"))
         })?
         .lock()
-        .map_err(|_| Error::reconstruct("precomputed file hash is poisoned"))?
-        .clone();
-    let hash_forwarded = precomputed_hash.is_some();
-    let hash_mode = if precomputed_hash.is_some() {
-        "copy_forward"
-    } else if file_plan.size < PARALLEL_FULL_HASH_MIN_BYTES {
-        "stream"
-    } else if reconstruct_worker_count <= 1 {
-        "mmap_rayon"
-    } else {
-        "mmap"
-    };
+        .map_err(|_| Error::reconstruct("precomputed file hash is poisoned"))?;
+    let hash_mode = crate::file_integrity::select_full_file_hash_mode(
+        file_plan.size,
+        precomputed_hash.is_some(),
+        reconstruct_worker_count,
+    );
     let started_at = Instant::now();
     let output_path = &output_paths[file_index];
     let actual_size = std::fs::metadata(output_path)?.len();
@@ -709,63 +701,34 @@ pub(super) fn verify_reconstructed_output_file(
             actual_size, file_plan.size, file_plan.path
         )));
     }
-    let hash_started_at = Instant::now();
-    let actual_hash = if let Some(precomputed_hash) = precomputed_hash {
+    let _hash_span = if precomputed_hash.is_some() {
         control.profile_event_with_args(
             "snapshot.reconstruct.file.full_hash.forwarded",
-            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
+            full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count),
         );
-        precomputed_hash
-    } else if hash_mode == "mmap_rayon" {
-        let _hash_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.full_hash",
-            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
-        );
-        let _parallel_hash_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.full_hash.parallel",
-            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
-        );
-        let mut hasher = blake3::Hasher::new();
-        hasher.update_mmap_rayon(output_path)?;
-        crate::hash::hash_hex(&hasher.finalize())
-    } else if hash_mode == "mmap" {
-        let _hash_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.full_hash",
-            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
-        );
-        let _mmap_hash_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.full_hash.mmap",
-            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
-        );
-        let mut hasher = blake3::Hasher::new();
-        hasher.update_mmap(output_path)?;
-        crate::hash::hash_hex(&hasher.finalize())
+        None
     } else {
-        let _hash_span = control.profile_span_with_args(
+        control.profile_span_with_args(
             "snapshot.reconstruct.file.full_hash",
-            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
-        );
-        let mut input = File::open(output_path)?;
-        let mut hasher = blake3::Hasher::new();
-        let mut buffer = vec![0u8; 1024 * 1024];
-        loop {
-            control.checkpoint()?;
-            let read = input.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-        }
-        crate::hash::hash_hex(&hasher.finalize())
+            full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count),
+        )
     };
-    let hash_elapsed = if hash_forwarded {
+    let integrity = crate::file_integrity::verify_full_file_integrity(
+        output_path,
+        file_plan.size,
+        file_plan.full_file_hash,
+        precomputed_hash,
+        reconstruct_worker_count,
+        control,
+    )?;
+    let hash_elapsed = if integrity.mode == crate::file_integrity::FullFileHashMode::Forwarded {
         Duration::ZERO
     } else {
-        hash_started_at.elapsed()
+        integrity.elapsed
     };
     let hash_elapsed_seconds = hash_elapsed.as_secs_f64();
     let mut hash_complete_args =
-        full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count);
+        full_hash_trace_args(file_plan, integrity.mode.as_str(), reconstruct_worker_count);
     hash_complete_args.insert(
         "hash_elapsed_ms".to_string(),
         serde_json::json!(hash_elapsed_seconds * 1000.0),
@@ -782,12 +745,6 @@ pub(super) fn verify_reconstructed_output_file(
         "snapshot.reconstruct.file.full_hash.complete",
         hash_complete_args,
     );
-    if actual_hash != file_plan.full_file_hash {
-        return Err(Error::HashMismatch {
-            expected: file_plan.full_file_hash.clone(),
-            actual: actual_hash,
-        });
-    }
     Ok(ReconstructedFileVerification {
         elapsed: started_at.elapsed(),
         bytes: actual_size,
@@ -807,7 +764,9 @@ fn full_hash_trace_args(
         ("hash_mode".to_string(), serde_json::json!(hash_mode)),
         (
             "hash_threshold_mib".to_string(),
-            serde_json::json!(PARALLEL_FULL_HASH_MIN_BYTES as f64 / (1024.0 * 1024.0)),
+            serde_json::json!(
+                crate::file_integrity::PARALLEL_FULL_HASH_MIN_BYTES as f64 / (1024.0 * 1024.0)
+            ),
         ),
         (
             "configured_workers".to_string(),

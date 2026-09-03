@@ -52,6 +52,25 @@ impl ManifestPathResolver {
         }
         Ok(candidate)
     }
+
+    /// Resolves an entry that the caller will inspect without following its final component.
+    /// Existing parents remain canonicalized and containment-checked, while the leaf is left for
+    /// `symlink_metadata`, `read_link`, or an equivalent no-follow operation.
+    pub(crate) fn resolve_entry(&self, relative: &str) -> Result<PathBuf> {
+        validate_manifest_relative_path(relative, false)?;
+        let candidate = self.root.join(relative);
+        if let (Some(canonical_root), Some(parent)) =
+            (self.canonical_root.as_deref(), candidate.parent())
+        {
+            ensure_existing_ancestors_stay_within_root(
+                &self.root,
+                parent,
+                canonical_root,
+                &self.validated_ancestors,
+            )?;
+        }
+        Ok(candidate)
+    }
 }
 
 pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Result<()> {
@@ -140,7 +159,7 @@ fn ensure_existing_ancestors_stay_within_root(
             path: current.clone(),
             reason: format!("failed to resolve snapshot path component: {error}"),
         })?;
-        if !canonical_current.starts_with(&canonical_root) {
+        if !canonical_current.starts_with(canonical_root) {
             return Err(Error::PathError {
                 path: current,
                 reason: "snapshot path resolves outside the snapshot root".into(),
@@ -229,6 +248,22 @@ mod tests {
     fn allows_install_root_only_when_requested() {
         assert!(validate_manifest_relative_path(".", false).is_err());
         assert!(validate_manifest_relative_path(".", true).is_ok());
+    }
+
+    #[test]
+    fn entry_resolution_accepts_a_missing_leaf() {
+        let base = crate::test_util::temp_path("gutch_entry_path_resolution");
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let resolver = ManifestPathResolver::new(&root).unwrap();
+
+        assert_eq!(
+            resolver.resolve_entry("missing.txt").unwrap(),
+            root.join("missing.txt")
+        );
+
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[cfg(unix)]

@@ -8,6 +8,7 @@ mod build;
 pub mod cli;
 mod config;
 mod error;
+mod file_integrity;
 mod helpers;
 mod manifest;
 mod profile;

@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use crate::manifest::{SnapshotEntry, snapshot::SnapshotManifest};
 use crate::runtime::{RuntimeResourceHints, plan_reconstruct_runtime};
-use crate::verify::{RepairClassification, RepairIssue, VerifyRequest, classify_directory};
+use crate::verify::{
+    RepairClassification, RepairIssue, RepairIssueKind, VerifyRequest, classify_directory,
+    classify_expected_entries,
+};
 use crate::{Error, Result};
 
 use super::apply::default_snapshot_staging_dir;
@@ -258,13 +261,34 @@ fn finalize_repair_result_after_reconstruction(
         )?;
     }
 
-    let (final_classification, _final_verify_timings) = classify_directory(VerifyRequest {
-        snapshot_manifest,
-        dir: destination_dir,
-        mode: crate::VerifyMode::Fast,
-        runtime_hints,
-        control: crate::GutchOperationControl::default(),
-    })?;
+    let mut final_classification = if repair_plan.affected_manifest.entries.is_empty() {
+        RepairClassification::default()
+    } else {
+        classify_expected_entries(VerifyRequest {
+            snapshot_manifest: &repair_plan.affected_manifest,
+            dir: destination_dir,
+            mode: crate::VerifyMode::Fast,
+            runtime_hints,
+            control: crate::GutchOperationControl::default(),
+        })?
+        .0
+    };
+    if remove_added_files {
+        let path_resolver = crate::path_guard::ManifestPathResolver::new(destination_dir)?;
+        for issue in &repair_plan.classification.extra_files {
+            let path = path_resolver.resolve(&issue.path)?;
+            if fs::symlink_metadata(path).is_ok() {
+                final_classification.push(RepairIssue {
+                    kind: RepairIssueKind::Extra,
+                    path: issue.path.clone(),
+                    detail: format!(
+                        "extra filesystem entry remains after repair: {}",
+                        issue.path
+                    ),
+                });
+            }
+        }
+    }
     if !final_classification.missing_files.is_empty()
         || !final_classification.corrupt_files.is_empty()
         || (remove_added_files && !final_classification.extra_files.is_empty())

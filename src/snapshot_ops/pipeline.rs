@@ -67,7 +67,7 @@ pub(super) struct ReconstructPipelineApplyRequest<'a> {
 struct ReconstructPipelineFile {
     path: String,
     size: u64,
-    full_file_hash: String,
+    full_file_hash: crate::ChunkHash,
     trace_metadata: ReconstructFileTraceMetadata,
     #[allow(dead_code)]
     reconstruction: ReconstructPipelineReconstruction,
@@ -675,7 +675,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
             files.push(ReconstructPipelineFile {
                 path: file_manifest.path.clone(),
                 size: file_manifest.size,
-                full_file_hash: file_manifest.full_file_hash.clone(),
+                full_file_hash: crate::ChunkHash::parse_hex(&file_manifest.full_file_hash)?,
                 trace_metadata: ReconstructFileTraceMetadata::default(),
                 reconstruction: ReconstructPipelineReconstruction::CopyFromSource,
             });
@@ -823,7 +823,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
         files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
-            full_file_hash: file_manifest.full_file_hash.clone(),
+            full_file_hash: crate::ChunkHash::parse_hex(&file_manifest.full_file_hash)?,
             trace_metadata,
             reconstruction,
         });
@@ -1025,7 +1025,7 @@ struct ReconstructWorkContext {
     jobs: Arc<Vec<ReconstructJob>>,
     file_plans: Arc<Vec<ReconstructPipelineFile>>,
     output_paths: Arc<Vec<PathBuf>>,
-    precomputed_file_hashes: Arc<Vec<Mutex<Option<String>>>>,
+    precomputed_file_hashes: Arc<Vec<Mutex<Option<crate::ChunkHash>>>>,
     output_handles: Arc<OutputHandleCache>,
     compression_profile: Arc<crate::manifest::CompressionProfile>,
     control: GutchOperationControl,
@@ -1123,7 +1123,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let precomputed_file_hashes = Arc::new(
         (0..file_plans.len())
             .map(|_| Mutex::new(None))
-            .collect::<Vec<Mutex<Option<String>>>>(),
+            .collect::<Vec<Mutex<Option<crate::ChunkHash>>>>(),
     );
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
