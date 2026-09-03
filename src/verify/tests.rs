@@ -403,3 +403,17 @@ fn verify_with_hints_records_runtime_plan() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn serpentine_worker_lanes_alternate_direction_each_round() {
+    let assignments = (0..9)
+        .map(|sorted_index| serpentine_worker_index(sorted_index, 3))
+        .collect::<Vec<_>>();
+
+    assert_eq!(assignments, vec![0, 1, 2, 2, 1, 0, 0, 1, 2]);
+}
+
+#[test]
+fn serpentine_worker_lane_supports_one_worker() {
+    assert!((0..8).all(|sorted_index| serpentine_worker_index(sorted_index, 1) == 0));
+}
