@@ -75,6 +75,8 @@ pub struct ReconstructTimings {
     pub(crate) verify_files: bool,
     pub(crate) prepare_wall: Duration,
     pub(crate) reconstruct_wall: Duration,
+    pub(crate) finalize_wall: Duration,
+    pub(crate) promote_wall: Duration,
     pub(crate) bundle_read: Duration,
     pub(crate) bundle_read_compressed_bytes: u64,
     pub(crate) bundle_read_decompressed_bytes: u64,

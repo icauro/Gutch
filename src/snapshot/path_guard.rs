@@ -1,4 +1,6 @@
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use crate::{Error, Result};
 
@@ -17,6 +19,7 @@ pub enum ExistingDestinationPathKind {
 pub(crate) struct ManifestPathResolver {
     root: PathBuf,
     canonical_root: Option<PathBuf>,
+    validated_ancestors: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 impl ManifestPathResolver {
@@ -32,6 +35,7 @@ impl ManifestPathResolver {
         Ok(Self {
             root: root.to_path_buf(),
             canonical_root,
+            validated_ancestors: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
@@ -39,7 +43,12 @@ impl ManifestPathResolver {
         validate_manifest_relative_path(relative, false)?;
         let candidate = self.root.join(relative);
         if let Some(canonical_root) = self.canonical_root.as_deref() {
-            ensure_existing_ancestors_stay_within_root(&self.root, &candidate, canonical_root)?;
+            ensure_existing_ancestors_stay_within_root(
+                &self.root,
+                &candidate,
+                canonical_root,
+                &self.validated_ancestors,
+            )?;
         }
         Ok(candidate)
     }
@@ -105,6 +114,7 @@ fn ensure_existing_ancestors_stay_within_root(
     root: &Path,
     candidate: &Path,
     canonical_root: &Path,
+    validated_ancestors: &Mutex<HashSet<PathBuf>>,
 ) -> Result<()> {
     let mut current = root.to_path_buf();
     let relative = candidate.strip_prefix(root).map_err(|_| Error::PathError {
@@ -116,6 +126,16 @@ fn ensure_existing_ancestors_stay_within_root(
         if !current.exists() {
             break;
         }
+        let already_validated = validated_ancestors
+            .lock()
+            .map_err(|_| Error::PathError {
+                path: current.clone(),
+                reason: "path validation cache is poisoned".to_string(),
+            })?
+            .contains(&current);
+        if already_validated {
+            continue;
+        }
         let canonical_current = current.canonicalize().map_err(|error| Error::PathError {
             path: current.clone(),
             reason: format!("failed to resolve snapshot path component: {error}"),
@@ -126,6 +146,13 @@ fn ensure_existing_ancestors_stay_within_root(
                 reason: "snapshot path resolves outside the snapshot root".into(),
             });
         }
+        validated_ancestors
+            .lock()
+            .map_err(|_| Error::PathError {
+                path: current.clone(),
+                reason: "path validation cache is poisoned".to_string(),
+            })?
+            .insert(current.clone());
     }
     Ok(())
 }

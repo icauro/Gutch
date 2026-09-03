@@ -10,7 +10,7 @@ use crate::{Error, Result};
 use super::apply::default_snapshot_staging_dir;
 use super::pipeline::{
     ExecuteReconstructPipelineRequest, build_reconstruct_pipeline_plan, build_reconstruct_pool,
-    execute_reconstruct_pipeline_reconstruction,
+    execute_reconstruct_pipeline_reconstruction, prepare_snapshot_entries,
 };
 use super::types::{
     SnapshotRepairFromRepoRequest, SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
@@ -88,6 +88,18 @@ pub fn repair_snapshot_from_repo(
                 plan_reconstruct_runtime(&request.runtime_hints).worker_count,
             )?)
         };
+        if staging_dir.exists() {
+            crate::helpers::remove_dir_all(&staging_dir)?;
+        }
+        if let Some(parent) = staging_dir.parent() {
+            crate::helpers::create_dir_all(parent)?;
+        }
+        prepare_snapshot_entries(
+            &repair_plan.affected_manifest,
+            &staging_dir,
+            &request.control,
+            reconstruct_pool.as_ref(),
+        )?;
         let _ = execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
             pipeline_plan,
             staging_dir: &staging_dir,

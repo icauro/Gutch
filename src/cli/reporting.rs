@@ -336,6 +336,8 @@ pub(crate) struct ReconstructTimingsSummary {
 pub(crate) struct ReconstructTimingPhasesSummary {
     pub(crate) prepare: WallTimingPhaseSummary,
     pub(crate) reconstruct: ReconstructReconstructPhaseSummary,
+    pub(crate) finalize: WallTimingPhaseSummary,
+    pub(crate) promote: WallTimingPhaseSummary,
 }
 
 #[derive(Debug, Serialize)]
@@ -540,7 +542,12 @@ pub(crate) fn reconstruct_timings_summary(
 ) -> ReconstructTimingsSummary {
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
-        &[timings.prepare_wall, timings.reconstruct_wall],
+        &[
+            timings.prepare_wall,
+            timings.reconstruct_wall,
+            timings.finalize_wall,
+            timings.promote_wall,
+        ],
     );
     let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
 
@@ -596,6 +603,12 @@ pub(crate) fn reconstruct_timings_summary(
                         timings.file_write,
                     ),
                 },
+            },
+            finalize: WallTimingPhaseSummary {
+                wall_seconds: secs(timings.finalize_wall),
+            },
+            promote: WallTimingPhaseSummary {
+                wall_seconds: secs(timings.promote_wall),
             },
         },
     }
@@ -792,8 +805,17 @@ pub(crate) fn print_reconstruct_timings(t: &g::ReconstructTimings) {
     print_table_header("wall seconds");
     print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
     print_throughput_row("reconstruct", 0, t.reconstruct_wall, t.file_write_bytes);
-    let (_, unaccounted_seconds) =
-        wall_timing_fields(t.total, &[t.prepare_wall, t.reconstruct_wall]);
+    print_table_row("finalize", 0, Some(secs(t.finalize_wall)), None, None);
+    print_table_row("promote", 0, Some(secs(t.promote_wall)), None, None);
+    let (_, unaccounted_seconds) = wall_timing_fields(
+        t.total,
+        &[
+            t.prepare_wall,
+            t.reconstruct_wall,
+            t.finalize_wall,
+            t.promote_wall,
+        ],
+    );
     print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
     print_throughput_row("total", 0, t.total, t.file_write_bytes);
 

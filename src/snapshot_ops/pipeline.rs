@@ -4,8 +4,8 @@ use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rayon::ThreadPool;
@@ -800,9 +800,11 @@ pub(super) fn apply_reconstruct_pipeline(
     pipeline_plan: ReconstructPipelinePlan,
 ) -> Result<SnapshotReconstructFromRepoResult> {
     request.control.checkpoint()?;
+    let operation_started_at = Instant::now();
     let _operation_span = request
         .control
         .profile_span("gutch.snapshot.reconstruct.apply");
+    let prepare_started_at = Instant::now();
     let reconstruct_worker_count = plan_reconstruct_runtime(request.runtime_hints).worker_count;
     let reconstruct_pool = if request.snapshot_manifest.entries.is_empty() {
         None
@@ -852,11 +854,12 @@ pub(super) fn apply_reconstruct_pipeline(
                 reconstruct_pool.as_ref(),
             )?;
         }
+        let apply_prepare_wall = prepare_started_at.elapsed();
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
         let required_artifact_count = pipeline_plan.required_artifact_count;
         let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
-        let (reconstruct_timings, verify_timings) =
+        let (mut reconstruct_timings, verify_timings) =
             execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
                 pipeline_plan,
                 staging_dir: &staging_dir,
@@ -871,6 +874,9 @@ pub(super) fn apply_reconstruct_pipeline(
                 transfer_progress: request.transfer_progress,
                 reconstruct_pool: reconstruct_pool.as_ref(),
             })?;
+        reconstruct_timings.prepare_wall += apply_prepare_wall;
+        reconstruct_timings.total = operation_started_at.elapsed();
+        let finalize_started_at = Instant::now();
         {
             let _finalize_span = request
                 .control
@@ -885,8 +891,10 @@ pub(super) fn apply_reconstruct_pipeline(
                 reconstruct_pool.as_ref(),
             )?;
         }
+        reconstruct_timings.finalize_wall = finalize_started_at.elapsed();
         // Promotion is a short consistency-critical section. Observe cancellation immediately
         // before it, then finish the swap without interruption.
+        let promote_started_at = Instant::now();
         {
             let _promote_span = request
                 .control
@@ -894,6 +902,8 @@ pub(super) fn apply_reconstruct_pipeline(
             request.control.checkpoint()?;
             crate::helpers::replace_directory(&staging_dir, request.destination_dir)?;
         }
+        reconstruct_timings.promote_wall = promote_started_at.elapsed();
+        reconstruct_timings.total = operation_started_at.elapsed();
         Ok(SnapshotReconstructFromRepoResult {
             repo_root: request.repo_root.to_path_buf(),
             snapshot_manifest: request.snapshot_manifest.clone(),
@@ -950,14 +960,15 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
 }
 
 enum ReconstructWorkItem {
-    PrepareOutput(usize),
     Job(usize),
     VerifyFile(usize),
 }
 
 enum ReconstructJobEvent {
-    OutputPrepared,
-    Completed(ReconstructTimings),
+    Completed {
+        job_index: usize,
+        timings: ReconstructTimings,
+    },
     Verified(ReconstructedFileVerification),
     Failed(Error),
 }
@@ -966,6 +977,7 @@ struct ReconstructWorkContext {
     jobs: Arc<Vec<ReconstructJob>>,
     file_plans: Arc<Vec<ReconstructPipelineFile>>,
     output_paths: Arc<Vec<PathBuf>>,
+    output_handles: Arc<OutputHandleCache>,
     compression_profile: Arc<crate::manifest::CompressionProfile>,
     control: GutchOperationControl,
     reconstruct_worker_count: usize,
@@ -981,20 +993,15 @@ fn spawn_reconstruct_work(
     let event_tx = event_tx.clone();
     pool.spawn(move || {
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
-            ReconstructWorkItem::PrepareOutput(file_index) => prepare_reconstruct_output_file(
-                &context.file_plans[file_index],
-                &context.output_paths[file_index],
-                &context.control,
-            )
-            .map(|_| ReconstructJobEvent::OutputPrepared),
             ReconstructWorkItem::Job(job_index) => reconstruct_job(
                 &context.jobs[job_index],
                 &context.file_plans,
                 &context.output_paths,
+                &context.output_handles,
                 &context.compression_profile,
                 &context.control,
             )
-            .map(ReconstructJobEvent::Completed),
+            .map(|timings| ReconstructJobEvent::Completed { job_index, timings }),
             ReconstructWorkItem::VerifyFile(file_index) => verify_reconstructed_output_file(
                 file_index,
                 &context.file_plans[file_index],
@@ -1039,7 +1046,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
 
     control.checkpoint()?;
     let _pipeline_span = control.profile_span("gutch.snapshot.reconstruct.pipeline");
-    let reconstruct_started_at = Instant::now();
+    let pipeline_started_at = Instant::now();
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
     let mut reconstruct_timings = ReconstructTimings {
         runtime_plan: Some(runtime_plan.clone()),
@@ -1057,9 +1064,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             control.profile_span("gutch.snapshot.reconstruct.prepare.priorities");
         build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
     };
-    let prepare_started_at = Instant::now();
-    let mut output_prepare_span =
-        Some(control.profile_span("gutch.snapshot.reconstruct.prepare.outputs"));
     let output_paths = Arc::new({
         let _resolve_paths_span =
             control.profile_span("gutch.snapshot.reconstruct.prepare.outputs.resolve_paths");
@@ -1072,6 +1076,11 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         )?
     });
     let file_plans = Arc::new(pipeline_plan.files);
+    let output_sizes = Arc::new(file_plans.iter().map(|file| file.size).collect::<Vec<_>>());
+    let output_handles = Arc::new(OutputHandleCache::new(
+        Arc::clone(&output_paths),
+        Arc::clone(&output_sizes),
+    ));
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
         let _artifacts_span = control.profile_span("gutch.snapshot.reconstruct.prepare.artifacts");
@@ -1151,54 +1160,102 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         jobs: Arc::clone(&jobs),
         file_plans: Arc::clone(&file_plans),
         output_paths: Arc::clone(&output_paths),
+        output_handles,
         compression_profile,
         control: control.clone(),
         reconstruct_worker_count: runtime_plan.worker_count,
     });
     let mut submitted_work_count = 0usize;
-    let mut output_files_span = None;
-    if !file_plans.is_empty() {
-        output_files_span =
-            Some(control.profile_span("gutch.snapshot.reconstruct.prepare.outputs.files"));
-    }
-    {
-        let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.outputs");
-        let _file_dispatch_span =
-            control.profile_span("gutch.snapshot.reconstruct.prepare.outputs.files.dispatch");
-        for file_index in 0..file_plans.len() {
-            let pool = reconstruct_pool
-                .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"))?;
-            spawn_reconstruct_work(
-                pool,
-                ReconstructWorkItem::PrepareOutput(file_index),
-                &work_context,
-                &event_tx,
-            );
-            submitted_work_count += 1;
-        }
-    }
+    let mut submitted_job_count = 0usize;
     let mut downloads_done = artifact_scheduler.is_none();
     let mut completed_download_worker_count = 0usize;
 
-    let mut prepared_output_count = 0usize;
     let mut completed_job_count = 0usize;
     let mut completed_file_count = 0usize;
-    let mut reconstruction_dispatched = false;
-    let mut downloaded_job_indices = HashSet::new();
-    let mut verification_queued = false;
+    let mut scheduled_job_indices = HashSet::new();
+    let mut verification_queued = vec![false; file_plans.len()];
+    let mut remaining_file_jobs = vec![0usize; file_plans.len()];
+    let job_file_indices = jobs
+        .iter()
+        .map(|job| reconstruct_job_file_indices(job))
+        .collect::<Vec<_>>();
+    for file_indices in &job_file_indices {
+        for &file_index in file_indices {
+            if let Some(remaining) = remaining_file_jobs.get_mut(file_index) {
+                *remaining += 1;
+            }
+        }
+    }
     let mut verify_started_at = None;
+    let mut verify_finished_at = None;
     let mut verify_span = None;
     let mut verified_file_bytes = 0u64;
     let mut pipeline_error = None;
     let mut finished_work_count = 0usize;
-    if file_plans.is_empty() {
-        reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
-        drop(output_prepare_span.take());
-    }
-    while prepared_output_count < file_plans.len()
-        || completed_job_count < jobs.len()
-        || completed_file_count < file_plans.len()
+    let reconstruct_started_at = Instant::now();
+    let mut reconstruct_finished_at = jobs.is_empty().then_some(reconstruct_started_at);
+    reconstruct_timings.prepare_wall = pipeline_started_at.elapsed();
+
+    let pool = match reconstruct_pool {
+        Some(pool) => pool,
+        None if jobs.is_empty() && file_plans.is_empty() => {
+            reconstruct_timings.total = pipeline_started_at.elapsed();
+            return Ok((reconstruct_timings, verify_timings));
+        }
+        None => {
+            return Err(Error::reconstruct(
+                "reconstruction thread pool is unavailable",
+            ));
+        }
+    };
     {
+        let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
+        for (job_index, job) in jobs.iter().enumerate() {
+            let ready = match job {
+                ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
+                ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
+            };
+            if ready {
+                spawn_reconstruct_work(
+                    pool,
+                    ReconstructWorkItem::Job(job_index),
+                    &work_context,
+                    &event_tx,
+                );
+                scheduled_job_indices.insert(job_index);
+                submitted_work_count += 1;
+                submitted_job_count += 1;
+            }
+        }
+    }
+    update_reconstruct_backpressure(
+        transfer_progress,
+        submitted_job_count,
+        completed_job_count,
+        runtime_plan.worker_count,
+    );
+    for file_index in 0..file_plans.len() {
+        if remaining_file_jobs[file_index] == 0 {
+            ensure_empty_reconstruct_output_file(
+                &file_plans[file_index],
+                &output_paths[file_index],
+                control,
+            )?;
+            spawn_reconstruct_work(
+                pool,
+                ReconstructWorkItem::VerifyFile(file_index),
+                &work_context,
+                &event_tx,
+            );
+            verification_queued[file_index] = true;
+            submitted_work_count += 1;
+            if verify_started_at.is_none() {
+                verify_started_at = Some(Instant::now());
+                verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
+            }
+        }
+    }
+    while completed_job_count < jobs.len() || completed_file_count < file_plans.len() {
         if let Err(error) = control.checkpoint() {
             pipeline_error = Some(error);
             break;
@@ -1229,31 +1286,23 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                             )));
                             break;
                         }
-                        let queue_result = if reconstruction_dispatched {
+                        if scheduled_job_indices.insert(job_index) {
                             let _dispatch_span = control
                                 .profile_span("gutch.snapshot.reconstruct.dispatch.downloaded");
-                            reconstruct_pool
-                                .ok_or_else(|| {
-                                    Error::reconstruct("reconstruction thread pool is unavailable")
-                                })
-                                .map(|pool| {
-                                    spawn_reconstruct_work(
-                                        pool,
-                                        ReconstructWorkItem::Job(job_index),
-                                        &work_context,
-                                        &event_tx,
-                                    )
-                                })
-                        } else {
-                            downloaded_job_indices.insert(job_index);
-                            Ok(())
-                        };
-                        if reconstruction_dispatched && queue_result.is_ok() {
+                            spawn_reconstruct_work(
+                                pool,
+                                ReconstructWorkItem::Job(job_index),
+                                &work_context,
+                                &event_tx,
+                            );
                             submitted_work_count += 1;
-                        }
-                        if let Err(error) = queue_result {
-                            pipeline_error = Some(error);
-                            break;
+                            submitted_job_count += 1;
+                            update_reconstruct_backpressure(
+                                transfer_progress,
+                                submitted_job_count,
+                                completed_job_count,
+                                runtime_plan.worker_count,
+                            );
                         }
                     }
                     Ok(ArtifactDownloadEvent::Failed(error)) => {
@@ -1280,66 +1329,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             }
         }
 
-        if !reconstruction_dispatched && prepared_output_count == file_plans.len() {
-            reconstruct_timings.prepare_wall = prepare_started_at.elapsed();
-            drop(output_files_span.take());
-            drop(output_prepare_span.take());
-            let queue_result = {
-                let _dispatch_span =
-                    control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
-                let pool = reconstruct_pool
-                    .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"));
-                pool.map(|pool| {
-                    for (job_index, job) in jobs.iter().enumerate() {
-                        let ready = match job {
-                            ReconstructJob::Artifact(job) => {
-                                existing_artifacts.contains(&job.artifact)
-                                    || downloaded_job_indices.remove(&job_index)
-                            }
-                            ReconstructJob::SourceChunk(_)
-                            | ReconstructJob::CopySourceFile { .. } => true,
-                        };
-                        if ready {
-                            spawn_reconstruct_work(
-                                pool,
-                                ReconstructWorkItem::Job(job_index),
-                                &work_context,
-                                &event_tx,
-                            );
-                            submitted_work_count += 1;
-                        }
-                    }
-                })
-            };
-            if let Err(error) = queue_result {
-                pipeline_error = Some(error);
-            } else {
-                reconstruction_dispatched = true;
-            }
-        }
-
-        if !verification_queued && downloads_done && completed_job_count == jobs.len() {
-            verify_started_at = Some(Instant::now());
-            verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
-            let queue_result = reconstruct_pool
-                .ok_or_else(|| Error::reconstruct("reconstruction thread pool is unavailable"))
-                .map(|pool| {
-                    for file_index in 0..file_plans.len() {
-                        spawn_reconstruct_work(
-                            pool,
-                            ReconstructWorkItem::VerifyFile(file_index),
-                            &work_context,
-                            &event_tx,
-                        );
-                        submitted_work_count += 1;
-                    }
-                });
-            if let Err(error) = queue_result {
-                pipeline_error = Some(error);
-            } else {
-                verification_queued = true;
-            }
-        }
         if pipeline_error.is_some() {
             break;
         }
@@ -1347,31 +1336,18 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             break;
         }
         match event_rx.recv_timeout(Duration::from_millis(10)) {
-            Ok(ReconstructJobEvent::OutputPrepared) => {
-                finished_work_count += 1;
-                prepared_output_count += 1;
-                emit_progress(
-                    control.progress(),
-                    GutchProgressEvent {
-                        operation: GutchOperation::Fetch,
-                        phase: GutchProgressPhase::Reconstruct,
-                        message: format!(
-                            "Preparing files ({}/{})",
-                            prepared_output_count,
-                            file_plans.len().max(1)
-                        ),
-                        current: prepared_output_count,
-                        total: file_plans.len().max(1),
-                        transferred_bytes: 0,
-                        total_bytes: 0,
-                        detail: None,
-                        done: false,
-                    },
-                );
-            }
-            Ok(ReconstructJobEvent::Completed(job_timings)) => {
+            Ok(ReconstructJobEvent::Completed {
+                job_index,
+                timings: job_timings,
+            }) => {
                 finished_work_count += 1;
                 completed_job_count += 1;
+                update_reconstruct_backpressure(
+                    transfer_progress,
+                    submitted_job_count,
+                    completed_job_count,
+                    runtime_plan.worker_count,
+                );
                 accumulate_pipeline_timings(
                     &mut reconstruct_timings,
                     &mut verify_timings,
@@ -1395,10 +1371,34 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                         done: false,
                     },
                 );
+                if reconstruct_finished_at.is_none() && completed_job_count == jobs.len() {
+                    reconstruct_finished_at = Some(Instant::now());
+                }
+                for &file_index in &job_file_indices[job_index] {
+                    remaining_file_jobs[file_index] =
+                        remaining_file_jobs[file_index].saturating_sub(1);
+                    if remaining_file_jobs[file_index] == 0 && !verification_queued[file_index] {
+                        if verify_started_at.is_none() {
+                            verify_started_at = Some(Instant::now());
+                            verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
+                        }
+                        spawn_reconstruct_work(
+                            pool,
+                            ReconstructWorkItem::VerifyFile(file_index),
+                            &work_context,
+                            &event_tx,
+                        );
+                        verification_queued[file_index] = true;
+                        submitted_work_count += 1;
+                    }
+                }
             }
             Ok(ReconstructJobEvent::Verified(file_verification)) => {
                 finished_work_count += 1;
                 completed_file_count += 1;
+                if verify_finished_at.is_none() && completed_file_count == file_plans.len() {
+                    verify_finished_at = Some(Instant::now());
+                }
                 reconstruct_timings.file_verify += file_verification.elapsed;
                 reconstruct_timings.file_verify_bytes = reconstruct_timings
                     .file_verify_bytes
@@ -1468,7 +1468,8 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     }
 
     let verify_elapsed = verify_started_at
-        .map(|started_at| started_at.elapsed())
+        .zip(verify_finished_at)
+        .map(|(started_at, finished_at)| finished_at.saturating_duration_since(started_at))
         .unwrap_or_default();
     drop(verify_span);
     verify_timings.file_hash += verify_elapsed;
@@ -1494,11 +1495,46 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         },
     );
 
-    reconstruct_timings.reconstruct_wall = reconstruct_started_at.elapsed();
-    reconstruct_timings.total = reconstruct_timings.reconstruct_wall;
-    verify_timings.verify_files_wall = reconstruct_timings.reconstruct_wall;
-    verify_timings.total = reconstruct_timings.reconstruct_wall;
+    reconstruct_timings.reconstruct_wall = reconstruct_finished_at
+        .map(|finished_at| finished_at.saturating_duration_since(reconstruct_started_at))
+        .unwrap_or_default();
+    reconstruct_timings.total = pipeline_started_at.elapsed();
+    verify_timings.verify_files_wall = verify_elapsed;
+    verify_timings.total = verify_elapsed;
     Ok((reconstruct_timings, verify_timings))
+}
+
+fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {
+    let mut file_indices = match job {
+        ReconstructJob::Artifact(job) => job
+            .chunks
+            .values()
+            .flat_map(|chunk| chunk.targets.iter().map(|target| target.file_index))
+            .collect::<Vec<_>>(),
+        ReconstructJob::SourceChunk(job) => job
+            .targets
+            .iter()
+            .map(|target| target.file_index)
+            .collect::<Vec<_>>(),
+        ReconstructJob::CopySourceFile { file_index, .. } => vec![*file_index],
+    };
+    file_indices.sort_unstable();
+    file_indices.dedup();
+    file_indices
+}
+
+fn update_reconstruct_backpressure(
+    transfer_progress: Option<&Arc<FetchTransferProgress>>,
+    submitted_job_count: usize,
+    completed_job_count: usize,
+    worker_count: usize,
+) {
+    let Some(transfer_progress) = transfer_progress else {
+        return;
+    };
+    let queue_limit = worker_count.saturating_mul(2).max(1);
+    let queued_jobs = submitted_job_count.saturating_sub(completed_job_count);
+    transfer_progress.set_downstream_backpressure(queued_jobs > queue_limit);
 }
 
 fn resolve_reconstruct_output_paths(
@@ -1522,7 +1558,7 @@ fn resolve_reconstruct_output_paths(
     resolved.into_iter().collect()
 }
 
-fn prepare_reconstruct_output_file(
+fn ensure_empty_reconstruct_output_file(
     file_plan: &ReconstructPipelineFile,
     output_path: &Path,
     control: &GutchOperationControl,
@@ -1539,7 +1575,7 @@ fn prepare_reconstruct_output_file(
         OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(true)
+            .truncate(false)
             .open(output_path)?
     };
     {
@@ -1556,15 +1592,16 @@ fn reconstruct_job(
     job: &ReconstructJob,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
+    output_handles: &OutputHandleCache,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     match job {
         ReconstructJob::Artifact(job) => {
-            reconstruct_artifact_job(job, output_paths, compression_profile, control)
+            reconstruct_artifact_job(job, output_handles, compression_profile, control)
         }
         ReconstructJob::SourceChunk(job) => {
-            reconstruct_source_chunk_job(job, file_plans, output_paths, control)
+            reconstruct_source_chunk_job(job, file_plans, output_handles, control)
         }
         ReconstructJob::CopySourceFile {
             file_index,
@@ -1575,7 +1612,7 @@ fn reconstruct_job(
 
 fn reconstruct_artifact_job(
     job: &ReconstructArtifactJob,
-    output_paths: &[PathBuf],
+    output_handles: &OutputHandleCache,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
@@ -1588,7 +1625,6 @@ fn reconstruct_artifact_job(
         control.profile_span_with_args(artifact_span_name, reconstruct_artifact_trace_args(job));
     let profiler = control.profiler();
     let compressed_bytes = std::fs::metadata(&job.artifact_path)?.len();
-    let mut output_handles = OutputHandleCache::new(output_paths);
     let mut timings = ReconstructTimings::default();
 
     match &job.artifact {
@@ -1668,13 +1704,7 @@ fn reconstruct_artifact_job(
                             actual: actual_hash.to_string(),
                         });
                     }
-                    write_reconstruct_targets(
-                        chunk,
-                        bytes,
-                        &mut output_handles,
-                        control,
-                        &mut timings,
-                    )?;
+                    write_reconstruct_targets(chunk, bytes, output_handles, control, &mut timings)?;
                     Ok(())
                 },
             )?;
@@ -1717,7 +1747,7 @@ fn reconstruct_artifact_job(
             timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
             timings.chunk_verify = read_metrics.hash_verify;
             timings.chunk_verify_bytes = read_metrics.raw_bytes;
-            write_reconstruct_targets(chunk, &bytes, &mut output_handles, control, &mut timings)?;
+            write_reconstruct_targets(chunk, &bytes, output_handles, control, &mut timings)?;
         }
     }
     Ok(timings)
@@ -1726,7 +1756,7 @@ fn reconstruct_artifact_job(
 fn reconstruct_source_chunk_job(
     job: &ReconstructSourceChunkJob,
     file_plans: &[ReconstructPipelineFile],
-    output_paths: &[PathBuf],
+    output_handles: &OutputHandleCache,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
@@ -1773,7 +1803,6 @@ fn reconstruct_source_chunk_job(
         });
     }
 
-    let mut output_handles = OutputHandleCache::new(output_paths);
     let mut timings = ReconstructTimings {
         artifact_read: read_elapsed,
         artifact_read_decompressed_bytes: bytes.len() as u64,
@@ -1833,6 +1862,7 @@ fn copy_source_file_job(
         );
         OpenOptions::new()
             .write(true)
+            .create(true)
             .truncate(true)
             .open(&output_paths[file_index])?
     };
@@ -1884,7 +1914,7 @@ fn copy_source_file_job(
 fn write_reconstruct_targets(
     chunk: &ReconstructArtifactChunk,
     bytes: &[u8],
-    output_handles: &mut OutputHandleCache<'_>,
+    output_handles: &OutputHandleCache,
     control: &GutchOperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {
@@ -1911,53 +1941,70 @@ fn write_reconstruct_targets(
     Ok(())
 }
 
-struct OutputHandleCache<'a> {
-    output_paths: &'a [PathBuf],
-    handles: HashMap<usize, File>,
+struct OutputHandleCache {
+    output_paths: Arc<Vec<PathBuf>>,
+    output_sizes: Arc<Vec<u64>>,
+    state: Mutex<OutputHandleCacheState>,
+}
+
+struct OutputHandleCacheState {
+    handles: HashMap<usize, Arc<File>>,
     lru: VecDeque<usize>,
     max_open: usize,
 }
 
-impl<'a> OutputHandleCache<'a> {
-    fn new(output_paths: &'a [PathBuf]) -> Self {
+impl OutputHandleCache {
+    fn new(output_paths: Arc<Vec<PathBuf>>, output_sizes: Arc<Vec<u64>>) -> Self {
         Self {
             output_paths,
-            handles: HashMap::new(),
-            lru: VecDeque::new(),
-            max_open: 128,
+            output_sizes,
+            state: Mutex::new(OutputHandleCacheState {
+                handles: HashMap::new(),
+                lru: VecDeque::new(),
+                max_open: 256,
+            }),
         }
     }
 
-    fn write_at(&mut self, file_index: usize, offset: u64, bytes: &[u8]) -> Result<()> {
+    fn write_at(&self, file_index: usize, offset: u64, bytes: &[u8]) -> Result<()> {
         if file_index >= self.output_paths.len() {
             return Err(Error::reconstruct(format!(
                 "bundle target references unknown file index {}",
                 file_index
             )));
         }
-        if !self.handles.contains_key(&file_index) {
-            while self.handles.len() >= self.max_open {
-                if let Some(oldest) = self.lru.pop_front() {
-                    self.handles.remove(&oldest);
+        let file = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| Error::reconstruct("output handle cache is poisoned"))?;
+            if let Some(file) = state.handles.get(&file_index).cloned() {
+                state.lru.retain(|index| *index != file_index);
+                state.lru.push_back(file_index);
+                file
+            } else {
+                while state.handles.len() >= state.max_open {
+                    if let Some(oldest) = state.lru.pop_front() {
+                        state.handles.remove(&oldest);
+                    }
                 }
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(&self.output_paths[file_index])?;
+                file.set_len(self.output_sizes[file_index])?;
+                let file = Arc::new(file);
+                state.handles.insert(file_index, Arc::clone(&file));
+                state.lru.push_back(file_index);
+                file
             }
-            let file = OpenOptions::new()
-                .write(true)
-                .open(&self.output_paths[file_index])?;
-            self.handles.insert(file_index, file);
-        }
-        self.lru.retain(|index| *index != file_index);
-        self.lru.push_back(file_index);
-        let file = self
-            .handles
-            .get_mut(&file_index)
-            .ok_or_else(|| Error::reconstruct("output file handle disappeared"))?;
-        write_file_at(file, offset, bytes)
+        };
+        write_file_at(&file, offset, bytes)
     }
 }
 
 #[cfg(windows)]
-fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
+fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> Result<()> {
     use std::os::windows::fs::FileExt;
 
     let mut written = 0usize;
@@ -1972,7 +2019,7 @@ fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
+fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> Result<()> {
     use std::os::unix::fs::FileExt;
 
     file.write_all_at(bytes, offset)?;
@@ -1980,7 +2027,8 @@ fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn write_file_at(file: &mut File, offset: u64, bytes: &[u8]) -> Result<()> {
+fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> Result<()> {
+    let mut file = file.try_clone()?;
     file.seek(SeekFrom::Start(offset))?;
     file.write_all(bytes)?;
     Ok(())

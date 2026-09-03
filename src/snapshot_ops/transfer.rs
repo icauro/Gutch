@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering as AtomicOrdering};
@@ -39,6 +39,7 @@ pub(super) struct FetchTransferProgress {
     peak_download_count: AtomicUsize,
     retry_count: AtomicUsize,
     adjustment_count: AtomicUsize,
+    downstream_backpressure: AtomicBool,
 }
 
 impl Default for FetchTransferProgress {
@@ -53,6 +54,7 @@ impl Default for FetchTransferProgress {
             peak_download_count: AtomicUsize::default(),
             retry_count: AtomicUsize::default(),
             adjustment_count: AtomicUsize::default(),
+            downstream_backpressure: AtomicBool::default(),
         }
     }
 }
@@ -124,6 +126,15 @@ impl FetchTransferProgress {
 
     pub(super) fn adjustment_recorded(&self) {
         self.adjustment_count.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+
+    pub(super) fn set_downstream_backpressure(&self, enabled: bool) {
+        self.downstream_backpressure
+            .store(enabled, AtomicOrdering::Release);
+    }
+
+    fn downstream_backpressure(&self) -> bool {
+        self.downstream_backpressure.load(AtomicOrdering::Acquire)
     }
 
     pub(super) fn retry_count(&self) -> usize {
@@ -273,10 +284,36 @@ pub(super) enum ArtifactDownloadEvent {
 }
 
 struct ArtifactDownloadQueueState {
-    pending: Vec<PendingBundleDownload>,
-    priorities: HashMap<crate::ArtifactRef, ArtifactPriority>,
+    pending: BinaryHeap<QueuedArtifact>,
     active_worker_count: usize,
     stopped: bool,
+}
+
+struct QueuedArtifact {
+    pending: PendingBundleDownload,
+    priority: ArtifactPriority,
+}
+
+impl PartialEq for QueuedArtifact {
+    fn eq(&self, other: &Self) -> bool {
+        self.pending.bundle_id == other.pending.bundle_id
+    }
+}
+
+impl Eq for QueuedArtifact {}
+
+impl Ord for QueuedArtifact {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority
+            .compare(other.priority)
+            .then_with(|| self.pending.bundle_id.cmp(&other.pending.bundle_id))
+    }
+}
+
+impl PartialOrd for QueuedArtifact {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 struct ArtifactDownloadQueueShared {
@@ -321,8 +358,17 @@ impl ArtifactDownloadScheduler {
         let cancelled = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(ArtifactDownloadQueueShared {
             state: Mutex::new(ArtifactDownloadQueueState {
-                pending: pending.to_vec(),
-                priorities,
+                pending: pending
+                    .iter()
+                    .cloned()
+                    .map(|pending| {
+                        let priority = priorities
+                            .get(&pending.artifact)
+                            .copied()
+                            .unwrap_or_default();
+                        QueuedArtifact { pending, priority }
+                    })
+                    .collect(),
                 active_worker_count: 0,
                 stopped: false,
             }),
@@ -445,29 +491,6 @@ fn resolve_transfer_worker_limits(
     Ok((initial.min(pending_count), maximum.min(pending_count)))
 }
 
-fn select_next_artifact(state: &ArtifactDownloadQueueState) -> Option<usize> {
-    state
-        .pending
-        .iter()
-        .enumerate()
-        .max_by(|(_, left), (_, right)| {
-            let left_priority = state
-                .priorities
-                .get(&left.artifact)
-                .copied()
-                .unwrap_or_default();
-            let right_priority = state
-                .priorities
-                .get(&right.artifact)
-                .copied()
-                .unwrap_or_default();
-            left_priority
-                .compare(right_priority)
-                .then_with(|| right.bundle_id.cmp(&left.bundle_id))
-        })
-        .map(|(index, _)| index)
-}
-
 fn next_artifact(shared: &ArtifactDownloadQueueShared) -> Option<PendingBundleDownload> {
     let mut state = shared.state.lock().ok()?;
     loop {
@@ -476,9 +499,9 @@ fn next_artifact(shared: &ArtifactDownloadQueueShared) -> Option<PendingBundleDo
         }
         let target_worker_count = shared.target_worker_count.load(AtomicOrdering::Acquire);
         if state.active_worker_count < target_worker_count {
-            let index = select_next_artifact(&state)?;
+            let artifact = state.pending.pop()?;
             state.active_worker_count += 1;
-            return Some(state.pending.swap_remove(index));
+            return Some(artifact.pending);
         }
         state = shared.wake.wait(state).ok()?;
     }
@@ -560,6 +583,7 @@ impl AdaptiveTransferState {
         now: Instant,
         transferred_bytes: u64,
         retry_count: usize,
+        downstream_backpressure: bool,
     ) -> Option<usize> {
         let elapsed = now.saturating_duration_since(self.previous_sample_at);
         if elapsed < ADAPTIVE_SAMPLE_INTERVAL {
@@ -574,7 +598,7 @@ impl AdaptiveTransferState {
         self.previous_rate = Some(rate);
         self.last_retry_count = retry_count;
 
-        if had_new_retry {
+        if had_new_retry || downstream_backpressure {
             self.stable_windows = 0;
             return self.reduce_target();
         }
@@ -639,6 +663,7 @@ fn run_adaptive_transfer_controller(
             Instant::now(),
             transfer_progress.transferred_bytes(),
             transfer_progress.retry_count(),
+            transfer_progress.downstream_backpressure(),
         ) else {
             continue;
         };
@@ -991,12 +1016,15 @@ mod tests {
         let mut state = AdaptiveTransferState::new(4, 8);
         let start = state.previous_sample_at;
         assert_eq!(
-            state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0),
+            state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false),
             None
         );
-        assert_eq!(state.observe(start + Duration::from_secs(4), 220, 0), None);
         assert_eq!(
-            state.observe(start + Duration::from_secs(6), 360, 0),
+            state.observe(start + Duration::from_secs(4), 220, 0, false),
+            None
+        );
+        assert_eq!(
+            state.observe(start + Duration::from_secs(6), 360, 0, false),
             Some(5)
         );
     }
@@ -1005,14 +1033,25 @@ mod tests {
     fn adaptive_transfer_state_reduces_on_regression() {
         let mut state = AdaptiveTransferState::new(4, 8);
         let start = state.previous_sample_at;
-        state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0);
+        state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false);
         assert_eq!(
-            state.observe(start + Duration::from_secs(4), 140, 0),
+            state.observe(start + Duration::from_secs(4), 140, 0, false),
             Some(3)
         );
         assert_eq!(
-            state.observe(start + Duration::from_secs(6), 150, 0),
+            state.observe(start + Duration::from_secs(6), 150, 0, false),
             Some(2)
+        );
+    }
+
+    #[test]
+    fn adaptive_transfer_state_reduces_when_reconstruction_is_backlogged() {
+        let mut state = AdaptiveTransferState::new(4, 8);
+        let start = state.previous_sample_at;
+        state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false);
+        assert_eq!(
+            state.observe(start + Duration::from_secs(4), 220, 0, true),
+            Some(3)
         );
     }
 
