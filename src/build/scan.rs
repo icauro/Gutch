@@ -16,6 +16,7 @@ use rayon::ThreadPool;
 pub(crate) struct FileBuildEntry {
     pub(crate) manifest: FileManifest,
     pub(crate) chunks: Vec<(ChunkHash, ChunkPayload)>,
+    pub(crate) new_chunk_offsets: Vec<(ChunkHash, u64)>,
     pub(crate) size: u64,
     pub(crate) file_hash: Duration,
     pub(crate) file_hash_bytes: u64,
@@ -24,6 +25,12 @@ pub(crate) struct FileBuildEntry {
     pub(crate) chunk_hash_judgment: Duration,
     pub(crate) chunk_hash_judgment_bytes: u64,
     pub(crate) metadata: Duration,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ChunkPlacementKey {
+    pub(crate) file_content_hash: ChunkHash,
+    pub(crate) file_offset: u64,
 }
 
 pub(crate) struct ScanDirectoryOptions<'a> {
@@ -50,7 +57,12 @@ pub(crate) fn collect_scanned_chunks(
     dir: &Path,
     options: ScanDirectoryOptions<'_>,
     timings: &mut BuildTimings,
-) -> Result<(Vec<SnapshotEntry>, HashMap<ChunkHash, ChunkPayload>, u64)> {
+) -> Result<(
+    Vec<SnapshotEntry>,
+    HashMap<ChunkHash, ChunkPayload>,
+    HashMap<ChunkHash, ChunkPlacementKey>,
+    u64,
+)> {
     let control = options.control.clone();
     let metadata_entries = {
         let _metadata_span = options
@@ -67,12 +79,32 @@ pub(crate) fn collect_scanned_chunks(
 
     let mut entries = metadata_entries;
     let mut unique_chunks = HashMap::new();
+    let mut chunk_placements = HashMap::new();
     let mut total_logical_size: u64 = 0;
 
     for entry in file_entries {
         control.checkpoint()?;
         accumulate_entry_timings(timings, &entry);
         total_logical_size += entry.size;
+        if !entry.new_chunk_offsets.is_empty() {
+            let file_content_hash = ChunkHash::parse_hex(&entry.manifest.full_file_hash)?;
+            for (chunk_hash, file_offset) in entry.new_chunk_offsets.iter().copied() {
+                let candidate = ChunkPlacementKey {
+                    file_content_hash,
+                    file_offset,
+                };
+                chunk_placements
+                    .entry(chunk_hash)
+                    .and_modify(|current: &mut ChunkPlacementKey| {
+                        if (candidate.file_content_hash, candidate.file_offset)
+                            < (current.file_content_hash, current.file_offset)
+                        {
+                            *current = candidate;
+                        }
+                    })
+                    .or_insert(candidate);
+            }
+        }
         entries.push(SnapshotEntry::File(entry.manifest));
         for (hash, data) in entry.chunks {
             unique_chunks.entry(hash).or_insert(data);
@@ -81,7 +113,7 @@ pub(crate) fn collect_scanned_chunks(
 
     entries.sort_by(|left, right| left.path().cmp(right.path()));
     manifest::validate_snapshot_entries(&entries)?;
-    Ok((entries, unique_chunks, total_logical_size))
+    Ok((entries, unique_chunks, chunk_placements, total_logical_size))
 }
 
 fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
@@ -353,6 +385,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
         return Ok(FileBuildEntry {
             manifest: previous.clone(),
             chunks: Vec::new(),
+            new_chunk_offsets: Vec::new(),
             size: file_size,
             file_hash,
             file_hash_bytes: file_size,
@@ -366,28 +399,35 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
 
     let stream_chunk = chunk_timings.boundary_scan;
 
-    let (chunk_refs, chunks) = {
+    let (chunk_refs, chunks, new_chunk_offsets) = {
         let _refs_span = control.profile_span_with_args(
             "gutch.capture.scan_source.file.build_chunk_references",
             crate::profile::file_trace_args(&normalized_relative, file_size),
         );
         let mut chunk_refs = Vec::with_capacity(chunk_scan.chunks.len());
         let mut chunks = Vec::with_capacity(chunk_scan.chunks.len());
+        let mut new_chunk_offsets = Vec::with_capacity(chunk_scan.chunks.len());
+        let mut file_offset = 0u64;
         for cr in chunk_scan.chunks {
             control.checkpoint()?;
             let chunk_hash = ChunkHash::from_blake3(cr.hash);
+            let raw_size = cr.data.len() as u64;
             chunk_refs.push(ChunkRef {
                 chunk_hash: chunk_hash.to_hex(),
-                raw_size: cr.data.len() as u64,
+                raw_size,
             });
             if !options.existing_chunk_locations.contains_key(&chunk_hash) {
                 let payload = ChunkPayload::InMemory {
                     bytes: std::sync::Arc::<[u8]>::from(cr.data),
                 };
                 chunks.push((chunk_hash, payload));
+                new_chunk_offsets.push((chunk_hash, file_offset));
             }
+            file_offset = file_offset
+                .checked_add(raw_size)
+                .ok_or_else(|| Error::manifest("file chunk offsets overflow"))?;
         }
-        (chunk_refs, chunks)
+        (chunk_refs, chunks, new_chunk_offsets)
     };
 
     Ok(FileBuildEntry {
@@ -400,6 +440,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
             chunks: chunk_refs,
         },
         chunks,
+        new_chunk_offsets,
         size: file_size,
         file_hash,
         file_hash_bytes: file_size,

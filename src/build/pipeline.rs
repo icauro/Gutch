@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use crate::Result;
 use crate::build::progress::BuildProgressTracker;
-use crate::build_scan::{ScanDirectoryOptions, collect_scanned_chunks};
+use crate::build_scan::{ChunkPlacementKey, ScanDirectoryOptions, collect_scanned_chunks};
 use crate::build_types::{
     BuildConfig, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk, ChunkPayload,
     ExistingChunkLocation, StagedBundleFile,
@@ -20,6 +20,7 @@ use crate::runtime::{build_thread_pool, plan_build_runtime};
 
 const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
 const PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
+const MIN_FILE_LOCALITY_SEGMENT_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 struct BundleSizingPolicy {
@@ -122,6 +123,7 @@ struct PlannedBundleGroups {
 
 fn plan_bundle_compressed_groups(
     mut chunks: Vec<ChunkPayloadEntry>,
+    chunk_placements: &HashMap<ChunkHash, ChunkPlacementKey>,
     compression_profile: &manifest::CompressionProfile,
     bundle_profile: &manifest::BundleSizingProfile,
     bundle_policy: BundleSizingPolicy,
@@ -139,9 +141,9 @@ fn plan_bundle_compressed_groups(
     }
 
     let sort_bytes: u64 = chunks.iter().map(|(_, payload)| payload.raw_size()).sum();
-    let sort_duration = {
+    let hash_sort_duration = {
         let _sort_span = control.profile_span_with_args(
-            "gutch.capture.plan_artifact_groups.sort_chunks_by_hash",
+            "gutch.capture.plan_artifact_groups.sort_chunks_for_probe",
             capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
         );
         let sort_start = Instant::now();
@@ -175,6 +177,36 @@ fn plan_bundle_compressed_groups(
         bundle_compression_ratio,
         bundle_policy,
     );
+    let locality_segment_size_bytes = (bundle_raw_size_size / 4)
+        .max(MIN_FILE_LOCALITY_SEGMENT_BYTES)
+        .min(bundle_raw_size_size);
+    let locality_sort_duration = {
+        let _sort_span = control.profile_span_with_args(
+            "gutch.capture.plan_artifact_groups.sort_chunks_by_file_locality",
+            {
+                let mut args = capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes);
+                args.insert(
+                    "ordering".to_string(),
+                    serde_json::json!(
+                        "file_locality_segment,file_content_hash,file_offset,chunk_hash"
+                    ),
+                );
+                args.insert(
+                    "locality_segment_bytes".to_string(),
+                    serde_json::json!(locality_segment_size_bytes),
+                );
+                args
+            },
+        );
+        let sort_start = Instant::now();
+        sort_chunks_by_file_locality(
+            &mut chunks,
+            chunk_placements,
+            locality_segment_size_bytes,
+            pool,
+        )?;
+        sort_start.elapsed()
+    };
 
     let planned_groups = {
         let _group_span = control.profile_span_with_args(
@@ -206,11 +238,48 @@ fn plan_bundle_compressed_groups(
 
     Ok(PlannedBundleGroups {
         groups: planned_groups,
-        sort_duration,
+        sort_duration: hash_sort_duration + locality_sort_duration,
         sort_bytes,
         probe_duration,
         probe_raw_bytes,
     })
+}
+
+fn sort_chunks_by_file_locality(
+    chunks: &mut [ChunkPayloadEntry],
+    chunk_placements: &HashMap<ChunkHash, ChunkPlacementKey>,
+    locality_segment_size_bytes: u64,
+    pool: &ThreadPool,
+) -> Result<()> {
+    if let Some((hash, _)) = chunks
+        .iter()
+        .find(|(hash, _)| !chunk_placements.contains_key(hash))
+    {
+        return Err(crate::Error::manifest(format!(
+            "missing file placement metadata for new chunk '{hash}'"
+        )));
+    }
+
+    pool.install(|| {
+        chunks.par_sort_unstable_by(|left, right| {
+            let left_placement = chunk_placements
+                .get(&left.0)
+                .expect("chunk placement metadata validated before sorting");
+            let right_placement = chunk_placements
+                .get(&right.0)
+                .expect("chunk placement metadata validated before sorting");
+            (left_placement.file_offset / locality_segment_size_bytes)
+                .cmp(&(right_placement.file_offset / locality_segment_size_bytes))
+                .then_with(|| {
+                    left_placement
+                        .file_content_hash
+                        .cmp(&right_placement.file_content_hash)
+                })
+                .then_with(|| left_placement.file_offset.cmp(&right_placement.file_offset))
+                .then_with(|| left.0.cmp(&right.0))
+        });
+    });
+    Ok(())
 }
 
 fn record_bundle_compressed_bundle_metrics(
@@ -574,7 +643,7 @@ pub(crate) fn build_with_config_timed_on_pool(
         .unwrap_or(&empty_existing_bundle_ids);
 
     let scan_chunk_start = Instant::now();
-    let (mut snapshot_entries, unique_chunks, total_logical_size) = {
+    let (mut snapshot_entries, unique_chunks, chunk_placements, total_logical_size) = {
         let _scan_span = config.control.profile_span("gutch.capture.scan_source");
         collect_scanned_chunks(
             dir,
@@ -685,6 +754,7 @@ pub(crate) fn build_with_config_timed_on_pool(
                         .profile_span("gutch.capture.plan_artifact_groups");
                     plan_bundle_compressed_groups(
                         chunks_to_compress,
+                        &chunk_placements,
                         &compression_profile,
                         &config.bundle_profile,
                         bundle_size_policy,
