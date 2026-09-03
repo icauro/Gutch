@@ -2263,17 +2263,21 @@ fn full_hash_trace_args(
     hash_mode: &str,
     reconstruct_worker_count: usize,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
-    args.insert("hash_mode".to_string(), serde_json::json!(hash_mode));
-    args.insert(
-        "hash_threshold_mib".to_string(),
-        serde_json::json!(PARALLEL_FULL_HASH_MIN_BYTES as f64 / (1024.0 * 1024.0)),
-    );
-    args.insert(
-        "configured_workers".to_string(),
-        serde_json::json!(reconstruct_worker_count),
-    );
-    args
+    std::collections::BTreeMap::from([
+        (
+            "size_mib".to_string(),
+            serde_json::json!(file_plan.size as f64 / (1024.0 * 1024.0)),
+        ),
+        ("hash_mode".to_string(), serde_json::json!(hash_mode)),
+        (
+            "hash_threshold_mib".to_string(),
+            serde_json::json!(PARALLEL_FULL_HASH_MIN_BYTES as f64 / (1024.0 * 1024.0)),
+        ),
+        (
+            "configured_workers".to_string(),
+            serde_json::json!(reconstruct_worker_count),
+        ),
+    ])
 }
 
 fn reconstruct_file_trace_args(
