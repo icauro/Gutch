@@ -122,6 +122,21 @@ pub fn plan_snapshot_capture(
     )
 }
 
+/// Plans a capture while attributing the planning work to the capture profile.
+///
+/// The CLI needs to plan before it can ask for confirmation, so this wrapper
+/// keeps that real preflight work in the same trace as the subsequent build.
+pub fn plan_snapshot_capture_with_control(
+    repo_root: &Path,
+    source_dir: &Path,
+    explicit_tags: &SnapshotTagSet,
+    allow_name_inference: bool,
+    control: &crate::GutchOperationControl,
+) -> Result<SnapshotCapturePlan> {
+    let _plan_span = control.profile_span("capture.prepare_source.plan_snapshot");
+    plan_snapshot_capture(repo_root, source_dir, explicit_tags, allow_name_inference)
+}
+
 pub(crate) fn plan_snapshot_capture_with_source_modified_at(
     repo_root: &Path,
     source_dir: &Path,
@@ -301,11 +316,12 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<RepoSnapshotCaptureResult> {
-    let capture_plan = plan_snapshot_capture(
+    let capture_plan = plan_snapshot_capture_with_control(
         request.repo_root.as_path(),
         request.source_dir.as_path(),
         &request.explicit_tags,
         request.allow_name_inference,
+        &request.control,
     )?;
     capture_repo_snapshot_with_plan_and_existing_store_state(
         request,

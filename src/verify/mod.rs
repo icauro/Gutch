@@ -110,10 +110,11 @@ fn classify_inner(
     dir: &Path,
     opts: &VerifyOptions,
     scan_extra_files: bool,
+    marker_namespace: &str,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     opts.control.checkpoint()?;
-    let _operation_span = opts.control.profile_span("reconstructed.verify");
+    let _operation_span = opts.control.profile_span(marker_namespace);
     let mut classification = RepairClassification::default();
     let runtime_plan = plan_verify_runtime(opts.hints);
     let mut timings = VerifyTimings {
@@ -124,7 +125,7 @@ fn classify_inner(
     let verify_pool = build_thread_pool(runtime_plan.worker_count, "gutch-verify")?;
     let (inventory, resolved_paths) = if scan_extra_files {
         let _resolve_paths_span = opts.control.profile_span_with_args(
-            "verify.prepare.paths",
+            marker_name(marker_namespace, "prepare.paths"),
             std::collections::BTreeMap::from([
                 (
                     "path_count".to_string(),
@@ -144,7 +145,7 @@ fn classify_inner(
             opts.control,
         )?;
         opts.control.profile_event_with_args(
-            "verify.prepare.paths.inventory",
+            marker_name(marker_namespace, "prepare.paths.inventory"),
             std::collections::BTreeMap::from([
                 (
                     "inventory_entry_count".to_string(),
@@ -161,7 +162,7 @@ fn classify_inner(
         let path_resolver = crate::path_guard::ManifestPathResolver::new(dir)?;
         let resolved_paths = {
             let _resolve_paths_span = opts.control.profile_span_with_args(
-                "verify.prepare.paths",
+                marker_name(marker_namespace, "prepare.paths"),
                 std::collections::BTreeMap::from([
                     (
                         "path_count".to_string(),
@@ -261,7 +262,7 @@ fn classify_inner(
                 .push((sorted_index, prepared_file));
         }
         let _file_span = opts.control.profile_span_with_args(
-            "verify.files",
+            marker_name(marker_namespace, "files"),
             std::collections::BTreeMap::from([
                 (
                     "file_count".to_string(),
@@ -285,6 +286,7 @@ fn classify_inner(
                             opts.mode,
                             opts.control,
                             runtime_plan.worker_count,
+                            marker_namespace,
                         );
                         let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
                         emit_verify_progress(
@@ -317,7 +319,9 @@ fn classify_inner(
 
     if let Some(inventory) = inventory.as_ref() {
         let extra_file_scan_start = Instant::now();
-        let _extra_scan_span = opts.control.profile_span("verify.extra_scan");
+        let _extra_scan_span = opts
+            .control
+            .profile_span(marker_name(marker_namespace, "extra_scan"));
         for relative in &inventory.extra_paths {
             opts.control.checkpoint()?;
             classification.push(RepairIssue {
@@ -701,6 +705,13 @@ fn normalize_actual_link_target(link_path: &str, raw_target: &Path) -> Result<St
 pub(crate) fn classify_directory(
     request: VerifyRequest<'_>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_directory_with_marker_namespace(request, "reconstructed.verify")
+}
+
+pub(crate) fn classify_directory_with_marker_namespace(
+    request: VerifyRequest<'_>,
+    marker_namespace: &str,
+) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
         request.snapshot_manifest,
         request.dir,
@@ -709,11 +720,13 @@ pub(crate) fn classify_directory(
             .with_hints(request.runtime_hints)
             .with_control(&request.control),
         true,
+        marker_namespace,
     )
 }
 
-pub(crate) fn classify_expected_entries(
+pub(crate) fn classify_expected_entries_with_marker_namespace(
     request: VerifyRequest<'_>,
+    marker_namespace: &str,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
         request.snapshot_manifest,
@@ -723,7 +736,12 @@ pub(crate) fn classify_expected_entries(
             .with_hints(request.runtime_hints)
             .with_control(&request.control),
         false,
+        marker_namespace,
     )
+}
+
+fn marker_name(namespace: &str, suffix: &str) -> String {
+    format!("{namespace}.{suffix}")
 }
 
 fn emit_verify_progress(
@@ -778,10 +796,11 @@ fn verify_manifest_file(
     verify_mode: VerifyMode,
     control: &GutchOperationControl,
     worker_count: usize,
+    marker_namespace: &str,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
     let fm = prepared_file.manifest;
     let _file_span = control.profile_span_with_args(
-        "verify.file",
+        marker_name(marker_namespace, "file"),
         crate::profile::file_trace_args(&fm.path, fm.size),
     );
     control.checkpoint()?;

@@ -65,6 +65,7 @@ pub use repo::capture_plan::{
     RepoSnapshotCaptureRequest, RepoSnapshotCaptureResult, SnapshotCaptureKind,
     SnapshotCapturePlan, capture_repo_snapshot, capture_repo_snapshot_with_plan,
     delete_repo_snapshot_and_cleanup, describe_snapshot_capture_plan, plan_snapshot_capture,
+    plan_snapshot_capture_with_control,
 };
 pub(crate) use repo::capture_plan::{
     capture_repo_snapshot_with_existing_store_state, delete_repo_snapshots,

@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use crate::manifest::{SnapshotEntry, snapshot::SnapshotManifest};
 use crate::runtime::{RuntimeResourceHints, plan_reconstruct_runtime};
 use crate::verify::{
-    RepairClassification, RepairIssue, RepairIssueKind, VerifyRequest, classify_directory,
-    classify_expected_entries,
+    RepairClassification, RepairIssue, RepairIssueKind, VerifyRequest,
+    classify_directory_with_marker_namespace, classify_expected_entries_with_marker_namespace,
 };
 use crate::{Error, Result};
 
@@ -42,6 +42,7 @@ pub fn repair_snapshot_from_repo(
     request: SnapshotRepairFromRepoRequest,
 ) -> Result<SnapshotRepairFromRepoResult> {
     request.control.checkpoint()?;
+    let _operation_span = request.control.profile_span("reconstructed.repair");
     let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
         &request.repo_path,
         &request.snapshot_id,
@@ -65,6 +66,9 @@ pub fn repair_snapshot_from_repo(
         .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
         .count();
     if repair_plan.needs_rebuild {
+        let _reconstruct_span = request
+            .control
+            .profile_span("reconstructed.repair.reconstruct");
         let mut existing_artifacts = HashSet::new();
         for artifact in &repair_plan.required_artifacts {
             if artifact.local_path(&repo_paths)?.is_file() {
@@ -74,7 +78,7 @@ pub fn repair_snapshot_from_repo(
         let pipeline_plan = {
             let _plan_span = request
                 .control
-                .profile_span("snapshot.reconstruct.prepare.plan");
+                .profile_span("reconstructed.repair.prepare.plan");
             build_reconstruct_pipeline_plan(
                 &repair_plan.affected_manifest,
                 &chunk_index,
@@ -177,13 +181,16 @@ fn plan_repair_snapshot_ops(
     runtime_hints: &RuntimeResourceHints,
     control: &crate::GutchOperationControl,
 ) -> Result<PlannedRepair> {
-    let (classification, _) = classify_directory(VerifyRequest {
-        snapshot_manifest,
-        dir: destination_dir,
-        mode: crate::VerifyMode::Fast,
-        runtime_hints,
-        control: control.clone(),
-    })?;
+    let (classification, _) = classify_directory_with_marker_namespace(
+        VerifyRequest {
+            snapshot_manifest,
+            dir: destination_dir,
+            mode: crate::VerifyMode::Fast,
+            runtime_hints,
+            control: control.clone(),
+        },
+        "reconstructed.repair.verify",
+    )?;
     build_repair_plan_from_classification(snapshot_manifest, chunk_index, classification)
 }
 
@@ -226,6 +233,7 @@ fn finalize_repair_result_after_reconstruction(
     repair_plan: &PlannedRepair,
     control: &crate::GutchOperationControl,
 ) -> Result<SnapshotRepairResult> {
+    let _finalize_span = control.profile_span("reconstructed.repair.finalize");
     let mut reconstructed_extra_file_count = 0usize;
     let mut removed_extra_file_count = 0usize;
     let mut preserved_extra_dir = None;
@@ -264,13 +272,16 @@ fn finalize_repair_result_after_reconstruction(
     let mut final_classification = if repair_plan.affected_manifest.entries.is_empty() {
         RepairClassification::default()
     } else {
-        classify_expected_entries(VerifyRequest {
-            snapshot_manifest: &repair_plan.affected_manifest,
-            dir: destination_dir,
-            mode: crate::VerifyMode::Fast,
-            runtime_hints,
-            control: crate::GutchOperationControl::default(),
-        })?
+        classify_expected_entries_with_marker_namespace(
+            VerifyRequest {
+                snapshot_manifest: &repair_plan.affected_manifest,
+                dir: destination_dir,
+                mode: crate::VerifyMode::Fast,
+                runtime_hints,
+                control: control.clone(),
+            },
+            "reconstructed.repair.verify.final",
+        )?
         .0
     };
     if remove_added_files {

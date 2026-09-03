@@ -136,14 +136,13 @@ fn run_capture_one_snapshot(
             ),
         ]),
     );
-    let _plan_span = capture_control.profile_span("capture.prepare_source.plan_snapshot");
-    let capture_plan = g::plan_snapshot_capture(
+    let capture_plan = g::plan_snapshot_capture_with_control(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
         request.explicit_tags,
         request.allow_name_inference,
+        &capture_control,
     )?;
-    drop(_plan_span);
     if !request.yes && !request.skip_confirmation {
         println!("snapshot capture plan:");
         println!("  {}", g::describe_snapshot_capture_plan(&capture_plan));
@@ -579,11 +578,15 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                 if let Some(config_tags) = config_tags {
                     explicit_tags.extend_missing_from(&config_tags);
                 }
-                let plan = g::plan_snapshot_capture(
+                let progress = CliProgressSink::new();
+                let capture_control =
+                    crate::cli::control_with_profile(profile).with_progress(progress);
+                let plan = g::plan_snapshot_capture_with_control(
                     repo.as_path(),
                     &source.path,
                     &explicit_tags,
                     allow_name_inference,
+                    &capture_control,
                 )?;
                 if !yes {
                     println!("snapshot capture plan:");
@@ -597,7 +600,6 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         return Err(g::Error::manifest("snapshot capture cancelled"));
                     }
                 }
-                let progress = CliProgressSink::new();
                 let capture_result = g::capture_repo_snapshot_with_plan(
                     g::RepoSnapshotCaptureRequest {
                         repo_root: repo.clone(),
@@ -609,7 +611,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         compression_profile: build_profile.compression_profile,
                         storage_mode: build_profile.storage_mode,
                         runtime_hints: runtime.hints(),
-                        control: crate::cli::control_with_profile(profile).with_progress(progress),
+                        control: capture_control,
                     },
                     plan,
                 )?;
@@ -686,11 +688,12 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         if let Some(config_tags) = &source.config_tags {
                             effective_tags.extend_missing_from(config_tags);
                         }
-                        g::plan_snapshot_capture(
+                        g::plan_snapshot_capture_with_control(
                             repo_paths.repo_root.as_path(),
                             &source.path,
                             &effective_tags,
                             source.allow_name_inference,
+                            &prepare_control,
                         )
                     })
                     .collect::<g::Result<_>>()?;
