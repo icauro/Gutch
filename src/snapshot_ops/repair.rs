@@ -94,7 +94,7 @@ pub fn repair_snapshot_from_repo(
         if let Some(parent) = staging_dir.parent() {
             crate::helpers::create_dir_all(parent)?;
         }
-        prepare_snapshot_entries(
+        let output_paths = prepare_snapshot_entries(
             &repair_plan.affected_manifest,
             &staging_dir,
             &request.control,
@@ -102,7 +102,7 @@ pub fn repair_snapshot_from_repo(
         )?;
         let _ = execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
             pipeline_plan,
-            staging_dir: &staging_dir,
+            output_paths,
             snapshot_id: &snapshot_manifest.snapshot_id,
             compression_profile: &compression_profile,
             runtime_hints: &request.runtime_hints,

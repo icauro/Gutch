@@ -133,7 +133,7 @@ pub(super) fn prepare_snapshot_entries(
     output_dir: &Path,
     control: &GutchOperationControl,
     reconstruct_pool: Option<&ThreadPool>,
-) -> Result<()> {
+) -> Result<Arc<Vec<PathBuf>>> {
     {
         let _validate_span =
             control.profile_span("gutch.snapshot.reconstruct.prepare.entries.validate");
@@ -154,7 +154,36 @@ pub(super) fn prepare_snapshot_entries(
             control.profile_span("gutch.snapshot.reconstruct.prepare.entries.directories");
         create_snapshot_directories(snapshot_manifest, control, &path_resolver, reconstruct_pool)?;
     }
-    Ok(())
+    Ok(Arc::new(resolve_snapshot_file_paths(
+        snapshot_manifest,
+        control,
+        &path_resolver,
+        reconstruct_pool,
+    )?))
+}
+
+fn resolve_snapshot_file_paths(
+    snapshot_manifest: &SnapshotManifest,
+    control: &GutchOperationControl,
+    path_resolver: &crate::path_guard::ManifestPathResolver,
+    reconstruct_pool: Option<&ThreadPool>,
+) -> Result<Vec<PathBuf>> {
+    let files = snapshot_manifest.files().collect::<Vec<_>>();
+    let _resolve_paths_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.prepare.outputs.resolve_paths",
+        std::collections::BTreeMap::from([(
+            "path_count".to_string(),
+            serde_json::json!(files.len()),
+        )]),
+    );
+    let resolve = |file: &&crate::manifest::FileManifest| path_resolver.resolve(&file.path);
+    if let Some(reconstruct_pool) = reconstruct_pool {
+        reconstruct_pool.install(|| files.par_iter().map(resolve).collect::<Vec<_>>())
+    } else {
+        files.iter().map(resolve).collect::<Vec<_>>()
+    }
+    .into_iter()
+    .collect()
 }
 
 fn create_snapshot_directories(
@@ -843,7 +872,7 @@ pub(super) fn apply_reconstruct_pipeline(
     };
 
     let main_result = (|| -> Result<SnapshotReconstructFromRepoResult> {
-        {
+        let output_paths = {
             let _prepare_span = request
                 .control
                 .profile_span("gutch.snapshot.reconstruct.prepare.entries");
@@ -852,8 +881,8 @@ pub(super) fn apply_reconstruct_pipeline(
                 &staging_dir,
                 request.control,
                 reconstruct_pool.as_ref(),
-            )?;
-        }
+            )?
+        };
         let apply_prepare_wall = prepare_started_at.elapsed();
         let required_chunk_count = pipeline_plan.required_chunk_count;
         let required_bundle_count = pipeline_plan.required_bundle_count;
@@ -862,7 +891,7 @@ pub(super) fn apply_reconstruct_pipeline(
         let (mut reconstruct_timings, verify_timings) =
             execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
                 pipeline_plan,
-                staging_dir: &staging_dir,
+                output_paths,
                 snapshot_id: &request.snapshot_manifest.snapshot_id,
                 compression_profile: &request.compression_profile,
                 runtime_hints: request.runtime_hints,
@@ -946,7 +975,7 @@ pub(super) fn build_reconstruct_pool(worker_count: usize) -> Result<ThreadPool> 
 
 pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) pipeline_plan: ReconstructPipelinePlan,
-    pub(super) staging_dir: &'a Path,
+    pub(super) output_paths: Arc<Vec<PathBuf>>,
     pub(super) snapshot_id: &'a str,
     pub(super) compression_profile: &'a crate::manifest::CompressionProfile,
     pub(super) runtime_hints: &'a RuntimeResourceHints,
@@ -1031,7 +1060,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
 ) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
     let ExecuteReconstructPipelineRequest {
         pipeline_plan,
-        staging_dir,
+        output_paths,
         snapshot_id,
         compression_profile,
         runtime_hints,
@@ -1064,15 +1093,6 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             control.profile_span("gutch.snapshot.reconstruct.prepare.priorities");
         build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
     };
-    let output_paths = Arc::new({
-        let path_resolver = crate::path_guard::ManifestPathResolver::new(staging_dir)?;
-        resolve_reconstruct_output_paths(
-            &pipeline_plan.files,
-            control,
-            &path_resolver,
-            reconstruct_pool,
-        )?
-    });
     let file_plans = Arc::new(pipeline_plan.files);
     let output_sizes = Arc::new(file_plans.iter().map(|file| file.size).collect::<Vec<_>>());
     let output_handles = Arc::new(OutputHandleCache::new(
@@ -1533,36 +1553,6 @@ fn update_reconstruct_backpressure(
     let queue_limit = worker_count.saturating_mul(2).max(1);
     let queued_jobs = submitted_job_count.saturating_sub(completed_job_count);
     transfer_progress.set_downstream_backpressure(queued_jobs > queue_limit);
-}
-
-fn resolve_reconstruct_output_paths(
-    files: &[ReconstructPipelineFile],
-    control: &GutchOperationControl,
-    path_resolver: &crate::path_guard::ManifestPathResolver,
-    reconstruct_pool: Option<&ThreadPool>,
-) -> Result<Vec<PathBuf>> {
-    let _resolve_paths_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.prepare.outputs.resolve_paths",
-        std::collections::BTreeMap::from([(
-            "path_count".to_string(),
-            serde_json::json!(files.len()),
-        )]),
-    );
-    if let Some(reconstruct_pool) = reconstruct_pool {
-        reconstruct_pool.install(|| {
-            files
-                .par_iter()
-                .map(|file_plan| path_resolver.resolve(&file_plan.path))
-                .collect::<Vec<_>>()
-        })
-    } else {
-        files
-            .iter()
-            .map(|file_plan| path_resolver.resolve(&file_plan.path))
-            .collect::<Vec<_>>()
-    }
-    .into_iter()
-    .collect()
 }
 
 fn ensure_empty_reconstruct_output_file(
