@@ -16,8 +16,9 @@ pub(crate) mod snapshot_sources;
 use std::sync::Arc;
 
 pub(crate) use args::{
-    BundleCommands, Cli, Commands, PathCommands, RemoteCommands, RepoCommands, RepoNameCommands,
-    RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands, SnapshotSourcesCommands,
+    BundleCommands, Cli, Commands, PathCommands, ReconstructedCommands, RemoteCommands,
+    RepoCommands, RepoNameCommands, RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands,
+    SnapshotSourcesCommands,
 };
 pub(crate) use common::prompt_yes_no;
 

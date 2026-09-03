@@ -100,6 +100,10 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: SnapshotCommands,
     },
+    Reconstructed {
+        #[command(subcommand)]
+        command: ReconstructedCommands,
+    },
     Bundle {
         #[command(subcommand)]
         command: BundleCommands,
@@ -379,6 +383,10 @@ pub(crate) enum SnapshotCommands {
         #[command(flatten)]
         transfer: TransferArgs,
     },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum ReconstructedCommands {
     Verify {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
@@ -393,13 +401,41 @@ pub(crate) enum SnapshotCommands {
         #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
         stats_json_out: Option<PathBuf>,
     },
+    Repair {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "snapshot-id")]
+        snapshot_id: String,
+        #[arg(short, long, value_parser = parse_absolute_path)]
+        destination: PathBuf,
+        #[arg(long = "staging-dir", value_parser = parse_absolute_path)]
+        staging_dir: Option<PathBuf>,
+        #[arg(long = "remove-added-files")]
+        remove_added_files: bool,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        stats_json_out: Option<PathBuf>,
+        #[arg(long = "yes")]
+        yes: bool,
+    },
+    Corrupt {
+        #[arg(short, long, value_parser = parse_absolute_path)]
+        destination: PathBuf,
+        #[arg(long = "plan", value_parser = parse_absolute_path)]
+        plan: PathBuf,
+        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        stats_json_out: Option<PathBuf>,
+        #[arg(long = "yes")]
+        yes: bool,
+    },
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Cli, Commands, RemoteCommands, RepoCommands, RepoTagsCommands, SnapshotCommands,
-        TransferPolicyArg,
+        Cli, Commands, ReconstructedCommands, RemoteCommands, RepoCommands, RepoTagsCommands,
+        SnapshotCommands, TransferPolicyArg,
     };
     use clap::Parser;
 
@@ -557,6 +593,87 @@ mod tests {
         assert!(matches!(transfer.policy, TransferPolicyArg::Adaptive));
         assert_eq!(transfer.concurrency, 4);
         assert_eq!(transfer.maximum, 12);
+    }
+
+    #[test]
+    fn parses_reconstructed_destination_commands() {
+        let destination = if cfg!(windows) {
+            r"D:\Installs\product"
+        } else {
+            "/installs/product"
+        };
+        let repo = if cfg!(windows) {
+            r"D:\Repos\product"
+        } else {
+            "/repos/product"
+        };
+
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "reconstructed",
+            "verify",
+            "--repo",
+            repo,
+            "--snapshot-id",
+            "snapshot-1",
+            "--destination",
+            destination,
+        ])
+        .expect("reconstructed verify args should parse");
+        assert!(matches!(
+            cli.command,
+            Commands::Reconstructed {
+                command: ReconstructedCommands::Verify { strict: false, .. }
+            }
+        ));
+
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "reconstructed",
+            "repair",
+            "--repo",
+            repo,
+            "--snapshot-id",
+            "snapshot-1",
+            "--destination",
+            destination,
+            "--remove-added-files",
+            "--yes",
+        ])
+        .expect("reconstructed repair args should parse");
+        assert!(matches!(
+            cli.command,
+            Commands::Reconstructed {
+                command: ReconstructedCommands::Repair {
+                    remove_added_files: true,
+                    yes: true,
+                    ..
+                }
+            }
+        ));
+
+        let plan = if cfg!(windows) {
+            r"D:\Plans\corrupt.json"
+        } else {
+            "/plans/corrupt.json"
+        };
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "reconstructed",
+            "corrupt",
+            "--destination",
+            destination,
+            "--plan",
+            plan,
+            "--yes",
+        ])
+        .expect("reconstructed corrupt args should parse");
+        assert!(matches!(
+            cli.command,
+            Commands::Reconstructed {
+                command: ReconstructedCommands::Corrupt { yes: true, .. }
+            }
+        ));
     }
 }
 

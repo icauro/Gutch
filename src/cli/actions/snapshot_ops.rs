@@ -115,7 +115,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
     let extra_file_count = classification.extra_files.len();
     let errors = classification.into_messages();
     let stats = SnapshotVerifyStats {
-        command: "snapshot verify",
+        command: "reconstructed verify",
         repo_root: repo_root.display().to_string(),
         snapshot_id: tm.snapshot_id.clone(),
         destination_dir: command.destination.display().to_string(),

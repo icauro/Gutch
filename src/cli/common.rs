@@ -85,6 +85,33 @@ pub(crate) struct SnapshotVerifyStats {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct ReconstructedRepairStats {
+    pub(crate) command: &'static str,
+    pub(crate) repo_root: String,
+    pub(crate) snapshot_id: String,
+    pub(crate) destination_dir: String,
+    pub(crate) remove_added_files: bool,
+    pub(crate) missing_file_count: usize,
+    pub(crate) corrupt_file_count: usize,
+    pub(crate) extra_file_count: usize,
+    pub(crate) removed_extra_file_count: usize,
+    pub(crate) reconstructed_extra_file_count: usize,
+    pub(crate) resolved_bundle_file_count: usize,
+    pub(crate) elapsed_seconds: f64,
+    pub(crate) outputs: OptionalOutputPaths,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReconstructedCorruptStats {
+    pub(crate) command: &'static str,
+    pub(crate) destination_dir: String,
+    pub(crate) plan_path: String,
+    pub(crate) applied_operation_count: usize,
+    pub(crate) elapsed_seconds: f64,
+    pub(crate) outputs: OptionalOutputPaths,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct SnapshotReconstructStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,

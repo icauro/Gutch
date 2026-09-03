@@ -1,5 +1,8 @@
 use crate::cli::actions;
-use crate::cli::common::{SnapshotFetchReconstructStats, parse_bundle_downloads, write_report};
+use crate::cli::common::{
+    ReconstructedCorruptStats, ReconstructedRepairStats, SnapshotFetchReconstructStats,
+    parse_bundle_downloads, write_report,
+};
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::print_transfer_timings;
 use crate::cli::verbose_output_enabled;
@@ -333,4 +336,183 @@ pub(crate) fn verify(
         stats_json_out,
         profile: profile.clone(),
     })
+}
+
+pub(crate) struct RepairCommand {
+    pub(crate) repo: std::path::PathBuf,
+    pub(crate) snapshot_id: String,
+    pub(crate) destination: std::path::PathBuf,
+    pub(crate) staging_dir: Option<std::path::PathBuf>,
+    pub(crate) remove_added_files: bool,
+    pub(crate) runtime: crate::cli::args::RuntimeArgs,
+    pub(crate) stats_json_out: Option<std::path::PathBuf>,
+    pub(crate) yes: bool,
+}
+
+pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> g::Result<()> {
+    if !command.yes {
+        return Err(g::Error::manifest(
+            "reconstructed repair requires --yes flag",
+        ));
+    }
+    let started_at = std::time::Instant::now();
+    let execution = g::repair_snapshot_from_repo(g::SnapshotRepairFromRepoRequest {
+        repo_path: command.repo.clone(),
+        snapshot_id: command.snapshot_id.clone(),
+        destination_dir: command.destination.clone(),
+        staging_dir: command.staging_dir,
+        remove_added_files: command.remove_added_files,
+        runtime_hints: command.runtime.hints(),
+        control: crate::cli::control_with_profile(profile),
+    })?;
+    let result = execution.repair_result;
+    let stats = ReconstructedRepairStats {
+        command: "reconstructed repair",
+        repo_root: execution.repo_root.display().to_string(),
+        snapshot_id: result.snapshot_id.clone(),
+        destination_dir: result.destination_dir.display().to_string(),
+        remove_added_files: command.remove_added_files,
+        missing_file_count: result.missing_file_count,
+        corrupt_file_count: result.corrupt_file_count,
+        extra_file_count: result.extra_file_count,
+        removed_extra_file_count: result.removed_extra_file_count,
+        reconstructed_extra_file_count: result.reconstructed_extra_file_count,
+        resolved_bundle_file_count: execution.resolved_bundle_file_count,
+        elapsed_seconds: started_at.elapsed().as_secs_f64(),
+        outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
+    };
+    write_report(&command.stats_json_out, &stats)?;
+
+    if verbose_output_enabled() {
+        println!(
+            "repaired reconstructed snapshot {} at {}",
+            stats.snapshot_id, stats.destination_dir
+        );
+        println!(
+            "classified missing={}, corrupt={}, extra={}; removed extra={}, preserved extra={}",
+            stats.missing_file_count,
+            stats.corrupt_file_count,
+            stats.extra_file_count,
+            stats.removed_extra_file_count,
+            stats.reconstructed_extra_file_count
+        );
+    }
+    if profile.is_some() {
+        crate::cli::reporting::print_profile_summary(profile.as_deref());
+    }
+    Ok(())
+}
+
+pub(crate) struct CorruptCommand {
+    pub(crate) destination: std::path::PathBuf,
+    pub(crate) plan: std::path::PathBuf,
+    pub(crate) stats_json_out: Option<std::path::PathBuf>,
+    pub(crate) yes: bool,
+}
+
+pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::cli::Profile) -> g::Result<()> {
+    if !command.yes {
+        return Err(g::Error::manifest(
+            "reconstructed corrupt requires --yes flag",
+        ));
+    }
+    let plan_bytes = std::fs::read(&command.plan).map_err(|error| {
+        g::Error::manifest(format!(
+            "failed to read corruption plan '{}': {error}",
+            command.plan.display()
+        ))
+    })?;
+    let plan: g::ReconstructedCorruptionPlan =
+        serde_json::from_slice(&plan_bytes).map_err(|error| {
+            g::Error::manifest(format!(
+                "invalid corruption plan '{}': {error}",
+                command.plan.display()
+            ))
+        })?;
+    let started_at = std::time::Instant::now();
+    let result = g::corrupt_reconstructed_snapshot(g::ReconstructedCorruptionRequest {
+        destination_dir: command.destination.clone(),
+        plan,
+        control: crate::cli::control_with_profile(profile),
+    })?;
+    let stats = ReconstructedCorruptStats {
+        command: "reconstructed corrupt",
+        destination_dir: result.destination_dir.display().to_string(),
+        plan_path: command.plan.display().to_string(),
+        applied_operation_count: result.applied_operation_count,
+        elapsed_seconds: started_at.elapsed().as_secs_f64(),
+        outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
+    };
+    write_report(&command.stats_json_out, &stats)?;
+
+    if verbose_output_enabled() {
+        println!(
+            "applied {} corruption operations to {}",
+            stats.applied_operation_count, stats.destination_dir
+        );
+    }
+    if profile.is_some() {
+        crate::cli::reporting::print_profile_summary(profile.as_deref());
+    }
+    Ok(())
+}
+
+pub(crate) fn run_reconstructed(
+    command: crate::cli::ReconstructedCommands,
+    profile: &crate::cli::Profile,
+) -> g::Result<()> {
+    match command {
+        crate::cli::ReconstructedCommands::Verify {
+            repo,
+            snapshot_id,
+            destination,
+            strict,
+            runtime,
+            stats_json_out,
+        } => verify(
+            repo,
+            snapshot_id,
+            destination,
+            strict,
+            runtime,
+            stats_json_out,
+            profile,
+        ),
+        crate::cli::ReconstructedCommands::Repair {
+            repo,
+            snapshot_id,
+            destination,
+            staging_dir,
+            remove_added_files,
+            runtime,
+            stats_json_out,
+            yes,
+        } => repair(
+            RepairCommand {
+                repo,
+                snapshot_id,
+                destination,
+                staging_dir,
+                remove_added_files,
+                runtime,
+                stats_json_out,
+                yes,
+            },
+            profile,
+        ),
+        crate::cli::ReconstructedCommands::Corrupt {
+            destination,
+            plan,
+            stats_json_out,
+            yes,
+        } => corrupt(
+            CorruptCommand {
+                destination,
+                plan,
+                stats_json_out,
+                yes,
+            },
+            profile,
+        ),
+    }
 }

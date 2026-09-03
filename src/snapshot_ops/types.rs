@@ -192,6 +192,55 @@ pub struct SnapshotVerifyFromRepoResult {
     pub(crate) verify_timings: VerifyTimings,
 }
 
+/// A deterministic set of destructive mutations used by integration tests and benchmark lanes.
+///
+/// Paths are always interpreted relative to the reconstructed destination root. The command
+/// adapter requires explicit confirmation before applying a plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReconstructedCorruptionPlan {
+    pub operations: Vec<ReconstructedCorruptionOperation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ReconstructedCorruptionOperation {
+    FlipByte {
+        path: String,
+        offset: u64,
+        #[serde(default = "default_corruption_mask")]
+        mask: u8,
+    },
+    Delete {
+        path: String,
+    },
+    AddFile {
+        path: String,
+        content: Vec<u8>,
+    },
+    SetReadOnly {
+        path: String,
+        read_only: bool,
+    },
+}
+
+fn default_corruption_mask() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone)]
+pub struct ReconstructedCorruptionRequest {
+    pub destination_dir: PathBuf,
+    pub plan: ReconstructedCorruptionPlan,
+    pub control: GutchOperationControl,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReconstructedCorruptionResult {
+    pub destination_dir: PathBuf,
+    pub applied_operation_count: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct SnapshotRepairResult {
     pub snapshot_id: String,

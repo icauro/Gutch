@@ -79,7 +79,7 @@ fn classify_inner(
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     opts.control.checkpoint()?;
-    let _operation_span = opts.control.profile_span("gutch.snapshot.verify");
+    let _operation_span = opts.control.profile_span("gutch.reconstructed.verify");
     let mut classification = RepairClassification::default();
     let runtime_plan = plan_verify_runtime(opts.hints);
     let mut timings = VerifyTimings {

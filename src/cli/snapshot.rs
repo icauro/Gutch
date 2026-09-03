@@ -971,23 +971,6 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             profile,
         )?,
 
-        SnapshotCommands::Verify {
-            repo,
-            snapshot_id,
-            destination,
-            strict,
-            runtime,
-            stats_json_out,
-        } => crate::cli::snapshot_ops::verify(
-            repo,
-            snapshot_id,
-            destination,
-            strict,
-            runtime,
-            stats_json_out,
-            profile,
-        )?,
-
         SnapshotCommands::Estimate {
             source_dir,
             repo,
