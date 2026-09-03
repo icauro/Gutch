@@ -256,14 +256,50 @@ impl BundleBuilder {
         let bytes_without_id = hashing.position()?;
 
         drop(_footer_span);
-        let _finalize_span = profiler
-            .map(|profiler| profiler.span("gutch.capture.compress_bundle_artifact.finalize_id"));
+        let _finalize_span = profiler.map(|profiler| {
+            profiler.span_with_args(
+                "gutch.capture.compress_bundle_artifact.finalize_id",
+                std::collections::BTreeMap::from([
+                    ("chunk_count".to_string(), serde_json::json!(chunk_count)),
+                    (
+                        "hash_input_bytes".to_string(),
+                        serde_json::json!(bytes_without_id),
+                    ),
+                    (
+                        "payload_compressed_bytes".to_string(),
+                        serde_json::json!(compressed_output_bytes),
+                    ),
+                    ("footer_bytes".to_string(), serde_json::json!(footer.len())),
+                ]),
+            )
+        });
         let HashingWriter { file, hasher } = hashing;
         let bundle_id = hash::hash_hex(&hasher.finalize());
         file.write_all(bundle_id.as_bytes())?;
         let bundle_size = bytes_without_id
             .checked_add(BUNDLE_ID_SIZE)
             .ok_or_else(|| crate::error::Error::InvalidBundle("bundle size overflow".into()))?;
+        drop(_finalize_span);
+        if let Some(profiler) = profiler {
+            profiler.event_with_args(
+                "gutch.capture.compress_bundle_artifact.finalize_id.complete",
+                std::collections::BTreeMap::from([
+                    (
+                        "id_present".to_string(),
+                        serde_json::json!(!bundle_id.is_empty()),
+                    ),
+                    ("id_bytes".to_string(), serde_json::json!(bundle_id.len())),
+                    (
+                        "bundle_size_bytes".to_string(),
+                        serde_json::json!(bundle_size),
+                    ),
+                    (
+                        "next_phase".to_string(),
+                        serde_json::json!("return_staged_artifact"),
+                    ),
+                ]),
+            );
+        }
 
         Ok(BundleBuildArtifact {
             bundle_id,

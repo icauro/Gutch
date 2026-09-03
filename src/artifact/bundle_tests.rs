@@ -142,6 +142,29 @@ fn test_build_and_read_bundle_compressed_payload() {
             "missing expected bundle phase marker {name}"
         );
     }
+
+    let staging = tempfile::tempdir().unwrap();
+    let capture_profiler = crate::GutchProfiler::new();
+    builder
+        .write_to_staging(staging.path(), Some(&capture_profiler))
+        .unwrap();
+    let trace_path = staging.path().join("trace.json");
+    capture_profiler.write_to(&trace_path).unwrap();
+    let trace: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(trace_path).unwrap()).unwrap();
+    let finalize_complete = trace["traceEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| {
+            event["name"] == "gutch.capture.compress_bundle_artifact.finalize_id.complete"
+        })
+        .expect("missing bundle ID finalization completion marker");
+    assert_eq!(finalize_complete["args"]["id_present"], true);
+    assert_eq!(
+        finalize_complete["args"]["next_phase"],
+        "return_staged_artifact"
+    );
 }
 
 #[test]
