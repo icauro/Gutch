@@ -1020,6 +1020,7 @@ struct ReconstructWorkContext {
     jobs: Arc<Vec<ReconstructJob>>,
     file_plans: Arc<Vec<ReconstructPipelineFile>>,
     output_paths: Arc<Vec<PathBuf>>,
+    precomputed_file_hashes: Arc<Vec<Mutex<Option<String>>>>,
     output_handles: Arc<OutputHandleCache>,
     compression_profile: Arc<crate::manifest::CompressionProfile>,
     control: GutchOperationControl,
@@ -1040,6 +1041,7 @@ fn spawn_reconstruct_work(
                 &context.jobs[job_index],
                 &context.file_plans,
                 &context.output_paths,
+                &context.precomputed_file_hashes,
                 &context.output_handles,
                 &context.compression_profile,
                 &context.control,
@@ -1049,6 +1051,7 @@ fn spawn_reconstruct_work(
                 file_index,
                 &context.file_plans[file_index],
                 &context.output_paths,
+                &context.precomputed_file_hashes,
                 &context.control,
                 context.reconstruct_worker_count,
             )
@@ -1113,6 +1116,11 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         Arc::clone(&output_paths),
         Arc::clone(&output_sizes),
     ));
+    let precomputed_file_hashes = Arc::new(
+        (0..file_plans.len())
+            .map(|_| Mutex::new(None))
+            .collect::<Vec<Mutex<Option<String>>>>(),
+    );
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
         let _artifacts_span = control.profile_span("gutch.snapshot.reconstruct.prepare.artifacts");
@@ -1192,6 +1200,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         jobs: Arc::clone(&jobs),
         file_plans: Arc::clone(&file_plans),
         output_paths: Arc::clone(&output_paths),
+        precomputed_file_hashes,
         output_handles,
         compression_profile,
         control: control.clone(),
@@ -1603,6 +1612,7 @@ fn reconstruct_job(
     job: &ReconstructJob,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
+    precomputed_file_hashes: &[Mutex<Option<String>>],
     output_handles: &OutputHandleCache,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
@@ -1617,7 +1627,14 @@ fn reconstruct_job(
         ReconstructJob::CopySourceFile {
             file_index,
             source_path,
-        } => copy_source_file_job(*file_index, source_path, file_plans, output_paths, control),
+        } => copy_source_file_job(
+            *file_index,
+            source_path,
+            file_plans,
+            output_paths,
+            precomputed_file_hashes,
+            control,
+        ),
     }
 }
 
@@ -1866,6 +1883,7 @@ fn copy_source_file_job(
     source_path: &Path,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
+    precomputed_file_hashes: &[Mutex<Option<String>>],
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     let file_plan = file_plans.get(file_index).ok_or_else(|| {
@@ -1896,6 +1914,7 @@ fn copy_source_file_job(
     };
     let mut timings = ReconstructTimings::default();
     let mut buffer = vec![0u8; 1024 * 1024];
+    let mut full_file_hasher = blake3::Hasher::new();
     let mut copied = 0u64;
     loop {
         control.checkpoint()?;
@@ -1909,6 +1928,7 @@ fn copy_source_file_job(
         if read == 0 {
             break;
         }
+        full_file_hasher.update(&buffer[..read]);
         let _write_span = control.profile_span_with_args(
             "gutch.snapshot.reconstruct.file.source_file.write",
             file_write_trace_args(file_plan, read as u64),
@@ -1936,6 +1956,21 @@ fn copy_source_file_job(
             file_plan.path, copied, file_plan.size
         )));
     }
+    let actual_hash = crate::hash::hash_hex(&full_file_hasher.finalize());
+    if actual_hash != file_plan.full_file_hash {
+        return Err(Error::HashMismatch {
+            expected: file_plan.full_file_hash.clone(),
+            actual: actual_hash,
+        });
+    }
+    let hash_slot = precomputed_file_hashes.get(file_index).ok_or_else(|| {
+        Error::reconstruct(format!(
+            "source file job references unknown file {file_index}"
+        ))
+    })?;
+    *hash_slot
+        .lock()
+        .map_err(|_| Error::reconstruct("precomputed file hash is poisoned"))? = Some(actual_hash);
     Ok(timings)
 }
 
@@ -2220,6 +2255,7 @@ fn verify_reconstructed_output_file(
     file_index: usize,
     file_plan: &ReconstructPipelineFile,
     output_paths: &[PathBuf],
+    precomputed_file_hashes: &[Mutex<Option<String>>],
     control: &GutchOperationControl,
     reconstruct_worker_count: usize,
 ) -> Result<ReconstructedFileVerification> {
@@ -2228,7 +2264,18 @@ fn verify_reconstructed_output_file(
         "gutch.snapshot.reconstruct.file",
         reconstruct_file_trace_args(file_plan),
     );
-    let hash_mode = if file_plan.size < PARALLEL_FULL_HASH_MIN_BYTES {
+    let precomputed_hash = precomputed_file_hashes
+        .get(file_index)
+        .ok_or_else(|| {
+            Error::reconstruct(format!("verification references unknown file {file_index}"))
+        })?
+        .lock()
+        .map_err(|_| Error::reconstruct("precomputed file hash is poisoned"))?
+        .clone();
+    let hash_forwarded = precomputed_hash.is_some();
+    let hash_mode = if precomputed_hash.is_some() {
+        "copy_forward"
+    } else if file_plan.size < PARALLEL_FULL_HASH_MIN_BYTES {
         "stream"
     } else if reconstruct_worker_count <= 1 {
         "mmap_rayon"
@@ -2244,12 +2291,18 @@ fn verify_reconstructed_output_file(
             actual_size, file_plan.size, file_plan.path
         )));
     }
-    let _hash_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.file.full_hash",
-        full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
-    );
     let hash_started_at = Instant::now();
-    let actual_hash = if hash_mode == "mmap_rayon" {
+    let actual_hash = if let Some(precomputed_hash) = precomputed_hash {
+        control.profile_event_with_args(
+            "gutch.snapshot.reconstruct.file.full_hash.forwarded",
+            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
+        );
+        precomputed_hash
+    } else if hash_mode == "mmap_rayon" {
+        let _hash_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.full_hash",
+            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
+        );
         let _parallel_hash_span = control.profile_span_with_args(
             "gutch.snapshot.reconstruct.file.full_hash.parallel",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
@@ -2258,6 +2311,10 @@ fn verify_reconstructed_output_file(
         hasher.update_mmap_rayon(output_path)?;
         crate::hash::hash_hex(&hasher.finalize())
     } else if hash_mode == "mmap" {
+        let _hash_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.full_hash",
+            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
+        );
         let _mmap_hash_span = control.profile_span_with_args(
             "gutch.snapshot.reconstruct.file.full_hash.mmap",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
@@ -2266,6 +2323,10 @@ fn verify_reconstructed_output_file(
         hasher.update_mmap(output_path)?;
         crate::hash::hash_hex(&hasher.finalize())
     } else {
+        let _hash_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.full_hash",
+            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
+        );
         let mut input = File::open(output_path)?;
         let mut hasher = blake3::Hasher::new();
         let mut buffer = vec![0u8; 1024 * 1024];
@@ -2279,7 +2340,11 @@ fn verify_reconstructed_output_file(
         }
         crate::hash::hash_hex(&hasher.finalize())
     };
-    let hash_elapsed = hash_started_at.elapsed();
+    let hash_elapsed = if hash_forwarded {
+        Duration::ZERO
+    } else {
+        hash_started_at.elapsed()
+    };
     let hash_elapsed_seconds = hash_elapsed.as_secs_f64();
     let mut hash_complete_args =
         full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count);
