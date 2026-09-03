@@ -59,7 +59,17 @@ struct ReconstructPipelineFile {
     path: String,
     size: u64,
     full_file_hash: String,
+    trace_metadata: ReconstructFileTraceMetadata,
+    #[allow(dead_code)]
     reconstruction: ReconstructPipelineReconstruction,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ReconstructFileTraceMetadata {
+    required_distinct_chunks: usize,
+    required_distinct_artifacts: usize,
+    required_distinct_bundles: usize,
+    required_distinct_loose_chunks: usize,
 }
 
 #[derive(Clone)]
@@ -659,6 +669,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
                 path: file_manifest.path.clone(),
                 size: file_manifest.size,
                 full_file_hash: file_manifest.full_file_hash.clone(),
+                trace_metadata: ReconstructFileTraceMetadata::default(),
                 reconstruction: ReconstructPipelineReconstruction::CopyFromSource,
             });
             jobs.push(ReconstructJob::CopySourceFile {
@@ -800,11 +811,14 @@ pub(super) fn build_reconstruct_pipeline_plan(
                 .push(file_index);
         }
         missing_artifact_counts.push(missing_artifact_dependencies.len());
+        let reconstruction = ReconstructPipelineReconstruction::ReconstructFromParts { chunks };
+        let trace_metadata = reconstruct_file_trace_metadata(&reconstruction);
         files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
             full_file_hash: file_manifest.full_file_hash.clone(),
-            reconstruction: ReconstructPipelineReconstruction::ReconstructFromParts { chunks },
+            trace_metadata,
+            reconstruction,
         });
     }
 
@@ -1623,6 +1637,7 @@ fn reconstruct_artifact_job(
     let profiler = control.profiler();
     let compressed_bytes = std::fs::metadata(&job.artifact_path)?.len();
     let mut timings = ReconstructTimings::default();
+    let mut target_handles = HashMap::new();
 
     match &job.artifact {
         crate::ArtifactRef::Bundle { .. } => {
@@ -1701,7 +1716,14 @@ fn reconstruct_artifact_job(
                             actual: actual_hash.to_string(),
                         });
                     }
-                    write_reconstruct_targets(chunk, bytes, output_handles, control, &mut timings)?;
+                    write_reconstruct_targets(
+                        chunk,
+                        bytes,
+                        output_handles,
+                        &mut target_handles,
+                        control,
+                        &mut timings,
+                    )?;
                     Ok(())
                 },
             )?;
@@ -1744,7 +1766,14 @@ fn reconstruct_artifact_job(
             timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
             timings.chunk_verify = read_metrics.hash_verify;
             timings.chunk_verify_bytes = read_metrics.raw_bytes;
-            write_reconstruct_targets(chunk, &bytes, output_handles, control, &mut timings)?;
+            write_reconstruct_targets(
+                chunk,
+                &bytes,
+                output_handles,
+                &mut target_handles,
+                control,
+                &mut timings,
+            )?;
         }
     }
     Ok(timings)
@@ -1807,6 +1836,7 @@ fn reconstruct_source_chunk_job(
         chunk_verify_bytes: bytes.len() as u64,
         ..ReconstructTimings::default()
     };
+    let mut target_handles = HashMap::new();
     let rebuild_started_at = Instant::now();
     for target in &job.targets {
         control.checkpoint()?;
@@ -1819,7 +1849,8 @@ fn reconstruct_source_chunk_job(
             source_target_trace_args(job, target, &file_plans[target.file_index]),
         );
         let write_started_at = Instant::now();
-        output_handles.write_at(target.file_index, target.file_offset, &bytes)?;
+        let output = cached_target_handle(output_handles, &mut target_handles, target.file_index)?;
+        write_file_at(&output, target.file_offset, &bytes)?;
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings
@@ -1912,6 +1943,7 @@ fn write_reconstruct_targets(
     chunk: &ReconstructArtifactChunk,
     bytes: &[u8],
     output_handles: &OutputHandleCache,
+    target_handles: &mut HashMap<usize, Arc<File>>,
     control: &GutchOperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {
@@ -1927,7 +1959,8 @@ fn write_reconstruct_targets(
     for target in &chunk.targets {
         control.checkpoint()?;
         let write_started_at = Instant::now();
-        output_handles.write_at(target.file_index, target.file_offset, bytes)?;
+        let output = cached_target_handle(output_handles, target_handles, target.file_index)?;
+        write_file_at(&output, target.file_offset, bytes)?;
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings
@@ -1950,6 +1983,8 @@ struct OutputHandleCacheState {
     max_open: usize,
 }
 
+const LOCAL_OUTPUT_HANDLE_CACHE_LIMIT: usize = 8;
+
 impl OutputHandleCache {
     fn new(output_paths: Arc<Vec<PathBuf>>, output_sizes: Arc<Vec<u64>>) -> Self {
         Self {
@@ -1963,7 +1998,7 @@ impl OutputHandleCache {
         }
     }
 
-    fn write_at(&self, file_index: usize, offset: u64, bytes: &[u8]) -> Result<()> {
+    fn get_or_open(&self, file_index: usize) -> Result<Arc<File>> {
         if file_index >= self.output_paths.len() {
             return Err(Error::reconstruct(format!(
                 "bundle target references unknown file index {}",
@@ -1996,8 +2031,26 @@ impl OutputHandleCache {
                 file
             }
         };
-        write_file_at(&file, offset, bytes)
+        Ok(file)
     }
+}
+
+fn cached_target_handle(
+    output_handles: &OutputHandleCache,
+    target_handles: &mut HashMap<usize, Arc<File>>,
+    file_index: usize,
+) -> Result<Arc<File>> {
+    if let Some(file) = target_handles.get(&file_index) {
+        return Ok(Arc::clone(file));
+    }
+    let file = output_handles.get_or_open(file_index)?;
+    if target_handles.len() >= LOCAL_OUTPUT_HANDLE_CACHE_LIMIT
+        && let Some(oldest_file_index) = target_handles.keys().next().copied()
+    {
+        target_handles.remove(&oldest_file_index);
+    }
+    target_handles.insert(file_index, Arc::clone(&file));
+    Ok(file)
 }
 
 #[cfg(windows)]
@@ -2175,10 +2228,12 @@ fn verify_reconstructed_output_file(
         "gutch.snapshot.reconstruct.file",
         reconstruct_file_trace_args(file_plan),
     );
-    let hash_mode = if file_plan.size >= PARALLEL_FULL_HASH_MIN_BYTES {
+    let hash_mode = if file_plan.size < PARALLEL_FULL_HASH_MIN_BYTES {
+        "stream"
+    } else if reconstruct_worker_count <= 1 {
         "mmap_rayon"
     } else {
-        "stream"
+        "mmap"
     };
     let started_at = Instant::now();
     let output_path = &output_paths[file_index];
@@ -2201,6 +2256,14 @@ fn verify_reconstructed_output_file(
         );
         let mut hasher = blake3::Hasher::new();
         hasher.update_mmap_rayon(output_path)?;
+        crate::hash::hash_hex(&hasher.finalize())
+    } else if hash_mode == "mmap" {
+        let _mmap_hash_span = control.profile_span_with_args(
+            "gutch.snapshot.reconstruct.file.full_hash.mmap",
+            full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
+        );
+        let mut hasher = blake3::Hasher::new();
+        hasher.update_mmap(output_path)?;
         crate::hash::hash_hex(&hasher.finalize())
     } else {
         let mut input = File::open(output_path)?;
@@ -2274,52 +2337,62 @@ fn reconstruct_file_trace_args(
     file_plan: &ReconstructPipelineFile,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
+    args.insert(
+        "required_distinct_chunks".to_string(),
+        serde_json::json!(file_plan.trace_metadata.required_distinct_chunks),
+    );
+    args.insert(
+        "required_distinct_artifacts".to_string(),
+        serde_json::json!(file_plan.trace_metadata.required_distinct_artifacts),
+    );
+    args.insert(
+        "required_distinct_bundles".to_string(),
+        serde_json::json!(file_plan.trace_metadata.required_distinct_bundles),
+    );
+    args.insert(
+        "required_distinct_loose_chunks".to_string(),
+        serde_json::json!(file_plan.trace_metadata.required_distinct_loose_chunks),
+    );
+    args
+}
+
+fn reconstruct_file_trace_metadata(
+    reconstruction: &ReconstructPipelineReconstruction,
+) -> ReconstructFileTraceMetadata {
     let mut chunk_hashes = HashSet::new();
     let mut artifacts = HashSet::new();
     let mut bundle_artifacts = HashSet::new();
     let mut loose_chunk_artifacts = HashSet::new();
+    let ReconstructPipelineReconstruction::ReconstructFromParts { chunks } = reconstruction else {
+        return ReconstructFileTraceMetadata::default();
+    };
 
-    if let ReconstructPipelineReconstruction::ReconstructFromParts { chunks } =
-        &file_plan.reconstruction
-    {
-        for chunk in chunks {
-            match chunk {
-                ReconstructPipelineChunkInput::Source { chunk_hash, .. } => {
-                    chunk_hashes.insert(chunk_hash);
-                }
-                ReconstructPipelineChunkInput::Artifact(chunk) => {
-                    chunk_hashes.insert(&chunk.chunk_hash);
-                    artifacts.insert(&chunk.artifact);
-                    match &chunk.artifact {
-                        crate::ArtifactRef::Bundle { .. } => {
-                            bundle_artifacts.insert(&chunk.artifact);
-                        }
-                        crate::ArtifactRef::LooseChunk { .. } => {
-                            loose_chunk_artifacts.insert(&chunk.artifact);
-                        }
+    for chunk in chunks {
+        match chunk {
+            ReconstructPipelineChunkInput::Source { chunk_hash } => {
+                chunk_hashes.insert(chunk_hash.as_str());
+            }
+            ReconstructPipelineChunkInput::Artifact(chunk) => {
+                chunk_hashes.insert(chunk.chunk_hash.as_str());
+                artifacts.insert(&chunk.artifact);
+                match &chunk.artifact {
+                    crate::ArtifactRef::Bundle { .. } => {
+                        bundle_artifacts.insert(&chunk.artifact);
+                    }
+                    crate::ArtifactRef::LooseChunk { .. } => {
+                        loose_chunk_artifacts.insert(&chunk.artifact);
                     }
                 }
             }
         }
     }
 
-    args.insert(
-        "required_distinct_chunks".to_string(),
-        serde_json::json!(chunk_hashes.len()),
-    );
-    args.insert(
-        "required_distinct_artifacts".to_string(),
-        serde_json::json!(artifacts.len()),
-    );
-    args.insert(
-        "required_distinct_bundles".to_string(),
-        serde_json::json!(bundle_artifacts.len()),
-    );
-    args.insert(
-        "required_distinct_loose_chunks".to_string(),
-        serde_json::json!(loose_chunk_artifacts.len()),
-    );
-    args
+    ReconstructFileTraceMetadata {
+        required_distinct_chunks: chunk_hashes.len(),
+        required_distinct_artifacts: artifacts.len(),
+        required_distinct_bundles: bundle_artifacts.len(),
+        required_distinct_loose_chunks: loose_chunk_artifacts.len(),
+    }
 }
 
 fn build_source_chunk_locations(
