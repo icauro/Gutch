@@ -724,6 +724,13 @@ pub(crate) fn classify_directory_with_marker_namespace(
     )
 }
 
+#[allow(dead_code)]
+pub(crate) fn classify_expected_entries(
+    request: VerifyRequest<'_>,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_expected_entries_with_marker_namespace(request, "reconstructed.verify")
+}
+
 pub(crate) fn classify_expected_entries_with_marker_namespace(
     request: VerifyRequest<'_>,
     marker_namespace: &str,

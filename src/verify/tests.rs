@@ -262,16 +262,13 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
         chunks: Vec::new(),
     });
 
-    let (classification, _) = super::classify_expected_entries_with_marker_namespace(
-        super::VerifyRequest {
-            snapshot_manifest: &manifest,
-            dir: &dir,
-            mode: VerifyMode::Fast,
-            runtime_hints: default_runtime_hints(),
-            control: crate::GutchOperationControl::default(),
-        },
-        "reconstructed.verify",
-    )
+    let (classification, _) = super::classify_expected_entries(super::VerifyRequest {
+        snapshot_manifest: &manifest,
+        dir: &dir,
+        mode: VerifyMode::Fast,
+        runtime_hints: default_runtime_hints(),
+        control: crate::GutchOperationControl::default(),
+    })
     .unwrap();
 
     assert_eq!(classification.corrupt_files.len(), 1);
