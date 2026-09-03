@@ -142,13 +142,37 @@ impl BundleBuilder {
         let build = {
             let mut file = temporary.reopen()?;
             let build = self.write_bundle(&mut file, profiler)?;
+            let _flush_span = profiler.map(|profiler| {
+                profiler.span_with_args(
+                    "gutch.capture.compress_bundle_artifact.flush_staged_file",
+                    std::collections::BTreeMap::from([(
+                        "bundle_size_bytes".to_string(),
+                        serde_json::json!(build.size),
+                    )]),
+                )
+            });
             file.flush()?;
+            drop(_flush_span);
+            let _sync_span = profiler.map(|profiler| {
+                profiler.span_with_args(
+                    "gutch.capture.compress_bundle_artifact.sync_staged_file",
+                    std::collections::BTreeMap::from([(
+                        "bundle_size_bytes".to_string(),
+                        serde_json::json!(build.size),
+                    )]),
+                )
+            });
             file.sync_all()?;
+            drop(_sync_span);
             build
         };
+        let _keep_span = profiler.map(|profiler| {
+            profiler.span("gutch.capture.compress_bundle_artifact.keep_staged_file")
+        });
         let (_, staged_path) = temporary
             .keep()
             .map_err(|error| crate::error::Error::Io(error.error))?;
+        drop(_keep_span);
 
         Ok(BundleBuildArtifact {
             staged_path,
@@ -295,7 +319,7 @@ impl BundleBuilder {
                     ),
                     (
                         "next_phase".to_string(),
-                        serde_json::json!("return_staged_artifact"),
+                        serde_json::json!("flush_staged_file"),
                     ),
                 ]),
             );

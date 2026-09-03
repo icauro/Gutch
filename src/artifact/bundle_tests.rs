@@ -161,10 +161,22 @@ fn test_build_and_read_bundle_compressed_payload() {
         })
         .expect("missing bundle ID finalization completion marker");
     assert_eq!(finalize_complete["args"]["id_present"], true);
-    assert_eq!(
-        finalize_complete["args"]["next_phase"],
-        "return_staged_artifact"
-    );
+    assert_eq!(finalize_complete["args"]["next_phase"], "flush_staged_file");
+    let spans = capture_profiler.summary().spans;
+    for name in [
+        "gutch.capture.compress_bundle_artifact.flush_staged_file",
+        "gutch.capture.compress_bundle_artifact.sync_staged_file",
+        "gutch.capture.compress_bundle_artifact.keep_staged_file",
+    ] {
+        assert_eq!(
+            spans
+                .iter()
+                .find(|span| span.name == name)
+                .map(|span| span.count),
+            Some(1),
+            "missing post-finalization marker {name}"
+        );
+    }
 }
 
 #[test]
