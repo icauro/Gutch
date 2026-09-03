@@ -2040,7 +2040,7 @@ impl OutputHandleCache {
                 file_index
             )));
         }
-        let file = {
+        {
             let mut state = self
                 .state
                 .lock()
@@ -2048,24 +2048,35 @@ impl OutputHandleCache {
             if let Some(file) = state.handles.get(&file_index).cloned() {
                 state.lru.retain(|index| *index != file_index);
                 state.lru.push_back(file_index);
-                file
-            } else {
-                while state.handles.len() >= state.max_open {
-                    if let Some(oldest) = state.lru.pop_front() {
-                        state.handles.remove(&oldest);
-                    }
-                }
-                let file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .open(&self.output_paths[file_index])?;
-                file.set_len(self.output_sizes[file_index])?;
-                let file = Arc::new(file);
-                state.handles.insert(file_index, Arc::clone(&file));
-                state.lru.push_back(file_index);
-                file
+                return Ok(file);
             }
-        };
+        }
+
+        // Do filesystem work outside the cache mutex. A reconstruction can touch thousands of
+        // files, and holding the mutex across open/set_len otherwise serializes every first write.
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&self.output_paths[file_index])?;
+        file.set_len(self.output_sizes[file_index])?;
+        let file = Arc::new(file);
+
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| Error::reconstruct("output handle cache is poisoned"))?;
+        if let Some(existing) = state.handles.get(&file_index).cloned() {
+            state.lru.retain(|index| *index != file_index);
+            state.lru.push_back(file_index);
+            return Ok(existing);
+        }
+        while state.handles.len() >= state.max_open {
+            if let Some(oldest) = state.lru.pop_front() {
+                state.handles.remove(&oldest);
+            }
+        }
+        state.handles.insert(file_index, Arc::clone(&file));
+        state.lru.push_back(file_index);
         Ok(file)
     }
 }
