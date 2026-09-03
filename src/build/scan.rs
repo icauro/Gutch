@@ -42,6 +42,18 @@ pub(crate) struct ScanDirectoryOptions<'a> {
     pub control: crate::GutchOperationControl,
 }
 
+pub(crate) struct SourceFileEntry {
+    pub(crate) path: PathBuf,
+    pub(crate) normalized_relative: String,
+    pub(crate) metadata: std::fs::Metadata,
+}
+
+pub(crate) struct SourceInventory {
+    pub(crate) metadata_entries: Vec<SnapshotEntry>,
+    pub(crate) files: Vec<SourceFileEntry>,
+    pub(crate) source_modified_at: std::time::SystemTime,
+}
+
 pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileBuildEntry) {
     timings.logical_bytes += entry.size;
     timings.file_hash += entry.file_hash;
@@ -54,7 +66,7 @@ pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileB
 }
 
 pub(crate) fn collect_scanned_chunks(
-    dir: &Path,
+    inventory: &SourceInventory,
     options: ScanDirectoryOptions<'_>,
     timings: &mut BuildTimings,
 ) -> Result<(
@@ -64,18 +76,8 @@ pub(crate) fn collect_scanned_chunks(
     u64,
 )> {
     let control = options.control.clone();
-    let metadata_entries = {
-        let _metadata_span = options
-            .control
-            .profile_span("capture.scan_source.read_metadata_entries");
-        scan_metadata_entries(
-            dir,
-            &options.control,
-            options.worker_count,
-            options.worker_pool,
-        )?
-    };
-    let file_entries = scan_directory_into_file_entries(dir, options)?;
+    let metadata_entries = inventory.metadata_entries.clone();
+    let file_entries = scan_directory_into_file_entries(inventory, options)?;
 
     let mut entries = metadata_entries;
     let mut unique_chunks = HashMap::new();
@@ -163,22 +165,48 @@ fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Re
     Ok(normalized)
 }
 
-fn scan_metadata_entries(
+pub(crate) fn scan_source_inventory(
     root: &Path,
     control: &crate::GutchOperationControl,
     worker_count: usize,
     worker_pool: &ThreadPool,
-) -> Result<Vec<SnapshotEntry>> {
-    let mut paths = Vec::new();
+) -> Result<SourceInventory> {
+    struct MetadataEntry {
+        path: PathBuf,
+        normalized_relative: String,
+        kind: u8,
+        metadata: std::fs::Metadata,
+    }
+
+    let mut metadata_entries = Vec::new();
+    let mut files = Vec::new();
+    let mut max_file_modified_at = std::time::SystemTime::UNIX_EPOCH;
+    let mut found_file = false;
     {
-        let _enumerate_span = control.profile_span("capture.scan_source.enumerate_metadata_paths");
+        let _enumerate_span = control.profile_span("capture.scan_source.inventory");
         for entry in walkdir::WalkDir::new(root)
             .follow_links(false)
             .sort_by_file_name()
         {
             control.checkpoint()?;
             let entry = entry?;
-            if entry.depth() == 0 || entry.file_type().is_file() {
+            if entry.depth() == 0 {
+                continue;
+            }
+            let path = entry.path().to_path_buf();
+            let metadata = std::fs::symlink_metadata(&path)?;
+            let normalized_relative = normalized_relative(root, &path)?;
+            if entry.file_type().is_file() {
+                let modified_at = metadata.modified()?;
+                if !found_file || modified_at > max_file_modified_at {
+                    max_file_modified_at = modified_at;
+                    found_file = true;
+                }
+                files.push(SourceFileEntry {
+                    path,
+                    normalized_relative,
+                    metadata,
+                });
                 continue;
             }
             let kind = if entry.file_type().is_dir() {
@@ -191,62 +219,66 @@ fn scan_metadata_entries(
                     entry.path().display()
                 )));
             };
-            paths.push((entry.path().to_path_buf(), kind));
+            metadata_entries.push(MetadataEntry {
+                path,
+                normalized_relative,
+                kind,
+                metadata,
+            });
         }
     }
-    let build_entry = |(path, kind): &(PathBuf, u8)| -> Result<SnapshotEntry> {
+    let build_entry = |entry: &MetadataEntry| -> Result<SnapshotEntry> {
         control.checkpoint()?;
-        let normalized = normalized_relative(root, path)?;
-        let metadata = std::fs::symlink_metadata(path)?;
-        match kind {
+        match entry.kind {
             0 => Ok(SnapshotEntry::Directory(DirectoryManifest {
-                path: normalized,
-                read_only: metadata.permissions().readonly(),
+                path: entry.normalized_relative.clone(),
+                read_only: entry.metadata.permissions().readonly(),
             })),
             1 => {
-                let raw_target = std::fs::read_link(path)?;
+                let raw_target = std::fs::read_link(&entry.path)?;
                 Ok(SnapshotEntry::Symlink(SymlinkManifest {
-                    path: normalized,
-                    target_path: normalize_link_target(path, &raw_target, root)?,
+                    path: entry.normalized_relative.clone(),
+                    target_path: normalize_link_target(&entry.path, &raw_target, root)?,
                 }))
             }
             _ => Err(Error::manifest("unsupported filesystem object")),
         }
     };
-    if worker_count <= 1 {
-        paths.iter().map(build_entry).collect()
+    let metadata_entries = if worker_count <= 1 {
+        metadata_entries
+            .iter()
+            .map(build_entry)
+            .collect::<Result<Vec<_>>>()
     } else {
-        worker_pool.install(|| paths.par_iter().map(build_entry).collect())
-    }
+        worker_pool.install(|| {
+            metadata_entries
+                .par_iter()
+                .map(build_entry)
+                .collect::<Result<Vec<_>>>()
+        })
+    }?;
+    let source_modified_at = if found_file {
+        max_file_modified_at
+    } else {
+        std::fs::metadata(root)?.modified()?
+    };
+
+    Ok(SourceInventory {
+        metadata_entries,
+        files,
+        source_modified_at,
+    })
 }
 
 pub(crate) fn scan_directory_into_file_entries(
-    dir: &Path,
+    inventory: &SourceInventory,
     options: ScanDirectoryOptions<'_>,
 ) -> Result<Vec<FileBuildEntry>> {
-    let mut file_paths: Vec<PathBuf> = Vec::new();
-    {
-        let _enumerate_span = options
-            .control
-            .profile_span("capture.scan_source.enumerate_file_paths");
-        for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
-            options.control.checkpoint()?;
-            let entry = entry?;
-            if entry.file_type().is_file() {
-                file_paths.push(entry.path().to_path_buf());
-            } else if !entry.file_type().is_dir() && !entry.file_type().is_symlink() {
-                return Err(Error::manifest(format!(
-                    "unsupported filesystem object '{}'",
-                    entry.path().display()
-                )));
-            }
-        }
-    }
     options.control.profile_event_with_args(
-        "capture.scan_source.enumerate_file_paths.complete",
+        "capture.scan_source.inventory.complete",
         std::collections::BTreeMap::from([(
             "file_count".to_string(),
-            serde_json::json!(file_paths.len()),
+            serde_json::json!(inventory.files.len()),
         )]),
     );
 
@@ -255,28 +287,17 @@ pub(crate) fn scan_directory_into_file_entries(
         crate::GutchProgressPhase::Scan,
         "Scanning files",
     );
-    progress.start(file_paths.len());
+    progress.start(inventory.files.len());
 
     let progress_for_scan = progress.clone();
     let control_for_scan = options.control.clone();
-    let scan_one = |path: &PathBuf| -> Result<FileBuildEntry> {
+    let scan_one = |source_file: &SourceFileEntry| -> Result<FileBuildEntry> {
         let result = (|| -> Result<FileBuildEntry> {
             control_for_scan.checkpoint()?;
-            let relative = path.strip_prefix(dir).map_err(|e| Error::PathError {
-                path: path.to_path_buf(),
-                reason: e.to_string(),
-            })?;
-            let normalized_relative = relative.to_string_lossy().replace('\\', "/");
-
-            let (source_metadata, metadata) = {
-                let _metadata_span = control_for_scan.profile_span_with_args(
-                    "capture.scan_source.file.read_metadata",
-                    crate::profile::file_trace_args(&normalized_relative, 0),
-                );
-                let metadata_started_at = std::time::Instant::now();
-                let source_metadata = std::fs::symlink_metadata(path)?;
-                (source_metadata, metadata_started_at.elapsed())
-            };
+            let path = &source_file.path;
+            let normalized_relative = source_file.normalized_relative.clone();
+            let source_metadata = &source_file.metadata;
+            let metadata = Duration::ZERO;
             let previous_candidates = options
                 .previous_file_manifests
                 .get(&normalized_relative)
@@ -290,7 +311,7 @@ pub(crate) fn scan_directory_into_file_entries(
             scan_changed_file(ScanChangedFileRequest {
                 path,
                 normalized_relative,
-                source_metadata: &source_metadata,
+                source_metadata,
                 metadata,
                 previous_candidates,
                 options: &options,
@@ -306,10 +327,15 @@ pub(crate) fn scan_directory_into_file_entries(
     };
 
     if options.worker_count <= 1 {
-        file_paths.iter().map(scan_one).collect::<Result<Vec<_>>>()
+        inventory
+            .files
+            .iter()
+            .map(scan_one)
+            .collect::<Result<Vec<_>>>()
     } else {
         options.worker_pool.install(|| {
-            file_paths
+            inventory
+                .files
                 .par_iter()
                 .map(scan_one)
                 .collect::<Result<Vec<_>>>()

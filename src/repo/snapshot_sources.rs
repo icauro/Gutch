@@ -310,9 +310,15 @@ pub fn capture_snapshot_sources(
                 done: false,
             },
         );
-        removed_count +=
-            crate::delete_repo_snapshots_with_matching_tags(repo_root, &candidate.snapshot_tags)?
-                .len();
+        let removed_for_replacement =
+            crate::delete_repo_snapshots_with_matching_tags(repo_root, &candidate.snapshot_tags)?;
+        removed_count += removed_for_replacement.len();
+        if !removed_for_replacement.is_empty() {
+            let _refresh_span =
+                control.profile_span("capture.prepare_source.refresh_store_state_after_cleanup");
+            store_state = scan_existing_store_state_with_pool(&repo_paths, &build_pool, control)?;
+            drop(_refresh_span);
+        }
         capture_source_snapshot(repo_root, candidate, control, &mut store_state, &build_pool)?;
         if refresh_paths.contains(&candidate.path) {
             refreshed_count += 1;

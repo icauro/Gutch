@@ -598,18 +598,21 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                     }
                 }
                 let progress = CliProgressSink::new();
-                let capture_result = g::capture_repo_snapshot(g::RepoSnapshotCaptureRequest {
-                    repo_root: repo.clone(),
-                    source_dir: source.path.clone(),
-                    explicit_tags,
-                    allow_name_inference,
-                    chunk_profile: build_profile.chunk_profile,
-                    bundle_profile: build_profile.bundle_profile,
-                    compression_profile: build_profile.compression_profile,
-                    storage_mode: build_profile.storage_mode,
-                    runtime_hints: runtime.hints(),
-                    control: crate::cli::control_with_profile(profile).with_progress(progress),
-                })?;
+                let capture_result = g::capture_repo_snapshot_with_plan(
+                    g::RepoSnapshotCaptureRequest {
+                        repo_root: repo.clone(),
+                        source_dir: source.path.clone(),
+                        explicit_tags,
+                        allow_name_inference,
+                        chunk_profile: build_profile.chunk_profile,
+                        bundle_profile: build_profile.bundle_profile,
+                        compression_profile: build_profile.compression_profile,
+                        storage_mode: build_profile.storage_mode,
+                        runtime_hints: runtime.hints(),
+                        control: crate::cli::control_with_profile(profile).with_progress(progress),
+                    },
+                    plan,
+                )?;
                 let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
                 let stats = SnapshotCaptureStats {
                     command: "snapshot capture",

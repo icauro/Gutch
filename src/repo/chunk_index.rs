@@ -8,7 +8,7 @@ use crate::hash::ChunkHash;
 use crate::manifest::{
     self, ArtifactStorageMode, FileManifest, binary, snapshot::SnapshotManifest,
 };
-use crate::{Result, bundle_id_from_bundle_path, bundle_path, chunk_path, load_snapshot_manifest};
+use crate::{Result, bundle_id_from_bundle_path, chunk_path, load_snapshot_manifest};
 
 use super::GutchRepoPaths;
 
@@ -117,8 +117,12 @@ pub fn scan_existing_store_state_with_pool(
     };
     let _locations_span = control
         .profile_span("capture.prepare_source.load_existing_store_state.check_chunk_locations");
-    state.chunk_locations =
-        existing_chunk_locations_from_index_with_pool(&state.chunk_index, paths, pool)?;
+    state.chunk_locations = existing_chunk_locations_from_index_with_pool_and_bundle_ids(
+        &state.chunk_index,
+        paths,
+        pool,
+        &state.bundle_ids,
+    )?;
     drop(_locations_span);
 
     let _manifests_span = control
@@ -155,13 +159,10 @@ fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn collect_snapshot_manifest_paths(paths: &GutchRepoPaths) -> Result<Vec<PathBuf>> {
-    Ok(collect_file_paths(&paths.snapshots_root)?
+    super::inventory::list_repo_snapshot_ids(paths)?
         .into_iter()
-        .filter(|path| {
-            path.file_name().and_then(|name| name.to_str())
-                == Some(super::snapshot_manifests::SNAPSHOT_METADATA_FILE)
-        })
-        .collect())
+        .map(|snapshot_id| crate::snapshot_metadata_path(paths, &snapshot_id))
+        .collect()
 }
 
 fn snapshot_id_from_manifest_path(path: &Path) -> Option<&str> {
@@ -191,13 +192,34 @@ pub fn existing_chunk_locations_from_index_with_pool(
     paths: &GutchRepoPaths,
     pool: &rayon::ThreadPool,
 ) -> Result<std::collections::HashMap<String, crate::ExistingChunkLocation>> {
+    let bundle_paths = collect_file_paths(&paths.bundles_root)?;
+    let available_bundle_ids: HashSet<String> = pool.install(|| {
+        bundle_paths
+            .par_iter()
+            .filter_map(|path| bundle_id_from_bundle_path(path))
+            .collect()
+    });
+    existing_chunk_locations_from_index_with_pool_and_bundle_ids(
+        chunk_index,
+        paths,
+        pool,
+        &available_bundle_ids,
+    )
+}
+
+pub(crate) fn existing_chunk_locations_from_index_with_pool_and_bundle_ids(
+    chunk_index: &manifest::ChunkIndex,
+    paths: &GutchRepoPaths,
+    pool: &rayon::ThreadPool,
+    available_bundle_ids: &HashSet<String>,
+) -> Result<std::collections::HashMap<String, crate::ExistingChunkLocation>> {
     let locations = pool.install(|| {
         chunk_index
             .entries
             .par_iter()
             .map(|(chunk_hash, entry)| {
                 let path_exists = match entry.storage_mode {
-                    ArtifactStorageMode::Bundled => bundle_path(paths, &entry.bundle_id)?.is_file(),
+                    ArtifactStorageMode::Bundled => available_bundle_ids.contains(&entry.bundle_id),
                     ArtifactStorageMode::LooseChunks => chunk_path(paths, chunk_hash)?.is_file(),
                 };
                 Ok(path_exists.then(|| {

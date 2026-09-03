@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ExistingStoreState, Result, SourceSnapshotOperationCandidate,
-    check::build_source_snapshot_ops_candidate, check_gutch_repo, remove_snapshot_from_repo,
-    scan_existing_store_state_with_pool,
+    check::build_source_snapshot_ops_candidate_with_modified_at, check_gutch_repo,
+    remove_snapshot_from_repo, scan_existing_store_state_with_pool,
 };
+use crate::build_scan::{SourceInventory, scan_source_inventory};
 use crate::hash::ChunkHash;
 use crate::manifest::SnapshotTagSet;
 use crate::progress::{
@@ -112,17 +113,34 @@ pub fn plan_snapshot_capture(
     explicit_tags: &SnapshotTagSet,
     allow_name_inference: bool,
 ) -> Result<SnapshotCapturePlan> {
+    plan_snapshot_capture_with_source_modified_at(
+        repo_root,
+        source_dir,
+        explicit_tags,
+        allow_name_inference,
+        String::new(),
+    )
+}
+
+pub(crate) fn plan_snapshot_capture_with_source_modified_at(
+    repo_root: &Path,
+    source_dir: &Path,
+    explicit_tags: &SnapshotTagSet,
+    allow_name_inference: bool,
+    source_modified_at: String,
+) -> Result<SnapshotCapturePlan> {
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(repo_root)?;
     let rules = repo_manifest
         .snapshot_tag_schema
         .clone()
         .unwrap_or_default();
 
-    let candidate = build_source_snapshot_ops_candidate(
+    let candidate = build_source_snapshot_ops_candidate_with_modified_at(
         source_dir,
         &rules,
         explicit_tags,
         allow_name_inference,
+        source_modified_at,
     )?;
     let status = check_gutch_repo(repo_root)?;
 
@@ -246,10 +264,62 @@ pub fn capture_repo_snapshot(
     capture_repo_snapshot_with_existing_store_state(request, &mut store_state, &build_pool)
 }
 
+pub fn capture_repo_snapshot_with_plan(
+    request: RepoSnapshotCaptureRequest,
+    capture_plan: SnapshotCapturePlan,
+) -> Result<RepoSnapshotCaptureResult> {
+    request.control.checkpoint()?;
+    let runtime_plan = crate::plan_build_runtime(&request.runtime_hints);
+    let _pool_span = request.control.profile_span_with_args(
+        "capture.create_worker_pool",
+        std::collections::BTreeMap::from([(
+            "worker_count".to_string(),
+            serde_json::json!(runtime_plan.worker_count),
+        )]),
+    );
+    let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+    drop(_pool_span);
+
+    let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_root);
+    let _existing_state_span = request
+        .control
+        .profile_span("capture.prepare_source.load_existing_store_state");
+    let mut store_state =
+        scan_existing_store_state_with_pool(&repo_paths, &build_pool, &request.control)?;
+    drop(_existing_state_span);
+
+    capture_repo_snapshot_with_plan_and_existing_store_state(
+        request,
+        &mut store_state,
+        &build_pool,
+        capture_plan,
+    )
+}
+
 pub(crate) fn capture_repo_snapshot_with_existing_store_state(
     request: RepoSnapshotCaptureRequest,
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
+) -> Result<RepoSnapshotCaptureResult> {
+    let capture_plan = plan_snapshot_capture(
+        request.repo_root.as_path(),
+        request.source_dir.as_path(),
+        &request.explicit_tags,
+        request.allow_name_inference,
+    )?;
+    capture_repo_snapshot_with_plan_and_existing_store_state(
+        request,
+        store_state,
+        build_pool,
+        capture_plan,
+    )
+}
+
+pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
+    request: RepoSnapshotCaptureRequest,
+    store_state: &mut ExistingStoreState,
+    build_pool: &rayon::ThreadPool,
+    capture_plan: SnapshotCapturePlan,
 ) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
     let _prepare_span = request.control.profile_span_with_args(
@@ -269,17 +339,7 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
         .unwrap_or_default();
     drop(_repo_state_span);
 
-    let _plan_span = request
-        .control
-        .profile_span("capture.prepare_source.plan_snapshot");
-    let capture_plan = plan_snapshot_capture(
-        request.repo_root.as_path(),
-        request.source_dir.as_path(),
-        &request.explicit_tags,
-        request.allow_name_inference,
-    )?;
-    drop(_plan_span);
-
+    let mut state_needs_refresh = false;
     if capture_plan.kind == SnapshotCaptureKind::ReplaceSlot {
         request.control.checkpoint()?;
         let _replace_span = request.control.profile_span_with_args(
@@ -295,6 +355,7 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
         )?;
         let _ =
             crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path(), &request.control);
+        state_needs_refresh = true;
         drop(_replace_span);
     }
     if capture_plan.kind == SnapshotCaptureKind::Relabel {
@@ -340,6 +401,27 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
         .profile_span("capture.prepare_source.prepare_input");
     let prepared_input = prepare_input_path(&request.source_dir)?;
     drop(_input_span);
+
+    let _source_inventory_span = request
+        .control
+        .profile_span("capture.prepare_source.inventory_source");
+    let runtime_plan = crate::plan_build_runtime(&request.runtime_hints);
+    let source_inventory: SourceInventory = scan_source_inventory(
+        &prepared_input.dir,
+        &request.control,
+        runtime_plan.worker_count,
+        build_pool,
+    )?;
+    drop(_source_inventory_span);
+
+    if state_needs_refresh {
+        let _refresh_span = request
+            .control
+            .profile_span("capture.prepare_source.refresh_store_state_after_cleanup");
+        *store_state =
+            scan_existing_store_state_with_pool(&repo_paths, build_pool, &request.control)?;
+        drop(_refresh_span);
+    }
 
     let _identity_span = request
         .control
@@ -410,15 +492,19 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
     drop(_config_span);
 
     drop(_prepare_span);
-    let (result, timings) =
-        crate::build_with_config_timed_on_pool(&prepared_input.dir, &build_config, build_pool)?;
+    let (result, timings) = crate::build::pipeline::build_with_config_timed_on_pool_with_inventory(
+        &prepared_input.dir,
+        &build_config,
+        build_pool,
+        &source_inventory,
+    )?;
     let _publish_span = request.control.profile_span("capture.publish_snapshot");
     request.control.checkpoint()?;
     let mut result = result;
     let snapshot_id = crate::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
-        crate::repo::source_modified_at_from_directory(request.source_dir.as_path())?;
+        crate::repo::format_system_time_utc(source_inventory.source_modified_at);
     crate::snapshot::identity::apply_resolved_snapshot_identity(
         &mut result.snapshot_manifest,
         &resolved_identity,
@@ -524,12 +610,28 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
         .profile_span("capture.publish_snapshot.update_capture_state");
     for bundle in &result.bundles {
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
+        for chunk in &bundle.entries {
+            store_state.chunk_locations.insert(
+                chunk.chunk_hash.clone(),
+                crate::ExistingChunkLocation {
+                    bundle_id: bundle.bundle_id.clone(),
+                    compressed_size: chunk.compressed_size,
+                    storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+                },
+            );
+        }
     }
-    store_state.chunk_locations = crate::repo::existing_chunk_locations_from_index_with_pool(
-        &store_state.chunk_index,
-        &repo_paths,
-        build_pool,
-    )?;
+    for chunk in &result.loose_chunks {
+        let chunk_hash = chunk.chunk_hash.to_string();
+        store_state.chunk_locations.insert(
+            chunk_hash.clone(),
+            crate::ExistingChunkLocation {
+                bundle_id: chunk_hash,
+                compressed_size: chunk.compressed_size,
+                storage_mode: crate::manifest::ArtifactStorageMode::LooseChunks,
+            },
+        );
+    }
     for file in result.snapshot_manifest.files() {
         let candidates = store_state
             .previous_file_manifests
@@ -800,6 +902,7 @@ mod tests {
     use super::*;
     use crate::GutchRepoPaths;
     use crate::manifest::{self, snapshot::SnapshotManifest};
+    use crate::repo::check::build_source_snapshot_ops_candidate;
     use crate::repo::{
         compute_snapshot_id_from_entries, ensure_gutch_repo_layout,
         write_snapshot_manifest_artifacts,

@@ -367,6 +367,23 @@ pub(crate) fn build_source_snapshot_ops_candidate(
     explicit_tags: &manifest::SnapshotTagSet,
     allow_name_inference: bool,
 ) -> Result<SourceSnapshotOperationCandidate> {
+    let source_modified_at = source_modified_at_from_directory(path)?;
+    build_source_snapshot_ops_candidate_with_modified_at(
+        path,
+        rules,
+        explicit_tags,
+        allow_name_inference,
+        source_modified_at,
+    )
+}
+
+pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
+    path: &Path,
+    rules: &manifest::SnapshotTagSchema,
+    explicit_tags: &manifest::SnapshotTagSet,
+    allow_name_inference: bool,
+    source_modified_at: String,
+) -> Result<SourceSnapshotOperationCandidate> {
     use crate::snapshot::identity::resolve_snapshot_identity_with_inference;
 
     let context = format!("source snapshot '{}'", path.display());
@@ -393,7 +410,7 @@ pub(crate) fn build_source_snapshot_ops_candidate(
         path: path.display().to_string(),
         folder_name,
         snapshot_id: preview_snapshot_identity(&resolved.snapshot_tags, Some(rules)),
-        source_modified_at: source_modified_at_from_directory(path)?,
+        source_modified_at,
         version_id: summary.version_id,
         os: summary.os,
         arch: summary.arch,

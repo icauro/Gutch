@@ -7,7 +7,10 @@ use rayon::prelude::*;
 
 use crate::Result;
 use crate::build::progress::BuildProgressTracker;
-use crate::build_scan::{ChunkPlacementKey, ScanDirectoryOptions, collect_scanned_chunks};
+use crate::build_scan::{
+    ChunkPlacementKey, ScanDirectoryOptions, SourceInventory, collect_scanned_chunks,
+    scan_source_inventory,
+};
 use crate::build_types::{
     BuildConfig, BuildResult, BuildTimings, BuiltBundle, BuiltLooseChunk, ChunkPayload,
     ExistingChunkLocation, StagedBundleFile,
@@ -612,6 +615,24 @@ pub(crate) fn build_with_config_timed_on_pool(
     config: &BuildConfig<'_>,
     build_pool: &ThreadPool,
 ) -> Result<(BuildResult, BuildTimings)> {
+    let inventory = {
+        let _inventory_span = config.control.profile_span("capture.scan_source.inventory");
+        scan_source_inventory(
+            dir,
+            &config.control,
+            plan_build_runtime(&config.runtime_hints).worker_count,
+            build_pool,
+        )?
+    };
+    build_with_config_timed_on_pool_with_inventory(dir, config, build_pool, &inventory)
+}
+
+pub(crate) fn build_with_config_timed_on_pool_with_inventory(
+    _dir: &Path,
+    config: &BuildConfig<'_>,
+    build_pool: &ThreadPool,
+    inventory: &SourceInventory,
+) -> Result<(BuildResult, BuildTimings)> {
     config.control.checkpoint()?;
     let _operation_span = config.control.profile_span("capture.build_snapshot");
     let total_start = Instant::now();
@@ -646,7 +667,7 @@ pub(crate) fn build_with_config_timed_on_pool(
     let (mut snapshot_entries, unique_chunks, chunk_placements, total_logical_size) = {
         let _scan_span = config.control.profile_span("capture.scan_source");
         collect_scanned_chunks(
-            dir,
+            inventory,
             ScanDirectoryOptions {
                 previous_file_manifests,
                 chunking_profile: &config.chunk_profile,
