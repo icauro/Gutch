@@ -1543,19 +1543,28 @@ fn resolve_reconstruct_output_paths(
     path_resolver: &crate::path_guard::ManifestPathResolver,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<Vec<PathBuf>> {
-    let resolve = |file_plan: &ReconstructPipelineFile| {
-        let _path_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.prepare.outputs.resolve_path",
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-        );
-        path_resolver.resolve(&file_plan.path)
-    };
-    let resolved = if let Some(reconstruct_pool) = reconstruct_pool {
-        reconstruct_pool.install(|| files.par_iter().map(resolve).collect::<Vec<_>>())
+    let _resolve_paths_span = control.profile_span_with_args(
+        "gutch.snapshot.reconstruct.prepare.outputs.resolve_paths",
+        std::collections::BTreeMap::from([(
+            "path_count".to_string(),
+            serde_json::json!(files.len()),
+        )]),
+    );
+    if let Some(reconstruct_pool) = reconstruct_pool {
+        reconstruct_pool.install(|| {
+            files
+                .par_iter()
+                .map(|file_plan| path_resolver.resolve(&file_plan.path))
+                .collect::<Vec<_>>()
+        })
     } else {
-        files.iter().map(resolve).collect::<Vec<_>>()
-    };
-    resolved.into_iter().collect()
+        files
+            .iter()
+            .map(|file_plan| path_resolver.resolve(&file_plan.path))
+            .collect::<Vec<_>>()
+    }
+    .into_iter()
+    .collect()
 }
 
 fn ensure_empty_reconstruct_output_file(
