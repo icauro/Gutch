@@ -111,18 +111,31 @@ fn classify_inner(
     opts: &VerifyOptions,
     scan_extra_files: bool,
     marker_namespace: &str,
+    supplied_pool: Option<&rayon::ThreadPool>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     opts.control.checkpoint()?;
     let _operation_span = opts.control.profile_span(marker_namespace);
     let mut classification = RepairClassification::default();
-    let runtime_plan = plan_verify_runtime(opts.hints);
+    let mut runtime_plan = plan_verify_runtime(opts.hints);
     let mut timings = VerifyTimings {
         verify_mode: opts.mode,
         runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };
-    let verify_pool = build_thread_pool(runtime_plan.worker_count, "gutch-verify")?;
+    let owned_pool = if supplied_pool.is_none() {
+        Some(build_thread_pool(
+            runtime_plan.worker_count,
+            "gutch-verify",
+        )?)
+    } else {
+        None
+    };
+    let verify_pool = supplied_pool
+        .or(owned_pool.as_ref())
+        .expect("verification pool must be available");
+    runtime_plan.worker_count = verify_pool.current_num_threads().max(1);
+    timings.runtime_plan = Some(runtime_plan.clone());
     let (inventory, resolved_paths) = if scan_extra_files {
         let _resolve_paths_span = opts.control.profile_span_with_args(
             marker_name(marker_namespace, "prepare.paths"),
@@ -712,6 +725,14 @@ pub(crate) fn classify_directory_with_marker_namespace(
     request: VerifyRequest<'_>,
     marker_namespace: &str,
 ) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_directory_with_marker_namespace_and_pool(request, marker_namespace, None)
+}
+
+pub(crate) fn classify_directory_with_marker_namespace_and_pool(
+    request: VerifyRequest<'_>,
+    marker_namespace: &str,
+    verify_pool: Option<&rayon::ThreadPool>,
+) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
         request.snapshot_manifest,
         request.dir,
@@ -721,6 +742,7 @@ pub(crate) fn classify_directory_with_marker_namespace(
             .with_control(&request.control),
         true,
         marker_namespace,
+        verify_pool,
     )
 }
 
@@ -735,6 +757,14 @@ pub(crate) fn classify_expected_entries_with_marker_namespace(
     request: VerifyRequest<'_>,
     marker_namespace: &str,
 ) -> Result<(RepairClassification, VerifyTimings)> {
+    classify_expected_entries_with_marker_namespace_and_pool(request, marker_namespace, None)
+}
+
+pub(crate) fn classify_expected_entries_with_marker_namespace_and_pool(
+    request: VerifyRequest<'_>,
+    marker_namespace: &str,
+    verify_pool: Option<&rayon::ThreadPool>,
+) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
         request.snapshot_manifest,
         request.dir,
@@ -744,6 +774,7 @@ pub(crate) fn classify_expected_entries_with_marker_namespace(
             .with_control(&request.control),
         false,
         marker_namespace,
+        verify_pool,
     )
 }
 

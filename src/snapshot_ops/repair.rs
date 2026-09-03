@@ -2,17 +2,20 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use rayon::ThreadPool;
+
 use crate::manifest::{SnapshotEntry, snapshot::SnapshotManifest};
-use crate::runtime::{RuntimeResourceHints, plan_reconstruct_runtime};
+use crate::runtime::{RuntimeResourceHints, build_thread_pool, plan_reconstruct_runtime};
 use crate::verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyRequest,
-    classify_directory_with_marker_namespace, classify_expected_entries_with_marker_namespace,
+    classify_directory_with_marker_namespace_and_pool,
+    classify_expected_entries_with_marker_namespace_and_pool,
 };
 use crate::{Error, Result};
 
 use super::apply::default_snapshot_staging_dir;
 use super::pipeline::{
-    ExecuteReconstructPipelineRequest, build_reconstruct_pipeline_plan, build_reconstruct_pool,
+    ExecuteReconstructPipelineRequest, build_reconstruct_pipeline_plan,
     execute_reconstruct_pipeline_reconstruction, prepare_snapshot_entries,
 };
 use super::types::{
@@ -49,6 +52,19 @@ pub fn repair_snapshot_from_repo(
     )?;
     let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let chunk_index = crate::load_chunk_index(&repo_paths)?;
+    let operation_pool = if snapshot_manifest.entries.is_empty() {
+        None
+    } else {
+        let worker_count = plan_reconstruct_runtime(&request.runtime_hints).worker_count;
+        let _pool_span = request.control.profile_span_with_args(
+            "reconstructed.repair.prepare.pool",
+            std::collections::BTreeMap::from([(
+                "worker_count".to_string(),
+                serde_json::json!(worker_count),
+            )]),
+        );
+        Some(build_thread_pool(worker_count, "gutch-repair")?)
+    };
     let repair_plan = plan_repair_snapshot_ops(
         &snapshot_manifest,
         Some(&chunk_index),
@@ -56,6 +72,7 @@ pub fn repair_snapshot_from_repo(
         request.remove_added_files,
         &request.runtime_hints,
         &request.control,
+        operation_pool.as_ref(),
     )?;
     let staging_dir = request.staging_dir.unwrap_or_else(|| {
         default_snapshot_staging_dir(&request.destination_dir, &snapshot_manifest.snapshot_id)
@@ -88,13 +105,6 @@ pub fn repair_snapshot_from_repo(
             )?
         };
         let compression_profile = repo_manifest.compression_profile();
-        let reconstruct_pool = if repair_plan.affected_manifest.entries.is_empty() {
-            None
-        } else {
-            Some(build_reconstruct_pool(
-                plan_reconstruct_runtime(&request.runtime_hints).worker_count,
-            )?)
-        };
         if staging_dir.exists() {
             crate::helpers::remove_dir_all(&staging_dir)?;
         }
@@ -105,7 +115,7 @@ pub fn repair_snapshot_from_repo(
             &repair_plan.affected_manifest,
             &staging_dir,
             &request.control,
-            reconstruct_pool.as_ref(),
+            operation_pool.as_ref(),
         )?;
         let _ = execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
             pipeline_plan,
@@ -119,7 +129,7 @@ pub fn repair_snapshot_from_repo(
             control: &request.control,
             download_client: None,
             transfer_progress: None,
-            reconstruct_pool: reconstruct_pool.as_ref(),
+            reconstruct_pool: operation_pool.as_ref(),
         })?;
     }
     let repair_result = finalize_repair_result_after_reconstruction(
@@ -130,6 +140,7 @@ pub fn repair_snapshot_from_repo(
         &request.runtime_hints,
         &repair_plan,
         &request.control,
+        operation_pool.as_ref(),
     )?;
 
     Ok(SnapshotRepairFromRepoResult {
@@ -156,6 +167,7 @@ pub fn plan_repair_snapshot_from_repo(
         request.remove_added_files,
         &request.runtime_hints,
         &request.control,
+        None,
     )?;
 
     Ok(SnapshotRepairPlanFromRepoResult {
@@ -180,8 +192,9 @@ fn plan_repair_snapshot_ops(
     _remove_added_files: bool,
     runtime_hints: &RuntimeResourceHints,
     control: &crate::GutchOperationControl,
+    operation_pool: Option<&ThreadPool>,
 ) -> Result<PlannedRepair> {
-    let (classification, _) = classify_directory_with_marker_namespace(
+    let (classification, _) = classify_directory_with_marker_namespace_and_pool(
         VerifyRequest {
             snapshot_manifest,
             dir: destination_dir,
@@ -190,6 +203,7 @@ fn plan_repair_snapshot_ops(
             control: control.clone(),
         },
         "reconstructed.repair.verify",
+        operation_pool,
     )?;
     build_repair_plan_from_classification(snapshot_manifest, chunk_index, classification)
 }
@@ -232,6 +246,7 @@ fn finalize_repair_result_after_reconstruction(
     runtime_hints: &RuntimeResourceHints,
     repair_plan: &PlannedRepair,
     control: &crate::GutchOperationControl,
+    operation_pool: Option<&ThreadPool>,
 ) -> Result<SnapshotRepairResult> {
     let _finalize_span = control.profile_span("reconstructed.repair.finalize");
     let mut reconstructed_extra_file_count = 0usize;
@@ -272,7 +287,7 @@ fn finalize_repair_result_after_reconstruction(
     let mut final_classification = if repair_plan.affected_manifest.entries.is_empty() {
         RepairClassification::default()
     } else {
-        classify_expected_entries_with_marker_namespace(
+        classify_expected_entries_with_marker_namespace_and_pool(
             VerifyRequest {
                 snapshot_manifest: &repair_plan.affected_manifest,
                 dir: destination_dir,
@@ -281,6 +296,7 @@ fn finalize_repair_result_after_reconstruction(
                 control: control.clone(),
             },
             "reconstructed.repair.verify.final",
+            operation_pool,
         )?
         .0
     };
