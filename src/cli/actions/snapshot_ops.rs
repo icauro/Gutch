@@ -145,7 +145,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
         for err in &errors {
             eprintln!("  - {}", err);
         }
-        std::process::exit(1);
+        return Err(g::Error::verify(errors.join("; ")));
     }
 
     Ok(())
