@@ -173,6 +173,25 @@ impl BundleBuilder {
             .keep()
             .map_err(|error| crate::error::Error::Io(error.error))?;
         drop(_keep_span);
+        if let Some(profiler) = profiler {
+            profiler.event_with_args(
+                "gutch.capture.compress_bundle_artifact.keep_staged_file.complete",
+                std::collections::BTreeMap::from([
+                    (
+                        "bundle_size_bytes".to_string(),
+                        serde_json::json!(build.size),
+                    ),
+                    (
+                        "id_present".to_string(),
+                        serde_json::json!(!build.bundle_id.is_empty()),
+                    ),
+                    (
+                        "next_phase".to_string(),
+                        serde_json::json!("return_staged_artifact"),
+                    ),
+                ]),
+            );
+        }
 
         Ok(BundleBuildArtifact {
             staged_path,
