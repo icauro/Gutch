@@ -317,7 +317,10 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     let (chunk_scan, chunk_timings) = {
         let _chunk_span = control.profile_span_with_args(
             "gutch.capture.scan_source.file.chunk_and_hash",
-            crate::profile::file_trace_args(&normalized_relative, source_metadata.len()),
+            std::collections::BTreeMap::from([(
+                "size_mib".to_string(),
+                serde_json::json!(source_metadata.len() as f64 / (1024.0 * 1024.0)),
+            )]),
         );
         crate::chunk::chunk_file_streaming_with_file_hash_and_control_on_pool(
             path,
