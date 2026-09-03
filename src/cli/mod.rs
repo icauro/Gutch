@@ -104,7 +104,7 @@ where
     let command_result = {
         let _command_span = profiler
             .as_ref()
-            .map(|profiler| profiler.span("gutch.cli.command"));
+            .map(|profiler| profiler.span("cli.command"));
         commands::run(cli, remote_provider, &profiler)
     };
     let trace_result = match (trace_out.as_ref(), profiler.as_ref()) {

@@ -71,7 +71,7 @@ pub fn repair_snapshot_from_repo(
         let pipeline_plan = {
             let _plan_span = request
                 .control
-                .profile_span("gutch.snapshot.reconstruct.prepare.plan");
+                .profile_span("snapshot.reconstruct.prepare.plan");
             build_reconstruct_pipeline_plan(
                 &repair_plan.affected_manifest,
                 &chunk_index,

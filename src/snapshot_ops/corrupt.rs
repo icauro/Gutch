@@ -18,7 +18,7 @@ pub fn corrupt_reconstructed_snapshot(
     request: ReconstructedCorruptionRequest,
 ) -> Result<ReconstructedCorruptionResult> {
     request.control.checkpoint()?;
-    let _operation_span = request.control.profile_span("gutch.reconstructed.corrupt");
+    let _operation_span = request.control.profile_span("reconstructed.corrupt");
     let root_metadata = fs::symlink_metadata(&request.destination_dir)?;
     if !root_metadata.file_type().is_dir() {
         return Err(crate::Error::manifest(format!(

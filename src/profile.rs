@@ -320,7 +320,7 @@ mod tests {
         let temporary_directory = tempfile::tempdir().expect("temporary directory");
         let trace_path = temporary_directory.path().join("local-reconstruct.json");
         let profiler = GutchProfiler::new();
-        let span = profiler.span("gutch.test");
+        let span = profiler.span("test");
         drop(span);
 
         profiler.write_to(&trace_path).expect("write trace");

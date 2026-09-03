@@ -120,7 +120,7 @@ fn run_capture_one_snapshot(
     let capture_control =
         crate::cli::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
     let _prepare_span = capture_control.profile_span_with_args(
-        "gutch.capture.prepare_source",
+        "capture.prepare_source",
         std::collections::BTreeMap::from([
             (
                 "source_path".to_string(),
@@ -136,7 +136,7 @@ fn run_capture_one_snapshot(
             ),
         ]),
     );
-    let _plan_span = capture_control.profile_span("gutch.capture.prepare_source.plan_snapshot");
+    let _plan_span = capture_control.profile_span("capture.prepare_source.plan_snapshot");
     let capture_plan = g::plan_snapshot_capture(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
@@ -156,7 +156,7 @@ fn run_capture_one_snapshot(
     }
     if capture_plan.kind == g::SnapshotCaptureKind::ReplaceSlot {
         let _replace_span = capture_control.profile_span_with_args(
-            "gutch.capture.prepare_source.replace_snapshot_slot",
+            "capture.prepare_source.replace_snapshot_slot",
             std::collections::BTreeMap::from([(
                 "replaced_snapshot_count".to_string(),
                 serde_json::json!(capture_plan.replaced_snapshot_ids.len()),
@@ -174,7 +174,7 @@ fn run_capture_one_snapshot(
     }
     if capture_plan.kind == g::SnapshotCaptureKind::Relabel {
         let _relabel_span =
-            capture_control.profile_span("gutch.capture.prepare_source.relabel_existing_snapshot");
+            capture_control.profile_span("capture.prepare_source.relabel_existing_snapshot");
         let existing_manifest =
             g::load_snapshot_manifest(request.repo_paths, &capture_plan.snapshot_id)?;
         let mut updated_manifest = existing_manifest;
@@ -211,12 +211,11 @@ fn run_capture_one_snapshot(
         return Ok(stats);
     }
 
-    let _input_span = capture_control.profile_span("gutch.capture.prepare_source.prepare_input");
+    let _input_span = capture_control.profile_span("capture.prepare_source.prepare_input");
     let prepared_input = prepare_input_path(&request.input_dir.to_path_buf())?;
     drop(_input_span);
 
-    let _identity_span =
-        capture_control.profile_span("gutch.capture.prepare_source.resolve_identity");
+    let _identity_span = capture_control.profile_span("capture.prepare_source.resolve_identity");
     let context = format!("snapshot capture input '{}'", request.input_dir.display());
     let resolved_identity = g::snapshot::identity::resolve_snapshot_identity_with_inference(
         request.input_dir,
@@ -228,7 +227,7 @@ fn run_capture_one_snapshot(
     drop(_identity_span);
 
     let _existing_chunks_span = capture_control.profile_span_with_args(
-        "gutch.capture.prepare_source.collect_existing_chunk_ids",
+        "capture.prepare_source.collect_existing_chunk_ids",
         std::collections::BTreeMap::from([
             (
                 "existing_chunk_location_count".to_string(),
@@ -248,7 +247,7 @@ fn run_capture_one_snapshot(
     drop(_existing_chunks_span);
 
     let _config_span = capture_control.profile_span_with_args(
-        "gutch.capture.prepare_source.configure_build",
+        "capture.prepare_source.configure_build",
         std::collections::BTreeMap::from([
             (
                 "capture_kind".to_string(),
@@ -286,7 +285,7 @@ fn run_capture_one_snapshot(
         g::build_with_config_timed_on_pool(&prepared_input.dir, &build_config, build_pool)?;
     let _publish_span = build_config
         .control
-        .profile_span("gutch.capture.publish_snapshot");
+        .profile_span("capture.publish_snapshot");
     let mut result = result;
     let snapshot_id = g::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
@@ -332,12 +331,12 @@ fn run_capture_one_snapshot(
     }
 
     let _manifest_write_span =
-        capture_control.profile_span("gutch.capture.publish_snapshot.write_snapshot_manifest");
+        capture_control.profile_span("capture.publish_snapshot.write_snapshot_manifest");
     let (manifest_path, _) =
         write_snapshot_manifest(request.repo_paths, &result.snapshot_manifest)?;
     drop(_manifest_write_span);
     let _artifact_write_span =
-        capture_control.profile_span("gutch.capture.publish_snapshot.write_artifacts");
+        capture_control.profile_span("capture.publish_snapshot.write_artifacts");
     write_bundles(
         &request.repo_paths.bundles_root,
         &result.bundles,
@@ -351,13 +350,12 @@ fn run_capture_one_snapshot(
         &capture_control,
     )?;
     drop(_artifact_write_span);
-    let _index_span =
-        capture_control.profile_span("gutch.capture.publish_snapshot.update_chunk_index");
+    let _index_span = capture_control.profile_span("capture.publish_snapshot.update_chunk_index");
     let compression_profile =
         g::manifest::CompressionProfile::for_preset(request.build_profile.compression_profile);
     {
         let _bundle_index_span =
-            capture_control.profile_span("gutch.capture.publish_snapshot.index_bundle_entries");
+            capture_control.profile_span("capture.publish_snapshot.index_bundle_entries");
         g::add_built_bundles_to_chunk_index(
             &mut store_state.chunk_index,
             &result.bundles,
@@ -365,8 +363,8 @@ fn run_capture_one_snapshot(
         )?;
     }
     {
-        let _chunk_index_span = capture_control
-            .profile_span("gutch.capture.publish_snapshot.index_loose_chunk_entries");
+        let _chunk_index_span =
+            capture_control.profile_span("capture.publish_snapshot.index_loose_chunk_entries");
         g::add_built_loose_chunks_to_chunk_index(
             &mut store_state.chunk_index,
             &result.loose_chunks,
@@ -374,8 +372,7 @@ fn run_capture_one_snapshot(
     }
     drop(_index_span);
 
-    let _state_span =
-        capture_control.profile_span("gutch.capture.publish_snapshot.update_capture_state");
+    let _state_span = capture_control.profile_span("capture.publish_snapshot.update_capture_state");
     for bundle in &result.bundles {
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
     }
@@ -673,7 +670,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                 let repo_name = repo_manifest.name.clone();
                 let prepare_control = crate::cli::control_with_profile(profile);
                 let _plan_all_span = prepare_control.profile_span_with_args(
-                    "gutch.capture.prepare_source.plan_all_snapshots",
+                    "capture.prepare_source.plan_all_snapshots",
                     std::collections::BTreeMap::from([(
                         "source_count".to_string(),
                         serde_json::json!(sources.len()),
@@ -714,7 +711,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                 }
                 let runtime_plan = g::plan_build_runtime(&runtime.hints());
                 let _pool_span = prepare_control.profile_span_with_args(
-                    "gutch.capture.create_worker_pool",
+                    "capture.create_worker_pool",
                     std::collections::BTreeMap::from([(
                         "worker_count".to_string(),
                         serde_json::json!(runtime_plan.worker_count),
@@ -723,7 +720,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                 let build_pool = g::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
                 drop(_pool_span);
                 let _existing_state_span = prepare_control.profile_span_with_args(
-                    "gutch.capture.prepare_source.load_existing_store_state",
+                    "capture.prepare_source.load_existing_store_state",
                     std::collections::BTreeMap::from([(
                         "source_count".to_string(),
                         serde_json::json!(sources.len()),

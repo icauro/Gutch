@@ -79,7 +79,7 @@ fn classify_inner(
 ) -> Result<(RepairClassification, VerifyTimings)> {
     let total_start = Instant::now();
     opts.control.checkpoint()?;
-    let _operation_span = opts.control.profile_span("gutch.reconstructed.verify");
+    let _operation_span = opts.control.profile_span("reconstructed.verify");
     let mut classification = RepairClassification::default();
     let runtime_plan = plan_verify_runtime(opts.hints);
     let mut timings = VerifyTimings {
@@ -165,7 +165,7 @@ fn classify_inner(
     }
     let verify_files_start = Instant::now();
     let per_file_results = {
-        let _file_span = opts.control.profile_span("gutch.verify.files");
+        let _file_span = opts.control.profile_span("verify.files");
         run_in_thread_pool(runtime_plan.worker_count, || {
             snapshot_manifest
                 .entries
@@ -199,7 +199,7 @@ fn classify_inner(
 
     // Detect extra filesystem entries without following symbolic links.
     let extra_file_scan_start = Instant::now();
-    let _extra_scan_span = opts.control.profile_span("gutch.verify.extra_scan");
+    let _extra_scan_span = opts.control.profile_span("verify.extra_scan");
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
         opts.control.checkpoint()?;
         let entry = entry?;
@@ -323,7 +323,7 @@ fn verify_manifest_file(
     control: &GutchOperationControl,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
     let _file_span = control.profile_span_with_args(
-        "gutch.verify.file",
+        "verify.file",
         crate::profile::file_trace_args(&fm.path, fm.size),
     );
     control.checkpoint()?;

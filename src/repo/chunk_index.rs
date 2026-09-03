@@ -96,7 +96,7 @@ pub fn scan_existing_store_state_with_pool(
     let compression_profile = repo_manifest.compression_profile();
 
     let _bundle_ids_span =
-        control.profile_span("gutch.capture.prepare_source.load_existing_store_state.bundle_ids");
+        control.profile_span("capture.prepare_source.load_existing_store_state.bundle_ids");
     let bundle_paths = collect_file_paths(&paths.bundles_root)?;
     state.bundle_ids = pool.install(|| {
         bundle_paths
@@ -107,25 +107,22 @@ pub fn scan_existing_store_state_with_pool(
     drop(_bundle_ids_span);
 
     state.chunk_index = if chunk_index.entries.is_empty() {
-        let _rebuild_span = control.profile_span(
-            "gutch.capture.prepare_source.load_existing_store_state.rebuild_chunk_index",
-        );
+        let _rebuild_span = control
+            .profile_span("capture.prepare_source.load_existing_store_state.rebuild_chunk_index");
         let result = rebuild_chunk_index_from_bundles_with_pool(paths, &compression_profile, pool);
         drop(_rebuild_span);
         result?
     } else {
         chunk_index
     };
-    let _locations_span = control.profile_span(
-        "gutch.capture.prepare_source.load_existing_store_state.check_chunk_locations",
-    );
+    let _locations_span = control
+        .profile_span("capture.prepare_source.load_existing_store_state.check_chunk_locations");
     state.chunk_locations =
         existing_chunk_locations_from_index_with_pool(&state.chunk_index, paths, pool)?;
     drop(_locations_span);
 
-    let _manifests_span = control.profile_span(
-        "gutch.capture.prepare_source.load_existing_store_state.load_snapshot_manifests",
-    );
+    let _manifests_span = control
+        .profile_span("capture.prepare_source.load_existing_store_state.load_snapshot_manifests");
     let snapshot_manifest_paths = collect_snapshot_manifest_paths(paths)?;
     let manifests = pool.install(|| {
         snapshot_manifest_paths

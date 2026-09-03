@@ -143,7 +143,7 @@ fn plan_bundle_compressed_groups(
     let sort_bytes: u64 = chunks.iter().map(|(_, payload)| payload.raw_size()).sum();
     let hash_sort_duration = {
         let _sort_span = control.profile_span_with_args(
-            "gutch.capture.plan_artifact_groups.sort_chunks_for_probe",
+            "capture.plan_artifact_groups.sort_chunks_for_probe",
             capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
         );
         let sort_start = Instant::now();
@@ -152,7 +152,7 @@ fn plan_bundle_compressed_groups(
     };
     let (bundle_compression_ratio, probe_raw_bytes, probe_duration) = {
         let _probe_span = control.profile_span_with_args(
-            "gutch.capture.plan_artifact_groups.estimate_compression_ratio",
+            "capture.plan_artifact_groups.estimate_compression_ratio",
             BTreeMap::from([(
                 "probe_target_mib".to_string(),
                 serde_json::json!(
@@ -182,7 +182,7 @@ fn plan_bundle_compressed_groups(
         .min(bundle_raw_size_size);
     let locality_sort_duration = {
         let _sort_span = control.profile_span_with_args(
-            "gutch.capture.plan_artifact_groups.sort_chunks_by_file_locality",
+            "capture.plan_artifact_groups.sort_chunks_by_file_locality",
             {
                 let mut args = capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes);
                 args.insert(
@@ -210,7 +210,7 @@ fn plan_bundle_compressed_groups(
 
     let planned_groups = {
         let _group_span = control.profile_span_with_args(
-            "gutch.capture.plan_artifact_groups.assign_chunks_to_bundles",
+            "capture.plan_artifact_groups.assign_chunks_to_bundles",
             capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
         );
         let mut planned_groups = Vec::new();
@@ -372,7 +372,7 @@ fn build_bundled_chunks(
                 .sum();
             let chunk_count = planned_bundle.len();
             let _bundle_span = control.profile_span_with_args(
-                "gutch.capture.compress_bundle_artifact",
+                "capture.compress_bundle_artifact",
                 capture_artifact_trace_args(
                     "bundle",
                     bundle_index,
@@ -391,7 +391,7 @@ fn build_bundled_chunks(
             .inspect(|built| {
                 progress_for_work.completed();
                 control.profile_event_with_args(
-                    "gutch.capture.compress_bundle_artifact.complete",
+                    "capture.compress_bundle_artifact.complete",
                     capture_artifact_trace_args(
                         "bundle",
                         bundle_index,
@@ -429,14 +429,14 @@ fn build_loose_chunks(
         move |(chunk_hash, payload), control| {
             let raw_size = payload.raw_size();
             let _chunk_span = control.profile_span_with_args(
-                "gutch.capture.compress_loose_chunk_artifact",
+                "capture.compress_loose_chunk_artifact",
                 capture_chunk_trace_args(&chunk_hash, raw_size, total_chunk_count),
             );
             build_loose_chunk(chunk_hash, payload, &compression_profile_for_work, control).inspect(
                 |built| {
                     progress_for_work.completed();
                     control.profile_event_with_args(
-                        "gutch.capture.compress_loose_chunk_artifact.complete",
+                        "capture.compress_loose_chunk_artifact.complete",
                         capture_chunk_trace_args(
                             &built.chunk.chunk_hash,
                             built.chunk.compressed_size,
@@ -596,7 +596,7 @@ pub(crate) fn build_with_config_timed(
 ) -> Result<(BuildResult, BuildTimings)> {
     let runtime_plan = plan_build_runtime(&config.runtime_hints);
     let _pool_span = config.control.profile_span_with_args(
-        "gutch.capture.create_worker_pool",
+        "capture.create_worker_pool",
         BTreeMap::from([(
             "worker_count".to_string(),
             serde_json::json!(runtime_plan.worker_count),
@@ -613,7 +613,7 @@ pub(crate) fn build_with_config_timed_on_pool(
     build_pool: &ThreadPool,
 ) -> Result<(BuildResult, BuildTimings)> {
     config.control.checkpoint()?;
-    let _operation_span = config.control.profile_span("gutch.capture.build_snapshot");
+    let _operation_span = config.control.profile_span("capture.build_snapshot");
     let total_start = Instant::now();
     let compression_profile = config.compression_profile.clone();
     let artifact_staging_root = config
@@ -644,7 +644,7 @@ pub(crate) fn build_with_config_timed_on_pool(
 
     let scan_chunk_start = Instant::now();
     let (mut snapshot_entries, unique_chunks, chunk_placements, total_logical_size) = {
-        let _scan_span = config.control.profile_span("gutch.capture.scan_source");
+        let _scan_span = config.control.profile_span("capture.scan_source");
         collect_scanned_chunks(
             dir,
             ScanDirectoryOptions {
@@ -667,11 +667,11 @@ pub(crate) fn build_with_config_timed_on_pool(
     {
         let _dedupe_span = config
             .control
-            .profile_span("gutch.capture.plan_deduplicated_chunks");
+            .profile_span("capture.plan_deduplicated_chunks");
         {
             let _existing_refs_span = config
                 .control
-                .profile_span("gutch.capture.plan_deduplicated_chunks.account_existing_chunks");
+                .profile_span("capture.plan_deduplicated_chunks.account_existing_chunks");
             for fm in snapshot_entries
                 .iter()
                 .filter_map(manifest::SnapshotEntry::as_file)
@@ -692,7 +692,7 @@ pub(crate) fn build_with_config_timed_on_pool(
         {
             let _new_chunks_span = config
                 .control
-                .profile_span("gutch.capture.plan_deduplicated_chunks.select_new_chunks");
+                .profile_span("capture.plan_deduplicated_chunks.select_new_chunks");
             let t = Instant::now();
             for (hash, payload) in unique_chunks {
                 config.control.checkpoint()?;
@@ -710,7 +710,7 @@ pub(crate) fn build_with_config_timed_on_pool(
             timings.dedupe_lookup += t.elapsed();
         }
         config.control.profile_event_with_args(
-            "gutch.capture.plan_deduplicated_chunks.complete",
+            "capture.plan_deduplicated_chunks.complete",
             BTreeMap::from([
                 (
                     "unique_chunk_count".to_string(),
@@ -732,7 +732,7 @@ pub(crate) fn build_with_config_timed_on_pool(
 
     let artifact_encode_start = Instant::now();
     let (bundles, loose_chunks) = {
-        let _artifact_encode_span = config.control.profile_span("gutch.capture.build_artifacts");
+        let _artifact_encode_span = config.control.profile_span("capture.build_artifacts");
         let mut bundles = Vec::new();
         let mut loose_chunks = Vec::new();
         let bundle_size_policy = BundleSizingPolicy::new(
@@ -749,9 +749,7 @@ pub(crate) fn build_with_config_timed_on_pool(
                 }
 
                 let planned_bundle_groups = {
-                    let _plan_span = config
-                        .control
-                        .profile_span("gutch.capture.plan_artifact_groups");
+                    let _plan_span = config.control.profile_span("capture.plan_artifact_groups");
                     plan_bundle_compressed_groups(
                         chunks_to_compress,
                         &chunk_placements,
@@ -768,9 +766,8 @@ pub(crate) fn build_with_config_timed_on_pool(
                 timings.bundle_compressed_ratio_probe_bytes +=
                     planned_bundle_groups.probe_raw_bytes;
                 let built_bundle_groups = {
-                    let _compression_span = config
-                        .control
-                        .profile_span("gutch.capture.compress_artifacts");
+                    let _compression_span =
+                        config.control.profile_span("capture.compress_artifacts");
                     build_bundled_chunks(
                         planned_bundle_groups,
                         &compression_profile,
@@ -804,9 +801,8 @@ pub(crate) fn build_with_config_timed_on_pool(
             }
             ArtifactStorageMode::LooseChunks => {
                 let built_chunks = {
-                    let _compression_span = config
-                        .control
-                        .profile_span("gutch.capture.compress_artifacts");
+                    let _compression_span =
+                        config.control.profile_span("capture.compress_artifacts");
                     build_loose_chunks(
                         chunks_to_compress,
                         &compression_profile,
@@ -840,17 +836,17 @@ pub(crate) fn build_with_config_timed_on_pool(
     let vm = {
         let _manifest_span = config
             .control
-            .profile_span("gutch.capture.build_snapshot_manifest");
+            .profile_span("capture.build_snapshot_manifest");
         {
             let _sort_span = config.control.profile_span_with_args(
-                "gutch.capture.build_snapshot_manifest.sort_entries",
+                "capture.build_snapshot_manifest.sort_entries",
                 capture_bytes_trace_args("entry_count", snapshot_entries.len(), 0),
             );
             snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
         }
         let _construct_span = config
             .control
-            .profile_span("gutch.capture.build_snapshot_manifest.construct");
+            .profile_span("capture.build_snapshot_manifest.construct");
         let mut vm =
             SnapshotManifest::new(config.snapshot_id.clone(), config.snapshot_tags.clone());
         vm.total_logical_size = total_logical_size;

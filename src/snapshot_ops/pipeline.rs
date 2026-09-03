@@ -154,23 +154,21 @@ pub(super) fn prepare_snapshot_entries(
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<Arc<Vec<PathBuf>>> {
     {
-        let _validate_span =
-            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.validate");
+        let _validate_span = control.profile_span("snapshot.reconstruct.prepare.entries.validate");
         crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
     }
     {
-        let _root_span =
-            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.create_root");
+        let _root_span = control.profile_span("snapshot.reconstruct.prepare.entries.create_root");
         crate::helpers::create_dir_all(output_dir)?;
     }
     let path_resolver = {
         let _resolver_span =
-            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.path_resolver");
+            control.profile_span("snapshot.reconstruct.prepare.entries.path_resolver");
         crate::path_guard::ManifestPathResolver::new(output_dir)?
     };
     {
         let _directories_span =
-            control.profile_span("gutch.snapshot.reconstruct.prepare.entries.directories");
+            control.profile_span("snapshot.reconstruct.prepare.entries.directories");
         create_snapshot_directories(snapshot_manifest, control, &path_resolver, reconstruct_pool)?;
     }
     Ok(Arc::new(resolve_snapshot_file_paths(
@@ -189,7 +187,7 @@ fn resolve_snapshot_file_paths(
 ) -> Result<Vec<PathBuf>> {
     let files = snapshot_manifest.files().collect::<Vec<_>>();
     let _resolve_paths_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.prepare.outputs.resolve_paths",
+        "snapshot.reconstruct.prepare.outputs.resolve_paths",
         std::collections::BTreeMap::from([(
             "path_count".to_string(),
             serde_json::json!(files.len()),
@@ -240,7 +238,7 @@ fn create_snapshot_directories(
     for directories in directories_by_depth.values() {
         let create_directory = |(path, read_only): &(String, Option<bool>)| {
             let _directory_span = control.profile_span_with_args(
-                "gutch.snapshot.reconstruct.prepare.entries.directory",
+                "snapshot.reconstruct.prepare.entries.directory",
                 prepare_directory_trace_args(path, *read_only),
             );
             let resolved_path = path_resolver.resolve(path)?;
@@ -327,7 +325,7 @@ pub(super) fn finalize_snapshot_entries(
         .collect::<Vec<_>>();
     {
         let _symlink_phase = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.finalize.entries.symlinks",
+            "snapshot.reconstruct.finalize.entries.symlinks",
             finalize_phase_trace_args(
                 symlinks.len(),
                 symlinks.len(),
@@ -337,7 +335,7 @@ pub(super) fn finalize_snapshot_entries(
         );
         run_finalize_entries(&symlinks, metadata_worker_count, reconstruct_pool, |link| {
             let _entry_span = control.profile_span_with_args(
-                "gutch.snapshot.reconstruct.finalize.entries.symlink",
+                "snapshot.reconstruct.finalize.entries.symlink",
                 finalize_symlink_trace_args(link),
             );
             let link_path = path_resolver.resolve(&link.path)?;
@@ -376,7 +374,7 @@ pub(super) fn finalize_snapshot_entries(
         .collect::<Vec<_>>();
     {
         let _file_phase = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.finalize.entries.files",
+            "snapshot.reconstruct.finalize.entries.files",
             finalize_phase_trace_args(
                 file_count,
                 files_needing_metadata.len(),
@@ -390,7 +388,7 @@ pub(super) fn finalize_snapshot_entries(
             reconstruct_pool,
             |file| {
                 let _entry_span = control.profile_span_with_args(
-                    "gutch.snapshot.reconstruct.finalize.entries.file",
+                    "snapshot.reconstruct.finalize.entries.file",
                     finalize_file_trace_args(file),
                 );
                 let path = path_resolver.resolve(&file.path)?;
@@ -443,7 +441,7 @@ pub(super) fn finalize_snapshot_entries(
         .any(|directories| should_parallelize_finalize(directories.len(), metadata_worker_count));
     {
         let _directory_phase = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.finalize.entries.directories",
+            "snapshot.reconstruct.finalize.entries.directories",
             finalize_phase_trace_args(
                 directory_count,
                 directories_needing_metadata,
@@ -457,7 +455,7 @@ pub(super) fn finalize_snapshot_entries(
             reconstruct_pool,
             |directory| {
                 let _entry_span = control.profile_span_with_args(
-                    "gutch.snapshot.reconstruct.finalize.entries.directory",
+                    "snapshot.reconstruct.finalize.entries.directory",
                     finalize_directory_trace_args(directory),
                 );
                 let path = path_resolver.resolve(&directory.path)?;
@@ -853,9 +851,7 @@ pub(super) fn apply_reconstruct_pipeline(
 ) -> Result<SnapshotReconstructFromRepoResult> {
     request.control.checkpoint()?;
     let operation_started_at = Instant::now();
-    let _operation_span = request
-        .control
-        .profile_span("gutch.snapshot.reconstruct.apply");
+    let _operation_span = request.control.profile_span("snapshot.reconstruct.apply");
     let prepare_started_at = Instant::now();
     let reconstruct_worker_count = plan_reconstruct_runtime(request.runtime_hints).worker_count;
     let reconstruct_pool = if request.snapshot_manifest.entries.is_empty() {
@@ -863,13 +859,13 @@ pub(super) fn apply_reconstruct_pipeline(
     } else {
         let _pool_span = request
             .control
-            .profile_span("gutch.snapshot.reconstruct.prepare.pool");
+            .profile_span("snapshot.reconstruct.prepare.pool");
         Some(build_reconstruct_pool(reconstruct_worker_count)?)
     };
     let staging_dir = {
         let _staging_span = request
             .control
-            .profile_span("gutch.snapshot.reconstruct.prepare.staging");
+            .profile_span("snapshot.reconstruct.prepare.staging");
         let staging_dir = request
             .staging_dir
             .map(Path::to_path_buf)
@@ -898,7 +894,7 @@ pub(super) fn apply_reconstruct_pipeline(
         let output_paths = {
             let _prepare_span = request
                 .control
-                .profile_span("gutch.snapshot.reconstruct.prepare.entries");
+                .profile_span("snapshot.reconstruct.prepare.entries");
             prepare_snapshot_entries(
                 request.snapshot_manifest,
                 &staging_dir,
@@ -932,7 +928,7 @@ pub(super) fn apply_reconstruct_pipeline(
         {
             let _finalize_span = request
                 .control
-                .profile_span("gutch.snapshot.reconstruct.finalize.entries");
+                .profile_span("snapshot.reconstruct.finalize.entries");
             let metadata_worker_count =
                 plan_reconstruct_runtime(request.runtime_hints).worker_count;
             finalize_snapshot_entries(
@@ -950,7 +946,7 @@ pub(super) fn apply_reconstruct_pipeline(
         {
             let _promote_span = request
                 .control
-                .profile_span("gutch.snapshot.reconstruct.finalize.promote");
+                .profile_span("snapshot.reconstruct.finalize.promote");
             request.control.checkpoint()?;
             crate::helpers::replace_directory(&staging_dir, request.destination_dir)?;
         }
@@ -1100,7 +1096,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     } = request;
 
     control.checkpoint()?;
-    let _pipeline_span = control.profile_span("gutch.snapshot.reconstruct.pipeline");
+    let _pipeline_span = control.profile_span("snapshot.reconstruct.pipeline");
     let pipeline_started_at = Instant::now();
     let runtime_plan = plan_reconstruct_runtime(runtime_hints);
     let mut reconstruct_timings = ReconstructTimings {
@@ -1115,8 +1111,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     };
 
     let artifact_priorities = {
-        let _priorities_span =
-            control.profile_span("gutch.snapshot.reconstruct.prepare.priorities");
+        let _priorities_span = control.profile_span("snapshot.reconstruct.prepare.priorities");
         build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
     };
     let file_plans = Arc::new(pipeline_plan.files);
@@ -1132,7 +1127,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     );
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
-        let _artifacts_span = control.profile_span("gutch.snapshot.reconstruct.prepare.artifacts");
+        let _artifacts_span = control.profile_span("snapshot.reconstruct.prepare.artifacts");
         let pending_artifacts = pending_bundle_downloads
             .iter()
             .map(|download| download.artifact.clone())
@@ -1259,7 +1254,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         }
     };
     {
-        let _dispatch_span = control.profile_span("gutch.snapshot.reconstruct.dispatch.ready");
+        let _dispatch_span = control.profile_span("snapshot.reconstruct.dispatch.ready");
         for (job_index, job) in jobs.iter().enumerate() {
             let ready = match job {
                 ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
@@ -1301,7 +1296,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             submitted_work_count += 1;
             if verify_started_at.is_none() {
                 verify_started_at = Some(Instant::now());
-                verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
+                verify_span = control.profile_span("snapshot.reconstruct.verify");
             }
         }
     }
@@ -1337,8 +1332,8 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                             break;
                         }
                         if scheduled_job_indices.insert(job_index) {
-                            let _dispatch_span = control
-                                .profile_span("gutch.snapshot.reconstruct.dispatch.downloaded");
+                            let _dispatch_span =
+                                control.profile_span("snapshot.reconstruct.dispatch.downloaded");
                             spawn_reconstruct_work(
                                 pool,
                                 ReconstructWorkItem::Job(job_index),
@@ -1430,7 +1425,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     if remaining_file_jobs[file_index] == 0 && !verification_queued[file_index] {
                         if verify_started_at.is_none() {
                             verify_started_at = Some(Instant::now());
-                            verify_span = control.profile_span("gutch.snapshot.reconstruct.verify");
+                            verify_span = control.profile_span("snapshot.reconstruct.verify");
                         }
                         spawn_reconstruct_work(
                             pool,
@@ -1593,12 +1588,12 @@ fn ensure_empty_reconstruct_output_file(
     control: &GutchOperationControl,
 ) -> Result<()> {
     let _file_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.prepare.file",
+        "snapshot.reconstruct.prepare.file",
         crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
     );
     let output = {
         let _create_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.prepare.file.create",
+            "snapshot.reconstruct.prepare.file.create",
             crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
         );
         OpenOptions::new()
@@ -1609,7 +1604,7 @@ fn ensure_empty_reconstruct_output_file(
     };
     {
         let _size_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.prepare.file.set_len",
+            "snapshot.reconstruct.prepare.file.set_len",
             crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
         );
         output.set_len(file_plan.size)?;

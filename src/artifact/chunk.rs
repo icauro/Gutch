@@ -151,7 +151,7 @@ fn chunk_file_streaming_with_file_hash_and_control_with_pool(
     let mut full_file_hash_duration = Duration::ZERO;
     let mut file_size = 0u64;
     let _cdc_span = control.profile_span_with_args(
-        "gutch.capture.scan_source.file.discover_cdc_boundaries",
+        "capture.scan_source.file.discover_cdc_boundaries",
         std::collections::BTreeMap::from([
             ("min_chunk_bytes".to_string(), serde_json::json!(min)),
             ("avg_chunk_bytes".to_string(), serde_json::json!(avg)),
@@ -205,10 +205,8 @@ fn chunk_file_streaming_with_file_hash_and_control_with_pool(
         "parallel".to_string(),
         serde_json::json!(worker_pool.is_some() && hash_worker_count > 1),
     );
-    let _hash_span = control.profile_span_with_args(
-        "gutch.capture.scan_source.file.hash_chunks",
-        hash_trace_args,
-    );
+    let _hash_span =
+        control.profile_span_with_args("capture.scan_source.file.hash_chunks", hash_trace_args);
     let hashed_chunks = if let Some(worker_pool) = worker_pool {
         let control_for_work = control.clone();
         worker_pool.install(|| {

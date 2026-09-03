@@ -53,7 +53,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
     required_bundle_ids_override: Option<&HashSet<String>>,
 ) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
-    let _operation_span = request.control.profile_span("gutch.snapshot.fetch");
+    let _operation_span = request.control.profile_span("snapshot.fetch");
     let progress = request.control.progress().clone();
     let download_client = build_download_client()?;
     let transfer_progress = Arc::new(FetchTransferProgress::default());
@@ -122,7 +122,7 @@ fn download_and_apply_unified_snapshot_ops(
     let _operation_span = request
         .fetch_request
         .control
-        .profile_span("gutch.snapshot.fetch_reconstruct");
+        .profile_span("snapshot.fetch_reconstruct");
     let progress = request.fetch_request.control.progress().clone();
     let download_client = build_download_client()?;
     let transfer_progress = Arc::new(FetchTransferProgress::default());
@@ -152,7 +152,7 @@ fn download_and_apply_unified_snapshot_ops(
         let _plan_span = request
             .fetch_request
             .control
-            .profile_span("gutch.snapshot.reconstruct.prepare.plan");
+            .profile_span("snapshot.reconstruct.prepare.plan");
         build_reconstruct_pipeline_plan(
             &prepared.snapshot_manifest,
             &prepared.chunk_index,
@@ -217,7 +217,7 @@ fn prepare_snapshot_fetch(
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<PreparedSnapshotFetch> {
     request.control.checkpoint()?;
-    let _prepare_span = request.control.profile_span("gutch.fetch.prepare");
+    let _prepare_span = request.control.profile_span("fetch.prepare");
     emit_progress(
         progress,
         GutchProgressEvent {
@@ -539,7 +539,7 @@ fn download_pending_bundle_files(
     if pending_bundle_downloads.is_empty() {
         return Ok(0);
     }
-    let _queue_span = request.control.profile_span("gutch.fetch.download_queue");
+    let _queue_span = request.control.profile_span("fetch.download_queue");
 
     let priorities = pending_bundle_downloads
         .iter()

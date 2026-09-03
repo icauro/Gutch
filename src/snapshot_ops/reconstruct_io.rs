@@ -53,8 +53,8 @@ fn reconstruct_artifact_job(
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let artifact_span_name = match &job.artifact {
-        crate::ArtifactRef::Bundle { .. } => "gutch.snapshot.reconstruct.bundle",
-        crate::ArtifactRef::LooseChunk { .. } => "gutch.snapshot.reconstruct.job.loose_chunk",
+        crate::ArtifactRef::Bundle { .. } => "snapshot.reconstruct.bundle",
+        crate::ArtifactRef::LooseChunk { .. } => "snapshot.reconstruct.job.loose_chunk",
     };
     let _artifact_span =
         control.profile_span_with_args(artifact_span_name, reconstruct_artifact_trace_args(job));
@@ -96,7 +96,7 @@ fn reconstruct_artifact_job(
                 .ok_or_else(|| Error::reconstruct("bundle raw size overflows"))?;
             let _fanout_span = profiler.map(|profiler| {
                 profiler.span_with_args(
-                    "gutch.snapshot.reconstruct.bundle.fanout_chunks",
+                    "snapshot.reconstruct.bundle.fanout_chunks",
                     bundle_fanout_trace_args(job, decoded_payload_bytes),
                 )
             });
@@ -211,11 +211,11 @@ fn reconstruct_source_chunk_job(
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let _source_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.job.source_chunk",
+        "snapshot.reconstruct.job.source_chunk",
         source_chunk_trace_args(job),
     );
     let mut input = {
-        let _open_span = control.profile_span("gutch.snapshot.reconstruct.source_chunk.open");
+        let _open_span = control.profile_span("snapshot.reconstruct.source_chunk.open");
         File::open(&job.source_path)?
     };
     let mut bytes = vec![
@@ -230,7 +230,7 @@ fn reconstruct_source_chunk_job(
     let read_started_at = Instant::now();
     {
         let _read_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.source_chunk.read",
+            "snapshot.reconstruct.source_chunk.read",
             source_chunk_trace_args(job),
         );
         input.seek(SeekFrom::Start(job.source_offset))?;
@@ -240,7 +240,7 @@ fn reconstruct_source_chunk_job(
     let hash_started_at = Instant::now();
     let actual_hash = {
         let _hash_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.source_chunk.hash_verify",
+            "snapshot.reconstruct.source_chunk.hash_verify",
             source_chunk_trace_args(job),
         );
         crate::hash::hash_hex(&crate::hash::hash_chunk(&bytes))
@@ -265,11 +265,11 @@ fn reconstruct_source_chunk_job(
     for target in &job.targets {
         control.checkpoint()?;
         let _target_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.source_chunk",
+            "snapshot.reconstruct.file.source_chunk",
             source_target_trace_args(job, target, &file_plans[target.file_index]),
         );
         let _write_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.source_chunk.write",
+            "snapshot.reconstruct.file.source_chunk.write",
             source_target_trace_args(job, target, &file_plans[target.file_index]),
         );
         let write_started_at = Instant::now();
@@ -298,19 +298,19 @@ fn copy_source_file_job(
     })?;
     control.checkpoint()?;
     let _source_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.job.source_file",
+        "snapshot.reconstruct.job.source_file",
         source_file_trace_args(file_plan, source_path),
     );
     let mut input = {
         let _open_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.source_file.open",
+            "snapshot.reconstruct.source_file.open",
             source_file_trace_args(file_plan, source_path),
         );
         File::open(source_path)?
     };
     let mut output = {
         let _open_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.source_file.output_open",
+            "snapshot.reconstruct.source_file.output_open",
             crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
         );
         OpenOptions::new()
@@ -327,7 +327,7 @@ fn copy_source_file_job(
         control.checkpoint()?;
         let read = {
             let _read_span = control.profile_span_with_args(
-                "gutch.snapshot.reconstruct.source_file.read",
+                "snapshot.reconstruct.source_file.read",
                 source_file_trace_args(file_plan, source_path),
             );
             input.read(&mut buffer)?
@@ -337,7 +337,7 @@ fn copy_source_file_job(
         }
         full_file_hasher.update(&buffer[..read]);
         let _write_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.source_file.write",
+            "snapshot.reconstruct.file.source_file.write",
             file_write_trace_args(file_plan, read as u64),
         );
         let write_started_at = Instant::now();
@@ -349,7 +349,7 @@ fn copy_source_file_job(
     }
     {
         let _flush_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.source_file.flush",
+            "snapshot.reconstruct.file.source_file.flush",
             crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
         );
         let flush_started_at = Instant::now();
@@ -679,7 +679,7 @@ pub(super) fn verify_reconstructed_output_file(
 ) -> Result<ReconstructedFileVerification> {
     control.checkpoint()?;
     let _file_span = control.profile_span_with_args(
-        "gutch.snapshot.reconstruct.file",
+        "snapshot.reconstruct.file",
         reconstruct_file_trace_args(file_plan),
     );
     let precomputed_hash = precomputed_file_hashes
@@ -712,17 +712,17 @@ pub(super) fn verify_reconstructed_output_file(
     let hash_started_at = Instant::now();
     let actual_hash = if let Some(precomputed_hash) = precomputed_hash {
         control.profile_event_with_args(
-            "gutch.snapshot.reconstruct.file.full_hash.forwarded",
+            "snapshot.reconstruct.file.full_hash.forwarded",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
         );
         precomputed_hash
     } else if hash_mode == "mmap_rayon" {
         let _hash_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.full_hash",
+            "snapshot.reconstruct.file.full_hash",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
         );
         let _parallel_hash_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.full_hash.parallel",
+            "snapshot.reconstruct.file.full_hash.parallel",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
         );
         let mut hasher = blake3::Hasher::new();
@@ -730,11 +730,11 @@ pub(super) fn verify_reconstructed_output_file(
         crate::hash::hash_hex(&hasher.finalize())
     } else if hash_mode == "mmap" {
         let _hash_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.full_hash",
+            "snapshot.reconstruct.file.full_hash",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
         );
         let _mmap_hash_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.full_hash.mmap",
+            "snapshot.reconstruct.file.full_hash.mmap",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
         );
         let mut hasher = blake3::Hasher::new();
@@ -742,7 +742,7 @@ pub(super) fn verify_reconstructed_output_file(
         crate::hash::hash_hex(&hasher.finalize())
     } else {
         let _hash_span = control.profile_span_with_args(
-            "gutch.snapshot.reconstruct.file.full_hash",
+            "snapshot.reconstruct.file.full_hash",
             full_hash_trace_args(file_plan, hash_mode, reconstruct_worker_count),
         );
         let mut input = File::open(output_path)?;
@@ -779,7 +779,7 @@ pub(super) fn verify_reconstructed_output_file(
         }),
     );
     control.profile_event_with_args(
-        "gutch.snapshot.reconstruct.file.full_hash.complete",
+        "snapshot.reconstruct.file.full_hash.complete",
         hash_complete_args,
     );
     if actual_hash != file_plan.full_file_hash {

@@ -242,7 +242,7 @@ pub fn capture_snapshot_sources(
 
     let runtime_plan = crate::plan_build_runtime(&crate::RuntimeResourceHints::default());
     let _pool_span = control.profile_span_with_args(
-        "gutch.capture.create_worker_pool",
+        "capture.create_worker_pool",
         std::collections::BTreeMap::from([(
             "worker_count".to_string(),
             serde_json::json!(runtime_plan.worker_count),
@@ -253,7 +253,7 @@ pub fn capture_snapshot_sources(
 
     let repo_paths = crate::GutchRepoPaths::from_repo_root(repo_root);
     let _existing_state_span = control.profile_span_with_args(
-        "gutch.capture.prepare_source.load_existing_store_state",
+        "capture.prepare_source.load_existing_store_state",
         std::collections::BTreeMap::from([(
             "source_count".to_string(),
             serde_json::json!(plan.to_apply.len()),

@@ -120,7 +120,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     let compressed = {
         let started_at = Instant::now();
         let _read_span =
-            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.payload_read"));
+            profiler.map(|profiler| profiler.span("artifact.loose_chunk.payload_read"));
         let compressed = std::fs::read(path)?;
         metrics.read = started_at.elapsed();
         metrics.compressed_bytes = compressed.len() as u64;
@@ -129,7 +129,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     let bytes = {
         let started_at = Instant::now();
         let _decompress_span =
-            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.payload_decompress"));
+            profiler.map(|profiler| profiler.span("artifact.loose_chunk.payload_decompress"));
         let bytes = crate::compress::decompress_data(&compressed, compression_profile.compression)?;
         metrics.decompress = started_at.elapsed();
         metrics.raw_bytes = bytes.len() as u64;
@@ -137,8 +137,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     };
     {
         let started_at = Instant::now();
-        let _size_span =
-            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.size_verify"));
+        let _size_span = profiler.map(|profiler| profiler.span("artifact.loose_chunk.size_verify"));
         if bytes.len() as u64 != raw_size {
             return Err(Error::reconstruct(format!(
                 "loose chunk '{}' has size {}, expected {}",
@@ -151,8 +150,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     }
     {
         let started_at = Instant::now();
-        let _hash_span =
-            profiler.map(|profiler| profiler.span("gutch.artifact.loose_chunk.hash_verify"));
+        let _hash_span = profiler.map(|profiler| profiler.span("artifact.loose_chunk.hash_verify"));
         let actual_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&bytes));
         if actual_hash != chunk_hash {
             return Err(Error::HashMismatch {

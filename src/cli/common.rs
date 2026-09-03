@@ -328,7 +328,7 @@ pub(crate) fn write_bundles(
 ) -> g::Result<std::collections::HashMap<String, u64>> {
     let total_bytes = bundles.iter().map(|bundle| bundle.size).sum::<u64>();
     let _phase_span = control.profile_span_with_args(
-        "gutch.capture.publish_snapshot.write_bundle_artifacts",
+        "capture.publish_snapshot.write_bundle_artifacts",
         capture_count_bytes_trace_args(bundles.len(), total_bytes),
     );
     let control_for_work = control.clone();
@@ -339,7 +339,7 @@ pub(crate) fn write_bundles(
                 control_for_work.checkpoint()?;
                 let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
                 let _bundle_span = control_for_work.profile_span_with_args(
-                    "gutch.capture.publish_snapshot.write_bundle_artifact",
+                    "capture.publish_snapshot.write_bundle_artifact",
                     capture_artifact_write_trace_args(
                         "bundle",
                         &bundle.bundle_id,
@@ -381,7 +381,7 @@ pub(crate) fn write_loose_chunks(
         .map(|chunk| chunk.data.len() as u64)
         .sum::<u64>();
     let _phase_span = control.profile_span_with_args(
-        "gutch.capture.publish_snapshot.write_loose_chunk_artifacts",
+        "capture.publish_snapshot.write_loose_chunk_artifacts",
         capture_count_bytes_trace_args(chunks.len(), total_bytes),
     );
     let control_for_work = control.clone();
@@ -396,7 +396,7 @@ pub(crate) fn write_loose_chunks(
                     crate::helpers::create_dir_all(parent)?;
                 }
                 let _chunk_span = control_for_work.profile_span_with_args(
-                    "gutch.capture.publish_snapshot.write_loose_chunk_artifact",
+                    "capture.publish_snapshot.write_loose_chunk_artifact",
                     capture_artifact_write_trace_args(
                         "loose_chunk",
                         &chunk_hash,

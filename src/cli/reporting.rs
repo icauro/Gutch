@@ -176,7 +176,7 @@ pub(crate) fn print_profile_summary(profile: Option<&g::GutchProfiler>) {
     let spans = summary
         .spans
         .iter()
-        .filter(|span| span.name != "gutch.cli.command")
+        .filter(|span| span.name != "cli.command")
         .collect::<Vec<_>>();
     print_section_title("Perfetto Profile Summary");
     print_metric_line(

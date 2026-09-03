@@ -130,8 +130,8 @@ fn test_build_and_read_bundle_compressed_payload() {
     assert_eq!(metrics.raw_bytes, (chunk1.len() + chunk2.len()) as u64);
     let spans = profiler.summary().spans;
     for name in [
-        "gutch.snapshot.reconstruct.bundle.read_payload",
-        "gutch.snapshot.reconstruct.bundle.decompress_payload",
+        "snapshot.reconstruct.bundle.read_payload",
+        "snapshot.reconstruct.bundle.decompress_payload",
     ] {
         assert_eq!(
             spans
@@ -156,9 +156,7 @@ fn test_build_and_read_bundle_compressed_payload() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|event| {
-            event["name"] == "gutch.capture.compress_bundle_artifact.finalize_id.complete"
-        })
+        .find(|event| event["name"] == "capture.compress_bundle_artifact.finalize_id.complete")
         .expect("missing bundle ID finalization completion marker");
     assert_eq!(finalize_complete["args"]["id_present"], true);
     assert_eq!(finalize_complete["args"]["next_phase"], "flush_staged_file");
@@ -166,9 +164,7 @@ fn test_build_and_read_bundle_compressed_payload() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|event| {
-            event["name"] == "gutch.capture.compress_bundle_artifact.keep_staged_file.complete"
-        })
+        .find(|event| event["name"] == "capture.compress_bundle_artifact.keep_staged_file.complete")
         .expect("missing staged artifact handoff marker");
     assert_eq!(keep_complete["args"]["id_present"], true);
     assert_eq!(
@@ -177,9 +173,9 @@ fn test_build_and_read_bundle_compressed_payload() {
     );
     let spans = capture_profiler.summary().spans;
     for name in [
-        "gutch.capture.compress_bundle_artifact.flush_staged_file",
-        "gutch.capture.compress_bundle_artifact.sync_staged_file",
-        "gutch.capture.compress_bundle_artifact.keep_staged_file",
+        "capture.compress_bundle_artifact.flush_staged_file",
+        "capture.compress_bundle_artifact.sync_staged_file",
+        "capture.compress_bundle_artifact.keep_staged_file",
     ] {
         assert_eq!(
             spans

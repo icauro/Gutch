@@ -67,7 +67,7 @@ pub(crate) fn collect_scanned_chunks(
     let metadata_entries = {
         let _metadata_span = options
             .control
-            .profile_span("gutch.capture.scan_source.read_metadata_entries");
+            .profile_span("capture.scan_source.read_metadata_entries");
         scan_metadata_entries(
             dir,
             &options.control,
@@ -171,8 +171,7 @@ fn scan_metadata_entries(
 ) -> Result<Vec<SnapshotEntry>> {
     let mut paths = Vec::new();
     {
-        let _enumerate_span =
-            control.profile_span("gutch.capture.scan_source.enumerate_metadata_paths");
+        let _enumerate_span = control.profile_span("capture.scan_source.enumerate_metadata_paths");
         for entry in walkdir::WalkDir::new(root)
             .follow_links(false)
             .sort_by_file_name()
@@ -229,7 +228,7 @@ pub(crate) fn scan_directory_into_file_entries(
     {
         let _enumerate_span = options
             .control
-            .profile_span("gutch.capture.scan_source.enumerate_file_paths");
+            .profile_span("capture.scan_source.enumerate_file_paths");
         for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
             options.control.checkpoint()?;
             let entry = entry?;
@@ -244,7 +243,7 @@ pub(crate) fn scan_directory_into_file_entries(
         }
     }
     options.control.profile_event_with_args(
-        "gutch.capture.scan_source.enumerate_file_paths.complete",
+        "capture.scan_source.enumerate_file_paths.complete",
         std::collections::BTreeMap::from([(
             "file_count".to_string(),
             serde_json::json!(file_paths.len()),
@@ -271,7 +270,7 @@ pub(crate) fn scan_directory_into_file_entries(
 
             let (source_metadata, metadata) = {
                 let _metadata_span = control_for_scan.profile_span_with_args(
-                    "gutch.capture.scan_source.file.read_metadata",
+                    "capture.scan_source.file.read_metadata",
                     crate::profile::file_trace_args(&normalized_relative, 0),
                 );
                 let metadata_started_at = std::time::Instant::now();
@@ -284,7 +283,7 @@ pub(crate) fn scan_directory_into_file_entries(
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             let _file_span = control_for_scan.profile_span_with_args(
-                "gutch.capture.scan_source.file",
+                "capture.scan_source.file",
                 crate::profile::file_trace_args(&normalized_relative, source_metadata.len()),
             );
 
@@ -348,7 +347,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     let executable = false;
     let (chunk_scan, chunk_timings) = {
         let _chunk_span = control.profile_span_with_args(
-            "gutch.capture.scan_source.file.chunk_and_hash",
+            "capture.scan_source.file.chunk_and_hash",
             std::collections::BTreeMap::from([(
                 "size_mib".to_string(),
                 serde_json::json!(source_metadata.len() as f64 / (1024.0 * 1024.0)),
@@ -367,7 +366,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
 
     let previous = {
         let _reuse_span = control.profile_span_with_args(
-            "gutch.capture.scan_source.file.check_previous_snapshot",
+            "capture.scan_source.file.check_previous_snapshot",
             crate::profile::file_trace_args(&normalized_relative, file_size),
         );
         previous_candidates.iter().find(|candidate| {
@@ -379,7 +378,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     };
     if let Some(previous) = previous {
         control.profile_event_with_args(
-            "gutch.capture.scan_source.file.reused_previous_manifest",
+            "capture.scan_source.file.reused_previous_manifest",
             crate::profile::file_trace_args(&normalized_relative, file_size),
         );
         return Ok(FileBuildEntry {
@@ -401,7 +400,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
 
     let (chunk_refs, chunks, new_chunk_offsets) = {
         let _refs_span = control.profile_span_with_args(
-            "gutch.capture.scan_source.file.build_chunk_references",
+            "capture.scan_source.file.build_chunk_references",
             crate::profile::file_trace_args(&normalized_relative, file_size),
         );
         let mut chunk_refs = Vec::with_capacity(chunk_scan.chunks.len());

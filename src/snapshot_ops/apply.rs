@@ -88,7 +88,7 @@ pub fn reconstruct_snapshot_from_repo(
     request: SnapshotReconstructFromRepoRequest,
 ) -> Result<SnapshotReconstructFromRepoResult> {
     request.control.checkpoint()?;
-    let _operation_span = request.control.profile_span("gutch.snapshot.reconstruct");
+    let _operation_span = request.control.profile_span("snapshot.reconstruct");
     let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
         &request.repo_path,
         &request.snapshot_id,
@@ -130,7 +130,7 @@ pub fn reconstruct_snapshot_from_repo(
     let pipeline_plan = {
         let _plan_span = request
             .control
-            .profile_span("gutch.snapshot.reconstruct.prepare.plan");
+            .profile_span("snapshot.reconstruct.prepare.plan");
         super::pipeline::build_reconstruct_pipeline_plan(
             &snapshot_manifest,
             &chunk_index,

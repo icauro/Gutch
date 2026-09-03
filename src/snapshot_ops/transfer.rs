@@ -520,7 +520,7 @@ fn artifact_download_worker(
             return;
         };
         let _artifact_span = control.profile_span_with_args(
-            "gutch.fetch.artifact",
+            "fetch.artifact",
             artifact_transfer_trace_args(&bundle_download),
         );
         let result = download_pending_bundle(
@@ -671,7 +671,7 @@ fn run_adaptive_transfer_controller(
             .target_worker_count
             .store(new_target, AtomicOrdering::Release);
         control.profile_event_with_args(
-            "gutch.fetch.transfer_concurrency",
+            "fetch.transfer_concurrency",
             std::collections::BTreeMap::from([(
                 "target_workers".to_string(),
                 serde_json::json!(new_target),
@@ -866,7 +866,7 @@ pub(super) fn download_pending_bundle(
 ) -> Result<usize> {
     control.checkpoint()?;
     let _artifact_span = control.profile_span_with_args(
-        "gutch.fetch.artifact.transfer",
+        "fetch.artifact.transfer",
         artifact_transfer_trace_args(bundle_download),
     );
     if let Some(parent) = bundle_download.bundle_path.parent() {

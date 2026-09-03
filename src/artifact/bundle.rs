@@ -144,7 +144,7 @@ impl BundleBuilder {
             let build = self.write_bundle(&mut file, profiler)?;
             let _flush_span = profiler.map(|profiler| {
                 profiler.span_with_args(
-                    "gutch.capture.compress_bundle_artifact.flush_staged_file",
+                    "capture.compress_bundle_artifact.flush_staged_file",
                     std::collections::BTreeMap::from([(
                         "bundle_size_bytes".to_string(),
                         serde_json::json!(build.size),
@@ -155,7 +155,7 @@ impl BundleBuilder {
             drop(_flush_span);
             let _sync_span = profiler.map(|profiler| {
                 profiler.span_with_args(
-                    "gutch.capture.compress_bundle_artifact.sync_staged_file",
+                    "capture.compress_bundle_artifact.sync_staged_file",
                     std::collections::BTreeMap::from([(
                         "bundle_size_bytes".to_string(),
                         serde_json::json!(build.size),
@@ -166,16 +166,15 @@ impl BundleBuilder {
             drop(_sync_span);
             build
         };
-        let _keep_span = profiler.map(|profiler| {
-            profiler.span("gutch.capture.compress_bundle_artifact.keep_staged_file")
-        });
+        let _keep_span = profiler
+            .map(|profiler| profiler.span("capture.compress_bundle_artifact.keep_staged_file"));
         let (_, staged_path) = temporary
             .keep()
             .map_err(|error| crate::error::Error::Io(error.error))?;
         drop(_keep_span);
         if let Some(profiler) = profiler {
             profiler.event_with_args(
-                "gutch.capture.compress_bundle_artifact.keep_staged_file.complete",
+                "capture.compress_bundle_artifact.keep_staged_file.complete",
                 std::collections::BTreeMap::from([
                     (
                         "bundle_size_bytes".to_string(),
@@ -239,7 +238,7 @@ impl BundleBuilder {
         let compression_started_at = Instant::now();
         let _payload_span = profiler.map(|profiler| {
             profiler.span_with_args(
-                "gutch.capture.compress_bundle_artifact.compress_payload",
+                "capture.compress_bundle_artifact.compress_payload",
                 std::collections::BTreeMap::from([(
                     "chunk_count".to_string(),
                     serde_json::json!(self.chunks.len()),
@@ -281,7 +280,7 @@ impl BundleBuilder {
         let serialization_started_at = Instant::now();
         let _footer_span = profiler.map(|profiler| {
             profiler.span_with_args(
-                "gutch.capture.compress_bundle_artifact.write_footer",
+                "capture.compress_bundle_artifact.write_footer",
                 std::collections::BTreeMap::from([(
                     "chunk_count".to_string(),
                     serde_json::json!(entries.len()),
@@ -301,7 +300,7 @@ impl BundleBuilder {
         drop(_footer_span);
         let _finalize_span = profiler.map(|profiler| {
             profiler.span_with_args(
-                "gutch.capture.compress_bundle_artifact.finalize_id",
+                "capture.compress_bundle_artifact.finalize_id",
                 std::collections::BTreeMap::from([
                     ("chunk_count".to_string(), serde_json::json!(chunk_count)),
                     (
@@ -325,7 +324,7 @@ impl BundleBuilder {
         drop(_finalize_span);
         if let Some(profiler) = profiler {
             profiler.event_with_args(
-                "gutch.capture.compress_bundle_artifact.finalize_id.complete",
+                "capture.compress_bundle_artifact.finalize_id.complete",
                 std::collections::BTreeMap::from([
                     (
                         "id_present".to_string(),
@@ -591,7 +590,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let read_started_at = Instant::now();
         let _read_span = profiler.map(|profiler| {
             profiler.span_with_args(
-                "gutch.snapshot.reconstruct.bundle.read_payload",
+                "snapshot.reconstruct.bundle.read_payload",
                 bundle_payload_trace_args(compressed_size, expected_raw_size),
             )
         });
@@ -603,7 +602,7 @@ impl<R: Read + Seek> BundleReader<R> {
 
         let _decompress_span = profiler.map(|profiler| {
             profiler.span_with_args(
-                "gutch.snapshot.reconstruct.bundle.decompress_payload",
+                "snapshot.reconstruct.bundle.decompress_payload",
                 bundle_payload_trace_args(compressed_size, expected_raw_size),
             )
         });
