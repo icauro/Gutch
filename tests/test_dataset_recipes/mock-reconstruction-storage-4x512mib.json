@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "name": "reconstruction-storage-4x512mib",
+  "name": "mock-reconstruction-storage-4x512mib",
   "seed": 20260901,
   "logical_size_bytes": 536870912,
   "versions": 4,

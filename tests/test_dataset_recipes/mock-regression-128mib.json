@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "name": "regression-128mib",
+  "name": "mock-regression-128mib",
   "seed": 20260823,
   "logical_size_bytes": 134217728,
   "versions": 2,

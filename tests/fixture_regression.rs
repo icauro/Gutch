@@ -9,9 +9,9 @@ use gutch::{
 use serde::Deserialize;
 
 const TEST_DATASET_PRODUCTS: &[(&str, i64)] = &[
-    ("small-product", 20_260_820),
-    ("append-product", 20_260_821),
-    ("filesystem-product", 20_260_822),
+    ("mock-compact-baseline", 20_260_820),
+    ("mock-version-churn", 20_260_821),
+    ("mock-filesystem-metadata", 20_260_822),
 ];
 
 #[derive(Debug, Deserialize)]
