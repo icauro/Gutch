@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import platform
 import shutil
+import stat
 import sys
 import zipfile
 
@@ -21,6 +22,13 @@ def _emit_progress(stage: str, detail: str) -> None:
         + json.dumps({"stage": stage, "detail": detail}, separators=(",", ":")),
         flush=True,
     )
+
+
+def _make_external_binaries_executable(external_root: Path) -> None:
+    for name in ("restic", "kopia", "borg", "plakar"):
+        path = external_root / name
+        if path.is_file():
+            path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def _extract_package(package_path: Path, destination: Path) -> None:
@@ -107,6 +115,11 @@ def main() -> int:
     if not binary_path.is_file():
         raise FileNotFoundError(f"uploaded Linux hostapp-cli was not found: {binary_path}")
     binary_path.chmod(binary_path.stat().st_mode | 0o111)
+    if args.external_root is not None:
+        external_root = args.external_root.resolve()
+        if not external_root.is_dir():
+            raise FileNotFoundError(f"uploaded external-tool directory was not found: {external_root}")
+        _make_external_binaries_executable(external_root)
 
     dataset_root = Path(config.remote_fixtures_root) / REMOTE_DATASET_DIRECTORY
     product = dataset_root / "Blender"
