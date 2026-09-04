@@ -8,10 +8,10 @@ use gutch::{
 };
 use serde::Deserialize;
 
-const FIXTURE_ROOTS: &[&str] = &[
-    "tests/fixtures/small-product",
-    "tests/fixtures/append-product",
-    "tests/fixtures/filesystem-product",
+const TEST_DATASET_ROOTS: &[&str] = &[
+    "tests/test_dataset/small-product",
+    "tests/test_dataset/append-product",
+    "tests/test_dataset/filesystem-product",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -164,15 +164,15 @@ fn assert_snapshot_matches_expected(
 
 #[test]
 fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
-    for fixture_relative_path in FIXTURE_ROOTS {
+    for fixture_relative_path in TEST_DATASET_ROOTS {
         let fixture_root = fixture_root(fixture_relative_path);
         let original_root = fixture_root.join("original");
         let repo_root = fixture_root.join("repo");
         let test_manifest = load_test_manifest(&original_root);
         let expected_seed = match *fixture_relative_path {
-            "tests/fixtures/small-product" => 20_260_820,
-            "tests/fixtures/append-product" => 20_260_821,
-            "tests/fixtures/filesystem-product" => 20_260_822,
+            "tests/test_dataset/small-product" => 20_260_820,
+            "tests/test_dataset/append-product" => 20_260_821,
+            "tests/test_dataset/filesystem-product" => 20_260_822,
             other => panic!("unregistered fixture path: {other}"),
         };
 

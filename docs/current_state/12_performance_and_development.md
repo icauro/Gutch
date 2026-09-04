@@ -75,7 +75,7 @@ uses their root spans for run-level comparison.
 
 ## Checked-In Fixture Regression
 
-Regression fixtures live under `gutch_repo/tests/fixtures/` and keep the
+Regression test datasets live under `gutch_repo/tests/test_dataset/` and keep the
 original source tree beside its generated repo. Source manifests record
 expected paths, sizes, and BLAKE3 hashes. Tests reconstruct from stored
 repo artifacts and compare against the original tree.

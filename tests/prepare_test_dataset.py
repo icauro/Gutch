@@ -56,8 +56,8 @@ _TIMESTAMP_EPOCH_SPAN_SECONDS = 5 * 365 * 24 * 60 * 60
 
 TESTS_ROOT = Path(__file__).resolve().parent
 TEST_DATASET_RECIPES_ROOT = TESTS_ROOT / "test_dataset_recipes"
-FIXTURES_ROOT = TESTS_ROOT / "fixtures"
-DEFAULT_FIXTURES_ROOT = FIXTURES_ROOT
+TEST_DATASET_ROOT = TESTS_ROOT / "test_dataset"
+DEFAULT_TEST_DATASET_ROOT = TEST_DATASET_ROOT
 RECIPE_SCHEMA_FILE_NAME = "fixture-schema.json"
 
 
@@ -1573,7 +1573,7 @@ def _ranges_from_args(args: argparse.Namespace, default_size_mb: int) -> Generat
 
 def legacy_main() -> int:
     args = _parse_args()
-    default_path = str(DEFAULT_FIXTURES_ROOT.resolve())
+    default_path = str(DEFAULT_TEST_DATASET_ROOT.resolve())
     root = Path(args.path or _prompt("Fixture path", default_path)).resolve()
     name = args.name or _prompt("Fixture name", "mock-game-random")
     fixture_dir = root / name
@@ -1730,7 +1730,7 @@ def _ranges_from_recipe(recipe: dict[str, object]) -> GenerationRanges:
 
 def prepare_test_dataset(
     recipes_root: Path = TEST_DATASET_RECIPES_ROOT,
-    fixtures_root: Path = FIXTURES_ROOT,
+    test_dataset_root: Path = TEST_DATASET_ROOT,
 ) -> list[FixtureResult]:
     recipe_paths = sorted(
         path
@@ -1743,7 +1743,7 @@ def prepare_test_dataset(
     for recipe_path in recipe_paths:
         recipe = _load_recipe(recipe_path)
         result = write_fixture(
-            root=fixtures_root,
+            root=test_dataset_root,
             name=str(recipe["name"]),
             total_versions=int(recipe["versions"]),
             append_versions=0,
