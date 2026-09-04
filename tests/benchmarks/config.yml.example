@@ -11,11 +11,6 @@ environment:
   S3_MAIN_REGION: auto
   S3_MAIN_ACCESS_KEY: ""
   S3_MAIN_SECRET_KEY: ""
-  S3_PUBLIC_BUCKET_NAME: ""
-  S3_PUBLIC_ENDPOINT: ""
-  S3_PUBLIC_REGION: auto
-  S3_PUBLIC_ACCESS_KEY: ""
-  S3_PUBLIC_SECRET_KEY: ""
 
 remote:
   default_target: sv1

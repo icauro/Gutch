@@ -5,9 +5,6 @@ targets:
   - name: main-prod
     enabled: true
     env_prefix: S3_MAIN
-  - name: public-prod
-    enabled: true
-    env_prefix: S3_PUBLIC
   - name: cloudflare-r2-private
     enabled: true
     endpoint: https://ACCOUNT_ID.r2.cloudflarestorage.com
