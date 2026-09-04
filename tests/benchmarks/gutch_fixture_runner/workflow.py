@@ -31,6 +31,11 @@ def _version(name: str) -> str:
     return match.group(1)
 
 
+def _selected_product_sources(product: Path, snapshot_limit: int | None = None) -> list[Path]:
+    sources = sorted(path for path in product.iterdir() if path.is_dir())
+    return sources[-snapshot_limit:] if snapshot_limit is not None else sources
+
+
 def _stats(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -237,13 +242,14 @@ class LocalGutchFixtureRunner:
         product: Path,
         lane_spec: LaneSpec,
         recovery_enabled: bool,
+        snapshot_limit: int | None = None,
     ) -> LaneResult:
         repo = lane.payload / "repo"
         output = lane.payload / "reconstructed"
         remove_tree(repo)
         remove_tree(output)
         self._init_repo(repo, lane_spec.label)
-        sources = sorted(path for path in product.iterdir() if path.is_dir())
+        sources = _selected_product_sources(product, snapshot_limit)
         if not sources:
             raise ValueError(f"product has no target directories: {product}")
         backup_times: list[float] = []
@@ -516,6 +522,7 @@ class LocalGutchFixtureRunner:
         product: Path,
         lane_spec: LaneSpec,
         recovery_enabled: bool = False,
+        snapshot_limit: int | None = None,
     ) -> LaneResult:
         if lane_spec.kind.startswith(("restic-", "kopia-", "borg-", "plakar-")):
             if self.external is None:
@@ -526,10 +533,17 @@ class LocalGutchFixtureRunner:
                 product,
                 lane_spec,
                 recovery_enabled=recovery_enabled,
+                snapshot_limit=snapshot_limit,
             )
         lane = self.run.lane(lane_spec.label)
         if lane_spec.kind == "gutch-individual":
-            return self._run_individual(lane, product, lane_spec, recovery_enabled)
+            return self._run_individual(
+                lane,
+                product,
+                lane_spec,
+                recovery_enabled,
+                snapshot_limit=snapshot_limit,
+            )
         if lane_spec.kind == "gutch-product-bulk":
             return self._run_product_bulk(lane, product, lane_spec, recovery_enabled)
         if lane_spec.kind == "gutch-batch":
@@ -552,6 +566,22 @@ def run_fixture(
     on_step: Callable[[str], None] | None = None,
     external_binary_root: Path | None = None,
 ) -> list[LaneResult]:
+    if fixture.snapshot_limit is not None:
+        supported_kinds = {
+            "gutch-individual",
+            "restic-individual",
+            "kopia-individual",
+            "borg-individual",
+            "plakar-individual",
+        }
+        unsupported = sorted(
+            {lane.kind for lane in fixture.lanes if lane.kind not in supported_kinds}
+        )
+        if unsupported:
+            raise ValueError(
+                "snapshot_limit is only supported for individual snapshot lanes: "
+                + ", ".join(unsupported)
+            )
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
     commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
@@ -577,7 +607,12 @@ def run_fixture(
         commands.begin_lane()
         if on_step is not None:
             on_step(f"{lane_spec.label} lane started")
-        result = runner.run_lane(product, lane_spec, fixture.corrupt_repair)
+        result = runner.run_lane(
+            product,
+            lane_spec,
+            fixture.corrupt_repair,
+            snapshot_limit=fixture.snapshot_limit,
+        )
         results.append(result)
         if on_lane_complete is not None:
             on_lane_complete(result)

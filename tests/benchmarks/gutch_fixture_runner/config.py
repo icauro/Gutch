@@ -61,6 +61,15 @@ def _wait_seconds(values: dict[str, Any], key: str) -> float:
     return float(value)
 
 
+def _snapshot_limit(values: dict[str, Any], path: Path) -> int | None:
+    value = values.get("snapshot_limit")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"snapshot_limit must be a positive integer: {path}")
+    return value
+
+
 def _profile(values: dict[str, Any], name: str) -> GutchProfile:
     legacy_fields = {
         "chunk_profile",
@@ -174,6 +183,7 @@ def load_fixture(path: Path) -> FixtureSpec:
         corrupt_repair=_bool(values, "corrupt_repair", False),
         lane_wait_seconds=_wait_seconds(values, "lane_wait_seconds"),
         step_wait_seconds=_wait_seconds(values, "step_wait_seconds"),
+        snapshot_limit=_snapshot_limit(values, path),
     )
 
 

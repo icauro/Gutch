@@ -37,6 +37,7 @@ class FixtureSpec:
     corrupt_repair: bool = False
     lane_wait_seconds: float = 4.0
     step_wait_seconds: float = 4.0
+    snapshot_limit: int | None = None
 
 
 @dataclass

@@ -93,6 +93,7 @@ def run_external(
     lane_spec: LaneSpec,
     *,
     recovery_enabled: bool = False,
+    snapshot_limit: int | None = None,
 ) -> LaneResult:
     kind = lane_spec.kind.split("-", 1)[0]
     executable = tools.executable(kind)
@@ -107,6 +108,8 @@ def run_external(
     sources = sorted(path for path in product.iterdir() if path.is_dir())
     if not sources:
         raise ValueError(f"product has no target directories: {product}")
+    if snapshot_limit is not None:
+        sources = sources[-snapshot_limit:]
     env = {}
     if kind == "restic":
         env = {

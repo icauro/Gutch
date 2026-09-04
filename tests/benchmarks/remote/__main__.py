@@ -29,6 +29,7 @@ class RemoteFixture:
     description: str
     transfer_concurrency: int | None = None
     transfer_max_concurrency: int | None = None
+    snapshot_limit: int | None = None
 
 
 def _fixtures() -> list[RemoteFixture]:
@@ -55,6 +56,7 @@ def _fixtures() -> list[RemoteFixture]:
                 fixture.description,
                 options.transfer_concurrency if options else None,
                 options.transfer_max_concurrency if options else None,
+                fixture.snapshot_limit,
             )
         )
     return fixtures

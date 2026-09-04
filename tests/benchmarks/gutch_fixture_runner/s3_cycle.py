@@ -62,10 +62,12 @@ def load_s3_cycle(path: Path) -> tuple[FixtureSpec, S3CycleOptions]:
     return fixture, options
 
 
-def _source_entries(product: Path) -> list[tuple[Path, str]]:
+def _source_entries(product: Path, snapshot_limit: int | None = None) -> list[tuple[Path, str]]:
     directories = sorted(
         path for path in product.iterdir() if path.is_dir() and not path.name.startswith(".")
     )
+    if snapshot_limit is not None:
+        directories = directories[-snapshot_limit:]
     if directories:
         return [(path, path.name) for path in directories]
     return [(product, "1.0.0")]
@@ -137,7 +139,7 @@ def run_s3_cycle(
         external=None,
     )
     client = make_client(settings)
-    entries = _source_entries(product)
+    entries = _source_entries(product, fixture.snapshot_limit)
     results: list[LaneResult] = []
     for lane_index, lane_spec in enumerate(measured):
         commands.begin_lane()

@@ -4,6 +4,7 @@ description: Remote Linux comparison of per-snapshot Gutch, Restic, Kopia, Borg,
 delete_artifacts: true
 open_perfetto: true
 corrupt_repair: false
+snapshot_limit: 1
 execution:
   default_host: remote
 lanes:
