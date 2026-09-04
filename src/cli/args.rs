@@ -213,11 +213,9 @@ pub(crate) enum RepoNameCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoTagsCommands {
-    Requirements {
+    References {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
-        #[arg(long = "check")]
-        check: bool,
         #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
     },
@@ -457,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_generic_scope_and_tag_requirement_commands() {
+    fn parses_generic_scope_and_tag_reference_commands() {
         let cli = Cli::try_parse_from([
             "gutch",
             "repo",
@@ -504,21 +502,20 @@ mod tests {
             "gutch",
             "repo",
             "tags",
-            "requirements",
+            "references",
             "--repo",
             if cfg!(windows) {
                 r"D:\Repos\creator"
             } else {
                 "/repos/creator"
             },
-            "--check",
         ])
-        .expect("tag requirement args should parse");
+        .expect("tag reference args should parse");
         assert!(matches!(
             cli.command,
             Commands::Repo {
                 command: RepoCommands::Tags {
-                    command: RepoTagsCommands::Requirements { check: true, .. }
+                    command: RepoTagsCommands::References { .. }
                 }
             }
         ));

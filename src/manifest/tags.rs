@@ -338,10 +338,9 @@ mod deserialization_tests {
             )
             .is_err()
         );
-        assert!(serde_json::from_str::<SnapshotTagSet>(
-            r#"{"scoped":{"version":["1.2.3"]}}"#,
-        )
-        .is_ok());
+        assert!(
+            serde_json::from_str::<SnapshotTagSet>(r#"{"scoped":{"version":["1.2.3"]}}"#,).is_ok()
+        );
     }
 }
 

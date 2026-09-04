@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::cli::reporting::ensure_parent_directory;
 use crate::{
     Error, GutchProgressEvent, GutchProgressSink, PullConflictPolicy,
-    RemoteRepositoryCommandProvider, RemoteRepositorySummary, RemoteTagRequirementsResult,
+    RemoteRepositoryCommandProvider, RemoteRepositorySummary, RemoteTagReferencesResult,
 };
 
 #[derive(Debug)]
@@ -183,15 +183,13 @@ pub(crate) fn unlink(
     Ok(())
 }
 
-pub(crate) fn tag_requirements(
+pub(crate) fn tag_references(
     repo: PathBuf,
-    check: bool,
     json_out: Option<PathBuf>,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
-    let result: RemoteTagRequirementsResult =
-        crate::inspect_repo_tag_requirements(&repo, provider)?;
+    let result: RemoteTagReferencesResult = crate::inspect_repo_tag_references(&repo, provider)?;
     if let Some(json_out) = json_out.as_ref() {
         ensure_parent_directory(json_out)?;
         crate::helpers::write(json_out, serde_json::to_vec_pretty(&result)?)?;
@@ -211,7 +209,6 @@ pub(crate) fn tag_requirements(
         );
     }
     println!("advisory_only: true");
-    let _ = (check, result.ready);
     Ok(())
 }
 

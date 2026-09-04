@@ -10,7 +10,7 @@ mod snapshot_descriptor;
 pub(crate) mod snapshot_manifests;
 pub(crate) mod snapshot_sources;
 pub(crate) mod source_identity;
-pub(crate) mod tag_requirements;
+pub(crate) mod tag_references;
 pub(crate) mod updates;
 pub(crate) mod verify;
 

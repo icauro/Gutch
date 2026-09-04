@@ -14,7 +14,7 @@ pub(crate) fn parse_cli_tags(tag_values: &[String]) -> crate::Result<SnapshotTag
 /// Resolves a snapshot identity from explicitly assigned tags.
 ///
 /// Gutch deliberately does not infer tags from source names or apply repository
-/// tag-schema defaults and requirements.
+/// tag-schema defaults. The backend owns the remote version-tag rule.
 pub(crate) fn resolve_snapshot_identity(
     _input_path: &Path,
     explicit_tags: &SnapshotTagSet,

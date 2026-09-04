@@ -67,14 +67,9 @@ pub(crate) fn run(
         }
 
         RepoCommands::Tags {
-            command:
-                crate::cli::RepoTagsCommands::Requirements {
-                    repo,
-                    check,
-                    json_out,
-                },
+            command: crate::cli::RepoTagsCommands::References { repo, json_out },
         } => {
-            crate::cli::remote::tag_requirements(repo, check, json_out, remote_provider)?;
+            crate::cli::remote::tag_references(repo, json_out, remote_provider)?;
         }
 
         RepoCommands::Status { repo, json_out } => {

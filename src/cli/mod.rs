@@ -141,7 +141,7 @@ mod tests {
             "gutch",
             "repo",
             "tags",
-            "requirements",
+            "references",
             "--repo",
             repo
         ]));

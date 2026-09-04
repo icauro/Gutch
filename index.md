@@ -77,11 +77,9 @@ gutch_repo/src/manifest/mod.rs
 gutch_repo/src/manifest/mod_tests.rs
 gutch_repo/src/manifest/profiles.rs
 gutch_repo/src/manifest/runtime.rs
-gutch_repo/src/manifest/schema_edit.rs
 gutch_repo/src/manifest/snapshot.rs
 gutch_repo/src/manifest/snapshot_tests.rs
 gutch_repo/src/manifest/tags.rs
-gutch_repo/src/manifest/template.rs
 gutch_repo/src/profile.rs
 gutch_repo/src/progress/
 gutch_repo/src/progress/mod.rs
@@ -100,7 +98,7 @@ gutch_repo/src/repo/snapshot_descriptor.rs
 gutch_repo/src/repo/snapshot_manifests.rs
 gutch_repo/src/repo/snapshot_sources.rs
 gutch_repo/src/repo/source_identity.rs
-gutch_repo/src/repo/tag_requirements.rs
+gutch_repo/src/repo/tag_references.rs
 gutch_repo/src/repo/updates.rs
 gutch_repo/src/repo/verify.rs
 gutch_repo/src/runtime/

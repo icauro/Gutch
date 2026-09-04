@@ -17,16 +17,18 @@ the app Creator workspace, fixtures, and self-publish staging.
 |---|---|---|
 | Creator, fixture, or staging tool | Extracted source trees and optional source-root configuration | Supplies paths and explicit tags without writing repo artifacts directly |
 | Gutch source discovery | Auto or explicit source selection and path normalization | Produces an ordered set of contained source directories and config tags |
-| Gutch identity resolution | CLI tags, config tags, path inference, and schema defaults | Produces normalized snapshot tags and rejects a missing version |
+| Gutch identity resolution | CLI tags and config tags | Produces structurally validated snapshot tags; an empty set is valid locally |
 | Gutch capture pipeline | Recursive scan, capture preview, and repo artifact construction | Writes the snapshot only after source and identity validation succeed |
 | App or CLI | Input collection, preview, confirmation, and result presentation | Sends absolute paths and renders Gutch's capture plan and result |
 
 ## Interaction Flow
 
 1. Gutch loads `.gutch_source_config.json` from the source root or creates the
-   default auto-mode skeleton on first use.
+   default source-discovery skeleton on first use. This config never infers
+   snapshot tags from source names.
 2. The configured ingestion mode selects source directories.
-3. Gutch resolves tags in precedence order and requires `version`.
+3. Gutch resolves explicitly supplied tags in precedence order. The result may
+   be empty for a local snapshot.
 4. Capture preview reports the destination slot and whether capture creates,
    relabels, or replaces repo state.
 5. After confirmation where required, Gutch scans the tree and writes the new
@@ -36,13 +38,12 @@ the app Creator workspace, fixtures, and self-publish staging.
 
 In `auto` mode, immediate child directories of the source root are snapshot
 sources. `auto_ingestion_rules.ignore_paths` supports simple `*` and `?`
-matching against child folder names. Tags may be inferred from folder names.
+matching against child folder names. Folder names do not provide tags.
 
 In `explicit` mode, only paths listed in
 `explicit_ingestion_rules.snapshots` are sources, and they may be nested at any
-depth. Each entry can provide tags. Name inference is disabled, the list must
-be nonempty, duplicate entries are rejected, and every selected path must exist
-as a directory.
+depth. Each entry can provide tags. The list must be nonempty, duplicate
+entries are rejected, and every selected path must exist as a directory.
 
 Both mode-specific objects may remain in the config. Only the object selected
 by `ingestion_mode` is validated. `.gutch_source_config.json` itself is outside
@@ -51,23 +52,16 @@ snapshot trees and is always ignored.
 ## Identity Resolution
 
 Tag values use `name:value` for scoped tags and `name::value` for exclusive
-tags. Tag names are lower-snake-case, each name has one kind, and `version` is
-always exclusive. Values are resolved in this order:
+tags. Tag names are lower-snake-case and each name has one kind. Values are
+resolved in this order:
 
 1. explicit CLI `--tag key::value` values;
 2. tags on the matching explicit config entry;
-3. path-name inference in auto mode only;
-4. defaults from the repo's tag schema.
+3. no inferred or default values.
 
-Later sources fill only unresolved tags; higher-precedence values win. Capture
-fails when `version` remains unresolved. No other tag is universally required;
-defined tags may remain absent when they have no supplied, inferred, or default
-value.
-
-Auto inference splits the source name and matches repo-defined inference
-prefixes. Scoped tags require their named scope prefix. The repo fixture
-convention orders version, OS, architecture, then optional tier, but explicit
-mode does not derive identity from folder organization.
+Later sources fill only unresolved tags; higher-precedence values win. An empty
+result is valid for local capture. The backend rejects a remote snapshot that
+does not contain a non-empty `version` tag.
 
 ## Path and Entry Rules
 
@@ -85,9 +79,9 @@ implicit name-based ignores inside a selected snapshot source.
 - Archives are not accepted as snapshot trees.
 - An unlisted explicit-mode directory is not discovered implicitly.
 - Renaming an explicit-mode folder does not change identity when its config
-  entry and tags are updated consistently.
+  entry and explicit tags are updated consistently.
 - Source validation and capture preview occur before repo replacement.
-- Frontends do not reimplement tag inference or containment checks.
+- Frontends do not reimplement tag parsing or containment checks.
 
 The detailed scan, chunking, reuse, and capture parallelization stages are
 documented in [`04_scan_pipeline.md`](04_scan_pipeline.md).

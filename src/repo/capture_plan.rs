@@ -890,7 +890,7 @@ pub fn describe_snapshot_capture_plan(plan: &SnapshotCapturePlan) -> String {
             plan.folder_name, plan.version_id
         ),
         SnapshotCaptureKind::Relabel => format!(
-            "Update tags for existing snapshot {} ({}): folder rename or tag inference changed; snapshot unchanged",
+            "Update tags for existing snapshot {} ({}): explicit tags changed; snapshot unchanged",
             plan.snapshot_id, plan.folder_name
         ),
         SnapshotCaptureKind::ReplaceSlot => format!(

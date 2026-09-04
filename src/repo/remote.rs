@@ -191,11 +191,10 @@ pub struct RemoteRepositorySummary {
 
 /// Provider-neutral result listing tags referenced by the remote access ruleset.
 #[derive(Debug, Clone, Serialize)]
-pub struct RemoteTagRequirementsResult {
+pub struct RemoteTagReferencesResult {
     pub repo_root: String,
     pub remote_repo_id: String,
     pub referenced_tags: Vec<crate::TagReferenceStatus>,
-    pub ready: bool,
 }
 
 /// HostApp or another host application supplies this context to Gutch's remote CLI.
@@ -818,10 +817,10 @@ pub fn unlink_repo(
     Ok(())
 }
 
-pub(crate) fn inspect_repo_tag_requirements(
+pub(crate) fn inspect_repo_tag_references(
     repo_root: &Path,
     provider: &dyn RemoteRepositoryCommandProvider,
-) -> Result<RemoteTagRequirementsResult> {
+) -> Result<RemoteTagReferencesResult> {
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let remote_repo_id = repo_manifest.remote_repo_id.trim();
     if remote_repo_id.is_empty() {
@@ -834,13 +833,12 @@ pub(crate) fn inspect_repo_tag_requirements(
     let repository = provider
         .repository_provider()
         .resolve_repository(None, Some(&remote_repo_id))?;
-    let requirements = provider.referenced_tag_references(&repository)?;
-    let referenced_tags = advisory_tag_references(&requirements);
+    let references = provider.referenced_tag_references(&repository)?;
+    let referenced_tags = advisory_tag_references(&references);
 
-    Ok(RemoteTagRequirementsResult {
+    Ok(RemoteTagReferencesResult {
         repo_root: repo_paths.repo_root().display().to_string(),
         remote_repo_id,
-        ready: true,
         referenced_tags,
     })
 }

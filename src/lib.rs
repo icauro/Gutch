@@ -94,7 +94,7 @@ pub use repo::remote::{
     sync_up_repo, unlink_repo,
 };
 pub(crate) use repo::remote::{
-    RemoteTagRequirementsResult, inspect_repo_tag_requirements, list_remote_repositories,
+    RemoteTagReferencesResult, inspect_repo_tag_references, list_remote_repositories,
 };
 pub use repo::snapshot_manifests::{
     load_snapshot_manifest, save_snapshot_product_metadata_for_snapshots, snapshot_metadata_path,
@@ -110,7 +110,7 @@ pub use repo::snapshot_sources::{
     plan_snapshot_sources_capture, plan_snapshot_sources_capture_with_context,
 };
 pub(crate) use repo::source_identity::compute_snapshot_id_from_entries;
-pub use repo::tag_requirements::{TagReference, TagReferenceStatus, advisory_tag_references};
+pub use repo::tag_references::{TagReference, TagReferenceStatus, advisory_tag_references};
 pub use repo::updates::update_gutch_repo_name;
 pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo_artifacts};
 pub use runtime::RuntimeResourceHints;
