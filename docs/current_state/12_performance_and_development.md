@@ -88,14 +88,33 @@ bundle and loose chunk payloads remain extensionless.
 
 Repo format changes regenerate these fixtures as current-format data;
 there is no legacy fixture compatibility layer. Automated mutable fixture data
-stays beneath `gutch_repo/tests/`. A separate generated 128 MiB recipe
-supports regression work, while external product trees are manual benchmark
-inputs only.
+stays beneath `gutch_repo/tests/`. A single preparation script owns generated
+mock products and optional official Blender benchmark inputs. Mock products
+are recreated from tracked JSON recipes without Git history. Blender
+preparation selects versions from a tracked archive-and-digest recipe,
+downloads only requested raw builds, safely unpacks them, and writes an
+explicit source config beside the folders. Both paths remain ignored test
+data; benchmark and regression runs initialize fresh mutable Gutch repos from
+the prepared source trees.
 
 The focused checked-in regression command is:
 
 ```sh
 cargo test --manifest-path gutch_repo/Cargo.toml --test fixture_regression
+```
+
+Prepare deterministic mock recipes:
+
+```pwsh
+python gutch_repo/tests/prepare_test_dataset.py
+```
+
+Prepare two pinned official Blender Windows builds as well:
+
+```pwsh
+python gutch_repo/tests/prepare_test_dataset.py `
+  --blender --blender-version 5.0.0 --blender-version 5.1.0 `
+  --blender-platform windows-x64 --force
 ```
 
 ## Failure Boundaries

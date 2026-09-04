@@ -134,7 +134,6 @@ gutch_repo/src/verify/tests.rs
 gutch_repo/src/verify/types.rs
 gutch_repo/tests/
 gutch_repo/tests/benchmarks/
-gutch_repo/tests/benchmarks/__init__.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/
 gutch_repo/tests/benchmarks/gutch_fixture_runner/__init__.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/__main__.py
@@ -212,11 +211,9 @@ gutch_repo/tests/benchmarks/s3_throughput/config.py
 gutch_repo/tests/benchmarks/s3_throughput/fixtures/
 gutch_repo/tests/benchmarks/s3_throughput/fixtures/s3_object_storage_8mib.yaml
 gutch_repo/tests/benchmarks/s3_throughput/workflow.py
-gutch_repo/tests/test_dataset_recipes/
-gutch_repo/tests/test_dataset_recipes/fixture-schema.json
-gutch_repo/tests/test_dataset_recipes/reconstruction-storage-4x512mib.json
-gutch_repo/tests/test_dataset_recipes/regression-128mib.json
 gutch_repo/tests/fixture_regression.rs
+gutch_repo/tests/prepare_test_dataset.py
+gutch_repo/tests/source_config_ingestion.rs
 gutch_repo/tests/test_dataset/
 gutch_repo/tests/test_dataset/append-product/
 gutch_repo/tests/test_dataset/append-product/original/
@@ -663,7 +660,10 @@ gutch_repo/tests/test_dataset/small-product/repo/snapshots/bda146e19cff4dfedb6b1
 gutch_repo/tests/test_dataset/small-product/repo/snapshots/dc7b76e7111102f695d3f8a8eef33981c514b5004c96408c27269309e10881f6/
 gutch_repo/tests/test_dataset/small-product/repo/snapshots/dc7b76e7111102f695d3f8a8eef33981c514b5004c96408c27269309e10881f6/snapshot_blueprint.gtcbin
 gutch_repo/tests/test_dataset/small-product/repo/snapshots/dc7b76e7111102f695d3f8a8eef33981c514b5004c96408c27269309e10881f6/snapshot_metadata.json
-gutch_repo/tests/prepare_test_dataset.py
-gutch_repo/tests/source_config_ingestion.rs
+gutch_repo/tests/test_dataset_recipes/
+gutch_repo/tests/test_dataset_recipes/blender-official.json
+gutch_repo/tests/test_dataset_recipes/fixture-schema.json
+gutch_repo/tests/test_dataset_recipes/reconstruction-storage-4x512mib.json
+gutch_repo/tests/test_dataset_recipes/regression-128mib.json
 gutch_repo/usage.md
 ```
