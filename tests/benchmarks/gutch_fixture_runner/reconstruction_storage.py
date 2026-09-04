@@ -19,7 +19,7 @@ from .s3 import (
     metadata_urls,
     publish_repository,
 )
-from .workflow import LocalGutchFixtureRunner, _minimal_schema, _snapshot_id, _verify_seconds
+from .workflow import LocalGutchFixtureRunner, _snapshot_id, _verify_seconds
 
 
 def run_reconstruction_storage(
@@ -49,9 +49,8 @@ def run_reconstruction_storage(
     fetched_destination = lane.payload / "fetched-reconstructed"
     full_repo = lane.payload / "fetch-reconstruct-repo"
     full_destination = lane.payload / "fetch-reconstructed"
-    schema = _minimal_schema(lane.root / "benchmark-schema.json")
     commands.run(
-        cli.command("repo", "init", "--path", repo, "--schema", schema),
+        cli.command("repo", "init", "--path", repo),
         description="reconstruction-storage repository init",
     )
     capture_stats = lane.stats / "capture.json"

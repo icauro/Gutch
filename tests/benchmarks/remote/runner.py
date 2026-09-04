@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import secrets
+import shlex
+import subprocess
 import tempfile
 import zipfile
 
@@ -56,6 +58,47 @@ def _remote_path(workspace: str, name: str) -> str:
     return f"{workspace.rstrip('/')}/{name}"
 
 
+def _build_linux_cli(repo_root: Path) -> Path:
+    from scripts.build._linux_builder import (
+        build_wsl_command,
+        load_linux_builder_config,
+        windows_path_to_wsl,
+    )
+
+    builder_config = load_linux_builder_config(repo_root)
+    if builder_config.builder_type != "wsl":
+        raise RuntimeError("remote Gutch benchmark requires the configured WSL Linux builder")
+    toolchain_check = subprocess.run(
+        build_wsl_command(builder_config, ["bash", "-lc", "cargo --version && rustc --version"]),
+        cwd=repo_root,
+        check=False,
+    )
+    if toolchain_check.returncode != 0:
+        raise RuntimeError("WSL Linux Rust toolchain check failed")
+    target_directory = repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "linux-gutch"
+    target_directory.mkdir(parents=True, exist_ok=True)
+    repo_wsl = windows_path_to_wsl(builder_config, repo_root)
+    manifest_wsl = windows_path_to_wsl(builder_config, repo_root / "host_app" / "hostapp-cli" / "Cargo.toml")
+    target_wsl = windows_path_to_wsl(builder_config, target_directory)
+    shell_command = " && ".join(
+        [
+            f"cd {shlex.quote(repo_wsl)}",
+            f"CARGO_TARGET_DIR={shlex.quote(target_wsl)} cargo build --release --manifest-path {shlex.quote(manifest_wsl)} --bin hostapp-cli",
+        ]
+    )
+    result = subprocess.run(
+        build_wsl_command(builder_config, ["bash", "-lc", shell_command]),
+        cwd=repo_root,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("WSL Linux hostapp-cli build failed")
+    binary = target_directory / "release" / "hostapp-cli"
+    if not binary.is_file():
+        raise FileNotFoundError(f"WSL Linux build did not produce {binary}")
+    return binary
+
+
 def run_remote_benchmark(
     *,
     fixture: str,
@@ -64,12 +107,9 @@ def run_remote_benchmark(
     keep_artifacts: bool = False,
 ) -> Path:
     config = load_benchmark_config(config_path)
-    if config.hostapp_cli_linux_x64 is None:
-        raise ValueError(
-            "benchmark config requires binaries.hostapp_cli_linux_x64 with version, url, and sha256"
-        )
     fixture_path = BENCHMARK_ROOT / "gutch_fixture_runner" / "fixtures" / f"{fixture}.yaml"
     load_s3_cycle(fixture_path)
+    binary_path = _build_linux_cli(REPOSITORY_ROOT)
     target = RemoteTarget.from_config(config_path=config.path)
     launcher = RemoteLauncher(target)
     workspace = f"{target.workspace.rstrip('/')}/run-{secrets.token_hex(12)}"
@@ -86,6 +126,7 @@ def run_remote_benchmark(
         remote_package = _remote_path(workspace, "benchmark-package.zip")
         remote_config = _remote_path(workspace, "config.yml")
         remote_entry = _remote_path(workspace, "entry.py")
+        remote_binary = _remote_path(workspace, "hostapp-cli")
         launcher.run(
             ["mkdir", "-p", workspace],
             description="create remote benchmark workspace",
@@ -94,6 +135,7 @@ def run_remote_benchmark(
             launcher.upload(package_path, remote_package, description="upload benchmark package")
             launcher.upload(runtime_config_path, remote_config, description="upload benchmark config")
             launcher.upload(REMOTE_ENTRY, remote_entry, description="upload remote benchmark runner")
+            launcher.upload(binary_path, remote_binary, description="upload WSL-built Linux hostapp-cli")
             command = [
                 config.remote_python,
                 remote_entry,
@@ -105,6 +147,8 @@ def run_remote_benchmark(
                 workspace,
                 "--fixture",
                 fixture,
+                "--binary",
+                remote_binary,
             ]
             if keep_artifacts:
                 command.append("--keep-artifacts")

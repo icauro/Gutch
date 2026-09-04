@@ -12,12 +12,6 @@ environment:
   S3_MAIN_ACCESS_KEY: ""
   S3_MAIN_SECRET_KEY: ""
 
-binaries:
-  hostapp_cli_linux_x64:
-    version: ""
-    url: ""
-    sha256: ""
-
 dataset:
   blender_versions:
     - 5.2.0

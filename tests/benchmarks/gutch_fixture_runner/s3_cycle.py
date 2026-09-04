@@ -23,7 +23,7 @@ from .s3 import (
     metadata_urls,
     publish_repository,
 )
-from .workflow import LocalGutchFixtureRunner, _minimal_schema, _snapshot_id, _verify_seconds
+from .workflow import LocalGutchFixtureRunner, _snapshot_id, _verify_seconds
 
 
 @dataclass(frozen=True)
@@ -147,7 +147,7 @@ def run_s3_cycle(
         remove_tree(repo)
         remove_tree(fetched_repo_root)
         remove_tree(output)
-        local._init_repo(lane.root, repo, lane_spec.label)
+        local._init_repo(repo, lane_spec.label)
         captures: list[tuple[str, str]] = []
         backup_seconds = 0.0
         traces: dict[str, list[str]] = {

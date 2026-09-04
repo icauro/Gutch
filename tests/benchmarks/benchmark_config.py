@@ -35,13 +35,6 @@ class SshTarget:
 
 
 @dataclass(frozen=True)
-class BinaryArtifact:
-    version: str
-    url: str
-    sha256: str
-
-
-@dataclass(frozen=True)
 class BenchmarkConfig:
     path: Path
     product_root: Path
@@ -52,7 +45,6 @@ class BenchmarkConfig:
     remote_fixtures_root: str
     remote_python: str
     ssh_targets: dict[str, SshTarget]
-    hostapp_cli_linux_x64: BinaryArtifact | None
     blender_versions: tuple[str, ...]
     blender_platforms: tuple[str, ...]
 
@@ -112,20 +104,6 @@ def _environment(values: object, path: Path) -> dict[str, str]:
     return environment
 
 
-def _binary_artifact(values: object, name: str, path: Path) -> BinaryArtifact | None:
-    if values is None:
-        return None
-    raw = _mapping(values, name, path)
-    if not raw or all(value in (None, "") for value in raw.values()):
-        return None
-    version = _required_string(raw, "version", path)
-    url = _required_string(raw, "url", path)
-    sha256 = _required_string(raw, "sha256", path).lower()
-    if len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256):
-        raise ValueError(f"benchmark config {name}.sha256 must be a SHA256 hex digest: {path}")
-    return BinaryArtifact(version, url, sha256)
-
-
 def _string_tuple(values: object, name: str, path: Path, default: tuple[str, ...]) -> tuple[str, ...]:
     if values is None:
         return default
@@ -146,7 +124,6 @@ def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
     remote = _mapping(root.get("remote", {}), "remote", config_path)
     environment = _environment(root.get("environment", {}), config_path)
     dataset = _mapping(root.get("dataset", {}), "dataset", config_path)
-    binaries = _mapping(root.get("binaries", {}), "binaries", config_path)
     raw_ssh = _mapping(root.get("ssh", {}), "ssh", config_path)
     ssh_targets: dict[str, SshTarget] = {}
     for name, raw in raw_ssh.items():
@@ -172,11 +149,6 @@ def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
         remote_fixtures_root=_remote_path(remote, "fixtures_root", config_path),
         remote_python=_required_string(remote, "python", config_path),
         ssh_targets=ssh_targets,
-        hostapp_cli_linux_x64=_binary_artifact(
-            binaries.get("hostapp_cli_linux_x64"),
-            "binaries.hostapp_cli_linux_x64",
-            config_path,
-        ),
         blender_versions=_string_tuple(
             dataset.get("blender_versions"),
             "dataset.blender_versions",

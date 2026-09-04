@@ -24,36 +24,6 @@ from .external import ExternalTools, run_external
 from .models import FixtureSpec, GutchProfile, LaneResult, LaneSpec
 
 
-def _minimal_schema(path: Path) -> Path:
-    path.write_text(
-        json.dumps(
-            {
-                "tag_definitions": [
-                    {
-                        "tag_name": "version",
-                        "tag_kind": "exclusive",
-                        "is_required": True,
-                        "inference_prefixes": ["-v", "-"],
-                        "allowed_values": [],
-                        "inference_strategy": "version",
-                    },
-                    {
-                        "tag_name": "access",
-                        "tag_kind": "exclusive",
-                        "is_required": False,
-                        "inference_prefixes": ["-"],
-                        "allowed_values": ["public", "supporter"],
-                        "inference_strategy": "default",
-                    },
-                ]
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    return path
-
-
 def _version(name: str) -> str:
     match = re.search(r"(?<!\d)(\d+\.\d+\.\d+(?:\.\d+)?)(?!\d)", name)
     if match is None:
@@ -87,10 +57,9 @@ class LocalGutchFixtureRunner:
     run: RunLayout
     external: ExternalTools | None = None
 
-    def _init_repo(self, lane_root: Path, repo: Path, label: str) -> None:
-        schema = _minimal_schema(lane_root / "benchmark-schema.json")
+    def _init_repo(self, repo: Path, label: str) -> None:
         self.commands.run(
-            self.cli.command("repo", "init", "--path", repo, "--schema", schema),
+            self.cli.command("repo", "init", "--path", repo),
             description=f"{label} repository init",
         )
 
@@ -273,7 +242,7 @@ class LocalGutchFixtureRunner:
         output = lane.payload / "reconstructed"
         remove_tree(repo)
         remove_tree(output)
-        self._init_repo(lane.root, repo, lane_spec.label)
+        self._init_repo(repo, lane_spec.label)
         sources = sorted(path for path in product.iterdir() if path.is_dir())
         if not sources:
             raise ValueError(f"product has no target directories: {product}")
@@ -352,7 +321,7 @@ class LocalGutchFixtureRunner:
         output = lane.payload / "reconstructed"
         remove_tree(repo)
         remove_tree(output)
-        self._init_repo(lane.root, repo, lane_spec.label)
+        self._init_repo(repo, lane_spec.label)
         capture_stats = lane.stats / "capture.json"
         capture_trace = lane.traces / "capture.json"
         sources = sorted(path for path in product.iterdir() if path.is_dir())
@@ -414,7 +383,7 @@ class LocalGutchFixtureRunner:
         output = lane.payload / "reconstructed"
         remove_tree(repo)
         remove_tree(output)
-        self._init_repo(lane.root, repo, lane_spec.label)
+        self._init_repo(repo, lane_spec.label)
         sources = sorted(path for path in product.iterdir() if path.is_dir())
         if not sources:
             raise ValueError(f"product has no target directories: {product}")

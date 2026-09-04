@@ -3,35 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import platform
 import shutil
-import stat
-import subprocess
 import sys
-import urllib.request
 import zipfile
-
-
-def _download_binary(url: str, expected_sha256: str, destination: Path) -> None:
-    temporary = destination.with_name(f".{destination.name}.download")
-    digest = hashlib.sha256()
-    try:
-        with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as output:
-            while block := response.read(1024 * 1024):
-                digest.update(block)
-                output.write(block)
-        actual_sha256 = digest.hexdigest()
-        if actual_sha256 != expected_sha256:
-            raise RuntimeError(
-                f"hostapp-cli SHA256 mismatch: expected {expected_sha256}, got {actual_sha256}"
-            )
-        temporary.replace(destination)
-        destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _extract_package(package_path: Path, destination: Path) -> None:
@@ -82,6 +59,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--fixture", required=True)
+    parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--keep-artifacts", action="store_true")
     args = parser.parse_args()
 
@@ -107,23 +85,10 @@ def main() -> int:
 
     config = load_benchmark_config(args.config.resolve())
     load_benchmark_environment(args.config.resolve(), overwrite=True)
-    binary_spec = config.hostapp_cli_linux_x64
-    if binary_spec is None:
-        raise RuntimeError("benchmark config requires binaries.hostapp_cli_linux_x64")
-
-    binary_path = workspace / "bin" / "hostapp-cli"
-    binary_path.parent.mkdir(parents=True, exist_ok=True)
-    _download_binary(binary_spec.url, binary_spec.sha256, binary_path)
-    version = subprocess.run(
-        [str(binary_path), "--print-release-version"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if version != binary_spec.version:
-        raise RuntimeError(
-            f"hostapp-cli release version mismatch: expected {binary_spec.version}, got {version}"
-        )
+    binary_path = args.binary.resolve()
+    if not binary_path.is_file():
+        raise FileNotFoundError(f"uploaded Linux hostapp-cli was not found: {binary_path}")
+    binary_path.chmod(binary_path.stat().st_mode | 0o111)
 
     dataset_root = Path(config.remote_fixtures_root) / workspace.name
     product = dataset_root / "Blender"
