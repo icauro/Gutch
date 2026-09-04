@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Callable, Sequence
 
 from ..benchmark_config import load_benchmark_config
 from ..common.command import CommandResult, CommandRunner
@@ -46,11 +46,18 @@ class RemoteLauncher:
         prefix.append(self.target.host)
         return prefix
 
-    def run(self, command: Sequence[str], *, description: str) -> CommandResult:
+    def run(
+        self,
+        command: Sequence[str],
+        *,
+        description: str,
+        on_output: Callable[[str, bool], None] | None = None,
+    ) -> CommandResult:
         remote = " ".join(self._quote(item) for item in command)
         return self.commands.run(
             [*self._ssh_prefix(), remote],
             description=description,
+            on_output=on_output,
         )
 
     def upload(self, source: Path, destination: str, *, description: str) -> CommandResult:

@@ -7,6 +7,7 @@ from pathlib import Path
 import secrets
 import shlex
 import subprocess
+import sys
 import tempfile
 import zipfile
 
@@ -57,6 +58,22 @@ def _runtime_config(config: BenchmarkConfig, path: Path, remote_workspace: str) 
 
 def _remote_path(workspace: str, name: str) -> str:
     return f"{workspace.rstrip('/')}/{name}"
+
+
+def _print_remote_output(line: str, is_stderr: bool) -> None:
+    text = line.rstrip()
+    if not text:
+        return
+    if text.startswith("REMOTE_PROGRESS "):
+        try:
+            progress = json.loads(text.removeprefix("REMOTE_PROGRESS "))
+            stage = progress["stage"]
+            detail = progress["detail"]
+            print(f"[remote] {stage}: {detail}", file=sys.stderr, flush=True)
+            return
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+    print(text, file=sys.stderr if is_stderr else sys.stdout, flush=True)
 
 
 def _build_linux_cli(repo_root: Path) -> Path:
@@ -163,11 +180,11 @@ def run_remote_benchmark(
                 command.extend(["--transfer-max-concurrency", str(transfer_max_concurrency)])
             if keep_artifacts:
                 command.append("--keep-artifacts")
-            result = launcher.run(command, description=f"run remote Gutch fixture {fixture}")
-            if result.stdout:
-                print(result.stdout, end="")
-            if result.stderr:
-                print(result.stderr, end="")
+            launcher.run(
+                command,
+                description=f"run remote Gutch fixture {fixture}",
+                on_output=_print_remote_output,
+            )
 
             manifest_path = local_root / "remote-result.json"
             results_path = local_root / "results.json"

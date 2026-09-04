@@ -119,6 +119,7 @@ def run_s3_cycle(
     keep_artifacts: bool = False,
     on_lane_complete: Callable[[LaneResult], None] | None = None,
     on_run_complete: Callable[[list[LaneResult]], None] | None = None,
+    on_step: Callable[[str], None] | None = None,
 ) -> list[LaneResult]:
     if fixture.runner != "gutch-s3":
         raise ValueError(f"fixture {fixture.name!r} is not a gutch-s3 fixture")
@@ -128,7 +129,7 @@ def run_s3_cycle(
     options = options or S3CycleOptions()
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
-    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds)
+    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
     local = LocalGutchFixtureRunner(
         cli,
         commands,
@@ -140,6 +141,8 @@ def run_s3_cycle(
     results: list[LaneResult] = []
     for lane_index, lane_spec in enumerate(measured):
         commands.begin_lane()
+        if on_step is not None:
+            on_step(f"{lane_spec.label} lane started")
         lane = layout.lane(lane_spec.label)
         repo = lane.payload / "published-repo"
         fetched_repo_root = lane.payload / "fetched-repo"
@@ -173,6 +176,8 @@ def run_s3_cycle(
             captures.append((source.name, _snapshot_id(stats)))
             traces["capture"].append(str(trace_path))
         prefix = f"{options.prefix_root}/{run_root.name}/{lane_spec.label}"
+        if on_step is not None:
+            on_step(f"{lane_spec.label} publishing repository to S3")
         upload_started = time.perf_counter()
         upload = publish_repository(
             client,
@@ -183,12 +188,16 @@ def run_s3_cycle(
         )
         upload_seconds = time.perf_counter() - upload_started
         manifest = lane.root / "artifact-urls.json"
+        if on_step is not None:
+            on_step(f"{lane_spec.label} generating artifact URL manifest")
         make_artifact_url_manifest(client, settings, repo, prefix, manifest)
         fetch_seconds = 0.0
         verify_seconds = 0.0
         differences: list[str] = []
         fetch_records: list[tuple[str, str, Path, Path]] = []
         for index, (name, snapshot_id) in enumerate(reversed(captures), start=1):
+            if on_step is not None:
+                on_step(f"{lane_spec.label} fetching and reconstructing {name}")
             urls = metadata_urls(client, settings, repo, prefix, snapshot_id)
             destination = output / name if len(entries) > 1 else output
             fetched_repo = fetched_repo_root / f"{index:03d}"

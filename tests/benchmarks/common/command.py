@@ -4,11 +4,13 @@ from dataclasses import dataclass
 import itertools
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
 import threading
 import time
-from typing import Mapping, Sequence, TextIO
+from collections.abc import Callable, Mapping, Sequence
+from typing import TextIO
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
@@ -89,10 +91,12 @@ class CommandRunner:
         progress: bool | None = None,
         stream: TextIO | None = None,
         step_wait_seconds: float = 0.0,
+        on_step: Callable[[str], None] | None = None,
     ):
         self.progress = progress
         self.stream = stream or sys.stderr
         self.step_wait_seconds = step_wait_seconds
+        self.on_step = on_step
         self._has_completed_step = False
 
     def begin_lane(self) -> None:
@@ -118,33 +122,47 @@ class CommandRunner:
         cwd: Path | None = None,
         env: Mapping[str, str] | None = None,
         expected_failure: bool = False,
+        on_output: Callable[[str, bool], None] | None = None,
     ) -> CommandResult:
         rendered = tuple(str(item) for item in command)
         process_env = os.environ.copy()
         if env:
             process_env.update(env)
         self._wait_for_step(description)
+        if self.on_step is not None:
+            self.on_step(description)
         progress = _CommandProgress(description, self.stream, self.progress)
         progress.start()
         started = time.perf_counter()
         try:
-            completed = subprocess.run(
-                rendered,
-                cwd=cwd,
-                env=process_env,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            if on_output is None:
+                completed = subprocess.run(
+                    rendered,
+                    cwd=cwd,
+                    env=process_env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                stdout = completed.stdout
+                stderr = completed.stderr
+                returncode = completed.returncode
+            else:
+                stdout, stderr, returncode = self._run_streamed(
+                    rendered,
+                    cwd=cwd,
+                    env=process_env,
+                    on_output=on_output,
+                )
         except BaseException:
             progress.finish(False)
             raise
         result = CommandResult(
             command=tuple(_redact(item) for item in rendered),
             elapsed_seconds=time.perf_counter() - started,
-            returncode=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
         )
         success = (result.returncode == 0) != expected_failure
         progress.finish(success)
@@ -152,3 +170,60 @@ class CommandRunner:
         if not success:
             raise CommandError(result, description)
         return result
+
+    @staticmethod
+    def _run_streamed(
+        rendered: tuple[str, ...],
+        *,
+        cwd: Path | None,
+        env: Mapping[str, str],
+        on_output: Callable[[str, bool], None],
+    ) -> tuple[str, str, int]:
+        process = subprocess.Popen(
+            rendered,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        events: queue.Queue[tuple[bool, str | None]] = queue.Queue()
+
+        def read_stream(stream: TextIO, is_stderr: bool) -> None:
+            for line in iter(stream.readline, ""):
+                events.put((is_stderr, line))
+            stream.close()
+            events.put((is_stderr, None))
+
+        threads = [
+            threading.Thread(
+                target=read_stream,
+                args=(stream, is_stderr),
+                daemon=True,
+            )
+            for stream, is_stderr in (
+                (process.stdout, False),
+                (process.stderr, True),
+            )
+            if stream is not None
+        ]
+        for thread in threads:
+            thread.start()
+
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+        closed_streams = 0
+        while closed_streams < len(threads):
+            is_stderr, line = events.get()
+            if line is None:
+                closed_streams += 1
+                continue
+            (stderr_lines if is_stderr else stdout_lines).append(line)
+            on_output(line, is_stderr)
+
+        returncode = process.wait()
+        for thread in threads:
+            thread.join()
+        return "".join(stdout_lines), "".join(stderr_lines), returncode

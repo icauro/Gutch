@@ -12,6 +12,14 @@ import sys
 import zipfile
 
 
+def _emit_progress(stage: str, detail: str) -> None:
+    print(
+        "REMOTE_PROGRESS "
+        + json.dumps({"stage": stage, "detail": detail}, separators=(",", ":")),
+        flush=True,
+    )
+
+
 def _extract_package(package_path: Path, destination: Path) -> None:
     if destination.exists():
         shutil.rmtree(destination)
@@ -90,6 +98,7 @@ def main() -> int:
 
     config = load_benchmark_config(args.config.resolve())
     load_benchmark_environment(args.config.resolve(), overwrite=True)
+    _emit_progress("preparation", "benchmark configuration loaded")
     binary_path = args.binary.resolve()
     if not binary_path.is_file():
         raise FileNotFoundError(f"uploaded Linux hostapp-cli was not found: {binary_path}")
@@ -108,6 +117,7 @@ def main() -> int:
         cache_dir=workspace / "blender-archives",
         force=True,
     )
+    _emit_progress("preparation", f"Blender product ready: {product}")
 
     fixture_path = (
         code_root
@@ -151,6 +161,10 @@ def main() -> int:
     settings = S3Settings.from_environment("S3_MAIN")
     run_root: Path | None = None
     try:
+        _emit_progress(
+            "benchmark",
+            f"starting {fixture.name} with {len(fixture.lanes)} configured lane(s)",
+        )
         if fixture.runner == "gutch-s3":
             assert options is not None
             results = run_s3_cycle(
@@ -160,7 +174,11 @@ def main() -> int:
                 settings,
                 artifacts_root,
                 options=options,
+                on_lane_complete=lambda result: _emit_progress(
+                    "lane", f"{result.label} completed"
+                ),
                 keep_artifacts=True,
+                on_step=lambda detail: _emit_progress("step", detail),
             )
         else:
             results = run_fixture(
@@ -168,9 +186,14 @@ def main() -> int:
                 product,
                 GutchCli(binary_path),
                 artifacts_root,
+                on_lane_complete=lambda result: _emit_progress(
+                    "lane", f"{result.label} completed"
+                ),
                 keep_artifacts=True,
+                on_step=lambda detail: _emit_progress("step", detail),
             )
         run_root = _new_run_root(artifacts_root, before)
+        _emit_progress("complete", f"benchmark results ready: {run_root.name}")
         print_fixture_report(fixture, product, results)
 
         manifest = {

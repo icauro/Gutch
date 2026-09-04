@@ -549,10 +549,11 @@ def run_fixture(
     repo_root: Path | None = None,
     on_lane_complete: Callable[[LaneResult], None] | None = None,
     on_run_complete: Callable[[list[LaneResult]], None] | None = None,
+    on_step: Callable[[str], None] | None = None,
 ) -> list[LaneResult]:
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
-    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds)
+    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
     runner = LocalGutchFixtureRunner(
         cli,
         commands,
@@ -563,6 +564,8 @@ def run_fixture(
     measured_lanes = [lane for lane in fixture.lanes if not lane.warmup]
     for lane_index, lane_spec in enumerate(measured_lanes):
         commands.begin_lane()
+        if on_step is not None:
+            on_step(f"{lane_spec.label} lane started")
         result = runner.run_lane(product, lane_spec, fixture.corrupt_repair)
         results.append(result)
         if on_lane_complete is not None:
