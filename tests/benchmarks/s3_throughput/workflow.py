@@ -5,8 +5,9 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 import time
+from typing import Any
 
-from ..gutch_fixture_runner.s3 import S3Settings, make_client
+from ..gutch_fixture_runner.s3 import S3Client, S3Settings, make_client
 from .config import StorageTarget
 
 
@@ -126,3 +127,74 @@ def run_download(
             )
         )
     return results
+
+
+def _list_objects(client: S3Client, bucket: str, prefix: str) -> list[dict[str, Any]]:
+    objects: list[dict[str, object]] = []
+    continuation_token: str | None = None
+    while True:
+        parameters: dict[str, object] = {"Bucket": bucket, "Prefix": prefix}
+        if continuation_token:
+            parameters["ContinuationToken"] = continuation_token
+        response = client.list_objects_v2(**parameters)
+        objects.extend(response.get("Contents", []))
+        if not response.get("IsTruncated"):
+            return objects
+        continuation_token = response.get("NextContinuationToken")
+        if not isinstance(continuation_token, str) or not continuation_token:
+            raise RuntimeError("S3 object listing was truncated without a continuation token")
+
+
+def run_delete(target: StorageTarget, *, prefix: str) -> int:
+    settings = _settings(target)
+    client = make_client(settings)
+    objects = _list_objects(client, settings.bucket, prefix.rstrip("/") + "/")
+    deleted = 0
+    for start in range(0, len(objects), 1000):
+        batch = objects[start : start + 1000]
+        if not batch:
+            continue
+        response = client.delete_objects(
+            Bucket=settings.bucket,
+            Delete={"Objects": [{"Key": item["Key"]} for item in batch], "Quiet": True},
+        )
+        errors = response.get("Errors", [])
+        if errors:
+            raise RuntimeError(f"S3 object deletion failed: {errors}")
+        deleted += len(batch)
+    return deleted
+
+
+def _list_multipart_uploads(client: S3Client, bucket: str, prefix: str | None) -> list[dict[str, Any]]:
+    uploads: list[dict[str, Any]] = []
+    key_marker: str | None = None
+    upload_id_marker: str | None = None
+    while True:
+        parameters: dict[str, object] = {"Bucket": bucket}
+        if prefix:
+            parameters["Prefix"] = prefix
+        if key_marker:
+            parameters["KeyMarker"] = key_marker
+        if upload_id_marker:
+            parameters["UploadIdMarker"] = upload_id_marker
+        response = client.list_multipart_uploads(**parameters)
+        uploads.extend(response.get("Uploads", []))
+        if not response.get("IsTruncated"):
+            return uploads
+        key_marker = response.get("NextKeyMarker")
+        upload_id_marker = response.get("NextUploadIdMarker")
+        if not isinstance(key_marker, str) or not isinstance(upload_id_marker, str):
+            raise RuntimeError("S3 multipart listing was truncated without continuation markers")
+
+
+def run_abort_multipart_uploads(target: StorageTarget, *, prefix: str | None) -> int:
+    settings = _settings(target)
+    client = make_client(settings)
+    uploads = _list_multipart_uploads(client, settings.bucket, prefix)
+    for upload in uploads:
+        client.abort_multipart_upload(
+            Bucket=settings.bucket,
+            Key=upload["Key"],
+            UploadId=upload["UploadId"],
+        )
+    return len(uploads)

@@ -65,12 +65,22 @@ def _run_interactive() -> int:
     if selected is None:
         return 0
     scenario = scenarios[choices.index(selected)]
-    workload = _prompt_choice("Storage action:", ("prepare", "download"))
+    workload = _prompt_choice("Storage action:", ("prepare", "download", "delete", "abort-multipart"))
     if workload is None:
         return 0
     target = _prompt("Target name (blank for all enabled targets)") or None
     work_dir = _optional_path("Work directory")
     output_dir = _optional_path("Download output directory") if workload == "download" else None
+    prefix = None
+    if workload == "delete":
+        prefix = _prompt("Prefix (blank for scenario default)") or None
+    elif workload == "abort-multipart":
+        prefix = _prompt("Prefix (blank for whole bucket)") or None
+    yes = True
+    if workload in {"delete", "abort-multipart"}:
+        yes = _prompt("Confirm destructive action [type YES]") == "YES"
+        if not yes:
+            return 0
     try:
         run_command(
             argparse.Namespace(
@@ -79,6 +89,8 @@ def _run_interactive() -> int:
                 target=target,
                 work_dir=work_dir,
                 output_dir=output_dir,
+                prefix=prefix,
+                yes=yes,
                 env_file=None,
             )
         )

@@ -21,7 +21,7 @@ from .cli import (
 from .binary import resolve_gutch_executable
 from .config import FixtureCatalog
 from .s3_cycle import load_s3_cycle
-from scripts_benchmark_v2.common.config import load_scenario
+from gutch_repo.tests.benchmarks.common.config import load_scenario
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent

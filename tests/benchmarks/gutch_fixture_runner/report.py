@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scripts_benchmark_v2.common.filesystem import scan_tree
+from gutch_repo.tests.benchmarks.common.filesystem import scan_tree
 from .models import FixtureSpec, LaneResult
 
 

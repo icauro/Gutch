@@ -7,9 +7,9 @@ from pathlib import Path
 import tempfile
 import time
 
-from scripts_benchmark_v2.common.command import CommandRunner
-from scripts_benchmark_v2.common.filesystem import compare_directories, remove_tree, scan_tree
-from scripts_benchmark_v2.common.recovery import apply_corruption_plan, build_corruption_plan
+from gutch_repo.tests.benchmarks.common.command import CommandRunner
+from gutch_repo.tests.benchmarks.common.filesystem import compare_directories, remove_tree, scan_tree
+from gutch_repo.tests.benchmarks.common.recovery import apply_corruption_plan, build_corruption_plan
 from .models import LaneResult, LaneSpec
 
 

@@ -5,8 +5,8 @@ import json
 import os
 from pathlib import Path
 
-from scripts_benchmark_v2.common.environment import load_benchmark_environment
-from scripts_benchmark_v2.common.config import load_scenario
+from gutch_repo.tests.benchmarks.common.environment import load_benchmark_environment
+from gutch_repo.tests.benchmarks.common.config import load_scenario
 from .binary import resolve_gutch_executable
 from .commands import GutchCli
 from .config import FixtureCatalog, _wait_seconds
@@ -66,7 +66,7 @@ def run_command(args: argparse.Namespace) -> int:
     repo_root = _repo_root()
     fixture = FixtureCatalog().resolve(args.fixture)
     executable = resolve_gutch_executable(repo_root, args.gutch_exe.resolve() if args.gutch_exe else None)
-    artifacts = args.artifacts_root or repo_root / "scripts_benchmark_v2" / ".artifacts"
+    artifacts = args.artifacts_root or repo_root / "gutch_repo" / "tests" / "benchmarks" / ".artifacts"
     run_fixture(
         fixture,
         product,
@@ -85,7 +85,7 @@ def add_reconstruction_storage_arguments(parser: argparse.ArgumentParser) -> Non
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: scripts_benchmark_v2/.env)")
+    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: gutch_repo/tests/benchmarks/.env)")
     parser.add_argument("--s3-prefix", default="S3_MAIN")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
@@ -123,7 +123,7 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
         product,
         GutchCli(executable),
         settings,
-        args.artifacts_root or repo_root / "scripts_benchmark_v2" / ".artifacts",
+        args.artifacts_root or repo_root / "gutch_repo" / "tests" / "benchmarks" / ".artifacts",
         transfer_concurrency=args.transfer_concurrency,
         upload_concurrency=args.upload_concurrency,
         recovery_enabled=recovery_enabled,
@@ -170,7 +170,7 @@ def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: scripts_benchmark_v2/.env)")
+    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: gutch_repo/tests/benchmarks/.env)")
     parser.add_argument("--s3-prefix", default="S3_MAIN")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
@@ -209,7 +209,7 @@ def run_s3_cycle_command(args: argparse.Namespace) -> int:
         product,
         GutchCli(executable),
         _s3_settings(args, scenario_values.get("storage")),
-        args.artifacts_root or repo_root / "scripts_benchmark_v2" / ".artifacts",
+        args.artifacts_root or repo_root / "gutch_repo" / "tests" / "benchmarks" / ".artifacts",
         options=options,
         keep_artifacts=args.keep_artifacts,
         on_lane_complete=print_lane_result,

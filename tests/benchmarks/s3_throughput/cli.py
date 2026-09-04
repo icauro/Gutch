@@ -4,9 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
-from scripts_benchmark_v2.common.environment import load_benchmark_environment
+from gutch_repo.tests.benchmarks.common.environment import load_benchmark_environment
 from .config import load_storage_scenario
-from .workflow import run_download, run_prepare
+from .workflow import run_abort_multipart_uploads, run_delete, run_download, run_prepare
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
@@ -22,7 +22,8 @@ def run_command(args: argparse.Namespace) -> int:
         targets = [target for target in targets if target.name == args.target]
     if not targets:
         raise SystemExit("no enabled storage targets matched")
-    work_dir = (args.work_dir or Path("scripts_benchmark_v2/.artifacts/storage")).resolve()
+    work_dir = (args.work_dir or Path("gutch_repo/tests/benchmarks/.artifacts/storage")).resolve()
+    delete_prefix = args.prefix if args.prefix is not None else scenario.prefix
     results = []
     for target in targets:
         if args.action == "prepare":
@@ -36,7 +37,7 @@ def run_command(args: argparse.Namespace) -> int:
                     work_dir=work_dir / target.name,
                 ).as_json()
             )
-        else:
+        elif args.action == "download":
             results.extend(
                 result.as_json()
                 for result in run_download(
@@ -48,6 +49,31 @@ def run_command(args: argparse.Namespace) -> int:
                     output_dir=args.output_dir or work_dir / "results",
                 )
             )
+        elif args.action == "delete":
+            if not args.yes:
+                raise ValueError("delete requires --yes")
+            results.append(
+                {
+                    "target": target.name,
+                    "operation": "delete",
+                    "prefix": delete_prefix,
+                    "object_count": run_delete(target, prefix=delete_prefix),
+                }
+            )
+        else:
+            if not args.yes:
+                raise ValueError("abort-multipart requires --yes")
+            results.append(
+                {
+                    "target": target.name,
+                    "operation": "abort-multipart",
+                    "prefix": args.prefix,
+                    "upload_count": run_abort_multipart_uploads(
+                        target,
+                        prefix=args.prefix,
+                    ),
+                }
+            )
     output = work_dir / f"{scenario.name}-{args.action}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -57,8 +83,10 @@ def run_command(args: argparse.Namespace) -> int:
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fixture", default="s3_object_storage_8mib")
-    parser.add_argument("--action", choices=("prepare", "download"), required=True)
+    parser.add_argument("--action", choices=("prepare", "download", "delete", "abort-multipart"), required=True)
     parser.add_argument("--target")
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
-    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: scripts_benchmark_v2/.env)")
+    parser.add_argument("--prefix")
+    parser.add_argument("--yes", action="store_true", help="Confirm destructive delete or abort-multipart actions")
+    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: gutch_repo/tests/benchmarks/.env)")

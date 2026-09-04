@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from scripts_benchmark_v2.common.config import ScenarioCatalog, load_scenario
+from gutch_repo.tests.benchmarks.common.config import ScenarioCatalog, load_scenario
 from .models import FixtureSpec, GutchProfile, LaneSpec
 
 
