@@ -242,6 +242,9 @@ def _run_explicit(arguments: list[str]) -> int:
                 transfer_max_concurrency=parsed.transfer_max_concurrency,
                 keep_artifacts=parsed.keep_artifacts,
             )
+        except KeyboardInterrupt:
+            print("Remote benchmark cancelled.", file=sys.stderr)
+            return 130
         except (OSError, RuntimeError, ValueError) as error:
             raise SystemExit(f"remote benchmark failed: {error}") from error
         return 0

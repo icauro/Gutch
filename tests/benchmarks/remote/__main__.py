@@ -125,6 +125,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     try:
         return _run_interactive(args.config)
+    except KeyboardInterrupt:
+        print("Remote benchmark cancelled.", file=sys.stderr)
+        return 130
     except (OSError, RuntimeError, ValueError) as error:
         print(f"Remote benchmark failed: {error}")
         return 1
