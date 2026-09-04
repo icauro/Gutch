@@ -107,6 +107,10 @@ cargo test --manifest-path gutch_repo/Cargo.toml --test fixture_regression
 - Fixture regeneration replaces expected current-format artifacts and must be
   reviewed with the matching contract change.
 
+For stage-by-stage execution details, see [`04_scan_pipeline.md`](04_scan_pipeline.md),
+[`06_reconstruct_pipeline.md`](06_reconstruct_pipeline.md), and
+[`07_verify_pipeline.md`](07_verify_pipeline.md).
+
 ## Pinned Decisions
 
 - `docs_agentic/pinned_decisions/spec_paths_and_ids.md`

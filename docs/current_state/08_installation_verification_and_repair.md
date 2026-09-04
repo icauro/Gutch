@@ -73,6 +73,12 @@ Completed staging is promoted rather than exposing partially reconstructed
 content. Snapshot replacement preserves prior committed metadata and content
 until the replacement verifies and promotion succeeds.
 
+The execution graph, artifact/source reuse, output-handle cache, and remote
+download overlap are detailed in
+[`06_reconstruct_pipeline.md`](06_reconstruct_pipeline.md). Verification lane
+scheduling and hash modes are detailed in
+[`07_verify_pipeline.md`](07_verify_pipeline.md).
+
 ## Failure Boundaries
 
 - A download, decompression, chunk, file, or final verification failure is an

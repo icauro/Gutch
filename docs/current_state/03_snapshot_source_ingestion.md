@@ -89,6 +89,9 @@ implicit name-based ignores inside a selected snapshot source.
 - Source validation and capture preview occur before repo replacement.
 - Frontends do not reimplement tag inference or containment checks.
 
+The detailed scan, chunking, reuse, and capture parallelization stages are
+documented in [`04_scan_pipeline.md`](04_scan_pipeline.md).
+
 ## Pinned Decisions
 
 - `docs_agentic/pinned_decisions/spec_paths_and_ids.md`

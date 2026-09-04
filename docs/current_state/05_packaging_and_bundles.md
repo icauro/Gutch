@@ -15,10 +15,24 @@ concern.
 
 Repo metadata owns the content packaging profile. The current bundled
 profile uses FastCDC chunking, BLAKE3 chunk identity, configurable sizing
-presets, and optional Zstandard compression. The default chunk sizing preset
+presets, and a generic compression adapter. The default chunk sizing preset
 targets 128 KiB chunks, and the default bundle sizing preset targets 8 MiB
 bundles. Runtime and benchmark overrides still use the same profile and build
 pipeline.
+
+The current compression adapters are:
+
+| Algorithm | Accepted explicit levels | Default level | Output |
+| --- | --- | --- | --- |
+| `none` | No level is accepted | Not applicable | Raw bytes |
+| `zstd` | `1..=22` | `3` | Compressed |
+| `lz4` | `0..=9` | `0` | Compressed |
+
+The algorithm and level are separate fields in the repo artifact profile.
+Supplying a level outside the selected adapter's range, including any level
+for `none`, fails profile validation. Compression and decompression dispatch
+through the selected adapter; bundle framing and chunk identity remain
+algorithm-neutral.
 
 `bundled` is the current production product-delivery storage mode.
 `loose_chunks` is supported by the engine's fetch, reconstruction,
@@ -71,6 +85,11 @@ identity. The benchmark CLI accepts the same mapping through
 - Corrupt framing, decompression failure, or hash mismatch fails the operation.
 - A partially written download is not promoted as a final artifact.
 - Metadata cannot redirect a chunk outside the fixed repo layout.
+
+The capture-side ordering and artifact-grouping timeline is documented in
+[`04_scan_pipeline.md`](04_scan_pipeline.md). The artifact-side execution,
+cache, and remote-fetch behavior is documented in
+[`06_reconstruct_pipeline.md`](06_reconstruct_pipeline.md).
 
 ## Pinned Decisions
 
