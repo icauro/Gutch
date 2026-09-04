@@ -206,10 +206,7 @@ pub fn discover_source_snapshot_operations(
 
     for snapshot in config.discover_snapshot_sources(source_snapshots_root)? {
         let explicit_tags = snapshot.config_tags.clone().unwrap_or_default();
-        match build_source_snapshot_ops_candidate(
-            &snapshot.path,
-            &explicit_tags,
-        ) {
+        match build_source_snapshot_ops_candidate(&snapshot.path, &explicit_tags) {
             Ok(candidate) => candidates.push(candidate),
             Err(err) => {
                 let folder_name = snapshot
@@ -354,11 +351,7 @@ pub(crate) fn build_source_snapshot_ops_candidate(
     explicit_tags: &manifest::SnapshotTagSet,
 ) -> Result<SourceSnapshotOperationCandidate> {
     let source_modified_at = source_modified_at_from_directory(path)?;
-    build_source_snapshot_ops_candidate_with_modified_at(
-        path,
-        explicit_tags,
-        source_modified_at,
-    )
+    build_source_snapshot_ops_candidate_with_modified_at(path, explicit_tags, source_modified_at)
 }
 
 pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(

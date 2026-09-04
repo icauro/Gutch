@@ -915,7 +915,7 @@ mod tests {
     };
 
     #[test]
-    fn plan_snapshot_capture_detects_replace_same_tags() {
+    fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
@@ -926,12 +926,9 @@ mod tests {
         std::fs::create_dir_all(&new_source).unwrap();
         std::fs::write(new_source.join("game.exe"), b"old-content").unwrap();
 
-        let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
-        let old_candidate = build_source_snapshot_ops_candidate(
-            &new_source,
-            &manifest::SnapshotTagSet::default(),
-        )
-        .unwrap();
+        let old_candidate =
+            build_source_snapshot_ops_candidate(&new_source, &manifest::SnapshotTagSet::default())
+                .unwrap();
         let old_files = vec![manifest::FileManifest {
             path: "game.exe".into(),
             size: 11,
@@ -963,8 +960,8 @@ mod tests {
             &manifest::SnapshotTagSet::default(),
         )
         .unwrap();
-        assert_eq!(plan.kind, SnapshotCaptureKind::ReplaceSlot);
-        assert_eq!(plan.replaced_snapshot_ids, vec![old_snapshot_id]);
-        assert!(plan.replaces_existing_slots);
+        assert_eq!(plan.kind, SnapshotCaptureKind::CaptureNew);
+        assert!(plan.replaced_snapshot_ids.is_empty());
+        assert!(!plan.replaces_existing_slots);
     }
 }

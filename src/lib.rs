@@ -42,17 +42,13 @@ pub use build::types::{BuildConfig, BuildResult, BuiltBundle, BuiltLooseChunk};
 pub use error::{Error, Result};
 pub use manifest::gutch_repo::{ArtifactProfile, GutchRepoManifest};
 pub use manifest::launch::{ResolvedLaunchAction, ResolvedLaunchConfiguration};
-pub use manifest::template::{TaggingRuleTemplate, list_templates, template_schema};
 pub use manifest::{
     ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, ChunkRef, CompressionKind,
-    DirectoryManifest, EditableSnapshotTagDefinition, ExternalProductDependencyRequirement,
-    FileManifest, InferenceHandler, PUBLIC_METADATA_FORMAT_VERSION, SnapshotDirectRuntimeMetadata,
-    SnapshotEntry, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
-    SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagDefinition,
-    SnapshotTagKind, SnapshotTagSchema, SnapshotTagSchemaValidationError,
-    SnapshotTagSchemaValidationResult, SnapshotTagSet, SnapshotTagValueDefinition,
-    StructuredVersion, SymlinkManifest, sanitize_editable_snapshot_tag_schema,
-    validate_editable_snapshot_tag_schema,
+    DirectoryManifest, ExternalProductDependencyRequirement, FileManifest,
+    PUBLIC_METADATA_FORMAT_VERSION, SnapshotDirectRuntimeMetadata, SnapshotEntry,
+    SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
+    SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagKind,
+    SnapshotTagSet, StructuredVersion, SymlinkManifest,
 };
 pub(crate) use profile::file_trace_args;
 pub use profile::{GutchProfileSpan, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler};
@@ -114,7 +110,7 @@ pub use repo::snapshot_sources::{
     plan_snapshot_sources_capture, plan_snapshot_sources_capture_with_context,
 };
 pub(crate) use repo::source_identity::compute_snapshot_id_from_entries;
-pub use repo::tag_requirements::{TagRequirement, TagRequirementStatus, compare_tag_requirements};
+pub use repo::tag_requirements::{TagReference, TagReferenceStatus, advisory_tag_references};
 pub use repo::updates::update_gutch_repo_name;
 pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo_artifacts};
 pub use runtime::RuntimeResourceHints;

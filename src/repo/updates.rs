@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::Result;
 use super::{load_gutch_repo_manifest, write_gutch_repo_manifest};
+use crate::Result;
 
 pub fn update_gutch_repo_name(repo_root: &Path, name: &str) -> Result<()> {
     let trimmed = name.trim();

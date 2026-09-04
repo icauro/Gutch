@@ -11,7 +11,6 @@ fn init_repo(root: &Path) -> GutchRepoPaths {
     let repo_paths = GutchRepoPaths::from_repo_root(&root.join("repo"));
     initialize_gutch_repo_with_options(
         repo_paths.repo_root(),
-        None,
         RepoInitOptions { force: false },
     )
     .unwrap();
@@ -143,7 +142,7 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
 }
 
 #[test]
-fn capture_many_explicit_mode_errors_when_declared_version_is_missing() {
+fn capture_many_explicit_mode_accepts_missing_version_tags() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let product_dir = temp.path().join("product");
@@ -161,7 +160,7 @@ fn capture_many_explicit_mode_errors_when_declared_version_is_missing() {
     )
     .unwrap();
 
-    let result = run_from_args([
+    run_from_args([
         "hostapp-cli",
         "snapshot",
         "capture",
@@ -170,12 +169,16 @@ fn capture_many_explicit_mode_errors_when_declared_version_is_missing() {
         "--repo",
         repo_paths.repo_root().to_str().unwrap(),
         "--yes",
-    ]);
-    let message = result.unwrap_err().to_string();
-    assert!(
-        message.contains("missing a recognizable version tag"),
-        "unexpected error: {message}"
+    ])
+    .unwrap();
+
+    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
+    assert_eq!(status.snapshots.len(), 1);
+    assert_eq!(
+        status.snapshots[0].snapshot_tags.get_exclusive("os"),
+        Some("windows")
     );
+    assert_eq!(status.snapshots[0].snapshot_tags.get_exclusive("version"), None);
 }
 
 #[test]
@@ -208,7 +211,7 @@ fn capture_many_auto_captures_skeleton_config_on_first_use() {
 }
 
 #[test]
-fn capture_single_dir_matches_the_plain_dir_flow() {
+fn capture_single_dir_uses_manual_tags() {
     let temp = tempfile::tempdir().unwrap();
     let repo_paths = init_repo(temp.path());
     let source_dir = temp.path().join("v2.0.0-windows-x86_64-2026_08_01");
@@ -222,6 +225,12 @@ fn capture_single_dir_matches_the_plain_dir_flow() {
         source_dir.to_str().unwrap(),
         "--repo",
         repo_paths.repo_root().to_str().unwrap(),
+        "--tag",
+        "version::2.0.0",
+        "--tag",
+        "os::windows",
+        "--tag",
+        "arch::x86_64",
         "--yes",
     ])
     .unwrap();

@@ -10,10 +10,7 @@ pub(crate) fn run(
     profile: &crate::cli::Profile,
 ) -> g::Result<()> {
     match command {
-        RepoCommands::Init {
-            path,
-            force,
-        } => {
+        RepoCommands::Init { path, force } => {
             actions::repo::init_repo(&path, force)?;
         }
 

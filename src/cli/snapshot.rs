@@ -507,9 +507,7 @@ fn collect_capture_many_sources(
 /// The config is read from the directory's parent when present; it is never
 /// generated automatically for a single capture. Returns the entry tags (explicit mode)
 /// and whether name inference is allowed.
-fn single_capture_source_resolution(
-    dir: &Path,
-) -> g::Result<Option<g::manifest::SnapshotTagSet>> {
+fn single_capture_source_resolution(dir: &Path) -> g::Result<Option<g::manifest::SnapshotTagSet>> {
     let parent = dir.parent().ok_or_else(|| {
         g::Error::manifest(format!(
             "snapshot input has no parent directory: {}",

@@ -21,9 +21,7 @@ pub(crate) fn summarize_snapshot_tags(
     }
 }
 
-pub(crate) fn preview_snapshot_identity(
-    snapshot_tags: &manifest::SnapshotTagSet,
-) -> String {
+pub(crate) fn preview_snapshot_identity(snapshot_tags: &manifest::SnapshotTagSet) -> String {
     snapshot_tags.to_canonical_strings().join(" ")
 }
 

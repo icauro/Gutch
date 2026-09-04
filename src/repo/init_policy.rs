@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use super::{
     GutchRepoPaths, check_gutch_repo, ensure_gutch_repo_layout, write_gutch_repo_manifest,
 };
-use crate::manifest;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -244,6 +243,7 @@ pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::hash::hash_hex;
+    use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
     use crate::{ensure_gutch_repo_layout, write_snapshot_manifest_artifacts};
 
@@ -279,9 +279,8 @@ mod tests {
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let err =
-            initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: false })
-                .unwrap_err();
+        let err = initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: false })
+            .unwrap_err();
         assert!(err.to_string().contains(REPO_INIT_NEEDS_CONFIRMATION));
     }
 
@@ -309,8 +308,7 @@ mod tests {
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
         std::fs::write(bundle_path, b"bundle").unwrap();
 
-        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true })
-            .unwrap();
+        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true }).unwrap();
 
         let status = check_gutch_repo(&repo_root).unwrap();
         assert!(status.is_repo);
@@ -325,8 +323,7 @@ mod tests {
         std::fs::create_dir_all(&repo_root).unwrap();
         std::fs::write(repo_root.join("notes.txt"), b"keep me").unwrap();
 
-        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true })
-            .unwrap();
+        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true }).unwrap();
 
         assert!(repo_root.join("notes.txt").exists());
         assert!(repo_root.join("snapshots").is_dir());

@@ -200,21 +200,14 @@ pub(crate) fn tag_requirements(
     println!("repo: {}", result.repo_root);
     println!("remote_repo_id: {}", result.remote_repo_id);
     for tag in &result.referenced_tags {
-        let values = if tag.allowed_values.is_empty() {
+        let values = if tag.referenced_values.is_empty() {
             "any non-empty value".to_string()
         } else {
-            tag.allowed_values.join(", ")
+            tag.referenced_values.join(", ")
         };
         println!(
-            "{} | {} | {} | {}{}",
-            tag.status,
-            tag.tag_name,
-            tag.tag_kind,
-            values,
-            tag.issue
-                .as_deref()
-                .map(|issue| format!(" | {issue}"))
-                .unwrap_or_default()
+            "{} | {} | {} | {}",
+            tag.status, tag.tag_name, tag.tag_kind, values
         );
     }
     println!("advisory_only: true");

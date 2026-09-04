@@ -439,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_snapshot_sources_capture_detects_refresh_when_source_is_newer() {
+    fn plan_snapshot_sources_capture_keeps_tagless_sources_distinct() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
@@ -473,11 +473,8 @@ mod tests {
         std::fs::write(&game_path, b"new-content").unwrap();
 
         let plan = plan_snapshot_sources_capture(&repo_root, Some(&source_root)).unwrap();
-        assert_eq!(plan.refresh_count, 1);
-        assert_eq!(plan.capturable_count, 0);
-        assert_eq!(
-            plan.to_refresh[0].folder_name,
-            "game-v2.0.0-windows-x86_64-base-2026_07_14"
-        );
+        assert_eq!(plan.refresh_count, 0);
+        assert_eq!(plan.capturable_count, 1);
+        assert!(plan.to_refresh.is_empty());
     }
 }

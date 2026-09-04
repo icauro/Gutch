@@ -5,10 +5,8 @@ pub(crate) mod gutch_repo;
 pub(crate) mod launch;
 mod profiles;
 pub(crate) mod runtime;
-pub(crate) mod schema_edit;
 pub(crate) mod snapshot;
 mod tags;
-pub(crate) mod template;
 
 pub const FORMAT_VERSION: &str = "1";
 pub const PUBLIC_METADATA_FORMAT_VERSION: &str = "1.0.0";
@@ -30,21 +28,12 @@ pub use profiles::{
 pub(crate) use profiles::{
     BundleSizingProfile, ChunkSizingProfile, CompressionProfile, CompressionUnit,
 };
-pub use schema_edit::{
-    EditableSnapshotTagDefinition, SnapshotTagSchemaValidationError,
-    SnapshotTagSchemaValidationResult, sanitize_editable_snapshot_tag_schema,
-    validate_editable_snapshot_tag_schema, validate_snapshot_tag_schema,
-};
 pub(crate) use snapshot::current_host_tags;
 pub use snapshot::{
     SnapshotDirectRuntimeMetadata, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata,
     SnapshotLaunchAction, SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata,
 };
-pub(crate) use tags::is_valid_snapshot_tag_name;
-pub use tags::{
-    InferenceHandler, SnapshotTagDefinition, SnapshotTagKind, SnapshotTagSchema, SnapshotTagSet,
-    SnapshotTagValueDefinition, StructuredVersion,
-};
+pub use tags::{SnapshotTagKind, SnapshotTagSet, StructuredVersion};
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

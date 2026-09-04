@@ -17,7 +17,7 @@ use crate::repo::{
 };
 use crate::{
     Error, GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
-    GutchProgressSink, Result, compare_tag_requirements,
+    GutchProgressSink, Result, advisory_tag_references,
 };
 
 pub(crate) const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
@@ -194,7 +194,7 @@ pub struct RemoteRepositorySummary {
 pub struct RemoteTagRequirementsResult {
     pub repo_root: String,
     pub remote_repo_id: String,
-    pub referenced_tags: Vec<crate::TagRequirementStatus>,
+    pub referenced_tags: Vec<crate::TagReferenceStatus>,
     pub ready: bool,
 }
 
@@ -211,10 +211,10 @@ pub trait RemoteRepositoryCommandProvider {
 
     fn delete_remote_repository(&self, repository: &RemoteRepository) -> Result<()>;
 
-    fn required_tag_requirements(
+    fn referenced_tag_references(
         &self,
         repository: &RemoteRepository,
-    ) -> Result<Vec<crate::TagRequirement>>;
+    ) -> Result<Vec<crate::TagReference>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -834,8 +834,8 @@ pub(crate) fn inspect_repo_tag_requirements(
     let repository = provider
         .repository_provider()
         .resolve_repository(None, Some(&remote_repo_id))?;
-    let requirements = provider.required_tag_requirements(&repository)?;
-    let referenced_tags = compare_tag_requirements(None, &requirements);
+    let requirements = provider.referenced_tag_references(&repository)?;
+    let referenced_tags = advisory_tag_references(&requirements);
 
     Ok(RemoteTagRequirementsResult {
         repo_root: repo_paths.repo_root().display().to_string(),

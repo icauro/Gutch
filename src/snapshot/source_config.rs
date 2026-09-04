@@ -8,10 +8,10 @@
 //!
 //! - `auto` (default): snapshot sources are the immediate subdirectories of the
 //!   source root, filtered by `auto_ingestion_rules.ignore_paths` (plain folder-name
-//!   fnmatch). Tags come from folder names plus CLI tags.
+//!   fnmatch). Auto discovery assigns no tags.
 //! - `explicit`: snapshot sources are exactly the `explicit_ingestion_rules.snapshots`
 //!   paths at any depth, with tags declared per entry. Folder names are
-//!   irrelevant and name inference is disabled.
+//!   irrelevant.
 //!
 //! `.gutch_source_config.json` itself is always ignored: it is a file at the source
 //! root, so snapshot discovery (which only picks directories) never sees it,
@@ -75,7 +75,7 @@ pub struct ResolvedSourceSnapshot {
     /// Path relative to the source root (`/`-separated segments).
     pub relative_path: PathBuf,
     /// Tags declared in the config entry (explicit mode); `None` in auto mode
-    /// or for explicit `--dir` arguments.
+    /// or for explicit `--dir` arguments. Tags are never inferred from names.
     pub config_tags: Option<SnapshotTagSet>,
 }
 
