@@ -152,7 +152,11 @@ def run_external(
             "BORG_BASE_DIR": str(lane_root / "borg"),
             "BORG_CACHE_DIR": str(lane_root / "borg-cache"),
         }
-        tools.commands.run([executable, "repo-create", "--repo", repo, "--encryption", "none-blake3"], description=f"{lane_spec.label} init", env=env)
+        tools.commands.run(
+            [executable, "init", "--encryption", "none", repo],
+            description=f"{lane_spec.label} init",
+            env=env,
+        )
 
     bulk = lane_spec.kind.endswith("exact-bulk")
     started = time.perf_counter()
@@ -179,7 +183,7 @@ def run_external(
     elif bulk:
         archive = f"{lane_spec.label}-bulk"
         tools.commands.run(
-            [executable, "create", *lane_spec.arguments, "--repo", repo, archive, *[source.name for source in sources]],
+            [executable, "create", *lane_spec.arguments, f"{repo}::{archive}", *[source.name for source in sources]],
             description=f"{lane_spec.label} create",
             cwd=product,
             env=env,
@@ -210,7 +214,7 @@ def run_external(
             else:
                 archive = f"{lane_spec.label}-{source.name}"
                 tools.commands.run(
-                    [executable, "create", *lane_spec.arguments, "--repo", repo, archive, source.name],
+                    [executable, "create", *lane_spec.arguments, f"{repo}::{archive}", source.name],
                     description=f"{lane_spec.label} create {source.name}",
                     cwd=product,
                     env=env,
@@ -242,7 +246,7 @@ def run_external(
             )
         elif bulk:
             tools.commands.run(
-                [executable, "extract", "--repo", repo, identifiers["bulk"]],
+                [executable, "extract", f"{repo}::{identifiers['bulk']}"],
                 description=f"{lane_spec.label} extract",
                 cwd=output,
                 env=env,
@@ -271,7 +275,7 @@ def run_external(
                     )
                 else:
                     tools.commands.run(
-                        [executable, "extract", "--repo", repo, identifiers[source.name]],
+                        [executable, "extract", f"{repo}::{identifiers[source.name]}"],
                         description=f"{lane_spec.label} extract {source.name}",
                         cwd=output,
                         env=env,
@@ -316,7 +320,7 @@ def run_external(
             env=env,
         )
     else:
-        tools.commands.run([executable, "check", "--repo", repo, "--verify-data"], description=f"{lane_spec.label} check", env=env)
+        tools.commands.run([executable, "check", "--verify-data", repo], description=f"{lane_spec.label} check", env=env)
     verify = time.perf_counter() - verify_started
     differences = _compare(sources, output)
     return LaneResult(
