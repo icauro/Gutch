@@ -1,0 +1,24 @@
+name: gutch_storage_layout_baseline
+runner: gutch-fixture
+description: Gutch bundled versus loose chunk baseline.
+delete_artifacts: false
+open_perfetto: false
+lanes:
+  - label: bundled-default
+    kind: gutch-individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_16MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: bundled
+  - label: loose-default
+    kind: gutch-individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_16MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: loose_chunks

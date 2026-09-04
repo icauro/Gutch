@@ -1,0 +1,16 @@
+name: gutch_default_trace_with_corrupt_repair
+runner: gutch-fixture
+description: Default local Gutch trace lane with corruption and repair enabled.
+delete_artifacts: true
+open_perfetto: true
+corrupt_repair: true
+lanes:
+  - label: default-gutch
+    kind: gutch-individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_8MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: bundled

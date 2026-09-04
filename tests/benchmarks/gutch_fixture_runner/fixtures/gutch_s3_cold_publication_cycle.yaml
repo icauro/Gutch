@@ -1,0 +1,45 @@
+name: gutch_s3_cold_publication_cycle
+runner: gutch-s3
+description: Compare Gutch loose-chunk and bundled S3 publication cycles.
+delete_artifacts: true
+open_perfetto: false
+corrupt_repair: false
+storage:
+  backend: s3
+  env_prefix: S3_MAIN
+  prefix_root: hostapp/gutch-benchmark
+  upload_concurrency: 8
+transfer:
+  policy: fixed
+  concurrency: 4
+  max_concurrency: 16
+execution:
+  default_host: remote
+lanes:
+  - label: loose-chunks
+    kind: gutch-individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_8MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: loose_chunks
+  - label: bundle-8MiB
+    kind: gutch-individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_8MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: bundled
+  - label: bundle-16MiB
+    kind: gutch-individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_16MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: bundled

@@ -1,0 +1,34 @@
+name: gutch_compression_profiles
+runner: gutch-fixture
+description: Compare Gutch compression settings.
+delete_artifacts: false
+open_perfetto: false
+lanes:
+  - label: zstd_1
+    kind: gutch-individual
+    profile:
+      chunk: chunk_64KiB
+      compression:
+        algorithm: zstd
+        level: 1
+  - label: zstd_3
+    kind: gutch-individual
+    profile:
+      chunk: chunk_64KiB
+      compression:
+        algorithm: zstd
+        level: 3
+  - label: lz4_default
+    kind: gutch-individual
+    profile:
+      chunk: chunk_64KiB
+      compression:
+        algorithm: lz4
+        level: null
+  # - label: lz4_9
+  #   kind: gutch-individual
+  #   profile:
+  #     chunk: chunk_64KiB
+  #     compression:
+  #       algorithm: lz4
+  #       level: 9

@@ -1,0 +1,23 @@
+name: gutch_vs_external_tools_bulk
+runner: gutch-fixture
+description: Compare whole-product snapshots using zstd1-equivalent compression where supported; Plakar remains native LZ4.
+delete_artifacts: true
+open_perfetto: false
+lanes:
+  - label: gutch-product-default
+    kind: gutch-product-bulk
+    profile:
+      compression:
+        algorithm: zstd
+        level: 1
+  - label: restic-bulk
+    kind: restic-exact-bulk
+    arguments: [--compression, fastest]
+  - label: kopia-bulk
+    kind: kopia-exact-bulk
+    arguments: [--compression=zstd-fastest]
+  - label: borg-bulk
+    kind: borg-exact-bulk
+    arguments: [--compression, "zstd,1"]
+  - label: plakar-bulk
+    kind: plakar-exact-bulk

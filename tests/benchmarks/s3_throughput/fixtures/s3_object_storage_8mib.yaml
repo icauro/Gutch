@@ -1,0 +1,35 @@
+name: s3_object_storage_8mib
+runner: storage-s3
+description: Upload and download a shared 8 MiB object set against S3 targets.
+targets:
+  - name: main-prod
+    enabled: true
+    env_prefix: S3_MAIN
+  - name: public-prod
+    enabled: true
+    env_prefix: S3_PUBLIC
+  - name: cloudflare-r2-private
+    enabled: true
+    endpoint: https://ACCOUNT_ID.r2.cloudflarestorage.com
+    region: auto
+    bucket: example-private-bucket
+  - name: ovh-prod-na1
+    enabled: true
+    endpoint: https://s3.bhs.io.cloud.ovh.net
+    region: auto
+    bucket: example-private-na1
+  - name: ovh-prod-eu1
+    enabled: true
+    endpoint: https://s3.de.io.cloud.ovh.net
+    region: auto
+    bucket: example-private-eu1
+prepare:
+  prefix: benchmarks/8mib-set
+  size: 8MiB
+  upload_concurrency: 4
+  object_count: 16
+  download_runs: 1
+download:
+  default_args:
+    concurrency: 16
+    runs: 1

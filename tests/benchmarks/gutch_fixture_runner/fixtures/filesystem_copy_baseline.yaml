@@ -1,0 +1,8 @@
+name: filesystem_copy_baseline
+runner: gutch-fixture
+description: Direct filesystem copy baseline.
+delete_artifacts: true
+open_perfetto: false
+lanes:
+  - label: filesystem-copy
+    kind: filesystem-copy

@@ -1,0 +1,27 @@
+name: gutch_vs_external_tools_individual
+runner: gutch-fixture
+description: Compare per-snapshot backups using zstd1-equivalent compression where supported; Plakar remains native LZ4.
+delete_artifacts: true
+open_perfetto: true
+corrupt_repair: false
+lanes:
+  - label: restic
+    kind: restic-individual
+    arguments: [--compression, fastest]
+  - label: kopia
+    kind: kopia-individual
+    arguments: [--compression=zstd-fastest]
+  - label: borg
+    kind: borg-individual
+    arguments: [--compression, "zstd,1"]
+  - label: plakar
+    kind: plakar-individual
+  - label: gutch
+    kind: gutch-individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_8MiB
+      compression:
+        algorithm: zstd
+        level: 1
+      storage: bundled

@@ -1,0 +1,14 @@
+name: gutch_worker_count_profiles
+runner: gutch-fixture
+description: Compare Gutch capture and reconstruction worker counts.
+delete_artifacts: true
+open_perfetto: true
+lanes:
+  - label: jobs-12
+    kind: gutch-individual
+    profile:
+      jobs: 12
+  - label: jobs-24
+    kind: gutch-individual
+    profile:
+      jobs: 24
