@@ -12,6 +12,19 @@ environment:
   S3_MAIN_ACCESS_KEY: ""
   S3_MAIN_SECRET_KEY: ""
 
+binaries:
+  hostapp_cli_linux_x64:
+    version: ""
+    url: ""
+    sha256: ""
+
+dataset:
+  blender_versions:
+    - 5.2.0
+    - 5.2.1
+  blender_platforms:
+    - linux-x64
+
 remote:
   default_target: sv1
   workspace_root: /tmp/hostapp-gutch-benchmark

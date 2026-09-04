@@ -217,7 +217,9 @@ gutch_repo/tests/benchmarks/gutch_fixture_runner/workflow.py
 gutch_repo/tests/benchmarks/README.md
 gutch_repo/tests/benchmarks/remote/
 gutch_repo/tests/benchmarks/remote/__init__.py
+gutch_repo/tests/benchmarks/remote/entry.py
 gutch_repo/tests/benchmarks/remote/launcher.py
+gutch_repo/tests/benchmarks/remote/runner.py
 gutch_repo/tests/benchmarks/s3_throughput/
 gutch_repo/tests/benchmarks/s3_throughput/__init__.py
 gutch_repo/tests/benchmarks/s3_throughput/__main__.py

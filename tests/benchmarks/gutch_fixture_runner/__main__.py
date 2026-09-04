@@ -21,6 +21,7 @@ from .cli import (
 from .binary import resolve_gutch_executable
 from .config import FixtureCatalog
 from .s3_cycle import load_s3_cycle
+from gutch_repo.tests.benchmarks.remote.runner import run_remote_benchmark
 from gutch_repo.tests.benchmarks.common.config import load_scenario
 from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
 
@@ -221,6 +222,25 @@ def _run_explicit(arguments: list[str]) -> int:
         parsed = parser.parse_args(arguments[1:])
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
         return run_s3_cycle_command(parsed)
+    if arguments[0] == "remote":
+        parser = argparse.ArgumentParser(
+            prog="gutch_repo.tests.benchmarks.gutch_fixture_runner remote"
+        )
+        parser.add_argument("--fixture", default="gutch_s3_cold_publication_cycle")
+        parser.add_argument("--config", type=Path)
+        parser.add_argument("--artifacts-root", type=Path)
+        parser.add_argument("--keep-artifacts", action="store_true")
+        parsed = parser.parse_args(arguments[1:])
+        try:
+            run_remote_benchmark(
+                fixture=parsed.fixture,
+                config_path=parsed.config,
+                artifacts_root=parsed.artifacts_root,
+                keep_artifacts=parsed.keep_artifacts,
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            raise SystemExit(f"remote benchmark failed: {error}") from error
+        return 0
     parser = argparse.ArgumentParser(prog="gutch_repo.tests.benchmarks.gutch_fixture_runner")
     add_arguments(parser)
     parsed = parser.parse_args(arguments)

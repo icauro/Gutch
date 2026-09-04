@@ -1,7 +1,7 @@
 """Benchmark-owned configuration independent of the repository config."""
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
@@ -35,6 +35,13 @@ class SshTarget:
 
 
 @dataclass(frozen=True)
+class BinaryArtifact:
+    version: str
+    url: str
+    sha256: str
+
+
+@dataclass(frozen=True)
 class BenchmarkConfig:
     path: Path
     product_root: Path
@@ -45,6 +52,9 @@ class BenchmarkConfig:
     remote_fixtures_root: str
     remote_python: str
     ssh_targets: dict[str, SshTarget]
+    hostapp_cli_linux_x64: BinaryArtifact | None
+    blender_versions: tuple[str, ...]
+    blender_platforms: tuple[str, ...]
 
     def ssh_target(self, name: str | None = None) -> SshTarget:
         selected = name or self.remote_target
@@ -68,6 +78,14 @@ def _required_string(values: dict[str, Any], name: str, path: Path) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"benchmark config {name} must be a non-empty string: {path}")
     return value.strip()
+
+
+def _remote_path(values: dict[str, Any], name: str, path: Path) -> str:
+    value = _required_string(values, name, path)
+    remote_path = PurePosixPath(value)
+    if not remote_path.is_absolute() or ".." in remote_path.parts or remote_path == PurePosixPath("/"):
+        raise ValueError(f"benchmark config {name} must be a safe absolute remote directory: {path}")
+    return value.rstrip("/")
 
 
 def _positive_int(values: dict[str, Any], name: str, path: Path, default: int) -> int:
@@ -94,6 +112,28 @@ def _environment(values: object, path: Path) -> dict[str, str]:
     return environment
 
 
+def _binary_artifact(values: object, name: str, path: Path) -> BinaryArtifact | None:
+    if values is None:
+        return None
+    raw = _mapping(values, name, path)
+    if not raw or all(value in (None, "") for value in raw.values()):
+        return None
+    version = _required_string(raw, "version", path)
+    url = _required_string(raw, "url", path)
+    sha256 = _required_string(raw, "sha256", path).lower()
+    if len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256):
+        raise ValueError(f"benchmark config {name}.sha256 must be a SHA256 hex digest: {path}")
+    return BinaryArtifact(version, url, sha256)
+
+
+def _string_tuple(values: object, name: str, path: Path, default: tuple[str, ...]) -> tuple[str, ...]:
+    if values is None:
+        return default
+    if not isinstance(values, list) or not values or any(not isinstance(value, str) or not value.strip() for value in values):
+        raise ValueError(f"benchmark config {name} must be a non-empty string list: {path}")
+    return tuple(value.strip() for value in values)
+
+
 def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
     config_path = (path or DEFAULT_CONFIG_PATH).expanduser().resolve()
     if not config_path.is_file():
@@ -105,6 +145,8 @@ def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
     local = _mapping(root.get("local", {}), "local", config_path)
     remote = _mapping(root.get("remote", {}), "remote", config_path)
     environment = _environment(root.get("environment", {}), config_path)
+    dataset = _mapping(root.get("dataset", {}), "dataset", config_path)
+    binaries = _mapping(root.get("binaries", {}), "binaries", config_path)
     raw_ssh = _mapping(root.get("ssh", {}), "ssh", config_path)
     ssh_targets: dict[str, SshTarget] = {}
     for name, raw in raw_ssh.items():
@@ -126,8 +168,25 @@ def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
         artifacts_root=_configured_path(local, "artifacts_root", config_path),
         environment=environment,
         remote_target=_required_string(remote, "default_target", config_path),
-        remote_workspace_root=_required_string(remote, "workspace_root", config_path),
-        remote_fixtures_root=_required_string(remote, "fixtures_root", config_path),
+        remote_workspace_root=_remote_path(remote, "workspace_root", config_path),
+        remote_fixtures_root=_remote_path(remote, "fixtures_root", config_path),
         remote_python=_required_string(remote, "python", config_path),
         ssh_targets=ssh_targets,
+        hostapp_cli_linux_x64=_binary_artifact(
+            binaries.get("hostapp_cli_linux_x64"),
+            "binaries.hostapp_cli_linux_x64",
+            config_path,
+        ),
+        blender_versions=_string_tuple(
+            dataset.get("blender_versions"),
+            "dataset.blender_versions",
+            config_path,
+            ("5.2.0", "5.2.1"),
+        ),
+        blender_platforms=_string_tuple(
+            dataset.get("blender_platforms"),
+            "dataset.blender_platforms",
+            config_path,
+            ("linux-x64",),
+        ),
     )
