@@ -144,7 +144,10 @@ pub fn plan_snapshot_sources_capture_with_context(
         let matching_snapshots: Vec<_> = status
             .snapshots
             .iter()
-            .filter(|snapshot| snapshot.snapshot_tags == candidate.snapshot_tags)
+            .filter(|snapshot| {
+                !candidate.snapshot_tags.is_empty()
+                    && snapshot.snapshot_tags == candidate.snapshot_tags
+            })
             .collect();
 
         if matching_snapshots.is_empty() {
@@ -310,8 +313,11 @@ pub fn capture_snapshot_sources(
                 done: false,
             },
         );
-        let removed_for_replacement =
-            crate::delete_repo_snapshots_with_matching_tags(repo_root, &candidate.snapshot_tags)?;
+        let removed_for_replacement = if candidate.snapshot_tags.is_empty() {
+            Vec::new()
+        } else {
+            crate::delete_repo_snapshots_with_matching_tags(repo_root, &candidate.snapshot_tags)?
+        };
         removed_count += removed_for_replacement.len();
         if !removed_for_replacement.is_empty() {
             let _refresh_span =

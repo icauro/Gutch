@@ -160,12 +160,16 @@ pub(crate) fn plan_snapshot_capture_with_source_modified_at(
     )?;
     let status = check_gutch_repo(repo_root)?;
 
-    let replaced_snapshot_ids: Vec<String> = status
-        .snapshots
-        .iter()
-        .filter(|snapshot| snapshot.snapshot_tags == candidate.snapshot_tags)
-        .map(|snapshot| snapshot.snapshot_id.clone())
-        .collect();
+    let replaced_snapshot_ids: Vec<String> = if candidate.snapshot_tags.is_empty() {
+        Vec::new()
+    } else {
+        status
+            .snapshots
+            .iter()
+            .filter(|snapshot| snapshot.snapshot_tags == candidate.snapshot_tags)
+            .map(|snapshot| snapshot.snapshot_id.clone())
+            .collect()
+    };
 
     if !replaced_snapshot_ids.is_empty() {
         return Ok(SnapshotCapturePlan::from_candidate(

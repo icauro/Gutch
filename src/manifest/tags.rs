@@ -31,11 +31,6 @@ impl<'de> Deserialize<'de> for SnapshotTagSet {
 
         for (raw_name, values) in fields.scoped {
             let name = normalize_snapshot_tag_name(&raw_name).map_err(serde::de::Error::custom)?;
-            if name == "version" {
-                return Err(serde::de::Error::custom(
-                    "snapshot tag prefix 'version' must use exclusive syntax",
-                ));
-            }
             if fields.exclusive.contains_key(&raw_name) || normalized.exclusive.contains_key(&name)
             {
                 return Err(serde::de::Error::custom(format!(
@@ -92,6 +87,10 @@ fn normalize_snapshot_tag_name(raw_name: &str) -> crate::Result<String> {
 }
 
 impl SnapshotTagSet {
+    pub fn is_empty(&self) -> bool {
+        self.scoped.is_empty() && self.exclusive.is_empty()
+    }
+
     pub fn insert_scoped(&mut self, prefix: impl Into<String>, value: impl Into<String>) {
         let prefix = prefix.into();
         let value = value.into();
@@ -205,17 +204,8 @@ impl SnapshotTagSet {
         rendered
     }
 
-    pub fn update_family_key(&self, schema: Option<&SnapshotTagSchema>) -> Vec<String> {
-        let is_release_varying = |name: &str| {
-            schema
-                .and_then(|schema| schema.find_definition(name))
-                .is_some_and(|definition| {
-                    matches!(
-                        definition.inference_handler,
-                        InferenceHandler::Version | InferenceHandler::Date
-                    )
-                })
-        };
+    pub fn update_family_key(&self, _schema: Option<&SnapshotTagSchema>) -> Vec<String> {
+        let is_release_varying = |name: &str| matches!(name, "version" | "released_at");
         let mut rendered = Vec::new();
         for (prefix, values) in &self.scoped {
             if is_release_varying(prefix) {
