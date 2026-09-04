@@ -336,7 +336,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     let chunk_hash = test_hash("loose artifact content");
     let compression_profile = manifest::CompressionProfile::default();
     let compressed_bytes =
-        crate::compress::compress_with_level(raw_bytes, compression_profile.zstd_level).unwrap();
+        crate::compress::compress_with_profile(raw_bytes, &compression_profile).unwrap();
     let chunk_path = chunk_path(&paths, &chunk_hash).unwrap();
     std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
     std::fs::write(&chunk_path, &compressed_bytes).unwrap();
@@ -344,7 +344,8 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
     repo_manifest.set_artifact_profile(
         manifest::ArtifactSizingPreset::Chunk128KiB,
-        manifest::CompressionPreset::Zstd3,
+        manifest::CompressionKind::Zstd,
+        Some(3),
         manifest::BundleSizingPreset::Bundle16MiB,
         manifest::ArtifactStorageMode::LooseChunks,
     );

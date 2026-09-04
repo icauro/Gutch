@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactProfile {
     #[serde(rename = "chunk_size_profile")]
@@ -10,7 +10,9 @@ pub struct ArtifactProfile {
     #[serde(rename = "bundle_size_profile")]
     pub bundle: BundleSizingPreset,
     #[serde(rename = "compression_profile")]
-    pub compression: CompressionPreset,
+    pub compression: CompressionKind,
+    #[serde(rename = "compression_level")]
+    pub compression_level: Option<i32>,
     #[serde(rename = "storage_mode")]
     pub storage: ArtifactStorageMode,
 }
@@ -18,7 +20,8 @@ pub struct ArtifactProfile {
 impl ArtifactProfile {
     pub fn for_presets(
         chunk: ArtifactSizingPreset,
-        compression: CompressionPreset,
+        compression: CompressionKind,
+        compression_level: Option<i32>,
         bundle: BundleSizingPreset,
         storage: ArtifactStorageMode,
     ) -> Self {
@@ -26,12 +29,25 @@ impl ArtifactProfile {
             chunk,
             bundle,
             compression,
+            compression_level,
             storage,
         }
     }
 
     pub(crate) fn compression_profile(&self) -> CompressionProfile {
-        CompressionProfile::for_preset(self.compression)
+        CompressionProfile::for_algorithm(self.compression, self.compression_level)
+    }
+}
+
+impl Default for ArtifactProfile {
+    fn default() -> Self {
+        Self::for_presets(
+            ArtifactSizingPreset::default(),
+            CompressionKind::Zstd,
+            Some(3),
+            BundleSizingPreset::default(),
+            ArtifactStorageMode::default(),
+        )
     }
 }
 
@@ -70,11 +86,13 @@ impl GutchRepoManifest {
     pub fn set_artifact_profile(
         &mut self,
         chunk: ArtifactSizingPreset,
-        compression: CompressionPreset,
+        compression: CompressionKind,
+        compression_level: Option<i32>,
         bundle: BundleSizingPreset,
         storage: ArtifactStorageMode,
     ) {
-        self.artifact_profile = ArtifactProfile::for_presets(chunk, compression, bundle, storage);
+        self.artifact_profile =
+            ArtifactProfile::for_presets(chunk, compression, compression_level, bundle, storage);
     }
 
     pub(crate) fn compression_profile(&self) -> CompressionProfile {

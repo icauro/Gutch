@@ -25,10 +25,11 @@ pub use content::{
 pub use external_dependency::ExternalProductDependencyRequirement;
 pub(crate) use external_dependency::validate_external_product_dependency_requirements;
 pub use profiles::{
-    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, CompressionPreset,
+    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, CompressionAlgorithm,
+    CompressionKind,
 };
 pub(crate) use profiles::{
-    BundleSizingProfile, ChunkSizingProfile, CompressionKind, CompressionProfile, CompressionUnit,
+    BundleSizingProfile, ChunkSizingProfile, CompressionProfile, CompressionUnit,
 };
 pub use schema_edit::{
     EditableSnapshotTagDefinition, SnapshotTagSchemaValidationError,

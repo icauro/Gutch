@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::compress::validate_profile;
 use crate::error::Result;
 use crate::hash::{self, ChunkHash};
 use crate::manifest::{BundleTableEntry, CompressionKind, CompressionProfile, CompressionUnit};
@@ -245,29 +246,30 @@ impl BundleBuilder {
                 )]),
             )
         });
-        match self.profile.compression {
-            CompressionKind::None => {
-                for chunk in &self.chunks {
-                    let raw = chunk.raw.as_ref().expect("bundle entries validated above");
-                    hashing.write_all(raw.as_slice())?;
-                }
-            }
-            CompressionKind::Zstd if !self.chunks.is_empty() => {
-                let mut encoder = zstd::stream::Encoder::new(&mut hashing, self.profile.zstd_level)
-                    .map_err(|error| {
-                        crate::error::Error::bundle(format!("zstd compress: {error}"))
-                    })?;
-                for chunk in &self.chunks {
-                    let raw = chunk.raw.as_ref().expect("bundle entries validated above");
-                    encoder.write_all(raw.as_slice()).map_err(|error| {
-                        crate::error::Error::bundle(format!("zstd compress: {error}"))
-                    })?;
-                }
-                encoder.finish().map_err(|error| {
-                    crate::error::Error::bundle(format!("zstd compress: {error}"))
-                })?;
-            }
-            CompressionKind::Zstd => {}
+        let raw_segments: Vec<&[u8]> = self
+            .chunks
+            .iter()
+            .map(|chunk| {
+                chunk
+                    .raw
+                    .as_ref()
+                    .expect("bundle entries validated above")
+                    .as_slice()
+            })
+            .collect();
+        let raw_size = self.chunks.iter().try_fold(0u64, |total, chunk| {
+            total.checked_add(chunk.raw_size).ok_or_else(|| {
+                crate::error::Error::InvalidBundle("bundle raw size overflow".into())
+            })
+        })?;
+        validate_profile(&self.profile)?;
+        if !raw_segments.is_empty() {
+            let compressed_payload = crate::compress::compress_segments_with_profile(
+                &raw_segments,
+                raw_size,
+                &self.profile,
+            )?;
+            hashing.write_all(&compressed_payload)?;
         }
         let compression_time = compression_started_at.elapsed();
         let payload_end = hashing.position()?;
@@ -607,29 +609,14 @@ impl<R: Read + Seek> BundleReader<R> {
             )
         });
         let mut decompress = Duration::default();
-        let stream_result = match self.compression {
-            CompressionKind::None => stream_decoded_chunks(
-                &mut std::io::Cursor::new(compressed.as_slice()),
-                &self.entries,
-                required,
-                &mut decompress,
-                &mut on_chunk,
-            ),
-            CompressionKind::Zstd => {
-                let mut decoder =
-                    zstd::stream::read::Decoder::new(std::io::Cursor::new(compressed.as_slice()))
-                        .map_err(|error| {
-                        crate::error::Error::bundle(format!("zstd decompress: {error}"))
-                    })?;
-                stream_decoded_chunks(
-                    &mut decoder,
-                    &self.entries,
-                    required,
-                    &mut decompress,
-                    &mut on_chunk,
-                )
-            }
-        };
+        let mut decoder = crate::compress::decoder_for(compressed.as_slice(), self.compression)?;
+        let stream_result = stream_decoded_chunks(
+            &mut decoder,
+            &self.entries,
+            required,
+            &mut decompress,
+            &mut on_chunk,
+        );
         stream_result?;
         // Keep the timing metric focused on decoder reads. The callback can
         // perform hashing and positional output writes, which are accounted

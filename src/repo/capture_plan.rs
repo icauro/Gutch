@@ -53,7 +53,8 @@ pub struct RepoSnapshotCaptureRequest {
     pub allow_name_inference: bool,
     pub chunk_profile: crate::manifest::ArtifactSizingPreset,
     pub bundle_profile: crate::manifest::BundleSizingPreset,
-    pub compression_profile: crate::manifest::CompressionPreset,
+    pub compression_algorithm: crate::manifest::CompressionKind,
+    pub compression_level: Option<i32>,
     pub storage_mode: crate::manifest::ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
     pub control: crate::GutchOperationControl,
@@ -498,12 +499,14 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
         .with_previous_manifests(&store_state.previous_file_manifests)
         .with_chunk_profile(request.chunk_profile)
         .with_bundle_profile(request.bundle_profile)
-        .with_compression_profile(request.compression_profile)
+        .with_compression(request.compression_algorithm, request.compression_level)
         .with_storage_mode(request.storage_mode)
         .with_runtime_hints(request.runtime_hints)
         .with_artifact_staging_root(repo_paths.bundles_root.clone());
-    let compression_profile =
-        crate::manifest::CompressionProfile::for_preset(request.compression_profile);
+    let compression_profile = crate::manifest::CompressionProfile::for_algorithm(
+        request.compression_algorithm,
+        request.compression_level,
+    );
     build_config.control = request.control.clone();
     drop(_config_span);
 

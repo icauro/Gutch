@@ -10,6 +10,8 @@ blake3 = { version = "1.8.7", features = ["mmap", "rayon"] }
 # BLAKE3 hashing (chunk/bundle integrity)
 zstd = "0.13.3"
 # Zstandard compression (bundle compression)
+lz4 = "1.28.1"
+# LZ4 compression (optional compression profile)
 serde = { version = "1.0.228", features = ["derive"] }
 # Serialization framework
 serde_json = "1.0.150"

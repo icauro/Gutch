@@ -10,7 +10,8 @@ fn test_gutch_repo_manifest_new() {
         repo.artifact_profile.chunk,
         ArtifactSizingPreset::Chunk128KiB
     );
-    assert_eq!(repo.artifact_profile.compression, CompressionPreset::Zstd3);
+    assert_eq!(repo.artifact_profile.compression, CompressionKind::Zstd);
+    assert_eq!(repo.artifact_profile.compression_level, Some(3));
     assert_eq!(repo.artifact_profile.bundle, BundleSizingPreset::Bundle8MiB);
     assert_eq!(repo.artifact_profile.storage, ArtifactStorageMode::Bundled);
 }
@@ -19,7 +20,8 @@ fn test_gutch_repo_manifest_new() {
 fn artifact_profile_expands_presets_for_the_engine() {
     let profile = ArtifactProfile::for_presets(
         ArtifactSizingPreset::Chunk1MiB,
-        CompressionPreset::Zstd5,
+        CompressionKind::Zstd,
+        Some(5),
         BundleSizingPreset::Bundle64MiB,
         ArtifactStorageMode::LooseChunks,
     );
@@ -28,7 +30,7 @@ fn artifact_profile_expands_presets_for_the_engine() {
         ChunkSizingProfile::for_preset(profile.chunk).preset,
         ArtifactSizingPreset::Chunk1MiB
     );
-    assert_eq!(profile.compression_profile().zstd_level, 5);
+    assert_eq!(profile.compression_profile().level, Some(5));
     assert_eq!(
         BundleSizingProfile::for_preset(profile.bundle).bundle_preferred_mib,
         64
@@ -48,10 +50,8 @@ fn repo_manifest_serializes_the_compact_artifact_profile() {
         artifact_profile.get("chunk_size_profile").unwrap(),
         "chunk_128KiB"
     );
-    assert_eq!(
-        artifact_profile.get("compression_profile").unwrap(),
-        "zstd_3"
-    );
+    assert_eq!(artifact_profile.get("compression_profile").unwrap(), "zstd");
+    assert_eq!(artifact_profile.get("compression_level").unwrap(), 3);
     assert_eq!(
         artifact_profile.get("bundle_size_profile").unwrap(),
         "bundle_8MiB"

@@ -15,15 +15,22 @@ pub enum ArtifactStorageMode {
     LooseChunks,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum CompressionKind {
+pub enum CompressionKind {
     #[serde(rename = "none")]
+    #[value(name = "none")]
     None,
     #[default]
     #[serde(rename = "zstd")]
+    #[value(name = "zstd")]
     Zstd,
+    #[serde(rename = "lz4")]
+    #[value(name = "lz4")]
+    Lz4,
 }
+
+pub type CompressionAlgorithm = CompressionKind;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -194,50 +201,25 @@ impl Default for BundleSizingProfile {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
-pub enum CompressionPreset {
-    #[serde(rename = "uncompressed")]
-    #[value(name = "uncompressed")]
-    Uncompressed,
-    #[serde(rename = "zstd_1")]
-    #[value(name = "zstd_1")]
-    Zstd1,
-    #[serde(rename = "zstd_3")]
-    #[value(name = "zstd_3")]
-    #[default]
-    Zstd3,
-    #[serde(rename = "zstd_5")]
-    #[value(name = "zstd_5")]
-    Zstd5,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CompressionProfile {
-    pub preset: CompressionPreset,
     pub compression: CompressionKind,
     pub compression_unit: CompressionUnit,
-    pub zstd_level: i32,
+    pub level: Option<i32>,
 }
 
 impl CompressionProfile {
-    pub fn for_preset(preset: CompressionPreset) -> Self {
-        let (compression, zstd_level) = match preset {
-            CompressionPreset::Uncompressed => (CompressionKind::None, 0),
-            CompressionPreset::Zstd1 => (CompressionKind::Zstd, 1),
-            CompressionPreset::Zstd3 => (CompressionKind::Zstd, 3),
-            CompressionPreset::Zstd5 => (CompressionKind::Zstd, 5),
-        };
+    pub fn for_algorithm(compression: CompressionKind, level: Option<i32>) -> Self {
         CompressionProfile {
-            preset,
             compression,
             compression_unit: CompressionUnit::Bundle,
-            zstd_level,
+            level,
         }
     }
 }
 
 impl Default for CompressionProfile {
     fn default() -> Self {
-        Self::for_preset(CompressionPreset::Zstd3)
+        Self::for_algorithm(CompressionKind::Zstd, Some(3))
     }
 }

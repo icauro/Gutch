@@ -16,7 +16,7 @@ use crate::build_types::{
     ExistingChunkLocation, StagedBundleFile,
 };
 use crate::bundle::BundleBuilder;
-use crate::compress::compress_with_level;
+use crate::compress;
 use crate::hash::ChunkHash;
 use crate::manifest::{self, ArtifactStorageMode, SnapshotTagSet, snapshot::SnapshotManifest};
 use crate::runtime::{build_thread_pool, plan_build_runtime};
@@ -95,11 +95,7 @@ fn estimate_bundle_compression_ratio_from_probe(
         return Ok((1.0, 0));
     }
 
-    if compression_profile.compression == manifest::CompressionKind::None {
-        return Ok((1.0, raw_probe_size));
-    }
-
-    let compressed_probe = compress_with_level(&probe_payload, compression_profile.zstd_level)?;
+    let compressed_probe = compress::compress_with_profile(&probe_payload, compression_profile)?;
     Ok((
         (compressed_probe.len() as f64 / raw_probe_size as f64).max(0.01),
         raw_probe_size,
@@ -531,11 +527,7 @@ fn build_loose_chunk(
     let bytes = payload.load_bytes()?;
     let payload_load = load_start.elapsed();
 
-    let data = if compression_profile.compression == manifest::CompressionKind::None {
-        bytes
-    } else {
-        compress_with_level(&bytes, compression_profile.zstd_level)?
-    };
+    let data = compress::compress_with_profile(&bytes, compression_profile)?;
     let compressed_size = data.len() as u64;
     Ok(BuiltLooseChunkResult {
         chunk: BuiltLooseChunk {
@@ -597,6 +589,7 @@ pub(crate) fn build_with_config_timed(
     dir: &Path,
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {
+    compress::validate_profile(&config.compression_profile)?;
     let runtime_plan = plan_build_runtime(&config.runtime_hints);
     let _pool_span = config.control.profile_span_with_args(
         "capture.create_worker_pool",

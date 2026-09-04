@@ -253,7 +253,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     let source_only_chunk_hash = test_hash(b"old!");
     let replacement_chunk_hash = test_hash(b"new!");
     let compression_profile =
-        manifest::CompressionProfile::for_preset(manifest::CompressionPreset::Zstd3);
+        manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::Zstd, Some(3));
     let replacement_artifact = crate::ArtifactRef::LooseChunk {
         hash: replacement_chunk_hash.clone(),
     };
@@ -261,7 +261,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     std::fs::create_dir_all(replacement_path.parent().unwrap()).unwrap();
     std::fs::write(
         &replacement_path,
-        crate::compress::compress_with_level(b"new!", compression_profile.zstd_level).unwrap(),
+        crate::compress::compress_with_profile(b"new!", &compression_profile).unwrap(),
     )
     .unwrap();
 
@@ -360,16 +360,13 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     };
     let chunk_path = artifact.local_path(&repo_paths).unwrap();
     std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
+    let compression_profile = crate::manifest::CompressionProfile::for_algorithm(
+        crate::manifest::CompressionKind::Zstd,
+        Some(3),
+    );
     std::fs::write(
         &chunk_path,
-        crate::compress::compress_with_level(
-            b"game",
-            crate::manifest::CompressionProfile::for_preset(
-                crate::manifest::CompressionPreset::Zstd3,
-            )
-            .zstd_level,
-        )
-        .unwrap(),
+        crate::compress::compress_with_profile(b"game", &compression_profile).unwrap(),
     )
     .unwrap();
     let chunk_index = crate::manifest::ChunkIndex {
@@ -402,8 +399,9 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     let result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
             repo_root: &repo_root,
-            compression_profile: crate::manifest::CompressionProfile::for_preset(
-                crate::manifest::CompressionPreset::Zstd3,
+            compression_profile: crate::manifest::CompressionProfile::for_algorithm(
+                crate::manifest::CompressionKind::Zstd,
+                Some(3),
             ),
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,

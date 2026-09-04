@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::hash::ChunkHash;
 use crate::manifest::{
     ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, BundleSizingProfile,
-    ChunkSizingProfile, CompressionPreset, CompressionProfile, FileManifest, SnapshotTagSet,
+    ChunkSizingProfile, CompressionKind, CompressionProfile, FileManifest, SnapshotTagSet,
     snapshot::SnapshotManifest,
 };
 use crate::runtime::{RuntimePlan, RuntimeResourceHints};
@@ -76,8 +76,8 @@ impl<'a> BuildConfig<'a> {
         self
     }
 
-    pub fn with_compression_profile(mut self, preset: CompressionPreset) -> Self {
-        self.compression_profile = CompressionProfile::for_preset(preset);
+    pub fn with_compression(mut self, algorithm: CompressionKind, level: Option<i32>) -> Self {
+        self.compression_profile = CompressionProfile::for_algorithm(algorithm, level);
         self
     }
 

@@ -233,7 +233,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     let chunk1 = vec![0x28, 0xB5, 0x2F, 0xFD, b'r', b'a', b'w', b'1'];
     let chunk2 = b"plain uncompressed payload".to_vec();
 
-    let profile = CompressionProfile::for_preset(crate::manifest::CompressionPreset::Uncompressed);
+    let profile = CompressionProfile::for_algorithm(crate::manifest::CompressionKind::None, None);
     let mut builder = BundleBuilder::new(profile.clone());
     builder.add_chunk(
         ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
