@@ -130,7 +130,7 @@ def run_external(
             "KOPIA_CHECK_FOR_UPDATES": "false",
         }
         tools.commands.run(
-            [executable, "repository", "create", "filesystem", "--path", repo, "--no-persist-credentials", "--no-use-credential-manager", "--no-progress"],
+            [executable, "repository", "create", "filesystem", "--path", repo, "--no-persist-credentials", "--no-use-keyring", "--no-progress"],
             description=f"{lane_spec.label} init",
             env=env,
         )
