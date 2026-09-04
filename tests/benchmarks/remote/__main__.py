@@ -8,6 +8,10 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+    __package__ = "gutch_repo.tests.benchmarks.remote"
+
 from ..benchmark_config import load_benchmark_config
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
 from .runner import run_remote_benchmark
