@@ -4,36 +4,6 @@
   "base_url": "https://download.blender.org/release/",
   "versions": [
     {
-      "version": "5.0.0",
-      "assets": [
-        {
-          "platform": "linux-x64",
-          "archive": "blender-5.0.0-linux-x64.tar.xz",
-          "sha256": "9de96e81432afba9c0a715c7233f1eff616705b75226dc5d0fa2708ddfb0e525"
-        },
-        {
-          "platform": "windows-x64",
-          "archive": "blender-5.0.0-windows-x64.zip",
-          "sha256": "14d491b6e491c35950b89bac8caa4ab7115596cc056775f427806d3ea2eac698"
-        }
-      ]
-    },
-    {
-      "version": "5.1.0",
-      "assets": [
-        {
-          "platform": "linux-x64",
-          "archive": "blender-5.1.0-linux-x64.tar.xz",
-          "sha256": "7f2475990613c8d4c7ac5697803fcf40d09541c1fd8c23936f4b07a169a920c7"
-        },
-        {
-          "platform": "windows-x64",
-          "archive": "blender-5.1.0-windows-x64.zip",
-          "sha256": "bc184226962904e3f26c5809ba7ec86bbeb670060825b046930b0c02a30a4eee"
-        }
-      ]
-    },
-    {
       "version": "5.2.0",
       "assets": [
         {
@@ -45,6 +15,21 @@
           "platform": "windows-x64",
           "archive": "blender-5.2.0-windows-x64.zip",
           "sha256": "2d184b626c001692c362291911293b6a297179d618d95e9e9192c3a80318adc4"
+        }
+      ]
+    },
+    {
+      "version": "5.2.1",
+      "assets": [
+        {
+          "platform": "linux-x64",
+          "archive": "blender-5.2.1-linux-x64.tar.xz",
+          "sha256": "a31f524fa99a527d3d52b7f5aaa68c34e1a19d5a1c9473f79c5cc610fd5b10e9"
+        },
+        {
+          "platform": "windows-x64",
+          "archive": "blender-5.2.1-windows-x64.zip",
+          "sha256": "0e631dad7d0cad6d5d18abdd2e2550f6c0213215334eda00ddbd3d22b96ecb2c"
         }
       ]
     }

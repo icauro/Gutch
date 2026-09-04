@@ -61,13 +61,14 @@ _TIMESTAMP_EPOCH_SPAN_SECONDS = 5 * 365 * 24 * 60 * 60
 TESTS_ROOT = Path(__file__).resolve().parent
 TEST_DATASET_RECIPES_ROOT = TESTS_ROOT / "test_dataset_recipes"
 TEST_DATASET_ROOT = TESTS_ROOT / "test_dataset"
-DEFAULT_TEST_DATASET_ROOT = TEST_DATASET_ROOT
+TEST_DATASET_SOURCE_ROOT = TEST_DATASET_ROOT / "source"
+DEFAULT_TEST_DATASET_ROOT = TEST_DATASET_SOURCE_ROOT
 RECIPE_SCHEMA_FILE_NAME = "fixture-schema.json"
 BLENDER_RECIPE_FILE_NAME = "blender-official.json"
 BLENDER_PRODUCT_NAME = "Blender"
 BLENDER_MANIFEST_FILE_NAME = ".blender-test-manifest.json"
 BLENDER_SOURCE_CONFIG_FILE_NAME = ".gutch_source_config.json"
-BLENDER_DEFAULT_PLATFORMS = ("windows-x64",)
+BLENDER_DEFAULT_PLATFORMS = ("linux-x64", "windows-x64")
 BLENDER_SUPPORTED_PLATFORMS = ("linux-x64", "windows-x64")
 BLENDER_ARCHIVE_SUFFIXES = {"linux-x64": ".tar.xz", "windows-x64": ".zip"}
 BLENDER_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -323,6 +324,8 @@ def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> No
 
     if not archive_path.name.endswith(".tar.xz"):
         raise ValueError(f"unsupported Blender archive: {archive_path.name}")
+    symlinks: list[tuple[Path, str, Path]] = []
+    symlink_targets: dict[Path, Path] = {}
     with tarfile.open(archive_path, mode="r:xz") as archive:
         for member in archive.getmembers():
             parts = _blender_archive_parts(member.name)
@@ -331,6 +334,21 @@ def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> No
                 raise RuntimeError(f"refusing archive entry escaping root: {member.name!r}")
             if member.isdir():
                 destination.mkdir(parents=True, exist_ok=True)
+                continue
+            if member.issym():
+                link_name = member.linkname.replace("\\", "/")
+                if (
+                    not link_name
+                    or link_name.startswith("/")
+                    or re.match(r"^[A-Za-z]:", link_name)
+                    or "\x00" in link_name
+                ):
+                    raise RuntimeError(f"refusing unsafe archive symlink: {member.name!r}")
+                link_target = (destination.parent / link_name).resolve(strict=False)
+                if not link_target.is_relative_to(target_root):
+                    raise RuntimeError(f"refusing archive symlink escaping root: {member.name!r}")
+                symlinks.append((destination, link_name, link_target))
+                symlink_targets[destination] = link_target
                 continue
             if not member.isfile():
                 raise RuntimeError(f"refusing non-file archive entry: {member.name!r}")
@@ -341,6 +359,28 @@ def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> No
             with source, destination.open("wb") as output:
                 shutil.copyfileobj(source, output)
             destination.chmod(member.mode & 0o777)
+    def resolve_materialized_target(path: Path) -> Path:
+        seen: set[Path] = set()
+        current = path
+        while current in symlink_targets:
+            if current in seen:
+                raise RuntimeError(f"cannot materialize cyclic Blender symlink: {current!s}")
+            seen.add(current)
+            current = symlink_targets[current]
+        return current
+
+    for destination, link_name, link_target in symlinks:
+        if os.path.lexists(destination):
+            raise RuntimeError(f"duplicate archive entry: {destination.name!r}")
+        try:
+            destination.symlink_to(link_name)
+        except (NotImplementedError, OSError):
+            materialized_target = resolve_materialized_target(link_target)
+            if not materialized_target.is_file():
+                raise RuntimeError(
+                    f"cannot materialize Blender symlink target: {link_name!r}"
+                )
+            shutil.copy2(materialized_target, destination)
 
 
 def _sha256_file(path: Path) -> str:
@@ -542,7 +582,12 @@ def prepare_blender_product(
                     raise RuntimeError(
                         f"Blender archive {asset.archive_name} did not contain {asset.folder_name}/"
                     )
-                extracted_dir.replace(target_dir)
+                try:
+                    extracted_dir.replace(target_dir)
+                except PermissionError:
+                    # Windows security software can briefly hold a freshly
+                    # extracted directory open; copy it as a safe fallback.
+                    shutil.copytree(extracted_dir, target_dir, symlinks=True)
             finally:
                 _remove_tree(staging_dir)
         target_dirs.append(target_dir)
@@ -1854,7 +1899,7 @@ def _parse_args() -> argparse.Namespace:
         action="append",
         default=None,
         choices=BLENDER_SUPPORTED_PLATFORMS,
-        help="Select an official Blender platform (default: windows-x64)",
+        help="Select an official Blender platform (default: linux-x64, windows-x64)",
     )
     parser.add_argument(
         "--blender-root",

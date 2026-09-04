@@ -75,10 +75,11 @@ uses their root spans for run-level comparison.
 
 ## Checked-In Fixture Regression
 
-Regression test datasets live under `gutch_repo/tests/test_dataset/` and keep the
-original source tree beside its generated repo. Source manifests record
-expected paths, sizes, and BLAKE3 hashes. Tests reconstruct from stored
-repo artifacts and compare against the original tree.
+Regression test datasets use `gutch_repo/tests/test_dataset/source/` for ignored
+prepared inputs and `gutch_repo/tests/test_dataset/repos/v1/` for committed
+current-format Gutch repos. Source manifests record expected paths, sizes, and
+BLAKE3 hashes. Tests reconstruct from stored repo artifacts and compare against
+the prepared source tree when it is available.
 
 The checked-in cases cover a compact multi-version baseline, append/patch/add/
 remove/rename/move behavior, and filesystem behavior including long and
@@ -109,13 +110,17 @@ Prepare deterministic mock recipes:
 python gutch_repo/tests/prepare_test_dataset.py
 ```
 
-Prepare two pinned official Blender Windows builds as well:
+Prepare two pinned official Blender builds for both Linux x64 and Windows x64:
 
 ```pwsh
 python gutch_repo/tests/prepare_test_dataset.py `
-  --blender --blender-version 5.0.0 --blender-version 5.1.0 `
-  --blender-platform windows-x64 --force
+  --blender --blender-version 5.2.0 --blender-version 5.2.1 `
+  --blender-platform linux-x64 --blender-platform windows-x64 --force
 ```
+
+The committed official Blender repo is checked by the ignored large-fixture
+test with `cargo test --manifest-path gutch_repo/Cargo.toml --test
+fixture_regression -- --ignored checked_in_blender_repo_is_processable`.
 
 ## Failure Boundaries
 
