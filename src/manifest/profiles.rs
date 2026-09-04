@@ -30,8 +30,6 @@ pub enum CompressionKind {
     Lz4,
 }
 
-pub type CompressionAlgorithm = CompressionKind;
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CompressionUnit {

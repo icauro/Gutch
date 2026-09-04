@@ -91,8 +91,10 @@ fn test_compression_levels_are_strictly_validated() {
     let zstd_invalid = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(23));
     let lz4_invalid = CompressionProfile::for_algorithm(CompressionKind::Lz4, Some(10));
     let none_invalid = CompressionProfile::for_algorithm(CompressionKind::None, Some(1));
+    let none_zero = CompressionProfile::for_algorithm(CompressionKind::None, Some(0));
 
     assert!(validate_profile(&zstd_invalid).is_err());
     assert!(validate_profile(&lz4_invalid).is_err());
     assert!(validate_profile(&none_invalid).is_err());
+    assert!(validate_profile(&none_zero).is_err());
 }

@@ -411,6 +411,7 @@ impl<R: Read + Seek> BundleReader<R> {
                 "gutch only supports bundle-compressed bundles".into(),
             ));
         }
+        crate::compress::validate_profile(compression_profile)?;
 
         let end = reader.seek(SeekFrom::End(0))?;
         let minimum_size = BUNDLE_HEADER_SIZE + BUNDLE_TRAILER_SIZE + BUNDLE_ID_SIZE;

@@ -71,36 +71,8 @@ pub(crate) struct ArtifactBuildProfileArgs {
     pub(crate) compression_algorithm: g::manifest::CompressionKind,
     #[arg(long = "compression-level")]
     pub(crate) compression_level: Option<i32>,
-    #[arg(long = "compression-profile", value_enum, hide = true)]
-    pub(crate) legacy_compression_profile: Option<LegacyCompressionPreset>,
     #[arg(long = "storage-mode", value_enum, default_value_t = g::manifest::ArtifactStorageMode::Bundled)]
     pub(crate) storage_mode: g::manifest::ArtifactStorageMode,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub(crate) enum LegacyCompressionPreset {
-    #[value(name = "uncompressed")]
-    Uncompressed,
-    #[value(name = "zstd_1")]
-    Zstd1,
-    #[value(name = "zstd_3")]
-    Zstd3,
-    #[value(name = "zstd_5")]
-    Zstd5,
-}
-
-impl ArtifactBuildProfileArgs {
-    pub(crate) fn compression_selection(self) -> (g::manifest::CompressionKind, Option<i32>) {
-        match self.legacy_compression_profile {
-            Some(LegacyCompressionPreset::Uncompressed) => {
-                (g::manifest::CompressionKind::None, None)
-            }
-            Some(LegacyCompressionPreset::Zstd1) => (g::manifest::CompressionKind::Zstd, Some(1)),
-            Some(LegacyCompressionPreset::Zstd3) => (g::manifest::CompressionKind::Zstd, Some(3)),
-            Some(LegacyCompressionPreset::Zstd5) => (g::manifest::CompressionKind::Zstd, Some(5)),
-            None => (self.compression_algorithm, self.compression_level),
-        }
-    }
 }
 
 #[derive(Parser)]
@@ -468,7 +440,6 @@ mod tests {
         SnapshotCommands, TransferPolicyArg,
     };
     use clap::Parser;
-    use gutch as g;
 
     #[test]
     fn parses_provider_neutral_remote_commands() {
@@ -624,35 +595,6 @@ mod tests {
         assert!(matches!(transfer.policy, TransferPolicyArg::Adaptive));
         assert_eq!(transfer.concurrency, 4);
         assert_eq!(transfer.maximum, 12);
-    }
-
-    #[test]
-    fn parses_legacy_compression_profile_into_algorithm_and_level() {
-        let repo = if cfg!(windows) {
-            r"D:\Repos\game"
-        } else {
-            "/repos/game"
-        };
-        let cli = Cli::try_parse_from([
-            "gutch",
-            "snapshot",
-            "capture",
-            "--repo",
-            repo,
-            "--compression-profile",
-            "zstd_5",
-        ])
-        .expect("legacy compression profile should parse");
-        let Commands::Snapshot {
-            command: SnapshotCommands::Capture { build_profile, .. },
-        } = cli.command
-        else {
-            panic!("expected snapshot capture command");
-        };
-        assert_eq!(
-            build_profile.compression_selection(),
-            (g::manifest::CompressionKind::Zstd, Some(5))
-        );
     }
 
     #[test]

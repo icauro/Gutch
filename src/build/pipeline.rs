@@ -589,7 +589,6 @@ pub(crate) fn build_with_config_timed(
     dir: &Path,
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    compress::validate_profile(&config.compression_profile)?;
     let runtime_plan = plan_build_runtime(&config.runtime_hints);
     let _pool_span = config.control.profile_span_with_args(
         "capture.create_worker_pool",
@@ -626,6 +625,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     build_pool: &ThreadPool,
     inventory: &SourceInventory,
 ) -> Result<(BuildResult, BuildTimings)> {
+    compress::validate_profile(&config.compression_profile)?;
     config.control.checkpoint()?;
     let _operation_span = config.control.profile_span("capture.build_snapshot");
     let total_start = Instant::now();

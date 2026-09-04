@@ -40,6 +40,16 @@ fn test_empty_bundle() {
 }
 
 #[test]
+fn test_empty_lz4_bundle() {
+    let profile = CompressionProfile::for_algorithm(crate::manifest::CompressionKind::Lz4, None);
+    let builder = BundleBuilder::new(profile.clone());
+    let bundle_data = builder.build().unwrap();
+    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
+    assert_eq!(reader.chunk_count(), 0);
+    assert!(reader.verify().unwrap());
+}
+
+#[test]
 fn test_single_chunk_bundle() {
     let data = b"single chunk test data ".repeat(20);
     let hash = ChunkHash::from_blake3(hash::hash_chunk(&data));

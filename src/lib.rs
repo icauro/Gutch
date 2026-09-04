@@ -44,11 +44,10 @@ pub use manifest::gutch_repo::{ArtifactProfile, GutchRepoManifest};
 pub use manifest::launch::{ResolvedLaunchAction, ResolvedLaunchConfiguration};
 pub use manifest::template::{TaggingRuleTemplate, list_templates, template_schema};
 pub use manifest::{
-    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, ChunkRef, CompressionAlgorithm,
-    CompressionKind, DirectoryManifest, EditableSnapshotTagDefinition,
-    ExternalProductDependencyRequirement, FileManifest, InferenceHandler,
-    PUBLIC_METADATA_FORMAT_VERSION, SnapshotDirectRuntimeMetadata, SnapshotEntry,
-    SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
+    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, ChunkRef, CompressionKind,
+    DirectoryManifest, EditableSnapshotTagDefinition, ExternalProductDependencyRequirement,
+    FileManifest, InferenceHandler, PUBLIC_METADATA_FORMAT_VERSION, SnapshotDirectRuntimeMetadata,
+    SnapshotEntry, SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
     SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagDefinition,
     SnapshotTagKind, SnapshotTagSchema, SnapshotTagSchemaValidationError,
     SnapshotTagSchemaValidationResult, SnapshotTagSet, SnapshotTagValueDefinition,

@@ -25,8 +25,7 @@ pub use content::{
 pub use external_dependency::ExternalProductDependencyRequirement;
 pub(crate) use external_dependency::validate_external_product_dependency_requirements;
 pub use profiles::{
-    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, CompressionAlgorithm,
-    CompressionKind,
+    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, CompressionKind,
 };
 pub(crate) use profiles::{
     BundleSizingProfile, ChunkSizingProfile, CompressionProfile, CompressionUnit,

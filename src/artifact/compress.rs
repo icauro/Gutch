@@ -19,7 +19,7 @@ impl CompressionAdapter for NoneAdapter {
 
     fn validate_level(&self, level: Option<i32>) -> Result<i32> {
         match level {
-            None | Some(0) => Ok(0),
+            None => Ok(0),
             Some(level) => Err(crate::error::Error::bundle(format!(
                 "compression level {level} is invalid for uncompressed content"
             ))),
@@ -139,6 +139,9 @@ pub(crate) fn validate_profile(profile: &CompressionProfile) -> Result<i32> {
 }
 
 pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Result<Vec<u8>> {
+    if data.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut decoder = adapter_for(compression).decoder(data)?;
     let mut output = Vec::new();
     decoder
@@ -148,6 +151,9 @@ pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Resu
 }
 
 pub(crate) fn decoder_for(data: &[u8], compression: CompressionKind) -> Result<Box<dyn Read + '_>> {
+    if data.is_empty() {
+        return Ok(Box::new(Cursor::new(data)));
+    }
     adapter_for(compression).decoder(data)
 }
 

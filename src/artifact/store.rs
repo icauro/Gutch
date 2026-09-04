@@ -116,6 +116,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     compression_profile: &CompressionProfile,
     profiler: Option<&crate::GutchProfiler>,
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
+    crate::compress::validate_profile(compression_profile)?;
     let mut metrics = LooseChunkReadMetrics::default();
     let compressed = {
         let started_at = Instant::now();

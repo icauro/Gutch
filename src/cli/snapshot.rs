@@ -266,14 +266,16 @@ fn run_capture_one_snapshot(
             ),
         ]),
     );
-    let (compression_algorithm, compression_level) = request.build_profile.compression_selection();
     let mut build_config = g::BuildConfig::for_snapshot("", &resolved_identity.snapshot_tags)
         .with_existing_chunks(&store_state.chunk_locations)
         .with_existing_bundles(&store_state.bundle_ids)
         .with_previous_manifests(&store_state.previous_file_manifests)
         .with_chunk_profile(request.build_profile.chunk_profile)
         .with_bundle_profile(request.build_profile.bundle_profile)
-        .with_compression(compression_algorithm, compression_level)
+        .with_compression(
+            request.build_profile.compression_algorithm,
+            request.build_profile.compression_level,
+        )
         .with_storage_mode(request.build_profile.storage_mode)
         .with_runtime_hints(request.runtime_hints.clone())
         .with_artifact_staging_root(request.repo_paths.bundles_root.clone());
@@ -351,8 +353,10 @@ fn run_capture_one_snapshot(
     )?;
     drop(_artifact_write_span);
     let _index_span = capture_control.profile_span("capture.publish_snapshot.update_chunk_index");
-    let compression_profile =
-        g::manifest::CompressionProfile::for_algorithm(compression_algorithm, compression_level);
+    let compression_profile = g::manifest::CompressionProfile::for_algorithm(
+        request.build_profile.compression_algorithm,
+        request.build_profile.compression_level,
+    );
     {
         let _bundle_index_span =
             capture_control.profile_span("capture.publish_snapshot.index_bundle_entries");
@@ -601,8 +605,6 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         return Err(g::Error::manifest("snapshot capture cancelled"));
                     }
                 }
-                let (compression_algorithm, compression_level) =
-                    build_profile.compression_selection();
                 let capture_result = g::capture_repo_snapshot_with_plan(
                     g::RepoSnapshotCaptureRequest {
                         repo_root: repo.clone(),
@@ -611,8 +613,8 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         allow_name_inference,
                         chunk_profile: build_profile.chunk_profile,
                         bundle_profile: build_profile.bundle_profile,
-                        compression_algorithm,
-                        compression_level,
+                        compression_algorithm: build_profile.compression_algorithm,
+                        compression_level: build_profile.compression_level,
                         storage_mode: build_profile.storage_mode,
                         runtime_hints: runtime.hints(),
                         control: capture_control,
@@ -665,8 +667,8 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                 let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
                 repo_manifest.set_artifact_profile(
                     build_profile.chunk_profile,
-                    compression_algorithm,
-                    compression_level,
+                    build_profile.compression_algorithm,
+                    build_profile.compression_level,
                     build_profile.bundle_profile,
                     build_profile.storage_mode,
                 );
@@ -818,12 +820,10 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                     outputs: optional_output_paths(&stats_json_out),
                 };
 
-                let (compression_algorithm, compression_level) =
-                    build_profile.compression_selection();
                 repo_manifest.set_artifact_profile(
                     build_profile.chunk_profile,
-                    compression_algorithm,
-                    compression_level,
+                    build_profile.compression_algorithm,
+                    build_profile.compression_level,
                     build_profile.bundle_profile,
                     build_profile.storage_mode,
                 );
