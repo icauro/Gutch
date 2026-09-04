@@ -121,8 +121,6 @@ pub(crate) enum RepoCommands {
     Init {
         #[arg(long = "path", value_parser = parse_absolute_path)]
         path: PathBuf,
-        #[arg(long = "schema", value_parser = parse_absolute_path)]
-        schema: Option<PathBuf>,
         #[arg(long = "force")]
         force: bool,
     },
@@ -215,10 +213,6 @@ pub(crate) enum RepoNameCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoTagsCommands {
-    Schema {
-        #[command(subcommand)]
-        command: RepoTagSchemaCommands,
-    },
     Requirements {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,
@@ -226,18 +220,6 @@ pub(crate) enum RepoTagsCommands {
         check: bool,
         #[arg(long = "json-out", value_parser = parse_absolute_path)]
         json_out: Option<PathBuf>,
-    },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum RepoTagSchemaCommands {
-    Set {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "schema", value_parser = parse_absolute_path)]
-        schema: Option<PathBuf>,
-        #[arg(long = "clear")]
-        clear: bool,
     },
 }
 

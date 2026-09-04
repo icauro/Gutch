@@ -1,18 +1,7 @@
 use std::path::Path;
 
 use crate::Result;
-use crate::manifest;
-
 use super::{load_gutch_repo_manifest, write_gutch_repo_manifest};
-
-pub fn update_gutch_repo_schema(
-    repo_root: &Path,
-    _snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
-) -> Result<()> {
-    let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    repo_manifest.snapshot_tag_schema = None;
-    write_gutch_repo_manifest(&repo_paths, &repo_manifest)
-}
 
 pub fn update_gutch_repo_name(repo_root: &Path, name: &str) -> Result<()> {
     let trimmed = name.trim();

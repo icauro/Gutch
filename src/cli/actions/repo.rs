@@ -1,8 +1,8 @@
-use crate::cli::common::{load_optional_rules, prompt_yes_no};
+use crate::cli::common::prompt_yes_no;
 use gutch as g;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-pub(crate) fn init_repo(path: &Path, schema: Option<&PathBuf>, force: bool) -> g::Result<()> {
+pub(crate) fn init_repo(path: &Path, force: bool) -> g::Result<()> {
     let assessment = g::assess_repo_init_path(path)?;
     let mut proceed_force = force;
     if assessment.requires_confirmation && !proceed_force {
@@ -19,7 +19,6 @@ pub(crate) fn init_repo(path: &Path, schema: Option<&PathBuf>, force: bool) -> g
         .unwrap_or("base");
     g::initialize_gutch_repo_with_options(
         path,
-        load_optional_rules(&schema.cloned())?,
         g::RepoInitOptions {
             force: proceed_force,
         },

@@ -189,12 +189,12 @@ pub struct RemoteRepositorySummary {
     pub repository_name: String,
 }
 
-/// Provider-neutral result from comparing a local repo with remote tag requirements.
+/// Provider-neutral result listing tags referenced by the remote access ruleset.
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteTagRequirementsResult {
     pub repo_root: String,
     pub remote_repo_id: String,
-    pub required_tags: Vec<crate::TagRequirementStatus>,
+    pub referenced_tags: Vec<crate::TagRequirementStatus>,
     pub ready: bool,
 }
 
@@ -835,14 +835,13 @@ pub(crate) fn inspect_repo_tag_requirements(
         .repository_provider()
         .resolve_repository(None, Some(&remote_repo_id))?;
     let requirements = provider.required_tag_requirements(&repository)?;
-    let required_tags =
-        compare_tag_requirements(repo_manifest.snapshot_tag_schema.as_ref(), &requirements);
+    let referenced_tags = compare_tag_requirements(None, &requirements);
 
     Ok(RemoteTagRequirementsResult {
         repo_root: repo_paths.repo_root().display().to_string(),
         remote_repo_id,
-        ready: required_tags.iter().all(|tag| tag.status == "ready"),
-        required_tags,
+        ready: true,
+        referenced_tags,
     })
 }
 
@@ -1272,7 +1271,7 @@ fn collect_local_sync_snapshots(
     let mut local_snapshots = Vec::with_capacity(status.snapshots.len());
     for snapshot in &status.snapshots {
         let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
-        let summary = summarize_snapshot_tags(&manifest.snapshot_tags, None);
+        let summary = summarize_snapshot_tags(&manifest.snapshot_tags);
         local_snapshots.push(LocalSyncSnapshot {
             snapshot_id: manifest.snapshot_id.clone(),
             version: summary.version_id,
@@ -1342,7 +1341,7 @@ fn summarize_snapshot_tags_from_values(tags: &[String]) -> (String, String, Stri
                 .insert(value.to_string());
         }
     }
-    let summary = summarize_snapshot_tags(&tag_set, None);
+    let summary = summarize_snapshot_tags(&tag_set);
     (summary.version_id, summary.os, summary.arch)
 }
 

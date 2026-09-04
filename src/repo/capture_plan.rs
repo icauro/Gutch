@@ -48,9 +48,6 @@ pub struct RepoSnapshotCaptureRequest {
     pub repo_root: PathBuf,
     pub source_dir: PathBuf,
     pub explicit_tags: SnapshotTagSet,
-    /// Whether name-based tag inference may fill tags missing from
-    /// `explicit_tags`. False in explicit ingestion mode.
-    pub allow_name_inference: bool,
     pub chunk_profile: crate::manifest::ArtifactSizingPreset,
     pub bundle_profile: crate::manifest::BundleSizingPreset,
     pub compression_algorithm: crate::manifest::CompressionKind,
@@ -112,13 +109,11 @@ pub fn plan_snapshot_capture(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,
-    allow_name_inference: bool,
 ) -> Result<SnapshotCapturePlan> {
     plan_snapshot_capture_with_source_modified_at(
         repo_root,
         source_dir,
         explicit_tags,
-        allow_name_inference,
         String::new(),
     )
 }
@@ -131,31 +126,23 @@ pub fn plan_snapshot_capture_with_control(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,
-    allow_name_inference: bool,
     control: &crate::GutchOperationControl,
 ) -> Result<SnapshotCapturePlan> {
     let _plan_span = control.profile_span("capture.prepare_source.plan_snapshot");
-    plan_snapshot_capture(repo_root, source_dir, explicit_tags, allow_name_inference)
+    plan_snapshot_capture(repo_root, source_dir, explicit_tags)
 }
 
 pub(crate) fn plan_snapshot_capture_with_source_modified_at(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,
-    allow_name_inference: bool,
     source_modified_at: String,
 ) -> Result<SnapshotCapturePlan> {
-    let (_, repo_manifest) = crate::load_gutch_repo_manifest(repo_root)?;
-    let rules = repo_manifest
-        .snapshot_tag_schema
-        .clone()
-        .unwrap_or_default();
+    let _ = crate::load_gutch_repo_manifest(repo_root)?;
 
     let candidate = build_source_snapshot_ops_candidate_with_modified_at(
         source_dir,
-        &rules,
         explicit_tags,
-        allow_name_inference,
         source_modified_at,
     )?;
     let status = check_gutch_repo(repo_root)?;
@@ -325,7 +312,6 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
         request.repo_root.as_path(),
         request.source_dir.as_path(),
         &request.explicit_tags,
-        request.allow_name_inference,
         &request.control,
     )?;
     capture_repo_snapshot_with_plan_and_existing_store_state(
@@ -353,11 +339,7 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
     let _repo_state_span = request
         .control
         .profile_span("capture.prepare_source.load_repo_state");
-    let (repo_paths, repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
-    let rules = repo_manifest
-        .snapshot_tag_schema
-        .clone()
-        .unwrap_or_default();
+    let (repo_paths, _repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
     drop(_repo_state_span);
 
     let mut state_needs_refresh = false;
@@ -447,11 +429,9 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
     let _identity_span = request
         .control
         .profile_span("capture.prepare_source.resolve_identity");
-    let resolved_identity = crate::resolve_snapshot_identity_with_inference(
+    let resolved_identity = crate::snapshot::identity::resolve_snapshot_identity(
         request.source_dir.as_path(),
         &request.explicit_tags,
-        &rules,
-        request.allow_name_inference,
         &format!("snapshot capture input '{}'", request.source_dir.display()),
     )?;
     drop(_identity_span);
@@ -947,15 +927,9 @@ mod tests {
         std::fs::write(new_source.join("game.exe"), b"old-content").unwrap();
 
         let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
-        let rules = repo_manifest
-            .snapshot_tag_schema
-            .clone()
-            .unwrap_or_default();
         let old_candidate = build_source_snapshot_ops_candidate(
             &new_source,
-            &rules,
             &manifest::SnapshotTagSet::default(),
-            true,
         )
         .unwrap();
         let old_files = vec![manifest::FileManifest {
@@ -987,7 +961,6 @@ mod tests {
             &repo_root,
             &new_source,
             &manifest::SnapshotTagSet::default(),
-            true,
         )
         .unwrap();
         assert_eq!(plan.kind, SnapshotCaptureKind::ReplaceSlot);

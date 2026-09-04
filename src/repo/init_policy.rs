@@ -148,7 +148,6 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
 
 pub fn initialize_gutch_repo_with_options(
     repo_root: &Path,
-    snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
     options: RepoInitOptions,
 ) -> Result<()> {
     let assessment = assess_repo_init_path(repo_root)?;
@@ -177,8 +176,7 @@ pub fn initialize_gutch_repo_with_options(
         .filter(|name| !name.is_empty())
         .unwrap_or("base");
     let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
-    let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
-    let _ = snapshot_tag_schema;
+    let repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
     Ok(())
@@ -282,7 +280,7 @@ mod tests {
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
         let err =
-            initialize_gutch_repo_with_options(&repo_root, None, RepoInitOptions { force: false })
+            initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: false })
                 .unwrap_err();
         assert!(err.to_string().contains(REPO_INIT_NEEDS_CONFIRMATION));
     }
@@ -311,7 +309,7 @@ mod tests {
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
         std::fs::write(bundle_path, b"bundle").unwrap();
 
-        initialize_gutch_repo_with_options(&repo_root, None, RepoInitOptions { force: true })
+        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true })
             .unwrap();
 
         let status = check_gutch_repo(&repo_root).unwrap();
@@ -327,7 +325,7 @@ mod tests {
         std::fs::create_dir_all(&repo_root).unwrap();
         std::fs::write(repo_root.join("notes.txt"), b"keep me").unwrap();
 
-        initialize_gutch_repo_with_options(&repo_root, None, RepoInitOptions { force: true })
+        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true })
             .unwrap();
 
         assert!(repo_root.join("notes.txt").exists());

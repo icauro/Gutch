@@ -31,9 +31,7 @@ struct CaptureOneSnapshotRequest<'a> {
     input_dir: &'a Path,
     repo_paths: &'a g::GutchRepoPaths,
     repo_name: &'a str,
-    rules: &'a g::manifest::SnapshotTagSchema,
     explicit_tags: &'a g::manifest::SnapshotTagSet,
-    allow_name_inference: bool,
     build_profile: ArtifactBuildProfileArgs,
     runtime_hints: g::RuntimeResourceHints,
     stats_json_out: &'a Option<PathBuf>,
@@ -140,7 +138,6 @@ fn run_capture_one_snapshot(
         request.repo_paths.repo_root.as_path(),
         request.input_dir,
         request.explicit_tags,
-        request.allow_name_inference,
         &capture_control,
     )?;
     if !request.yes && !request.skip_confirmation {
@@ -216,11 +213,9 @@ fn run_capture_one_snapshot(
 
     let _identity_span = capture_control.profile_span("capture.prepare_source.resolve_identity");
     let context = format!("snapshot capture input '{}'", request.input_dir.display());
-    let resolved_identity = g::snapshot::identity::resolve_snapshot_identity_with_inference(
+    let resolved_identity = g::snapshot::identity::resolve_snapshot_identity(
         request.input_dir,
         request.explicit_tags,
-        request.rules,
-        request.allow_name_inference,
         &context,
     )?;
     drop(_identity_span);
@@ -494,7 +489,6 @@ fn collect_capture_many_sources(
             path: dir.clone(),
             relative_path: dir,
             config_tags: None,
-            allow_name_inference: true,
         });
     }
 
@@ -515,7 +509,7 @@ fn collect_capture_many_sources(
 /// and whether name inference is allowed.
 fn single_capture_source_resolution(
     dir: &Path,
-) -> g::Result<(Option<g::manifest::SnapshotTagSet>, bool)> {
+) -> g::Result<Option<g::manifest::SnapshotTagSet>> {
     let parent = dir.parent().ok_or_else(|| {
         g::Error::manifest(format!(
             "snapshot input has no parent directory: {}",
@@ -523,7 +517,7 @@ fn single_capture_source_resolution(
         ))
     })?;
     let Some(config) = g::source_config::SourceConfig::load(parent)? else {
-        return Ok((None, true));
+        return Ok(None);
     };
     let Some(name) = dir.file_name().and_then(|value| value.to_str()) else {
         return Err(g::Error::manifest(format!(
@@ -532,7 +526,7 @@ fn single_capture_source_resolution(
         )));
     };
     match config.ingestion_mode {
-        g::source_config::IngestionMode::Auto => Ok((None, true)),
+        g::source_config::IngestionMode::Auto => Ok(None),
         g::source_config::IngestionMode::Explicit => {
             let entry = config
                 .explicit_ingestion_rules
@@ -553,9 +547,9 @@ fn single_capture_source_resolution(
                                 rule.path
                             ))
                         })?;
-                    Ok((Some(tags), false))
+                    Ok(Some(tags))
                 }
-                None => Ok((None, false)),
+                None => Ok(None),
             }
         }
     }
@@ -577,8 +571,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             let cli_tags = parse_cli_tags(&tags)?;
             if sources.len() == 1 && source_root.is_none() {
                 let source = &sources[0];
-                let (config_tags, allow_name_inference) =
-                    single_capture_source_resolution(&source.path)?;
+                let config_tags = single_capture_source_resolution(&source.path)?;
                 let mut explicit_tags = cli_tags.clone();
                 if let Some(config_tags) = config_tags {
                     explicit_tags.extend_missing_from(&config_tags);
@@ -590,7 +583,6 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                     repo.as_path(),
                     &source.path,
                     &explicit_tags,
-                    allow_name_inference,
                     &capture_control,
                 )?;
                 if !yes {
@@ -610,7 +602,6 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                         repo_root: repo.clone(),
                         source_dir: source.path.clone(),
                         explicit_tags,
-                        allow_name_inference,
                         chunk_profile: build_profile.chunk_profile,
                         bundle_profile: build_profile.bundle_profile,
                         compression_algorithm: build_profile.compression_algorithm,
@@ -675,10 +666,6 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                 g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
             } else {
                 let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-                let rules = repo_manifest
-                    .snapshot_tag_schema
-                    .clone()
-                    .unwrap_or_default();
                 let repo_name = repo_manifest.name.clone();
                 let prepare_control = crate::cli::control_with_profile(profile);
                 let _plan_all_span = prepare_control.profile_span_with_args(
@@ -699,7 +686,6 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                             repo_paths.repo_root.as_path(),
                             &source.path,
                             &effective_tags,
-                            source.allow_name_inference,
                             &prepare_control,
                         )
                     })
@@ -758,9 +744,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                             input_dir: &source.path,
                             repo_paths: &repo_paths,
                             repo_name: &repo_name,
-                            rules: &rules,
                             explicit_tags: &effective_tags,
-                            allow_name_inference: source.allow_name_inference,
                             build_profile,
                             runtime_hints: runtime.hints(),
                             stats_json_out: &empty_output,
@@ -988,18 +972,11 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             tags,
         } => {
             let prepared_input = prepare_input_path(&source_dir)?;
-            let rules = if let Some(repo) = repo.as_ref() {
-                let (_, repo_manifest) = g::load_gutch_repo_manifest(repo)?;
-                repo_manifest.snapshot_tag_schema.unwrap_or_default()
-            } else {
-                g::manifest::SnapshotTagSchema::default()
-            };
             let explicit_tags = parse_cli_tags(&tags)?;
             let context = format!("snapshot estimate input '{}'", source_dir.display());
             let resolved_identity = g::snapshot::identity::resolve_snapshot_identity(
                 &source_dir,
                 &explicit_tags,
-                &rules,
                 &context,
             )?;
             let result = g::build_from_directory(

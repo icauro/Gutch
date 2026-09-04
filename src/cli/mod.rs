@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 pub(crate) use args::{
     BundleCommands, Cli, Commands, PathCommands, ReconstructedCommands, RemoteCommands,
-    RepoCommands, RepoNameCommands, RepoTagSchemaCommands, RepoTagsCommands, SnapshotCommands,
+    RepoCommands, RepoNameCommands, RepoTagsCommands, SnapshotCommands,
     SnapshotSourcesCommands,
 };
 pub(crate) use common::prompt_yes_no;
@@ -54,9 +54,7 @@ where
             | RepoCommands::Remote { .. }
             | RepoCommands::Link { .. } => true,
             RepoCommands::Unlink { delete_remote, .. } => delete_remote,
-            RepoCommands::Tags {
-                command: RepoTagsCommands::Requirements { .. },
-            } => true,
+            RepoCommands::Tags { .. } => true,
             _ => false,
         },
         _ => false,

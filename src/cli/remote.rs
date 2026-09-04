@@ -199,18 +199,17 @@ pub(crate) fn tag_requirements(
 
     println!("repo: {}", result.repo_root);
     println!("remote_repo_id: {}", result.remote_repo_id);
-    for tag in &result.required_tags {
+    for tag in &result.referenced_tags {
         let values = if tag.allowed_values.is_empty() {
             "any non-empty value".to_string()
         } else {
             tag.allowed_values.join(", ")
         };
         println!(
-            "{} | {} | {} | {} | {}{}",
+            "{} | {} | {} | {}{}",
             tag.status,
             tag.tag_name,
             tag.tag_kind,
-            tag.inference_strategy,
             values,
             tag.issue
                 .as_deref()
@@ -218,10 +217,8 @@ pub(crate) fn tag_requirements(
                 .unwrap_or_default()
         );
     }
-    println!("ready: {}", result.ready);
-    if check && !result.ready {
-        return Err(Error::manifest("repo tag requirements are not satisfied"));
-    }
+    println!("advisory_only: true");
+    let _ = (check, result.ready);
     Ok(())
 }
 

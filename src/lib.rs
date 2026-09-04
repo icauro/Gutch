@@ -115,11 +115,10 @@ pub use repo::snapshot_sources::{
 };
 pub(crate) use repo::source_identity::compute_snapshot_id_from_entries;
 pub use repo::tag_requirements::{TagRequirement, TagRequirementStatus, compare_tag_requirements};
-pub use repo::updates::{update_gutch_repo_name, update_gutch_repo_schema};
+pub use repo::updates::update_gutch_repo_name;
 pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo_artifacts};
 pub use runtime::RuntimeResourceHints;
 pub(crate) use runtime::{RuntimePlan, build_thread_pool, plan_build_runtime};
-pub(crate) use snapshot::identity::resolve_snapshot_identity_with_inference;
 pub(crate) use snapshot::path_guard::validate_manifest_relative_path;
 pub use snapshot::path_guard::{ExistingDestinationPathKind, resolve_existing_destination_path};
 pub(crate) use snapshot_ops::ReconstructTimings;

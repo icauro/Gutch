@@ -26,29 +26,20 @@ pub struct TagRequirementStatus {
 }
 
 pub fn compare_tag_requirements(
-    schema: Option<&SnapshotTagSchema>,
+    _schema: Option<&SnapshotTagSchema>,
     requirements: &[TagRequirement],
 ) -> Vec<TagRequirementStatus> {
     let mut statuses = requirements
         .iter()
-        .map(|requirement| compare_tag_requirement(schema, requirement))
+        .map(|requirement| TagRequirementStatus {
+            tag_name: requirement.tag_name.clone(),
+            tag_kind: requirement.tag_kind.clone(),
+            allowed_values: requirement.allowed_values.clone(),
+            inference_strategy: String::new(),
+            status: "advisory".to_string(),
+            issue: None,
+        })
         .collect::<Vec<_>>();
-
-    if !requirements
-        .iter()
-        .any(|requirement| requirement.tag_name == "version")
-    {
-        statuses.push(compare_tag_requirement(
-            schema,
-            &TagRequirement {
-                tag_name: "version".to_string(),
-                tag_kind: "exclusive".to_string(),
-                allowed_values: Vec::new(),
-                inference_strategy: "version".to_string(),
-            },
-        ));
-    }
-
     statuses.sort_by(|left, right| left.tag_name.cmp(&right.tag_name));
     statuses
 }
@@ -161,11 +152,9 @@ mod tests {
     }
 
     #[test]
-    fn comparison_adds_the_required_version_rule() {
+    fn comparison_does_not_add_a_version_rule() {
         let statuses = compare_tag_requirements(Some(&schema()), &[]);
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].tag_name, "version");
-        assert_eq!(statuses[0].status, "ready");
+        assert!(statuses.is_empty());
     }
 
     #[test]
@@ -179,11 +168,8 @@ mod tests {
                 inference_strategy: "default".to_string(),
             }],
         );
-        assert_eq!(statuses[0].status, "incompatible");
-        assert_eq!(
-            statuses[0].issue.as_deref(),
-            Some("The version tag must be exclusive.")
-        );
+        assert_eq!(statuses[0].status, "advisory");
+        assert!(statuses[0].issue.is_none());
     }
 
     #[test]
@@ -217,7 +203,7 @@ mod tests {
                 .iter()
                 .find(|status| status.tag_name == "platform")
                 .map(|status| status.status.as_str()),
-            Some("ready")
+            Some("advisory")
         );
     }
 }

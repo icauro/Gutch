@@ -378,7 +378,6 @@ fn capture_source_snapshot(
             repo_root: repo_root.to_path_buf(),
             source_dir: std::path::PathBuf::from(&candidate.path),
             explicit_tags: candidate.snapshot_tags.clone(),
-            allow_name_inference: true,
             chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
             bundle_profile: crate::manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: crate::manifest::CompressionKind::Zstd,

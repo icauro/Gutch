@@ -64,8 +64,6 @@ pub struct GutchRepoManifest {
     pub created_at: String,
     #[serde(rename = "content_packaging_profile")]
     pub artifact_profile: ArtifactProfile,
-    #[serde(rename = "snapshot_tag_schema")]
-    pub snapshot_tag_schema: Option<SnapshotTagSchema>,
     #[serde(skip)]
     pub remote_repo_id: String,
 }
@@ -78,7 +76,6 @@ impl GutchRepoManifest {
             name,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),
-            snapshot_tag_schema: None,
             remote_repo_id: String::new(),
         }
     }

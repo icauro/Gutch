@@ -10,7 +10,6 @@ pub(crate) struct SnapshotTagSummary {
 
 pub(crate) fn summarize_snapshot_tags(
     snapshot_tags: &manifest::SnapshotTagSet,
-    _snapshot_tag_schema: Option<&manifest::SnapshotTagSchema>,
 ) -> SnapshotTagSummary {
     let mut canonical_tags = snapshot_tags.to_canonical_strings();
     canonical_tags.sort();
@@ -24,11 +23,8 @@ pub(crate) fn summarize_snapshot_tags(
 
 pub(crate) fn preview_snapshot_identity(
     snapshot_tags: &manifest::SnapshotTagSet,
-    snapshot_tag_schema: Option<&manifest::SnapshotTagSchema>,
 ) -> String {
-    snapshot_tags
-        .to_ordered_strings(snapshot_tag_schema)
-        .join(" ")
+    snapshot_tags.to_canonical_strings().join(" ")
 }
 
 pub(crate) fn exclusive_tag_or_empty(

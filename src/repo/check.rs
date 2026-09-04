@@ -22,8 +22,6 @@ pub struct RepoCheckStatus {
     pub name: String,
     pub remote_repo_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub snapshot_tag_schema: Option<manifest::SnapshotTagSchema>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_manifest: Option<serde_json::Value>,
     pub snapshots: Vec<RepoCheckSnapshotStatus>,
     #[serde(default)]
@@ -165,7 +163,6 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
         repo_path: repo_path_display,
         name: repo_manifest.name.clone(),
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
-        snapshot_tag_schema: repo_manifest.snapshot_tag_schema.clone(),
         repo_manifest: Some(serde_json::to_value(&repo_manifest)?),
         snapshots,
         bundle_count,
@@ -203,7 +200,6 @@ pub fn discover_source_snapshot_operations(
     }
 
     let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    let rules = repo_manifest.snapshot_tag_schema.unwrap_or_default();
     let config =
         crate::snapshot::source_config::SourceConfig::load_or_default(source_snapshots_root)?;
     let mut candidates = Vec::new();
@@ -212,17 +208,10 @@ pub fn discover_source_snapshot_operations(
         let explicit_tags = snapshot.config_tags.clone().unwrap_or_default();
         match build_source_snapshot_ops_candidate(
             &snapshot.path,
-            &rules,
             &explicit_tags,
-            snapshot.allow_name_inference,
         ) {
             Ok(candidate) => candidates.push(candidate),
             Err(err) => {
-                if !snapshot.allow_name_inference {
-                    // A declared explicit snapshot that cannot resolve its tags is
-                    // a hard error rather than a skipped folder.
-                    return Err(err);
-                }
                 let folder_name = snapshot
                     .path
                     .file_name()
@@ -262,7 +251,6 @@ fn empty_repo_check_status(
         repo_path,
         name: String::new(),
         remote_repo_id: String::new(),
-        snapshot_tag_schema: None,
         repo_manifest: None,
         snapshots: Vec::new(),
         bundle_count: 0,
@@ -320,7 +308,7 @@ fn check_snapshot_manifests(
                 None
             };
 
-        let summary = summarize_snapshot_tags(&manifest.snapshot_tags, None);
+        let summary = summarize_snapshot_tags(&manifest.snapshot_tags);
         snapshots.push(RepoCheckSnapshotStatus {
             snapshot_id: manifest.snapshot_id.clone(),
             version_id: summary.version_id,
@@ -363,37 +351,25 @@ struct SnapshotManifestCheckTimings {
 
 pub(crate) fn build_source_snapshot_ops_candidate(
     path: &Path,
-    rules: &manifest::SnapshotTagSchema,
     explicit_tags: &manifest::SnapshotTagSet,
-    allow_name_inference: bool,
 ) -> Result<SourceSnapshotOperationCandidate> {
     let source_modified_at = source_modified_at_from_directory(path)?;
     build_source_snapshot_ops_candidate_with_modified_at(
         path,
-        rules,
         explicit_tags,
-        allow_name_inference,
         source_modified_at,
     )
 }
 
 pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
     path: &Path,
-    rules: &manifest::SnapshotTagSchema,
     explicit_tags: &manifest::SnapshotTagSet,
-    allow_name_inference: bool,
     source_modified_at: String,
 ) -> Result<SourceSnapshotOperationCandidate> {
-    use crate::snapshot::identity::resolve_snapshot_identity_with_inference;
+    use crate::snapshot::identity::resolve_snapshot_identity;
 
     let context = format!("source snapshot '{}'", path.display());
-    let resolved = resolve_snapshot_identity_with_inference(
-        path,
-        explicit_tags,
-        rules,
-        allow_name_inference,
-        &context,
-    )?;
+    let resolved = resolve_snapshot_identity(path, explicit_tags, &context)?;
 
     let folder_name = path
         .file_name()
@@ -404,12 +380,12 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
         })?
         .to_string();
 
-    let summary = summarize_snapshot_tags(&resolved.snapshot_tags, Some(rules));
+    let summary = summarize_snapshot_tags(&resolved.snapshot_tags);
 
     Ok(SourceSnapshotOperationCandidate {
         path: path.display().to_string(),
         folder_name,
-        snapshot_id: preview_snapshot_identity(&resolved.snapshot_tags, Some(rules)),
+        snapshot_id: preview_snapshot_identity(&resolved.snapshot_tags),
         source_modified_at,
         version_id: summary.version_id,
         os: summary.os,

@@ -77,8 +77,6 @@ pub struct ResolvedSourceSnapshot {
     /// Tags declared in the config entry (explicit mode); `None` in auto mode
     /// or for explicit `--dir` arguments.
     pub config_tags: Option<SnapshotTagSet>,
-    /// Whether name-based tag inference is allowed for this snapshot.
-    pub allow_name_inference: bool,
 }
 
 impl SourceConfig {
@@ -178,7 +176,6 @@ impl SourceConfig {
                 path,
                 relative_path: PathBuf::from(&name),
                 config_tags: None,
-                allow_name_inference: true,
             });
         }
         snapshots.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
@@ -219,7 +216,6 @@ impl SourceConfig {
                 path,
                 relative_path,
                 config_tags: Some(tags),
-                allow_name_inference: false,
             });
         }
         snapshots.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
@@ -367,7 +363,6 @@ mod tests {
 
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].relative_path, PathBuf::from("game-win"));
-        assert!(snapshots[0].allow_name_inference);
         assert!(snapshots[0].config_tags.is_none());
     }
 
@@ -393,7 +388,6 @@ mod tests {
             snapshots[0].relative_path,
             PathBuf::from("versions/4.6-stable/linux-x86_64")
         );
-        assert!(!snapshots[0].allow_name_inference);
         let tags = snapshots[0].config_tags.as_ref().unwrap();
         assert_eq!(tags.get_exclusive("version").unwrap(), "4.6-stable");
         assert_eq!(tags.get_exclusive("os").unwrap(), "linux");

@@ -1,7 +1,6 @@
 use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::actions;
-use crate::cli::common::load_optional_rules;
 use crate::cli::reporting::{ensure_parent_directory, print_repo_check_timings};
 use gutch as g;
 
@@ -13,10 +12,9 @@ pub(crate) fn run(
     match command {
         RepoCommands::Init {
             path,
-            schema,
             force,
         } => {
-            actions::repo::init_repo(&path, schema.as_ref(), force)?;
+            actions::repo::init_repo(&path, force)?;
         }
 
         RepoCommands::Push { repo, yes } => {
@@ -69,36 +67,6 @@ pub(crate) fn run(
             command: crate::cli::RepoNameCommands::Set { repo, name },
         } => {
             actions::repo::rename_repo(&repo, &name)?;
-        }
-
-        RepoCommands::Tags {
-            command:
-                crate::cli::RepoTagsCommands::Schema {
-                    command:
-                        crate::cli::RepoTagSchemaCommands::Set {
-                            repo,
-                            schema,
-                            clear,
-                        },
-                },
-        } => {
-            if clear && schema.is_some() {
-                return Err(g::Error::manifest(
-                    "use either --schema <path> or --clear, not both",
-                ));
-            }
-
-            let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-            repo_manifest.snapshot_tag_schema = if clear {
-                None
-            } else {
-                load_optional_rules(&schema)?
-            };
-            g::write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
-            println!(
-                "updated snapshot tag schema at {}",
-                repo_paths.repo_metadata_path.display()
-            );
         }
 
         RepoCommands::Tags {
