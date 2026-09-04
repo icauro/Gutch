@@ -785,6 +785,9 @@ fn write_bundles(
                         bundle.size,
                     ),
                 );
+                if let Some(parent) = bundle_path.parent() {
+                    crate::helpers::create_dir_all(parent)?;
+                }
                 if bundle_path.exists() {
                     bundle.discard_staged_file();
                 } else {

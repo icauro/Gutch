@@ -472,6 +472,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         id: bundle_id.clone(),
     };
     let bundle_path = bundle.local_path(&repo_paths).unwrap();
+    std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     std::fs::write(bundle_path, bundle_bytes).unwrap();
 
     let mut snapshot_manifest =

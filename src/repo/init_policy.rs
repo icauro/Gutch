@@ -307,7 +307,9 @@ mod tests {
             chunks: vec![],
         });
         write_snapshot_manifest_artifacts(&repo_paths, &snapshot_manifest).unwrap();
-        std::fs::write(repo_paths.bundles_root.join("bundle-a"), b"bundle").unwrap();
+        let bundle_path = crate::bundle_path(&repo_paths, &"a".repeat(64)).unwrap();
+        std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+        std::fs::write(bundle_path, b"bundle").unwrap();
 
         initialize_gutch_repo_with_options(&repo_root, None, RepoInitOptions { force: true })
             .unwrap();

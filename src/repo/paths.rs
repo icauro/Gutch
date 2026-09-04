@@ -150,7 +150,8 @@ fn apply_local_repo_config(paths: &GutchRepoPaths, manifest: &mut GutchRepoManif
 
 pub(crate) fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> Result<PathBuf> {
     validate_path_component(bundle_id, "bundle ID")?;
-    Ok(bundles_root.join(bundle_id))
+    let prefix = bundle_id.get(0..2).unwrap_or("xx");
+    Ok(bundles_root.join(prefix).join(bundle_id))
 }
 
 pub(crate) fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> Result<PathBuf> {
@@ -192,5 +193,15 @@ mod tests {
         assert!(paths.repo_root().ends_with(Path::new("v1/repos/repo-1")));
         assert!(bundle_path(&paths, "bundle-1").is_ok());
         assert!(chunk_path(&paths, "ab123").is_ok());
+    }
+
+    #[test]
+    fn shards_bundle_paths_by_the_first_two_identifier_characters() {
+        let bundles_root = Path::new("repo/bundles");
+        let bundle_id = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        assert_eq!(
+            bundle_path_in_root(bundles_root, bundle_id).unwrap(),
+            bundles_root.join("ab").join(bundle_id)
+        );
     }
 }

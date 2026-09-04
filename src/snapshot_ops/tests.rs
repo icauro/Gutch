@@ -437,6 +437,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     assert!(
         repo_path
             .join("bundles")
+            .join("aa")
             .join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             .exists()
     );

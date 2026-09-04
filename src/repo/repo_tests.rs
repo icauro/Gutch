@@ -290,13 +290,10 @@ fn check_gutch_repo_reports_snapshots() {
     });
 
     write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
-    std::fs::write(
-        repo_paths
-            .bundles_root
-            .join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-        b"bundle-a",
-    )
-    .unwrap();
+    let bundle_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let bundle_path = crate::bundle_path(&repo_paths, bundle_id).unwrap();
+    std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+    std::fs::write(bundle_path, b"bundle-a").unwrap();
 
     let status = check_gutch_repo(&repo_root).unwrap();
 
@@ -630,11 +627,9 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     )
     .unwrap();
 
-    std::fs::copy(
-        built_bundle.staged_file.path(),
-        bundle_path(&paths, &bundle_id).unwrap(),
-    )
-    .unwrap();
+    let bundle_path = bundle_path(&paths, &bundle_id).unwrap();
+    std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+    std::fs::copy(built_bundle.staged_file.path(), bundle_path).unwrap();
     let pool = crate::build_thread_pool(1, "gutch-test").unwrap();
     let rebuilt = rebuild_chunk_index_from_bundles_with_pool(
         &paths,
