@@ -665,6 +665,7 @@ gutch_repo/tests/fixtures/small-product/repo/snapshots/bda146e19cff4dfedb6b13998
 gutch_repo/tests/fixtures/small-product/repo/snapshots/dc7b76e7111102f695d3f8a8eef33981c514b5004c96408c27269309e10881f6/
 gutch_repo/tests/fixtures/small-product/repo/snapshots/dc7b76e7111102f695d3f8a8eef33981c514b5004c96408c27269309e10881f6/snapshot_blueprint.gtcbin
 gutch_repo/tests/fixtures/small-product/repo/snapshots/dc7b76e7111102f695d3f8a8eef33981c514b5004c96408c27269309e10881f6/snapshot_metadata.json
+gutch_repo/tests/prepare_test_dataset.py
 gutch_repo/tests/source_config_ingestion.rs
 gutch_repo/usage.md
 ```

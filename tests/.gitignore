@@ -1,1 +1,3 @@
 /.generated/
+/fixtures/regression-128mib/
+/fixtures/reconstruction-storage-4x512mib/
