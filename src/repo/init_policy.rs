@@ -178,7 +178,7 @@ pub fn initialize_gutch_repo_with_options(
         .unwrap_or("base");
     let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
     let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
-    repo_manifest.snapshot_tag_schema = Some(snapshot_tag_schema.unwrap_or_default());
+    let _ = snapshot_tag_schema;
     write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
     Ok(())

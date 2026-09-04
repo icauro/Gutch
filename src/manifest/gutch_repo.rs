@@ -78,7 +78,7 @@ impl GutchRepoManifest {
             name,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),
-            snapshot_tag_schema: Some(SnapshotTagSchema::default()),
+            snapshot_tag_schema: None,
             remote_repo_id: String::new(),
         }
     }
