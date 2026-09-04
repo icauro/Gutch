@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -32,10 +33,13 @@ class ExternalTools:
         if explicit and explicit.exists():
             return explicit
         candidate = self.repo_root / "gutch_repo" / "tests" / "benchmarks" / "gutch_fixture_runner" / "bin"
-        if kind == "plakar":
-            candidate = candidate / "plakar" / "plakar.exe"
+        if os.name == "nt":
+            if kind == "plakar":
+                candidate = candidate / "plakar" / "plakar.exe"
+            else:
+                candidate /= f"{kind}.exe"
         else:
-            candidate /= f"{kind}.exe"
+            candidate = candidate / "linux-x64" / kind
         if candidate.exists():
             return candidate
         raise FileNotFoundError(f"{kind} executable is not configured: {candidate}")

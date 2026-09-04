@@ -150,6 +150,11 @@ gutch_repo/tests/benchmarks/gutch_fixture_runner/
 gutch_repo/tests/benchmarks/gutch_fixture_runner/__init__.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/__main__.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/
+gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/linux-x64/
+gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/linux-x64/borg
+gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/linux-x64/kopia
+gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/linux-x64/plakar
+gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/linux-x64/restic
 gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/lore.md
 gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/plakar/
 gutch_repo/tests/benchmarks/gutch_fixture_runner/bin/plakar/man/
@@ -197,6 +202,7 @@ gutch_repo/tests/benchmarks/gutch_fixture_runner/cli.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/commands.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/config.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/external.py
+gutch_repo/tests/benchmarks/gutch_fixture_runner/external_tools.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/filesystem_copy_baseline.yaml
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_batch_vs_individual_capture.yaml
@@ -205,6 +211,7 @@ gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_compression_prof
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_default_trace_with_corrupt_repair.yaml
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_reconstruction_storage_paths.yaml
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_remote_trace_single_lane.yaml
+gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_remote_vs_external_tools_individual.yaml
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_s3_cold_publication_cycle.yaml
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_storage_layout_baseline.yaml
 gutch_repo/tests/benchmarks/gutch_fixture_runner/fixtures/gutch_vs_external_tools_bulk.yaml

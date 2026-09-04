@@ -550,15 +550,26 @@ def run_fixture(
     on_lane_complete: Callable[[LaneResult], None] | None = None,
     on_run_complete: Callable[[list[LaneResult]], None] | None = None,
     on_step: Callable[[str], None] | None = None,
+    external_binary_root: Path | None = None,
 ) -> list[LaneResult]:
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
     commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
+    external = ExternalTools(repo_root or Path(__file__).resolve().parents[4], commands)
+    if external_binary_root is not None:
+        external = ExternalTools(
+            external.repo_root,
+            commands,
+            restic=external_binary_root / "restic",
+            kopia=external_binary_root / "kopia",
+            borg=external_binary_root / "borg",
+            plakar=external_binary_root / "plakar",
+        )
     runner = LocalGutchFixtureRunner(
         cli,
         commands,
         layout,
-        ExternalTools(repo_root or Path(__file__).resolve().parents[4], commands),
+        external,
     )
     results: list[LaneResult] = []
     measured_lanes = [lane for lane in fixture.lanes if not lane.warmup]

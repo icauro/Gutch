@@ -72,6 +72,7 @@ def main() -> int:
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--fixture", required=True)
     parser.add_argument("--binary", type=Path, required=True)
+    parser.add_argument("--external-root", type=Path)
     parser.add_argument("--transfer-concurrency", type=int)
     parser.add_argument("--transfer-max-concurrency", type=int)
     parser.add_argument("--keep-artifacts", action="store_true")
@@ -194,6 +195,7 @@ def main() -> int:
                 ),
                 keep_artifacts=True,
                 on_step=lambda detail: _emit_progress("step", detail),
+                external_binary_root=args.external_root.resolve() if args.external_root else None,
             )
         run_root = _new_run_root(artifacts_root, before)
         _emit_progress("complete", f"benchmark results ready: {run_root.name}")

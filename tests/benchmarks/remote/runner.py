@@ -17,6 +17,7 @@ from ..benchmark_config import BenchmarkConfig, load_benchmark_config
 from ..common.artifacts import safe_component
 from ..common.traces import open_trace_in_perfetto
 from ..gutch_fixture_runner.config import load_fixture
+from ..gutch_fixture_runner.external_tools import ensure_linux_external_tools
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
 from .launcher import RemoteLauncher, RemoteTarget
 
@@ -158,6 +159,12 @@ def run_remote_benchmark(
         load_s3_cycle(fixture_path)
     elif fixture_spec.runner != "gutch-fixture":
         raise ValueError(f"fixture {fixture!r} is not a supported remote Gutch fixture")
+    external_kinds = {
+        lane.kind.split("-", 1)[0]
+        for lane in fixture_spec.lanes
+        if lane.kind.startswith(("restic-", "kopia-", "borg-", "plakar-"))
+    }
+    linux_external_tools = ensure_linux_external_tools(REPOSITORY_ROOT, external_kinds)
     binary_path = _build_linux_cli(REPOSITORY_ROOT)
     target = RemoteTarget.from_config(config_path=config.path)
     launcher = RemoteLauncher(target)
@@ -180,11 +187,23 @@ def run_remote_benchmark(
             ["mkdir", "-p", workspace],
             description="create remote benchmark workspace",
         )
+        remote_external_root = _remote_path(workspace, "external")
+        if linux_external_tools:
+            launcher.run(
+                ["mkdir", "-p", remote_external_root],
+                description="create remote external-tool directory",
+            )
         try:
             launcher.upload(package_path, remote_package, description="upload benchmark package")
             launcher.upload(runtime_config_path, remote_config, description="upload benchmark config")
             launcher.upload(REMOTE_ENTRY, remote_entry, description="upload remote benchmark runner")
             launcher.upload(binary_path, remote_binary, description="upload WSL-built Linux hostapp-cli")
+            for kind, path in sorted(linux_external_tools.items()):
+                launcher.upload(
+                    path,
+                    _remote_path(remote_external_root, kind),
+                    description=f"upload Linux {kind} benchmark tool",
+                )
             command = [
                 config.remote_python,
                 remote_entry,
@@ -203,6 +222,8 @@ def run_remote_benchmark(
                 command.extend(["--transfer-concurrency", str(transfer_concurrency)])
             if transfer_max_concurrency is not None:
                 command.extend(["--transfer-max-concurrency", str(transfer_max_concurrency)])
+            if linux_external_tools:
+                command.extend(["--external-root", remote_external_root])
             if keep_artifacts:
                 command.append("--keep-artifacts")
             launcher.run(
