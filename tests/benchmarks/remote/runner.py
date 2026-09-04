@@ -24,6 +24,7 @@ from .launcher import RemoteLauncher, RemoteTarget
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = BENCHMARK_ROOT.parents[2]
 REMOTE_ENTRY = Path(__file__).with_name("entry.py")
+REMOTE_DATASET_DIRECTORY = "gutch-remote-blender-cache"
 
 
 def _package_sources(destination: Path) -> None:
@@ -43,7 +44,7 @@ def _package_sources(destination: Path) -> None:
 def _runtime_config(config: BenchmarkConfig, path: Path, remote_workspace: str) -> None:
     values = yaml.safe_load(config.path.read_text(encoding="utf-8")) or {}
     values["local"] = {
-        "product_root": f"{config.remote_fixtures_root}/{Path(remote_workspace).name}",
+        "product_root": f"{config.remote_fixtures_root}/{REMOTE_DATASET_DIRECTORY}/Blender",
         "artifacts_root": f"{remote_workspace}/artifacts",
     }
     values["remote"] = {
@@ -74,6 +75,29 @@ def _print_remote_output(line: str, is_stderr: bool) -> None:
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
     print(text, file=sys.stderr if is_stderr else sys.stdout, flush=True)
+
+
+def _prompt_delete_dataset(
+    launcher: RemoteLauncher,
+    config: BenchmarkConfig,
+    dataset_path: str,
+) -> None:
+    try:
+        answer = input(f"Delete cached remote test dataset at {dataset_path}? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt, OSError):
+        answer = ""
+    if answer != "y":
+        print("Keeping cached remote test dataset.")
+        return
+    launcher.run(
+        [
+            config.remote_python,
+            "-c",
+            f"import shutil; shutil.rmtree({dataset_path!r}, ignore_errors=True)",
+        ],
+        description="delete cached remote test dataset",
+    )
+    print("Deleted cached remote test dataset.")
 
 
 def _build_linux_cli(repo_root: Path) -> Path:
@@ -124,6 +148,7 @@ def run_remote_benchmark(
     artifacts_root: Path | None = None,
     transfer_concurrency: int | None = None,
     transfer_max_concurrency: int | None = None,
+    ask_delete_dataset: bool = True,
     keep_artifacts: bool = False,
 ) -> Path:
     config = load_benchmark_config(config_path)
@@ -199,6 +224,11 @@ def run_remote_benchmark(
             launcher.download(manifest["trace_path"], trace_path, description="download remote Perfetto trace")
             print(f"Remote benchmark results: {results_path}")
             print(f"Remote benchmark trace: {trace_path}")
+            if ask_delete_dataset:
+                dataset_path = manifest.get("dataset_path")
+                if not isinstance(dataset_path, str) or not dataset_path:
+                    raise RuntimeError("remote benchmark manifest omitted dataset_path")
+                _prompt_delete_dataset(launcher, config, dataset_path)
             if load_benchmark_fixture_open_perfetto(manifest["fixture"]):
                 open_trace_in_perfetto(trace_path, print)
             return results_path

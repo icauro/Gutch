@@ -12,6 +12,9 @@ import sys
 import zipfile
 
 
+REMOTE_DATASET_DIRECTORY = "gutch-remote-blender-cache"
+
+
 def _emit_progress(stage: str, detail: str) -> None:
     print(
         "REMOTE_PROGRESS "
@@ -104,7 +107,7 @@ def main() -> int:
         raise FileNotFoundError(f"uploaded Linux hostapp-cli was not found: {binary_path}")
     binary_path.chmod(binary_path.stat().st_mode | 0o111)
 
-    dataset_root = Path(config.remote_fixtures_root) / workspace.name
+    dataset_root = Path(config.remote_fixtures_root) / REMOTE_DATASET_DIRECTORY
     product = dataset_root / "Blender"
     recipe_path = code_root / "gutch_repo" / "tests" / "test_dataset_recipes" / "blender-official.json"
     if config.blender_platforms != ("linux-x64",):
@@ -114,8 +117,8 @@ def main() -> int:
         product_dir=product,
         versions=config.blender_versions,
         platforms=config.blender_platforms,
-        cache_dir=workspace / "blender-archives",
-        force=True,
+        cache_dir=dataset_root / ".blender-archives",
+        force=False,
     )
     _emit_progress("preparation", f"Blender product ready: {product}")
 
@@ -199,6 +202,7 @@ def main() -> int:
         manifest = {
             "fixture": fixture.name,
             "product": str(product),
+            "dataset_path": str(dataset_root),
             "run_root": str(run_root),
             "results_path": str(run_root / "results.json"),
             "trace_path": str(run_root / "trace.json"),
@@ -212,7 +216,6 @@ def main() -> int:
         return 0
     finally:
         if not args.keep_artifacts:
-            shutil.rmtree(dataset_root, ignore_errors=True)
             cleanup_prefixes = []
             if run_root is not None and options is not None:
                 cleanup_prefixes.append(f"{options.prefix_root}/{run_root.name}")
