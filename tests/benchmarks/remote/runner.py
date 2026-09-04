@@ -15,6 +15,7 @@ import yaml
 from ..benchmark_config import BenchmarkConfig, load_benchmark_config
 from ..common.artifacts import safe_component
 from ..common.traces import open_trace_in_perfetto
+from ..gutch_fixture_runner.config import load_fixture
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
 from .launcher import RemoteLauncher, RemoteTarget
 
@@ -110,7 +111,11 @@ def run_remote_benchmark(
 ) -> Path:
     config = load_benchmark_config(config_path)
     fixture_path = BENCHMARK_ROOT / "gutch_fixture_runner" / "fixtures" / f"{fixture}.yaml"
-    load_s3_cycle(fixture_path)
+    fixture_spec = load_fixture(fixture_path)
+    if fixture_spec.runner == "gutch-s3":
+        load_s3_cycle(fixture_path)
+    elif fixture_spec.runner != "gutch-fixture":
+        raise ValueError(f"fixture {fixture!r} is not a supported remote Gutch fixture")
     binary_path = _build_linux_cli(REPOSITORY_ROOT)
     target = RemoteTarget.from_config(config_path=config.path)
     launcher = RemoteLauncher(target)

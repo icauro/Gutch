@@ -79,12 +79,14 @@ def main() -> int:
     from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
     from gutch_repo.tests.benchmarks.common.environment import load_benchmark_environment
     from gutch_repo.tests.benchmarks.gutch_fixture_runner.commands import GutchCli
+    from gutch_repo.tests.benchmarks.gutch_fixture_runner.config import load_fixture
     from gutch_repo.tests.benchmarks.gutch_fixture_runner.report import print_fixture_report
     from gutch_repo.tests.benchmarks.gutch_fixture_runner.s3 import S3Settings
     from gutch_repo.tests.benchmarks.gutch_fixture_runner.s3_cycle import (
         load_s3_cycle,
         run_s3_cycle,
     )
+    from gutch_repo.tests.benchmarks.gutch_fixture_runner.workflow import run_fixture
 
     config = load_benchmark_config(args.config.resolve())
     load_benchmark_environment(args.config.resolve(), overwrite=True)
@@ -116,43 +118,58 @@ def main() -> int:
         / "fixtures"
         / f"{args.fixture}.yaml"
     )
-    fixture, options = load_s3_cycle(fixture_path)
+    fixture = load_fixture(fixture_path)
+    options = None
+    if fixture.runner == "gutch-s3":
+        fixture, options = load_s3_cycle(fixture_path)
+        if args.transfer_concurrency is not None or args.transfer_max_concurrency is not None:
+            transfer_concurrency = (
+                args.transfer_concurrency
+                if args.transfer_concurrency is not None
+                else options.transfer_concurrency
+            )
+            transfer_max_concurrency = (
+                args.transfer_max_concurrency
+                if args.transfer_max_concurrency is not None
+                else options.transfer_max_concurrency
+            )
+            if transfer_concurrency < 1 or transfer_max_concurrency < 1:
+                raise ValueError("remote transfer concurrency values must be positive")
+            if transfer_concurrency > transfer_max_concurrency:
+                raise ValueError("remote transfer concurrency exceeds max-concurrency")
+            options = replace(
+                options,
+                transfer_concurrency=transfer_concurrency,
+                transfer_max_concurrency=transfer_max_concurrency,
+            )
+    elif fixture.runner != "gutch-fixture":
+        raise ValueError(f"fixture {fixture.name!r} is not a supported remote Gutch fixture")
     # Perfetto is opened by the local orchestrator after the trace is downloaded.
     fixture = replace(fixture, open_perfetto=False)
-    if args.transfer_concurrency is not None or args.transfer_max_concurrency is not None:
-        transfer_concurrency = (
-            args.transfer_concurrency
-            if args.transfer_concurrency is not None
-            else options.transfer_concurrency
-        )
-        transfer_max_concurrency = (
-            args.transfer_max_concurrency
-            if args.transfer_max_concurrency is not None
-            else options.transfer_max_concurrency
-        )
-        if transfer_concurrency < 1 or transfer_max_concurrency < 1:
-            raise ValueError("remote transfer concurrency values must be positive")
-        if transfer_concurrency > transfer_max_concurrency:
-            raise ValueError("remote transfer concurrency exceeds max-concurrency")
-        options = replace(
-            options,
-            transfer_concurrency=transfer_concurrency,
-            transfer_max_concurrency=transfer_max_concurrency,
-        )
     artifacts_root = workspace / "artifacts"
     before = {path for path in artifacts_root.iterdir()} if artifacts_root.is_dir() else set()
     settings = S3Settings.from_environment("S3_MAIN")
     run_root: Path | None = None
     try:
-        results = run_s3_cycle(
-            fixture,
-            product,
-            GutchCli(binary_path),
-            settings,
-            artifacts_root,
-            options=options,
-            keep_artifacts=True,
-        )
+        if fixture.runner == "gutch-s3":
+            assert options is not None
+            results = run_s3_cycle(
+                fixture,
+                product,
+                GutchCli(binary_path),
+                settings,
+                artifacts_root,
+                options=options,
+                keep_artifacts=True,
+            )
+        else:
+            results = run_fixture(
+                fixture,
+                product,
+                GutchCli(binary_path),
+                artifacts_root,
+                keep_artifacts=True,
+            )
         run_root = _new_run_root(artifacts_root, before)
         print_fixture_report(fixture, product, results)
 
@@ -162,7 +179,7 @@ def main() -> int:
             "run_root": str(run_root),
             "results_path": str(run_root / "results.json"),
             "trace_path": str(run_root / "trace.json"),
-            "s3_prefix": f"{options.prefix_root}/{run_root.name}",
+            "s3_prefix": f"{options.prefix_root}/{run_root.name}" if options else None,
             "results": [result.as_json() for result in results],
         }
         (workspace / "remote-result.json").write_text(
@@ -174,9 +191,9 @@ def main() -> int:
         if not args.keep_artifacts:
             shutil.rmtree(dataset_root, ignore_errors=True)
             cleanup_prefixes = []
-            if run_root is not None:
+            if run_root is not None and options is not None:
                 cleanup_prefixes.append(f"{options.prefix_root}/{run_root.name}")
-            elif artifacts_root.is_dir():
+            elif options is not None and artifacts_root.is_dir():
                 cleanup_prefixes.extend(
                     f"{options.prefix_root}/{path.name}"
                     for path in artifacts_root.iterdir()

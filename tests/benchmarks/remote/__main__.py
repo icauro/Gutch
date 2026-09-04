@@ -13,6 +13,8 @@ if __package__ in {None, ""}:
     __package__ = "gutch_repo.tests.benchmarks.remote"
 
 from ..benchmark_config import load_benchmark_config
+from ..common.config import load_scenario
+from ..gutch_fixture_runner.config import load_fixture
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
 from .runner import run_remote_benchmark
 
@@ -22,25 +24,37 @@ FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "gutch_fixture_runner" / "f
 
 @dataclass(frozen=True)
 class RemoteFixture:
+    runner: str
     name: str
     description: str
-    transfer_concurrency: int
-    transfer_max_concurrency: int
+    transfer_concurrency: int | None = None
+    transfer_max_concurrency: int | None = None
 
 
 def _fixtures() -> list[RemoteFixture]:
     fixtures: list[RemoteFixture] = []
     for path in sorted(FIXTURE_ROOT.glob("*.yaml")):
+        values = load_scenario(path).values
+        execution = values.get("execution", {})
+        if not isinstance(execution, dict) or execution.get("default_host") != "remote":
+            continue
         try:
-            fixture, options = load_s3_cycle(path)
+            fixture = load_fixture(path)
         except ValueError:
             continue
+        if fixture.runner == "gutch-s3":
+            _, options = load_s3_cycle(path)
+        elif fixture.runner != "gutch-fixture":
+            continue
+        else:
+            options = None
         fixtures.append(
             RemoteFixture(
+                fixture.runner,
                 fixture.name,
                 fixture.description,
-                options.transfer_concurrency,
-                options.transfer_max_concurrency,
+                options.transfer_concurrency if options else None,
+                options.transfer_max_concurrency if options else None,
             )
         )
     return fixtures
@@ -86,14 +100,16 @@ def _run_interactive(config_path: Path | None = None) -> int:
     if selected is None:
         return 0
     fixture = fixtures[choices.index(selected)]
-    profile_choices = (
-        f"Fixture defaults ({fixture.transfer_concurrency}/{fixture.transfer_max_concurrency})",
-        "Single-worker diagnostic (1/1)",
-    )
-    profile = _prompt_choice("Transfer profile (workers/max-workers):", profile_choices)
-    if profile is None:
-        return 0
-    diagnostic = profile == profile_choices[1]
+    diagnostic = False
+    if fixture.runner == "gutch-s3":
+        profile_choices = (
+            f"Fixture defaults ({fixture.transfer_concurrency}/{fixture.transfer_max_concurrency})",
+            "Single-worker diagnostic (1/1)",
+        )
+        profile = _prompt_choice("Transfer profile (workers/max-workers):", profile_choices)
+        if profile is None:
+            return 0
+        diagnostic = profile == profile_choices[1]
     run_remote_benchmark(
         fixture=fixture.name,
         config_path=config.path,
