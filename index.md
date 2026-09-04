@@ -214,10 +214,10 @@ gutch_repo/tests/benchmarks/s3_throughput/config.py
 gutch_repo/tests/benchmarks/s3_throughput/fixtures/
 gutch_repo/tests/benchmarks/s3_throughput/fixtures/s3_object_storage_8mib.yaml
 gutch_repo/tests/benchmarks/s3_throughput/workflow.py
-gutch_repo/tests/fixture_recipes/
-gutch_repo/tests/fixture_recipes/fixture-schema.json
-gutch_repo/tests/fixture_recipes/reconstruction-storage-4x512mib.json
-gutch_repo/tests/fixture_recipes/regression-128mib.json
+gutch_repo/tests/test_dataset_recipes/
+gutch_repo/tests/test_dataset_recipes/fixture-schema.json
+gutch_repo/tests/test_dataset_recipes/reconstruction-storage-4x512mib.json
+gutch_repo/tests/test_dataset_recipes/regression-128mib.json
 gutch_repo/tests/fixture_regression.rs
 gutch_repo/tests/fixtures/
 gutch_repo/tests/fixtures/append-product/

@@ -55,7 +55,7 @@ _TIMESTAMP_EPOCH_SPAN_SECONDS = 5 * 365 * 24 * 60 * 60
 
 
 TESTS_ROOT = Path(__file__).resolve().parent
-FIXTURE_RECIPES_ROOT = TESTS_ROOT / "fixture_recipes"
+TEST_DATASET_RECIPES_ROOT = TESTS_ROOT / "test_dataset_recipes"
 FIXTURES_ROOT = TESTS_ROOT / "fixtures"
 DEFAULT_FIXTURES_ROOT = FIXTURES_ROOT
 RECIPE_SCHEMA_FILE_NAME = "fixture-schema.json"
@@ -1729,7 +1729,7 @@ def _ranges_from_recipe(recipe: dict[str, object]) -> GenerationRanges:
 
 
 def prepare_test_dataset(
-    recipes_root: Path = FIXTURE_RECIPES_ROOT,
+    recipes_root: Path = TEST_DATASET_RECIPES_ROOT,
     fixtures_root: Path = FIXTURES_ROOT,
 ) -> list[FixtureResult]:
     recipe_paths = sorted(
