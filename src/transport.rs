@@ -31,8 +31,10 @@ where
         .map_err(|error| Error::download(format!("download request failed: {error}"), true))?;
     if !response.status().is_success() {
         let status = response.status();
+        let mut body = String::new();
+        let _ = response.take(16 * 1024).read_to_string(&mut body);
         return Err(Error::download(
-            format!("download request failed with status {status}"),
+            format_http_failure(status, &body),
             status.is_server_error()
                 || status == reqwest::StatusCode::TOO_MANY_REQUESTS
                 || status == reqwest::StatusCode::REQUEST_TIMEOUT,
@@ -52,6 +54,31 @@ where
         |chunk| on_chunk(chunk),
     )?;
     Ok(())
+}
+
+fn format_http_failure(status: reqwest::StatusCode, body: &str) -> String {
+    let body = body.trim();
+    let detail = if body.is_empty() {
+        String::new()
+    } else {
+        format!(": {}", body.replace(['\r', '\n'], " "))
+    };
+    format!("download request failed with status {status}{detail}")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn http_error_detail_is_normalized_to_one_line() {
+        let message = super::format_http_failure(
+            reqwest::StatusCode::FORBIDDEN,
+            "  <Error>\n    <Code>AccessDenied</Code>\n  </Error>  ",
+        );
+        assert_eq!(
+            message,
+            "download request failed with status 403 Forbidden: <Error>     <Code>AccessDenied</Code>   </Error>"
+        );
+    }
 }
 
 pub(crate) fn read_bounded_chunks<R, F, C>(

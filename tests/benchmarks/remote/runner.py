@@ -104,6 +104,8 @@ def run_remote_benchmark(
     fixture: str,
     config_path: Path | None = None,
     artifacts_root: Path | None = None,
+    transfer_concurrency: int | None = None,
+    transfer_max_concurrency: int | None = None,
     keep_artifacts: bool = False,
 ) -> Path:
     config = load_benchmark_config(config_path)
@@ -150,6 +152,10 @@ def run_remote_benchmark(
                 "--binary",
                 remote_binary,
             ]
+            if transfer_concurrency is not None:
+                command.extend(["--transfer-concurrency", str(transfer_concurrency)])
+            if transfer_max_concurrency is not None:
+                command.extend(["--transfer-max-concurrency", str(transfer_max_concurrency)])
             if keep_artifacts:
                 command.append("--keep-artifacts")
             result = launcher.run(command, description=f"run remote Gutch fixture {fixture}")

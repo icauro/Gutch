@@ -574,7 +574,10 @@ fn download_pending_bundle_files(
                 scheduler.cancel();
                 scheduler.join()?;
                 return Err(Error::reconstruct(
-                    "artifact download scheduler channel closed unexpectedly",
+                    format!(
+                        "artifact download scheduler channel closed unexpectedly after {downloaded_count}/{} downloads; {completed_workers}/{worker_count} workers reported completion",
+                        pending_bundle_downloads.len(),
+                    ),
                 ));
             }
         }

@@ -1366,7 +1366,11 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
                         pipeline_error = Some(Error::reconstruct(
-                            "artifact download scheduler channel closed unexpectedly",
+                            format!(
+                                "artifact download scheduler channel closed unexpectedly after scheduling {}/{} artifact jobs; {completed_download_worker_count}/{artifact_worker_count} workers reported completion",
+                                scheduled_job_indices.len(),
+                                artifact_job_indices.len(),
+                            ),
                         ));
                         break;
                     }

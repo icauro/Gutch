@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
 import platform
@@ -60,6 +61,8 @@ def main() -> int:
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--fixture", required=True)
     parser.add_argument("--binary", type=Path, required=True)
+    parser.add_argument("--transfer-concurrency", type=int)
+    parser.add_argument("--transfer-max-concurrency", type=int)
     parser.add_argument("--keep-artifacts", action="store_true")
     args = parser.parse_args()
 
@@ -115,9 +118,27 @@ def main() -> int:
     )
     fixture, options = load_s3_cycle(fixture_path)
     # Perfetto is opened by the local orchestrator after the trace is downloaded.
-    from dataclasses import replace
-
     fixture = replace(fixture, open_perfetto=False)
+    if args.transfer_concurrency is not None or args.transfer_max_concurrency is not None:
+        transfer_concurrency = (
+            args.transfer_concurrency
+            if args.transfer_concurrency is not None
+            else options.transfer_concurrency
+        )
+        transfer_max_concurrency = (
+            args.transfer_max_concurrency
+            if args.transfer_max_concurrency is not None
+            else options.transfer_max_concurrency
+        )
+        if transfer_concurrency < 1 or transfer_max_concurrency < 1:
+            raise ValueError("remote transfer concurrency values must be positive")
+        if transfer_concurrency > transfer_max_concurrency:
+            raise ValueError("remote transfer concurrency exceeds max-concurrency")
+        options = replace(
+            options,
+            transfer_concurrency=transfer_concurrency,
+            transfer_max_concurrency=transfer_max_concurrency,
+        )
     artifacts_root = workspace / "artifacts"
     before = {path for path in artifacts_root.iterdir()} if artifacts_root.is_dir() else set()
     settings = S3Settings.from_environment("S3_MAIN")

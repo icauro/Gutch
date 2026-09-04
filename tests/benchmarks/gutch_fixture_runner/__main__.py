@@ -229,6 +229,8 @@ def _run_explicit(arguments: list[str]) -> int:
         parser.add_argument("--fixture", default="gutch_s3_cold_publication_cycle")
         parser.add_argument("--config", type=Path)
         parser.add_argument("--artifacts-root", type=Path)
+        parser.add_argument("--transfer-concurrency", type=int)
+        parser.add_argument("--transfer-max-concurrency", type=int)
         parser.add_argument("--keep-artifacts", action="store_true")
         parsed = parser.parse_args(arguments[1:])
         try:
@@ -236,6 +238,8 @@ def _run_explicit(arguments: list[str]) -> int:
                 fixture=parsed.fixture,
                 config_path=parsed.config,
                 artifacts_root=parsed.artifacts_root,
+                transfer_concurrency=parsed.transfer_concurrency,
+                transfer_max_concurrency=parsed.transfer_max_concurrency,
                 keep_artifacts=parsed.keep_artifacts,
             )
         except (OSError, RuntimeError, ValueError) as error:
