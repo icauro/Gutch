@@ -7,6 +7,7 @@ from pathlib import Path
 
 from gutch_repo.tests.benchmarks.common.environment import load_benchmark_environment
 from gutch_repo.tests.benchmarks.common.config import load_scenario
+from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
 from .binary import resolve_gutch_executable
 from .commands import GutchCli
 from .config import FixtureCatalog, _wait_seconds
@@ -66,7 +67,7 @@ def run_command(args: argparse.Namespace) -> int:
     repo_root = _repo_root()
     fixture = FixtureCatalog().resolve(args.fixture)
     executable = resolve_gutch_executable(repo_root, args.gutch_exe.resolve() if args.gutch_exe else None)
-    artifacts = args.artifacts_root or repo_root / "gutch_repo" / "tests" / "benchmarks" / ".artifacts"
+    artifacts = args.artifacts_root or load_benchmark_config().artifacts_root
     run_fixture(
         fixture,
         product,
@@ -123,7 +124,7 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
         product,
         GutchCli(executable),
         settings,
-        args.artifacts_root or repo_root / "gutch_repo" / "tests" / "benchmarks" / ".artifacts",
+        args.artifacts_root or load_benchmark_config().artifacts_root,
         transfer_concurrency=args.transfer_concurrency,
         upload_concurrency=args.upload_concurrency,
         recovery_enabled=recovery_enabled,
@@ -209,7 +210,7 @@ def run_s3_cycle_command(args: argparse.Namespace) -> int:
         product,
         GutchCli(executable),
         _s3_settings(args, scenario_values.get("storage")),
-        args.artifacts_root or repo_root / "gutch_repo" / "tests" / "benchmarks" / ".artifacts",
+        args.artifacts_root or load_benchmark_config().artifacts_root,
         options=options,
         keep_artifacts=args.keep_artifacts,
         on_lane_complete=print_lane_result,

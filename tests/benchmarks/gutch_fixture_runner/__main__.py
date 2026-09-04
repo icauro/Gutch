@@ -22,11 +22,12 @@ from .binary import resolve_gutch_executable
 from .config import FixtureCatalog
 from .s3_cycle import load_s3_cycle
 from gutch_repo.tests.benchmarks.common.config import load_scenario
+from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parents[4]
-DEFAULT_PRODUCTS_ROOT = Path("C:/datasets/products")
+DEFAULT_PRODUCTS_ROOT = load_benchmark_config().product_root
 S3_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_s3_cold_publication_cycle.yaml"
 RECONSTRUCTION_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_reconstruction_storage_paths.yaml"
 

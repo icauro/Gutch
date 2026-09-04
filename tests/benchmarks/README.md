@@ -27,6 +27,11 @@ Run storage benchmarks interactively:
 Storage commands also load `gutch_repo/tests/benchmarks/.env` by default and accept
 `--env-file` for an explicit benchmark environment.
 
+Benchmark-local server and path settings live in
+`gutch_repo/tests/benchmarks/config.yml`. Copy `config.yml.example` there and
+fill in the SSH target, remote workspace, fixture root, and local artifact
+paths. The benchmark does not read the repository-root `config.yml`.
+
 Storage actions are `prepare`, `download`, `delete`, and `abort-multipart`.
 The destructive actions require `--yes` in explicit mode. `delete` defaults to
 the scenario prefix; `abort-multipart` defaults to the whole bucket unless

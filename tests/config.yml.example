@@ -1,0 +1,21 @@
+# Copy this file to config.yml and fill in the SSH target values used by the
+# remote Gutch benchmark. Do not store passwords or private keys here.
+
+local:
+  product_root: C:/datasets/products
+  artifacts_root: .artifacts
+  environment_file: .env
+
+remote:
+  default_target: sv1
+  workspace_root: /tmp/hostapp-gutch-benchmark
+  fixtures_root: /home/user/hostapp/benchmark-fixtures/gutch
+  python: python3
+
+ssh:
+  sv1:
+    host: ""
+    port: 22
+    user: ""
+    host_alias: ""
+    identity_file: ""

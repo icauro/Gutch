@@ -2,3 +2,4 @@
 __pycache__/
 .pytest-v2-tmp/
 .env
+config.yml

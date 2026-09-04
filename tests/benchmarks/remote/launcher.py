@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from ..benchmark_config import load_benchmark_config
 from ..common.command import CommandResult, CommandRunner
 
 
@@ -12,7 +13,21 @@ class RemoteTarget:
     name: str
     host: str
     ssh_config: Path | None = None
+    port: int | None = None
+    identity_file: Path | None = None
     workspace: str = "/tmp/hostapp-benchmark"
+
+    @classmethod
+    def from_config(cls, name: str | None = None, config_path: Path | None = None) -> "RemoteTarget":
+        config = load_benchmark_config(config_path)
+        target = config.ssh_target(name)
+        return cls(
+            name=target.name,
+            host=target.destination,
+            port=target.port,
+            identity_file=target.identity_file,
+            workspace=config.remote_workspace_root,
+        )
 
 
 class RemoteLauncher:
@@ -24,6 +39,10 @@ class RemoteLauncher:
         prefix = ["ssh"]
         if self.target.ssh_config:
             prefix.extend(["-F", str(self.target.ssh_config)])
+        if self.target.port:
+            prefix.extend(["-p", str(self.target.port)])
+        if self.target.identity_file:
+            prefix.extend(["-i", str(self.target.identity_file)])
         prefix.append(self.target.host)
         return prefix
 
@@ -38,6 +57,10 @@ class RemoteLauncher:
         prefix = ["scp"]
         if self.target.ssh_config:
             prefix.extend(["-F", str(self.target.ssh_config)])
+        if self.target.port:
+            prefix.extend(["-P", str(self.target.port)])
+        if self.target.identity_file:
+            prefix.extend(["-i", str(self.target.identity_file)])
         prefix.extend([str(source), f"{self.target.host}:{destination}"])
         return self.commands.run(prefix, description=description)
 
@@ -45,6 +68,10 @@ class RemoteLauncher:
         prefix = ["scp"]
         if self.target.ssh_config:
             prefix.extend(["-F", str(self.target.ssh_config)])
+        if self.target.port:
+            prefix.extend(["-P", str(self.target.port)])
+        if self.target.identity_file:
+            prefix.extend(["-i", str(self.target.identity_file)])
         prefix.extend([f"{self.target.host}:{source}", str(destination)])
         return self.commands.run(prefix, description=description)
 

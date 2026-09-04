@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from gutch_repo.tests.benchmarks.common.environment import load_benchmark_environment
+from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
 from .config import load_storage_scenario
 from .workflow import run_abort_multipart_uploads, run_delete, run_download, run_prepare
 
@@ -22,7 +23,7 @@ def run_command(args: argparse.Namespace) -> int:
         targets = [target for target in targets if target.name == args.target]
     if not targets:
         raise SystemExit("no enabled storage targets matched")
-    work_dir = (args.work_dir or Path("gutch_repo/tests/benchmarks/.artifacts/storage")).resolve()
+    work_dir = (args.work_dir or load_benchmark_config().artifacts_root / "storage").resolve()
     delete_prefix = args.prefix if args.prefix is not None else scenario.prefix
     results = []
     for target in targets:
