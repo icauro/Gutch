@@ -14,16 +14,17 @@ FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
 
 
 def run_command(args: argparse.Namespace) -> int:
-    environment_path = load_benchmark_environment(getattr(args, "env_file", None))
-    if environment_path is not None:
-        print(f"Using benchmark environment: {environment_path}")
+    config_path = getattr(args, "config", None)
+    config = load_benchmark_config(config_path)
+    environment_path = load_benchmark_environment(config_path)
+    print(f"Using benchmark config: {environment_path}")
     scenario = load_storage_scenario(FIXTURE_ROOT / f"{args.fixture}.yaml")
     targets = [target for target in scenario.targets if target.enabled]
     if args.target:
         targets = [target for target in targets if target.name == args.target]
     if not targets:
         raise SystemExit("no enabled storage targets matched")
-    work_dir = (args.work_dir or load_benchmark_config().artifacts_root / "storage").resolve()
+    work_dir = (args.work_dir or config.artifacts_root / "storage").resolve()
     delete_prefix = args.prefix if args.prefix is not None else scenario.prefix
     results = []
     for target in targets:
@@ -90,4 +91,4 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--prefix")
     parser.add_argument("--yes", action="store_true", help="Confirm destructive delete or abort-multipart actions")
-    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: gutch_repo/tests/benchmarks/.env)")
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths, S3 credentials, and SSH targets")

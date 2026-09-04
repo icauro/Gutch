@@ -159,7 +159,7 @@ def _run_interactive_fixture(fixture: InteractiveFixture, executable: Path) -> i
         "product": product,
         "gutch_exe": executable,
         "artifacts_root": artifacts_root,
-        "env_file": None,
+        "config": None,
         "s3_prefix": "S3_MAIN",
         "bucket": None,
         "endpoint": None,

@@ -5,7 +5,7 @@ from .command import CommandError, CommandResult, CommandRunner
 from .config import ScenarioCatalog, ScenarioDocument, load_scenario
 from .filesystem import TreeStats, compare_directories, scan_tree
 from .recovery import apply_corruption_plan, build_corruption_plan
-from .environment import DEFAULT_ENV_FILE, load_benchmark_environment
+from .environment import DEFAULT_CONFIG_FILE, load_benchmark_environment
 
 __all__ = [
     "CommandError",
@@ -22,6 +22,6 @@ __all__ = [
     "scan_tree",
     "apply_corruption_plan",
     "build_corruption_plan",
-    "DEFAULT_ENV_FILE",
+    "DEFAULT_CONFIG_FILE",
     "load_benchmark_environment",
 ]

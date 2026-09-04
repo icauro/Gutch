@@ -2,9 +2,13 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
+
+
+_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 BENCHMARK_ROOT = Path(__file__).resolve().parent
@@ -35,7 +39,7 @@ class BenchmarkConfig:
     path: Path
     product_root: Path
     artifacts_root: Path
-    environment_file: Path
+    environment: dict[str, str]
     remote_target: str
     remote_workspace_root: str
     remote_fixtures_root: str
@@ -78,6 +82,18 @@ def _configured_path(values: dict[str, Any], name: str, path: Path) -> Path:
     return value.resolve() if value.is_absolute() else (path.parent / value).resolve()
 
 
+def _environment(values: object, path: Path) -> dict[str, str]:
+    raw_environment = _mapping(values, "environment", path)
+    environment: dict[str, str] = {}
+    for name, value in raw_environment.items():
+        if not isinstance(name, str) or not _ENV_NAME_PATTERN.fullmatch(name):
+            raise ValueError(f"benchmark environment names must be valid shell names: {path}")
+        if not isinstance(value, str):
+            raise ValueError(f"benchmark environment values must be strings: {path}")
+        environment[name] = value
+    return environment
+
+
 def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
     config_path = (path or DEFAULT_CONFIG_PATH).expanduser().resolve()
     if not config_path.is_file():
@@ -88,6 +104,7 @@ def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
     root = _mapping(values, "root", config_path)
     local = _mapping(root.get("local", {}), "local", config_path)
     remote = _mapping(root.get("remote", {}), "remote", config_path)
+    environment = _environment(root.get("environment", {}), config_path)
     raw_ssh = _mapping(root.get("ssh", {}), "ssh", config_path)
     ssh_targets: dict[str, SshTarget] = {}
     for name, raw in raw_ssh.items():
@@ -107,7 +124,7 @@ def load_benchmark_config(path: Path | None = None) -> BenchmarkConfig:
         path=config_path,
         product_root=_configured_path(local, "product_root", config_path),
         artifacts_root=_configured_path(local, "artifacts_root", config_path),
-        environment_file=_configured_path(local, "environment_file", config_path),
+        environment=environment,
         remote_target=_required_string(remote, "default_target", config_path),
         remote_workspace_root=_required_string(remote, "workspace_root", config_path),
         remote_fixtures_root=_required_string(remote, "fixtures_root", config_path),

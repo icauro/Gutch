@@ -8,9 +8,9 @@ Run Gutch benchmarks interactively:
 
     python -m gutch_repo.tests.benchmarks.gutch_fixture_runner
 
-The interactive Gutch launcher uses
-`C:/datasets/products` as the default product lookup
-root, then presents its product directories as the next numbered selection.
+The interactive Gutch launcher uses `local.product_root` from the benchmark
+YAML config as its product lookup root, then presents its product directories
+as the next numbered selection.
 
 The Gutch launcher can also be run directly by file path:
 
@@ -24,13 +24,11 @@ Run storage benchmarks interactively:
 
     python -m gutch_repo.tests.benchmarks.s3_throughput
 
-Storage commands also load `gutch_repo/tests/benchmarks/.env` by default and accept
-`--env-file` for an explicit benchmark environment.
-
 Benchmark-local server and path settings live in
 `gutch_repo/tests/benchmarks/config.yml`. Copy `config.yml.example` there and
-fill in the SSH target, remote workspace, fixture root, and local artifact
-paths. The benchmark does not read the repository-root `config.yml`.
+fill in the SSH target, remote workspace, fixture root, local artifact paths,
+and S3 credentials under the `environment` mapping. The benchmark does not
+read the repository-root `config.yml`.
 
 Storage actions are `prepare`, `download`, `delete`, and `abort-multipart`.
 The destructive actions require `--yes` in explicit mode. `delete` defaults to
@@ -41,13 +39,13 @@ Run the default local Gutch fixture:
 
     python -m gutch_repo.tests.benchmarks.gutch_fixture_runner --product path/to/product
 
-Run the cold S3 publication cycle (using `gutch_repo/tests/benchmarks/.env` by default):
+Run the cold S3 publication cycle (using the benchmark YAML config by default):
 
     python -m gutch_repo.tests.benchmarks.gutch_fixture_runner s3-cycle --product path/to/product
 
-Copy `.env.example` to `.env`, or select another file with `--env-file`.
-The benchmark suite owns this environment-file convention and does not resolve
-credentials through the repository root `config.yml`.
+Use `--config path/to/config.yml` to select another benchmark config. Keep the
+filled config local and never commit S3 secrets or SSH private-key paths that
+should remain private.
 
 Shared Python utilities live under `gutch_repo/tests/benchmarks/common` and
 `gutch_repo/tests/benchmarks/remote`; executable benchmark runners live beside
@@ -75,7 +73,7 @@ Plakar backup. Gutch lanes use their typed `profile` options instead.
 
     gutch_repo/tests/benchmarks/common/
       command.py       subprocess boundary, timing, and redaction
-      environment.py   benchmark-owned env-file loading
+      environment.py   benchmark-owned YAML environment loading
       config.py        recursive YAML catalog
       artifacts.py     run/lane layout and retention
       filesystem.py    tree stats and content comparison

@@ -91,7 +91,7 @@ def _run_interactive() -> int:
                 output_dir=output_dir,
                 prefix=prefix,
                 yes=yes,
-                env_file=None,
+                config=None,
             )
         )
     except (OSError, RuntimeError, ValueError) as error:

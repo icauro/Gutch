@@ -134,7 +134,7 @@ gutch_repo/src/verify/tests.rs
 gutch_repo/src/verify/types.rs
 gutch_repo/tests/
 gutch_repo/tests/benchmarks/
-gutch_repo/tests/benchmarks/.env.example
+gutch_repo/tests/benchmarks/benchmark_config.py
 gutch_repo/tests/benchmarks/common/
 gutch_repo/tests/benchmarks/common/__init__.py
 gutch_repo/tests/benchmarks/common/artifacts.py
@@ -144,6 +144,7 @@ gutch_repo/tests/benchmarks/common/environment.py
 gutch_repo/tests/benchmarks/common/filesystem.py
 gutch_repo/tests/benchmarks/common/recovery.py
 gutch_repo/tests/benchmarks/common/traces.py
+gutch_repo/tests/benchmarks/config.yml.example
 gutch_repo/tests/benchmarks/gutch_fixture_runner/
 gutch_repo/tests/benchmarks/gutch_fixture_runner/__init__.py
 gutch_repo/tests/benchmarks/gutch_fixture_runner/__main__.py

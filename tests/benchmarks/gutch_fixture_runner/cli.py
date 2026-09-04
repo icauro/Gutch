@@ -28,6 +28,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config (default: gutch_repo/tests/benchmarks/config.yml)")
     parser.add_argument("--keep-artifacts", action="store_true")
 
 
@@ -67,7 +68,7 @@ def run_command(args: argparse.Namespace) -> int:
     repo_root = _repo_root()
     fixture = FixtureCatalog().resolve(args.fixture)
     executable = resolve_gutch_executable(repo_root, args.gutch_exe.resolve() if args.gutch_exe else None)
-    artifacts = args.artifacts_root or load_benchmark_config().artifacts_root
+    artifacts = args.artifacts_root or load_benchmark_config(getattr(args, "config", None)).artifacts_root
     run_fixture(
         fixture,
         product,
@@ -86,7 +87,7 @@ def add_reconstruction_storage_arguments(parser: argparse.ArgumentParser) -> Non
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: gutch_repo/tests/benchmarks/.env)")
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths, S3 credentials, and SSH targets")
     parser.add_argument("--s3-prefix", default="S3_MAIN")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
@@ -108,9 +109,10 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
     scenario = load_scenario(fixture_path)
     if scenario.values.get("runner") != "gutch-reconstruction-storage":
         raise SystemExit(f"fixture {args.fixture!r} is not a reconstruction-storage fixture")
-    environment_path = load_benchmark_environment(getattr(args, "env_file", None))
-    if environment_path is not None:
-        print(f"Using benchmark environment: {environment_path}")
+    config_path = getattr(args, "config", None)
+    config = load_benchmark_config(config_path)
+    environment_path = load_benchmark_environment(config_path)
+    print(f"Using benchmark config: {environment_path}")
     recovery_enabled = scenario.values.get("corrupt_repair", False)
     if not isinstance(recovery_enabled, bool):
         raise SystemExit("fixture corrupt_repair must be a boolean")
@@ -124,7 +126,7 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
         product,
         GutchCli(executable),
         settings,
-        args.artifacts_root or load_benchmark_config().artifacts_root,
+        args.artifacts_root or config.artifacts_root,
         transfer_concurrency=args.transfer_concurrency,
         upload_concurrency=args.upload_concurrency,
         recovery_enabled=recovery_enabled,
@@ -171,7 +173,7 @@ def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--env-file", type=Path, help="Benchmark environment file (default: gutch_repo/tests/benchmarks/.env)")
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths, S3 credentials, and SSH targets")
     parser.add_argument("--s3-prefix", default="S3_MAIN")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
@@ -191,9 +193,10 @@ def run_s3_cycle_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"product directory does not exist: {product}")
     fixture_path = Path(__file__).resolve().parent / "fixtures" / f"{args.fixture}.yaml"
     fixture, defaults = load_s3_cycle(fixture_path)
-    environment_path = load_benchmark_environment(getattr(args, "env_file", None))
-    if environment_path is not None:
-        print(f"Using benchmark environment: {environment_path}")
+    config_path = getattr(args, "config", None)
+    config = load_benchmark_config(config_path)
+    environment_path = load_benchmark_environment(config_path)
+    print(f"Using benchmark config: {environment_path}")
     scenario_values = load_scenario(fixture_path).values
     options = S3CycleOptions(
         prefix_root=args.prefix_root or defaults.prefix_root,
@@ -210,7 +213,7 @@ def run_s3_cycle_command(args: argparse.Namespace) -> int:
         product,
         GutchCli(executable),
         _s3_settings(args, scenario_values.get("storage")),
-        args.artifacts_root or load_benchmark_config().artifacts_root,
+        args.artifacts_root or config.artifacts_root,
         options=options,
         keep_artifacts=args.keep_artifacts,
         on_lane_complete=print_lane_result,
