@@ -1,3 +1,2 @@
 /.artifacts/
-/test_dataset/regression-128mib/
-/test_dataset/reconstruction-storage-4x512mib/
+/test_dataset/
