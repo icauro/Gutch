@@ -7,8 +7,8 @@ import sys
 from typing import Sequence
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-    __package__ = "gutch_repo.tests.benchmarks.gutch_fixture_runner"
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    __package__ = "gutch_repo.benchmarks.gutch_fixture_runner"
 
 from .cli import (
     add_arguments,
@@ -21,13 +21,13 @@ from .cli import (
 from .binary import resolve_gutch_executable
 from .config import FixtureCatalog
 from .s3_cycle import load_s3_cycle
-from gutch_repo.tests.benchmarks.remote.runner import run_remote_benchmark
-from gutch_repo.tests.benchmarks.common.config import load_scenario
-from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
+from gutch_repo.benchmarks.remote.runner import run_remote_benchmark
+from gutch_repo.benchmarks.common.config import load_scenario
+from gutch_repo.benchmarks.benchmark_config import load_benchmark_config
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = PACKAGE_ROOT.parents[3]
+REPO_ROOT = PACKAGE_ROOT.parents[2]
 DEFAULT_PRODUCTS_ROOT = load_benchmark_config().product_root
 S3_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_s3_cold_publication_cycle.yaml"
 RECONSTRUCTION_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_reconstruction_storage_paths.yaml"
@@ -211,20 +211,20 @@ def _run_explicit(arguments: list[str]) -> int:
         _print_fixtures()
         return 0
     if arguments[0] == "reconstruction-storage":
-        parser = argparse.ArgumentParser(prog="gutch_repo.tests.benchmarks.gutch_fixture_runner reconstruction-storage")
+        parser = argparse.ArgumentParser(prog="gutch_repo.benchmarks.gutch_fixture_runner reconstruction-storage")
         add_reconstruction_storage_arguments(parser)
         parsed = parser.parse_args(arguments[1:])
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
         return run_reconstruction_storage_command(parsed)
     if arguments[0] == "s3-cycle":
-        parser = argparse.ArgumentParser(prog="gutch_repo.tests.benchmarks.gutch_fixture_runner s3-cycle")
+        parser = argparse.ArgumentParser(prog="gutch_repo.benchmarks.gutch_fixture_runner s3-cycle")
         add_s3_cycle_arguments(parser)
         parsed = parser.parse_args(arguments[1:])
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
         return run_s3_cycle_command(parsed)
     if arguments[0] == "remote":
         parser = argparse.ArgumentParser(
-            prog="gutch_repo.tests.benchmarks.gutch_fixture_runner remote"
+            prog="gutch_repo.benchmarks.gutch_fixture_runner remote"
         )
         parser.add_argument("--fixture", default="gutch_s3_cold_publication_cycle")
         parser.add_argument("--config", type=Path)
@@ -248,7 +248,7 @@ def _run_explicit(arguments: list[str]) -> int:
         except (OSError, RuntimeError, ValueError) as error:
             raise SystemExit(f"remote benchmark failed: {error}") from error
         return 0
-    parser = argparse.ArgumentParser(prog="gutch_repo.tests.benchmarks.gutch_fixture_runner")
+    parser = argparse.ArgumentParser(prog="gutch_repo.benchmarks.gutch_fixture_runner")
     add_arguments(parser)
     parsed = parser.parse_args(arguments)
     parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)

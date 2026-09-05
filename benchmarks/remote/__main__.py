@@ -9,8 +9,8 @@ import sys
 from typing import Sequence
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-    __package__ = "gutch_repo.tests.benchmarks.remote"
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    __package__ = "gutch_repo.benchmarks.remote"
 
 from ..benchmark_config import load_benchmark_config
 from ..common.config import load_scenario
@@ -122,7 +122,7 @@ def _run_interactive(config_path: Path | None = None) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m gutch_repo.tests.benchmarks.remote")
+    parser = argparse.ArgumentParser(prog="python -m gutch_repo.benchmarks.remote")
     parser.add_argument("--config", type=Path, help="Benchmark YAML config")
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     try:

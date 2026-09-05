@@ -2,9 +2,9 @@
 # Depends on:
 # - Cargo and the release `hostapp-cli` binary built from `host_app/hostapp-cli/Cargo.toml`.
 # - The tracked deterministic 128 MiB recipe and preparation script under
-#   `gutch_repo/tests/test_dataset_recipes` and `gutch_repo/tests/prepare_test_dataset.py`.
+#   `gutch_repo/test_dataset/test_dataset_recipes` and `gutch_repo/test_dataset/ensure_test_dataset.py`.
 # Uses paths:
-# - Generated input and mutable state: `gutch_repo/tests/.artifacts/mock-regression-128mib/`.
+# - Generated input and mutable state: `gutch_repo/test_dataset/.artifacts/mock-regression-128mib/`.
 # - Durable output: `docs/generated/gutch_regression/`.
 #
 # Builds the latest release CLI, creates and reconstructs deterministic generated snapshots,
@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts._common.paths import (
@@ -37,8 +37,8 @@ from scripts._common.paths import (
 
 SNAPSHOT_COUNT = 4
 PRODUCT_NAME = "mock-regression-128mib"
-RECIPE_PATH = REPO_ROOT / "gutch_repo" / "tests" / "test_dataset_recipes" / "mock-regression-128mib.json"
-GENERATED_ROOT = REPO_ROOT / "gutch_repo" / "tests" / ".artifacts" / PRODUCT_NAME
+RECIPE_PATH = REPO_ROOT / "gutch_repo" / "test_dataset" / "test_dataset_recipes" / "mock-regression-128mib.json"
+GENERATED_ROOT = REPO_ROOT / "gutch_repo" / "test_dataset" / ".artifacts" / PRODUCT_NAME
 REPORT_ROOT = REPO_ROOT / "docs" / "generated" / "gutch_regression"
 RUNS_ROOT = REPORT_ROOT / "runs"
 VIEWER_PATH = REPORT_ROOT / "index.html"
@@ -80,7 +80,7 @@ def materialize_regression_product() -> Path:
     run_command(
         [
             sys.executable,
-            str(REPO_ROOT / "gutch_repo" / "tests" / "prepare_test_dataset.py"),
+            str(REPO_ROOT / "gutch_repo" / "test_dataset" / "ensure_test_dataset.py"),
             "--fixtures-root", str(source_root),
             "--recipe", RECIPE_PATH.stem,
             "--force",

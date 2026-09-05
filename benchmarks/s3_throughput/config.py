@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gutch_repo.tests.benchmarks.common.config import load_scenario
+from gutch_repo.benchmarks.common.config import load_scenario
 
 
 @dataclass(frozen=True)

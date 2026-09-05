@@ -5,9 +5,9 @@ import json
 import os
 from pathlib import Path
 
-from gutch_repo.tests.benchmarks.common.environment import load_benchmark_environment
-from gutch_repo.tests.benchmarks.common.config import load_scenario
-from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
+from gutch_repo.benchmarks.common.environment import load_benchmark_environment
+from gutch_repo.benchmarks.common.config import load_scenario
+from gutch_repo.benchmarks.benchmark_config import load_benchmark_config
 from .binary import resolve_gutch_executable
 from .commands import GutchCli
 from .config import FixtureCatalog, _wait_seconds
@@ -20,7 +20,7 @@ from .workflow import run_fixture
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
+    return Path(__file__).resolve().parents[3]
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -28,7 +28,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config (default: gutch_repo/tests/benchmarks/config.yml)")
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config (default: gutch_repo/benchmarks/config.yml)")
     parser.add_argument("--keep-artifacts", action="store_true")
 
 

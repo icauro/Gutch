@@ -23,7 +23,7 @@ from .launcher import RemoteLauncher, RemoteTarget
 
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = BENCHMARK_ROOT.parents[2]
+REPOSITORY_ROOT = BENCHMARK_ROOT.parents[1]
 REMOTE_ENTRY = Path(__file__).with_name("entry.py")
 REMOTE_DATASET_DIRECTORY = "gutch-remote-blender-cache"
 
@@ -36,10 +36,10 @@ def _package_sources(destination: Path) -> None:
             if path.suffix not in {".py", ".yaml"}:
                 continue
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
-        dataset_script = REPOSITORY_ROOT / "gutch_repo" / "tests" / "prepare_test_dataset.py"
-        package.write(dataset_script, "prepare_test_dataset.py")
-        recipe = REPOSITORY_ROOT / "gutch_repo" / "tests" / "test_dataset_recipes" / "blender-official.json"
-        package.write(recipe, "gutch_repo/tests/test_dataset_recipes/blender-official.json")
+        dataset_script = REPOSITORY_ROOT / "gutch_repo" / "test_dataset" / "ensure_test_dataset.py"
+        package.write(dataset_script, "gutch_repo/test_dataset/ensure_test_dataset.py")
+        recipe = REPOSITORY_ROOT / "gutch_repo" / "test_dataset" / "test_dataset_recipes" / "blender-official.json"
+        package.write(recipe, "gutch_repo/test_dataset/test_dataset_recipes/blender-official.json")
 
 
 def _runtime_config(config: BenchmarkConfig, path: Path, remote_workspace: str) -> None:

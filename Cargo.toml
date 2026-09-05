@@ -42,3 +42,11 @@ indicatif = "0.18.4"
 smol_str = { version = "0.3.2", features = ["serde"] }
 # Small owned strings for clone-heavy metadata
 urlencoding = "2.1.3"
+
+[[test]]
+name = "fixture_regression"
+path = "fixture_regression.rs"
+
+[[test]]
+name = "source_config_ingestion"
+path = "source_config_ingestion.rs"

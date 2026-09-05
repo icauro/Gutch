@@ -171,8 +171,8 @@ fn assert_snapshot_matches_expected(
 #[test]
 fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
     for (product_name, expected_seed) in TEST_DATASET_PRODUCTS {
-        let source_root = dataset_path("tests/test_dataset/source").join(product_name);
-        let repo_root = dataset_path("tests/test_dataset/repos/v1").join(product_name);
+        let source_root = dataset_path("test_dataset/source").join(product_name);
+        let repo_root = dataset_path("test_dataset/repos/v1").join(product_name);
         let test_manifest = load_test_manifest(&repo_root);
 
         assert_eq!(test_manifest.generator.seed, *expected_seed);
@@ -242,7 +242,7 @@ fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
 #[test]
 #[ignore = "official Blender snapshots are large; run this explicitly in the fixture lane"]
 fn checked_in_blender_repo_is_processable() {
-    let repo_root = dataset_path("tests/test_dataset/repos/v1/Blender");
+    let repo_root = dataset_path("test_dataset/repos/v1/Blender");
     let repo_status = gutch::check_gutch_repo(&repo_root).expect("Blender repo should load");
     assert_eq!(repo_status.snapshots.len(), 4);
 

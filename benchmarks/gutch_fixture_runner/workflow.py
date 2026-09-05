@@ -14,11 +14,11 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from gutch_repo.tests.benchmarks.common.artifacts import RunLayout, create_run_dir
-from gutch_repo.tests.benchmarks.common.command import CommandRunner
-from gutch_repo.tests.benchmarks.common.filesystem import compare_directories, remove_tree, scan_tree
-from gutch_repo.tests.benchmarks.common.recovery import apply_corruption_plan, build_corruption_plan
-from gutch_repo.tests.benchmarks.common.traces import combine_labeled_traces, open_trace_in_perfetto
+from gutch_repo.benchmarks.common.artifacts import RunLayout, create_run_dir
+from gutch_repo.benchmarks.common.command import CommandRunner
+from gutch_repo.benchmarks.common.filesystem import compare_directories, remove_tree, scan_tree
+from gutch_repo.benchmarks.common.recovery import apply_corruption_plan, build_corruption_plan
+from gutch_repo.benchmarks.common.traces import combine_labeled_traces, open_trace_in_perfetto
 from .commands import GutchCli
 from .external import ExternalTools, run_external
 from .models import FixtureSpec, GutchProfile, LaneResult, LaneSpec
@@ -585,7 +585,7 @@ def run_fixture(
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
     commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
-    external = ExternalTools(repo_root or Path(__file__).resolve().parents[4], commands)
+    external = ExternalTools(repo_root or Path(__file__).resolve().parents[3], commands)
     if external_binary_root is not None:
         external = ExternalTools(
             external.repo_root,

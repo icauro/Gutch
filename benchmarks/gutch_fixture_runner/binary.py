@@ -52,7 +52,7 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
             repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "default" / "release" / "hostapp-cli.exe",
             repo_root / ".build" / "main" / "app" / "cargo" / "default" / "release" / "hostapp-cli.exe",
             repo_root / "target" / "release" / "hostapp-cli.exe",
-            repo_root / "gutch_repo" / "tests" / "benchmarks" / "gutch_fixture_runner" / "bin" / "hostapp-cli.exe",
+            repo_root / "gutch_repo" / "benchmarks" / "gutch_fixture_runner" / "bin" / "hostapp-cli.exe",
         ]
     )
     for candidate in candidates:

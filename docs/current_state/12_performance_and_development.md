@@ -75,8 +75,8 @@ uses their root spans for run-level comparison.
 
 ## Checked-In Fixture Regression
 
-Regression test datasets use `gutch_repo/tests/test_dataset/source/` for ignored
-prepared inputs and `gutch_repo/tests/test_dataset/repos/v1/` for committed
+Regression test datasets use `gutch_repo/test_dataset/source/` for ignored
+prepared inputs and `gutch_repo/test_dataset/repos/v1/` for committed
 current-format Gutch repos. Source manifests record expected paths, sizes, and
 BLAKE3 hashes. Tests reconstruct from stored repo artifacts and compare against
 the prepared source tree when it is available.
@@ -89,7 +89,7 @@ bundle and loose chunk payloads remain extensionless.
 
 Repo format changes regenerate these fixtures as current-format data;
 there is no legacy fixture compatibility layer. Automated mutable fixture data
-stays beneath `gutch_repo/tests/`. A single preparation script owns generated
+stays beneath `gutch_repo/test_dataset/`. A single preparation script owns generated
 mock products and optional official Blender benchmark inputs. Mock products
 are recreated from tracked JSON recipes without Git history. Blender
 preparation selects versions from a tracked archive-and-digest recipe,
@@ -107,13 +107,13 @@ cargo test --manifest-path gutch_repo/Cargo.toml --test fixture_regression
 Prepare deterministic mock recipes:
 
 ```pwsh
-python gutch_repo/tests/prepare_test_dataset.py
+python gutch_repo/test_dataset/ensure_test_dataset.py
 ```
 
 Prepare two pinned official Blender builds for both Linux x64 and Windows x64:
 
 ```pwsh
-python gutch_repo/tests/prepare_test_dataset.py `
+python gutch_repo/test_dataset/ensure_test_dataset.py `
   --blender --blender-version 5.2.0 --blender-version 5.2.1 `
   --blender-platform linux-x64 --blender-platform windows-x64 --force
 ```
