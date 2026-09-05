@@ -29,7 +29,7 @@ and final verification are local operations.
 | 6. Fetch missing remote artifacts | Download missing bundles through the transfer scheduler and emit `Ready` only after an atomic local write completes. | In unified fetch-reconstruct, download and decode overlap. |
 | 7. Decode and fan out | Read each artifact, verify selected raw chunks, and positional-write bytes to all target files. | Artifact jobs run concurrently; a bundle is read once per artifact job. |
 | 8. Verify completed files | Enqueue a file verification job when all producing jobs for that file finish. | Unrelated files continue while another file is waiting on an artifact. |
-| 9. Finalize and promote | Apply file, directory, and symlink metadata, then atomically replace the destination with staging. | Promotion is gated on successful reconstruction and verification. |
+| 9. Finalize and promote | Apply file, directory, and symlink metadata, then atomically replace the destination with staging. | Promotion is gated on successful reconstruction and verification; entries absent from the new snapshot are removed with the old tree. |
 
 ## Job graph and parallelization
 
@@ -129,7 +129,9 @@ Staging is created beside the destination unless the caller supplies another
 valid staging directory. It is removed on failure. The destination is not
 replaced until all producing jobs, per-file verification, metadata finalization,
 and promotion checks succeed. This protects the previously committed tree from
-partial reconstruction.
+partial reconstruction. A successful replacement promotes the complete target
+tree, so source-only files and unrelated destination entries do not carry over
+to the new snapshot.
 
 For ordinary artifact and source-chunk jobs, the per-file verifier reads the
 completed output and checks size and full-file BLAKE3. A whole-file copy hashes

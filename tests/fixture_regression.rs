@@ -240,6 +240,169 @@ fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
 }
 
 #[test]
+fn changing_installed_snapshot_replaces_old_tree_and_updates_entries() {
+    let product_name = "mock-version-churn";
+    let source_root = dataset_path("test_dataset/source").join(product_name);
+    let repo_root = dataset_path("test_dataset/repos/v1").join(product_name);
+    let test_manifest = load_test_manifest(&repo_root);
+    let repo_status = gutch::check_gutch_repo(&repo_root).expect("fixture repo should load");
+    let snapshot_with_path = |expected_path: &str| {
+        repo_status
+            .snapshots
+            .iter()
+            .find(|snapshot| {
+                let version = snapshot
+                    .snapshot_tags
+                    .get_exclusive("version")
+                    .expect("fixture snapshot version");
+                let os = snapshot
+                    .snapshot_tags
+                    .get_exclusive("os")
+                    .expect("fixture snapshot os");
+                let arch = snapshot
+                    .snapshot_tags
+                    .get_exclusive("arch")
+                    .expect("fixture snapshot arch");
+                let access = snapshot
+                    .snapshot_tags
+                    .get_exclusive("access")
+                    .expect("fixture snapshot access");
+                format!("{version}-{os}-{arch}-{access}") == expected_path
+            })
+            .unwrap_or_else(|| panic!("missing fixture snapshot {expected_path}"))
+    };
+
+    let source_snapshot_path = "1.0.0-windows-x86-public";
+    let target_snapshot_path = "2.0.0-windows-x86-public";
+    let source_snapshot = snapshot_with_path(source_snapshot_path);
+    let target_snapshot = snapshot_with_path(target_snapshot_path);
+    let source_expected = test_manifest
+        .snapshots
+        .iter()
+        .find(|snapshot| snapshot.path == source_snapshot_path)
+        .expect("source snapshot should have expected fixture data");
+    let target_expected = test_manifest
+        .snapshots
+        .iter()
+        .find(|snapshot| snapshot.path == target_snapshot_path)
+        .expect("target snapshot should have expected fixture data");
+    let source_snapshot_root = source_root.join(source_snapshot_path);
+    let target_snapshot_root = source_root.join(target_snapshot_path);
+
+    let source_paths: BTreeSet<&str> = source_expected
+        .entries
+        .iter()
+        .map(ExpectedEntry::path)
+        .collect();
+    let target_paths: BTreeSet<&str> = target_expected
+        .entries
+        .iter()
+        .map(ExpectedEntry::path)
+        .collect();
+    let source_only_file_path = source_expected
+        .entries
+        .iter()
+        .find_map(|entry| match entry {
+            ExpectedEntry::File { path, .. } if !target_paths.contains(path.as_str()) => {
+                Some(path.clone())
+            }
+            _ => None,
+        })
+        .expect("version churn fixture should contain a source-only file");
+    let target_only_file_path = target_expected
+        .entries
+        .iter()
+        .find_map(|entry| match entry {
+            ExpectedEntry::File { path, .. } if !source_paths.contains(path.as_str()) => {
+                Some(path.clone())
+            }
+            _ => None,
+        })
+        .expect("version churn fixture should contain a target-only file");
+    let changed_file_path = source_expected
+        .entries
+        .iter()
+        .find_map(|source_entry| {
+            let ExpectedEntry::File {
+                path: source_path,
+                blake3: source_hash,
+                ..
+            } = source_entry
+            else {
+                return None;
+            };
+            target_expected.entries.iter().find_map(|target_entry| {
+                matches!(
+                    target_entry,
+                    ExpectedEntry::File {
+                        path: target_path,
+                        blake3: target_hash,
+                        ..
+                    } if target_path == source_path && target_hash != source_hash
+                )
+                .then_some(source_path.clone())
+            })
+        })
+        .expect("version churn fixture should contain a changed file");
+
+    let output_root = tempfile::tempdir().expect("snapshot replacement output tempdir");
+    let destination_dir = output_root.path().join("installed");
+    reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+        repo_path: repo_root.clone(),
+        snapshot_id: source_snapshot.snapshot_id.clone(),
+        destination_dir: destination_dir.clone(),
+        staging_dir: None,
+        source_snapshot_id: None,
+        source_dir: None,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: GutchOperationControl::default(),
+    })
+    .expect("source snapshot should reconstruct");
+    assert_snapshot_matches_expected(
+        source_expected,
+        Some(&source_snapshot_root),
+        &destination_dir,
+    );
+
+    let user_extra_path = destination_dir.join("user-created").join("notes.txt");
+    std::fs::create_dir_all(user_extra_path.parent().expect("user extra parent"))
+        .expect("create user extra parent");
+    std::fs::write(&user_extra_path, b"unrelated user data").expect("write user extra");
+
+    reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+        repo_path: repo_root,
+        snapshot_id: target_snapshot.snapshot_id.clone(),
+        destination_dir: destination_dir.clone(),
+        staging_dir: Some(output_root.path().join("update-staging")),
+        source_snapshot_id: Some(source_snapshot.snapshot_id.clone()),
+        source_dir: Some(destination_dir.clone()),
+        runtime_hints: RuntimeResourceHints::default(),
+        control: GutchOperationControl::default(),
+    })
+    .expect("target snapshot should replace the installed source snapshot");
+
+    assert!(
+        !destination_dir.join(&source_only_file_path).exists(),
+        "source-only file should be removed during snapshot replacement: {source_only_file_path}"
+    );
+    assert!(
+        !user_extra_path.exists(),
+        "unrelated files should not survive an atomic snapshot replacement"
+    );
+    assert_eq!(
+        std::fs::read(destination_dir.join(&changed_file_path)).expect("read changed file"),
+        std::fs::read(target_snapshot_root.join(&changed_file_path))
+            .expect("read target changed file")
+    );
+    assert_eq!(
+        std::fs::read(destination_dir.join(&target_only_file_path)).expect("read target-only file"),
+        std::fs::read(target_snapshot_root.join(&target_only_file_path))
+            .expect("read source target-only file")
+    );
+    assert_snapshot_matches_expected(target_expected, None, &destination_dir);
+}
+
+#[test]
 #[ignore = "official Blender snapshots are large; run this explicitly in the fixture lane"]
 fn checked_in_blender_repo_is_processable() {
     let repo_root = dataset_path("test_dataset/repos/v1/Blender");

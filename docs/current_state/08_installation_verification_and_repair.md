@@ -71,7 +71,9 @@ verify selected chunks, and fan them out to their target files.
 
 Completed staging is promoted rather than exposing partially reconstructed
 content. Snapshot replacement preserves prior committed metadata and content
-until the replacement verifies and promotion succeeds.
+until the replacement verifies and promotion succeeds; once promoted, the
+complete target tree replaces the old install, including removal of source-only
+files and unrelated destination entries.
 
 The execution graph, artifact/source reuse, output-handle cache, and remote
 download overlap are detailed in
@@ -84,7 +86,9 @@ scheduling and hash modes are detailed in
 - A download, decompression, chunk, file, or final verification failure is an
   operation failure.
 - Pending or failed reconstruction does not become a launchable install.
-- Extra-file deletion occurs only through the explicit full-repair choice.
+- In-place repair deletes extra files only through the explicit full-repair
+  choice; snapshot replacement uses a complete staged tree and therefore does
+  not retain destination entries absent from the target blueprint.
 - Repair classification cannot introduce paths absent from the authoritative
   snapshot blueprint.
 - Local verification does not grant remote access or change backend library
