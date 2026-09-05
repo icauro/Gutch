@@ -1,4 +1,4 @@
-"""Resolve a built hostapp-cli without embedding benchmark-specific paths."""
+"""Resolve a built standalone gutch-cli without embedding benchmark-specific paths."""
 
 from pathlib import Path
 import os
@@ -7,17 +7,14 @@ import subprocess
 
 def _iter_build_inputs(repo_root: Path):
     files = [
-        repo_root / "host_app" / "hostapp-cli" / "Cargo.toml",
-        repo_root / "host_app" / "hostapp-cli" / "Cargo.lock",
         repo_root / "gutch_repo" / "Cargo.toml",
-        repo_root / "host_app" / "hostapp-auth" / "Cargo.toml",
-        repo_root / "host_app" / "hostapp-common" / "Cargo.toml",
+        repo_root / "gutch_repo" / "Cargo.lock",
+        repo_root / "gutch_repo" / "gutch-cli" / "Cargo.toml",
+        repo_root / "gutch_repo" / "gutch-cli" / "Cargo.lock",
     ]
     directories = [
-        repo_root / "host_app" / "hostapp-cli" / "src",
         repo_root / "gutch_repo" / "src",
-        repo_root / "host_app" / "hostapp-auth" / "src",
-        repo_root / "host_app" / "hostapp-common" / "src",
+        repo_root / "gutch_repo" / "gutch-cli" / "src",
     ]
     yield from (path for path in files if path.is_file())
     for directory in directories:
@@ -49,10 +46,10 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
     candidates: list[Path | None] = []
     candidates.extend(
         [
-            repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "default" / "release" / "hostapp-cli.exe",
-            repo_root / ".build" / "main" / "app" / "cargo" / "default" / "release" / "hostapp-cli.exe",
-            repo_root / "target" / "release" / "hostapp-cli.exe",
-            repo_root / "gutch_repo" / "benchmarks" / "gutch_fixture_runner" / "bin" / "hostapp-cli.exe",
+            repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "default" / "release" / "gutch-cli.exe",
+            repo_root / ".build" / "main" / "gutch_repo" / "intermediates" / "cargo" / "default" / "release" / "gutch-cli.exe",
+            repo_root / "target" / "release" / "gutch-cli.exe",
+            repo_root / "gutch_repo" / "benchmarks" / "gutch_fixture_runner" / "bin" / "gutch-cli.exe",
         ]
     )
     for candidate in candidates:
@@ -67,9 +64,9 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
             "build",
             "--release",
             "--manifest-path",
-            repo_root / "host_app" / "hostapp-cli" / "Cargo.toml",
+            repo_root / "gutch_repo" / "gutch-cli" / "Cargo.toml",
             "--bin",
-            "hostapp-cli",
+            "gutch-cli",
         ],
         cwd=repo_root,
         env=build_env,
@@ -78,4 +75,4 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
     for candidate in candidates:
         if candidate and _binary_is_current(candidate, repo_root):
             return candidate
-    raise FileNotFoundError("could not locate hostapp-cli after release build")
+    raise FileNotFoundError("could not locate gutch-cli after release build")

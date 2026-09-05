@@ -10,7 +10,7 @@ class GutchCli:
         self.executable = executable
 
     def command(self, *arguments: str | Path) -> list[str | Path]:
-        return [self.executable, "gutch", *arguments]
+        return [self.executable, *arguments]
 
     @staticmethod
     def profile_args(profile: GutchProfile) -> list[str]:

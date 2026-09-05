@@ -113,7 +113,7 @@ def main() -> int:
     _emit_progress("preparation", "benchmark configuration loaded")
     binary_path = args.binary.resolve()
     if not binary_path.is_file():
-        raise FileNotFoundError(f"uploaded Linux hostapp-cli was not found: {binary_path}")
+        raise FileNotFoundError(f"uploaded Linux gutch-cli was not found: {binary_path}")
     binary_path.chmod(binary_path.stat().st_mode | 0o111)
     if args.external_root is not None:
         external_root = args.external_root.resolve()

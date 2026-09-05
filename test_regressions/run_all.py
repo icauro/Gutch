@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Depends on:
-# - Cargo and the release `hostapp-cli` binary built from `host_app/hostapp-cli/Cargo.toml`.
+# - Cargo and the standalone release `gutch-cli` binary built from
+#   `gutch_repo/gutch-cli/Cargo.toml`.
 # - The tracked deterministic 128 MiB recipe and preparation script under
 #   `gutch_repo/test_dataset/test_dataset_recipes` and `gutch_repo/test_dataset/ensure_test_dataset.py`.
 # Uses paths:
@@ -10,7 +11,7 @@
 # Builds the latest release CLI, creates and reconstructs deterministic generated snapshots,
 # archives every raw Gutch stats JSON file and Perfetto trace, and regenerates a directly openable run viewer.
 # Steps:
-# - Build release `hostapp-cli` and select every generated target variant.
+# - Build release `gutch-cli` and select every generated target variant.
 # - Capture and reconstruct each snapshot while retaining its raw stats JSON.
 # - Publish one aggregate run document and regenerate the embedded-data viewer.
 
@@ -93,22 +94,22 @@ def materialize_regression_product() -> Path:
     return source_root / str(recipe["name"])
 
 
-def build_release_hostapp_cli() -> Path:
+def build_release_gutch_cli() -> Path:
     run_command(
         [
             "cargo",
             "build",
             "--release",
             "--manifest-path",
-            str(REPO_ROOT / "host_app" / "hostapp-cli" / "Cargo.toml"),
+            str(REPO_ROOT / "gutch_repo" / "gutch-cli" / "Cargo.toml"),
             "--bin",
-            "hostapp-cli",
+            "gutch-cli",
         ],
-        "build release hostapp-cli",
+        "build release gutch-cli",
     )
-    executable = get_build_path(REPO_ROOT, "hostapp_cli_release")
+    executable = get_build_path(REPO_ROOT, "gutch_cli_release")
     if not executable.is_file():
-        raise RuntimeError(f"Release hostapp-cli was not produced at {executable}")
+        raise RuntimeError(f"Release gutch-cli was not produced at {executable}")
     return executable
 
 
@@ -264,7 +265,6 @@ def run_regression(executable: Path, selected_snapshots: list[tuple[str, Path]])
         run_command(
             [
                 str(executable),
-                "gutch",
                 "repo",
                 "init",
                 "--path",
@@ -282,7 +282,6 @@ def run_regression(executable: Path, selected_snapshots: list[tuple[str, Path]])
             run_command(
                 [
                     str(executable),
-                    "gutch",
                     "snapshot",
                     "capture",
                     "--source-dir",
@@ -324,7 +323,6 @@ def run_regression(executable: Path, selected_snapshots: list[tuple[str, Path]])
             run_command(
                 [
                     str(executable),
-                    "gutch",
                     "snapshot",
                     "reconstruct",
                     "--repo",
@@ -346,7 +344,7 @@ def run_regression(executable: Path, selected_snapshots: list[tuple[str, Path]])
             verify_trace_path = snapshot_archive / "verify.trace.json"
             run_command(
                 [
-                    str(executable), "gutch", "reconstructed", "verify",
+                    str(executable), "reconstructed", "verify",
                     "--repo", str(repo_path),
                     "--snapshot-id", snapshot_id,
                     "--destination", str(output_root / snapshot_name),
@@ -358,7 +356,7 @@ def run_regression(executable: Path, selected_snapshots: list[tuple[str, Path]])
             compare_stats_path = snapshot_archive / "compare.json"
             run_command(
                 [
-                    str(executable), "gutch", "path", "compare",
+                    str(executable), "path", "compare",
                     "--expected", str(selected_by_name[snapshot_name]),
                     "--actual", str(output_root / snapshot_name),
                     "--stats-json-out", str(compare_stats_path),
@@ -416,7 +414,7 @@ def main() -> int:
         print("Selected snapshots:", flush=True)
         for version, snapshot_path in selected_snapshots:
             print(f"  {version}: {snapshot_path}", flush=True)
-        executable = build_release_hostapp_cli()
+        executable = build_release_gutch_cli()
         archive_path = run_regression(executable, selected_snapshots)
         print(f"Archived regression run at {archive_path}", flush=True)
         print(f"Updated regression viewer at {VIEWER_PATH}", flush=True)

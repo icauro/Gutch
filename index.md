@@ -125,6 +125,10 @@ gutch_repo/docs/current_state/10_cli_and_app_integration.md
 gutch_repo/docs/current_state/11_path_safety_and_conflicts.md
 gutch_repo/docs/current_state/12_performance_and_development.md
 gutch_repo/docs/current_state/README.md
+gutch_repo/gutch-cli/
+gutch_repo/gutch-cli/Cargo.toml
+gutch_repo/gutch-cli/src/
+gutch_repo/gutch-cli/src/main.rs
 gutch_repo/index.md
 gutch_repo/src/
 gutch_repo/src/artifact/

@@ -18,7 +18,7 @@ from gutch_repo.benchmarks.gutch_fixture_runner.commands import GutchCli
 from gutch_repo.benchmarks.gutch_fixture_runner.reconstruction_storage import run_reconstruction_storage
 from gutch_repo.benchmarks.gutch_fixture_runner.s3 import S3Settings, temporary_bucket
 from gutch_repo.test_regressions.run_all import (
-    build_release_hostapp_cli,
+    build_release_gutch_cli,
     materialize_regression_product,
     select_latest_snapshots,
 )
@@ -80,7 +80,7 @@ def main(arguments: list[str] | None = None) -> int:
         snapshots = select_latest_snapshots(product_root)
         product = snapshots[-1][1]
         print(f"Using generated snapshot {product.name} from {product_root}", flush=True)
-        executable = build_release_hostapp_cli()
+        executable = build_release_gutch_cli()
         with temporary_bucket(settings) as bucket_settings:
             print(f"Created temporary local S3 bucket {bucket_settings.bucket}", flush=True)
             result = run_reconstruction_storage(

@@ -118,15 +118,15 @@ def _build_linux_cli(repo_root: Path) -> Path:
     )
     if toolchain_check.returncode != 0:
         raise RuntimeError("WSL Linux Rust toolchain check failed")
-    target_directory = repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "linux-gutch"
+    target_directory = repo_root / ".build" / "main" / "gutch_repo" / "intermediates" / "cargo" / "linux-gutch"
     target_directory.mkdir(parents=True, exist_ok=True)
     repo_wsl = windows_path_to_wsl(builder_config, repo_root)
-    manifest_wsl = windows_path_to_wsl(builder_config, repo_root / "host_app" / "hostapp-cli" / "Cargo.toml")
+    manifest_wsl = windows_path_to_wsl(builder_config, repo_root / "gutch_repo" / "gutch-cli" / "Cargo.toml")
     target_wsl = windows_path_to_wsl(builder_config, target_directory)
     shell_command = " && ".join(
         [
             f"cd {shlex.quote(repo_wsl)}",
-            f"CARGO_TARGET_DIR={shlex.quote(target_wsl)} cargo build --release --manifest-path {shlex.quote(manifest_wsl)} --bin hostapp-cli",
+            f"CARGO_TARGET_DIR={shlex.quote(target_wsl)} cargo build --release --manifest-path {shlex.quote(manifest_wsl)} --bin gutch-cli",
         ]
     )
     result = subprocess.run(
@@ -135,8 +135,8 @@ def _build_linux_cli(repo_root: Path) -> Path:
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError("WSL Linux hostapp-cli build failed")
-    binary = target_directory / "release" / "hostapp-cli"
+        raise RuntimeError("WSL Linux gutch-cli build failed")
+    binary = target_directory / "release" / "gutch-cli"
     if not binary.is_file():
         raise FileNotFoundError(f"WSL Linux build did not produce {binary}")
     return binary
@@ -182,7 +182,7 @@ def run_remote_benchmark(
         remote_package = _remote_path(workspace, "benchmark-package.zip")
         remote_config = _remote_path(workspace, "config.yml")
         remote_entry = _remote_path(workspace, "entry.py")
-        remote_binary = _remote_path(workspace, "hostapp-cli")
+        remote_binary = _remote_path(workspace, "gutch-cli")
         launcher.run(
             ["mkdir", "-p", workspace],
             description="create remote benchmark workspace",
@@ -197,7 +197,7 @@ def run_remote_benchmark(
             launcher.upload(package_path, remote_package, description="upload benchmark package")
             launcher.upload(runtime_config_path, remote_config, description="upload benchmark config")
             launcher.upload(REMOTE_ENTRY, remote_entry, description="upload remote benchmark runner")
-            launcher.upload(binary_path, remote_binary, description="upload WSL-built Linux hostapp-cli")
+            launcher.upload(binary_path, remote_binary, description="upload WSL-built Linux gutch-cli")
             for kind, path in sorted(linux_external_tools.items()):
                 launcher.upload(
                     path,
