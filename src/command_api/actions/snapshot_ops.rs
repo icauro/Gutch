@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
-use crate::cli::common::{SnapshotReconstructStats, SnapshotVerifyStats, write_report};
-use crate::cli::progress::CliProgressSink;
-use crate::cli::reporting::{
+use crate::command_api::common::{SnapshotReconstructStats, SnapshotVerifyStats, write_report};
+use crate::command_api::progress::CliProgressSink;
+use crate::command_api::reporting::{
     optional_output_paths, print_profile_summary, print_reconstruct_timings, print_verify_timings,
     ratio_pct, reconstruct_timings_summary, verify_timings_summary,
 };
-use crate::cli::verbose_output_enabled;
+use crate::command_api::verbose_output_enabled;
 use gutch as g;
 
 pub(crate) struct ReconstructCommand {
@@ -18,7 +18,7 @@ pub(crate) struct ReconstructCommand {
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
-    pub(crate) profile: crate::cli::Profile,
+    pub(crate) profile: crate::command_api::Profile,
 }
 
 pub(crate) struct VerifyCommand {
@@ -28,7 +28,7 @@ pub(crate) struct VerifyCommand {
     pub(crate) verify_mode: g::VerifyMode,
     pub(crate) runtime_hints: g::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
-    pub(crate) profile: crate::cli::Profile,
+    pub(crate) profile: crate::command_api::Profile,
 }
 
 pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()> {
@@ -40,7 +40,7 @@ pub(crate) fn reconstruct_snapshot(command: ReconstructCommand) -> g::Result<()>
         source_snapshot_id: command.source_snapshot.clone(),
         source_dir: command.source_dir.clone(),
         runtime_hints: command.runtime_hints,
-        control: crate::cli::control_with_profile(&command.profile),
+        control: crate::command_api::control_with_profile(&command.profile),
     })?;
     let tm = execution.snapshot_manifest;
     let result = execution.reconstruct_result;
@@ -104,7 +104,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> g::Result<()> {
         destination_dir: command.destination.clone(),
         verify_mode: command.verify_mode,
         runtime_hints: command.runtime_hints,
-        control: crate::cli::control_with_profile(&command.profile).with_progress(progress),
+        control: crate::command_api::control_with_profile(&command.profile).with_progress(progress),
     })?;
     let repo_root = execution.repo_root;
     let tm = execution.snapshot_manifest;

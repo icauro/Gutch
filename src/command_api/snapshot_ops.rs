@@ -1,11 +1,11 @@
-use crate::cli::actions;
-use crate::cli::common::{
+use crate::command_api::actions;
+use crate::command_api::common::{
     ReconstructedCorruptStats, ReconstructedRepairStats, SnapshotFetchReconstructStats,
     parse_bundle_downloads, write_report,
 };
-use crate::cli::progress::CliProgressSink;
-use crate::cli::reporting::print_transfer_timings;
-use crate::cli::verbose_output_enabled;
+use crate::command_api::progress::CliProgressSink;
+use crate::command_api::reporting::print_transfer_timings;
+use crate::command_api::verbose_output_enabled;
 use gutch as g;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -88,10 +88,10 @@ impl FetchCommand {
     }
 }
 
-pub(crate) fn fetch(command: FetchCommand, profile: &crate::cli::Profile) -> g::Result<()> {
+pub(crate) fn fetch(command: FetchCommand, profile: &crate::command_api::Profile) -> g::Result<()> {
     let progress = CliProgressSink::new();
     let result = g::fetch_snapshot(
-        &command.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?,
+        &command.into_request(crate::command_api::control_with_profile(profile).with_progress(progress))?,
     )?;
 
     if verbose_output_enabled() {
@@ -115,7 +115,7 @@ pub(crate) fn fetch(command: FetchCommand, profile: &crate::cli::Profile) -> g::
         print_transfer_timings(&result.transfer_stats);
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        crate::command_api::reporting::print_profile_summary(profile.as_deref());
     }
     Ok(())
 }
@@ -132,7 +132,7 @@ pub(crate) struct FetchAndReconstructCommand {
 
 pub(crate) fn fetch_and_reconstruct(
     command: FetchAndReconstructCommand,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     let FetchAndReconstructCommand {
         fetch,
@@ -145,7 +145,7 @@ pub(crate) fn fetch_and_reconstruct(
     } = command;
     let progress = CliProgressSink::new();
     let fetch_request =
-        fetch.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?;
+        fetch.into_request(crate::command_api::control_with_profile(profile).with_progress(progress))?;
     let result = g::download_and_reconstruct_snapshot(g::SnapshotDownloadAndReconstructRequest {
         fetch_request,
         destination_dir: destination,
@@ -160,7 +160,7 @@ pub(crate) fn fetch_and_reconstruct(
     } = result;
     let snapshot_manifest = reconstruct_execution.snapshot_manifest;
     let reconstruct = reconstruct_execution.reconstruct_result;
-    let reused_source_chunk_percent = crate::cli::reporting::ratio_pct(
+    let reused_source_chunk_percent = crate::command_api::reporting::ratio_pct(
         reconstruct.reused_source_chunk_count as u64,
         reconstruct.required_chunk_count as u64,
     );
@@ -196,11 +196,11 @@ pub(crate) fn fetch_and_reconstruct(
         reused_source_chunk_percent,
         total_logical_size: snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
-        reconstruct_timings: crate::cli::reporting::reconstruct_timings_summary(
+        reconstruct_timings: crate::command_api::reporting::reconstruct_timings_summary(
             &reconstruct.reconstruct_timings,
         ),
-        verify_timings: crate::cli::reporting::verify_timings_summary(&reconstruct.verify_timings),
-        outputs: crate::cli::reporting::optional_output_paths(&stats_json_out),
+        verify_timings: crate::command_api::reporting::verify_timings_summary(&reconstruct.verify_timings),
+        outputs: crate::command_api::reporting::optional_output_paths(&stats_json_out),
     };
     write_report(&stats_json_out, &stats)?;
 
@@ -218,10 +218,10 @@ pub(crate) fn fetch_and_reconstruct(
         print_transfer_timings(&fetch_result.transfer_stats);
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        crate::command_api::reporting::print_profile_summary(profile.as_deref());
     } else {
-        crate::cli::reporting::print_reconstruct_timings(&reconstruct.reconstruct_timings);
-        crate::cli::reporting::print_verify_timings(&reconstruct.verify_timings);
+        crate::command_api::reporting::print_reconstruct_timings(&reconstruct.reconstruct_timings);
+        crate::command_api::reporting::print_verify_timings(&reconstruct.verify_timings);
     }
     Ok(())
 }
@@ -233,13 +233,13 @@ pub(crate) struct ReconstructCommand {
     pub(crate) staging_dir: Option<std::path::PathBuf>,
     pub(crate) source_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<std::path::PathBuf>,
-    pub(crate) runtime: crate::cli::args::RuntimeArgs,
+    pub(crate) runtime: crate::command_api::args::RuntimeArgs,
     pub(crate) stats_json_out: Option<std::path::PathBuf>,
 }
 
 pub(crate) fn reconstruct(
     command: ReconstructCommand,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     actions::snapshot_ops::reconstruct_snapshot(actions::snapshot_ops::ReconstructCommand {
         repo: command.repo,
@@ -319,9 +319,9 @@ pub(crate) fn verify(
     snapshot_id: String,
     destination: std::path::PathBuf,
     strict: bool,
-    runtime: crate::cli::args::RuntimeArgs,
+    runtime: crate::command_api::args::RuntimeArgs,
     stats_json_out: Option<std::path::PathBuf>,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     actions::snapshot_ops::verify_snapshot(actions::snapshot_ops::VerifyCommand {
         repo,
@@ -344,12 +344,12 @@ pub(crate) struct RepairCommand {
     pub(crate) destination: std::path::PathBuf,
     pub(crate) staging_dir: Option<std::path::PathBuf>,
     pub(crate) remove_added_files: bool,
-    pub(crate) runtime: crate::cli::args::RuntimeArgs,
+    pub(crate) runtime: crate::command_api::args::RuntimeArgs,
     pub(crate) stats_json_out: Option<std::path::PathBuf>,
     pub(crate) yes: bool,
 }
 
-pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> g::Result<()> {
+pub(crate) fn repair(command: RepairCommand, profile: &crate::command_api::Profile) -> g::Result<()> {
     if !command.yes {
         return Err(g::Error::manifest(
             "reconstructed repair requires --yes flag",
@@ -363,7 +363,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> g
         staging_dir: command.staging_dir,
         remove_added_files: command.remove_added_files,
         runtime_hints: command.runtime.hints(),
-        control: crate::cli::control_with_profile(profile),
+        control: crate::command_api::control_with_profile(profile),
     })?;
     let result = execution.repair_result;
     let stats = ReconstructedRepairStats {
@@ -379,7 +379,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> g
         reconstructed_extra_file_count: result.reconstructed_extra_file_count,
         resolved_bundle_file_count: execution.resolved_bundle_file_count,
         elapsed_seconds: started_at.elapsed().as_secs_f64(),
-        outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
+        outputs: crate::command_api::reporting::optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats)?;
 
@@ -398,7 +398,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> g
         );
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        crate::command_api::reporting::print_profile_summary(profile.as_deref());
     }
     Ok(())
 }
@@ -410,7 +410,7 @@ pub(crate) struct CorruptCommand {
     pub(crate) yes: bool,
 }
 
-pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::cli::Profile) -> g::Result<()> {
+pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::command_api::Profile) -> g::Result<()> {
     if !command.yes {
         return Err(g::Error::manifest(
             "reconstructed corrupt requires --yes flag",
@@ -433,7 +433,7 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::cli::Profile) ->
     let result = g::corrupt_reconstructed_snapshot(g::ReconstructedCorruptionRequest {
         destination_dir: command.destination.clone(),
         plan,
-        control: crate::cli::control_with_profile(profile),
+        control: crate::command_api::control_with_profile(profile),
     })?;
     let stats = ReconstructedCorruptStats {
         command: "reconstructed corrupt",
@@ -441,7 +441,7 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::cli::Profile) ->
         plan_path: command.plan.display().to_string(),
         applied_operation_count: result.applied_operation_count,
         elapsed_seconds: started_at.elapsed().as_secs_f64(),
-        outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
+        outputs: crate::command_api::reporting::optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats)?;
 
@@ -452,17 +452,17 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::cli::Profile) ->
         );
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        crate::command_api::reporting::print_profile_summary(profile.as_deref());
     }
     Ok(())
 }
 
 pub(crate) fn run_reconstructed(
-    command: crate::cli::ReconstructedCommands,
-    profile: &crate::cli::Profile,
+    command: crate::command_api::ReconstructedCommands,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     match command {
-        crate::cli::ReconstructedCommands::Verify {
+        crate::command_api::ReconstructedCommands::Verify {
             repo,
             snapshot_id,
             destination,
@@ -478,7 +478,7 @@ pub(crate) fn run_reconstructed(
             stats_json_out,
             profile,
         ),
-        crate::cli::ReconstructedCommands::Repair {
+        crate::command_api::ReconstructedCommands::Repair {
             repo,
             snapshot_id,
             destination,
@@ -500,7 +500,7 @@ pub(crate) fn run_reconstructed(
             },
             profile,
         ),
-        crate::cli::ReconstructedCommands::Corrupt {
+        crate::command_api::ReconstructedCommands::Corrupt {
             destination,
             plan,
             stats_json_out,

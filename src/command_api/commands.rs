@@ -1,22 +1,22 @@
-use crate::cli::{Cli, Commands, bundle, path};
+use crate::command_api::{Cli, Commands, bundle, path};
 use gutch as g;
 
 pub(crate) fn run(
     cli: Cli,
     remote_provider: Option<&dyn g::RemoteRepositoryCommandProvider>,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     match cli.command {
-        Commands::Repo { command } => crate::cli::repo::run(command, remote_provider, profile),
-        Commands::Snapshot { command } => crate::cli::snapshot::run(command, profile),
+        Commands::Repo { command } => crate::command_api::repo::run(command, remote_provider, profile),
+        Commands::Snapshot { command } => crate::command_api::snapshot::run(command, profile),
         Commands::Reconstructed { command } => {
-            crate::cli::snapshot_ops::run_reconstructed(command, profile)
+            crate::command_api::snapshot_ops::run_reconstructed(command, profile)
         }
         Commands::Bundle { command } => match command {
-            crate::cli::BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
+            crate::command_api::BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
         },
         Commands::Path { command } => match command {
-            crate::cli::PathCommands::Compare {
+            crate::command_api::PathCommands::Compare {
                 expected,
                 actual,
                 stats_json_out,

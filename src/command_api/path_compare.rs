@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use gutch as g;
 use serde::Serialize;
 
-use crate::cli::reporting::OptionalOutputPaths;
+use crate::command_api::reporting::OptionalOutputPaths;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ComparableKind {

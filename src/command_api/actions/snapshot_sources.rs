@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::cli::common::prompt_yes_no;
-use crate::cli::progress::CliProgressSink;
+use crate::command_api::common::prompt_yes_no;
+use crate::command_api::progress::CliProgressSink;
 use gutch as g;
 
 #[derive(Debug, Clone, Copy)]
@@ -38,7 +38,7 @@ pub(crate) fn capture_snapshot_sources(
     repo: &Path,
     sources_path: &Path,
     options: CliSnapshotSourcesCaptureOptions,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<g::SnapshotSourcesCaptureResult> {
     let plan = g::plan_snapshot_sources_capture(repo, Some(sources_path))?;
     if !plan.sources_ready {
@@ -72,7 +72,7 @@ pub(crate) fn capture_snapshot_sources(
     }
 
     let progress: Arc<dyn g::GutchProgressSink> = CliProgressSink::new();
-    let control = crate::cli::control_with_profile(profile).with_progress(progress);
+    let control = crate::command_api::control_with_profile(profile).with_progress(progress);
     let result = g::capture_snapshot_sources(
         repo,
         sources_path,

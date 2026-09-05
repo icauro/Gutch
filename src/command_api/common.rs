@@ -6,11 +6,11 @@ use rayon::prelude::*;
 use serde::Serialize;
 use tempfile::TempDir;
 
-use crate::cli::reporting::{
+use crate::command_api::reporting::{
     BuildTimingsSummary, OptionalOutputPaths, ReconstructTimingsSummary, VerifyTimingsSummary,
     write_stats_json_output,
 };
-use crate::cli::verbose_output_enabled;
+use crate::command_api::verbose_output_enabled;
 use crate::hash::ChunkHash;
 use g::repo::{required_bundle_ids as resolve_required_bundle_ids, required_chunk_hashes};
 use gutch as g;

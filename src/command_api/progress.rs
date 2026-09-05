@@ -13,7 +13,7 @@ pub(crate) struct CliProgressSink {
 
 impl CliProgressSink {
     pub(crate) fn new() -> Arc<Self> {
-        let bar = if crate::cli::verbose_output_enabled() || !std::io::stderr().is_terminal() {
+        let bar = if crate::command_api::verbose_output_enabled() || !std::io::stderr().is_terminal() {
             ProgressBar::hidden()
         } else {
             ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr())

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::cli::reporting::ensure_parent_directory;
+use crate::command_api::reporting::ensure_parent_directory;
 use crate::{
     Error, GutchProgressEvent, GutchProgressSink, PullConflictPolicy,
     RemoteRepositoryCommandProvider, RemoteRepositorySummary, RemoteTagReferencesResult,
@@ -28,13 +28,13 @@ pub(crate) fn push(
     repo: PathBuf,
     yes: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let repository_provider = provider.repository_provider();
     let plan = crate::plan_sync_up_with_provider(&repo, repository_provider)?;
     print_sync_plan(&plan);
-    if !yes && !crate::cli::prompt_yes_no("Proceed?", true)? {
+    if !yes && !crate::command_api::prompt_yes_no("Proceed?", true)? {
         println!("push cancelled");
         return Ok(());
     }
@@ -43,7 +43,7 @@ pub(crate) fn push(
     let stats = crate::sync_up_repo(
         repo,
         repository_provider,
-        crate::cli::control_with_profile(profile).with_progress(progress),
+        crate::command_api::control_with_profile(profile).with_progress(progress),
     )?;
     println!(
         "synced repo {} to remote repo {}",
@@ -76,7 +76,7 @@ pub(crate) fn pull(
     prune: bool,
     yes: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let policy = PullConflictPolicy::parse(&on_conflict)?;
@@ -84,7 +84,7 @@ pub(crate) fn pull(
     let plan =
         crate::plan_pull_with_provider(&repo, repository_provider, remote.as_deref(), policy)?;
     print_pull_plan(&plan);
-    if !yes && !crate::cli::prompt_yes_no("Proceed?", true)? {
+    if !yes && !crate::command_api::prompt_yes_no("Proceed?", true)? {
         println!("pull cancelled");
         return Ok(());
     }
@@ -96,7 +96,7 @@ pub(crate) fn pull(
         remote,
         policy,
         prune,
-        crate::cli::control_with_profile(profile).with_progress(progress),
+        crate::command_api::control_with_profile(profile).with_progress(progress),
     )?;
     println!(
         "pulled repo {} from remote repo {} ({})",

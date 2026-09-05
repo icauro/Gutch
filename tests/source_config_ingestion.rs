@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use gutch::GutchRepoPaths;
-use gutch::cli::run_from_args;
+use gutch::command_api::run_from_args;
 use gutch::{RepoInitOptions, initialize_gutch_repo_with_options};
 
 fn init_repo(root: &Path) -> GutchRepoPaths {

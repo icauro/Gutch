@@ -6,7 +6,6 @@ extern crate self as gutch;
 mod artifact;
 mod build;
 pub mod command_api;
-pub use command_api as cli;
 mod config;
 mod error;
 mod file_integrity;

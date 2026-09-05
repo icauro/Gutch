@@ -1,13 +1,13 @@
-use crate::cli::RepoCommands;
-use crate::cli::SECTION_SEPARATOR;
-use crate::cli::actions;
-use crate::cli::reporting::{ensure_parent_directory, print_repo_check_timings};
+use crate::command_api::RepoCommands;
+use crate::command_api::SECTION_SEPARATOR;
+use crate::command_api::actions;
+use crate::command_api::reporting::{ensure_parent_directory, print_repo_check_timings};
 use gutch as g;
 
 pub(crate) fn run(
     command: RepoCommands,
     remote_provider: Option<&dyn g::RemoteRepositoryCommandProvider>,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     match command {
         RepoCommands::Init { path, force } => {
@@ -15,7 +15,7 @@ pub(crate) fn run(
         }
 
         RepoCommands::Push { repo, yes } => {
-            crate::cli::remote::push(repo, yes, remote_provider, profile)?;
+            crate::command_api::remote::push(repo, yes, remote_provider, profile)?;
         }
 
         RepoCommands::Pull {
@@ -25,7 +25,7 @@ pub(crate) fn run(
             prune,
             yes,
         } => {
-            crate::cli::remote::pull(
+            crate::command_api::remote::pull(
                 repo,
                 remote,
                 on_conflict,
@@ -37,39 +37,39 @@ pub(crate) fn run(
         }
 
         RepoCommands::Remote { command } => match command {
-            crate::cli::RemoteCommands::List => {
-                crate::cli::remote::list(remote_provider)?;
+            crate::command_api::RemoteCommands::List => {
+                crate::command_api::remote::list(remote_provider)?;
             }
         },
 
         RepoCommands::Link { repo, scope_id } => {
-            crate::cli::remote::link(repo, scope_id, remote_provider)?;
+            crate::command_api::remote::link(repo, scope_id, remote_provider)?;
         }
 
         RepoCommands::Bind {
             repo,
             remote_repo_id,
         } => {
-            crate::cli::remote::bind(repo, remote_repo_id)?;
+            crate::command_api::remote::bind(repo, remote_repo_id)?;
         }
 
         RepoCommands::Unlink {
             repo,
             delete_remote,
         } => {
-            crate::cli::remote::unlink(repo, delete_remote, remote_provider)?;
+            crate::command_api::remote::unlink(repo, delete_remote, remote_provider)?;
         }
 
         RepoCommands::Name {
-            command: crate::cli::RepoNameCommands::Set { repo, name },
+            command: crate::command_api::RepoNameCommands::Set { repo, name },
         } => {
             actions::repo::rename_repo(&repo, &name)?;
         }
 
         RepoCommands::Tags {
-            command: crate::cli::RepoTagsCommands::References { repo, json_out },
+            command: crate::command_api::RepoTagsCommands::References { repo, json_out },
         } => {
-            crate::cli::remote::tag_references(repo, json_out, remote_provider)?;
+            crate::command_api::remote::tag_references(repo, json_out, remote_provider)?;
         }
 
         RepoCommands::Status { repo, json_out } => {
@@ -163,7 +163,7 @@ pub(crate) fn run(
         }
 
         RepoCommands::Sources { command } => {
-            crate::cli::snapshot_sources::run(command, profile)?;
+            crate::command_api::snapshot_sources::run(command, profile)?;
         }
     }
 

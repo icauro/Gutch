@@ -1,13 +1,13 @@
-use crate::cli::SnapshotSourcesCommands;
-use crate::cli::actions::snapshot_sources::{
+use crate::command_api::SnapshotSourcesCommands;
+use crate::command_api::actions::snapshot_sources::{
     CliSnapshotSourcesCaptureOptions, capture_snapshot_sources,
 };
-use crate::cli::reporting::ensure_parent_directory;
+use crate::command_api::reporting::ensure_parent_directory;
 use gutch as g;
 
 pub(crate) fn run(
     command: SnapshotSourcesCommands,
-    profile: &crate::cli::Profile,
+    profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     match command {
         SnapshotSourcesCommands::Capture {

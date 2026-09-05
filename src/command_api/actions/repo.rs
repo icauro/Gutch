@@ -1,4 +1,4 @@
-use crate::cli::common::prompt_yes_no;
+use crate::command_api::common::prompt_yes_no;
 use gutch as g;
 use std::path::Path;
 

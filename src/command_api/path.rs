@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use crate::cli::common::write_report;
-use crate::cli::path_compare::compare_paths;
-use crate::cli::reporting::optional_output_paths;
+use crate::command_api::common::write_report;
+use crate::command_api::path_compare::compare_paths;
+use crate::command_api::reporting::optional_output_paths;
 use gutch as g;
 
 pub(crate) fn compare(

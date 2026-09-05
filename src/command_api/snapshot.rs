@@ -1,21 +1,21 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::cli::SECTION_SEPARATOR;
-use crate::cli::SnapshotCommands;
-use crate::cli::args::ArtifactBuildProfileArgs;
-use crate::cli::common::{
+use crate::command_api::SECTION_SEPARATOR;
+use crate::command_api::SnapshotCommands;
+use crate::command_api::args::ArtifactBuildProfileArgs;
+use crate::command_api::common::{
     SnapshotCaptureManyStats, SnapshotCaptureStats, count_required_bundles_for_build,
     count_required_bundles_from_chunk_index, count_required_chunks,
     load_snapshot_manifest_from_repo, prepare_input_path, prompt_yes_no, write_bundles,
     write_loose_chunks, write_report, write_snapshot_manifest,
 };
-use crate::cli::progress::CliProgressSink;
-use crate::cli::reporting::{
+use crate::command_api::progress::CliProgressSink;
+use crate::command_api::reporting::{
     build_timings_summary, ensure_parent_directory, optional_output_paths, print_build_timings,
     print_profile_summary, ratio_pct,
 };
-use crate::cli::verbose_output_enabled;
+use crate::command_api::verbose_output_enabled;
 use crate::hash::ChunkHash;
 use g::repo::{ExistingStoreState, scan_existing_store_state_with_pool};
 use g::snapshot::identity::{apply_resolved_snapshot_identity, parse_cli_tags};
@@ -35,7 +35,7 @@ struct CaptureOneSnapshotRequest<'a> {
     build_profile: ArtifactBuildProfileArgs,
     runtime_hints: g::RuntimeResourceHints,
     stats_json_out: &'a Option<PathBuf>,
-    profile: crate::cli::Profile,
+    profile: crate::command_api::Profile,
     command_name: &'static str,
     snapshot_sequence: usize,
     yes: bool,
@@ -116,7 +116,7 @@ fn run_capture_one_snapshot(
     build_pool: &rayon::ThreadPool,
 ) -> g::Result<SnapshotCaptureStats> {
     let capture_control =
-        crate::cli::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
+        crate::command_api::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
     let _prepare_span = capture_control.profile_span_with_args(
         "capture.prepare_source",
         std::collections::BTreeMap::from([
@@ -164,7 +164,7 @@ fn run_capture_one_snapshot(
         )?;
         let _ = g::cleanup_orphan_bundles_in_repo(
             request.repo_paths.repo_root.as_path(),
-            &crate::cli::control_with_profile(&request.profile),
+            &crate::command_api::control_with_profile(&request.profile),
         );
         drop(_replace_span);
     }
@@ -553,7 +553,7 @@ fn single_capture_source_resolution(dir: &Path) -> g::Result<Option<g::manifest:
     }
 }
 
-pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g::Result<()> {
+pub(crate) fn run(command: SnapshotCommands, profile: &crate::command_api::Profile) -> g::Result<()> {
     match command {
         SnapshotCommands::Capture {
             source_dirs,
@@ -576,7 +576,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
                 }
                 let progress = CliProgressSink::new();
                 let capture_control =
-                    crate::cli::control_with_profile(profile).with_progress(progress);
+                    crate::command_api::control_with_profile(profile).with_progress(progress);
                 let plan = g::plan_snapshot_capture_with_control(
                     repo.as_path(),
                     &source.path,
@@ -665,7 +665,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             } else {
                 let (repo_paths, mut repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
                 let repo_name = repo_manifest.name.clone();
-                let prepare_control = crate::cli::control_with_profile(profile);
+                let prepare_control = crate::command_api::control_with_profile(profile);
                 let _plan_all_span = prepare_control.profile_span_with_args(
                     "capture.prepare_source.plan_all_snapshots",
                     std::collections::BTreeMap::from([(
@@ -856,7 +856,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             }
 
             let progress = CliProgressSink::new();
-            let control = crate::cli::control_with_profile(profile).with_progress(progress);
+            let control = crate::command_api::control_with_profile(profile).with_progress(progress);
             let orphan_count = g::delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
 
             println!(
@@ -874,8 +874,8 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             source_dir,
             runtime,
             stats_json_out,
-        } => crate::cli::snapshot_ops::reconstruct(
-            crate::cli::snapshot_ops::ReconstructCommand {
+        } => crate::command_api::snapshot_ops::reconstruct(
+            crate::command_api::snapshot_ops::ReconstructCommand {
                 repo,
                 snapshot_id,
                 destination,
@@ -907,9 +907,9 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             runtime,
             transfer,
             stats_json_out,
-        } => crate::cli::snapshot_ops::fetch_and_reconstruct(
-            crate::cli::snapshot_ops::FetchAndReconstructCommand {
-                fetch: crate::cli::snapshot_ops::FetchCommand {
+        } => crate::command_api::snapshot_ops::fetch_and_reconstruct(
+            crate::command_api::snapshot_ops::FetchAndReconstructCommand {
+                fetch: crate::command_api::snapshot_ops::FetchCommand {
                     repo,
                     snapshot_id,
                     metadata_url,
@@ -946,8 +946,8 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> g
             bundles,
             artifact_url_manifest,
             transfer,
-        } => crate::cli::snapshot_ops::fetch(
-            crate::cli::snapshot_ops::FetchCommand {
+        } => crate::command_api::snapshot_ops::fetch(
+            crate::command_api::snapshot_ops::FetchCommand {
                 repo,
                 snapshot_id,
                 metadata_url,
