@@ -688,7 +688,7 @@ mod path_tests {
     #[test]
     fn cli_rejects_relative_filesystem_paths() {
         let error = Cli::try_parse_from([
-            "hostapp-cli gutch",
+            "hostapp-cli",
             "repo",
             "status",
             "--repo",

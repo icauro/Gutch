@@ -6,6 +6,7 @@
 pub use crate::artifact::hash::{ChunkHash, hash_chunk, hash_hex};
 pub use crate::command_api::{
     requires_remote_provider, run_from_args, run_from_args_with_remote_provider,
+    run_from_args_with_remote_provider_named,
 };
 pub use crate::config::{GutchConfig, TrackedRepo, load_config, save_config};
 pub use crate::error::{Error, Result};

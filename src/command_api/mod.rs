@@ -76,10 +76,28 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    use clap::Parser;
+    run_from_args_with_remote_provider_named(args, remote_provider, "gutch")
+}
 
-    let cli = match Cli::try_parse_from(args) {
-        Ok(cli) => cli,
+/// Runs the shared command parser with a caller-selected display name.
+///
+/// The command grammar and execution path remain owned by Gutch; callers can
+/// present the same commands under their own executable name.
+pub fn run_from_args_with_remote_provider_named<I, T>(
+    args: I,
+    remote_provider: Option<&dyn crate::RemoteRepositoryCommandProvider>,
+    bin_name: &str,
+) -> crate::Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    use clap::{CommandFactory, FromArgMatches};
+
+    let command = Cli::command().bin_name(bin_name);
+    let cli = match command.try_get_matches_from(args) {
+        Ok(matches) => Cli::from_arg_matches(&matches)
+            .map_err(|error| crate::Error::manifest(error.to_string()))?,
         Err(error)
             if matches!(
                 error.kind(),
