@@ -45,8 +45,8 @@ urlencoding = "2.1.3"
 
 [[test]]
 name = "fixture_regression"
-path = "fixture_regression.rs"
+path = "tests/fixture_regression.rs"
 
 [[test]]
 name = "source_config_ingestion"
-path = "source_config_ingestion.rs"
+path = "tests/source_config_ingestion.rs"

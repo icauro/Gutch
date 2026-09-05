@@ -125,9 +125,7 @@ gutch_repo/docs/current_state/10_cli_and_app_integration.md
 gutch_repo/docs/current_state/11_path_safety_and_conflicts.md
 gutch_repo/docs/current_state/12_performance_and_development.md
 gutch_repo/docs/current_state/README.md
-gutch_repo/fixture_regression.rs
 gutch_repo/index.md
-gutch_repo/source_config_ingestion.rs
 gutch_repo/src/
 gutch_repo/src/artifact/
 gutch_repo/src/artifact/bundle.rs
@@ -32466,5 +32464,8 @@ gutch_repo/test_regressions/_viewer.html
 gutch_repo/test_regressions/README.md
 gutch_repo/test_regressions/run_all.py
 gutch_repo/test_regressions/run_s3.py
+gutch_repo/tests/
+gutch_repo/tests/fixture_regression.rs
+gutch_repo/tests/source_config_ingestion.rs
 gutch_repo/usage.md
 ```
