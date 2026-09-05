@@ -13,11 +13,12 @@ pub(crate) struct CliProgressSink {
 
 impl CliProgressSink {
     pub(crate) fn new() -> Arc<Self> {
-        let bar = if crate::command_api::verbose_output_enabled() || !std::io::stderr().is_terminal() {
-            ProgressBar::hidden()
-        } else {
-            ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr())
-        };
+        let bar =
+            if crate::command_api::verbose_output_enabled() || !std::io::stderr().is_terminal() {
+                ProgressBar::hidden()
+            } else {
+                ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr())
+            };
         bar.set_style(Self::spinner_style());
         bar.set_message("preparing...");
         bar.enable_steady_tick(Duration::from_millis(100));

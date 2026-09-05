@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use gutch::GutchOperationControl;
-use gutch::{
+use gutch::api::GutchOperationControl;
+use gutch::api::{
     RuntimeResourceHints, SnapshotReconstructFromRepoRequest, VerifyMode,
     reconstruct_snapshot_from_repo,
 };
@@ -179,10 +179,12 @@ fn checked_in_fixtures_reconstruct_all_snapshots_and_verify_repos() {
         assert_eq!(test_manifest.schema_version, 1);
         assert!(!test_manifest.snapshots.is_empty());
 
-        let repo_status = gutch::check_gutch_repo(&repo_root).expect("fixture repo should load");
+        let repo_status =
+            gutch::api::check_gutch_repo(&repo_root).expect("fixture repo should load");
         assert_eq!(repo_status.snapshots.len(), test_manifest.snapshots.len());
-        let verification = gutch::verify_gutch_repo_artifacts(&repo_root, None, VerifyMode::Strict)
-            .expect("fixture repo should verify");
+        let verification =
+            gutch::api::verify_gutch_repo_artifacts(&repo_root, None, VerifyMode::Strict)
+                .expect("fixture repo should verify");
         assert!(
             verification.ok,
             "fixture repo verification failed for {product_name}: {verification:?}"
@@ -245,7 +247,7 @@ fn changing_installed_snapshot_replaces_old_tree_and_updates_entries() {
     let source_root = dataset_path("test_dataset/source").join(product_name);
     let repo_root = dataset_path("test_dataset/repos/v1").join(product_name);
     let test_manifest = load_test_manifest(&repo_root);
-    let repo_status = gutch::check_gutch_repo(&repo_root).expect("fixture repo should load");
+    let repo_status = gutch::api::check_gutch_repo(&repo_root).expect("fixture repo should load");
     let snapshot_with_path = |expected_path: &str| {
         repo_status
             .snapshots
@@ -406,7 +408,7 @@ fn changing_installed_snapshot_replaces_old_tree_and_updates_entries() {
 #[ignore = "official Blender snapshots are large; run this explicitly in the fixture lane"]
 fn checked_in_blender_repo_is_processable() {
     let repo_root = dataset_path("test_dataset/repos/v1/Blender");
-    let repo_status = gutch::check_gutch_repo(&repo_root).expect("Blender repo should load");
+    let repo_status = gutch::api::check_gutch_repo(&repo_root).expect("Blender repo should load");
     assert_eq!(repo_status.snapshots.len(), 4);
 
     let expected_targets = [
@@ -444,8 +446,9 @@ fn checked_in_blender_repo_is_processable() {
         .collect();
     assert_eq!(actual_targets, expected_targets);
 
-    let verification = gutch::verify_gutch_repo_artifacts(&repo_root, None, VerifyMode::Strict)
-        .expect("Blender repo should verify");
+    let verification =
+        gutch::api::verify_gutch_repo_artifacts(&repo_root, None, VerifyMode::Strict)
+            .expect("Blender repo should verify");
     assert!(
         verification.ok,
         "Blender repo verification failed: {verification:?}"

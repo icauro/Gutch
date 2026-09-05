@@ -115,8 +115,8 @@ fn run_capture_one_snapshot(
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
 ) -> g::Result<SnapshotCaptureStats> {
-    let capture_control =
-        crate::command_api::control_with_profile(&request.profile).with_progress(CliProgressSink::new());
+    let capture_control = crate::command_api::control_with_profile(&request.profile)
+        .with_progress(CliProgressSink::new());
     let _prepare_span = capture_control.profile_span_with_args(
         "capture.prepare_source",
         std::collections::BTreeMap::from([
@@ -553,7 +553,10 @@ fn single_capture_source_resolution(dir: &Path) -> g::Result<Option<g::manifest:
     }
 }
 
-pub(crate) fn run(command: SnapshotCommands, profile: &crate::command_api::Profile) -> g::Result<()> {
+pub(crate) fn run(
+    command: SnapshotCommands,
+    profile: &crate::command_api::Profile,
+) -> g::Result<()> {
     match command {
         SnapshotCommands::Capture {
             source_dirs,

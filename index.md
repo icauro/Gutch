@@ -131,6 +131,7 @@ gutch_repo/gutch-cli/src/
 gutch_repo/gutch-cli/src/main.rs
 gutch_repo/index.md
 gutch_repo/src/
+gutch_repo/src/api.rs
 gutch_repo/src/artifact/
 gutch_repo/src/artifact/bundle.rs
 gutch_repo/src/artifact/bundle_tests.rs

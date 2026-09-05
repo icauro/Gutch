@@ -3,17 +3,14 @@
 
 use std::path::Path;
 
-use gutch::GutchRepoPaths;
-use gutch::command_api::run_from_args;
-use gutch::{RepoInitOptions, initialize_gutch_repo_with_options};
+use gutch::api::GutchRepoPaths;
+use gutch::api::run_from_args;
+use gutch::api::{RepoInitOptions, initialize_gutch_repo_with_options};
 
 fn init_repo(root: &Path) -> GutchRepoPaths {
     let repo_paths = GutchRepoPaths::from_repo_root(&root.join("repo"));
-    initialize_gutch_repo_with_options(
-        repo_paths.repo_root(),
-        RepoInitOptions { force: false },
-    )
-    .unwrap();
+    initialize_gutch_repo_with_options(repo_paths.repo_root(), RepoInitOptions { force: false })
+        .unwrap();
     repo_paths
 }
 
@@ -57,7 +54,7 @@ fn capture_many_auto_mode_skips_ignored_folders() {
     ])
     .unwrap();
 
-    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
+    let status = gutch::api::check_gutch_repo(repo_paths.repo_root()).unwrap();
     let snapshot_ids: Vec<&str> = status
         .snapshots
         .iter()
@@ -118,7 +115,7 @@ fn capture_many_explicit_mode_uses_nested_snapshots_and_declared_tags() {
     ])
     .unwrap();
 
-    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
+    let status = gutch::api::check_gutch_repo(repo_paths.repo_root()).unwrap();
     assert_eq!(status.snapshots.len(), 2);
     let windows = status
         .snapshots
@@ -172,13 +169,16 @@ fn capture_many_explicit_mode_accepts_missing_version_tags() {
     ])
     .unwrap();
 
-    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
+    let status = gutch::api::check_gutch_repo(repo_paths.repo_root()).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(
         status.snapshots[0].snapshot_tags.get_exclusive("os"),
         Some("windows")
     );
-    assert_eq!(status.snapshots[0].snapshot_tags.get_exclusive("version"), None);
+    assert_eq!(
+        status.snapshots[0].snapshot_tags.get_exclusive("version"),
+        None
+    );
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn capture_many_auto_captures_skeleton_config_on_first_use() {
     .unwrap();
 
     assert!(product_dir.join(".gutch_source_config.json").is_file());
-    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
+    let status = gutch::api::check_gutch_repo(repo_paths.repo_root()).unwrap();
     assert_eq!(status.snapshots.len(), 1);
 }
 
@@ -235,7 +235,7 @@ fn capture_single_dir_uses_manual_tags() {
     ])
     .unwrap();
 
-    let status = gutch::check_gutch_repo(repo_paths.repo_root()).unwrap();
+    let status = gutch::api::check_gutch_repo(repo_paths.repo_root()).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(
         status.snapshots[0]

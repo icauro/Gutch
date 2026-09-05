@@ -1,11 +1,17 @@
+//! Gutch artifact engine.
+//!
+//! Cross-crate callers use [`api`]. All other modules are implementation
+//! details of the engine or its command adapter.
+
 #![warn(clippy::all)]
 #![warn(rust_2024_compatibility)]
 
 extern crate self as gutch;
 
+pub mod api;
 mod artifact;
 mod build;
-pub mod command_api;
+mod command_api;
 mod config;
 mod error;
 mod file_integrity;
@@ -29,114 +35,94 @@ pub(crate) use build::types as build_types;
 pub(crate) use snapshot::path_guard;
 pub(crate) use snapshot::source_config;
 
-pub use artifact::hash::ChunkHash;
-pub use artifact::hash::{hash_chunk, hash_hex};
-pub use config::{GutchConfig, TrackedRepo, load_config, save_config};
+pub(crate) use artifact::hash::ChunkHash;
 pub(crate) use snapshot_ops::snapshot_manifest_from_download;
 
+pub(crate) use build::pipeline::build_from_directory;
 pub(crate) use build::pipeline::build_with_config_timed_on_pool;
-pub use build::pipeline::{build_from_directory, build_with_config};
 pub(crate) use build::types::BuildTimings;
 pub(crate) use build::types::ExistingChunkLocation;
-pub use build::types::{BuildConfig, BuildResult, BuiltBundle, BuiltLooseChunk};
-pub use error::{Error, Result};
-pub use manifest::gutch_repo::{ArtifactProfile, GutchRepoManifest};
-pub use manifest::launch::{ResolvedLaunchAction, ResolvedLaunchConfiguration};
-pub use manifest::{
-    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, ChunkRef, CompressionKind,
-    DirectoryManifest, ExternalProductDependencyRequirement, FileManifest,
-    PUBLIC_METADATA_FORMAT_VERSION, SnapshotDirectRuntimeMetadata, SnapshotEntry,
-    SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
-    SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagKind,
-    SnapshotTagSet, StructuredVersion, SymlinkManifest,
-};
+pub(crate) use build::types::{BuildConfig, BuiltBundle, BuiltLooseChunk};
+pub(crate) use error::{Error, Result};
 pub(crate) use profile::file_trace_args;
-pub use profile::{GutchProfileSpan, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler};
+pub(crate) use profile::{GutchProfileSpan, GutchProfiler};
 pub(crate) use progress::emit_progress;
-pub use progress::{
-    GutchCancellationHook, GutchOperation, GutchOperationControl, GutchProgressEvent,
-    GutchProgressPhase, GutchProgressSink,
+pub(crate) use progress::{
+    GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
+    GutchProgressSink,
 };
-pub use repo::capture_plan::{
-    RepoSnapshotCaptureRequest, RepoSnapshotCaptureResult, SnapshotCaptureKind,
-    SnapshotCapturePlan, capture_repo_snapshot, capture_repo_snapshot_with_plan,
-    delete_repo_snapshot_and_cleanup, describe_snapshot_capture_plan, plan_snapshot_capture,
-    plan_snapshot_capture_with_control,
+pub(crate) use repo::capture_plan::{
+    RepoSnapshotCaptureRequest, SnapshotCaptureKind, SnapshotCapturePlan,
+    capture_repo_snapshot_with_plan, delete_repo_snapshot_and_cleanup,
+    describe_snapshot_capture_plan, plan_snapshot_capture_with_control,
 };
 pub(crate) use repo::capture_plan::{
     capture_repo_snapshot_with_existing_store_state, delete_repo_snapshots,
     delete_repo_snapshots_with_matching_tags,
 };
-pub use repo::check::{
-    RepoCheckSnapshotStatus, RepoCheckStatus, SourceSnapshotOperationCandidate,
-    SourceSnapshotOperationDisposition, check_gutch_repo, discover_source_snapshot_operations,
-};
+pub(crate) use repo::check::{RepoCheckSnapshotStatus, check_gutch_repo};
 pub(crate) use repo::chunk_index::{
     add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index, load_chunk_index,
     write_chunk_index,
 };
 pub(crate) use repo::cleanup::{cleanup_orphan_bundles_in_repo, remove_snapshot_from_repo};
-pub use repo::init_policy::{
-    RepoInitAssessment, RepoInitOptions, RepoInitPathKind, RepoInitRisk, assess_repo_init_path,
+pub(crate) use repo::init_policy::{
+    RepoInitAssessment, RepoInitOptions, RepoInitPathKind, assess_repo_init_path,
     initialize_gutch_repo_with_options,
 };
-pub use repo::paths::{GutchRepoPaths, load_gutch_repo_manifest};
+pub(crate) use repo::paths::{GutchRepoPaths, load_gutch_repo_manifest};
 pub(crate) use repo::paths::{
     bundle_id_from_bundle_path, bundle_path, bundle_path_in_root, chunk_path, chunk_path_in_root,
     ensure_gutch_repo_layout, write_gutch_repo_manifest,
 };
-pub use repo::remote::{
-    PullConflictPolicy, RemoteArtifactSource, RemoteBundleSource, RemoteRepository,
-    RemoteRepositoryCommandProvider, RemoteRepositoryProvider, RemoteRepositoryReader,
-    RemoteRepositorySummary, RemoteRepositoryWriter, RemoteSnapshot, RemoteSnapshotSources,
-    RepoPullPlan, RepoPullStats, RepoSyncPlan, RepoSyncSnapshotChange, RepoSyncUpStats,
-    bind_repo_remote, link_repo, plan_pull_with_provider, plan_sync_up_with_provider, pull_repo,
-    sync_up_repo, unlink_repo,
+pub(crate) use repo::remote::{
+    PullConflictPolicy, RemoteRepositoryCommandProvider, RemoteRepositorySummary, RepoPullPlan,
+    RepoSyncPlan, bind_repo_remote, link_repo, plan_pull_with_provider, plan_sync_up_with_provider,
+    pull_repo, sync_up_repo, unlink_repo,
 };
 pub(crate) use repo::remote::{
     RemoteTagReferencesResult, inspect_repo_tag_references, list_remote_repositories,
 };
-pub use repo::snapshot_manifests::{
-    load_snapshot_manifest, save_snapshot_product_metadata_for_snapshots, snapshot_metadata_path,
-    validate_snapshot_product_metadata_for_snapshots,
-};
+pub(crate) use repo::snapshot_manifests::{load_snapshot_manifest, snapshot_metadata_path};
 pub(crate) use repo::snapshot_manifests::{
     serialize_snapshot_metadata_for_remote, serialize_snapshot_product_metadata_for_remote,
     snapshot_blueprint_path, write_snapshot_manifest_artifacts,
 };
-pub use repo::snapshot_sources::{
+pub(crate) use repo::snapshot_sources::{
     SnapshotSourcesCaptureOptions, SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult,
-    SnapshotSourcesRefresh, capture_snapshot_sources, describe_snapshot_sources_capture_plan,
-    plan_snapshot_sources_capture, plan_snapshot_sources_capture_with_context,
+    capture_snapshot_sources, describe_snapshot_sources_capture_plan,
+    plan_snapshot_sources_capture,
 };
 pub(crate) use repo::source_identity::compute_snapshot_id_from_entries;
-pub use repo::tag_references::{TagReference, TagReferenceStatus, advisory_tag_references};
-pub use repo::updates::update_gutch_repo_name;
-pub use repo::verify::{RepoVerifyResult, SnapshotVerifyResult, verify_gutch_repo_artifacts};
-pub use runtime::RuntimeResourceHints;
+pub(crate) use repo::tag_references::{TagReference, TagReferenceStatus, advisory_tag_references};
+pub(crate) use repo::updates::update_gutch_repo_name;
+pub(crate) use repo::verify::verify_gutch_repo_artifacts;
+pub(crate) use runtime::RuntimeResourceHints;
 pub(crate) use runtime::{RuntimePlan, build_thread_pool, plan_build_runtime};
 pub(crate) use snapshot::path_guard::validate_manifest_relative_path;
-pub use snapshot::path_guard::{ExistingDestinationPathKind, resolve_existing_destination_path};
 pub(crate) use snapshot_ops::ReconstructTimings;
-pub use snapshot_ops::{
+pub(crate) use snapshot_ops::{
     BundleDownload, BundleUrlProvider, DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM,
-    DEFAULT_TRANSFER_CONCURRENCY, ReconstructedCorruptionOperation, ReconstructedCorruptionPlan,
-    ReconstructedCorruptionRequest, ReconstructedCorruptionResult, ResolvedSnapshotOperationState,
+    DEFAULT_TRANSFER_CONCURRENCY, ReconstructedCorruptionPlan, ReconstructedCorruptionRequest,
     SnapshotDownloadAndReconstructRequest, SnapshotDownloadAndReconstructResult,
-    SnapshotFetchRequest, SnapshotFetchResult, SnapshotReconstructFromRepoRequest,
-    SnapshotReconstructFromRepoResult, SnapshotReconstructResult, SnapshotRepairFromRepoRequest,
-    SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
-    SnapshotRepairPlanFromRepoResult, SnapshotRepairResult, SnapshotVerifyFromRepoRequest,
-    SnapshotVerifyFromRepoResult, TransferConcurrencyPolicy, TransferStats,
+    SnapshotFetchRequest, SnapshotReconstructFromRepoRequest, SnapshotRepairFromRepoRequest,
+    SnapshotVerifyFromRepoRequest, TransferConcurrencyPolicy, TransferStats,
     corrupt_reconstructed_snapshot, download_and_reconstruct_snapshot, fetch_snapshot,
-    fetch_snapshot_for_required_bundle_ids, plan_repair_snapshot_from_repo,
-    reconstruct_snapshot_from_repo, repair_snapshot_from_repo, resolve_snapshot_state,
-    verify_installed_snapshot,
+    reconstruct_snapshot_from_repo, repair_snapshot_from_repo, verify_installed_snapshot,
 };
-pub use transport::read_bounded_response;
+pub(crate) use transport::read_bounded_response;
+pub(crate) use verify::VerifyMode;
 pub(crate) use verify::VerifyTimings;
 pub(crate) use verify::estimate_build;
-pub use verify::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode};
+
+#[cfg(test)]
+pub(crate) use manifest::launch::{ResolvedLaunchAction, ResolvedLaunchConfiguration};
+#[cfg(test)]
+pub(crate) use progress::GutchCancellationHook;
+#[cfg(test)]
+pub(crate) use snapshot_ops::{SnapshotRepairPlanFromRepoRequest, plan_repair_snapshot_from_repo};
+#[cfg(test)]
+pub(crate) use verify::RepairClassification;
 
 #[cfg(test)]
 mod tests;

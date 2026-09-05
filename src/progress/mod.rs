@@ -139,7 +139,7 @@ impl GutchOperationControl {
         self
     }
 
-    pub fn with_profiler(mut self, profiler: Arc<crate::GutchProfiler>) -> Self {
+    pub(crate) fn with_profiler(mut self, profiler: Arc<crate::GutchProfiler>) -> Self {
         self.profiler = Some(profiler);
         self
     }

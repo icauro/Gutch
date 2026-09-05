@@ -90,9 +90,9 @@ impl FetchCommand {
 
 pub(crate) fn fetch(command: FetchCommand, profile: &crate::command_api::Profile) -> g::Result<()> {
     let progress = CliProgressSink::new();
-    let result = g::fetch_snapshot(
-        &command.into_request(crate::command_api::control_with_profile(profile).with_progress(progress))?,
-    )?;
+    let result = g::fetch_snapshot(&command.into_request(
+        crate::command_api::control_with_profile(profile).with_progress(progress),
+    )?)?;
 
     if verbose_output_enabled() {
         println!(
@@ -144,8 +144,8 @@ pub(crate) fn fetch_and_reconstruct(
         stats_json_out,
     } = command;
     let progress = CliProgressSink::new();
-    let fetch_request =
-        fetch.into_request(crate::command_api::control_with_profile(profile).with_progress(progress))?;
+    let fetch_request = fetch
+        .into_request(crate::command_api::control_with_profile(profile).with_progress(progress))?;
     let result = g::download_and_reconstruct_snapshot(g::SnapshotDownloadAndReconstructRequest {
         fetch_request,
         destination_dir: destination,
@@ -199,7 +199,9 @@ pub(crate) fn fetch_and_reconstruct(
         reconstruct_timings: crate::command_api::reporting::reconstruct_timings_summary(
             &reconstruct.reconstruct_timings,
         ),
-        verify_timings: crate::command_api::reporting::verify_timings_summary(&reconstruct.verify_timings),
+        verify_timings: crate::command_api::reporting::verify_timings_summary(
+            &reconstruct.verify_timings,
+        ),
         outputs: crate::command_api::reporting::optional_output_paths(&stats_json_out),
     };
     write_report(&stats_json_out, &stats)?;
@@ -349,7 +351,10 @@ pub(crate) struct RepairCommand {
     pub(crate) yes: bool,
 }
 
-pub(crate) fn repair(command: RepairCommand, profile: &crate::command_api::Profile) -> g::Result<()> {
+pub(crate) fn repair(
+    command: RepairCommand,
+    profile: &crate::command_api::Profile,
+) -> g::Result<()> {
     if !command.yes {
         return Err(g::Error::manifest(
             "reconstructed repair requires --yes flag",
@@ -410,7 +415,10 @@ pub(crate) struct CorruptCommand {
     pub(crate) yes: bool,
 }
 
-pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::command_api::Profile) -> g::Result<()> {
+pub(crate) fn corrupt(
+    command: CorruptCommand,
+    profile: &crate::command_api::Profile,
+) -> g::Result<()> {
     if !command.yes {
         return Err(g::Error::manifest(
             "reconstructed corrupt requires --yes flag",
