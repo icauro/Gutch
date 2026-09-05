@@ -199,7 +199,11 @@ def load_run_documents(runs_root: Path | None = None) -> list[dict[str, Any]]:
 
     documents: list[dict[str, Any]] = []
     for run_path in sorted(runs_root.glob("*/run.json")):
-        document = json.loads(run_path.read_text(encoding="utf-8"))
+        try:
+            document = json.loads(run_path.read_text(encoding="utf-8"))
+        except OSError as error:
+            print(f"warning: skipping inaccessible regression run {run_path}: {error}", file=sys.stderr)
+            continue
         run_id = document.get("run_id")
         if not isinstance(run_id, str) or run_id != run_path.parent.name:
             raise RuntimeError(f"Regression run_id does not match its folder: {run_path}")
