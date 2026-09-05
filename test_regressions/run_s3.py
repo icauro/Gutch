@@ -29,7 +29,7 @@ S3_ARTIFACT_ROOT = REPO_ROOT / ".artifacts" / "s3"
 def _ensure_local_s3() -> None:
     command = [
         sys.executable,
-        str(REPO_ROOT / "scripts" / "dev" / "stack_up.py"),
+        str(REPO_ROOT / "scripts" / "dev" / "docker_stack_start.py"),
         "--services",
         "seaweedfs",
         "--no-build",
