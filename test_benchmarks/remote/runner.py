@@ -102,7 +102,7 @@ def _prompt_delete_dataset(
 
 
 def _build_linux_cli(repo_root: Path) -> Path:
-    from scripts.build._linux_builder import (
+    from host_app.scripts._linux_builder import (
         build_wsl_command,
         load_linux_builder_config,
         windows_path_to_wsl,
