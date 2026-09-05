@@ -35,10 +35,12 @@ def run_reconstruction_storage(
     open_perfetto: bool = False,
     step_wait_seconds: float = 4.0,
     keep_artifacts: bool = False,
+    run_label: str | None = None,
+    include_fetch_reconstruct: bool = True,
     on_run_complete: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     profile = profile or GutchProfile("reconstruction-storage")
-    run_root = create_run_dir(artifacts_root, product.name, "reconstruction_storage")
+    run_root = create_run_dir(artifacts_root, run_label or product.name, "reconstruction_storage")
     layout = RunLayout(run_root)
     lane = layout.lane("s3-reconstruction")
     commands = CommandRunner(step_wait_seconds=step_wait_seconds)
@@ -105,31 +107,36 @@ def run_reconstruction_storage(
         lane.traces / "fetched-reconstruct.json",
         "S3 fetched repository",
     )
-    full_result = commands.run(
-        fetch_command(
-            cli,
-            full_repo,
-            snapshot_id,
-            urls,
-            manifest,
-            profile,
-            transfer_concurrency=transfer_concurrency,
-            destination=full_destination,
-            stats_path=lane.stats / "fetch-reconstruct.json",
-            trace_path=lane.traces / "fetch-reconstruct.json",
-        ),
-        description="S3 fetch-reconstruct",
-    )
-    full_stats = json.loads((lane.stats / "fetch-reconstruct.json").read_text(encoding="utf-8"))
+    full_result = None
+    full_stats: dict[str, Any] | None = None
+    if include_fetch_reconstruct:
+        full_result = commands.run(
+            fetch_command(
+                cli,
+                full_repo,
+                snapshot_id,
+                urls,
+                manifest,
+                profile,
+                transfer_concurrency=transfer_concurrency,
+                destination=full_destination,
+                stats_path=lane.stats / "fetch-reconstruct.json",
+                trace_path=lane.traces / "fetch-reconstruct.json",
+            ),
+            description="S3 fetch-reconstruct",
+        )
+        full_stats = json.loads((lane.stats / "fetch-reconstruct.json").read_text(encoding="utf-8"))
     corrupt_seconds = 0.0
     repair_seconds = 0.0
     recovery_traces: dict[str, list[str]] = {"corrupt": [], "repair": []}
     if recovery_enabled:
-        for label, fetched_path, destination in (
+        recovery_targets = [
             ("local", repo, local_destination),
             ("fetched", fetched_repo, fetched_destination),
-            ("fetch-reconstruct", full_repo, full_destination),
-        ):
+        ]
+        if include_fetch_reconstruct:
+            recovery_targets.append(("fetch-reconstruct", full_repo, full_destination))
+        for label, fetched_path, destination in recovery_targets:
             recovery = local._run_corrupt_repair(
                 lane,
                 fetched_path,
@@ -148,35 +155,41 @@ def run_reconstruction_storage(
             str(lane.traces / "fetched-reconstruct.json"),
         ],
         "fetch": [str(lane.traces / "fetch.json")],
-        "fetch_reconstruct": [str(lane.traces / "fetch-reconstruct.json")],
         **recovery_traces,
     }
+    if include_fetch_reconstruct:
+        traces["fetch_reconstruct"] = [str(lane.traces / "fetch-reconstruct.json")]
     differences = {
         "local": compare_directories(product, local_destination),
         "fetched": compare_directories(product, fetched_destination),
-        "fetch_reconstruct": compare_directories(product, full_destination),
     }
+    if include_fetch_reconstruct:
+        differences["fetch_reconstruct"] = compare_directories(product, full_destination)
+    timings: dict[str, float] = {
+        "capture": capture_elapsed,
+        "local_reconstruct": local_elapsed,
+        "fetch": fetch_elapsed_result.elapsed_seconds,
+        "fetched_reconstruct": fetched_elapsed,
+        "corrupt": corrupt_seconds,
+        "repair": repair_seconds,
+    }
+    if full_result is not None:
+        timings["fetch_reconstruct"] = full_result.elapsed_seconds
+    verification: dict[str, Any] = {
+        "invocations": 2 + int(include_fetch_reconstruct),
+        "local_seconds": _verify_seconds(local_stats),
+        "fetched_seconds": _verify_seconds(fetched_stats),
+        "source": "reconstruct stats; no post-reconstruct verify command",
+        "corrupt_repair_after_reconstruct": recovery_enabled,
+    }
+    if full_stats is not None:
+        verification["fetch_reconstruct_seconds"] = _verify_seconds(full_stats)
     result = {
         "run_directory": str(run_root),
         "snapshot_id": snapshot_id,
         "upload": upload,
-        "timings": {
-            "capture": capture_elapsed,
-            "local_reconstruct": local_elapsed,
-            "fetch": fetch_elapsed_result.elapsed_seconds,
-            "fetched_reconstruct": fetched_elapsed,
-            "fetch_reconstruct": full_result.elapsed_seconds,
-            "corrupt": corrupt_seconds,
-            "repair": repair_seconds,
-        },
-        "verification": {
-            "invocations": 3,
-            "local_seconds": _verify_seconds(local_stats),
-            "fetched_seconds": _verify_seconds(fetched_stats),
-            "fetch_reconstruct_seconds": _verify_seconds(full_stats),
-            "source": "reconstruct stats; no post-reconstruct verify command",
-            "corrupt_repair_after_reconstruct": recovery_enabled,
-        },
+        "timings": timings,
+        "verification": verification,
         "traces": traces,
         "repository": scan_tree(repo).__dict__,
         "differences": differences,
@@ -184,14 +197,14 @@ def run_reconstruction_storage(
     (run_root / "results.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if on_run_complete is not None:
         on_run_complete(result)
-    print(f"Wrote benchmark results: {run_root / 'results.json'}")
-    if not keep_artifacts:
-        layout.remove_payloads()
     combined_trace = run_root / "trace.json"
     combine_labeled_traces(
         [("s3-reconstruction", Path(trace)) for paths in traces.values() for trace in paths],
         combined_trace,
     )
+    print(f"Wrote benchmark results: {run_root / 'results.json'}")
+    if not keep_artifacts:
+        layout.remove_payloads()
     if open_perfetto:
         trace_events = json.loads(combined_trace.read_text(encoding="utf-8")).get("traceEvents", [])
         if trace_events:
