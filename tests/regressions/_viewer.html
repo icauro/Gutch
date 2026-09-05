@@ -1,0 +1,376 @@
+<!-- Source template used by the Gutch regression runner. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gutch regression runs</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+      background: Canvas;
+      color: CanvasText;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+    }
+
+    main {
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    h1,
+    h2 {
+      font-family: system-ui, sans-serif;
+      font-weight: 500;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+    }
+
+    h2 {
+      margin: 28px 0 8px;
+    }
+
+    p {
+      margin: 0 0 20px;
+      color: GrayText;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th,
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid ButtonBorder;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      font-family: system-ui, sans-serif;
+      font-weight: 500;
+    }
+
+    td.numeric,
+    th.numeric {
+      text-align: right;
+    }
+
+    tr.selected {
+      background: SelectedItem;
+      color: SelectedItemText;
+    }
+
+    button,
+    a {
+      font: inherit;
+    }
+
+    button {
+      padding: 5px 9px;
+      border: 1px solid ButtonBorder;
+      border-radius: 4px;
+      background: ButtonFace;
+      color: ButtonText;
+      cursor: pointer;
+    }
+
+    button:focus-visible,
+    a:focus-visible {
+      outline: 2px solid Highlight;
+      outline-offset: 2px;
+    }
+
+    .detail-layout {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+      gap: 28px;
+    }
+
+    .detail-layout h2 {
+      margin-top: 24px;
+    }
+
+    .empty {
+      padding: 24px 0;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 16px;
+      }
+
+      th,
+      td {
+        padding: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Gutch regression runs</h1>
+    <p>Completed deterministic 128 MiB snapshot capture, reconstruct, verify, and compare runs. Profiles are Perfetto-compatible traces; deltas compare identical snapshot ranges.</p>
+
+    <div class="table-scroll">
+      <table aria-label="Gutch regression run comparison">
+        <thead>
+          <tr>
+            <th scope="col">Run UTC</th>
+            <th scope="col">Revision</th>
+            <th scope="col">Product</th>
+            <th scope="col" class="numeric">Snapshots</th>
+            <th scope="col">Range</th>
+            <th scope="col" class="numeric">Capture</th>
+            <th scope="col" class="numeric">Capture delta</th>
+            <th scope="col" class="numeric">Reconstruct</th>
+            <th scope="col" class="numeric">Reconstruct delta</th>
+            <th scope="col">Details</th>
+          </tr>
+        </thead>
+        <tbody id="run-rows"></tbody>
+      </table>
+    </div>
+
+    <p id="empty-state" class="empty" hidden>No completed regression runs yet.</p>
+    <section id="run-details" aria-live="polite"></section>
+  </main>
+
+  <script id="run-data" type="application/json">__GUTCH_REGRESSION_RUNS__</script>
+  <script>
+    const runs = JSON.parse(document.getElementById("run-data").textContent);
+    const runRows = document.getElementById("run-rows");
+    const emptyState = document.getElementById("empty-state");
+    const runDetails = document.getElementById("run-details");
+
+    function operationSummary(run, operation) {
+      const summary = run.operations?.[operation]?.summary;
+      if (summary && typeof summary === "object") {
+        return summary;
+      }
+      const legacyTimings = run.operations?.[operation]?.timings;
+      return legacyTimings && typeof legacyTimings === "object"
+        ? { total_seconds: legacyTimings.total_seconds, spans: [] }
+        : {};
+    }
+
+    function totalSeconds(run, operation) {
+      const value = operationSummary(run, operation).total_seconds;
+      return typeof value === "number" ? value : null;
+    }
+
+    function formatSeconds(value) {
+      return typeof value === "number" ? value.toFixed(3) : "-";
+    }
+
+    function comparableRun(runIndex) {
+      const current = runs[runIndex];
+      const currentProduct = current.product ?? {};
+      for (let index = runIndex + 1; index < runs.length; index += 1) {
+        const candidateProduct = runs[index].product ?? {};
+        if (
+          candidateProduct.name === currentProduct.name &&
+          candidateProduct.snapshot_count === currentProduct.snapshot_count &&
+          candidateProduct.first_snapshot === currentProduct.first_snapshot &&
+          candidateProduct.last_snapshot === currentProduct.last_snapshot
+        ) {
+          return runs[index];
+        }
+      }
+      return null;
+    }
+
+    function formatDelta(current, previous) {
+      if (typeof current !== "number" || typeof previous !== "number" || previous === 0) {
+        return "-";
+      }
+      const delta = ((current - previous) / previous) * 100;
+      return `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`;
+    }
+
+    function appendCell(row, value, className = "") {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      if (className) {
+        cell.className = className;
+      }
+      row.appendChild(cell);
+      return cell;
+    }
+
+    function profileTable(title, summary, tracePaths, run) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h2");
+      heading.textContent = title;
+      section.appendChild(heading);
+
+      const scroll = document.createElement("div");
+      scroll.className = "table-scroll";
+      const table = document.createElement("table");
+      table.setAttribute("aria-label", title);
+      const head = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      for (const label of ["Span", "Count", "Sum", "Max"]) {
+        const header = document.createElement("th");
+        header.scope = "col";
+        header.textContent = label;
+        headerRow.appendChild(header);
+      }
+      head.appendChild(headerRow);
+      table.appendChild(head);
+      const body = document.createElement("tbody");
+      for (const span of (summary.spans ?? [])) {
+        const row = document.createElement("tr");
+        const label = document.createElement("th");
+        label.scope = "row";
+        label.textContent = span.name ?? "-";
+        row.appendChild(label);
+        appendCell(row, String(span.count ?? "-"), "numeric");
+        appendCell(row, typeof span.total_seconds === "number" ? `${span.total_seconds.toFixed(6)} s` : "-", "numeric");
+        appendCell(row, typeof span.maximum_seconds === "number" ? `${span.maximum_seconds.toFixed(6)} s` : "-", "numeric");
+        body.appendChild(row);
+      }
+      table.appendChild(body);
+      scroll.appendChild(table);
+      section.appendChild(scroll);
+      const links = document.createElement("p");
+      links.appendChild(document.createTextNode("Perfetto traces: "));
+      for (const [index, path] of (tracePaths ?? []).entries()) {
+        if (index > 0) {
+          links.appendChild(document.createTextNode(" / "));
+        }
+        links.appendChild(rawStatsLink(run, path, `trace ${index + 1}`));
+      }
+      section.appendChild(links);
+      return section;
+    }
+
+    function rawStatsLink(run, relativePath, label) {
+      if (typeof relativePath !== "string" || !relativePath) {
+        return document.createTextNode("-");
+      }
+      const link = document.createElement("a");
+      link.href = `runs/${run.run_id}/${relativePath}`;
+      link.textContent = label;
+      return link;
+    }
+
+    function snapshotTable(run) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h2");
+      heading.textContent = "Snapshots";
+      section.appendChild(heading);
+
+      if (!Array.isArray(run.snapshots) || run.snapshots.length === 0) {
+        const message = document.createElement("p");
+        message.textContent = "Per-snapshot raw stats were not retained for this run.";
+        section.appendChild(message);
+        return section;
+      }
+
+      const scroll = document.createElement("div");
+      scroll.className = "table-scroll";
+      const table = document.createElement("table");
+      table.setAttribute("aria-label", "Per-snapshot timing results");
+      const head = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      for (const label of ["Snapshot", "Capture trace", "Reconstruct trace", "Raw stats"]) {
+        const header = document.createElement("th");
+        header.scope = "col";
+        header.textContent = label;
+        headerRow.appendChild(header);
+      }
+      head.appendChild(headerRow);
+      table.appendChild(head);
+
+      const body = document.createElement("tbody");
+      for (const snapshot of run.snapshots) {
+        const row = document.createElement("tr");
+        appendCell(row, snapshot.name ?? "-");
+        const captureTrace = document.createElement("td");
+        captureTrace.appendChild(rawStatsLink(run, snapshot.capture_trace, "open"));
+        row.appendChild(captureTrace);
+        const reconstructTrace = document.createElement("td");
+        reconstructTrace.appendChild(rawStatsLink(run, snapshot.reconstruct_trace, "open"));
+        row.appendChild(reconstructTrace);
+        const links = document.createElement("td");
+        links.appendChild(rawStatsLink(run, snapshot.capture_stats, "capture"));
+        links.appendChild(document.createTextNode(" / "));
+        links.appendChild(rawStatsLink(run, snapshot.reconstruct_stats, "reconstruct"));
+        row.appendChild(links);
+        body.appendChild(row);
+      }
+      table.appendChild(body);
+      scroll.appendChild(table);
+      section.appendChild(scroll);
+      return section;
+    }
+
+    function selectRun(runIndex) {
+      const run = runs[runIndex];
+      for (const [index, row] of Array.from(runRows.rows).entries()) {
+        row.classList.toggle("selected", index === runIndex);
+        row.querySelector("button").setAttribute("aria-pressed", String(index === runIndex));
+      }
+
+      runDetails.replaceChildren();
+      const heading = document.createElement("h2");
+      heading.textContent = `${run.run_utc} / ${run.git_revision}`;
+      runDetails.appendChild(heading);
+
+      const detailLayout = document.createElement("div");
+      detailLayout.className = "detail-layout";
+      detailLayout.appendChild(profileTable("Capture profile", operationSummary(run, "capture"), run.operations?.capture?.traces, run));
+      detailLayout.appendChild(profileTable("Reconstruct profile", operationSummary(run, "reconstruct"), run.operations?.reconstruct?.traces, run));
+      detailLayout.appendChild(profileTable("Verify profile", operationSummary(run, "verify"), run.operations?.verify?.traces, run));
+      runDetails.appendChild(detailLayout);
+      runDetails.appendChild(snapshotTable(run));
+    }
+
+    if (runs.length === 0) {
+      emptyState.hidden = false;
+    } else {
+      runs.forEach((run, index) => {
+        const product = run.product ?? {};
+        const previous = comparableRun(index);
+        const captureTotal = totalSeconds(run, "capture");
+        const reconstructTotal = totalSeconds(run, "reconstruct");
+        const row = document.createElement("tr");
+        appendCell(row, run.run_utc ?? "-");
+        appendCell(row, run.git_revision ?? "-");
+        appendCell(row, product.name ?? "-");
+        appendCell(row, String(product.snapshot_count ?? "-"), "numeric");
+        appendCell(row, `${product.first_snapshot ?? "-"} → ${product.last_snapshot ?? "-"}`);
+        appendCell(row, formatSeconds(captureTotal), "numeric");
+        appendCell(row, formatDelta(captureTotal, previous ? totalSeconds(previous, "capture") : null), "numeric");
+        appendCell(row, formatSeconds(reconstructTotal), "numeric");
+        appendCell(row, formatDelta(reconstructTotal, previous ? totalSeconds(previous, "reconstruct") : null), "numeric");
+        const actionCell = document.createElement("td");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Details";
+        button.setAttribute("aria-pressed", "false");
+        button.addEventListener("click", () => selectRun(index));
+        actionCell.appendChild(button);
+        row.appendChild(actionCell);
+        runRows.appendChild(row);
+      });
+      selectRun(0);
+    }
+  </script>
+</body>
+</html>

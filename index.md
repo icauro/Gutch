@@ -240,6 +240,11 @@ gutch_repo/tests/benchmarks/s3_throughput/fixtures/s3_object_storage_8mib.yaml
 gutch_repo/tests/benchmarks/s3_throughput/workflow.py
 gutch_repo/tests/fixture_regression.rs
 gutch_repo/tests/prepare_test_dataset.py
+gutch_repo/tests/regressions/
+gutch_repo/tests/regressions/__init__.py
+gutch_repo/tests/regressions/_viewer.html
+gutch_repo/tests/regressions/README.md
+gutch_repo/tests/regressions/run_all.py
 gutch_repo/tests/source_config_ingestion.rs
 gutch_repo/tests/test_dataset/
 gutch_repo/tests/test_dataset/repos/
