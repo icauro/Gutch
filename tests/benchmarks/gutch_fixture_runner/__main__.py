@@ -27,7 +27,7 @@ from gutch_repo.tests.benchmarks.benchmark_config import load_benchmark_config
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = PACKAGE_ROOT.parents[4]
+REPO_ROOT = PACKAGE_ROOT.parents[3]
 DEFAULT_PRODUCTS_ROOT = load_benchmark_config().product_root
 S3_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_s3_cold_publication_cycle.yaml"
 RECONSTRUCTION_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_reconstruction_storage_paths.yaml"
