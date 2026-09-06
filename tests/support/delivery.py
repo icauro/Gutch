@@ -59,6 +59,8 @@ class DeliveryServer:
                 data = owner.files[self.path].read_bytes()
                 if fault == "invalid":
                     data = b"invalid metadata"
+                if fault == "corrupt":
+                    data = bytes(byte ^ 0xFF for byte in data)
                 if fault == "hold":
                     owner.request_started.set()
                     owner.release_request.wait(30)

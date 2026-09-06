@@ -13,7 +13,9 @@ def run(case):
     first_data = basic(case.payload / "v1")
     second_data = basic(case.payload / "v2", 2)
     first = case.capture(repo, first_data.root)["snapshot_id"]
-    second = case.capture(repo, second_data.root)["snapshot_id"]
+    second_capture = case.capture(repo, second_data.root)
+    assert second_capture["reused_chunk_count"] > 0
+    second = second_capture["snapshot_id"]
     index = repo / "chunk_map.gtcbin"
     original = index.read_bytes()
     for invalid in (None, b"GTCI\x01\0\0\0" + bytes(16)):

@@ -40,6 +40,16 @@ reuse, file attributes, links, verification and repair, snapshot cleanup,
 missing artifacts, repository-verification exit status, path-comparison reports, staging overlap, malicious paths, failed promotion, transfer
 failures, retries, process interruption and concurrent run isolation.
 
+Existing scenarios also verify reconstruction after deleting the source, metadata-only
+recapture, reconstruction after rejected capture, and actual chunk reuse before
+snapshot deletion. HTTP and S3 delivery reject same-length corrupted artifacts,
+preserve the existing installation, and succeed after the artifact is restored.
+The promotion-failure check compares the entire prior installation.
+
+A separate batch case confirms that a later tag conflict returns failure while
+an earlier completed snapshot remains reconstructable. The Rust capture contract
+compares API and CLI content, tags, snapshot identity, and persisted profiles.
+
 The promotion-denial scenario uses Windows file sharing. It explicitly skips
 on other platforms. Link scenarios skip when the host cannot create links.
 Skipped cases remain visible in the report.

@@ -1,6 +1,6 @@
 """Operations: Recapture identical content with a conflicting version tag.
 
-Expected: Capture fails and the existing snapshot metadata stays byte-for-byte unchanged.
+Expected: Capture fails and the existing snapshot metadata stays byte-for-byte unchanged and its content still reconstructs.
 """
 from ..support.datasets import basic
 
@@ -14,3 +14,6 @@ def run(case):
     case.command("snapshot", "capture", "--repo", repo, "--source-dir", data.root,
                  "--tag", "version::2.0.0", "--yes", success=False)
     assert path.read_bytes() == before
+    destination = case.payload / "preserved"
+    case.reconstruct(repo, captured["snapshot_id"], destination)
+    case.compare(data, destination)

@@ -30,7 +30,7 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
 }
 
 #[test]
-fn direct_capture_persists_packaging_profile_without_the_cli() {
+fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     use gutch::api::*;
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");
@@ -38,10 +38,11 @@ fn direct_capture_persists_packaging_profile_without_the_cli() {
     std::fs::create_dir(&source).unwrap();
     std::fs::write(source.join("content"), b"content").unwrap();
     initialize_gutch_repo_with_options(&repo, RepoInitOptions::default()).unwrap();
-    capture_repo_snapshot(RepoSnapshotCaptureRequest {
+    let captured = capture_repo_snapshot(RepoSnapshotCaptureRequest {
         repo_root: repo.clone(),
-        source_dir: source,
-        explicit_tags: Default::default(),
+        source_dir: source.clone(),
+        explicit_tags: SnapshotTagSet::from_compact_strings(&["version::1.0.0".to_string()])
+            .unwrap(),
         chunk_profile: Default::default(),
         bundle_profile: Default::default(),
         compression_algorithm: CompressionKind::Lz4,
@@ -57,6 +58,67 @@ fn direct_capture_persists_packaging_profile_without_the_cli() {
         manifest.artifact_profile.storage,
         ArtifactStorageMode::LooseChunks
     );
+    let cli_repo = root.path().join("cli-repo");
+    initialize_gutch_repo_with_options(&cli_repo, RepoInitOptions::default()).unwrap();
+    run_from_args([
+        "gutch",
+        "snapshot",
+        "capture",
+        "--repo",
+        cli_repo.to_str().unwrap(),
+        "--source-dir",
+        source.to_str().unwrap(),
+        "--yes",
+        "--jobs",
+        "1",
+        "--tag",
+        "version::1.0.0",
+        "--compression-algorithm",
+        "lz4",
+        "--storage-mode",
+        "loose_chunks",
+    ])
+    .unwrap();
+    let (_, cli_manifest) = load_gutch_repo_manifest(&cli_repo).unwrap();
+    assert_eq!(
+        serde_json::to_value(&manifest.artifact_profile).unwrap(),
+        serde_json::to_value(&cli_manifest.artifact_profile).unwrap()
+    );
+    let metadata_path = |repository: &std::path::Path| {
+        repository
+            .join("snapshots")
+            .join(&captured.snapshot_id)
+            .join("snapshot_metadata.json")
+    };
+    let api_metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(metadata_path(&repo)).unwrap()).unwrap();
+    let cli_metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(metadata_path(&cli_repo)).unwrap()).unwrap();
+    assert_eq!(
+        api_metadata["snapshot_tags"],
+        serde_json::json!(["version::1.0.0"])
+    );
+    assert_eq!(api_metadata["snapshot_tags"], cli_metadata["snapshot_tags"]);
+    std::fs::remove_dir_all(&source).unwrap();
+    for (repository, label) in [(repo, "api-output"), (cli_repo, "cli-output")] {
+        let destination = root.path().join(label);
+        reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+            repo_path: repository,
+            snapshot_id: captured.snapshot_id.clone(),
+            destination_dir: destination.clone(),
+            staging_dir: None,
+            source_snapshot_id: None,
+            source_dir: None,
+            runtime_hints: RuntimeResourceHints { jobs: Some(1) },
+            control: Default::default(),
+        })
+        .unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("content")).unwrap(),
+            b"content"
+        );
+        assert_eq!(std::fs::read_dir(destination).unwrap().count(), 1);
+    }
 }
 
 #[derive(Debug)]

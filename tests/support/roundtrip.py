@@ -1,5 +1,6 @@
 """Capture and independently compare filesystem metadata."""
 from .datasets import basic, metadata
+from .filesystem import remove_owned
 
 
 def metadata_roundtrip(case, *, links):
@@ -9,6 +10,16 @@ def metadata_roundtrip(case, *, links):
     destination = case.payload / "installed"
     case.reconstruct(repo, captured["snapshot_id"], destination)
     case.compare(data, destination)
+    if links:
+        (data.root / "shared-link").unlink()
+        data.link("shared-link", "data/duplicate.bin")
+    else:
+        (data.root / "readonly.txt").chmod(0o600)
+        data.expected["readonly.txt"]["read_only"] = False
+    changed = case.capture(repo, data.root)
+    updated = case.payload / "updated"
+    case.reconstruct(repo, changed["snapshot_id"], updated)
+    case.compare(data, updated, "metadata-only-change")
 
 
 def capture_roundtrip(case):
@@ -18,6 +29,7 @@ def capture_roundtrip(case):
     again = case.capture(repo, data.root)
     assert first["snapshot_id"] == again["snapshot_id"]
     assert again["generated_bundle_count"] == 0
+    remove_owned(data.root, case.payload)
     destination = case.payload / "installed"
     case.reconstruct(repo, first["snapshot_id"], destination)
     case.compare(data, destination)

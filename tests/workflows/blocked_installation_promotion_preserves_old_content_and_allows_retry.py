@@ -7,6 +7,7 @@ platforms skip.
 import os
 import unittest
 from ..support.datasets import basic
+from ..support.filesystem import inventory
 
 
 def run(case):
@@ -21,6 +22,9 @@ def run(case):
     destination.mkdir()
     target = destination / "keep.txt"
     target.write_bytes(b"old installation")
+    (destination / "other").mkdir()
+    (destination / "other" / "saved.txt").write_bytes(b"also preserve")
+    before = inventory(destination)
     create_file = ctypes.windll.kernel32.CreateFileW
     create_file.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
     create_file.restype = wintypes.HANDLE
@@ -29,7 +33,7 @@ def run(case):
     try:
         case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot-id", snapshot,
                      "--destination", destination, success=False)
-        assert target.read_bytes() == b"old installation"
+        assert inventory(destination) == before
     finally:
         ctypes.windll.kernel32.CloseHandle(wintypes.HANDLE(handle))
     case.reconstruct(repo, snapshot, destination)

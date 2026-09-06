@@ -1,4 +1,4 @@
-"""Operations: Serve missing and truncated artifacts, retry, then inject a single transient HTTP
+"""Operations: Serve missing, truncated and same-length corrupted artifacts, retry, then inject a single transient HTTP
 failure.
 
 Expected: Failed downloads preserve the prior installation and retries produce exact output.
@@ -12,7 +12,7 @@ def run(case):
     data, repo, snapshot = published(case)
     with DeliveryServer(repo) as server:
         artifact = next(path for path in server.files if path.startswith("/bundles/"))
-        for fault in ("missing", "truncate"):
+        for fault in ("missing", "truncate", "corrupt"):
             server.faults[artifact] = fault
             destination = case.payload / f"install-{fault}"
             destination.mkdir()

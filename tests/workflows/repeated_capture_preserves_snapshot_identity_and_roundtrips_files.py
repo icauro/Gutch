@@ -1,4 +1,4 @@
-"""Operations: Capture the same tree twice, reconstruct it and verify the result.
+"""Operations: Capture the same tree twice, delete the source, reconstruct it and verify the result.
 
 Expected: Identity stays stable, no new bundles are generated, and every entry matches.
 """
