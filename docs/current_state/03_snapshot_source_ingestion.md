@@ -17,8 +17,8 @@ the app Creator workspace, fixtures, and self-publish staging.
 |---|---|---|
 | Creator, fixture, or staging tool | Extracted source trees and optional source-root configuration | Supplies paths and explicit tags without writing repo artifacts directly |
 | Gutch source discovery | Auto or explicit source selection and path normalization | Produces an ordered set of contained source directories and config tags |
-| Gutch identity resolution | CLI tags and config tags | Produces structurally validated snapshot tags; an empty set is valid locally |
-| Gutch capture pipeline | Recursive scan, capture preview, and repo artifact construction | Writes the snapshot only after source and identity validation succeed |
+| Gutch tag resolution | CLI tags and config tags | Produces structurally validated snapshot tags; an empty set is valid locally |
+| Gutch capture pipeline | Recursive scan, capture preview, and repo artifact construction | Writes the snapshot only after source validation succeeds; capture is additive and never replaces or deletes snapshots |
 | App or CLI | Input collection, preview, confirmation, and result presentation | Sends absolute paths and renders Gutch's capture plan and result |
 
 ## Interaction Flow
@@ -29,10 +29,16 @@ the app Creator workspace, fixtures, and self-publish staging.
 2. The configured ingestion mode selects source directories.
 3. Gutch resolves explicitly supplied tags in precedence order. The result may
    be empty for a local snapshot.
-4. Capture preview reports the destination slot and whether capture creates,
-   relabels, or replaces repo state.
+4. Capture preview reports the source path and tags. It never assigns a
+   snapshot ID: content-derived identity is only available after the source
+   scan. Equal tags across snapshots are valid and create distinct snapshots.
 5. After confirmation where required, Gutch scans the tree and writes the new
-   snapshot artifacts through the repo pipeline.
+   snapshot artifacts through the repo pipeline. Immutable artifacts and the
+   chunk index are published before the snapshot manifest, which is the
+   commit marker. If the computed snapshot ID already exists, capture
+   returns Unchanged for identical metadata or a typed metadata/integrity
+   conflict instead of mutating the stored snapshot; explicit retag targets
+   one exact snapshot ID.
 
 ## Ingestion Modes
 
@@ -80,7 +86,9 @@ implicit name-based ignores inside a selected snapshot source.
 - An unlisted explicit-mode directory is not discovered implicitly.
 - Renaming an explicit-mode folder does not change identity when its config
   entry and explicit tags are updated consistently.
-- Source validation and capture preview occur before repo replacement.
+- Source validation and capture preview occur before any repo write.
+  Capture never deletes snapshots; callers delete exact snapshot IDs
+  separately.
 - Frontends do not reimplement tag parsing or containment checks.
 
 The detailed scan, chunking, reuse, and capture parallelization stages are
