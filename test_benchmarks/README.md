@@ -37,6 +37,48 @@ input bytes. Dataset fingerprints identify the exact input inventory: whole
 product and selected-snapshot workloads can differ and must not be treated as
 identical merely because they share a product directory.
 
+## Reading Gutch versus external-tool comparisons
+
+These are configured end-to-end workflow measurements. They can compare the
+cost of delivering the same selected files on the same machine; they do not
+isolate the efficiency of a compression, chunking, or deduplication algorithm.
+A successful Blender run establishes correctness for that dataset, not a
+performance ranking or equivalence of backup features.
+
+| Measurement | When comparable | Current limitations |
+|---|---|---|
+| Individual capture and restore | Same selected target directories, history, order, host, and performance mode | Each tool uses its own repository format, chunking, compression, protection, and concurrency settings. Initialization is outside capture timing. |
+| Bulk capture and restore | Only after matching the actual captured trees | Gutch and Kopia capture the entire product root; Restic, Borg, and Plakar capture selected non-hidden child directories. Kopia's input-byte count, fingerprint, and validation cover only those selected directories, despite capturing the whole root. Root files and hidden directories therefore invalidate an apples-to-apples comparison. |
+| Restore time | Time until each configured restore command completes | Gutch includes embedded output verification. External repository checks run separately; they are not equivalent to verifying restored files. Embedded verification is already part of Gutch restore time and must not be added again. |
+| Recovery | Operational cost of the stated recovery strategy | Gutch repairs an existing damaged output incrementally. External tools restore the output from scratch; deleting the old output is outside that timer. This compares strategies, not equivalent repair implementations. Corruption targets output files, not stored repository data. |
+| Repository size and ratio | Logical repository-file bytes relative to matched input bytes | The table's “Repo size on disk” sums file lengths, not allocated disk space, and excludes caches outside the repository. “Repo growth” repeats total repository size rather than measuring a snapshot delta. External size is sampled after capture; Gutch size is sampled after reconstruction/recovery. |
+| Filesystem copy | A local copy baseline | One copy duration populates both capture and restore columns. These are not two independent operations and must not be summed. The baseline provides no versioned repository. |
+| S3 cycles | Comparing Gutch layouts under the same storage conditions | These exercise publication, fetching, and reconstruction; they do not establish a cross-tool network-performance comparison. |
+
+For timing comparisons, explicitly set `measurement_mode: performance`.
+The default is `profile`, including in the external comparison fixtures;
+`open_perfetto: false` only disables opening the viewer. Profiling instruments
+Gutch alone, so default timings are diagnostic rather than a fair speed ranking.
+The fixture description “zstd1-equivalent” is shorthand for requested presets,
+not proof of equal compression work: the adapters pass different tool options,
+and Plakar uses a different compression configuration.
+
+Use repeated samples and inspect `summary.json`, keeping the host, dataset,
+tool binaries, and competing workload fixed. One repetition is the default;
+case-order rotation only spans all starting positions after a full case-count
+cycle. Warmups use separate repositories, and inventory hashing reads source
+files before measurement. Neither cooldown nor warmup guarantees cold OS caches.
+Do not treat results from different Windows/Linux Blender distributions or
+Borg major versions as measurements of the same workload.
+
+Check the selected paths and inventories as well as byte counts. Fingerprints
+include inventory grouping, so whole-product and per-target fingerprints can
+differ even when file contents match. Throughput is logical input bytes divided
+by elapsed command time, not measured disk or network bandwidth. Correctness
+checks cover paths, contents, symlink targets, read-only state, and executable
+state where supported; they do not certify timestamps, ownership, ACLs,
+extended attributes, hardlink identity, or sparse allocation.
+
 Run Gutch benchmarks interactively:
 
     python -m gutch_repo.test_benchmarks.gutch_fixture_runner
@@ -122,12 +164,17 @@ comparison uses `snapshot_limit: 1` to keep its five-tool comparison practical.
 ## Source tree
 
     gutch_repo/test_benchmarks/common/
-      command.py       subprocess boundary, timing, and redaction
       environment.py   benchmark-owned YAML environment loading
       config.py        recursive YAML catalog
+      dataset.py       frozen input inventories and snapshot selection
+      runner.py        shared case scheduling, samples, and retention
+    gutch_repo/test_support/
+      command.py       subprocess boundary, timing, and redaction
       artifacts.py     run/lane layout and retention
       filesystem.py    tree stats and content comparison
-      traces.py        Perfetto composition with one process per benchmark lane
+      gutch.py         shared Gutch operations
+      s3.py            S3 transport and publication helpers
+      traces.py        Perfetto composition
     gutch_repo/test_benchmarks/
       gutch_fixture_runner/
         __main__.py    interactive and explicit Gutch launcher
@@ -136,7 +183,6 @@ comparison uses `snapshot_limit: 1` to keep its five-tool comparison practical.
         workflow.py    capture, reconstruct, optional corruption, repair
         external.py    Restic/Kopia/Borg/Plakar adapters
         external_tools.py pinned Linux x86_64 external-tool installers
-        s3.py          S3 publication, URL manifests, and fetch commands
         s3_cycle.py    cold S3 publication and fetch-reconstruct cycle
         fixtures/      typed Gutch benchmark scenarios
         bin/           Gutch CLI and external comparison tools
