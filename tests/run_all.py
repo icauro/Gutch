@@ -6,18 +6,14 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from collections.abc import Callable
 from datetime import datetime, timezone
 import os
 from pathlib import Path
 import platform
 import subprocess
 import sys
-import time
 import traceback
-import unittest
 from uuid import uuid4
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -26,50 +22,41 @@ sys.path.insert(0, str(REPOSITORY))
 from scripts._common.paths import get_default_cargo_target_dir
 from tests.common._run_events import RunEventWriter
 from gutch_repo.tests.support.cli import Case, execute
-from gutch_repo.tests.support.filesystem import remove_owned, write_json
-from gutch_repo.tests.workflows import capture, cleanup, failure_recovery, reconstruction, reference_format, remote_delivery, repair
-
-
-def run_isolation(case):
-    children = [Case(case.payload / name, case.executable) for name in ("first", "second")]
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        list(pool.map(capture.capture_roundtrip, children))
-    assert children[0].environment != children[1].environment
-    assert all((child.payload / "repo").is_dir() for child in children)
-
-
+from gutch_repo.tests.support.filesystem import write_json
+from gutch_repo.tests.support.scenario_process import run_scenario
+from gutch_repo.tests.support.delivery import prepare_s3_environment
 @dataclass(frozen=True)
 class Scenario:
     name: str
-    operation: Callable[[Case], None]
+    module: str
     suite: str = "local"
 
 
 SCENARIOS = [
-    Scenario("capture_roundtrip", capture.capture_roundtrip, "fast"),
-    Scenario("capture_deduplication", capture.capture_deduplication),
-    Scenario("capture_profiles", capture.capture_profiles),
-    Scenario("capture_metadata_conflict", capture.capture_metadata_conflict),
-    Scenario("source_ingestion", capture.source_ingestion),
-    Scenario("source_ingestion_auto", capture.source_ingestion_auto),
-    Scenario("reference_format", reference_format.reference_format),
-    Scenario("update_and_source_reuse", reconstruction.update_and_source_reuse),
-    Scenario("filesystem_metadata", reconstruction.filesystem_metadata),
-    Scenario("symbolic_links", reconstruction.symbolic_links),
-    Scenario("verify_and_repair", repair.verify_and_repair),
-    Scenario("repository_initialization", cleanup.repository_initialization),
-    Scenario("snapshot_cleanup", cleanup.snapshot_cleanup),
-    Scenario("recapture_missing_artifacts", cleanup.recapture_missing_artifacts),
-    Scenario("staging_safety", failure_recovery.staging_safety),
-    Scenario("staging_link_alias", failure_recovery.staging_link_alias),
-    Scenario("unsafe_blueprint", failure_recovery.unsafe_blueprint),
-    Scenario("failed_promotion", failure_recovery.failed_promotion),
-    Scenario("http_delivery", remote_delivery.http_delivery),
-    Scenario("failed_fetch_preserves_cache", remote_delivery.failed_fetch_preserves_cache),
-    Scenario("transfer_failures_and_retry", remote_delivery.transfer_failures_and_retry),
-    Scenario("interrupted_transfer", remote_delivery.interrupted_transfer),
-    Scenario("run_isolation", run_isolation),
-    Scenario("s3_delivery", remote_delivery.s3_delivery, "s3"),
+    Scenario("capture_roundtrip", "repeated_capture_preserves_snapshot_identity_and_roundtrips_files", "fast"),
+    Scenario("capture_deduplication", "capturing_changed_versions_reuses_chunks_and_restores_both_versions", "local"),
+    Scenario("capture_profiles", "compression_and_storage_profiles_preserve_file_contents", "local"),
+    Scenario("capture_metadata_conflict", "conflicting_capture_tags_leave_existing_metadata_unchanged", "local"),
+    Scenario("source_ingestion", "explicit_source_discovery_uses_declared_paths_and_tags_only", "local"),
+    Scenario("source_ingestion_auto", "automatic_source_discovery_creates_config_and_ignores_excluded_folders", "local"),
+    Scenario("reference_format", "frozen_repository_snapshots_reconstruct_to_independent_expected_inventories", "local"),
+    Scenario("update_and_source_reuse", "successive_installation_updates_reuse_source_chunks_and_replace_old_content", "local"),
+    Scenario("filesystem_metadata", "reconstruction_preserves_permissions_empty_directories_and_long_paths", "local"),
+    Scenario("symbolic_links", "reconstruction_preserves_symbolic_link_targets_and_file_attributes", "local"),
+    Scenario("verify_and_repair", "repair_restores_damaged_files_and_preserves_user_added_files_unless_requested", "local"),
+    Scenario("repository_initialization", "repository_initialization_preserves_unrelated_files_and_rejects_reinitialization", "local"),
+    Scenario("snapshot_cleanup", "snapshot_deletion_preserves_shared_artifacts_and_rejects_incomplete_indexes", "local"),
+    Scenario("recapture_missing_artifacts", "recapture_rebuilds_missing_artifacts_for_identical_and_changed_snapshots", "local"),
+    Scenario("staging_safety", "overlapping_staging_paths_fail_without_modifying_installed_or_unrelated_files", "local"),
+    Scenario("staging_link_alias", "symbolic_link_staging_alias_cannot_bypass_destination_overlap_checks", "local"),
+    Scenario("unsafe_blueprint", "unsafe_blueprint_paths_are_rejected_without_filesystem_mutation", "local"),
+    Scenario("failed_promotion", "blocked_installation_promotion_preserves_old_content_and_allows_retry", "local"),
+    Scenario("http_delivery", "http_delivery_reuses_cached_artifacts_and_supports_combined_reconstruction", "local"),
+    Scenario("failed_fetch_preserves_cache", "invalid_downloaded_metadata_preserves_the_existing_cached_snapshot", "local"),
+    Scenario("transfer_failures_and_retry", "failed_and_transient_downloads_preserve_installations_and_succeed_on_retry", "local"),
+    Scenario("interrupted_transfer", "interrupted_download_preserves_installation_and_succeeds_on_retry", "local"),
+    Scenario("run_isolation", "concurrent_captures_use_independent_repositories_and_configuration", "local"),
+    Scenario("s3_delivery", "s3_delivery_supports_cached_fetch_combined_reconstruction_and_repair", "s3"),
 ]
 
 
@@ -114,25 +101,14 @@ def main(arguments=None):
                 REPOSITORY, environment, root / "build.log", timeout=900)
         executable = Path(target) / "debug" / ("gutch-cli.exe" if os.name == "nt" else "gutch-cli")
         assert executable.is_file(), f"Cargo did not produce {executable}"
+        scenario_environment = prepare_s3_environment() if any(s.suite == "s3" for s in scenarios) else {}
         for index, scenario in enumerate(scenarios, 1):
-            started = time.monotonic()
             case = Case(root / "cases" / f"{index:02d}-{scenario.name[:28]}", executable)
             result = {"name": scenario.name, "status": "running", "evidence": case.root.relative_to(root).as_posix()}
             results.append(result)
             writer.emit("phase_started", phase_id=scenario.name, phase_name=scenario.name)
-            try:
-                scenario.operation(case)
-                if not args.keep_artifacts:
-                    remove_owned(case.payload, case.root)
-                result["status"] = "passed"
-            except unittest.SkipTest as error:
-                result.update(status="skipped", reason=str(error))
-                if not args.keep_artifacts:
-                    remove_owned(case.payload, case.root)
-            except Exception as error:
-                result.update(status="failed", reason=str(error) or f"{type(error).__name__}: see failure.txt")
-                (case.root / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
-            result.update(seconds=round(time.monotonic() - started, 3), checks=case.checks)
+            result.update(run_scenario(f"gutch_repo.tests.workflows.{scenario.module}", case, scenario_environment,
+                                       keep_artifacts=args.keep_artifacts))
             write_json(case.root / "results.json", result)
             write_json(root / "run.json", manifest)
             writer.emit("phase_finished", phase_id=scenario.name, phase_name=scenario.name, status=result["status"])

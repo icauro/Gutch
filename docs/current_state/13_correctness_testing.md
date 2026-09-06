@@ -29,6 +29,11 @@ debug CLI once using the configured Cargo cache. It does not accept arbitrary
 executables or invoke benchmark measurements. Rust retains algorithm invariants,
 provider-policy tests and cancellation contracts that need engine hooks.
 
+Each Python scenario has one descriptively named file under `tests/workflows/`
+and one `run(case)` entrypoint. Its opening docstring explains the operations
+and expected outcome. The runner explicitly maps short `--case` names to these
+files; reusable operations belong in `tests/support/`.
+
 Python scenarios cover capture identity and deduplication, compression/storage
 modes, explicit and automatic source discovery, version updates and source
 reuse, file attributes, links, verification and repair, snapshot cleanup,
@@ -56,7 +61,7 @@ historical compatibility matrix.
 
 Every initial reconstruction is compared before corruption or repair. Tree
 comparison checks paths, file bytes, empty directories, supported file
-attributes and link targets. Timing is diagnostic only, with no speed thresholds.
+attributes and link targets. There are no benchmark performance thresholds.
 
 ## Isolation and Evidence
 
@@ -64,8 +69,19 @@ Each run writes `.artifacts/test/gutch/<timestamp>-<id>/summary.md` and `run.jso
 The terminal also prints the overall result, Rust test status and CLI scenario
 totals, including failures, skips, cancellations and cases that did not run.
 Each case has its own payload, configuration, command logs, stats, expected
-inventory and comparison evidence. Commands have deadlines and terminate their
-process tree on interruption. The download interruption test uses a request
+inventory and comparison evidence. Each Python scenario runs in a separate
+process with a fixed **10-second deadline**, including dataset creation, CLI
+operations and assertions. CLI builds, Rust tests and shared S3 startup happen
+before these timers. Rust tests retain their separate runner deadline.
+
+On timeout the runner kills the scenario and its CLI descendants, marks it
+failed, retains its evidence and continues with the next scenario. Inspect
+`scenario.log` and `commands/` to locate the last operation. Successful payload
+and S3 bucket cleanup run in another process with their own 10-second deadline;
+`cleanup_seconds` is recorded separately. A cleanup timeout also fails the case.
+The environment manager handles final Compose teardown after the suite.
+
+The download interruption test uses a request
 barrier instead of a sleep to select its failure point.
 
 Successful case payloads are deleted by default; `--keep-artifacts` retains them.

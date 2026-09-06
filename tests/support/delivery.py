@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
@@ -91,13 +90,10 @@ class DeliveryServer:
         self.thread.join(timeout=5)
 
 
-@contextmanager
-def s3_publication(repo, evidence):
-    # The repository-wide environment manager owns Compose cleanup and retention.
+def prepare_s3_environment():
+    """Start shared test infrastructure before any scenario deadline begins."""
     from tests.common._e2e_harness import (create_runtime_context, load_backend_env_values,
         ensure_docker_engine_ready, compose_up, wait_for_compose_service_health)
-    import boto3
-    from botocore.config import Config
     values, env_path = load_backend_env_values(REPOSITORY)
     context = create_runtime_context(REPOSITORY, lane_name="gutch-correctness", project_name="",
         backend_values=values, backend_env_file_path=env_path,
@@ -105,25 +101,45 @@ def s3_publication(repo, evidence):
     ensure_docker_engine_ready(REPOSITORY)
     compose_up(context.compose_file, context.project_name, context.env_file, services=["seaweedfs"], build=False)
     wait_for_compose_service_health(context.compose_file, context.project_name, context.env_file, "seaweedfs")
-    client = boto3.client("s3", endpoint_url=context.backend_values["S3_PUBLIC_BASE_URL"].removesuffix("/hostapp-public"),
-        aws_access_key_id=context.backend_values["S3_MAIN_ACCESS_KEY"],
-        aws_secret_access_key=context.backend_values["S3_MAIN_SECRET_KEY"], region_name="us-east-1",
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, connect_timeout=10, read_timeout=30))
+    return {
+        "GUTCH_TEST_S3_ENDPOINT": context.backend_values["S3_PUBLIC_BASE_URL"].removesuffix("/hostapp-public"),
+        "GUTCH_TEST_S3_ACCESS_KEY": context.backend_values["S3_MAIN_ACCESS_KEY"],
+        "GUTCH_TEST_S3_SECRET_KEY": context.backend_values["S3_MAIN_SECRET_KEY"],
+        "GUTCH_TEST_S3_PROJECT": context.project_name,
+    }
+
+
+def s3_client():
+    import boto3
+    from botocore.config import Config
+    return boto3.client("s3", endpoint_url=os.environ["GUTCH_TEST_S3_ENDPOINT"],
+        aws_access_key_id=os.environ["GUTCH_TEST_S3_ACCESS_KEY"],
+        aws_secret_access_key=os.environ["GUTCH_TEST_S3_SECRET_KEY"], region_name="us-east-1",
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, connect_timeout=3, read_timeout=3))
+
+
+def publish_to_s3(repo, evidence):
+    client = s3_client()
     bucket = f"gutch-correctness-{uuid4().hex[:16]}"
+    # Record ownership before creation so interrupted runs retain useful evidence.
+    write_json(evidence, {"project": os.environ["GUTCH_TEST_S3_PROJECT"], "bucket": bucket})
     client.create_bucket(Bucket=bucket)
-    write_json(evidence, {"project": context.project_name, "bucket": bucket})
-    try:
-        for path in repository_files(repo):
-            client.put_object(Bucket=bucket, Key=path.relative_to(repo).as_posix(), Body=path.read_bytes())
-        yield lambda relative: client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": relative}, ExpiresIn=900)
-    except BaseException:
-        # The failed environment and bucket remain available for inspection.
-        raise
-    else:
-        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
-            objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
-            if objects:
-                result = client.delete_objects(Bucket=bucket, Delete={"Objects": objects})
-                if result.get("Errors"):
-                    raise RuntimeError(f"S3 cleanup failed: {result['Errors']}")
-        client.delete_bucket(Bucket=bucket)
+    for path in repository_files(repo):
+        client.put_object(Bucket=bucket, Key=path.relative_to(repo).as_posix(), Body=path.read_bytes())
+    return lambda relative: client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": relative}, ExpiresIn=900)
+
+
+def cleanup_s3_publication(evidence):
+    """Called in the separate cleanup process only after scenario success."""
+    if not evidence.is_file():
+        return
+    import json
+    bucket = json.loads(evidence.read_text())["bucket"]
+    client = s3_client()
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+        objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+        if objects:
+            result = client.delete_objects(Bucket=bucket, Delete={"Objects": objects})
+            if result.get("Errors"):
+                raise RuntimeError(f"S3 cleanup failed: {result['Errors']}")
+    client.delete_bucket(Bucket=bucket)

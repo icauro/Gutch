@@ -1,8 +1,13 @@
-"""Verification classifications and repair, after independently validating installation."""
+"""Operations: Install, corrupt content and attributes, delete a file, add a user file, then repair
+twice.
+
+Expected: Verification classifies the damage; repair restores input and removes extras only when
+requested.
+"""
 from ..support.datasets import metadata
 
 
-def verify_and_repair(case):
+def run(case):
     data = metadata(case.payload / "source")
     repo = case.init()
     snapshot = case.capture(repo, data.root)["snapshot_id"]

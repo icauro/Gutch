@@ -1,13 +1,15 @@
-"""Read a frozen repository with expectations recorded from its original source bytes."""
+"""Operations: Copy the frozen format fixture and reconstruct and verify all four snapshots.
+
+Expected: Paths, content hashes and supported attributes match the recorded source inventories.
+"""
 import json
 import os
 from pathlib import Path
 import shutil
-
 from ..support.filesystem import assert_tree
 
 
-def reference_format(case):
+def run(case):
     fixture = Path(__file__).resolve().parents[1] / "datasets/reference-v1"
     expected = json.loads((fixture / "expected.json").read_text())
     repo = case.payload / "repo"
