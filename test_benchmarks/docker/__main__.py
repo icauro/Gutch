@@ -1,4 +1,4 @@
-"""Interactive entry point for remote Gutch benchmarks."""
+"""Interactive entry point for container Gutch benchmarks."""
 
 from __future__ import annotations
 
@@ -10,20 +10,20 @@ from typing import Sequence
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-    __package__ = "gutch_repo.test_benchmarks.remote"
+    __package__ = "gutch_repo.test_benchmarks.docker"
 
 from ..benchmark_config import load_benchmark_config
 from ..common.config import load_scenario
 from ..gutch_fixture_runner.config import load_fixture
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
-from .runner import run_remote_benchmark
+from .runner import run_docker_benchmark
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "gutch_fixture_runner" / "fixtures"
 
 
 @dataclass(frozen=True)
-class RemoteFixture:
+class ContainerFixture:
     runner: str
     name: str
     description: str
@@ -32,12 +32,12 @@ class RemoteFixture:
     snapshot_limit: int | None = None
 
 
-def _fixtures() -> list[RemoteFixture]:
-    fixtures: list[RemoteFixture] = []
+def _fixtures() -> list[ContainerFixture]:
+    fixtures: list[ContainerFixture] = []
     for path in sorted(FIXTURE_ROOT.glob("*.yaml")):
         values = load_scenario(path).values
         execution = values.get("execution", {})
-        if not isinstance(execution, dict) or execution.get("default_host") != "remote":
+        if not isinstance(execution, dict) or execution.get("default_host") != "container":
             continue
         try:
             fixture = load_fixture(path)
@@ -50,7 +50,7 @@ def _fixtures() -> list[RemoteFixture]:
         else:
             options = None
         fixtures.append(
-            RemoteFixture(
+            ContainerFixture(
                 fixture.runner,
                 fixture.name,
                 fixture.description,
@@ -93,12 +93,12 @@ def _run_interactive(config_path: Path | None = None) -> int:
     config = load_benchmark_config(config_path)
     fixtures = _fixtures()
     if not fixtures:
-        raise RuntimeError(f"No remote Gutch fixtures found in {FIXTURE_ROOT}")
+        raise RuntimeError(f"No container Gutch fixtures found in {FIXTURE_ROOT}")
 
-    print("Remote Gutch benchmark interactive mode")
+    print("Container Gutch benchmark interactive mode")
     print(f"Using benchmark config: {config.path}")
     choices = tuple(f"{item.name}: {item.description}" for item in fixtures)
-    selected = _prompt_choice("Available remote fixtures:", choices)
+    selected = _prompt_choice("Available container fixtures:", choices)
     if selected is None:
         return 0
     fixture = fixtures[choices.index(selected)]
@@ -112,7 +112,7 @@ def _run_interactive(config_path: Path | None = None) -> int:
         if profile is None:
             return 0
         diagnostic = profile == profile_choices[1]
-    run_remote_benchmark(
+    run_docker_benchmark(
         fixture=fixture.name,
         config_path=config.path,
         transfer_concurrency=1 if diagnostic else None,
@@ -122,16 +122,16 @@ def _run_interactive(config_path: Path | None = None) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m gutch_repo.test_benchmarks.remote")
+    parser = argparse.ArgumentParser(prog="python -m gutch_repo.test_benchmarks.docker")
     parser.add_argument("--config", type=Path, help="Benchmark YAML config")
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     try:
         return _run_interactive(args.config)
     except KeyboardInterrupt:
-        print("Remote benchmark cancelled.", file=sys.stderr)
+        print("Container benchmark cancelled.", file=sys.stderr)
         return 130
     except (OSError, RuntimeError, ValueError) as error:
-        print(f"Remote benchmark failed: {error}")
+        print(f"Container benchmark failed: {error}")
         return 1
 
 

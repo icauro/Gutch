@@ -21,7 +21,7 @@ from .cli import (
 from .binary import resolve_gutch_executable
 from .config import FixtureCatalog
 from .s3_cycle import load_s3_cycle
-from gutch_repo.test_benchmarks.remote.runner import run_remote_benchmark
+from gutch_repo.test_benchmarks.docker.runner import run_docker_benchmark
 from gutch_repo.test_benchmarks.common.config import load_scenario
 from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
 
@@ -222,9 +222,9 @@ def _run_explicit(arguments: list[str]) -> int:
         parsed = parser.parse_args(arguments[1:])
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
         return run_s3_cycle_command(parsed)
-    if arguments[0] == "remote":
+    if arguments[0] == "docker":
         parser = argparse.ArgumentParser(
-            prog="gutch_repo.test_benchmarks.gutch_fixture_runner remote"
+            prog="gutch_repo.test_benchmarks.gutch_fixture_runner docker"
         )
         parser.add_argument("--fixture", default="gutch_s3_cold_publication_cycle")
         parser.add_argument("--config", type=Path)
@@ -234,7 +234,7 @@ def _run_explicit(arguments: list[str]) -> int:
         parser.add_argument("--keep-artifacts", action="store_true")
         parsed = parser.parse_args(arguments[1:])
         try:
-            run_remote_benchmark(
+            run_docker_benchmark(
                 fixture=parsed.fixture,
                 config_path=parsed.config,
                 artifacts_root=parsed.artifacts_root,
@@ -243,10 +243,10 @@ def _run_explicit(arguments: list[str]) -> int:
                 keep_artifacts=parsed.keep_artifacts,
             )
         except KeyboardInterrupt:
-            print("Remote benchmark cancelled.", file=sys.stderr)
+            print("Docker benchmark cancelled.", file=sys.stderr)
             return 130
         except (OSError, RuntimeError, ValueError) as error:
-            raise SystemExit(f"remote benchmark failed: {error}") from error
+            raise SystemExit(f"Docker benchmark failed: {error}") from error
         return 0
     parser = argparse.ArgumentParser(prog="gutch_repo.test_benchmarks.gutch_fixture_runner")
     add_arguments(parser)

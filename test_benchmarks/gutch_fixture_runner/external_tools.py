@@ -110,7 +110,7 @@ def ensure_linux_external_tools(repo_root: Path, kinds: set[str]) -> dict[str, P
     unknown = kinds - LINUX_TOOL_RELEASES.keys()
     if unknown:
         raise ValueError(f"unsupported Linux external benchmark tools: {sorted(unknown)}")
-    directory = repo_root / "gutch_repo" / "benchmarks" / "gutch_fixture_runner" / "bin" / LINUX_TOOL_DIRECTORY
+    directory = repo_root / "gutch_repo" / "test_benchmarks" / "gutch_fixture_runner" / "bin" / LINUX_TOOL_DIRECTORY
     manifest_path = directory / LINUX_TOOL_MANIFEST
     existing = {}
     if manifest_path.is_file():

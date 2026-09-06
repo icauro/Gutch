@@ -1,13 +1,13 @@
-name: gutch_remote_trace_single_lane
+name: gutch_container_trace_single_lane
 runner: gutch-fixture
-description: Single-lane remote Gutch trace benchmark with corruption and repair enabled.
+description: Single-lane container Gutch trace benchmark with corruption and repair enabled.
 delete_artifacts: true
 open_perfetto: true
 corrupt_repair: true
 execution:
-  default_host: remote
+  default_host: container
 lanes:
-  - label: remote-default-gutch
+  - label: container-default-gutch
     kind: gutch-individual
     profile:
       chunk: chunk_128KiB

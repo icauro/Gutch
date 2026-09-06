@@ -1,5 +1,5 @@
 # Copy this file to config.yml and fill in the benchmark paths, credentials,
-# and SSH target values. The copied config.yml is ignored by Git.
+# and optional external storage values. The copied config.yml is ignored by Git.
 
 local:
   product_root: C:/datasets/products
@@ -18,17 +18,3 @@ dataset:
     - 5.2.1
   blender_platforms:
     - linux-x64
-
-remote:
-  default_target: sv1
-  workspace_root: /tmp/hostapp-gutch-benchmark
-  fixtures_root: /home/user/hostapp/benchmark-fixtures/gutch
-  python: python3
-
-ssh:
-  sv1:
-    host: ""
-    port: 22
-    user: ""
-    host_alias: ""
-    identity_file: ""

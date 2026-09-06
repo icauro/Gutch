@@ -1,6 +1,6 @@
 # Gutch and Storage Benchmark Suite
 
-The benchmark packages under `gutch_repo/benchmarks` own the shared external-tool
+The benchmark packages under `gutch_repo/test_benchmarks` own the shared external-tool
 binaries, command execution, typed fixture configuration, deterministic
 artifact retention, and one verification measurement per reconstruct lane.
 
@@ -14,7 +14,7 @@ as the next numbered selection.
 
 The Gutch launcher can also be run directly by file path:
 
-    python gutch_repo/benchmarks/gutch_fixture_runner/__main__.py
+    python gutch_repo/test_benchmarks/gutch_fixture_runner/__main__.py
 
 List Gutch fixtures:
 
@@ -25,9 +25,9 @@ Run storage benchmarks interactively:
     python -m gutch_repo.test_benchmarks.s3_throughput
 
 Benchmark-local server and path settings live in
-`gutch_repo/benchmarks/config.yml`. Copy `config.yml.example` there and
-fill in the SSH target, remote workspace, fixture root, local artifact paths,
-and S3 credentials under the `environment` mapping. The benchmark does not
+`gutch_repo/test_benchmarks/config.yml`. Copy `config.yml.example` there and
+set local artifact paths and any external S3 credentials used by standalone
+storage benchmarks. Docker benchmarks provision their own S3 service. The benchmark does not
 read the repository-root `config.yml`.
 
 Storage actions are `prepare`, `download`, `delete`, and `abort-multipart`.
@@ -44,40 +44,25 @@ Run the cold S3 publication cycle (using the benchmark YAML config by default):
     python -m gutch_repo.test_benchmarks.gutch_fixture_runner s3-cycle --product path/to/product
 
 Use `--config path/to/config.yml` to select another benchmark config. Keep the
-filled config local and never commit S3 secrets or SSH private-key paths that
-should remain private.
+filled config local and never commit S3 secrets.
 
-Run the fixed remote Linux benchmark without selecting a product:
+Run the fixed Linux benchmark in Docker:
 
-    python -m gutch_repo.test_benchmarks.gutch_fixture_runner remote \
-      --config gutch_repo/benchmarks/config.yml
+    python -m gutch_repo.test_benchmarks.gutch_fixture_runner docker
 
-The remote command compiles the standalone `gutch-cli` checkout locally through
-the configured WSL Linux
-builder, uploads that verified Linux binary, and performs no Rust compilation
-on the server. It then generates the configured Blender versions, runs the
-Gutch S3 cycle against `S3_MAIN`, downloads results and the combined Perfetto
-trace, and removes the remote workspace and S3 prefix. Use
-`--keep-artifacts` to retain benchmark artifacts. The generated Blender test
-dataset is cached remotely by default; after results are shown, the launcher
-asks whether to delete it (`N` is the default). For a low-concurrency diagnostic run, add
-`--transfer-concurrency 1 --transfer-max-concurrency 1`.
+The Ubuntu builder compiles `gutch-cli`; an isolated integration Compose project
+runs it alongside its own SeaweedFS. Blender datasets are generated inside the
+run's volume. Results and Perfetto traces are copied to the configured artifact
+root before successful runs remove their containers, volumes, and network.
+Failures retain the environment for inspection. `--keep-artifacts` retains a
+successful environment too. Shared compiler caches persist separately.
 
-Launch the remote benchmark menu, which loads the configured benchmark YAML
-and discovers all remote Gutch fixtures automatically:
+Launch the Docker fixture menu:
 
-    python -m gutch_repo.test_benchmarks.remote
+    python -m gutch_repo.test_benchmarks.docker
 
-The menu includes the single-lane trace fixture, which runs the same default
-capture/reconstruct/corrupt/repair flow as the local trace fixture against the
-generated Blender product, without publishing to S3.
-
-While the remote job runs, the local terminal receives preparation, lane, and
-individual Gutch command-step updates prefixed with `[remote]`.
-
-Shared Python utilities live under `gutch_repo/benchmarks/common` and
-`gutch_repo/benchmarks/remote`; executable benchmark runners live beside
-the Gutch crate tests.
+Progress includes preparation, lanes, and individual Gutch commands. No SSH
+credentials, remote workspace, or WSL distribution is required.
 
 The Gutch launcher shows an ASCII spinner for each command, including its lane
 and current step, then prints each measured lane as soon as it completes,
@@ -98,19 +83,19 @@ command as required: Restic init/backup, Kopia global policy, Borg create, or
 Plakar backup. Gutch lanes use their typed `profile` options instead.
 
 Fixtures may set `snapshot_limit` to use only the newest N target directories
-from a generated product for individual snapshot lanes. The remote external
+from a generated product for individual snapshot lanes. The Docker external
 comparison uses `snapshot_limit: 1` to keep its five-tool comparison practical.
 
 ## Source tree
 
-    gutch_repo/benchmarks/common/
+    gutch_repo/test_benchmarks/common/
       command.py       subprocess boundary, timing, and redaction
       environment.py   benchmark-owned YAML environment loading
       config.py        recursive YAML catalog
       artifacts.py     run/lane layout and retention
       filesystem.py    tree stats and content comparison
       traces.py        Perfetto composition with one process per benchmark lane
-    gutch_repo/benchmarks/
+    gutch_repo/test_benchmarks/
       gutch_fixture_runner/
         __main__.py    interactive and explicit Gutch launcher
         config.py      validated Gutch fixture model
@@ -126,8 +111,8 @@ comparison uses `snapshot_limit: 1` to keep its five-tool comparison practical.
         __main__.py    interactive and explicit storage launcher
         config.py      typed object-storage workload config
         workflow.py    parallel upload/download phases
-    gutch_repo/benchmarks/remote/
-      launcher.py     shared SSH/SCP execution boundary
+    gutch_repo/test_benchmarks/docker/
+      launcher.py     Docker execution and artifact-copy boundary
 
 Each measured lane gets an isolated artifact directory. Reconstruct owns its single
 verification measurement through the Gutch stats payload; corruption and

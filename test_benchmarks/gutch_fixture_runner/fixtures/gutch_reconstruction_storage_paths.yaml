@@ -5,7 +5,7 @@ delete_artifacts: true
 open_perfetto: false
 corrupt_repair: false
 source:
-  remote_mock:
+  container_mock:
     versions: 4
     size_mib: 512
     seed: 0

@@ -1,4 +1,4 @@
-"""Remote-side entry point for the fixed Linux Gutch benchmark."""
+"""Container-side entry point for the fixed Linux Gutch benchmark."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ import sys
 import zipfile
 
 
-REMOTE_DATASET_DIRECTORY = "gutch-remote-blender-cache"
+CONTAINER_DATASET_DIRECTORY = "gutch-container-blender-cache"
 
 
 def _emit_progress(stage: str, detail: str) -> None:
     print(
-        "REMOTE_PROGRESS "
+        "CONTAINER_PROGRESS "
         + json.dumps({"stage": stage, "detail": detail}, separators=(",", ":")),
         flush=True,
     )
@@ -50,27 +50,8 @@ def _new_run_root(artifacts_root: Path, before: set[Path]) -> Path:
         if path.is_dir() and path not in before and (path / "results.json").is_file()
     ]
     if len(candidates) != 1:
-        raise RuntimeError(f"could not identify exactly one remote benchmark run under {artifacts_root}")
+        raise RuntimeError(f"could not identify exactly one container benchmark run under {artifacts_root}")
     return candidates[0]
-
-
-def _cleanup_s3(settings, prefix: str) -> None:
-    from gutch_repo.test_benchmarks.s3_throughput.config import StorageTarget
-    from gutch_repo.test_benchmarks.s3_throughput.workflow import (
-        run_abort_multipart_uploads,
-        run_delete,
-    )
-
-    target = StorageTarget(
-        "remote-main-cleanup",
-        "S3_MAIN",
-        settings.endpoint,
-        settings.region,
-        settings.bucket,
-        True,
-    )
-    run_abort_multipart_uploads(target, prefix=prefix)
-    run_delete(target, prefix=prefix)
 
 
 def main() -> int:
@@ -87,7 +68,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if platform.system() != "Linux" or platform.machine().lower() not in {"x86_64", "amd64"}:
-        raise RuntimeError("remote Gutch benchmark requires Linux x86_64")
+        raise RuntimeError("container Gutch benchmark requires Linux x86_64")
 
     workspace = args.workspace.resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -121,11 +102,11 @@ def main() -> int:
             raise FileNotFoundError(f"uploaded external-tool directory was not found: {external_root}")
         _make_external_binaries_executable(external_root)
 
-    dataset_root = Path(config.remote_fixtures_root) / REMOTE_DATASET_DIRECTORY
+    dataset_root = Path("/tmp/hostapp-benchmark/dataset") / CONTAINER_DATASET_DIRECTORY
     product = dataset_root / "Blender"
     recipe_path = code_root / "gutch_repo" / "test_dataset" / "test_dataset_recipes" / "blender-official.json"
     if config.blender_platforms != ("linux-x64",):
-        raise RuntimeError("remote Gutch benchmark requires dataset.blender_platforms: [linux-x64]")
+        raise RuntimeError("container Gutch benchmark requires dataset.blender_platforms: [linux-x64]")
     prepare_blender_product(
         recipe_path=recipe_path,
         product_dir=product,
@@ -139,7 +120,7 @@ def main() -> int:
     fixture_path = (
         code_root
         / "gutch_repo"
-        / "benchmarks"
+        / "test_benchmarks"
         / "gutch_fixture_runner"
         / "fixtures"
         / f"{args.fixture}.yaml"
@@ -160,92 +141,78 @@ def main() -> int:
                 else options.transfer_max_concurrency
             )
             if transfer_concurrency < 1 or transfer_max_concurrency < 1:
-                raise ValueError("remote transfer concurrency values must be positive")
+                raise ValueError("container transfer concurrency values must be positive")
             if transfer_concurrency > transfer_max_concurrency:
-                raise ValueError("remote transfer concurrency exceeds max-concurrency")
+                raise ValueError("container transfer concurrency exceeds max-concurrency")
             options = replace(
                 options,
                 transfer_concurrency=transfer_concurrency,
                 transfer_max_concurrency=transfer_max_concurrency,
             )
     elif fixture.runner != "gutch-fixture":
-        raise ValueError(f"fixture {fixture.name!r} is not a supported remote Gutch fixture")
+        raise ValueError(f"fixture {fixture.name!r} is not a supported container Gutch fixture")
     # Perfetto is opened by the local orchestrator after the trace is downloaded.
     fixture = replace(fixture, open_perfetto=False)
     artifacts_root = workspace / "artifacts"
     before = {path for path in artifacts_root.iterdir()} if artifacts_root.is_dir() else set()
     settings = S3Settings.from_environment("S3_MAIN")
     run_root: Path | None = None
-    try:
-        _emit_progress(
-            "benchmark",
-            f"starting {fixture.name} with {len(fixture.lanes)} configured lane(s)",
+    _emit_progress(
+        "benchmark",
+        f"starting {fixture.name} with {len(fixture.lanes)} configured lane(s)",
+    )
+    if fixture.runner == "gutch-s3":
+        assert options is not None
+        results = run_s3_cycle(
+            fixture,
+            product,
+            GutchCli(binary_path),
+            settings,
+            artifacts_root,
+            options=options,
+            on_lane_complete=lambda result: _emit_progress(
+                "lane", f"{result.label} completed"
+            ),
+            keep_artifacts=True,
+            on_step=lambda detail: _emit_progress("step", detail),
         )
-        if fixture.runner == "gutch-s3":
-            assert options is not None
-            results = run_s3_cycle(
-                fixture,
-                product,
-                GutchCli(binary_path),
-                settings,
-                artifacts_root,
-                options=options,
-                on_lane_complete=lambda result: _emit_progress(
-                    "lane", f"{result.label} completed"
-                ),
-                keep_artifacts=True,
-                on_step=lambda detail: _emit_progress("step", detail),
-            )
-        else:
-            results = run_fixture(
-                fixture,
-                product,
-                GutchCli(binary_path),
-                artifacts_root,
-                on_lane_complete=lambda result: _emit_progress(
-                    "lane", f"{result.label} completed"
-                ),
-                keep_artifacts=True,
-                on_step=lambda detail: _emit_progress("step", detail),
-                external_binary_root=args.external_root.resolve() if args.external_root else None,
-            )
-        run_root = _new_run_root(artifacts_root, before)
-        _emit_progress("complete", f"benchmark results ready: {run_root.name}")
-        print_fixture_report(fixture, product, results)
+    else:
+        results = run_fixture(
+            fixture,
+            product,
+            GutchCli(binary_path),
+            artifacts_root,
+            on_lane_complete=lambda result: _emit_progress(
+                "lane", f"{result.label} completed"
+            ),
+            keep_artifacts=True,
+            on_step=lambda detail: _emit_progress("step", detail),
+            external_binary_root=args.external_root.resolve() if args.external_root else None,
+        )
+    run_root = _new_run_root(artifacts_root, before)
+    _emit_progress("complete", f"benchmark results ready: {run_root.name}")
+    print_fixture_report(fixture, product, results)
 
-        manifest = {
-            "fixture": fixture.name,
-            "product": str(product),
-            "dataset_path": str(dataset_root),
-            "run_root": str(run_root),
-            "results_path": str(run_root / "results.json"),
-            "trace_path": str(run_root / "trace.json"),
-            "s3_prefix": f"{options.prefix_root}/{run_root.name}" if options else None,
-            "results": [result.as_json() for result in results],
-        }
-        (workspace / "remote-result.json").write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        return 0
-    finally:
-        if not args.keep_artifacts:
-            cleanup_prefixes = []
-            if run_root is not None and options is not None:
-                cleanup_prefixes.append(f"{options.prefix_root}/{run_root.name}")
-            elif options is not None and artifacts_root.is_dir():
-                cleanup_prefixes.extend(
-                    f"{options.prefix_root}/{path.name}"
-                    for path in artifacts_root.iterdir()
-                    if path.is_dir() and path not in before
-                )
-            for prefix in cleanup_prefixes:
-                _cleanup_s3(settings, prefix)
+    manifest = {
+        "fixture": fixture.name,
+        "product": str(product),
+        "dataset_path": str(dataset_root),
+        "run_root": str(run_root),
+        "results_path": str(run_root / "results.json"),
+        "trace_path": str(run_root / "trace.json"),
+        "s3_prefix": f"{options.prefix_root}/{run_root.name}" if options else None,
+        "results": [result.as_json() for result in results],
+    }
+    (workspace / "container-result.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return 0
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as error:
-        print(f"remote benchmark error: {error}", file=sys.stderr)
+        print(f"container benchmark error: {error}", file=sys.stderr)
         raise SystemExit(1)

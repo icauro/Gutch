@@ -14,7 +14,7 @@ transfer:
   concurrency: 4
   max_concurrency: 16
 execution:
-  default_host: remote
+  default_host: container
 lanes:
   - label: loose-chunks
     kind: gutch-individual
