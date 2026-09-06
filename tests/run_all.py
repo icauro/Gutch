@@ -100,14 +100,16 @@ def main(arguments=None):
     writer.phase_plan([(scenario.name, scenario.name) for scenario in scenarios])
     revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPOSITORY, capture_output=True, text=True, check=True).stdout.strip()
     manifest = {"schema_version": 1, "status": "running", "revision": revision,
-                "platform": platform.platform(), "suite": args.suite, "cases": results}
+                "platform": platform.platform(), "suite": args.suite, "rust_tests": "not requested", "cases": results}
     write_json(root / "run.json", manifest)
     try:
         target = get_default_cargo_target_dir(REPOSITORY)
         environment = {"CARGO_TARGET_DIR": str(target)}
         if args.suite in {"fast", "all"} and not args.case:
+            manifest["rust_tests"] = "running"
             execute(["cargo", "test", "--manifest-path", REPOSITORY / "gutch_repo/Cargo.toml"],
                     REPOSITORY, environment, root / "rust-tests.log", timeout=900)
+            manifest["rust_tests"] = "passed"
         execute(["cargo", "build", "--manifest-path", REPOSITORY / "gutch_repo/gutch-cli/Cargo.toml"],
                 REPOSITORY, environment, root / "build.log", timeout=900)
         executable = Path(target) / "debug" / ("gutch-cli.exe" if os.name == "nt" else "gutch-cli")
@@ -145,14 +147,25 @@ def main(arguments=None):
         manifest.update(status="failed", reason=str(error))
         (root / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
     finally:
+        if manifest["rust_tests"] == "running":
+            manifest["rust_tests"] = manifest["status"]
         write_json(root / "run.json", manifest)
-        lines = ["# Gutch correctness", "", f"Status: {manifest['status']}", "",
+        counts = {status: sum(result["status"] == status for result in results)
+                  for status in ("passed", "failed", "skipped", "cancelled")}
+        totals = ", ".join(f"{count} {status}" for status, count in counts.items())
+        totals += f", {len(scenarios) - len(results)} not run"
+        summary = [f"Status: {manifest['status']}", f"Rust tests: {manifest['rust_tests']}",
+                   f"CLI scenarios: {totals}"]
+        lines = ["# Gutch correctness", "", *summary, "",
                  "| Case | Status | Seconds | Evidence |", "| --- | --- | --- | --- |"]
         lines += [f"| {r['name']} | {r['status']} | {r.get('seconds', '')} | [{r['evidence']}]({r['evidence']}/results.json) |" for r in results]
         if manifest.get("reason"):
             lines += ["", manifest["reason"]]
         (root / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"{manifest['status']}: {root / 'summary.md'}", flush=True)
+    print("\nGutch correctness summary\n" + "\n".join(summary), flush=True)
+    if manifest.get("reason"):
+        print(manifest["reason"], flush=True)
+    print(f"Report: {root / 'summary.md'}", flush=True)
     return 0 if manifest["status"] == "passed" else 1
 
 

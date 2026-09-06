@@ -57,6 +57,8 @@ attributes and link targets. Timing is diagnostic only, with no speed thresholds
 ## Isolation and Evidence
 
 Each run writes `.artifacts/test/gutch/<timestamp>-<id>/summary.md` and `run.json`.
+The terminal also prints the overall result, Rust test status and CLI scenario
+totals, including failures, skips, cancellations and cases that did not run.
 Each case has its own payload, configuration, command logs, stats, expected
 inventory and comparison evidence. Commands have deadlines and terminate their
 process tree on interruption. The download interruption test uses a request
