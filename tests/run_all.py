@@ -2,7 +2,7 @@
 """Run isolated Gutch correctness scenarios against the real CLI."""
 # Depends on Python, Cargo, and the real gutch-cli; S3 additionally uses test-owned Docker.
 # Writes isolated runs under .artifacts/test/gutch. No benchmark imports or datasets.
-# Run without arguments for Rust tests and a CLI smoke test; --suite all runs all correctness cases.
+# Run without arguments for every correctness case, including S3; --suite fast runs a quick check.
 from __future__ import annotations
 
 import argparse
@@ -82,7 +82,7 @@ def selected_scenarios(suite, names):
 
 def main(arguments=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=("fast", "local", "s3", "all"), default="fast")
+    parser.add_argument("--suite", choices=("fast", "local", "s3", "all"), default="all")
     parser.add_argument("--case", choices=[s.name for s in SCENARIOS], action="append")
     parser.add_argument("--list", action="store_true", help="List cases without building or allocating resources")
     parser.add_argument("--keep-artifacts", action="store_true", help="Retain successful payloads as well as failed ones")

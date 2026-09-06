@@ -4,6 +4,7 @@ The component owns one runner, independent of benchmark code and datasets:
 
 ```sh
 uv run python gutch_repo/tests/run_all.py
+uv run python gutch_repo/tests/run_all.py --suite fast
 uv run python gutch_repo/tests/run_all.py --suite local
 uv run python gutch_repo/tests/run_all.py --suite s3
 uv run python gutch_repo/tests/run_all.py --suite all
@@ -15,10 +16,13 @@ uv run python gutch_repo/tests/run_all.py --suite all --list
 
 | Suite | Runs | Needs |
 |---|---|---|
-| `fast` (default) | Rust tests and a CLI round trip | Python, Cargo |
+| `fast` | Rust tests and a CLI round trip | Python, Cargo |
 | `local` | All local CLI scenarios, including controlled HTTP faults | Python, Cargo; loopback networking |
 | `s3` | Capture, cold/warm fetch, combined fetch/reconstruct, repair | Python with repository dependencies, Cargo, Docker |
-| `all` | Rust tests and every Python scenario | All above |
+| `all` (default) | Rust tests and every Python scenario | All above |
+
+The default command requires Docker running. S3 startup failures fail the run;
+the runner does not silently skip S3 when Docker is unavailable.
 
 `--case` selects exact scenarios and skips the Rust pass. The runner builds the
 debug CLI once using the configured Cargo cache. It does not accept arbitrary
