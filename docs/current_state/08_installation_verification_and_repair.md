@@ -102,3 +102,8 @@ scheduling and hash modes are detailed in
 
 - `docs_agentic/pinned_decisions/spec_library.md`
 - `docs_agentic/pinned_decisions/spec_paths_and_ids.md`
+
+Atomic metadata and artifact writes resolve their destination parent before
+creating and promoting the temporary file. On Windows this retains the extended
+path prefix, so snapshot metadata beyond the legacy 260-character limit can be
+written and replaced. Failed writers still preserve the previous destination.

@@ -38,13 +38,22 @@ where
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     create_dir_all(parent)?;
-
-    let mut temporary_file = tempfile::NamedTempFile::new_in(parent)?;
+    // Canonical Windows parents carry the extended-length prefix required by
+    // tempfile's native rename; std::fs alone accepts unprefixed long paths.
+    let parent = std::fs::canonicalize(parent)?;
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "file path has no filename",
+        )
+    })?;
+    let destination = parent.join(file_name);
+    let mut temporary_file = tempfile::NamedTempFile::new_in(&parent)?;
     write_contents(temporary_file.as_file_mut())?;
     temporary_file.as_file_mut().flush()?;
     temporary_file.as_file_mut().sync_all()?;
     temporary_file
-        .persist(path)
+        .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
     Ok(())
 }
@@ -140,6 +149,19 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"original");
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn atomic_write_supports_long_windows_artifact_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("snapshot-cache".repeat(14));
+        let path = parent.join("snapshot_product_metadata.json");
+        assert!(path.as_os_str().len() > 260);
+        write(&path, b"original").unwrap();
+        write(&path, b"replacement").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        assert_eq!(std::fs::read_dir(parent).unwrap().count(), 1);
     }
 
     #[test]
