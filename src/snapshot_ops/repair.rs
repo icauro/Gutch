@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use rayon::ThreadPool;
 
 use crate::manifest::{SnapshotEntry, snapshot::SnapshotManifest};
-use crate::runtime::{RuntimeResourceHints, build_thread_pool, plan_reconstruct_runtime};
+use crate::runtime::{RuntimeResourceHints, build_thread_pool, plan_runtime};
 use crate::verify::{
     RepairClassification, RepairIssue, RepairIssueKind, VerifyRequest,
     classify_directory_with_marker_namespace_and_pool,
@@ -56,7 +56,7 @@ pub fn repair_snapshot_from_repo(
     let operation_pool = if snapshot_manifest.entries.is_empty() {
         None
     } else {
-        let worker_count = plan_reconstruct_runtime(&request.runtime_hints).worker_count;
+        let worker_count = plan_runtime(&request.runtime_hints).worker_count;
         let _pool_span = request.control.profile_span_with_args(
             "reconstructed.repair.prepare.pool",
             std::collections::BTreeMap::from([(
@@ -78,6 +78,13 @@ pub fn repair_snapshot_from_repo(
     let staging_dir = request.staging_dir.unwrap_or_else(|| {
         default_snapshot_staging_dir(&request.destination_dir, &snapshot_manifest.snapshot_id)
     });
+    let staging = super::apply::create_snapshot_staging(
+        &request.destination_dir,
+        &staging_dir,
+        &repo_paths.repo_root,
+        None,
+    )?;
+    let staging_dir = staging.path().to_path_buf();
     let resolved_bundle_file_count = repair_plan
         .required_artifacts
         .iter()
@@ -106,12 +113,6 @@ pub fn repair_snapshot_from_repo(
             )?
         };
         let compression_profile = repo_manifest.compression_profile();
-        if staging_dir.exists() {
-            crate::helpers::remove_dir_all(&staging_dir)?;
-        }
-        if let Some(parent) = staging_dir.parent() {
-            crate::helpers::create_dir_all(parent)?;
-        }
         let output_paths = prepare_snapshot_entries(
             &repair_plan.affected_manifest,
             &staging_dir,
@@ -272,8 +273,6 @@ fn finalize_repair_result_after_reconstruction(
         control,
         operation_pool,
     )?;
-    let _ = crate::helpers::remove_dir_all(staging_dir);
-
     if let Some(preserved_extra_dir) = preserved_extra_dir.as_ref() {
         reconstructed_extra_file_count = reconstruct_preserved_extra_files(
             preserved_extra_dir,

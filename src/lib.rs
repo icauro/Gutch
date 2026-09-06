@@ -28,7 +28,7 @@ mod test_util;
 mod transport;
 mod verify;
 
-pub(crate) use artifact::store::{ArtifactRef, required_artifacts, required_artifacts_from_index};
+pub(crate) use artifact::store::{ArtifactRef, required_artifacts};
 pub(crate) use artifact::{bundle, chunk, compress, hash};
 pub(crate) use build::scan as build_scan;
 pub(crate) use build::types as build_types;
@@ -61,7 +61,7 @@ pub(crate) use repo::chunk_index::{
     add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index, load_chunk_index,
     write_chunk_index,
 };
-pub(crate) use repo::cleanup::cleanup_orphan_bundles_in_repo;
+pub(crate) use repo::cleanup::cleanup_orphan_artifacts_in_repo;
 pub(crate) use repo::init_policy::{
     RepoInitAssessment, RepoInitOptions, RepoInitPathKind, assess_repo_init_path,
     initialize_gutch_repo_with_options,
@@ -82,7 +82,7 @@ pub(crate) use repo::remote::{
 pub(crate) use repo::snapshot_manifests::{load_snapshot_manifest, snapshot_metadata_path};
 pub(crate) use repo::snapshot_manifests::{
     serialize_snapshot_metadata_for_remote, serialize_snapshot_product_metadata_for_remote,
-    snapshot_blueprint_path, write_snapshot_manifest_artifacts,
+    write_snapshot_manifest_artifacts,
 };
 pub(crate) use repo::snapshot_sources::{
     SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult, capture_snapshot_sources,
@@ -93,7 +93,7 @@ pub(crate) use repo::tag_references::{TagReference, TagReferenceStatus, advisory
 pub(crate) use repo::updates::update_gutch_repo_name;
 pub(crate) use repo::verify::verify_gutch_repo_artifacts;
 pub(crate) use runtime::RuntimeResourceHints;
-pub(crate) use runtime::{RuntimePlan, build_thread_pool, plan_build_runtime};
+pub(crate) use runtime::{RuntimePlan, build_thread_pool, plan_runtime};
 pub(crate) use snapshot::path_guard::validate_manifest_relative_path;
 pub(crate) use snapshot_ops::ReconstructTimings;
 pub(crate) use snapshot_ops::{

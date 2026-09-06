@@ -4,6 +4,47 @@ use std::sync::{Arc, Mutex};
 
 use crate::{Error, Result};
 
+/// Resolve existing components before comparing paths, including links and `..`.
+pub(crate) fn resolve_operation_path(path: &Path) -> Result<PathBuf> {
+    let absolute = std::path::absolute(path)?;
+    let mut resolved = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            _ => {
+                resolved.push(component);
+                match std::fs::symlink_metadata(&resolved) {
+                    Ok(_) => resolved = resolved.canonicalize()?,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    let resolved = PathBuf::from(resolved.as_os_str().to_string_lossy().to_lowercase());
+    Ok(resolved)
+}
+
+pub(crate) fn require_disjoint_paths(left: &Path, right: &Path) -> Result<()> {
+    let resolved_left = resolve_operation_path(left)?;
+    let resolved_right = resolve_operation_path(right)?;
+    if resolved_left.starts_with(&resolved_right) || resolved_right.starts_with(&resolved_left) {
+        return Err(Error::PathError {
+            path: left.to_path_buf(),
+            reason: format!(
+                "operation paths must not overlap: '{}' and '{}'",
+                left.display(),
+                right.display()
+            ),
+        });
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExistingDestinationPathKind {
     File,

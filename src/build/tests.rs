@@ -56,7 +56,7 @@ fn bundle_raw_size_uses_compression_ratio_from_preferred_size() {
     let compressed_size = policy.snapshot_size_for(790 * 1024 * 1024);
     assert_eq!(compressed_size, 16 * 1024 * 1024);
 
-    let raw_size = raw_size_size_for_bundle_compression(compressed_size, 0.5, policy);
+    let raw_size = estimate_bundle_raw_capacity(compressed_size, 0.5, policy);
     assert_eq!(raw_size, 32 * 1024 * 1024);
 }
 
@@ -72,32 +72,47 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
     let mut chunks = vec![
         (
             chunk_b,
-            ChunkPayload::InMemory {
-                bytes: std::sync::Arc::<[u8]>::from(vec![0u8]),
+            ChunkPayload {
+                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                offset: 0,
+                size: 1,
+                hash: file_a,
             },
         ),
         (
             chunk_a_next_segment,
-            ChunkPayload::InMemory {
-                bytes: std::sync::Arc::<[u8]>::from(vec![0u8]),
+            ChunkPayload {
+                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                offset: 0,
+                size: 1,
+                hash: file_a,
             },
         ),
         (
             chunk_a_first,
-            ChunkPayload::InMemory {
-                bytes: std::sync::Arc::<[u8]>::from(vec![0u8]),
+            ChunkPayload {
+                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                offset: 0,
+                size: 1,
+                hash: file_a,
             },
         ),
         (
             chunk_a_middle,
-            ChunkPayload::InMemory {
-                bytes: std::sync::Arc::<[u8]>::from(vec![0u8]),
+            ChunkPayload {
+                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                offset: 0,
+                size: 1,
+                hash: file_a,
             },
         ),
         (
             chunk_a_late,
-            ChunkPayload::InMemory {
-                bytes: std::sync::Arc::<[u8]>::from(vec![0u8]),
+            ChunkPayload {
+                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                offset: 0,
+                size: 1,
+                hash: file_a,
             },
         ),
     ];
@@ -155,4 +170,22 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
             chunk_a_next_segment,
         ]
     );
+}
+
+#[test]
+fn source_range_payload_rejects_changes_between_scan_and_encoding() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    std::fs::write(&source, b"before").unwrap();
+    let payload = ChunkPayload {
+        source: std::sync::Arc::new(source.clone()),
+        offset: 0,
+        size: 6,
+        hash: ChunkHash::from_blake3(blake3::hash(b"before")),
+    };
+    assert_eq!(payload.load_bytes().unwrap(), b"before");
+    std::fs::write(&source, b"after!").unwrap();
+    assert!(payload.load_bytes().is_err());
+    std::fs::write(&source, b"short").unwrap();
+    assert!(payload.load_bytes().is_err());
 }

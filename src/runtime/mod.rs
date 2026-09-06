@@ -13,18 +13,6 @@ pub struct RuntimePlan {
     pub worker_count: usize,
 }
 
-pub(crate) fn plan_build_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    plan_runtime(hints)
-}
-
-pub(crate) fn plan_verify_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    plan_runtime(hints)
-}
-
-pub(crate) fn plan_reconstruct_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    plan_runtime(hints)
-}
-
 pub(crate) fn build_thread_pool(
     worker_count: usize,
     thread_name: &'static str,
@@ -36,7 +24,7 @@ pub(crate) fn build_thread_pool(
         .map_err(|err| Error::manifest(format!("failed to create thread pool: {err}")))
 }
 
-fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
+pub(crate) fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
     let logical_workers = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1)
@@ -62,7 +50,7 @@ mod tests {
             .unwrap_or(1)
             .max(1);
         let physical_workers = num_cpus::get_physical().max(1).min(logical_workers);
-        let plan = plan_build_runtime(&RuntimeResourceHints::default());
+        let plan = plan_runtime(&RuntimeResourceHints::default());
         assert_eq!(plan.worker_count, physical_workers);
     }
 
@@ -72,12 +60,12 @@ mod tests {
             .map(|value| value.get())
             .unwrap_or(1)
             .max(1);
-        let plan = plan_reconstruct_runtime(&RuntimeResourceHints {
+        let plan = plan_runtime(&RuntimeResourceHints {
             jobs: Some(logical_workers.saturating_add(8)),
         });
         assert_eq!(plan.worker_count, logical_workers);
 
-        let plan = plan_verify_runtime(&RuntimeResourceHints { jobs: Some(1) });
+        let plan = plan_runtime(&RuntimeResourceHints { jobs: Some(1) });
         assert_eq!(plan.worker_count, 1);
     }
 }

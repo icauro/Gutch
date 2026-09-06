@@ -209,7 +209,7 @@ pub fn delete_repo_snapshot_and_cleanup(
     control: &crate::GutchOperationControl,
 ) -> Result<usize> {
     control.checkpoint()?;
-    // Total matches cleanup_orphan_bundles_in_repo.
+    // Total matches cleanup_orphan_artifacts_in_repo.
     const TOTAL: usize = 1000;
 
     progress::emit_progress(
@@ -226,9 +226,11 @@ pub fn delete_repo_snapshot_and_cleanup(
             done: false,
         },
     );
+    let orphan_paths =
+        super::cleanup::plan_orphan_artifact_cleanup(repo_root, Some(snapshot_id), control)?;
+    control.checkpoint()?;
     remove_snapshot_from_repo(repo_root, snapshot_id)?;
-
-    let orphan_count = crate::repo::cleanup_orphan_bundles_in_repo(repo_root, control)?;
+    let orphan_count = super::cleanup::remove_orphan_artifacts(&orphan_paths, control)?;
 
     progress::emit_progress(
         control.progress(),
@@ -282,7 +284,7 @@ pub fn capture_repo_snapshot(
     request: RepoSnapshotCaptureRequest,
 ) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
-    let runtime_plan = crate::plan_build_runtime(&request.runtime_hints);
+    let runtime_plan = crate::plan_runtime(&request.runtime_hints);
     let _pool_span = request.control.profile_span_with_args(
         "capture.create_worker_pool",
         std::collections::BTreeMap::from([(
@@ -346,7 +348,7 @@ fn execute_repo_snapshot_capture(
     let _source_inventory_span = request
         .control
         .profile_span("capture.prepare_source.inventory_source");
-    let runtime_plan = crate::plan_build_runtime(&request.runtime_hints);
+    let runtime_plan = crate::plan_runtime(&request.runtime_hints);
     let source_inventory: SourceInventory = scan_source_inventory(
         &prepared_input.dir,
         &request.control,
@@ -480,7 +482,8 @@ fn execute_repo_snapshot_capture(
     );
 
     let existing_manifest_path = crate::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
-    if existing_manifest_path.exists() {
+    let snapshot_already_existed = existing_manifest_path.exists();
+    if snapshot_already_existed {
         let existing_manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot_id)?;
         // Integrity: the stored blueprint must reproduce its path ID. A
         // mismatch means the repository is corrupt; stop without changing
@@ -536,42 +539,47 @@ fn execute_repo_snapshot_capture(
                 },
             });
         }
-        let required_chunk_count = crate::repo::required_chunk_hashes(&existing_manifest).len();
-        let required_bundle_count =
-            crate::repo::required_bundle_ids(&existing_manifest, &store_state.chunk_index).len();
-        return Ok(RepoSnapshotCaptureResult {
-            repo_root: repo_paths.repo_root,
-            snapshot_id: existing_manifest.snapshot_id.clone(),
-            outcome: SnapshotCaptureOutcome::Unchanged {
-                snapshot_id: snapshot_id.clone(),
-            },
-            manifest_path: existing_manifest_path,
-            version_id: resolved_tags
-                .snapshot_tags
-                .get_exclusive("version")
-                .unwrap_or_default()
-                .to_string(),
-            os: resolved_tags
-                .snapshot_tags
-                .get_exclusive("os")
-                .unwrap_or_default()
-                .to_string(),
-            arch: resolved_tags
-                .snapshot_tags
-                .get_exclusive("arch")
-                .unwrap_or_default()
-                .to_string(),
-            file_count: existing_manifest.file_count(),
-            total_logical_size: existing_manifest.total_logical_size,
-            total_compressed_size_estimate: existing_manifest.total_compressed_size_estimate,
-            required_chunk_count,
-            required_bundle_count,
-            generated_bundle_count: 0,
-            generated_chunk_count: 0,
-            reused_chunk_count: required_chunk_count,
-            new_chunk_count: 0,
-            build_timings: timings,
-        });
+        if result.bundles.is_empty() && result.loose_chunks.is_empty() {
+            let required_chunk_count = crate::repo::required_chunk_hashes(&existing_manifest).len();
+            let required_bundle_count =
+                crate::repo::required_bundle_ids(&existing_manifest, &store_state.chunk_index)?
+                    .len();
+            return Ok(RepoSnapshotCaptureResult {
+                repo_root: repo_paths.repo_root,
+                snapshot_id: existing_manifest.snapshot_id.clone(),
+                outcome: SnapshotCaptureOutcome::Unchanged {
+                    snapshot_id: snapshot_id.clone(),
+                },
+                manifest_path: existing_manifest_path,
+                version_id: resolved_tags
+                    .snapshot_tags
+                    .get_exclusive("version")
+                    .unwrap_or_default()
+                    .to_string(),
+                os: resolved_tags
+                    .snapshot_tags
+                    .get_exclusive("os")
+                    .unwrap_or_default()
+                    .to_string(),
+                arch: resolved_tags
+                    .snapshot_tags
+                    .get_exclusive("arch")
+                    .unwrap_or_default()
+                    .to_string(),
+                file_count: existing_manifest.file_count(),
+                total_logical_size: existing_manifest.total_logical_size,
+                total_compressed_size_estimate: existing_manifest.total_compressed_size_estimate,
+                required_chunk_count,
+                required_bundle_count,
+                generated_bundle_count: 0,
+                generated_chunk_count: 0,
+                reused_chunk_count: required_chunk_count,
+                new_chunk_count: 0,
+                build_timings: timings,
+            });
+        }
+        // Rebuild absent artifacts while retaining the existing metadata.
+        result.snapshot_manifest = existing_manifest;
     }
 
     // Snapshot publication below persists the captured snapshot. The snapshot
@@ -664,6 +672,15 @@ fn execute_repo_snapshot_capture(
         .profile_span("capture.publish_snapshot.write_chunk_index");
     crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
     drop(_chunk_index_write_span);
+    for artifact in crate::required_artifacts(&result.snapshot_manifest, &store_state.chunk_index)?
+    {
+        if !artifact.local_path(&repo_paths)?.is_file() {
+            return Err(crate::Error::manifest(format!(
+                "capture is missing required artifact '{}'",
+                artifact.id()
+            )));
+        }
+    }
     let _manifest_write_span = request
         .control
         .profile_span("capture.publish_snapshot.write_snapshot_manifest");
@@ -685,8 +702,14 @@ fn execute_repo_snapshot_capture(
     let capture_result = RepoSnapshotCaptureResult {
         repo_root: repo_paths.repo_root,
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
-        outcome: SnapshotCaptureOutcome::Created {
-            snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
+        outcome: if snapshot_already_existed {
+            SnapshotCaptureOutcome::Unchanged {
+                snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
+            }
+        } else {
+            SnapshotCaptureOutcome::Created {
+                snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
+            }
         },
         manifest_path,
         version_id: resolved_tags
@@ -814,7 +837,7 @@ fn write_loose_chunks(
 ) -> Result<()> {
     let total_bytes = chunks
         .iter()
-        .map(|chunk| chunk.data.len() as u64)
+        .map(|chunk| chunk.compressed_size)
         .sum::<u64>();
     let _phase_span = control.profile_span_with_args(
         "capture.publish_snapshot.write_loose_chunk_artifacts",
@@ -837,10 +860,10 @@ fn write_loose_chunks(
                         "loose_chunk",
                         &chunk_hash,
                         &chunk_path,
-                        chunk.data.len() as u64,
+                        chunk.compressed_size,
                     ),
                 );
-                crate::helpers::write(&chunk_path, &chunk.data)?;
+                chunk.staged_file.promote_to(&chunk_path)?;
                 Ok(())
             })
             .collect::<Result<Vec<_>>>()

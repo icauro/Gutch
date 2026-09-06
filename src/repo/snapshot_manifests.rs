@@ -80,6 +80,21 @@ pub fn load_snapshot_manifest(
     Ok(manifest)
 }
 
+pub(crate) fn snapshot_manifest_from_parts(
+    mut metadata: SnapshotManifest,
+    product_metadata: Option<SnapshotProductMetadata>,
+    blueprint: &[u8],
+) -> Result<SnapshotManifest> {
+    metadata.entries = binary::read_snapshot_blueprint_bytes(blueprint)?;
+    metadata.total_logical_size = metadata.files().map(|file| file.size).sum();
+    metadata.product_metadata = product_metadata;
+    metadata.sync_launch_from_product_metadata();
+    if let Some(product) = metadata.product_metadata.as_ref() {
+        product.validate_for_snapshot(&metadata)?;
+    }
+    Ok(metadata)
+}
+
 pub(crate) fn serialize_snapshot_metadata_for_remote(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<Vec<u8>> {
@@ -193,6 +208,10 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     paths: &GutchRepoPaths,
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<(PathBuf, u64)> {
+    crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
+    if let Some(product) = snapshot_manifest.product_metadata.as_ref() {
+        product.validate_for_snapshot(snapshot_manifest)?;
+    }
     helpers::create_dir_all(&paths.snapshots_root)?;
     let snapshot_id = &snapshot_manifest.snapshot_id;
     super::validate_path_component(snapshot_id, "snapshot ID")?;

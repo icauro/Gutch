@@ -281,8 +281,8 @@ fn check_snapshot_manifests(
         let snapshot_product_metadata_hash_b3 =
             crate::serialize_snapshot_product_metadata_for_remote(&manifest)?
                 .map(|bytes| crate::hash::hash_hex(&blake3::hash(&bytes)));
-        let required_artifacts = crate::required_artifacts_from_index(&manifest, &chunk_index);
-        let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index);
+        let required_artifacts = crate::required_artifacts(&manifest, &chunk_index)?;
+        let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index)?;
         let missing_bundle_count = required_bundle_ids
             .iter()
             .filter(|bundle_id| {

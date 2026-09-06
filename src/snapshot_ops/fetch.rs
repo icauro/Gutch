@@ -25,6 +25,7 @@ use crate::{Error, Result};
 
 struct PreparedSnapshotFetch {
     repo_paths: crate::GutchRepoPaths,
+    repo_manifest: GutchRepoManifest,
     compression_profile: crate::manifest::CompressionProfile,
     snapshot_manifest: SnapshotManifest,
     chunk_index: crate::manifest::ChunkIndex,
@@ -36,12 +37,6 @@ struct PreparedSnapshotFetch {
 struct ResolvedSnapshotSource {
     source_manifest: Option<SnapshotManifest>,
     source_destination_dir: Option<PathBuf>,
-}
-
-pub fn download_and_reconstruct_snapshot(
-    request: SnapshotDownloadAndReconstructRequest,
-) -> Result<SnapshotDownloadAndReconstructResult> {
-    download_and_apply_unified_snapshot_ops(request)
 }
 
 pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchResult> {
@@ -78,6 +73,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
         &pending_bundle_downloads,
     )?;
     transfer_progress.finish();
+    publish_fetched_snapshot(&prepared)?;
     let transfer_stats = transfer_progress.stats(request.transfer_policy);
     let required_bundle_count = required_artifacts
         .iter()
@@ -115,7 +111,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
     ))
 }
 
-fn download_and_apply_unified_snapshot_ops(
+pub fn download_and_reconstruct_snapshot(
     request: SnapshotDownloadAndReconstructRequest,
 ) -> Result<SnapshotDownloadAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
@@ -187,6 +183,7 @@ fn download_and_apply_unified_snapshot_ops(
         },
         pipeline_plan,
     )?;
+    publish_fetched_snapshot(&prepared)?;
     let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);
     let fetch_result = build_fetch_result(
         &prepared.repo_paths.repo_root,
@@ -208,6 +205,17 @@ fn download_and_apply_unified_snapshot_ops(
         fetch_result,
         reconstruct_result,
     })
+}
+
+fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
+    // Immutable downloads finish first; the validated snapshot is the commit marker.
+    write_repo_manifest(&prepared.repo_paths, &prepared.repo_manifest)?;
+    crate::write_chunk_index(&prepared.repo_paths, &prepared.chunk_index)?;
+    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
+        &prepared.repo_paths,
+        &prepared.snapshot_manifest,
+    )?;
+    Ok(())
 }
 
 fn prepare_snapshot_fetch(
@@ -236,7 +244,7 @@ fn prepare_snapshot_fetch(
     let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_path);
     crate::ensure_gutch_repo_layout(&repo_paths, "download")?;
 
-    if let Some(repo_metadata_url) = request.repo_metadata_url.as_deref() {
+    let repo_manifest = if let Some(repo_metadata_url) = request.repo_metadata_url.as_deref() {
         emit_progress(
             progress,
             GutchProgressEvent {
@@ -267,10 +275,10 @@ fn prepare_snapshot_fetch(
         .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
         let repo_manifest: GutchRepoManifest =
             crate::helpers::from_json_bytes(&repo_manifest_bytes)?;
-        write_repo_manifest(&repo_paths, &repo_manifest)?;
-    } else if !repo_paths.repo_metadata_path.exists() {
-        write_repo_manifest(&repo_paths, &GutchRepoManifest::new("download".to_string()))?;
-    }
+        repo_manifest
+    } else {
+        crate::load_gutch_repo_manifest(&repo_paths.repo_root)?.1
+    };
 
     emit_progress(
         progress,
@@ -302,34 +310,30 @@ fn prepare_snapshot_fetch(
     .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
     let snapshot_metadata =
         snapshot_manifest_from_download(&request.snapshot_id, &snapshot_manifest_bytes)?;
-    crate::repo::write_snapshot_metadata_only(&repo_paths, &snapshot_metadata)?;
 
-    if let Some(product_metadata_url) = request.product_metadata_url.as_deref() {
-        let product_metadata_bytes = TransferDownloadRequest {
-            client: download_client,
-            url: product_metadata_url,
-            control: &request.control,
-            transfer_progress,
-            phase: GutchProgressPhase::SnapshotMetadata,
-            message: "Downloading snapshot product metadata",
-            counters: TransferPhaseCounters {
-                current: 0,
-                total: 1,
-            },
-            detail: Some(request.snapshot_id.as_str()),
-        }
-        .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-        let product_metadata: crate::manifest::SnapshotProductMetadata =
-            crate::helpers::from_json_bytes(&product_metadata_bytes)?;
-        product_metadata.validate_structure()?;
-        crate::repo::write_snapshot_product_metadata(
-            &repo_paths,
-            &request.snapshot_id,
-            Some(&product_metadata),
-        )?;
-    } else {
-        crate::repo::write_snapshot_product_metadata(&repo_paths, &request.snapshot_id, None)?;
-    }
+    let product_metadata =
+        if let Some(product_metadata_url) = request.product_metadata_url.as_deref() {
+            let product_metadata_bytes = TransferDownloadRequest {
+                client: download_client,
+                url: product_metadata_url,
+                control: &request.control,
+                transfer_progress,
+                phase: GutchProgressPhase::SnapshotMetadata,
+                message: "Downloading snapshot product metadata",
+                counters: TransferPhaseCounters {
+                    current: 0,
+                    total: 1,
+                },
+                detail: Some(request.snapshot_id.as_str()),
+            }
+            .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
+            let product_metadata: crate::manifest::SnapshotProductMetadata =
+                crate::helpers::from_json_bytes(&product_metadata_bytes)?;
+            product_metadata.validate_structure()?;
+            Some(product_metadata)
+        } else {
+            None
+        };
 
     let blueprint_bytes = TransferDownloadRequest {
         client: download_client,
@@ -345,11 +349,13 @@ fn prepare_snapshot_fetch(
         detail: Some(request.snapshot_id.as_str()),
     }
     .download_bounded(MAX_SNAPSHOT_BLUEPRINT_BYTES)?;
-    let blueprint_path = crate::snapshot_blueprint_path(&repo_paths, &request.snapshot_id)?;
-    crate::helpers::write(&blueprint_path, &blueprint_bytes)?;
-    let snapshot_manifest = crate::load_snapshot_manifest(&repo_paths, &request.snapshot_id)?;
+    let snapshot_manifest = crate::repo::snapshot_manifests::snapshot_manifest_from_parts(
+        snapshot_metadata,
+        product_metadata,
+        &blueprint_bytes,
+    )?;
 
-    if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
+    let mut chunk_index = if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
         emit_progress(
             progress,
             GutchProgressEvent {
@@ -390,12 +396,18 @@ fn prepare_snapshot_fetch(
                     ))
                 })?,
             };
-        crate::write_chunk_index(&repo_paths, &chunk_index)?;
+        chunk_index
+    } else {
+        crate::load_chunk_index(&repo_paths)?
+    };
+    // Retain cached mappings whose artifacts are available, plus local-only entries.
+    for (hash, entry) in crate::load_chunk_index(&repo_paths)?.entries {
+        let artifact = crate::ArtifactRef::from_chunk_entry(&hash, &entry);
+        if artifact.local_path(&repo_paths)?.is_file() || !chunk_index.entries.contains_key(&hash) {
+            chunk_index.entries.insert(hash, entry);
+        }
     }
-
     request.control.checkpoint()?;
-    let chunk_index = crate::load_chunk_index(&repo_paths)?;
-    let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
     let compression_profile = repo_manifest.compression_profile();
     let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
     let mut existing_artifacts = HashSet::new();
@@ -433,6 +445,7 @@ fn prepare_snapshot_fetch(
 
     Ok(PreparedSnapshotFetch {
         repo_paths,
+        repo_manifest,
         compression_profile,
         snapshot_manifest,
         chunk_index,

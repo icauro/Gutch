@@ -48,19 +48,36 @@ snapshot directory. Directory reconstruction uses staging and verification
 before promotion. A failed replacement leaves the prior committed content
 authoritative or restores it from the operation's backup path.
 
-Remote metadata, chunk indexes, snapshot metadata, product metadata, and
-blueprints are checked against their backend-recorded BLAKE3 hashes before
-persistence. Downloaded bundles are checked against their content-addressed
-bundle IDs before they are written locally.
+Repository pull checks remote metadata and blueprints against provider-recorded
+BLAKE3 hashes. Direct snapshot fetch validates decoded metadata and blueprints;
+its URL request does not supply expected metadata hashes. Both paths check
+downloaded bundles against their content-addressed IDs.
+
+Direct fetch retains the previous snapshot while downloading and validating its
+replacement. It publishes the complete snapshot directory after successful
+transfer or reconstruction. Repository metadata and the chunk index are separate
+atomic files, not one transaction with the snapshot directory.
+
+Reconstruction and repair treat `--staging-dir` as a staging parent. They create
+a unique operation-owned child, preserve preexisting contents, and remove that
+child on completion or failure. Staging must not overlap the destination or a
+reused source, including through links or parent components. Neither staging nor
+the destination may contain the repository. A newly created staging parent is
+removed when empty; preexisting parents remain.
+
+Binary metadata decoders check declared lengths and counts against remaining
+input before allocating arrays or strings.
 
 Repo initialization assesses the destination first. A non-directory is
 rejected, while a nonempty directory or existing repo requires explicit
 confirmation. Forced initialization removes only recognized Gutch-owned
 artifacts and preserves unrelated files.
 
-Snapshot deletion is scoped to the selected snapshot directory. Orphan cleanup
-removes only extensionless 64-character bundle-hash files that no remaining
-snapshot references.
+Snapshot deletion is scoped to the selected snapshot directory. Before removing
+it, cleanup resolves all surviving snapshot references through the chunk index
+and checks artifact availability. An incomplete index or missing required
+artifact stops deletion. Cleanup removes only layout-owned artifacts that no
+remaining snapshot references.
 
 ## Pull Conflict Policies
 

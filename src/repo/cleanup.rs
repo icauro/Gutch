@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::Result;
 
@@ -33,10 +33,19 @@ pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> 
     Ok(())
 }
 
-pub(crate) fn cleanup_orphan_bundles_in_repo(
+pub(crate) fn cleanup_orphan_artifacts_in_repo(
     repo_root: &Path,
     control: &crate::GutchOperationControl,
 ) -> Result<usize> {
+    let orphan_paths = plan_orphan_artifact_cleanup(repo_root, None, control)?;
+    remove_orphan_artifacts(&orphan_paths, control)
+}
+
+pub(crate) fn plan_orphan_artifact_cleanup(
+    repo_root: &Path,
+    excluded_snapshot: Option<&str>,
+    control: &crate::GutchOperationControl,
+) -> Result<Vec<PathBuf>> {
     use crate::progress::{GutchOperation, GutchProgressEvent, GutchProgressPhase, emit_progress};
 
     const TOTAL: usize = 1000;
@@ -59,7 +68,10 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
         },
     );
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
-    let remaining_snapshots = list_repo_snapshot_ids(&repo_paths)?;
+    let remaining_snapshots = list_repo_snapshot_ids(&repo_paths)?
+        .into_iter()
+        .filter(|id| Some(id.as_str()) != excluded_snapshot)
+        .collect::<Vec<_>>();
 
     let chunk_index = load_chunk_index(&repo_paths)?;
     let mut still_required_artifacts = HashSet::new();
@@ -87,10 +99,17 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
             },
         );
         let manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
-        still_required_artifacts.extend(crate::required_artifacts_from_index(
-            &manifest,
-            &chunk_index,
-        ));
+        let required_artifacts = crate::required_artifacts(&manifest, &chunk_index)?;
+        for artifact in &required_artifacts {
+            let path = artifact.local_path(&repo_paths)?;
+            if !path.is_file() {
+                return Err(crate::Error::manifest(format!(
+                    "cannot clean repository: snapshot '{snapshot_id}' requires missing artifact '{}'",
+                    path.display()
+                )));
+            }
+        }
+        still_required_artifacts.extend(required_artifacts);
     }
 
     let artifact_files = list_repo_artifact_paths(&repo_paths)?;
@@ -136,7 +155,14 @@ pub(crate) fn cleanup_orphan_bundles_in_repo(
             done: false,
         },
     );
-    for orphan_path in &orphan_artifacts {
+    Ok(orphan_artifacts)
+}
+
+pub(crate) fn remove_orphan_artifacts(
+    orphan_artifacts: &[PathBuf],
+    control: &crate::GutchOperationControl,
+) -> Result<usize> {
+    for orphan_path in orphan_artifacts {
         control.checkpoint()?;
         std::fs::remove_file(orphan_path)?;
     }

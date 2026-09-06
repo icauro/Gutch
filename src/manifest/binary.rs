@@ -11,6 +11,33 @@ const CHUNK_INDEX_BINARY_VERSION: u16 = 1;
 const SNAPSHOT_FILES_BINARY_MAGIC: &[u8; 4] = b"GTCT";
 const SNAPSHOT_FILES_BINARY_VERSION: u16 = 1;
 
+struct BinaryReader<R> {
+    inner: R,
+    remaining: u64,
+}
+
+impl<R: Read> BinaryReader<R> {
+    fn require_records(&self, count: u64, minimum_bytes: u64) -> Result<()> {
+        if count > self.remaining / minimum_bytes {
+            return Err(Error::manifest(
+                "binary manifest declares more data than remains",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl<R: Read> Read for BinaryReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let limit = buffer
+            .len()
+            .min(self.remaining.min(usize::MAX as u64) as usize);
+        let count = self.inner.read(&mut buffer[..limit])?;
+        self.remaining -= count as u64;
+        Ok(count)
+    }
+}
+
 fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
     let mut buffer = [0u8; N];
     reader.read_exact(&mut buffer)?;
@@ -71,8 +98,9 @@ fn write_len_prefixed_string(writer: &mut impl Write, value: &str) -> Result<()>
     Ok(())
 }
 
-fn read_len_prefixed_string(reader: &mut impl Read) -> Result<String> {
+fn read_len_prefixed_string(reader: &mut BinaryReader<impl Read>) -> Result<String> {
     let length = read_u32(reader)? as usize;
+    reader.require_records(length as u64, 1)?;
     let mut bytes = vec![0u8; length];
     reader.read_exact(&mut bytes)?;
     String::from_utf8(bytes).map_err(|err| Error::manifest(format!("invalid UTF-8: {}", err)))
@@ -84,7 +112,10 @@ fn write_len_prefixed_string_array(writer: &mut impl Write, values: &[String]) -
         .try_for_each(|value| write_len_prefixed_string(writer, value))
 }
 
-fn read_len_prefixed_string_array(reader: &mut impl Read, count: usize) -> Result<Vec<String>> {
+fn read_len_prefixed_string_array(
+    reader: &mut BinaryReader<impl Read>,
+    count: usize,
+) -> Result<Vec<String>> {
     (0..count)
         .map(|_| read_len_prefixed_string(reader))
         .collect()
@@ -120,26 +151,33 @@ fn read_chunk_hash_array(reader: &mut impl Read, count: usize) -> Result<Vec<Chu
 
 pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkIndex> {
     let file = std::fs::File::open(path)?;
-    let mut reader = BufReader::new(file);
+    let remaining = file.metadata()?.len();
+    let reader = BinaryReader {
+        inner: BufReader::new(file),
+        remaining,
+    };
+    read_chunk_index_binary(reader)
+}
+
+fn read_chunk_index_binary(mut reader: BinaryReader<impl Read>) -> Result<manifest::ChunkIndex> {
     let magic = read_exact_array::<4>(&mut reader)?;
     if &magic != CHUNK_INDEX_BINARY_MAGIC {
-        return Err(Error::manifest(format!(
-            "invalid chunk index binary header in {}",
-            path.display()
-        )));
+        return Err(Error::manifest("invalid chunk index binary header"));
     }
 
     let version = read_u16(&mut reader)?;
     if version != CHUNK_INDEX_BINARY_VERSION {
         return Err(Error::manifest(format!(
-            "unsupported chunk index binary version {} in {}",
-            version,
-            path.display()
+            "unsupported chunk index binary version {}",
+            version
         )));
     }
 
     let _reserved = read_u16(&mut reader)?;
-    let chunk_count = read_u64(&mut reader)? as usize;
+    let chunk_count = read_u64(&mut reader)?;
+    reader.require_records(chunk_count, 32 + 1 + 4 + 8 + 8)?;
+    let chunk_count = usize::try_from(chunk_count)
+        .map_err(|_| Error::manifest("chunk count exceeds address space"))?;
     let format_version = read_len_prefixed_string(&mut reader)?;
     let updated_at = read_len_prefixed_string(&mut reader)?;
 
@@ -155,9 +193,8 @@ pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkInde
             1 => manifest::ArtifactStorageMode::LooseChunks,
             other => {
                 return Err(Error::manifest(format!(
-                    "invalid chunk index storage mode {} in {}",
-                    other,
-                    path.display()
+                    "invalid chunk index storage mode {}",
+                    other
                 )));
             }
         };
@@ -180,10 +217,10 @@ pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkInde
 }
 
 pub(crate) fn load_chunk_index_binary_from_bytes(bytes: &[u8]) -> Result<manifest::ChunkIndex> {
-    let mut temporary = tempfile::NamedTempFile::new()?;
-    temporary.write_all(bytes)?;
-    temporary.flush()?;
-    load_chunk_index_binary(temporary.path())
+    read_chunk_index_binary(BinaryReader {
+        inner: bytes,
+        remaining: bytes.len() as u64,
+    })
 }
 
 pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex) -> Result<()> {
@@ -273,27 +310,43 @@ pub(crate) fn write_snapshot_blueprint_binary(
 
 pub(crate) fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest::SnapshotEntry>> {
     let file = std::fs::File::open(path)?;
-    let mut reader = BufReader::new(file);
+    let remaining = file.metadata()?.len();
+    read_snapshot_blueprint(BinaryReader {
+        inner: BufReader::new(file),
+        remaining,
+    })
+}
+
+pub(crate) fn read_snapshot_blueprint_bytes(bytes: &[u8]) -> Result<Vec<manifest::SnapshotEntry>> {
+    read_snapshot_blueprint(BinaryReader {
+        inner: bytes,
+        remaining: bytes.len() as u64,
+    })
+}
+
+fn read_snapshot_blueprint(
+    mut reader: BinaryReader<impl Read>,
+) -> Result<Vec<manifest::SnapshotEntry>> {
     let magic = read_exact_array::<4>(&mut reader)?;
     if &magic != SNAPSHOT_FILES_BINARY_MAGIC {
-        return Err(Error::manifest(format!(
-            "invalid snapshot blueprint binary header in {}",
-            path.display()
-        )));
+        return Err(Error::manifest("invalid snapshot blueprint binary header"));
     }
 
     let version = read_u16(&mut reader)?;
     if version != SNAPSHOT_FILES_BINARY_VERSION {
         return Err(Error::manifest(format!(
-            "unsupported snapshot blueprint binary version {} in {}",
-            version,
-            path.display()
+            "unsupported snapshot blueprint binary version {}",
+            version
         )));
     }
 
     let _reserved = read_u16(&mut reader)?;
     let entry_count = read_u32(&mut reader)? as usize;
-    let chunk_ref_count = read_u64(&mut reader)? as usize;
+    reader.require_records(entry_count as u64, 5)?;
+    let chunk_ref_count = read_u64(&mut reader)?;
+    reader.require_records(chunk_ref_count, 40)?;
+    let chunk_ref_count = usize::try_from(chunk_ref_count)
+        .map_err(|_| Error::manifest("chunk count exceeds address space"))?;
     let mut read_chunk_count = 0usize;
     let mut entries = Vec::with_capacity(entry_count);
     for _ in 0..entry_count {
@@ -309,6 +362,7 @@ pub(crate) fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest
                 }
                 let full_file_hash = ChunkHash::from_bytes(read_exact_array::<32>(&mut reader)?);
                 let count = read_u32(&mut reader)? as usize;
+                reader.require_records(count as u64, 40)?;
                 read_chunk_count = read_chunk_count
                     .checked_add(count)
                     .ok_or_else(|| Error::manifest("snapshot blueprint chunk count overflow"))?;
@@ -374,6 +428,22 @@ pub(crate) fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest
 #[cfg(test)]
 mod snapshot_blueprint_tests {
     use super::*;
+
+    #[test]
+    fn rejects_impossible_counts_and_string_lengths_before_allocation() {
+        let mut blueprint = b"GTCT\x01\0\0\0".to_vec();
+        write_u32(&mut blueprint, u32::MAX).unwrap();
+        write_u64(&mut blueprint, 0).unwrap();
+        assert!(read_snapshot_blueprint_bytes(&blueprint).is_err());
+        let mut index = b"GTCI\x01\0\0\0".to_vec();
+        write_u64(&mut index, u64::MAX).unwrap();
+        assert!(load_chunk_index_binary_from_bytes(&index).is_err());
+        let mut reader = BinaryReader {
+            inner: &u32::MAX.to_le_bytes()[..],
+            remaining: 4,
+        };
+        assert!(read_len_prefixed_string(&mut reader).is_err());
+    }
 
     fn all_entries() -> Vec<manifest::SnapshotEntry> {
         vec![

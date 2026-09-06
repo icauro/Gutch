@@ -21,7 +21,7 @@ use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase, emit_progress,
 };
-use crate::runtime::{RuntimeResourceHints, plan_reconstruct_runtime, plan_verify_runtime};
+use crate::runtime::{RuntimeResourceHints, plan_runtime};
 use crate::{Error, Result};
 
 #[path = "reconstruct_io.rs"]
@@ -853,7 +853,7 @@ pub(super) fn apply_reconstruct_pipeline(
     let operation_started_at = Instant::now();
     let _operation_span = request.control.profile_span("snapshot.reconstruct.apply");
     let prepare_started_at = Instant::now();
-    let reconstruct_worker_count = plan_reconstruct_runtime(request.runtime_hints).worker_count;
+    let reconstruct_worker_count = plan_runtime(request.runtime_hints).worker_count;
     let reconstruct_pool = if request.snapshot_manifest.entries.is_empty() {
         None
     } else {
@@ -862,7 +862,7 @@ pub(super) fn apply_reconstruct_pipeline(
             .profile_span("snapshot.reconstruct.prepare.pool");
         Some(build_reconstruct_pool(reconstruct_worker_count)?)
     };
-    let staging_dir = {
+    let staging = {
         let _staging_span = request
             .control
             .profile_span("snapshot.reconstruct.prepare.staging");
@@ -875,20 +875,14 @@ pub(super) fn apply_reconstruct_pipeline(
                     &request.snapshot_manifest.snapshot_id,
                 )
             });
-        if request.destination_dir == staging_dir {
-            return Err(Error::PathError {
-                path: request.destination_dir.to_path_buf(),
-                reason: "destination and staging directories must be different".to_string(),
-            });
-        }
-        if staging_dir.exists() {
-            crate::helpers::remove_dir_all(&staging_dir)?;
-        }
-        if let Some(parent) = staging_dir.parent() {
-            crate::helpers::create_dir_all(parent)?;
-        }
-        staging_dir
+        super::apply::create_snapshot_staging(
+            request.destination_dir,
+            &staging_dir,
+            request.repo_root,
+            request.source_destination_dir.as_deref(),
+        )?
     };
+    let staging_dir = staging.path().to_path_buf();
 
     let main_result = (|| -> Result<SnapshotReconstructFromRepoResult> {
         let output_paths = {
@@ -929,8 +923,7 @@ pub(super) fn apply_reconstruct_pipeline(
             let _finalize_span = request
                 .control
                 .profile_span("snapshot.reconstruct.finalize.entries");
-            let metadata_worker_count =
-                plan_reconstruct_runtime(request.runtime_hints).worker_count;
+            let metadata_worker_count = plan_runtime(request.runtime_hints).worker_count;
             finalize_snapshot_entries(
                 request.snapshot_manifest,
                 &staging_dir,
@@ -974,9 +967,6 @@ pub(super) fn apply_reconstruct_pipeline(
         })
     })();
 
-    if main_result.is_err() && staging_dir.exists() {
-        let _ = crate::helpers::remove_dir_all(&staging_dir);
-    }
     main_result
 }
 
@@ -1098,7 +1088,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     control.checkpoint()?;
     let _pipeline_span = control.profile_span("snapshot.reconstruct.pipeline");
     let pipeline_started_at = Instant::now();
-    let runtime_plan = plan_reconstruct_runtime(runtime_hints);
+    let runtime_plan = plan_runtime(runtime_hints);
     let mut reconstruct_timings = ReconstructTimings {
         runtime_plan: Some(runtime_plan.clone()),
         verify_files: true,
@@ -1106,7 +1096,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     };
     let mut verify_timings = crate::verify::VerifyTimings {
         verify_mode: crate::verify::VerifyMode::Fast,
-        runtime_plan: Some(plan_verify_runtime(runtime_hints)),
+        runtime_plan: Some(plan_runtime(runtime_hints)),
         ..crate::verify::VerifyTimings::default()
     };
 

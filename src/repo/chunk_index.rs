@@ -66,18 +66,14 @@ pub fn required_chunk_hashes_typed(
 pub fn required_bundle_ids(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &manifest::ChunkIndex,
-) -> HashSet<String> {
-    snapshot_manifest
-        .files()
-        .flat_map(|file| file.chunks.iter())
-        .filter_map(|chunk_ref| {
-            chunk_index
-                .entries
-                .get(&chunk_ref.chunk_hash)
-                .filter(|entry| entry.storage_mode == ArtifactStorageMode::Bundled)
-                .map(|entry| entry.bundle_id.clone())
+) -> Result<HashSet<String>> {
+    Ok(crate::required_artifacts(snapshot_manifest, chunk_index)?
+        .into_iter()
+        .filter_map(|artifact| match artifact {
+            crate::ArtifactRef::Bundle { id } => Some(id),
+            crate::ArtifactRef::LooseChunk { .. } => None,
         })
-        .collect()
+        .collect())
 }
 
 /// Scan the existing store using the caller's operation pool.

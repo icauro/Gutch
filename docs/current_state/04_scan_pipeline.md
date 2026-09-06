@@ -27,7 +27,7 @@ capture Rayon pool unless noted otherwise.
 | 2. Runtime setup | Resolve `jobs` into a bounded worker count and create the `gutch-capture` pool. | One operation-local pool is shared by scan and packaging. |
 | 3. Inventory | Walk each source with `WalkDir`, without following links, in filename order. Record regular files, directories, and supported symlinks. | Directory enumeration is ordered; metadata conversion can run on the pool. |
 | 4. File scan | Read each regular file as a stream, find FastCDC boundaries, and compute the full-file BLAKE3 hash. | Files are scanned concurrently when more than one worker is configured. |
-| 5. Chunk hashes | Hash the pending raw chunks and form ordered chunk references with raw sizes and offsets. | Chunks from a scanned file are hashed through the same pool. |
+| 5. Chunk hashes | Hash each chunk as it is read and retain its source range, size, and identity. | Hashing runs in the file worker; raw chunks are released immediately. |
 | 6. Reuse decision | Compare each file with the previous manifest and look up already-known chunk identities. | Decisions are made per file and then combined. |
 | 7. Dedupe planning | Keep only content not already represented in the repo and collapse duplicate new chunk identities. | Planning is deterministic and mostly sequential after collection. |
 | 8. Artifact encoding | Group new chunks into bundles or encode loose compressed chunks, then write the artifact files. | Bundle groups and loose chunks are encoded concurrently. |
@@ -55,7 +55,7 @@ The previous manifest is reusable for a path only when the current file has the
 same normalized path, size, full-file hash, executable bit, and read-only bit.
 When that comparison succeeds, Gutch reuses the previous file manifest without
 rechunking it into new artifacts. Otherwise, each chunk is resolved through the
-repo-wide chunk map; raw payloads are retained only for chunks that are not
+repo-wide chunk map; source ranges are retained only for chunks that are not
 already available locally.
 
 ## Parallelization and resource limits
@@ -104,11 +104,23 @@ artifact encoding, compression output, manifest finalization, and total wall
 time. A trace shows overlap between file workers and artifact workers without
 making worker-time sums look like elapsed wall time.
 
+## Capture memory
+
+Capture retains chunk identities and source ranges instead of all source bytes.
+Duplicate chunks share one encoding plan. Payload memory scales with active file
+workers and artifact group sizes; inventory and chunk-reference metadata still
+scale with the dataset. Encoding re-reads source ranges, trading additional reads
+for lower retained memory. Both bundles and loose chunks are staged on disk and
+released through the same operation-owned artifact lifecycle.
+
 ## Failure boundaries
 
 - A path, unsupported object, read, chunk, or hash failure stops capture.
-- A previous manifest is reused only after all of its file identity properties
-  match; a changed executable or read-only bit is not treated as unchanged.
+- A previous manifest is reused only after its file identity properties match
+  and every referenced chunk has an available artifact. Missing artifacts are
+  rebuilt from source, including when recapturing an identical snapshot.
+- Encoding re-reads selected source ranges and verifies their chunk hashes.
+  A changed or truncated source stops capture before snapshot publication.
 - Corrupt or incomplete artifact writes do not become valid repo content.
 - Manifest and artifact paths remain inside the derived repo layout.
 - Capture does not publish authorization or remote URLs; remote synchronization

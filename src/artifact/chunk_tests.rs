@@ -11,8 +11,8 @@ fn test_chunk_bytes_basic() {
     let results = chunk_bytes(&data, &profile);
     assert!(!results.is_empty());
     for r in &results {
-        assert!(!r.data.is_empty());
-        assert!(r.data.len() as u32 <= profile.max_chunk_size_bytes());
+        assert!(r.size > 0);
+        assert!(r.size as u32 <= profile.max_chunk_size_bytes());
     }
 }
 
@@ -30,7 +30,7 @@ fn test_chunk_bytes_small_data() {
     let profile = ChunkSizingProfile::default();
     let results = chunk_bytes(data, &profile);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].data, b"short");
+    assert_eq!(results[0].size, 5);
 }
 
 #[test]
@@ -61,7 +61,8 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
 
     let profile = ChunkSizingProfile::default();
     let in_memory = chunk_bytes(&data, &profile);
-    let (scan, timings) = chunk_file_streaming_with_file_hash(&path, &profile).unwrap();
+    let (scan, timings) =
+        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
     let streaming = scan.chunks;
 
     assert_eq!(in_memory.len(), streaming.len());
@@ -71,7 +72,7 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
     for (left, right) in in_memory.iter().zip(streaming.iter()) {
         assert_eq!(left.offset, right.offset);
         assert_eq!(left.hash, right.hash);
-        assert_eq!(left.data, right.data);
+        assert_eq!(left.size, right.size);
     }
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -86,7 +87,8 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
     std::fs::write(&path, &data).unwrap();
 
     let profile = ChunkSizingProfile::default();
-    let (scan, timings) = chunk_file_streaming_with_file_hash(&path, &profile).unwrap();
+    let (scan, timings) =
+        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
 
     assert_eq!(scan.file_size, data.len() as u64);
     assert_eq!(
@@ -101,7 +103,7 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
 }
 
 #[test]
-fn test_parallel_chunk_hashing_matches_streaming_results() {
+fn repeated_chunk_scans_have_identical_boundaries() {
     let dir = test_util::temp_path("gutch_parallel_chunk_hashing");
     test_util::recreate_dir(&dir);
     let path = dir.join("sample.bin");
@@ -109,18 +111,10 @@ fn test_parallel_chunk_hashing_matches_streaming_results() {
     std::fs::write(&path, &data).unwrap();
 
     let profile = ChunkSizingProfile::default();
-    let serial = chunk_file_streaming_with_file_hash(&path, &profile).unwrap();
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
-    let parallel = chunk_file_streaming_with_file_hash_and_control_on_pool(
-        &path,
-        &profile,
-        &crate::GutchOperationControl::default(),
-        &pool,
-    )
-    .unwrap();
+    let serial =
+        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
+    let parallel =
+        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
 
     assert_eq!(serial.0.file_size, parallel.0.file_size);
     assert_eq!(serial.0.full_file_hash, parallel.0.full_file_hash);
@@ -129,7 +123,7 @@ fn test_parallel_chunk_hashing_matches_streaming_results() {
     for (serial_chunk, parallel_chunk) in serial.0.chunks.iter().zip(parallel.0.chunks.iter()) {
         assert_eq!(serial_chunk.offset, parallel_chunk.offset);
         assert_eq!(serial_chunk.hash, parallel_chunk.hash);
-        assert_eq!(serial_chunk.data, parallel_chunk.data);
+        assert_eq!(serial_chunk.size, parallel_chunk.size);
     }
 
     let _ = std::fs::remove_dir_all(&dir);

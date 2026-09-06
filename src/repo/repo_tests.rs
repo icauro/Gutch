@@ -190,7 +190,7 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
             .join("snapshot_metadata.json")
     );
     assert_eq!(
-        crate::snapshot_blueprint_path(&paths, snapshot_id).unwrap(),
+        crate::repo::snapshot_blueprint_path(&paths, snapshot_id).unwrap(),
         root.join("snapshots")
             .join(snapshot_id)
             .join("snapshot_blueprint.gtcbin")
@@ -258,7 +258,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
         ]),
     };
 
-    let required = required_bundle_ids(&manifest, &chunk_index);
+    let required = required_bundle_ids(&manifest, &chunk_index).unwrap();
     assert_eq!(required.len(), 1);
     assert!(required.contains("bundle-1"));
 }
@@ -545,7 +545,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
         crate::bundle::read_bundle(&data, &manifest::CompressionProfile::default()).unwrap();
     let built_bundle = crate::BuiltBundle {
         bundle_id: bundle_id.clone(),
-        staged_file: crate::build_types::StagedBundleFile::new(staged_path),
+        staged_file: crate::build_types::StagedArtifactFile::new(staged_path),
         size: data.len() as u64,
         entries: reader.entries().to_vec(),
     };

@@ -379,12 +379,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
                 serde_json::json!(source_metadata.len() as f64 / (1024.0 * 1024.0)),
             )]),
         );
-        crate::chunk::chunk_file_streaming_with_file_hash_and_control_on_pool(
-            path,
-            options.chunking_profile,
-            control,
-            options.worker_pool,
-        )?
+        crate::chunk::scan_file_chunks(path, options.chunking_profile, control)?
     };
     let file_size = chunk_scan.file_size;
     let full_file_hash = chunk_scan.full_file_hash;
@@ -400,6 +395,10 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
                 && candidate.full_file_hash == full_file_hash
                 && candidate.executable == executable
                 && candidate.read_only == read_only
+                && candidate.chunks.iter().all(|chunk| {
+                    ChunkHash::parse_hex(&chunk.chunk_hash)
+                        .is_ok_and(|hash| options.existing_chunk_locations.contains_key(&hash))
+                })
         })
     };
     if let Some(previous) = previous {
@@ -433,17 +432,21 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
         let mut chunks = Vec::with_capacity(chunk_scan.chunks.len());
         let mut new_chunk_offsets = Vec::with_capacity(chunk_scan.chunks.len());
         let mut file_offset = 0u64;
+        let source = std::sync::Arc::new(path.to_path_buf());
         for cr in chunk_scan.chunks {
             control.checkpoint()?;
             let chunk_hash = ChunkHash::from_blake3(cr.hash);
-            let raw_size = cr.data.len() as u64;
+            let raw_size = cr.size;
             chunk_refs.push(ChunkRef {
                 chunk_hash: chunk_hash.to_hex(),
                 raw_size,
             });
             if !options.existing_chunk_locations.contains_key(&chunk_hash) {
-                let payload = ChunkPayload::InMemory {
-                    bytes: std::sync::Arc::<[u8]>::from(cr.data),
+                let payload = ChunkPayload {
+                    source: source.clone(),
+                    offset: cr.offset,
+                    size: cr.size,
+                    hash: chunk_hash,
                 };
                 chunks.push((chunk_hash, payload));
                 new_chunk_offsets.push((chunk_hash, file_offset));

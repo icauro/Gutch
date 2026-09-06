@@ -1,8 +1,6 @@
 #[cfg(test)]
 use fastcdc::v2020::{Chunk, FastCDC};
 use fastcdc::v2020::{Normalization, StreamCDC};
-use rayon::ThreadPool;
-use rayon::prelude::*;
 use std::io::BufReader;
 use std::time::{Duration, Instant};
 
@@ -11,16 +9,9 @@ use crate::hash::hash_hex;
 use crate::manifest::ChunkSizingProfile;
 
 pub(crate) struct ChunkResult {
-    pub(crate) data: Vec<u8>,
-    #[cfg(test)]
+    pub(crate) size: u64,
     pub(crate) offset: u64,
     pub(crate) hash: blake3::Hash,
-}
-
-struct PendingChunk {
-    data: Vec<u8>,
-    #[cfg(test)]
-    offset: u64,
 }
 
 pub(crate) struct ChunkFileScan {
@@ -51,8 +42,7 @@ pub(crate) fn chunk_bytes(data: &[u8], profile: &ChunkSizingProfile) -> Vec<Chun
         .0
         .into_iter()
         .map(|chunk| ChunkResult {
-            data: data[chunk.offset as usize..chunk.offset as usize + chunk.len].to_vec(),
-            #[cfg(test)]
+            size: chunk.len as u64,
             offset: chunk.offset,
             hash: chunk.hash,
         })
@@ -100,38 +90,10 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn chunk_file_streaming_with_file_hash(
-    path: &std::path::Path,
-    profile: &ChunkSizingProfile,
-) -> Result<(ChunkFileScan, ChunkScanTimings)> {
-    chunk_file_streaming_with_file_hash_and_control_with_pool(
-        path,
-        profile,
-        &crate::GutchOperationControl::default(),
-        None,
-    )
-}
-
-pub(crate) fn chunk_file_streaming_with_file_hash_and_control_on_pool(
+pub(crate) fn scan_file_chunks(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,
     control: &crate::GutchOperationControl,
-    worker_pool: &ThreadPool,
-) -> Result<(ChunkFileScan, ChunkScanTimings)> {
-    chunk_file_streaming_with_file_hash_and_control_with_pool(
-        path,
-        profile,
-        control,
-        Some(worker_pool),
-    )
-}
-
-fn chunk_file_streaming_with_file_hash_and_control_with_pool(
-    path: &std::path::Path,
-    profile: &ChunkSizingProfile,
-    control: &crate::GutchOperationControl,
-    worker_pool: Option<&ThreadPool>,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     control.checkpoint()?;
     let min = profile.min_chunk_size_bytes() as usize;
@@ -142,7 +104,7 @@ fn chunk_file_streaming_with_file_hash_and_control_with_pool(
     let reader = BufReader::new(file);
     let mut chunker = StreamCDC::with_level(reader, min, avg, max, Normalization::Level1);
 
-    let mut pending_chunks = Vec::new();
+    let mut chunk_results = Vec::new();
     let mut boundary_scan = Duration::ZERO;
     let mut boundary_scan_bytes = 0u64;
     let mut hash_judgment = Duration::ZERO;
@@ -176,56 +138,17 @@ fn chunk_file_streaming_with_file_hash_and_control_with_pool(
 
         file_size += chunk.length as u64;
         boundary_scan_bytes += chunk.length as u64;
-        pending_chunks.push(PendingChunk {
-            data: chunk.data,
-            #[cfg(test)]
+        let started_at = Instant::now();
+        let hash = blake3::hash(&chunk.data);
+        hash_judgment += started_at.elapsed();
+        chunk_results.push(ChunkResult {
             offset: chunk.offset,
+            size: chunk.length as u64,
+            hash,
         });
         hash_judgment_bytes += chunk.length as u64;
     }
     drop(_cdc_span);
-
-    let hash_worker_count = worker_pool
-        .map(ThreadPool::current_num_threads)
-        .unwrap_or(1);
-    let mut hash_trace_args = std::collections::BTreeMap::new();
-    hash_trace_args.insert(
-        "chunk_count".to_string(),
-        serde_json::json!(pending_chunks.len()),
-    );
-    hash_trace_args.insert(
-        "bytes_mib".to_string(),
-        serde_json::json!(file_size as f64 / (1024.0 * 1024.0)),
-    );
-    hash_trace_args.insert(
-        "worker_count".to_string(),
-        serde_json::json!(hash_worker_count),
-    );
-    hash_trace_args.insert(
-        "parallel".to_string(),
-        serde_json::json!(worker_pool.is_some() && hash_worker_count > 1),
-    );
-    let _hash_span =
-        control.profile_span_with_args("capture.scan_source.file.hash_chunks", hash_trace_args);
-    let hashed_chunks = if let Some(worker_pool) = worker_pool {
-        let control_for_work = control.clone();
-        worker_pool.install(|| {
-            pending_chunks
-                .into_par_iter()
-                .map(|pending| hash_pending_chunk(pending, &control_for_work))
-                .collect::<Result<Vec<_>>>()
-        })?
-    } else {
-        pending_chunks
-            .into_iter()
-            .map(|pending| hash_pending_chunk(pending, control))
-            .collect::<Result<Vec<_>>>()?
-    };
-    let mut chunk_results = Vec::with_capacity(hashed_chunks.len());
-    for (chunk, elapsed) in hashed_chunks {
-        hash_judgment += elapsed;
-        chunk_results.push(chunk);
-    }
 
     Ok((
         ChunkFileScan {
@@ -240,25 +163,6 @@ fn chunk_file_streaming_with_file_hash_and_control_with_pool(
             hash_judgment,
             hash_judgment_bytes,
         },
-    ))
-}
-
-fn hash_pending_chunk(
-    pending: PendingChunk,
-    control: &crate::GutchOperationControl,
-) -> Result<(ChunkResult, Duration)> {
-    control.checkpoint()?;
-    let started_at = Instant::now();
-    let hash = blake3::hash(&pending.data);
-    let elapsed = started_at.elapsed();
-    Ok((
-        ChunkResult {
-            data: pending.data,
-            #[cfg(test)]
-            offset: pending.offset,
-            hash,
-        },
-        elapsed,
     ))
 }
 

@@ -59,23 +59,13 @@ pub(crate) fn required_artifacts(
                         chunk_ref.chunk_hash
                     ))
                 })?;
+            if entry.raw_size != chunk_ref.raw_size {
+                return Err(Error::manifest(format!(
+                    "chunk index size disagrees with snapshot for '{}'",
+                    chunk_ref.chunk_hash
+                )));
+            }
             Ok(ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry))
-        })
-        .collect()
-}
-
-pub(crate) fn required_artifacts_from_index(
-    snapshot_manifest: &crate::manifest::snapshot::SnapshotManifest,
-    chunk_index: &crate::manifest::ChunkIndex,
-) -> std::collections::HashSet<ArtifactRef> {
-    snapshot_manifest
-        .files()
-        .flat_map(|file| file.chunks.iter())
-        .filter_map(|chunk_ref| {
-            chunk_index
-                .entries
-                .get(&chunk_ref.chunk_hash)
-                .map(|entry| ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry))
         })
         .collect()
 }

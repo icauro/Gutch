@@ -488,7 +488,7 @@ fn compute_pull_plan(
         &repository.updated_at,
         local_file_mtime(&repo_paths.repo_metadata_path),
         policy,
-    ) != ArtifactDecision::Identical;
+    ) == ArtifactDecision::Fetch;
     let chunk_map_needed = decide_artifact(
         repo_paths.chunk_map_path.exists(),
         local_chunk_map_hash_b3(repo_paths)?,
@@ -496,7 +496,7 @@ fn compute_pull_plan(
         &repository.updated_at,
         local_file_mtime(&repo_paths.chunk_map_path),
         policy,
-    ) != ArtifactDecision::Identical;
+    ) == ArtifactDecision::Fetch;
 
     let mut snapshots_to_download = Vec::new();
     let mut snapshots_to_skip = Vec::new();
@@ -680,29 +680,15 @@ fn write_remote_snapshot_artifacts(
     product_metadata: Option<&crate::manifest::SnapshotProductMetadata>,
     blueprint_bytes: &[u8],
 ) -> Result<()> {
-    crate::repo::validate_path_component(snapshot_id, "snapshot ID")?;
-    let staging_dir = tempfile::Builder::new()
-        .prefix(".gutch-snapshot-")
-        .tempdir_in(&repo_paths.snapshots_root)?;
-    let staging_path = staging_dir.path().to_path_buf();
-    crate::helpers::write(
-        &staging_path.join(crate::repo::SNAPSHOT_METADATA_FILE),
-        &serde_json::to_vec_pretty(&metadata.metadata())?,
+    let mut metadata = metadata.clone();
+    metadata.snapshot_id = snapshot_id.to_string();
+    let manifest = super::snapshot_manifests::snapshot_manifest_from_parts(
+        metadata,
+        product_metadata.cloned(),
+        blueprint_bytes,
     )?;
-    if let Some(product_metadata) = product_metadata {
-        product_metadata.validate_structure()?;
-        crate::helpers::write(
-            &staging_path.join(crate::repo::SNAPSHOT_PRODUCT_METADATA_FILE),
-            &serde_json::to_vec_pretty(product_metadata)?,
-        )?;
-    }
-    let blueprint_path = staging_path.join(crate::repo::SNAPSHOT_BLUEPRINT_FILE);
-    crate::helpers::write(&blueprint_path, blueprint_bytes)?;
-    crate::manifest::binary::read_snapshot_blueprint_binary(&blueprint_path)?;
-
-    let staging_path = staging_dir.keep();
-    let destination_dir = repo_paths.snapshots_root.join(snapshot_id);
-    crate::helpers::replace_directory(&staging_path, &destination_dir)
+    super::snapshot_manifests::write_snapshot_manifest_artifacts(repo_paths, &manifest)?;
+    Ok(())
 }
 
 pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
@@ -875,7 +861,7 @@ fn required_bundle_ids_by_snapshot(
             continue;
         };
         let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
-        let mut ids: Vec<String> = required_bundle_ids(&manifest, &chunk_index)
+        let mut ids: Vec<String> = required_bundle_ids(&manifest, &chunk_index)?
             .into_iter()
             .collect();
         ids.sort();
@@ -1544,7 +1530,7 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
         let mut ids = BTreeSet::new();
         for snapshot in &status.snapshots {
             let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
-            ids.extend(required_bundle_ids(&manifest, &chunk_index));
+            ids.extend(required_bundle_ids(&manifest, &chunk_index)?);
         }
         ids.into_iter().collect::<Vec<_>>()
     };
@@ -1929,6 +1915,31 @@ mod tests {
             PullConflictPolicy::KeepLocal,
         );
         assert_eq!(missing, ArtifactDecision::Fetch);
+    }
+
+    #[test]
+    fn pull_plan_preserves_local_repository_metadata_and_index() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = GutchRepoPaths::from_repo_root(root.path());
+        crate::ensure_gutch_repo_layout(&paths, "local").unwrap();
+        crate::write_chunk_index(&paths, &crate::load_chunk_index(&paths).unwrap()).unwrap();
+        let remote = RemoteRepository {
+            id: "remote".into(),
+            scope_id: "scope".into(),
+            name: "remote".into(),
+            metadata_hash_b3: "a".repeat(64),
+            chunk_map_hash_b3: "b".repeat(64),
+            updated_at: "2000-01-01T00:00:00Z".into(),
+        };
+        for (policy, download) in [
+            (PullConflictPolicy::KeepLocal, false),
+            (PullConflictPolicy::KeepNewer, false),
+            (PullConflictPolicy::KeepRemote, true),
+        ] {
+            let plan = compute_pull_plan(root.path(), &paths, &remote, &[], policy).unwrap();
+            assert_eq!(plan.repo_manifest_needed, download);
+            assert_eq!(plan.chunk_map_needed, download);
+        }
     }
 
     #[test]

@@ -103,7 +103,7 @@ fn verify_snapshot_artifacts(
 ) -> Result<SnapshotVerifyResult> {
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let required_artifacts = crate::required_artifacts(&snapshot_manifest, chunk_index)?;
-    let required_bundles = required_bundle_ids(&snapshot_manifest, chunk_index);
+    let required_bundles = required_bundle_ids(&snapshot_manifest, chunk_index)?;
 
     let mut missing_bundles = Vec::new();
     let mut missing_artifacts = Vec::new();

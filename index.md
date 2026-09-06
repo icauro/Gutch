@@ -32478,6 +32478,7 @@ gutch_repo/test_support/s3.py
 gutch_repo/test_support/traces.py
 gutch_repo/tests/
 gutch_repo/tests/fixture_regression.rs
+gutch_repo/tests/repository_safety.rs
 gutch_repo/tests/source_config_ingestion.rs
 gutch_repo/usage.md
 ```

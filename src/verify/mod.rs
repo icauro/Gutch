@@ -16,7 +16,7 @@ use crate::progress::{
     GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
     GutchProgressSink, emit_progress,
 };
-use crate::runtime::{RuntimeResourceHints, build_thread_pool, plan_verify_runtime};
+use crate::runtime::{RuntimeResourceHints, build_thread_pool, plan_runtime};
 mod estimate;
 mod types;
 
@@ -117,7 +117,7 @@ fn classify_inner(
     opts.control.checkpoint()?;
     let _operation_span = opts.control.profile_span(marker_namespace);
     let mut classification = RepairClassification::default();
-    let mut runtime_plan = plan_verify_runtime(opts.hints);
+    let mut runtime_plan = plan_runtime(opts.hints);
     let mut timings = VerifyTimings {
         verify_mode: opts.mode,
         runtime_plan: Some(runtime_plan.clone()),

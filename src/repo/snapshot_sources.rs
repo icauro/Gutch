@@ -145,7 +145,7 @@ pub fn capture_snapshot_sources(
     let total_steps = plan.to_capture.len();
     let mut current_step = 0usize;
 
-    let runtime_plan = crate::plan_build_runtime(&crate::RuntimeResourceHints::default());
+    let runtime_plan = crate::plan_runtime(&crate::RuntimeResourceHints::default());
     let _pool_span = control.profile_span_with_args(
         "capture.create_worker_pool",
         std::collections::BTreeMap::from([(
@@ -189,7 +189,7 @@ pub fn capture_snapshot_sources(
         captured_count += 1;
     }
 
-    let _ = crate::cleanup_orphan_bundles_in_repo(repo_root, control)?;
+    let _ = crate::cleanup_orphan_artifacts_in_repo(repo_root, control)?;
 
     progress::emit_progress(
         control.progress(),

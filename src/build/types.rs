@@ -104,11 +104,11 @@ pub struct BuildResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct StagedBundleFile {
+pub(crate) struct StagedArtifactFile {
     path: PathBuf,
 }
 
-impl StagedBundleFile {
+impl StagedArtifactFile {
     pub(crate) fn new(path: PathBuf) -> Self {
         Self { path }
     }
@@ -127,7 +127,7 @@ impl StagedBundleFile {
     }
 }
 
-impl Drop for StagedBundleFile {
+impl Drop for StagedArtifactFile {
     fn drop(&mut self) {
         self.discard();
     }
@@ -136,7 +136,7 @@ impl Drop for StagedBundleFile {
 #[derive(Debug)]
 pub struct BuiltBundle {
     pub bundle_id: String,
-    pub(crate) staged_file: StagedBundleFile,
+    pub(crate) staged_file: StagedArtifactFile,
     pub(crate) size: u64,
     pub(crate) entries: Vec<crate::manifest::BundleTableEntry>,
 }
@@ -147,10 +147,10 @@ impl BuiltBundle {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BuiltLooseChunk {
     pub chunk_hash: ChunkHash,
-    pub data: Vec<u8>,
+    pub(crate) staged_file: StagedArtifactFile,
     pub raw_size: u64,
     pub compressed_size: u64,
 }
@@ -162,26 +162,42 @@ pub(crate) struct ExistingChunkLocation {
     pub storage_mode: ArtifactStorageMode,
 }
 
+/// A scanned source range, loaded only while encoding its artifact.
 #[derive(Debug, Clone)]
-pub(crate) enum ChunkPayload {
-    InMemory { bytes: Arc<[u8]> },
+pub(crate) struct ChunkPayload {
+    pub(crate) source: Arc<PathBuf>,
+    pub(crate) offset: u64,
+    pub(crate) size: u64,
+    pub(crate) hash: ChunkHash,
 }
 
 impl ChunkPayload {
     pub(crate) fn raw_size(&self) -> u64 {
-        match self {
-            ChunkPayload::InMemory { bytes } => bytes.len() as u64,
-        }
+        self.size
     }
 
     pub(crate) fn load_bytes(&self) -> crate::Result<Vec<u8>> {
-        self.with_bytes(|bytes| bytes.to_vec())
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(self.source.as_ref())?;
+        file.seek(SeekFrom::Start(self.offset))?;
+        let mut bytes = vec![
+            0;
+            usize::try_from(self.size).map_err(|_| crate::Error::manifest(
+                "chunk exceeds address space"
+            ))?
+        ];
+        file.read_exact(&mut bytes)?;
+        if ChunkHash::from_blake3(blake3::hash(&bytes)) != self.hash {
+            return Err(crate::Error::manifest(format!(
+                "source changed during capture: {}",
+                self.source.display()
+            )));
+        }
+        Ok(bytes)
     }
 
     pub(crate) fn with_bytes<T>(&self, f: impl FnOnce(&[u8]) -> T) -> crate::Result<T> {
-        match self {
-            ChunkPayload::InMemory { bytes } => Ok(f(bytes.as_ref())),
-        }
+        Ok(f(&self.load_bytes()?))
     }
 }
 

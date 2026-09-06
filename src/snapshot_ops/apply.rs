@@ -60,6 +60,62 @@ pub(crate) fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: 
     ))
 }
 
+pub(super) struct SnapshotStaging {
+    directory: tempfile::TempDir,
+    created_parent: Option<PathBuf>,
+}
+
+impl SnapshotStaging {
+    pub(super) fn path(&self) -> &Path {
+        self.directory.path()
+    }
+}
+
+impl Drop for SnapshotStaging {
+    fn drop(&mut self) {
+        let _ = crate::helpers::remove_dir_all(self.directory.path());
+        if let Some(parent) = &self.created_parent {
+            // Remove only an empty parent created by this operation.
+            let _ = std::fs::remove_dir(parent);
+        }
+    }
+}
+
+pub(super) fn create_snapshot_staging(
+    destination: &Path,
+    staging_parent: &Path,
+    repo_root: &Path,
+    source: Option<&Path>,
+) -> Result<SnapshotStaging> {
+    crate::path_guard::require_disjoint_paths(staging_parent, destination)?;
+    if let Some(source) = source {
+        crate::path_guard::require_disjoint_paths(staging_parent, source)?;
+    }
+    let resolved_staging = crate::path_guard::resolve_operation_path(staging_parent)?;
+    let resolved_repo = crate::path_guard::resolve_operation_path(repo_root)?;
+    if resolved_repo.starts_with(crate::path_guard::resolve_operation_path(destination)?) {
+        return Err(Error::PathError {
+            path: destination.to_path_buf(),
+            reason: "destination must not contain the repository".into(),
+        });
+    }
+    if resolved_repo.starts_with(&resolved_staging) {
+        return Err(Error::PathError {
+            path: staging_parent.to_path_buf(),
+            reason: "staging must not contain the repository".into(),
+        });
+    }
+    let created_parent = (!staging_parent.exists()).then(|| staging_parent.to_path_buf());
+    crate::helpers::create_dir_all(staging_parent)?;
+    let directory = tempfile::Builder::new()
+        .prefix(".gutch-operation-")
+        .tempdir_in(staging_parent)?;
+    Ok(SnapshotStaging {
+        directory,
+        created_parent,
+    })
+}
+
 pub fn verify_installed_snapshot(
     request: SnapshotVerifyFromRepoRequest,
 ) -> Result<SnapshotVerifyFromRepoResult> {
