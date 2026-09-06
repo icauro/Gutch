@@ -451,3 +451,37 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     server.join().unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn repair_restores_manifest_file_attributes() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("destination");
+    std::fs::create_dir_all(&destination).unwrap();
+    std::fs::write(destination.join("game.dat"), b"").unwrap();
+    let mut manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
+    if let crate::manifest::SnapshotEntry::File(file) = &mut manifest.entries[0] {
+        file.read_only = true;
+        file.executable = true;
+    }
+    write_repair_test_repo(root.path(), &manifest);
+    repair_snapshot_from_repo(crate::SnapshotRepairFromRepoRequest {
+        repo_path: root.path().to_path_buf(),
+        snapshot_id: manifest.snapshot_id,
+        destination_dir: destination.clone(),
+        staging_dir: None,
+        remove_added_files: true,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: crate::GutchOperationControl::default(),
+    })
+    .unwrap();
+    let permissions = std::fs::metadata(destination.join("game.dat"))
+        .unwrap()
+        .permissions();
+    assert!(permissions.readonly());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_ne!(permissions.mode() & 0o111, 0);
+    }
+    crate::helpers::remove_dir_all(&destination).unwrap();
+}

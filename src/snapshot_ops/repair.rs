@@ -16,7 +16,8 @@ use crate::{Error, Result};
 use super::apply::default_snapshot_staging_dir;
 use super::pipeline::{
     ExecuteReconstructPipelineRequest, build_reconstruct_pipeline_plan,
-    execute_reconstruct_pipeline_reconstruction, prepare_snapshot_entries,
+    execute_reconstruct_pipeline_reconstruction, finalize_snapshot_entries,
+    prepare_snapshot_entries,
 };
 use super::types::{
     SnapshotRepairFromRepoRequest, SnapshotRepairFromRepoResult, SnapshotRepairPlanFromRepoRequest,
@@ -264,7 +265,13 @@ fn finalize_repair_result_after_reconstruction(
         )?);
     }
 
-    promote_repaired_files(&repair_plan.affected_manifest, destination_dir, staging_dir)?;
+    promote_repaired_files(
+        &repair_plan.affected_manifest,
+        destination_dir,
+        staging_dir,
+        control,
+        operation_pool,
+    )?;
     let _ = crate::helpers::remove_dir_all(staging_dir);
 
     if let Some(preserved_extra_dir) = preserved_extra_dir.as_ref() {
@@ -429,6 +436,8 @@ fn promote_repaired_files(
     repaired_manifest: &SnapshotManifest,
     destination_dir: &Path,
     staging_dir: &Path,
+    control: &crate::GutchOperationControl,
+    operation_pool: Option<&ThreadPool>,
 ) -> Result<()> {
     let mut directories = repaired_manifest
         .entries
@@ -463,9 +472,20 @@ fn promote_repaired_files(
             crate::helpers::create_dir_all(parent)?;
         }
         remove_existing_entry(&dest)?;
-        fs::rename(&source, &dest)?;
+        if matches!(entry, SnapshotEntry::File(_)) {
+            fs::rename(&source, &dest)?;
+        }
     }
 
+    // Reconstruction emits bytes. Apply the same file attributes and links as
+    // normal reconstruction before declaring the repaired destination verified.
+    finalize_snapshot_entries(
+        repaired_manifest,
+        destination_dir,
+        control,
+        operation_pool.map_or(1, ThreadPool::current_num_threads),
+        operation_pool,
+    )?;
     directories.sort_by_key(|directory| std::cmp::Reverse(directory.path.matches('/').count()));
     for directory in directories {
         let dest =
