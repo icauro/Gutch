@@ -4,7 +4,6 @@ pub(crate) mod bundle;
 pub(crate) mod commands;
 pub(crate) mod common;
 pub(crate) mod path;
-pub(crate) mod path_compare;
 pub(crate) mod progress;
 pub(crate) mod remote;
 pub(crate) mod repo;

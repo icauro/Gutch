@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 use gutch as g;
 use serde::Serialize;
 
-use crate::command_api::reporting::OptionalOutputPaths;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ComparableKind {
     File,
@@ -20,28 +18,22 @@ struct ComparableEntry {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct PathCompareStats {
-    pub(crate) command: &'static str,
-    pub(crate) expected_path: String,
-    pub(crate) actual_path: String,
-    pub(crate) expected_file_count: usize,
-    pub(crate) actual_file_count: usize,
-    pub(crate) matched_file_count: usize,
-    pub(crate) mismatched_file_count: usize,
-    pub(crate) missing_file_count: usize,
-    pub(crate) extra_file_count: usize,
-    pub(crate) compare_passed: bool,
-    pub(crate) mismatched_files: Vec<String>,
-    pub(crate) missing_files: Vec<String>,
-    pub(crate) extra_files: Vec<String>,
-    pub(crate) outputs: OptionalOutputPaths,
+pub struct PathComparisonResult {
+    pub expected_path: String,
+    pub actual_path: String,
+    pub expected_file_count: usize,
+    pub actual_file_count: usize,
+    pub matched_file_count: usize,
+    pub mismatched_file_count: usize,
+    pub missing_file_count: usize,
+    pub extra_file_count: usize,
+    pub compare_passed: bool,
+    pub mismatched_files: Vec<String>,
+    pub missing_files: Vec<String>,
+    pub extra_files: Vec<String>,
 }
 
-pub(crate) fn compare_paths(
-    expected: &Path,
-    actual: &Path,
-    outputs: OptionalOutputPaths,
-) -> g::Result<PathCompareStats> {
+pub fn compare_paths(expected: &Path, actual: &Path) -> g::Result<PathComparisonResult> {
     let expected_files = collect_comparable_files(expected)?;
     let mut actual_files = collect_comparable_files(actual)?;
     if expected.is_file()
@@ -92,8 +84,7 @@ pub(crate) fn compare_paths(
 
     let compare_passed =
         mismatched_files.is_empty() && missing_files.is_empty() && extra_files.is_empty();
-    Ok(PathCompareStats {
-        command: "path compare",
+    Ok(PathComparisonResult {
         expected_path: expected.display().to_string(),
         actual_path: actual.display().to_string(),
         expected_file_count: expected_files.len(),
@@ -106,7 +97,6 @@ pub(crate) fn compare_paths(
         mismatched_files,
         missing_files,
         extra_files,
-        outputs,
     })
 }
 

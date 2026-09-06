@@ -17,6 +17,7 @@ mod error;
 mod file_integrity;
 mod helpers;
 mod manifest;
+mod path_compare;
 mod profile;
 mod progress;
 mod repo;

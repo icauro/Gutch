@@ -716,7 +716,7 @@ pub fn bind_repo_remote(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
     write_gutch_repo_manifest(&paths, &manifest)
 }
 
-pub(crate) fn list_remote_repositories(
+pub fn list_remote_repositories(
     provider: &dyn RemoteRepositoryCommandProvider,
 ) -> Result<Vec<RemoteRepositorySummary>> {
     provider.list_remote_repositories()
@@ -782,7 +782,7 @@ pub fn unlink_repo(
     Ok(())
 }
 
-pub(crate) fn inspect_repo_tag_references(
+pub fn inspect_repo_tag_references(
     repo_root: &Path,
     provider: &dyn RemoteRepositoryCommandProvider,
 ) -> Result<RemoteTagReferencesResult> {

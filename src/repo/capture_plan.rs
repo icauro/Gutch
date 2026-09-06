@@ -303,7 +303,18 @@ pub fn capture_repo_snapshot(
         scan_existing_store_state_with_pool(&repo_paths, &build_pool, &request.control)?;
     drop(_existing_state_span);
 
-    capture_repo_snapshot_with_existing_store_state(request, &mut store_state, &build_pool)
+    let (_, mut manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
+    manifest.set_artifact_profile(
+        request.chunk_profile,
+        request.compression_algorithm,
+        request.compression_level,
+        request.bundle_profile,
+        request.storage_mode,
+    );
+    let result =
+        capture_repo_snapshot_with_existing_store_state(request, &mut store_state, &build_pool)?;
+    crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
+    Ok(result)
 }
 
 pub(crate) fn capture_repo_snapshot_with_existing_store_state(

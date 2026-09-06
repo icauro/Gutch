@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
+use crate::api::compare_paths;
 use crate::command_api::common::write_report;
-use crate::command_api::path_compare::compare_paths;
 use crate::command_api::reporting::optional_output_paths;
 use gutch as g;
 
@@ -10,8 +10,22 @@ pub(crate) fn compare(
     actual: PathBuf,
     stats_json_out: Option<PathBuf>,
 ) -> g::Result<()> {
-    let stats = compare_paths(&expected, &actual, optional_output_paths(&stats_json_out))?;
-    write_report(&stats_json_out, &stats)?;
+    let stats = compare_paths(&expected, &actual)?;
+    #[derive(serde::Serialize)]
+    struct Report<'a> {
+        command: &'static str,
+        #[serde(flatten)]
+        result: &'a g::api::PathComparisonResult,
+        outputs: crate::command_api::reporting::OptionalOutputPaths,
+    }
+    write_report(
+        &stats_json_out,
+        &Report {
+            command: "path compare",
+            result: &stats,
+            outputs: optional_output_paths(&stats_json_out),
+        },
+    )?;
 
     if stats.compare_passed {
         println!(
@@ -32,7 +46,7 @@ pub(crate) fn compare(
         for relative_path in &stats.extra_files {
             eprintln!("  EXTRA: {}", relative_path);
         }
-        std::process::exit(1);
+        return Err(g::Error::verify("path comparison failed"));
     }
 
     Ok(())

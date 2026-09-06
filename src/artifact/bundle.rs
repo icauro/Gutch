@@ -1000,3 +1000,10 @@ pub(crate) fn read_bundle<'a>(
 #[cfg(test)]
 #[path = "bundle_tests.rs"]
 mod tests;
+
+/// Inspect a bundle using its repository's compression profile without rendering output.
+pub fn inspect_bundle(bundle: &Path, repo: &Path) -> Result<Vec<BundleTableEntry>> {
+    let (_, manifest) = crate::load_gutch_repo_manifest(repo)?;
+    let reader = BundleReader::open(File::open(bundle)?, &manifest.compression_profile())?;
+    Ok(reader.entries().to_vec())
+}

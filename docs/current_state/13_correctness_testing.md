@@ -37,7 +37,7 @@ files; reusable operations belong in `tests/support/`.
 Python scenarios cover capture identity and deduplication, compression/storage
 modes, explicit and automatic source discovery, version updates and source
 reuse, file attributes, links, verification and repair, snapshot cleanup,
-missing artifacts, staging overlap, malicious paths, failed promotion, transfer
+missing artifacts, repository-verification exit status, path-comparison reports, staging overlap, malicious paths, failed promotion, transfer
 failures, retries, process interruption and concurrent run isolation.
 
 The promotion-denial scenario uses Windows file sharing. It explicitly skips

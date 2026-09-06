@@ -160,6 +160,9 @@ pub(crate) fn run(
                     println!("  corrupt artifact: {corrupt}");
                 }
             }
+            if !result.ok {
+                return Err(g::Error::verify("repository verification failed"));
+            }
         }
 
         RepoCommands::Sources { command } => {

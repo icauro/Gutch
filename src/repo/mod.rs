@@ -1,4 +1,5 @@
 pub(crate) mod capture_plan;
+pub(crate) mod capture_sources;
 pub(crate) mod check;
 pub(crate) mod chunk_index;
 pub(crate) mod cleanup;

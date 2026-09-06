@@ -2,18 +2,12 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use serde::Serialize;
-use tempfile::TempDir;
 
 use crate::command_api::reporting::{
     BuildTimingsSummary, OptionalOutputPaths, ReconstructTimingsSummary, VerifyTimingsSummary,
     write_stats_json_output,
 };
 use gutch as g;
-
-pub(crate) struct PreparedInputPath {
-    pub(crate) dir: PathBuf,
-    pub(crate) _tempdir: Option<TempDir>,
-}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SnapshotCaptureStats {
@@ -171,33 +165,6 @@ pub(crate) fn write_report<T: Serialize>(
     stats: &T,
 ) -> g::Result<()> {
     write_stats_json_output(stats_json_out, stats)
-}
-
-pub(crate) fn prepare_input_path(path: &PathBuf) -> g::Result<PreparedInputPath> {
-    if path.is_dir() {
-        return Ok(PreparedInputPath {
-            dir: path.clone(),
-            _tempdir: None,
-        });
-    }
-
-    if path.is_file() {
-        let tempdir = tempfile::Builder::new().prefix("gutch_input_").tempdir()?;
-        let filename = path.file_name().ok_or_else(|| {
-            g::Error::manifest(format!("input file has no name: {}", path.display()))
-        })?;
-        let staged_path = tempdir.path().join(filename);
-        std::fs::copy(path, &staged_path)?;
-        return Ok(PreparedInputPath {
-            dir: tempdir.path().to_path_buf(),
-            _tempdir: Some(tempdir),
-        });
-    }
-
-    Err(g::Error::manifest(format!(
-        "input path does not exist or is unsupported: {}",
-        path.display()
-    )))
 }
 
 pub(crate) fn load_snapshot_manifest_from_repo(

@@ -3,16 +3,12 @@ use std::path::PathBuf;
 use gutch as g;
 
 pub(crate) fn inspect(bundle: PathBuf, repo: PathBuf) -> g::Result<()> {
-    let (_, repo_manifest) = g::load_gutch_repo_manifest(&repo)?;
-    let reader = g::bundle::BundleReader::open(
-        std::fs::File::open(&bundle)?,
-        &repo_manifest.compression_profile(),
-    )?;
+    let entries = g::api::inspect_bundle(&bundle, &repo)?;
 
     println!("bundle: {}", bundle.display());
     println!("repo: {}", repo.display());
-    println!("  chunks: {}", reader.chunk_count());
-    for entry in reader.entries() {
+    println!("  chunks: {}", entries.len());
+    for entry in &entries {
         println!(
             "  - {} raw={} compressed={} ratio={:.1}%",
             &entry.chunk_hash[..16.min(entry.chunk_hash.len())],

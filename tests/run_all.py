@@ -33,6 +33,8 @@ class Scenario:
 
 
 SCENARIOS = [
+    Scenario("repository_verification", "repository_verification_returns_failure_for_missing_artifacts", "local"),
+    Scenario("path_comparison", "path_comparison_reports_mismatches_and_returns_failure", "local"),
     Scenario("capture_roundtrip", "repeated_capture_preserves_snapshot_identity_and_roundtrips_files", "fast"),
     Scenario("capture_deduplication", "capturing_changed_versions_reuses_chunks_and_restores_both_versions", "local"),
     Scenario("capture_profiles", "compression_and_storage_profiles_preserve_file_contents", "local"),
