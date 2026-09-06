@@ -13,14 +13,13 @@ pub(crate) fn run(
         SnapshotSourcesCommands::Capture {
             repo,
             source_root,
-            no_prune,
             yes,
             json_out,
         } => {
             let result = capture_snapshot_sources(
                 &repo,
                 &source_root,
-                CliSnapshotSourcesCaptureOptions { no_prune, yes },
+                CliSnapshotSourcesCaptureOptions { yes },
                 profile,
             )?;
 

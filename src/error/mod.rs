@@ -34,6 +34,11 @@ pub enum Error {
     #[error("Source snapshot destination did not verify: {0}")]
     SourceSnapshotNotVerified(String),
 
+    #[error("{outcome}")]
+    SnapshotCaptureConflict {
+        outcome: crate::repo::capture_plan::SnapshotCaptureOutcome,
+    },
+
     #[error("Reconstruction error: {0}")]
     Reconstruct(String),
 

@@ -39,7 +39,6 @@ pub(crate) use artifact::hash::ChunkHash;
 pub(crate) use snapshot_ops::snapshot_manifest_from_download;
 
 pub(crate) use build::pipeline::build_from_directory;
-pub(crate) use build::pipeline::build_with_config_timed_on_pool;
 pub(crate) use build::types::BuildTimings;
 pub(crate) use build::types::ExistingChunkLocation;
 pub(crate) use build::types::{BuildConfig, BuiltBundle, BuiltLooseChunk};
@@ -52,20 +51,17 @@ pub(crate) use progress::{
     GutchProgressSink,
 };
 pub(crate) use repo::capture_plan::{
-    RepoSnapshotCaptureRequest, SnapshotCaptureKind, SnapshotCapturePlan,
-    capture_repo_snapshot_with_plan, delete_repo_snapshot_and_cleanup,
-    describe_snapshot_capture_plan, plan_snapshot_capture_with_control,
-};
-pub(crate) use repo::capture_plan::{
-    capture_repo_snapshot_with_existing_store_state, delete_repo_snapshots,
-    delete_repo_snapshots_with_matching_tags,
+    RepoSnapshotCaptureRequest, RepoSnapshotCaptureResult, SnapshotCapturePlan,
+    capture_repo_snapshot, capture_repo_snapshot_with_existing_store_state,
+    delete_repo_snapshot_and_cleanup, describe_snapshot_capture_plan,
+    plan_snapshot_capture_with_control, retag_snapshot_by_id,
 };
 pub(crate) use repo::check::{RepoCheckSnapshotStatus, check_gutch_repo};
 pub(crate) use repo::chunk_index::{
     add_built_bundles_to_chunk_index, add_built_loose_chunks_to_chunk_index, load_chunk_index,
     write_chunk_index,
 };
-pub(crate) use repo::cleanup::{cleanup_orphan_bundles_in_repo, remove_snapshot_from_repo};
+pub(crate) use repo::cleanup::cleanup_orphan_bundles_in_repo;
 pub(crate) use repo::init_policy::{
     RepoInitAssessment, RepoInitOptions, RepoInitPathKind, assess_repo_init_path,
     initialize_gutch_repo_with_options,
@@ -89,9 +85,8 @@ pub(crate) use repo::snapshot_manifests::{
     snapshot_blueprint_path, write_snapshot_manifest_artifacts,
 };
 pub(crate) use repo::snapshot_sources::{
-    SnapshotSourcesCaptureOptions, SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult,
-    capture_snapshot_sources, describe_snapshot_sources_capture_plan,
-    plan_snapshot_sources_capture,
+    SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult, capture_snapshot_sources,
+    describe_snapshot_sources_capture_plan, plan_snapshot_sources_capture,
 };
 pub(crate) use repo::source_identity::compute_snapshot_id_from_entries;
 pub(crate) use repo::tag_references::{TagReference, TagReferenceStatus, advisory_tag_references};

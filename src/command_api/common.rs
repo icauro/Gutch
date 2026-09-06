@@ -1,8 +1,6 @@
-use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use rayon::prelude::*;
 use serde::Serialize;
 use tempfile::TempDir;
 
@@ -10,9 +8,6 @@ use crate::command_api::reporting::{
     BuildTimingsSummary, OptionalOutputPaths, ReconstructTimingsSummary, VerifyTimingsSummary,
     write_stats_json_output,
 };
-use crate::command_api::verbose_output_enabled;
-use crate::hash::ChunkHash;
-use g::repo::{required_bundle_ids as resolve_required_bundle_ids, required_chunk_hashes};
 use gutch as g;
 
 pub(crate) struct PreparedInputPath {
@@ -227,48 +222,6 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     Ok((repo_paths, repo_manifest, manifest_path, snapshot_manifest))
 }
 
-pub(crate) fn count_required_chunks(
-    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
-) -> usize {
-    required_chunk_hashes(snapshot_manifest).len()
-}
-
-pub(crate) fn count_required_bundles_from_chunk_index(
-    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
-    chunk_index: &g::manifest::ChunkIndex,
-) -> usize {
-    resolve_required_bundle_ids(snapshot_manifest, chunk_index).len()
-}
-
-pub(crate) fn count_required_bundles_for_build(
-    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
-    existing_chunk_locations: &HashMap<String, g::ExistingChunkLocation>,
-    generated_bundles: &[g::BuiltBundle],
-    _generated_loose_chunks: &[g::BuiltLooseChunk],
-) -> usize {
-    let existing_chunk_locations_by_hash = existing_chunk_locations
-        .iter()
-        .filter_map(|(chunk_hash, location)| {
-            ChunkHash::parse_hex(chunk_hash)
-                .ok()
-                .map(|chunk_hash| (chunk_hash, location))
-        })
-        .collect::<HashMap<_, _>>();
-    let mut required_bundle_ids = HashSet::new();
-    let Ok(required_chunks) = g::repo::required_chunk_hashes_typed(snapshot_manifest) else {
-        return generated_bundles.len();
-    };
-    for chunk_hash in required_chunks {
-        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
-            && existing.storage_mode == g::manifest::ArtifactStorageMode::Bundled
-        {
-            required_bundle_ids.insert(existing.bundle_id.clone());
-        }
-    }
-
-    required_bundle_ids.len() + generated_bundles.len()
-}
-
 pub(crate) fn parse_bundle_downloads(bundle_args: &[String]) -> g::Result<Vec<g::BundleDownload>> {
     bundle_args
         .iter()
@@ -294,149 +247,6 @@ pub(crate) fn parse_bundle_downloads(bundle_args: &[String]) -> g::Result<Vec<g:
             })
         })
         .collect()
-}
-
-pub(crate) fn write_snapshot_manifest(
-    repo_paths: &g::GutchRepoPaths,
-    snapshot_manifest: &g::manifest::snapshot::SnapshotManifest,
-) -> g::Result<(PathBuf, u64)> {
-    let (manifest_path, manifest_size) =
-        g::write_snapshot_manifest_artifacts(repo_paths, snapshot_manifest)?;
-    if verbose_output_enabled() {
-        println!("wrote snapshot manifest: {}", manifest_path.display());
-    }
-    Ok((manifest_path, manifest_size))
-}
-
-pub(crate) fn write_bundles(
-    bundles_root: &std::path::Path,
-    bundles: &[g::BuiltBundle],
-    pool: &rayon::ThreadPool,
-    control: &g::GutchOperationControl,
-) -> g::Result<std::collections::HashMap<String, u64>> {
-    let total_bytes = bundles.iter().map(|bundle| bundle.size).sum::<u64>();
-    let _phase_span = control.profile_span_with_args(
-        "capture.publish_snapshot.write_bundle_artifacts",
-        capture_count_bytes_trace_args(bundles.len(), total_bytes),
-    );
-    let control_for_work = control.clone();
-    let written = pool.install(|| {
-        bundles
-            .par_iter()
-            .map(|bundle| {
-                control_for_work.checkpoint()?;
-                let bundle_path = g::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
-                let _bundle_span = control_for_work.profile_span_with_args(
-                    "capture.publish_snapshot.write_bundle_artifact",
-                    capture_artifact_write_trace_args(
-                        "bundle",
-                        &bundle.bundle_id,
-                        &bundle_path,
-                        bundle.size,
-                    ),
-                );
-                if let Some(parent) = bundle_path.parent() {
-                    crate::helpers::create_dir_all(parent)?;
-                }
-                if bundle_path.exists() {
-                    bundle.discard_staged_file();
-                } else {
-                    bundle.staged_file.promote_to(&bundle_path)?;
-                }
-                Ok((bundle.bundle_id.clone(), bundle_path, bundle.size as usize))
-            })
-            .collect::<g::Result<Vec<_>>>()
-    })?;
-    let mut bundle_sizes = std::collections::HashMap::with_capacity(written.len());
-    for (bundle_id, bundle_path, bundle_size) in written {
-        bundle_sizes.insert(bundle_id, bundle_size as u64);
-        if verbose_output_enabled() {
-            println!(
-                "wrote bundle: {} ({} bytes)",
-                bundle_path.display(),
-                bundle_size
-            );
-        }
-    }
-    Ok(bundle_sizes)
-}
-
-pub(crate) fn write_loose_chunks(
-    chunks_root: &std::path::Path,
-    chunks: &[g::BuiltLooseChunk],
-    pool: &rayon::ThreadPool,
-    control: &g::GutchOperationControl,
-) -> g::Result<std::collections::HashMap<String, u64>> {
-    let total_bytes = chunks
-        .iter()
-        .map(|chunk| chunk.data.len() as u64)
-        .sum::<u64>();
-    let _phase_span = control.profile_span_with_args(
-        "capture.publish_snapshot.write_loose_chunk_artifacts",
-        capture_count_bytes_trace_args(chunks.len(), total_bytes),
-    );
-    let control_for_work = control.clone();
-    let written = pool.install(|| {
-        chunks
-            .par_iter()
-            .map(|chunk| {
-                control_for_work.checkpoint()?;
-                let chunk_hash = chunk.chunk_hash.to_string();
-                let chunk_path = g::chunk_path_in_root(chunks_root, &chunk_hash)?;
-                if let Some(parent) = chunk_path.parent() {
-                    crate::helpers::create_dir_all(parent)?;
-                }
-                let _chunk_span = control_for_work.profile_span_with_args(
-                    "capture.publish_snapshot.write_loose_chunk_artifact",
-                    capture_artifact_write_trace_args(
-                        "loose_chunk",
-                        &chunk_hash,
-                        &chunk_path,
-                        chunk.data.len() as u64,
-                    ),
-                );
-                crate::helpers::write(&chunk_path, &chunk.data)?;
-                Ok((chunk_hash, chunk_path, chunk.data.len()))
-            })
-            .collect::<g::Result<Vec<_>>>()
-    })?;
-    let mut chunk_sizes = std::collections::HashMap::with_capacity(written.len());
-    for (chunk_hash, chunk_path, chunk_size) in written {
-        chunk_sizes.insert(chunk_hash, chunk_size as u64);
-        if verbose_output_enabled() {
-            println!(
-                "wrote chunk: {} ({} bytes)",
-                chunk_path.display(),
-                chunk_size
-            );
-        }
-    }
-    Ok(chunk_sizes)
-}
-
-fn capture_count_bytes_trace_args(
-    count: usize,
-    bytes: u64,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
-        ("count".to_string(), serde_json::json!(count)),
-        (
-            "bytes_mib".to_string(),
-            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
-        ),
-    ])
-}
-
-fn capture_artifact_write_trace_args(
-    kind: &str,
-    artifact_id: &str,
-    path: &std::path::Path,
-    bytes: u64,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = g::file_trace_args(path.display().to_string(), bytes);
-    args.insert("artifact_kind".to_string(), serde_json::json!(kind));
-    args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));
-    args
 }
 
 pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> g::Result<bool> {

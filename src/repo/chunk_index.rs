@@ -187,26 +187,6 @@ fn add_previous_file_manifests(
     }
 }
 
-pub fn existing_chunk_locations_from_index_with_pool(
-    chunk_index: &manifest::ChunkIndex,
-    paths: &GutchRepoPaths,
-    pool: &rayon::ThreadPool,
-) -> Result<std::collections::HashMap<String, crate::ExistingChunkLocation>> {
-    let bundle_paths = collect_file_paths(&paths.bundles_root)?;
-    let available_bundle_ids: HashSet<String> = pool.install(|| {
-        bundle_paths
-            .par_iter()
-            .filter_map(|path| bundle_id_from_bundle_path(path))
-            .collect()
-    });
-    existing_chunk_locations_from_index_with_pool_and_bundle_ids(
-        chunk_index,
-        paths,
-        pool,
-        &available_bundle_ids,
-    )
-}
-
 pub(crate) fn existing_chunk_locations_from_index_with_pool_and_bundle_ids(
     chunk_index: &manifest::ChunkIndex,
     paths: &GutchRepoPaths,

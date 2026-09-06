@@ -229,8 +229,6 @@ pub(crate) enum SnapshotSourcesCommands {
         repo: PathBuf,
         #[arg(long = "source-root", value_parser = parse_absolute_path)]
         source_root: PathBuf,
-        #[arg(long = "no-prune")]
-        no_prune: bool,
         #[arg(long = "yes")]
         yes: bool,
         #[arg(long = "json-out", value_parser = parse_absolute_path)]
@@ -264,6 +262,17 @@ pub(crate) enum SnapshotCommands {
         repo: PathBuf,
         #[arg(long = "snapshot-id")]
         snapshot_id: String,
+        #[arg(long = "yes")]
+        yes: bool,
+    },
+    #[command(name = "retag")]
+    Retag {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long = "snapshot-id")]
+        snapshot_id: String,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
         #[arg(long = "yes")]
         yes: bool,
     },

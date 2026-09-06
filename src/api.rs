@@ -25,10 +25,10 @@ pub use crate::progress::{
     GutchProgressPhase, GutchProgressSink,
 };
 pub use crate::repo::capture_plan::{
-    RepoSnapshotCaptureRequest, RepoSnapshotCaptureResult, SnapshotCaptureKind,
-    SnapshotCapturePlan, capture_repo_snapshot, capture_repo_snapshot_with_plan,
+    MetadataFieldDifference, RepoSnapshotCaptureRequest, RepoSnapshotCaptureResult,
+    RetagSnapshotResult, SnapshotCaptureOutcome, SnapshotCapturePlan, capture_repo_snapshot,
     delete_repo_snapshot_and_cleanup, describe_snapshot_capture_plan, plan_snapshot_capture,
-    plan_snapshot_capture_with_control,
+    plan_snapshot_capture_with_control, retag_snapshot_by_id,
 };
 pub use crate::repo::check::{
     RepoCheckSnapshotStatus, RepoCheckStatus, SourceSnapshotOperationCandidate,
@@ -52,9 +52,9 @@ pub use crate::repo::snapshot_manifests::{
     validate_snapshot_product_metadata_for_snapshots,
 };
 pub use crate::repo::snapshot_sources::{
-    SnapshotSourcesCaptureOptions, SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult,
-    SnapshotSourcesRefresh, capture_snapshot_sources, describe_snapshot_sources_capture_plan,
-    plan_snapshot_sources_capture, plan_snapshot_sources_capture_with_context,
+    SnapshotSourcesCapturePlan, SnapshotSourcesCaptureResult, capture_snapshot_sources,
+    describe_snapshot_sources_capture_plan, plan_snapshot_sources_capture,
+    plan_snapshot_sources_capture_with_context,
 };
 pub use crate::repo::tag_references::{TagReference, TagReferenceStatus, advisory_tag_references};
 pub use crate::repo::updates::update_gutch_repo_name;

@@ -14,25 +14,6 @@ pub(crate) fn format_system_time_utc(time: std::time::SystemTime) -> String {
         .to_string()
 }
 
-pub(crate) fn is_source_modified_at_newer(candidate: &str, recorded: &str) -> bool {
-    if recorded.trim().is_empty() {
-        return true;
-    }
-    let Some(recorded_time) = parse_source_modified_at(recorded) else {
-        return true;
-    };
-    let Some(candidate_time) = parse_source_modified_at(candidate) else {
-        return false;
-    };
-    candidate_time > recorded_time
-}
-
-fn parse_source_modified_at(value: &str) -> Option<std::time::SystemTime> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(std::time::SystemTime::from)
-}
-
 fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
     if !dir.is_dir() {
         return Err(Error::manifest(format!(

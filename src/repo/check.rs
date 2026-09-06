@@ -103,7 +103,6 @@ pub enum SourceSnapshotOperationDisposition {
     #[default]
     Unchanged,
     Capture,
-    Refresh,
     Invalid,
 }
 

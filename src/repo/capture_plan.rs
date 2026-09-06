@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ExistingStoreState, Result, SourceSnapshotOperationCandidate,
-    check::build_source_snapshot_ops_candidate_with_modified_at, check_gutch_repo,
-    remove_snapshot_from_repo, scan_existing_store_state_with_pool,
+    check::build_source_snapshot_ops_candidate_with_modified_at, remove_snapshot_from_repo,
+    scan_existing_store_state_with_pool,
 };
 use crate::build_scan::{SourceInventory, scan_source_inventory};
 use crate::hash::ChunkHash;
@@ -18,18 +18,90 @@ use crate::progress::{
 };
 use crate::runtime::RuntimeResourceHints;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// One differing metadata field between a capture candidate and the stored
+/// snapshot with the same content-derived ID.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum SnapshotCaptureKind {
-    CaptureNew,
-    Relabel,
-    ReplaceSlot,
+pub struct MetadataFieldDifference {
+    pub field: String,
+    pub existing: String,
+    pub requested: String,
+}
+
+/// Typed outcome when capture computes a content-derived snapshot ID that
+/// already exists in the repo.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SnapshotCaptureOutcome {
+    Created {
+        snapshot_id: String,
+    },
+    Unchanged {
+        snapshot_id: String,
+    },
+    MetadataConflict {
+        snapshot_id: String,
+        differences: Vec<MetadataFieldDifference>,
+    },
+    IntegrityConflict {
+        snapshot_id: String,
+    },
+}
+
+impl SnapshotCaptureOutcome {
+    /// Caller-facing wording for the outcome. Adapters render this message
+    /// without inferring their own tag-merging or overwrite policy.
+    pub fn message(&self) -> String {
+        match self {
+            SnapshotCaptureOutcome::Created { snapshot_id } => {
+                format!("Captured snapshot {snapshot_id}.")
+            }
+            SnapshotCaptureOutcome::Unchanged { .. } => {
+                String::from("Snapshot content already exists; no changes were made.")
+            }
+            SnapshotCaptureOutcome::MetadataConflict {
+                snapshot_id,
+                differences,
+            } => {
+                let mut message = format!("snapshot_id: {snapshot_id}");
+                for difference in differences {
+                    message.push_str(&format!(
+                        "\nfield '{}': existing '{}', requested '{}'",
+                        difference.field, difference.existing, difference.requested
+                    ));
+                }
+                message.push_str(
+                    "\nCapture did not change the existing snapshot. Use an explicit metadata update for this snapshot ID.",
+                );
+                message
+            }
+            SnapshotCaptureOutcome::IntegrityConflict { snapshot_id } => {
+                format!(
+                    "Existing snapshot data does not match its content-derived ID. The repository may be corrupt.\nsnapshot_id: {snapshot_id}"
+                )
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for SnapshotCaptureOutcome {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message())
+    }
+}
+
+/// Result of explicitly retagging one exact snapshot ID.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RetagSnapshotResult {
+    pub snapshot_id: String,
+    pub previous_tags: SnapshotTagSet,
+    pub new_tags: SnapshotTagSet,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotCapturePlan {
-    pub kind: SnapshotCaptureKind,
     pub snapshot_id: String,
     pub folder_name: String,
     pub path: String,
@@ -37,10 +109,6 @@ pub struct SnapshotCapturePlan {
     pub os: String,
     pub arch: String,
     pub snapshot_tags: SnapshotTagSet,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_tags: Option<SnapshotTagSet>,
-    pub replaced_snapshot_ids: Vec<String>,
-    pub replaces_existing_slots: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +129,7 @@ pub struct RepoSnapshotCaptureRequest {
 pub struct RepoSnapshotCaptureResult {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
+    pub outcome: SnapshotCaptureOutcome,
     pub manifest_path: PathBuf,
     pub version_id: String,
     pub os: String,
@@ -78,15 +147,8 @@ pub struct RepoSnapshotCaptureResult {
 }
 
 impl SnapshotCapturePlan {
-    pub fn from_candidate(
-        candidate: SourceSnapshotOperationCandidate,
-        kind: SnapshotCaptureKind,
-        from_tags: Option<SnapshotTagSet>,
-        replaced_snapshot_ids: Vec<String>,
-    ) -> Self {
-        let replaces_existing_slots = kind == SnapshotCaptureKind::ReplaceSlot;
+    pub fn from_candidate(candidate: SourceSnapshotOperationCandidate) -> Self {
         Self {
-            kind,
             snapshot_id: candidate.snapshot_id,
             folder_name: candidate.folder_name,
             path: candidate.path,
@@ -94,14 +156,7 @@ impl SnapshotCapturePlan {
             os: candidate.os,
             arch: candidate.arch,
             snapshot_tags: candidate.snapshot_tags,
-            from_tags,
-            replaced_snapshot_ids,
-            replaces_existing_slots,
         }
-    }
-
-    pub fn requires_confirmation(&self) -> bool {
-        true
     }
 }
 
@@ -145,41 +200,9 @@ pub(crate) fn plan_snapshot_capture_with_source_modified_at(
         explicit_tags,
         source_modified_at,
     )?;
-    let status = check_gutch_repo(repo_root)?;
-
-    let replaced_snapshot_ids: Vec<String> = if candidate.snapshot_tags.is_empty() {
-        Vec::new()
-    } else {
-        status
-            .snapshots
-            .iter()
-            .filter(|snapshot| snapshot.snapshot_tags == candidate.snapshot_tags)
-            .map(|snapshot| snapshot.snapshot_id.clone())
-            .collect()
-    };
-
-    if !replaced_snapshot_ids.is_empty() {
-        return Ok(SnapshotCapturePlan::from_candidate(
-            candidate,
-            SnapshotCaptureKind::ReplaceSlot,
-            None,
-            replaced_snapshot_ids,
-        ));
-    }
-
-    Ok(SnapshotCapturePlan::from_candidate(
-        candidate,
-        SnapshotCaptureKind::CaptureNew,
-        None,
-        Vec::new(),
-    ))
-}
-
-pub(crate) fn delete_repo_snapshots(repo_root: &Path, snapshot_ids: &[String]) -> Result<()> {
-    for snapshot_id in snapshot_ids {
-        remove_snapshot_from_repo(repo_root, snapshot_id)?;
-    }
-    Ok(())
+    // Capture is additive: equal tags never select replacement targets. A new
+    // content-derived snapshot ID always creates a new snapshot.
+    Ok(SnapshotCapturePlan::from_candidate(candidate))
 }
 
 pub fn delete_repo_snapshot_and_cleanup(
@@ -229,20 +252,32 @@ pub fn delete_repo_snapshot_and_cleanup(
     Ok(orphan_count)
 }
 
-pub(crate) fn delete_repo_snapshots_with_matching_tags(
-    repo_root: &Path,
-    snapshot_tags: &SnapshotTagSet,
-) -> Result<Vec<String>> {
-    let status = check_gutch_repo(repo_root)?;
-    let mut removed = Vec::new();
-    for snapshot in status.snapshots {
-        if snapshot.snapshot_tags != *snapshot_tags {
-            continue;
+fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
+    match value {
+        None => String::from("(absent)"),
+        Some(value) => {
+            serde_json::to_string(value).unwrap_or_else(|_| String::from("(unserializable)"))
         }
-        remove_snapshot_from_repo(repo_root, &snapshot.snapshot_id)?;
-        removed.push(snapshot.snapshot_id);
     }
-    Ok(removed)
+}
+
+/// Retags one exact snapshot ID. The caller selects the target; tags are
+/// never inferred from other snapshots. Reports the previous and new tags.
+pub fn retag_snapshot_by_id(
+    repo_root: &Path,
+    snapshot_id: &str,
+    new_tags: SnapshotTagSet,
+) -> Result<RetagSnapshotResult> {
+    let (repo_paths, _) = crate::load_gutch_repo_manifest(repo_root)?;
+    let mut manifest = crate::load_snapshot_manifest(&repo_paths, snapshot_id)?;
+    let previous_tags = manifest.snapshot_tags.clone();
+    manifest.snapshot_tags = new_tags.clone();
+    crate::write_snapshot_manifest_artifacts(&repo_paths, &manifest)?;
+    Ok(RetagSnapshotResult {
+        snapshot_id: snapshot_id.to_string(),
+        previous_tags,
+        new_tags,
+    })
 }
 
 pub fn capture_repo_snapshot(
@@ -271,62 +306,24 @@ pub fn capture_repo_snapshot(
     capture_repo_snapshot_with_existing_store_state(request, &mut store_state, &build_pool)
 }
 
-pub fn capture_repo_snapshot_with_plan(
-    request: RepoSnapshotCaptureRequest,
-    capture_plan: SnapshotCapturePlan,
-) -> Result<RepoSnapshotCaptureResult> {
-    request.control.checkpoint()?;
-    let runtime_plan = crate::plan_build_runtime(&request.runtime_hints);
-    let _pool_span = request.control.profile_span_with_args(
-        "capture.create_worker_pool",
-        std::collections::BTreeMap::from([(
-            "worker_count".to_string(),
-            serde_json::json!(runtime_plan.worker_count),
-        )]),
-    );
-    let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
-    drop(_pool_span);
-
-    let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_root);
-    let _existing_state_span = request
-        .control
-        .profile_span("capture.prepare_source.load_existing_store_state");
-    let mut store_state =
-        scan_existing_store_state_with_pool(&repo_paths, &build_pool, &request.control)?;
-    drop(_existing_state_span);
-
-    capture_repo_snapshot_with_plan_and_existing_store_state(
-        request,
-        &mut store_state,
-        &build_pool,
-        capture_plan,
-    )
-}
-
 pub(crate) fn capture_repo_snapshot_with_existing_store_state(
     request: RepoSnapshotCaptureRequest,
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<RepoSnapshotCaptureResult> {
-    let capture_plan = plan_snapshot_capture_with_control(
+    plan_snapshot_capture_with_control(
         request.repo_root.as_path(),
         request.source_dir.as_path(),
         &request.explicit_tags,
         &request.control,
     )?;
-    capture_repo_snapshot_with_plan_and_existing_store_state(
-        request,
-        store_state,
-        build_pool,
-        capture_plan,
-    )
+    execute_repo_snapshot_capture(request, store_state, build_pool)
 }
 
-pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
+fn execute_repo_snapshot_capture(
     request: RepoSnapshotCaptureRequest,
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
-    capture_plan: SnapshotCapturePlan,
 ) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
     let _prepare_span = request.control.profile_span_with_args(
@@ -341,63 +338,6 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
         .profile_span("capture.prepare_source.load_repo_state");
     let (repo_paths, _repo_manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
     drop(_repo_state_span);
-
-    let mut state_needs_refresh = false;
-    if capture_plan.kind == SnapshotCaptureKind::ReplaceSlot {
-        request.control.checkpoint()?;
-        let _replace_span = request.control.profile_span_with_args(
-            "capture.prepare_source.replace_snapshot_slot",
-            std::collections::BTreeMap::from([(
-                "replaced_snapshot_count".to_string(),
-                serde_json::json!(capture_plan.replaced_snapshot_ids.len()),
-            )]),
-        );
-        delete_repo_snapshots(
-            request.repo_root.as_path(),
-            &capture_plan.replaced_snapshot_ids,
-        )?;
-        let _ =
-            crate::cleanup_orphan_bundles_in_repo(request.repo_root.as_path(), &request.control);
-        state_needs_refresh = true;
-        drop(_replace_span);
-    }
-    if capture_plan.kind == SnapshotCaptureKind::Relabel {
-        request.control.checkpoint()?;
-        let _relabel_span = request
-            .control
-            .profile_span("capture.prepare_source.relabel_existing_snapshot");
-        let existing_manifest =
-            crate::load_snapshot_manifest(&repo_paths, &capture_plan.snapshot_id)?;
-        let mut updated_manifest = existing_manifest;
-        updated_manifest.snapshot_tags = capture_plan.snapshot_tags.clone();
-        let (manifest_path, _) =
-            crate::write_snapshot_manifest_artifacts(&repo_paths, &updated_manifest)?;
-        let chunk_index = crate::load_chunk_index(&repo_paths)?;
-        let result = RepoSnapshotCaptureResult {
-            repo_root: repo_paths.repo_root,
-            snapshot_id: updated_manifest.snapshot_id.clone(),
-            manifest_path,
-            version_id: capture_plan.version_id,
-            os: capture_plan.os,
-            arch: capture_plan.arch,
-            file_count: updated_manifest.file_count(),
-            total_logical_size: updated_manifest.total_logical_size,
-            total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
-            required_chunk_count: crate::repo::required_chunk_hashes(&updated_manifest).len(),
-            required_bundle_count: crate::repo::required_bundle_ids(
-                &updated_manifest,
-                &chunk_index,
-            )
-            .len(),
-            generated_bundle_count: 0,
-            generated_chunk_count: 0,
-            reused_chunk_count: crate::repo::required_chunk_hashes(&updated_manifest).len(),
-            new_chunk_count: 0,
-            build_timings: crate::BuildTimings::default(),
-        };
-        drop(_relabel_span);
-        return Ok(result);
-    }
 
     let _input_span = request
         .control
@@ -416,15 +356,6 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
         build_pool,
     )?;
     drop(_source_inventory_span);
-
-    if state_needs_refresh {
-        let _refresh_span = request
-            .control
-            .profile_span("capture.prepare_source.refresh_store_state_after_cleanup");
-        *store_state =
-            scan_existing_store_state_with_pool(&repo_paths, build_pool, &request.control)?;
-        drop(_refresh_span);
-    }
 
     let _identity_span = request
         .control
@@ -459,10 +390,6 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
     let _config_span = request.control.profile_span_with_args(
         "capture.prepare_source.configure_build",
         std::collections::BTreeMap::from([
-            (
-                "capture_kind".to_string(),
-                serde_json::json!(format!("{:?}", capture_plan.kind)),
-            ),
             (
                 "existing_bundle_count".to_string(),
                 serde_json::json!(store_state.bundle_ids.len()),
@@ -516,47 +443,96 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
     let existing_manifest_path = crate::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
     if existing_manifest_path.exists() {
         let existing_manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot_id)?;
-        if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
-            let mut updated_manifest = existing_manifest;
-            updated_manifest.snapshot_tags = result.snapshot_manifest.snapshot_tags.clone();
-            updated_manifest.source_modified_at =
-                result.snapshot_manifest.source_modified_at.clone();
-            let (manifest_path, _) =
-                crate::write_snapshot_manifest_artifacts(&repo_paths, &updated_manifest)?;
-            let required_chunk_count = crate::repo::required_chunk_hashes(&updated_manifest).len();
-            let required_bundle_count =
-                crate::repo::required_bundle_ids(&updated_manifest, &store_state.chunk_index).len();
-            return Ok(RepoSnapshotCaptureResult {
-                repo_root: repo_paths.repo_root,
-                snapshot_id: updated_manifest.snapshot_id.clone(),
-                manifest_path,
-                version_id: resolved_identity
-                    .snapshot_tags
-                    .get_exclusive("version")
-                    .unwrap_or_default()
-                    .to_string(),
-                os: resolved_identity
-                    .snapshot_tags
-                    .get_exclusive("os")
-                    .unwrap_or_default()
-                    .to_string(),
-                arch: resolved_identity
-                    .snapshot_tags
-                    .get_exclusive("arch")
-                    .unwrap_or_default()
-                    .to_string(),
-                file_count: updated_manifest.file_count(),
-                total_logical_size: updated_manifest.total_logical_size,
-                total_compressed_size_estimate: updated_manifest.total_compressed_size_estimate,
-                required_chunk_count,
-                required_bundle_count,
-                generated_bundle_count: 0,
-                generated_chunk_count: 0,
-                reused_chunk_count: required_chunk_count,
-                new_chunk_count: 0,
-                build_timings: timings,
+        // Integrity: the stored blueprint must reproduce its path ID. A
+        // mismatch means the repository is corrupt; stop without changing
+        // metadata or artifacts.
+        let stored_snapshot_id =
+            crate::compute_snapshot_id_from_entries(&existing_manifest.entries);
+        if stored_snapshot_id != snapshot_id {
+            return Err(crate::Error::SnapshotCaptureConflict {
+                outcome: SnapshotCaptureOutcome::IntegrityConflict {
+                    snapshot_id: snapshot_id.clone(),
+                },
             });
         }
+        // The content-derived ID already exists. Compare metadata without
+        // mutating anything: identical metadata returns unchanged, differing
+        // metadata returns a typed conflict for an explicit update.
+        let mut differences = Vec::new();
+        if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
+            differences.push(MetadataFieldDifference {
+                field: String::from("snapshot_tags"),
+                existing: existing_manifest
+                    .snapshot_tags
+                    .to_canonical_strings()
+                    .join(" "),
+                requested: result
+                    .snapshot_manifest
+                    .snapshot_tags
+                    .to_canonical_strings()
+                    .join(" "),
+            });
+        }
+        if existing_manifest.product_metadata != result.snapshot_manifest.product_metadata {
+            differences.push(MetadataFieldDifference {
+                field: String::from("product_metadata"),
+                existing: metadata_display_value(existing_manifest.product_metadata.as_ref()),
+                requested: metadata_display_value(
+                    result.snapshot_manifest.product_metadata.as_ref(),
+                ),
+            });
+        }
+        if existing_manifest.launch != result.snapshot_manifest.launch {
+            differences.push(MetadataFieldDifference {
+                field: String::from("launch"),
+                existing: metadata_display_value(existing_manifest.launch.as_ref()),
+                requested: metadata_display_value(result.snapshot_manifest.launch.as_ref()),
+            });
+        }
+        if !differences.is_empty() {
+            return Err(crate::Error::SnapshotCaptureConflict {
+                outcome: SnapshotCaptureOutcome::MetadataConflict {
+                    snapshot_id: snapshot_id.clone(),
+                    differences,
+                },
+            });
+        }
+        let required_chunk_count = crate::repo::required_chunk_hashes(&existing_manifest).len();
+        let required_bundle_count =
+            crate::repo::required_bundle_ids(&existing_manifest, &store_state.chunk_index).len();
+        return Ok(RepoSnapshotCaptureResult {
+            repo_root: repo_paths.repo_root,
+            snapshot_id: existing_manifest.snapshot_id.clone(),
+            outcome: SnapshotCaptureOutcome::Unchanged {
+                snapshot_id: snapshot_id.clone(),
+            },
+            manifest_path: existing_manifest_path,
+            version_id: resolved_identity
+                .snapshot_tags
+                .get_exclusive("version")
+                .unwrap_or_default()
+                .to_string(),
+            os: resolved_identity
+                .snapshot_tags
+                .get_exclusive("os")
+                .unwrap_or_default()
+                .to_string(),
+            arch: resolved_identity
+                .snapshot_tags
+                .get_exclusive("arch")
+                .unwrap_or_default()
+                .to_string(),
+            file_count: existing_manifest.file_count(),
+            total_logical_size: existing_manifest.total_logical_size,
+            total_compressed_size_estimate: existing_manifest.total_compressed_size_estimate,
+            required_chunk_count,
+            required_bundle_count,
+            generated_bundle_count: 0,
+            generated_chunk_count: 0,
+            reused_chunk_count: required_chunk_count,
+            new_chunk_count: 0,
+            build_timings: timings,
+        });
     }
 
     // Artifact publication below persists the captured snapshot. Check once before it and then complete the
@@ -666,6 +642,9 @@ pub(crate) fn capture_repo_snapshot_with_plan_and_existing_store_state(
     let capture_result = RepoSnapshotCaptureResult {
         repo_root: repo_paths.repo_root,
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
+        outcome: SnapshotCaptureOutcome::Created {
+            snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
+        },
         manifest_path,
         version_id: resolved_identity
             .snapshot_tags
@@ -884,23 +863,12 @@ struct PreparedInputPath {
 }
 
 pub fn describe_snapshot_capture_plan(plan: &SnapshotCapturePlan) -> String {
-    match plan.kind {
-        SnapshotCaptureKind::CaptureNew => format!(
-            "Capture new snapshot slot {} ({})",
-            plan.folder_name, plan.version_id
-        ),
-        SnapshotCaptureKind::Relabel => format!(
-            "Update tags for existing snapshot {} ({}): explicit tags changed; snapshot unchanged",
-            plan.snapshot_id, plan.folder_name
-        ),
-        SnapshotCaptureKind::ReplaceSlot => format!(
-            "Replace snapshot slot for {} ({}): same tags, new snapshot id {}. Removes repo snapshot(s) {}. Existing snapshot references to the old snapshot id must be updated.",
-            plan.folder_name,
-            plan.version_id,
-            plan.snapshot_id,
-            plan.replaced_snapshot_ids.join(", ")
-        ),
-    }
+    format!(
+        "Capture new snapshot from {} ({}) with tags {}",
+        plan.folder_name,
+        plan.version_id,
+        plan.snapshot_tags.to_canonical_strings().join(" ")
+    )
 }
 
 #[cfg(test)]
@@ -960,8 +928,299 @@ mod tests {
             &manifest::SnapshotTagSet::default(),
         )
         .unwrap();
-        assert_eq!(plan.kind, SnapshotCaptureKind::CaptureNew);
-        assert!(plan.replaced_snapshot_ids.is_empty());
-        assert!(!plan.replaces_existing_slots);
+        assert_eq!(plan.snapshot_tags, manifest::SnapshotTagSet::default());
+    }
+
+    #[derive(Debug)]
+    struct CancelledHook;
+
+    impl crate::GutchCancellationHook for CancelledHook {
+        fn is_cancelled(&self) -> bool {
+            true
+        }
+    }
+
+    fn test_tags() -> manifest::SnapshotTagSet {
+        manifest::SnapshotTagSet::from_compact_strings(&[
+            "version::1.0.0".to_string(),
+            "os::windows".to_string(),
+        ])
+        .unwrap()
+    }
+
+    fn test_capture(
+        repo_root: &std::path::Path,
+        source_dir: &std::path::Path,
+        tags: &manifest::SnapshotTagSet,
+        control: crate::GutchOperationControl,
+    ) -> RepoSnapshotCaptureResult {
+        capture_repo_snapshot(RepoSnapshotCaptureRequest {
+            repo_root: repo_root.to_path_buf(),
+            source_dir: source_dir.to_path_buf(),
+            explicit_tags: tags.clone(),
+            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+            compression_algorithm: manifest::CompressionKind::Zstd,
+            compression_level: None,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
+            runtime_hints: crate::RuntimeResourceHints::default(),
+            control,
+        })
+        .unwrap()
+    }
+
+    fn test_repo_with_source(
+        temp: &tempfile::TempDir,
+        source_name: &str,
+        content: &[u8],
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        let repo_root = temp.path().join("repo");
+        let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+        crate::repo::ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+        let source_dir = temp.path().join(source_name);
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(source_dir.join("game.exe"), content).unwrap();
+        (repo_root, source_dir)
+    }
+
+    fn test_reconstruct_and_strict_verify(repo_root: &std::path::Path, snapshot_id: &str) {
+        let destination = repo_root.join(format!("reconstructed-{snapshot_id}"));
+        crate::snapshot_ops::reconstruct_snapshot_from_repo(
+            crate::snapshot_ops::SnapshotReconstructFromRepoRequest {
+                repo_path: repo_root.to_path_buf(),
+                snapshot_id: snapshot_id.to_string(),
+                destination_dir: destination.clone(),
+                staging_dir: None,
+                source_snapshot_id: None,
+                source_dir: None,
+                runtime_hints: crate::RuntimeResourceHints::default(),
+                control: crate::GutchOperationControl::default(),
+            },
+        )
+        .unwrap();
+        assert!(destination.join("game.exe").is_file());
+        let verification = crate::verify_gutch_repo_artifacts(
+            repo_root,
+            Some(snapshot_id),
+            crate::VerifyMode::Strict,
+        )
+        .unwrap();
+        assert!(verification.ok, "strict verification failed");
+    }
+
+    #[test]
+    fn same_tags_create_distinct_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+        let source_b = temp.path().join("game-b");
+        std::fs::create_dir_all(&source_b).unwrap();
+        std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+        let first = test_capture(
+            &repo_root,
+            &source_a,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        assert!(matches!(
+            first.outcome,
+            SnapshotCaptureOutcome::Created { .. }
+        ));
+        let second = test_capture(
+            &repo_root,
+            &source_b,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        assert!(matches!(
+            second.outcome,
+            SnapshotCaptureOutcome::Created { .. }
+        ));
+        assert_ne!(first.snapshot_id, second.snapshot_id);
+
+        for snapshot_id in [&first.snapshot_id, &second.snapshot_id] {
+            let (repo_paths, _) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
+            crate::load_snapshot_manifest(&repo_paths, snapshot_id).unwrap();
+            test_reconstruct_and_strict_verify(&repo_root, snapshot_id);
+        }
+    }
+
+    #[test]
+    fn cancelled_capture_retains_first_snapshot() {
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+        let source_b = temp.path().join("game-b");
+        std::fs::create_dir_all(&source_b).unwrap();
+        std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+        let first = test_capture(
+            &repo_root,
+            &source_a,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        let cancelled = crate::GutchOperationControl::default()
+            .with_cancellation(std::sync::Arc::new(CancelledHook));
+        let failed = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+            repo_root: repo_root.clone(),
+            source_dir: source_b,
+            explicit_tags: test_tags(),
+            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+            compression_algorithm: manifest::CompressionKind::Zstd,
+            compression_level: None,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
+            runtime_hints: crate::RuntimeResourceHints::default(),
+            control: cancelled,
+        });
+        assert!(failed.is_err());
+
+        let (repo_paths, _) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
+        let retained = crate::load_snapshot_manifest(&repo_paths, &first.snapshot_id).unwrap();
+        assert_eq!(retained.snapshot_tags, test_tags());
+        test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
+    }
+
+    #[test]
+    fn identical_recapture_returns_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+        let first = test_capture(
+            &repo_root,
+            &source,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        let second = test_capture(
+            &repo_root,
+            &source,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        assert_eq!(first.snapshot_id, second.snapshot_id);
+        assert!(matches!(
+            second.outcome,
+            SnapshotCaptureOutcome::Unchanged { .. }
+        ));
+        assert_eq!(second.generated_bundle_count, 0);
+        assert_eq!(second.generated_chunk_count, 0);
+
+        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        assert_eq!(status.snapshots.len(), 1);
+    }
+
+    #[test]
+    fn same_id_different_tags_returns_metadata_conflict() {
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+        let first = test_capture(
+            &repo_root,
+            &source,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        let other_tags = manifest::SnapshotTagSet::from_compact_strings(&[
+            "version::2.0.0".to_string(),
+            "os::windows".to_string(),
+        ])
+        .unwrap();
+        let conflict = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+            repo_root: repo_root.clone(),
+            source_dir: source,
+            explicit_tags: other_tags,
+            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+            compression_algorithm: manifest::CompressionKind::Zstd,
+            compression_level: None,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
+            runtime_hints: crate::RuntimeResourceHints::default(),
+            control: crate::GutchOperationControl::default(),
+        });
+        let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
+            panic!("expected a metadata conflict, got {conflict:?}");
+        };
+        let SnapshotCaptureOutcome::MetadataConflict {
+            snapshot_id,
+            differences,
+        } = outcome
+        else {
+            panic!("expected a metadata conflict outcome");
+        };
+        assert_eq!(snapshot_id, first.snapshot_id);
+        assert!(
+            differences
+                .iter()
+                .any(|difference| difference.field == "snapshot_tags")
+        );
+
+        let (repo_paths, _) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
+        let stored = crate::load_snapshot_manifest(&repo_paths, &first.snapshot_id).unwrap();
+        assert_eq!(stored.snapshot_tags, test_tags());
+    }
+
+    #[test]
+    fn explicit_retag_reports_previous_and_new_tags() {
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+        let first = test_capture(
+            &repo_root,
+            &source,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        let new_tags = manifest::SnapshotTagSet::from_compact_strings(&[
+            "version::2.0.0".to_string(),
+            "os::windows".to_string(),
+        ])
+        .unwrap();
+        let retagged =
+            retag_snapshot_by_id(&repo_root, &first.snapshot_id, new_tags.clone()).unwrap();
+        assert_eq!(retagged.snapshot_id, first.snapshot_id);
+        assert_eq!(retagged.previous_tags, test_tags());
+        assert_eq!(retagged.new_tags, new_tags);
+
+        let (repo_paths, _) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
+        let stored = crate::load_snapshot_manifest(&repo_paths, &first.snapshot_id).unwrap();
+        assert_eq!(stored.snapshot_tags, new_tags);
+    }
+
+    #[test]
+    fn tampered_blueprint_returns_integrity_conflict() {
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+        let first = test_capture(
+            &repo_root,
+            &source,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        let (repo_paths, _) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
+        let mut stored = crate::load_snapshot_manifest(&repo_paths, &first.snapshot_id).unwrap();
+        stored.entries.clear();
+        crate::write_snapshot_manifest_artifacts(&repo_paths, &stored).unwrap();
+
+        let conflict = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+            repo_root: repo_root.clone(),
+            source_dir: source,
+            explicit_tags: test_tags(),
+            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+            compression_algorithm: manifest::CompressionKind::Zstd,
+            compression_level: None,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
+            runtime_hints: crate::RuntimeResourceHints::default(),
+            control: crate::GutchOperationControl::default(),
+        });
+        let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
+            panic!("expected an integrity conflict, got {conflict:?}");
+        };
+        assert!(matches!(
+            outcome,
+            SnapshotCaptureOutcome::IntegrityConflict { .. }
+        ));
     }
 }
