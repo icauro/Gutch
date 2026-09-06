@@ -1,14 +1,12 @@
 """Shared S3 publication and fetch primitives for Gutch benchmarks."""
 
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, Protocol
-from uuid import uuid4
 
 from .commands import GutchCli
 from .models import GutchProfile
@@ -80,74 +78,6 @@ def make_client(settings: S3Settings) -> S3Client:
             retries={"max_attempts": 5, "mode": "standard"},
         ),
     )
-
-
-def _create_bucket(client: S3Client, settings: S3Settings) -> None:
-    arguments: dict[str, Any] = {"Bucket": settings.bucket}
-    if settings.region and settings.region not in {"auto", "us-east-1"}:
-        arguments["CreateBucketConfiguration"] = {"LocationConstraint": settings.region}
-    client.create_bucket(**arguments)
-
-
-def _delete_bucket_contents(client: S3Client, bucket: str) -> None:
-    object_request: dict[str, Any] = {"Bucket": bucket}
-    while True:
-        response = client.list_objects_v2(**object_request)
-        objects = response.get("Contents", [])
-        if objects:
-            client.delete_objects(
-                Bucket=bucket,
-                Delete={"Objects": [{"Key": item["Key"]} for item in objects]},
-            )
-        if not response.get("IsTruncated"):
-            break
-        token = response.get("NextContinuationToken")
-        if not token:
-            raise RuntimeError(f"S3 returned a truncated listing without a continuation token for {bucket}")
-        object_request["ContinuationToken"] = token
-
-    multipart_request: dict[str, Any] = {"Bucket": bucket}
-    while True:
-        response = client.list_multipart_uploads(**multipart_request)
-        for upload in response.get("Uploads", []):
-            client.abort_multipart_upload(
-                Bucket=bucket,
-                Key=upload["Key"],
-                UploadId=upload["UploadId"],
-            )
-        if not response.get("IsTruncated"):
-            break
-        key_marker = response.get("NextKeyMarker")
-        upload_marker = response.get("NextUploadIdMarker")
-        if not key_marker or not upload_marker:
-            raise RuntimeError(f"S3 returned a truncated multipart listing without markers for {bucket}")
-        multipart_request["KeyMarker"] = key_marker
-        multipart_request["UploadIdMarker"] = upload_marker
-
-
-@contextmanager
-def temporary_bucket(settings: S3Settings, *, retain_on_failure: bool = False):
-    """Create and always remove an isolated bucket using an existing S3 service."""
-    bucket = f"hostapp-gutch-regression-{uuid4().hex[:16]}"
-    isolated = S3Settings(
-        bucket=bucket,
-        endpoint=settings.endpoint,
-        region=settings.region,
-        access_key_id=settings.access_key_id,
-        secret_access_key=settings.secret_access_key,
-    )
-    client = make_client(isolated)
-    created = False
-    completed = False
-    try:
-        _create_bucket(client, isolated)
-        created = True
-        yield isolated
-        completed = True
-    finally:
-        if created and (completed or not retain_on_failure):
-            _delete_bucket_contents(client, bucket)
-            client.delete_bucket(Bucket=bucket)
 
 
 def repository_files(repo: Path) -> list[Path]:

@@ -11,8 +11,8 @@ import zipfile
 import yaml
 
 from ..benchmark_config import BenchmarkConfig, load_benchmark_config
-from gutch_repo.test_support.artifacts import safe_component, create_run_dir
-from gutch_repo.test_support.traces import open_trace_in_perfetto
+from gutch_repo.test_benchmarks.support.artifacts import safe_component, create_run_dir
+from gutch_repo.test_benchmarks.support.traces import open_trace_in_perfetto
 from ..gutch_fixture_runner.config import load_fixture
 from ..gutch_fixture_runner.external_tools import ensure_linux_external_tools
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
@@ -32,8 +32,6 @@ def _package_sources(destination: Path) -> None:
                 continue
             if path.suffix not in {".py", ".yaml"}:
                 continue
-            package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
-        for path in (REPOSITORY_ROOT / "gutch_repo" / "test_support").glob("*.py"):
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
         dataset_script = REPOSITORY_ROOT / "gutch_repo" / "test_dataset" / "ensure_test_dataset.py"
         package.write(dataset_script, "gutch_repo/test_dataset/ensure_test_dataset.py")

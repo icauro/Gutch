@@ -5,9 +5,9 @@ The suite separates three responsibilities:
 - `common/dataset.py` freezes selected input inventories and numeric version order.
 - `common/runner.py` schedules local and S3 fixture cases, records outcomes and
   repeated samples, and removes payloads only after success.
-- `gutch_repo/test_support/` owns command execution, Gutch operations, filesystem
-  validation, S3 transport, traces, and evidence layout. Regression tests use
-  these primitives directly without importing benchmark workflows.
+- `gutch_repo/test_benchmarks/support/` owns command execution, Gutch operations, filesystem
+  validation, S3 transport, traces, and evidence layout for benchmarks only.
+  Correctness tests own separate helpers and datasets under `gutch_repo/tests/`.
 
 Fixture lanes declare `tool` and `workload` separately. Only Gutch lanes accept
 Gutch profiles. `measurement_mode: performance` disables Gutch traces;
@@ -178,7 +178,7 @@ comparison uses `snapshot_limit: 1` to keep its five-tool comparison practical.
       config.py        recursive YAML catalog
       dataset.py       frozen input inventories and snapshot selection
       runner.py        shared case scheduling, samples, and retention
-    gutch_repo/test_support/
+    gutch_repo/test_benchmarks/support/
       command.py       subprocess boundary, timing, and redaction
       artifacts.py     run/lane layout and retention
       filesystem.py    tree stats and content comparison

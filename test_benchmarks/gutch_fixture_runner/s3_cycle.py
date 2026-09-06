@@ -7,16 +7,16 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from gutch_repo.test_support.artifacts import RunLayout, create_run_dir
-from gutch_repo.test_support.command import CommandRunner
+from gutch_repo.test_benchmarks.support.artifacts import RunLayout, create_run_dir
+from gutch_repo.test_benchmarks.support.command import CommandRunner
 from gutch_repo.test_benchmarks.common.config import load_scenario
-from gutch_repo.test_support.filesystem import remove_tree, scan_tree
-from gutch_repo.test_support.commands import GutchCli
+from gutch_repo.test_benchmarks.support.filesystem import remove_tree, scan_tree
+from gutch_repo.test_benchmarks.support.commands import GutchCli
 from .config import load_fixture
 from gutch_repo.test_benchmarks.common.dataset import DatasetSelection, select_sources
 from gutch_repo.test_benchmarks.common.runner import execute_cases
 from .models import FixtureSpec, GutchProfile, LaneResult
-from gutch_repo.test_support.s3 import (
+from gutch_repo.test_benchmarks.support.s3 import (
     S3Settings,
     fetch_command,
     make_artifact_url_manifest,
@@ -24,7 +24,7 @@ from gutch_repo.test_support.s3 import (
     metadata_urls,
     publish_repository,
 )
-from gutch_repo.test_support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from gutch_repo.test_benchmarks.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
 
 
 @dataclass(frozen=True)

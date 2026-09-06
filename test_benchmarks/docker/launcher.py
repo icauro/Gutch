@@ -6,7 +6,7 @@ import subprocess
 from tests.common import _test_environment as environments
 from tests.common._test_runtime_mode import build_mode_runtime_context
 from tests.common._e2e_harness import start_backend_integration_stack
-from gutch_repo.test_support.command import CommandRunner
+from gutch_repo.test_benchmarks.support.command import CommandRunner
 
 
 @dataclass(frozen=True)

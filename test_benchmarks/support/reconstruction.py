@@ -5,10 +5,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from gutch_repo.test_support.artifacts import RunLayout, create_run_dir
-from gutch_repo.test_support.command import CommandRunner
-from gutch_repo.test_support.filesystem import compare_directories, scan_tree, validate_output
-from gutch_repo.test_support.traces import combine_labeled_traces, open_trace_in_perfetto
+from gutch_repo.test_benchmarks.support.artifacts import RunLayout, create_run_dir
+from gutch_repo.test_benchmarks.support.command import CommandRunner
+from gutch_repo.test_benchmarks.support.filesystem import compare_directories, scan_tree, validate_output
+from gutch_repo.test_benchmarks.support.traces import combine_labeled_traces, open_trace_in_perfetto
 from .commands import GutchCli
 from .models import GutchProfile
 from .s3 import (
@@ -19,7 +19,7 @@ from .s3 import (
     metadata_urls,
     publish_repository,
 )
-from gutch_repo.test_support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from gutch_repo.test_benchmarks.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
 
 
 def run_reconstruction_storage(

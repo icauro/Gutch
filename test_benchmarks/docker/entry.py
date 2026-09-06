@@ -79,10 +79,10 @@ def main() -> int:
     from gutch_repo.test_dataset.ensure_test_dataset import prepare_blender_product
     from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
     from gutch_repo.test_benchmarks.common.environment import load_benchmark_environment
-    from gutch_repo.test_support.commands import GutchCli
+    from gutch_repo.test_benchmarks.support.commands import GutchCli
     from gutch_repo.test_benchmarks.gutch_fixture_runner.config import load_fixture
     from gutch_repo.test_benchmarks.gutch_fixture_runner.report import print_fixture_report
-    from gutch_repo.test_support.s3 import S3Settings
+    from gutch_repo.test_benchmarks.support.s3 import S3Settings
     from gutch_repo.test_benchmarks.gutch_fixture_runner.s3_cycle import (
         load_s3_cycle,
         run_s3_cycle,

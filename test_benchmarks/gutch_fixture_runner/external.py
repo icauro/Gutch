@@ -9,11 +9,11 @@ from pathlib import Path
 import tempfile
 import time
 
-from gutch_repo.test_support.command import CommandRunner
-from gutch_repo.test_support.filesystem import remove_tree, scan_tree
-from gutch_repo.test_support.recovery import apply_corruption_plan, build_corruption_plan
+from gutch_repo.test_benchmarks.support.command import CommandRunner
+from gutch_repo.test_benchmarks.support.filesystem import remove_tree, scan_tree
+from gutch_repo.test_benchmarks.support.recovery import apply_corruption_plan, build_corruption_plan
 from gutch_repo.test_benchmarks.common.dataset import DatasetSelection
-from gutch_repo.test_support.filesystem import file_sha256
+from gutch_repo.test_benchmarks.support.filesystem import file_sha256
 from .models import LaneResult, LaneSpec
 
 

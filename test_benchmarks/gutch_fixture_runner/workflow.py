@@ -12,16 +12,16 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from gutch_repo.test_support.artifacts import RunLayout, create_run_dir
-from gutch_repo.test_support.command import CommandRunner
-from gutch_repo.test_support.filesystem import remove_tree, scan_tree
-from gutch_repo.test_support.recovery import apply_corruption_plan, build_corruption_plan
-from gutch_repo.test_support.commands import GutchCli
+from gutch_repo.test_benchmarks.support.artifacts import RunLayout, create_run_dir
+from gutch_repo.test_benchmarks.support.command import CommandRunner
+from gutch_repo.test_benchmarks.support.filesystem import remove_tree, scan_tree
+from gutch_repo.test_benchmarks.support.recovery import apply_corruption_plan, build_corruption_plan
+from gutch_repo.test_benchmarks.support.commands import GutchCli
 from .external import ExternalTools, run_external
 from .models import FixtureSpec, LaneResult, LaneSpec
 
 
-from gutch_repo.test_support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from gutch_repo.test_benchmarks.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
 from gutch_repo.test_benchmarks.common.dataset import select_sources as _selected_product_sources, DatasetSelection
 from gutch_repo.test_benchmarks.common.runner import execute_cases
 

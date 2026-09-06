@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from gutch_repo.test_benchmarks.common.config import ScenarioCatalog, load_scenario
-from gutch_repo.test_support.artifacts import safe_component
+from gutch_repo.test_benchmarks.support.artifacts import safe_component
 from .models import FixtureSpec, GutchProfile, LaneSpec
 
 

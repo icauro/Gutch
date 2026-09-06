@@ -74,62 +74,27 @@ those traces. The regression runner archives
 capture, reconstruction, and verification traces beside each snapshot and
 uses their root spans for run-level comparison.
 
-## Checked-In Fixture Regression
+## Correctness and Benchmark Datasets
 
-Regression test datasets use `gutch_repo/test_dataset/source/` for ignored
-prepared inputs and `gutch_repo/test_dataset/repos/v1/` for committed
-current-format Gutch repos. Source manifests record expected paths, sizes, and
-BLAKE3 hashes. Tests reconstruct from stored repo artifacts and compare against
-the prepared source tree when it is available.
+[Correctness testing](13_correctness_testing.md) owns deterministic recipes and
+small frozen format fixtures under `gutch_repo/tests/`. Each run creates its own
+mutable inputs and repositories. It does not use benchmark helpers or datasets.
 
-The checked-in cases cover a compact multi-version baseline, append/patch/add/
-remove/rename/move behavior, and filesystem behavior including long and
-Unicode paths, mixed case, explicit directories, read-only and executable
-files, and platform-capable symbolic links. Structured artifacts use `.gtcbin`;
-bundle and loose chunk payloads remain extensionless.
-
-Repo format changes regenerate these fixtures as current-format data;
-there is no legacy fixture compatibility layer. Automated mutable fixture data
-stays beneath `gutch_repo/test_dataset/`. A single preparation script owns generated
-mock products and optional official Blender benchmark inputs. Mock products
-are recreated from tracked JSON recipes without Git history. Blender
-preparation selects versions from a tracked archive-and-digest recipe,
-downloads only requested raw builds, safely unpacks them, and writes an
-explicit source config beside the folders. Both paths remain ignored test
-data; benchmark and regression runs initialize fresh mutable Gutch repos from
-the prepared source trees.
-
-The focused checked-in regression command is:
+`gutch_repo/test_dataset/` prepares benchmark inputs from tracked recipes,
+including optional official Blender builds. These inputs are for workload
+measurements; correctness runs do not download Blender or regenerate them.
 
 ```sh
-cargo test --manifest-path gutch_repo/Cargo.toml --test fixture_regression
-```
-
-Prepare deterministic mock recipes:
-
-```pwsh
 python gutch_repo/test_dataset/ensure_test_dataset.py
 ```
-
-Prepare two pinned official Blender builds for both Linux x64 and Windows x64:
-
-```pwsh
-python gutch_repo/test_dataset/ensure_test_dataset.py `
-  --blender --blender-version 5.2.0 --blender-version 5.2.1 `
-  --blender-platform linux-x64 --blender-platform windows-x64 --force
-```
-
-The committed official Blender repo is checked by the ignored large-fixture
-test with `cargo test --manifest-path gutch_repo/Cargo.toml --test
-fixture_regression -- --ignored checked_in_blender_repo_is_processable`.
 
 ## Benchmark Execution
 
 Python benchmark fixtures separate tool selection from workload and Gutch
 profile configuration. Local and S3 cycle workflows share a scheduler that
 runs warmups, rotates repeated cases, and retains partial results and payloads
-on failure. Shared operation mechanics live in `gutch_repo/test_support`; S3
-regressions no longer import benchmark workflow internals.
+on failure. Benchmark operation mechanics live in
+`gutch_repo/test_benchmarks/support/`.
 
 Dataset inventories determine numeric version order, selected input size,
 and a reproducible fingerprint before execution. Reconstruction is checked

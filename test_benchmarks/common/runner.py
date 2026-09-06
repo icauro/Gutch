@@ -5,8 +5,8 @@ import platform
 import subprocess
 import time
 import statistics
-from gutch_repo.test_support.filesystem import file_sha256
-from gutch_repo.test_support.traces import combine_labeled_traces, open_trace_in_perfetto
+from gutch_repo.test_benchmarks.support.filesystem import file_sha256
+from gutch_repo.test_benchmarks.support.traces import combine_labeled_traces, open_trace_in_perfetto
 
 
 def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifacts=False,
