@@ -219,7 +219,7 @@ impl<'a> TransferDownloadRequest<'a> {
         Ok(bytes)
     }
 
-    pub(super) fn download_to_path(self, path: &Path) -> Result<()> {
+    pub(super) fn download_to_path(self, path: &Path, artifact: &crate::ArtifactRef) -> Result<()> {
         self.control.checkpoint()?;
         crate::helpers::write_atomic_with(path, |file| {
             let reporter = TransferProgressReporter::new(
@@ -245,6 +245,9 @@ impl<'a> TransferDownloadRequest<'a> {
                     Ok(())
                 },
             )?;
+            if let crate::ArtifactRef::Bundle { id } = artifact {
+                crate::artifact::bundle::verify_bundle_identity_reader(file, id)?;
+            }
             reporter.finish();
             Ok(())
         })
@@ -894,7 +897,7 @@ pub(super) fn download_pending_bundle(
                 },
                 detail: Some(bundle_download.bundle_id.as_str()),
             }
-            .download_to_path(&bundle_download.bundle_path);
+            .download_to_path(&bundle_download.bundle_path, &bundle_download.artifact);
             match attempt_result {
                 Ok(()) => return Ok(()),
                 Err(error)

@@ -331,6 +331,29 @@ fn test_bundle_identity_accepts_intact_file_and_bytes() {
 }
 
 #[test]
+fn invalid_download_is_not_promoted_over_a_valid_cached_bundle() {
+    use std::io::Write;
+    let temp = tempfile::tempdir().unwrap();
+    let (bundle_id, bundle_data) = test_bundle_with_id();
+    let path = write_named_bundle(temp.path(), &bundle_id, &bundle_data);
+    let mut corrupt = bundle_data.clone();
+    corrupt[0] ^= 0xff;
+    let result = crate::helpers::write_atomic_with(&path, |file| {
+        file.write_all(&corrupt)?;
+        verify_bundle_identity_reader(file, &bundle_id)
+    });
+    assert!(matches!(result, Err(crate::Error::HashMismatch { .. })));
+    assert_eq!(std::fs::read(&path).unwrap(), bundle_data);
+    crate::helpers::write_atomic_with(&path, |file| {
+        file.write_all(&bundle_data)?;
+        verify_bundle_identity_reader(file, &bundle_id)
+    })
+    .unwrap();
+    verify_bundle_identity_file(&path, &bundle_id).unwrap();
+    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+}
+
+#[test]
 fn test_bundle_identity_rejects_corrupt_filename() {
     let temp = tempfile::tempdir().unwrap();
     let (bundle_id, bundle_data) = test_bundle_with_id();

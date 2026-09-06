@@ -33,8 +33,12 @@ outside Gutch after the engine operation succeeds.
    Gutch succeeds.
 
 For remote fetches, Gutch bounds and writes supplied metadata, chunk-index,
-product-metadata, blueprint, and artifact payloads atomically. Artifact integrity
-is validated when reconstruction or repository verification reads the payload. A
+product-metadata, blueprint, and artifact payloads atomically. Downloaded bundles
+must match their expected BLAKE3 identity and trailing ID before cache promotion.
+Cached bundles undergo the same identity check before reuse; corrupt entries
+are removed so a later fetch can download a valid replacement. Filesystem errors
+are returned without treating an unreadable entry as corrupt. Reconstruction
+also validates framing and chunk content when reading the payload. A
 transfer or validation failure fails the operation; the app keeps existing
 installed content authoritative until a complete replacement succeeds.
 

@@ -306,13 +306,20 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     let repo_path = root.join("repo");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&repo_path).unwrap();
+    let content = vec![b'x'; 100];
+    let chunk_hash = hash_hex(&blake3::hash(&content));
+    let mut builder =
+        crate::artifact::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
+    builder.add_chunk(crate::ChunkHash::parse_hex(&chunk_hash).unwrap(), content);
+    let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
+    let expected_bundle_id = bundle_id.clone();
     let chunk_index = manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
         entries: std::collections::BTreeMap::from([(
-            test_hash("chunk-a"),
+            chunk_hash.clone(),
             manifest::ChunkIndexEntry {
-                bundle_id: "bundle-a".to_string(),
+                bundle_id: bundle_id.clone(),
                 raw_size: 100,
                 compressed_size: 64,
                 storage_mode: manifest::ArtifactStorageMode::Bundled,
@@ -332,7 +339,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
         read_only: false,
         full_file_hash: test_hash("game.exe"),
         chunks: vec![manifest::ChunkRef {
-            chunk_hash: test_hash("chunk-a"),
+            chunk_hash: chunk_hash.clone(),
             raw_size: 100,
         }],
     });
@@ -347,7 +354,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for _ in 0..3 {
+        for _ in 0..6 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0u8; 4096];
             let bytes_read = stream.read(&mut buffer).unwrap();
@@ -374,11 +381,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
                     blueprint_bytes.clone(),
                     "application/octet-stream",
                 ),
-                "/bundle-a" => (
-                    "200 OK",
-                    b"bundle-a-bytes".to_vec(),
-                    "application/octet-stream",
-                ),
+                "/bundle-a" => ("200 OK", bundle_bytes.clone(), "application/octet-stream"),
                 _ => ("404 Not Found", b"not found".to_vec(), "text/plain"),
             };
 
@@ -393,7 +396,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
         }
     });
 
-    let result = fetch_snapshot(&SnapshotFetchRequest {
+    let request = SnapshotFetchRequest {
         repo_path: repo_path.clone(),
         snapshot_id: "1.0.0-windows-x86_64-base".to_string(),
         repo_metadata_url: None,
@@ -404,17 +407,17 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
         bundles: Vec::new(),
         bundle_url_provider: Some(std::sync::Arc::new(
             move |bundle_ids: &[String], _control: &crate::GutchOperationControl| {
-                assert_eq!(bundle_ids, &["bundle-a".to_string()]);
+                assert_eq!(bundle_ids, &[bundle_id.clone()]);
                 Ok(vec![BundleDownload {
-                    bundle_id: "bundle-a".to_string(),
+                    bundle_id: bundle_id.clone(),
                     url: format!("http://{}/bundle-a", address),
                 }])
             },
         )),
         control: crate::GutchOperationControl::default(),
         transfer_policy: crate::TransferConcurrencyPolicy::default(),
-    })
-    .unwrap();
+    };
+    let result = fetch_snapshot(&request).unwrap();
 
     assert_eq!(result.required_bundle_count, 1);
     assert_eq!(result.downloaded_bundle_count, 1);
@@ -435,13 +438,16 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     );
     assert!(repo_path.join("snapshots").exists());
     assert!(
-        repo_path
-            .join("bundles")
-            .join("aa")
-            .join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        crate::bundle_path(&paths, &expected_bundle_id)
+            .unwrap()
             .exists()
     );
 
+    let cached = crate::bundle_path(&paths, &expected_bundle_id).unwrap();
+    std::fs::write(&cached, b"corrupted cached artifact").unwrap();
+    let retry = fetch_snapshot(&request).unwrap();
+    assert_eq!(retry.downloaded_bundle_count, 1);
+    crate::artifact::bundle::verify_bundle_identity_file(&cached, &expected_bundle_id).unwrap();
     server.join().unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }

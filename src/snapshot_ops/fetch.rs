@@ -400,7 +400,18 @@ fn prepare_snapshot_fetch(
     let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
     let mut existing_artifacts = HashSet::new();
     for artifact in &required_artifacts {
-        if artifact.local_path(&repo_paths)?.is_file() {
+        let path = artifact.local_path(&repo_paths)?;
+        if path.is_file() {
+            if let crate::ArtifactRef::Bundle { id } = artifact {
+                match crate::artifact::bundle::verify_bundle_identity_file(&path, id) {
+                    Ok(()) => {}
+                    Err(Error::InvalidBundle(_) | Error::HashMismatch { .. }) => {
+                        std::fs::remove_file(&path)?;
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
             existing_artifacts.insert(artifact.clone());
         }
     }

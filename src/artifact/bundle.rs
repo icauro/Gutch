@@ -733,9 +733,17 @@ pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Resul
             actual: path_id,
         });
     }
+    verify_bundle_identity_reader(&mut File::open(path)?, bundle_id)
+}
+
+pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
+    file: &mut R,
+    bundle_id: &str,
+) -> Result<()> {
+    let expected_hash = ChunkHash::parse_hex(bundle_id)?;
     let id_size = BUNDLE_ID_SIZE as usize;
-    let mut file = File::open(path)?;
-    let total_len = file.metadata()?.len();
+    let total_len = file.seek(SeekFrom::End(0))?;
+    file.seek(SeekFrom::Start(0))?;
     let content_len = total_len.checked_sub(id_size as u64).ok_or_else(|| {
         crate::error::Error::InvalidBundle(format!(
             "bundle '{bundle_id}' is missing its content hash"
@@ -746,12 +754,12 @@ pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Resul
     let mut buffer = vec![0u8; 1024 * 1024];
     while remaining > 0 {
         let take = remaining.min(buffer.len() as u64) as usize;
-        std::io::Read::read_exact(&mut file, &mut buffer[..take])?;
+        file.read_exact(&mut buffer[..take])?;
         hasher.update(&buffer[..take]);
         remaining -= take as u64;
     }
     let mut trailing = vec![0u8; id_size];
-    std::io::Read::read_exact(&mut file, &mut trailing)?;
+    file.read_exact(&mut trailing)?;
     let actual_hash = hash::hash_hex(&hasher.finalize());
     if actual_hash != expected_hash.to_hex() {
         return Err(crate::error::Error::HashMismatch {
