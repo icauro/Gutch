@@ -14,9 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if __package__ in {None, ""}:
     sys.path.insert(0, str(REPO_ROOT))
 
-from gutch_repo.benchmarks.gutch_fixture_runner.commands import GutchCli
-from gutch_repo.benchmarks.gutch_fixture_runner.reconstruction_storage import run_reconstruction_storage
-from gutch_repo.benchmarks.gutch_fixture_runner.s3 import S3Settings, temporary_bucket
+from gutch_repo.test_benchmarks.gutch_fixture_runner.commands import GutchCli
+from gutch_repo.test_benchmarks.gutch_fixture_runner.reconstruction_storage import run_reconstruction_storage
+from gutch_repo.test_benchmarks.gutch_fixture_runner.s3 import S3Settings, temporary_bucket
 from gutch_repo.test_regressions.run_all import (
     build_release_gutch_cli,
     materialize_regression_product,
@@ -26,32 +26,27 @@ from gutch_repo.test_regressions.run_all import (
 S3_ARTIFACT_ROOT = REPO_ROOT / ".artifacts" / "s3"
 
 
-def _ensure_local_s3() -> None:
-    command = [
-        sys.executable,
-        str(REPO_ROOT / "scripts" / "dev" / "docker_stack_start.py"),
-        "--services",
-        "seaweedfs",
-        "--no-build",
-    ]
-    print(f"[ensure local S3] {' '.join(command)}", flush=True)
-    subprocess.run(command, cwd=REPO_ROOT, check=True)
-
-
 def _local_s3_settings() -> S3Settings:
-    endpoint = os.environ.get("S3_MAIN_ENDPOINT", "http://127.0.0.1:9634").strip().rstrip("/")
-    parsed = urlsplit(endpoint)
-    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise RuntimeError(
-            "S3 regression requires the local dev SeaweedFS endpoint; "
-            f"got {endpoint!r}"
-        )
+    from tests.common._e2e_harness import (
+        create_runtime_context, load_backend_env_values, ensure_docker_engine_ready,
+        compose_up, wait_for_compose_service_health,
+    )
+    values, env_path = load_backend_env_values(REPO_ROOT)
+    context = create_runtime_context(
+        REPO_ROOT, lane_name="gutch-s3", project_name="",
+        backend_values=values, backend_env_file_path=env_path,
+        runtime_mode=os.environ.get("HOSTAPP_TEST_RUNTIME_MODE", "fast"),
+    )
+    ensure_docker_engine_ready(REPO_ROOT)
+    compose_up(context.compose_file, context.project_name, context.env_file,
+               services=["seaweedfs"], build=False)
+    wait_for_compose_service_health(context.compose_file, context.project_name,
+                                   context.env_file, "seaweedfs")
     return S3Settings(
-        bucket="",
-        endpoint=endpoint,
-        region=os.environ.get("S3_MAIN_REGION", "auto").strip() or "auto",
-        access_key_id=os.environ.get("S3_MAIN_ACCESS_KEY", "hostapp-local").strip(),
-        secret_access_key=os.environ.get("S3_MAIN_SECRET_KEY", "hostapp-local-secret-key").strip(),
+        bucket="", endpoint=context.backend_values["S3_PUBLIC_BASE_URL"].removesuffix("/hostapp-public"),
+        region="us-east-1",
+        access_key_id=context.backend_values["S3_MAIN_ACCESS_KEY"],
+        secret_access_key=context.backend_values["S3_MAIN_SECRET_KEY"],
     )
 
 
@@ -74,14 +69,13 @@ def main(arguments: list[str] | None = None) -> int:
     args = parser.parse_args(arguments)
 
     try:
-        _ensure_local_s3()
         settings = _local_s3_settings()
         product_root = materialize_regression_product()
         snapshots = select_latest_snapshots(product_root)
         product = snapshots[-1][1]
         print(f"Using generated snapshot {product.name} from {product_root}", flush=True)
         executable = build_release_gutch_cli()
-        with temporary_bucket(settings) as bucket_settings:
+        with temporary_bucket(settings, retain_on_failure=True) as bucket_settings:
             print(f"Created temporary local S3 bucket {bucket_settings.bucket}", flush=True)
             result = run_reconstruction_storage(
                 product,
@@ -107,4 +101,5 @@ def main(arguments: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from tests.common._test_environment import run_test_main
+    raise SystemExit(run_test_main(main))

@@ -5,9 +5,9 @@ import json
 import os
 from pathlib import Path
 
-from gutch_repo.benchmarks.common.environment import load_benchmark_environment
-from gutch_repo.benchmarks.common.config import load_scenario
-from gutch_repo.benchmarks.benchmark_config import load_benchmark_config
+from gutch_repo.test_benchmarks.common.environment import load_benchmark_environment
+from gutch_repo.test_benchmarks.common.config import load_scenario
+from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
 from .binary import resolve_gutch_executable
 from .commands import GutchCli
 from .config import FixtureCatalog, _wait_seconds

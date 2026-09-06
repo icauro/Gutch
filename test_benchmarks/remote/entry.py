@@ -55,8 +55,8 @@ def _new_run_root(artifacts_root: Path, before: set[Path]) -> Path:
 
 
 def _cleanup_s3(settings, prefix: str) -> None:
-    from gutch_repo.benchmarks.s3_throughput.config import StorageTarget
-    from gutch_repo.benchmarks.s3_throughput.workflow import (
+    from gutch_repo.test_benchmarks.s3_throughput.config import StorageTarget
+    from gutch_repo.test_benchmarks.s3_throughput.workflow import (
         run_abort_multipart_uploads,
         run_delete,
     )
@@ -96,17 +96,17 @@ def main() -> int:
     sys.path.insert(0, str(code_root))
 
     from gutch_repo.test_dataset.ensure_test_dataset import prepare_blender_product
-    from gutch_repo.benchmarks.benchmark_config import load_benchmark_config
-    from gutch_repo.benchmarks.common.environment import load_benchmark_environment
-    from gutch_repo.benchmarks.gutch_fixture_runner.commands import GutchCli
-    from gutch_repo.benchmarks.gutch_fixture_runner.config import load_fixture
-    from gutch_repo.benchmarks.gutch_fixture_runner.report import print_fixture_report
-    from gutch_repo.benchmarks.gutch_fixture_runner.s3 import S3Settings
-    from gutch_repo.benchmarks.gutch_fixture_runner.s3_cycle import (
+    from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
+    from gutch_repo.test_benchmarks.common.environment import load_benchmark_environment
+    from gutch_repo.test_benchmarks.gutch_fixture_runner.commands import GutchCli
+    from gutch_repo.test_benchmarks.gutch_fixture_runner.config import load_fixture
+    from gutch_repo.test_benchmarks.gutch_fixture_runner.report import print_fixture_report
+    from gutch_repo.test_benchmarks.gutch_fixture_runner.s3 import S3Settings
+    from gutch_repo.test_benchmarks.gutch_fixture_runner.s3_cycle import (
         load_s3_cycle,
         run_s3_cycle,
     )
-    from gutch_repo.benchmarks.gutch_fixture_runner.workflow import run_fixture
+    from gutch_repo.test_benchmarks.gutch_fixture_runner.workflow import run_fixture
 
     config = load_benchmark_config(args.config.resolve())
     load_benchmark_environment(args.config.resolve(), overwrite=True)

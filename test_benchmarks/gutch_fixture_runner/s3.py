@@ -126,7 +126,7 @@ def _delete_bucket_contents(client: S3Client, bucket: str) -> None:
 
 
 @contextmanager
-def temporary_bucket(settings: S3Settings):
+def temporary_bucket(settings: S3Settings, *, retain_on_failure: bool = False):
     """Create and always remove an isolated bucket using an existing S3 service."""
     bucket = f"hostapp-gutch-regression-{uuid4().hex[:16]}"
     isolated = S3Settings(
@@ -138,12 +138,14 @@ def temporary_bucket(settings: S3Settings):
     )
     client = make_client(isolated)
     created = False
+    completed = False
     try:
         _create_bucket(client, isolated)
         created = True
         yield isolated
+        completed = True
     finally:
-        if created:
+        if created and (completed or not retain_on_failure):
             _delete_bucket_contents(client, bucket)
             client.delete_bucket(Bucket=bucket)
 

@@ -6,7 +6,7 @@ artifact retention, and one verification measurement per reconstruct lane.
 
 Run Gutch benchmarks interactively:
 
-    python -m gutch_repo.benchmarks.gutch_fixture_runner
+    python -m gutch_repo.test_benchmarks.gutch_fixture_runner
 
 The interactive Gutch launcher uses `local.product_root` from the benchmark
 YAML config as its product lookup root, then presents its product directories
@@ -18,11 +18,11 @@ The Gutch launcher can also be run directly by file path:
 
 List Gutch fixtures:
 
-    python -m gutch_repo.benchmarks.gutch_fixture_runner list
+    python -m gutch_repo.test_benchmarks.gutch_fixture_runner list
 
 Run storage benchmarks interactively:
 
-    python -m gutch_repo.benchmarks.s3_throughput
+    python -m gutch_repo.test_benchmarks.s3_throughput
 
 Benchmark-local server and path settings live in
 `gutch_repo/benchmarks/config.yml`. Copy `config.yml.example` there and
@@ -37,11 +37,11 @@ the scenario prefix; `abort-multipart` defaults to the whole bucket unless
 
 Run the default local Gutch fixture:
 
-    python -m gutch_repo.benchmarks.gutch_fixture_runner --product path/to/product
+    python -m gutch_repo.test_benchmarks.gutch_fixture_runner --product path/to/product
 
 Run the cold S3 publication cycle (using the benchmark YAML config by default):
 
-    python -m gutch_repo.benchmarks.gutch_fixture_runner s3-cycle --product path/to/product
+    python -m gutch_repo.test_benchmarks.gutch_fixture_runner s3-cycle --product path/to/product
 
 Use `--config path/to/config.yml` to select another benchmark config. Keep the
 filled config local and never commit S3 secrets or SSH private-key paths that
@@ -49,7 +49,7 @@ should remain private.
 
 Run the fixed remote Linux benchmark without selecting a product:
 
-    python -m gutch_repo.benchmarks.gutch_fixture_runner remote \
+    python -m gutch_repo.test_benchmarks.gutch_fixture_runner remote \
       --config gutch_repo/benchmarks/config.yml
 
 The remote command compiles the standalone `gutch-cli` checkout locally through
@@ -66,7 +66,7 @@ asks whether to delete it (`N` is the default). For a low-concurrency diagnostic
 Launch the remote benchmark menu, which loads the configured benchmark YAML
 and discovers all remote Gutch fixtures automatically:
 
-    python -m gutch_repo.benchmarks.remote
+    python -m gutch_repo.test_benchmarks.remote
 
 The menu includes the single-lane trace fixture, which runs the same default
 capture/reconstruct/corrupt/repair flow as the local trace fixture against the

@@ -5,10 +5,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from gutch_repo.benchmarks.common.artifacts import RunLayout, create_run_dir
-from gutch_repo.benchmarks.common.command import CommandRunner
-from gutch_repo.benchmarks.common.filesystem import compare_directories, remove_tree, scan_tree
-from gutch_repo.benchmarks.common.traces import combine_labeled_traces, open_trace_in_perfetto
+from gutch_repo.test_benchmarks.common.artifacts import RunLayout, create_run_dir
+from gutch_repo.test_benchmarks.common.command import CommandRunner
+from gutch_repo.test_benchmarks.common.filesystem import compare_directories, remove_tree, scan_tree
+from gutch_repo.test_benchmarks.common.traces import combine_labeled_traces, open_trace_in_perfetto
 from .commands import GutchCli
 from .models import GutchProfile
 from .s3 import (

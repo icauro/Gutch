@@ -7,7 +7,7 @@ from typing import Sequence
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-    __package__ = "gutch_repo.benchmarks.s3_throughput"
+    __package__ = "gutch_repo.test_benchmarks.s3_throughput"
 
 from .cli import add_arguments, run_command
 from .config import StorageScenario, load_storage_scenario
@@ -106,7 +106,7 @@ def _run_explicit(arguments: list[str]) -> int:
             raise SystemExit("storage list does not accept additional arguments")
         _print_fixtures()
         return 0
-    parser = argparse.ArgumentParser(prog="gutch_repo.benchmarks.s3_throughput")
+    parser = argparse.ArgumentParser(prog="gutch_repo.test_benchmarks.s3_throughput")
     add_arguments(parser)
     return run_command(parser.parse_args(arguments))
 

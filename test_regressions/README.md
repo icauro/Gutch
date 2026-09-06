@@ -9,17 +9,17 @@ the tracked deterministic 128 MiB recipe beneath
 python gutch_repo/test_regressions/run_all.py
 ```
 
-The local S3 regression uses the SeaweedFS service from the development Docker
-stack. It creates a temporary bucket, runs capture, S3 publication, fetch and
-reconstruct, corrupts and repairs each reconstructed snapshot, compares the
-repaired output, and deletes the bucket in all completion paths:
+The local S3 regression creates an isolated test-owned SeaweedFS environment.
+It creates a temporary bucket, runs capture, S3 publication, reconstruction,
+corruption and repair, and compares the repaired output:
 
 ```pwsh
-python gutch_repo/test_regressions/run_s3.py
+uv run python gutch_repo/test_regressions/run_s3.py
 ```
 
-It uses only the local endpoint (`127.0.0.1`, `localhost`, or `::1`) and never
-uses the configured main bucket.
+Success removes the owned Docker environment. Failure stops it and retains
+bucket contents for inspection through `tests/environment_manage.py`. A nested
+run reuses its parent test environment. Development S3 is never used.
 
 Its S3 run artifacts are kept under `.artifacts/s3/` to keep
 Windows repository paths short enough for nested Gutch objects.
