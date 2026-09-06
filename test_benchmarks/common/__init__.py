@@ -1,10 +1,10 @@
 """Shared benchmark infrastructure."""
 
-from .artifacts import LaneLayout, RunLayout, create_run_dir
-from .command import CommandError, CommandResult, CommandRunner
+from gutch_repo.test_support.artifacts import LaneLayout, RunLayout, create_run_dir
+from gutch_repo.test_support.command import CommandError, CommandResult, CommandRunner
 from .config import ScenarioCatalog, ScenarioDocument, load_scenario
-from .filesystem import TreeStats, compare_directories, scan_tree
-from .recovery import apply_corruption_plan, build_corruption_plan
+from gutch_repo.test_support.filesystem import TreeStats, compare_directories, scan_tree
+from gutch_repo.test_support.recovery import apply_corruption_plan, build_corruption_plan
 from .environment import DEFAULT_CONFIG_FILE, load_benchmark_environment
 
 __all__ = [

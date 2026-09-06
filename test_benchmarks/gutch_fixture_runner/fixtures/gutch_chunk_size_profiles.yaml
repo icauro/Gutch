@@ -23,16 +23,18 @@ lanes:
   #       level: 3
   #     storage: bundled
   - label: chunk-128KiB
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_128KiB
-      bundle: bundle_16MiB
+      bundle: bundle_8MiB
       compression:
         algorithm: zstd
         level: 3
       storage: bundled
   - label: chunk-64KiB
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_64KiB
       bundle: bundle_8MiB
@@ -41,7 +43,8 @@ lanes:
         level: 3
       storage: bundled
   - label: chunk-32KiB
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_32KiB
       bundle: bundle_8MiB

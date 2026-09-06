@@ -5,10 +5,12 @@ delete_artifacts: true
 open_perfetto: true
 lanes:
   - label: jobs-12
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       jobs: 12
   - label: jobs-24
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       jobs: 24

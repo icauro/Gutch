@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 import stat
-import shutil
 from typing import Any
 
 from .filesystem import remove_tree

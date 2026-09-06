@@ -9,18 +9,23 @@ execution:
   default_host: container
 lanes:
   - label: restic-linux
-    kind: restic-individual
+    tool: restic
+    workload: individual
     arguments: [--compression, fastest]
   - label: kopia-linux
-    kind: kopia-individual
+    tool: kopia
+    workload: individual
     arguments: [--compression=zstd-fastest]
   - label: borg-linux
-    kind: borg-individual
+    tool: borg
+    workload: individual
     arguments: [--compression, "zstd,1"]
   - label: plakar-linux
-    kind: plakar-individual
+    tool: plakar
+    workload: individual
   - label: gutch-linux
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_128KiB
       bundle: bundle_8MiB

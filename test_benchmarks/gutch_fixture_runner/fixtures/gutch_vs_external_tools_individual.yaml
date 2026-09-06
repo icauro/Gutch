@@ -6,18 +6,23 @@ open_perfetto: true
 corrupt_repair: false
 lanes:
   - label: restic
-    kind: restic-individual
+    tool: restic
+    workload: individual
     arguments: [--compression, fastest]
   - label: kopia
-    kind: kopia-individual
+    tool: kopia
+    workload: individual
     arguments: [--compression=zstd-fastest]
   - label: borg
-    kind: borg-individual
+    tool: borg
+    workload: individual
     arguments: [--compression, "zstd,1"]
   - label: plakar
-    kind: plakar-individual
+    tool: plakar
+    workload: individual
   - label: gutch
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_128KiB
       bundle: bundle_8MiB

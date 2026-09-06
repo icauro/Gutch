@@ -5,24 +5,21 @@ from pathlib import Path
 from typing import Any
 
 
-@dataclass(frozen=True)
-class GutchProfile:
-    name: str
-    chunk_profile: str = "chunk_128KiB"
-    bundle_profile: str = "bundle_8MiB"
-    compression_algorithm: str = "zstd"
-    compression_level: int | None = 3
-    storage_mode: str = "bundled"
-    jobs: int | None = None
+from gutch_repo.test_support.models import GutchProfile
 
 
 @dataclass(frozen=True)
 class LaneSpec:
     label: str
-    kind: str
-    profile: GutchProfile
+    tool: str
+    profile: GutchProfile | None = None
     warmup: bool = False
     arguments: tuple[str, ...] = ()
+    workload: str = "individual"
+
+    @property
+    def kind(self) -> str:
+        return "filesystem-copy" if self.tool == "filesystem" else f"{self.tool}-{self.workload}"
 
 
 @dataclass(frozen=True)
@@ -38,6 +35,8 @@ class FixtureSpec:
     lane_wait_seconds: float = 4.0
     step_wait_seconds: float = 4.0
     snapshot_limit: int | None = None
+    repetitions: int = 1
+    measurement_mode: str = "profile"
 
 
 @dataclass

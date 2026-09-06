@@ -25,9 +25,9 @@ transfer:
 execution:
   default_host: local
 profile:
-  chunk_profile: chunk_128KiB
-  bundle_profile: bundle_8MiB
+  chunk: chunk_128KiB
+  bundle: bundle_8MiB
   compression:
     algorithm: zstd
     level: 3
-  storage_mode: bundled
+  storage: bundled

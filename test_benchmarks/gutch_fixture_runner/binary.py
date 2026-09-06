@@ -43,13 +43,14 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
         if not explicit.exists():
             raise FileNotFoundError(f"configured Gutch executable does not exist: {explicit}")
         return explicit
+    executable_name = "gutch-cli.exe" if os.name == "nt" else "gutch-cli"
     candidates: list[Path | None] = []
     candidates.extend(
         [
-            repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "default" / "release" / "gutch-cli.exe",
-            repo_root / ".build" / "main" / "gutch_repo" / "intermediates" / "cargo" / "default" / "release" / "gutch-cli.exe",
-            repo_root / "target" / "release" / "gutch-cli.exe",
-            repo_root / "gutch_repo" / "benchmarks" / "gutch_fixture_runner" / "bin" / "gutch-cli.exe",
+            repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "default" / "release" / executable_name,
+            repo_root / ".build" / "main" / "gutch_repo" / "intermediates" / "cargo" / "default" / "release" / executable_name,
+            repo_root / "target" / "release" / executable_name,
+            repo_root / "gutch_repo" / "test_benchmarks" / "gutch_fixture_runner" / "bin" / executable_name,
         ]
     )
     for candidate in candidates:
@@ -63,6 +64,7 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
             "cargo",
             "build",
             "--release",
+            "--locked",
             "--manifest-path",
             repo_root / "gutch_repo" / "gutch-cli" / "Cargo.toml",
             "--bin",

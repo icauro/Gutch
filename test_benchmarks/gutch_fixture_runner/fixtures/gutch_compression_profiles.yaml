@@ -5,21 +5,24 @@ delete_artifacts: false
 open_perfetto: false
 lanes:
   - label: zstd_1
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_64KiB
       compression:
         algorithm: zstd
         level: 1
   - label: zstd_3
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_64KiB
       compression:
         algorithm: zstd
         level: 3
   - label: lz4_default
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_64KiB
       compression:

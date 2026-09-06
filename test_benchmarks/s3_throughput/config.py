@@ -77,16 +77,19 @@ def load_storage_scenario(path: Path) -> StorageScenario:
         raise ValueError(f"storage scenario prepare/download must be mappings: {path}")
     object_count = int(prepare.get("object_count", 16))
     upload_concurrency = int(prepare.get("upload_concurrency", 4))
-    download_concurrency = int(prepare.get("download_concurrency", 16))
+    download_concurrency = int(download.get("default_args", {}).get("concurrency", 16))
     download_runs = int(prepare.get("download_runs", download.get("default_args", {}).get("runs", 1)))
     if min(object_count, upload_concurrency, download_concurrency, download_runs) < 1:
         raise ValueError("storage workload counts must be positive")
+    size_bytes = _size_bytes(prepare.get("size", "8MiB"))
+    if isinstance(size_bytes, bool) or size_bytes <= 0:
+        raise ValueError("storage payload size must be positive")
     return StorageScenario(
         name=document.name,
         description=str(values.get("description", "")),
         targets=tuple(targets),
         prefix=str(prepare.get("prefix", "benchmarks/objects")).strip("/"),
-        size_bytes=_size_bytes(prepare.get("size", "8MiB")),
+        size_bytes=size_bytes,
         object_count=object_count,
         upload_concurrency=upload_concurrency,
         download_concurrency=download_concurrency,

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from gutch_repo.test_benchmarks.common.config import ScenarioCatalog, load_scenario
+from gutch_repo.test_support.artifacts import safe_component
 from .models import FixtureSpec, GutchProfile, LaneSpec
 
 
@@ -121,7 +122,7 @@ def _profile(values: dict[str, Any], name: str) -> GutchProfile:
                 f"{name} {compression_algorithm} compression level must be between {minimum} and {maximum}"
             )
     jobs = raw.get("jobs")
-    if jobs is not None and (not isinstance(jobs, int) or jobs < 1):
+    if jobs is not None and (isinstance(jobs, bool) or not isinstance(jobs, int) or jobs < 1):
         raise ValueError("profile jobs must be a positive integer")
     return GutchProfile(
         name,
@@ -156,22 +157,45 @@ def load_fixture(path: Path) -> FixtureSpec:
             names = ", ".join(sorted(lane_phase_options))
             raise ValueError(f"{names} must be configured at fixture level, not per lane: {path}")
         label = raw.get("label")
-        kind = raw.get("kind", "gutch-individual")
+        tool = raw.get("tool", "gutch")
+        workload = raw.get("workload", "copy" if tool == "filesystem" else "individual")
+        kind = "filesystem-copy" if tool == "filesystem" else f"{tool}-{workload}"
+        if tool == "filesystem" and workload != "copy":
+            raise ValueError("filesystem cases only support the copy workload")
+        if "kind" in raw:
+            raise ValueError("configure tool and workload separately")
         if not isinstance(label, str) or not label.strip() or label in labels:
             raise ValueError(f"fixture lane labels must be unique non-empty strings: {path}")
         if not isinstance(kind, str):
             raise ValueError(f"fixture lane kind must be a string: {path}")
-        labels.add(label)
+        normalized_label = safe_component(label)
+        if normalized_label in labels:
+            raise ValueError(f"lane labels collide as artifact names: {label}")
+        labels.add(normalized_label)
+        if kind not in {"gutch-individual", "gutch-batch", "gutch-product-bulk", "filesystem-copy",
+                       *(f"{tool}-{mode}" for tool in ("restic", "kopia", "borg", "plakar") for mode in ("individual", "exact-bulk"))}:
+            raise ValueError(f"unsupported lane kind: {kind}")
+        if tool != "gutch" and "profile" in raw:
+            raise ValueError("Gutch profiles only apply to Gutch cases")
         arguments = _lane_arguments(raw, label, kind)
         lanes.append(
             LaneSpec(
                 label=label,
-                kind=kind,
-                profile=_profile(raw, label),
+                tool=tool,
+                workload=workload,
+                profile=_profile(raw, label) if tool == "gutch" else None,
                 warmup=_bool(raw, "warmup", False),
                 arguments=arguments,
             )
         )
+    repetitions = values.get("repetitions", 1)
+    if isinstance(repetitions, bool) or not isinstance(repetitions, int) or repetitions < 1:
+        raise ValueError("repetitions must be a positive integer")
+    mode = values.get("measurement_mode", "profile")
+    if mode not in {"profile", "performance"}:
+        raise ValueError("measurement_mode must be profile or performance")
+    if all(lane.warmup for lane in lanes):
+        raise ValueError("fixture must contain a measured lane")
     return FixtureSpec(
         name=document.name,
         runner=str(values.get("runner", "gutch-fixture")),
@@ -184,6 +208,8 @@ def load_fixture(path: Path) -> FixtureSpec:
         lane_wait_seconds=_wait_seconds(values, "lane_wait_seconds"),
         step_wait_seconds=_wait_seconds(values, "step_wait_seconds"),
         snapshot_limit=_snapshot_limit(values, path),
+        repetitions=repetitions,
+        measurement_mode=mode,
     )
 
 

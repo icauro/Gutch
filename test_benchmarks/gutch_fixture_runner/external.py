@@ -8,9 +8,11 @@ from pathlib import Path
 import tempfile
 import time
 
-from gutch_repo.test_benchmarks.common.command import CommandRunner
-from gutch_repo.test_benchmarks.common.filesystem import compare_directories, remove_tree, scan_tree
-from gutch_repo.test_benchmarks.common.recovery import apply_corruption_plan, build_corruption_plan
+from gutch_repo.test_support.command import CommandRunner
+from gutch_repo.test_support.filesystem import remove_tree, scan_tree
+from gutch_repo.test_support.recovery import apply_corruption_plan, build_corruption_plan
+from gutch_repo.test_benchmarks.common.dataset import DatasetSelection
+from gutch_repo.test_support.filesystem import file_sha256
 from .models import LaneResult, LaneSpec
 
 
@@ -30,9 +32,11 @@ class ExternalTools:
             "borg": self.borg,
             "plakar": self.plakar,
         }.get(kind)
-        if explicit and explicit.exists():
+        if explicit is not None:
+            if not explicit.is_file():
+                raise FileNotFoundError(f"configured {kind} executable does not exist: {explicit}")
             return explicit
-        candidate = self.repo_root / "gutch_repo" / "benchmarks" / "gutch_fixture_runner" / "bin"
+        candidate = self.repo_root / "gutch_repo" / "test_benchmarks" / "gutch_fixture_runner" / "bin"
         if os.name == "nt":
             if kind == "plakar":
                 candidate = candidate / "plakar" / "plakar.exe"
@@ -54,13 +58,6 @@ def _restic_id(output: str) -> str:
         if isinstance(value, dict) and value.get("message_type") == "summary" and value.get("snapshot_id"):
             return str(value["snapshot_id"])
     raise RuntimeError("restic backup did not return a snapshot id")
-
-
-def _compare(expected: list[Path], actual_root: Path) -> list[str]:
-    differences: list[str] = []
-    for source in expected:
-        differences.extend(compare_directories(source, actual_root / source.name))
-    return differences
 
 
 def _plakar_cache_directory(lane_root: Path) -> Path:
@@ -94,6 +91,7 @@ def run_external(
     *,
     recovery_enabled: bool = False,
     snapshot_limit: int | None = None,
+    dataset: DatasetSelection | None = None,
 ) -> LaneResult:
     kind = lane_spec.kind.split("-", 1)[0]
     executable = tools.executable(kind)
@@ -105,18 +103,23 @@ def run_external(
     remove_tree(output)
     repo.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
-    sources = sorted(path for path in product.iterdir() if path.is_dir())
+    dataset = dataset or DatasetSelection.resolve(product, snapshot_limit)
+    sources = list(dataset.sources)
     if not sources:
         raise ValueError(f"product has no target directories: {product}")
-    if snapshot_limit is not None:
-        sources = sources[-snapshot_limit:]
+    elapsed_commands: list[float] = []
+    def execute(*args, **kwargs):
+        result = tools.commands.run(*args, **kwargs)
+        elapsed_commands.append(result.elapsed_seconds)
+        return result
+
     env = {}
     if kind == "restic":
         env = {
             "RESTIC_PASSWORD": "bench",
             "RESTIC_CACHE_DIR": str(lane_root / "restic-cache"),
         }
-        tools.commands.run(
+        execute(
             [executable, "init", *lane_spec.arguments, "--repo", repo],
             description=f"{lane_spec.label} init",
             env=env,
@@ -129,20 +132,20 @@ def run_external(
             "KOPIA_LOG_DIR": str(lane_root / "kopia-logs"),
             "KOPIA_CHECK_FOR_UPDATES": "false",
         }
-        tools.commands.run(
+        execute(
             [executable, "repository", "create", "filesystem", "--path", repo, "--no-persist-credentials", "--no-use-keyring", "--no-progress"],
             description=f"{lane_spec.label} init",
             env=env,
         )
         if lane_spec.arguments:
-            tools.commands.run(
+            execute(
                 [executable, "policy", "set", "--global", *lane_spec.arguments],
                 description=f"{lane_spec.label} policy",
                 env=env,
             )
     elif kind == "plakar":
         env = {"PLAKAR_INSECURE_PLAINTEXT": "1"}
-        tools.commands.run(
+        execute(
             _plakar_command(executable, repo, plakar_cache_directory, "create", "-plaintext"),
             description=f"{lane_spec.label} init",
             env=env,
@@ -152,17 +155,17 @@ def run_external(
             "BORG_BASE_DIR": str(lane_root / "borg"),
             "BORG_CACHE_DIR": str(lane_root / "borg-cache"),
         }
-        tools.commands.run(
+        execute(
             [executable, "init", "--encryption", "none", repo],
             description=f"{lane_spec.label} init",
             env=env,
         )
 
     bulk = lane_spec.kind.endswith("exact-bulk")
-    started = time.perf_counter()
+    started = len(elapsed_commands)
     identifiers: dict[str, str] = {}
     if bulk and kind == "restic":
-        result = tools.commands.run(
+        result = execute(
             [executable, "backup", *lane_spec.arguments, "--json", "--repo", repo, *[source.name for source in sources]],
             description=f"{lane_spec.label} backup",
             cwd=product,
@@ -170,10 +173,10 @@ def run_external(
         )
         identifiers["bulk"] = _restic_id(result.stdout)
     elif bulk and kind == "kopia":
-        tools.commands.run([executable, "snapshot", "create", product, "--no-progress"], description=f"{lane_spec.label} create", env=env)
+        execute([executable, "snapshot", "create", product, "--no-progress"], description=f"{lane_spec.label} create", env=env)
         identifiers["bulk"] = product.name
     elif bulk and kind == "plakar":
-        tools.commands.run(
+        execute(
             _plakar_command(executable, repo, plakar_cache_directory, "backup", *lane_spec.arguments, "-cache", "no", "-no-progress", *[source.name for source in sources]),
             description=f"{lane_spec.label} backup",
             cwd=product,
@@ -182,7 +185,7 @@ def run_external(
         identifiers["bulk"] = "latest"
     elif bulk:
         archive = f"{lane_spec.label}-bulk"
-        tools.commands.run(
+        execute(
             [executable, "create", *lane_spec.arguments, f"{repo}::{archive}", *[source.name for source in sources]],
             description=f"{lane_spec.label} create",
             cwd=product,
@@ -192,7 +195,7 @@ def run_external(
     else:
         for index, source in enumerate(sources, start=1):
             if kind == "restic":
-                result = tools.commands.run(
+                result = execute(
                     [executable, "backup", *lane_spec.arguments, "--json", "--repo", repo, source.name],
                     description=f"{lane_spec.label} backup {source.name}",
                     cwd=product,
@@ -200,11 +203,11 @@ def run_external(
                 )
                 identifiers[source.name] = _restic_id(result.stdout)
             elif kind == "kopia":
-                tools.commands.run([executable, "snapshot", "create", source, "--no-progress"], description=f"{lane_spec.label} create {source.name}", env=env)
+                execute([executable, "snapshot", "create", source, "--no-progress"], description=f"{lane_spec.label} create {source.name}", env=env)
                 identifiers[source.name] = source.name
             elif kind == "plakar":
                 tag = f"gutch-benchmark-{index:04d}"
-                tools.commands.run(
+                execute(
                     _plakar_command(executable, repo, plakar_cache_directory, "backup", *lane_spec.arguments, "-cache", "no", "-no-progress", "-tag", tag, source.name),
                     description=f"{lane_spec.label} backup {source.name}",
                     cwd=product,
@@ -213,39 +216,39 @@ def run_external(
                 identifiers[source.name] = tag
             else:
                 archive = f"{lane_spec.label}-{source.name}"
-                tools.commands.run(
+                execute(
                     [executable, "create", *lane_spec.arguments, f"{repo}::{archive}", source.name],
                     description=f"{lane_spec.label} create {source.name}",
                     cwd=product,
                     env=env,
                 )
                 identifiers[source.name] = archive
-    backup = time.perf_counter() - started
+    backup = sum(elapsed_commands[started:])
     repo_stats = scan_tree(repo)
 
     def restore_output() -> float:
-        restore_started = time.perf_counter()
+        restore_started = len(elapsed_commands)
         output.mkdir(parents=True, exist_ok=True)
         if bulk and kind == "restic":
-            tools.commands.run(
+            execute(
                 [executable, "restore", "latest", "--repo", repo, "--target", output],
                 description=f"{lane_spec.label} restore",
                 env=env,
             )
         elif bulk and kind == "kopia":
-            tools.commands.run(
+            execute(
                 [executable, "snapshot", "restore", product, output, "--snapshot-time=latest", "--no-progress"],
                 description=f"{lane_spec.label} restore",
                 env=env,
             )
         elif bulk and kind == "plakar":
-            tools.commands.run(
+            execute(
                 _plakar_command(executable, repo, plakar_cache_directory, "restore", "-to", output),
                 description=f"{lane_spec.label} restore",
                 env=env,
             )
         elif bulk:
-            tools.commands.run(
+            execute(
                 [executable, "extract", f"{repo}::{identifiers['bulk']}"],
                 description=f"{lane_spec.label} extract",
                 cwd=output,
@@ -254,13 +257,13 @@ def run_external(
         else:
             for source in reversed(sources):
                 if kind == "restic":
-                    tools.commands.run(
+                    execute(
                         [executable, "restore", identifiers[source.name], "--repo", repo, "--target", output, "--include", source.name],
                         description=f"{lane_spec.label} restore {source.name}",
                         env=env,
                     )
                 elif kind == "kopia":
-                    tools.commands.run(
+                    execute(
                         [executable, "snapshot", "restore", source, output / source.name, "--snapshot-time=latest", "--no-progress"],
                         description=f"{lane_spec.label} restore {source.name}",
                         env=env,
@@ -268,21 +271,23 @@ def run_external(
                 elif kind == "plakar":
                     destination = output / source.name
                     destination.mkdir(parents=True, exist_ok=True)
-                    tools.commands.run(
+                    execute(
                         _plakar_command(executable, repo, plakar_cache_directory, "restore", "-to", destination, "-tag", identifiers[source.name]),
                         description=f"{lane_spec.label} restore {source.name}",
                         env=env,
                     )
                 else:
-                    tools.commands.run(
+                    execute(
                         [executable, "extract", f"{repo}::{identifiers[source.name]}"],
                         description=f"{lane_spec.label} extract {source.name}",
                         cwd=output,
                         env=env,
                     )
-        return time.perf_counter() - restore_started
+        return sum(elapsed_commands[restore_started:])
 
     restore = restore_output()
+    for source in sources:
+        dataset.validate(source, output / source.name, lane.stats / f"validate-restored-{source.name}.json")
     corrupt_seconds = 0.0
     repair_seconds = 0.0
     if recovery_enabled:
@@ -302,43 +307,46 @@ def run_external(
         remove_tree(output)
         repair_seconds = restore_output()
 
-    verify_started = time.perf_counter()
+    verify_started = len(elapsed_commands)
     if kind == "restic":
-        tools.commands.run([executable, "check", "--read-data", "--repo", repo], description=f"{lane_spec.label} check", env=env)
+        execute([executable, "check", "--read-data", "--repo", repo], description=f"{lane_spec.label} check", env=env)
     elif kind == "kopia":
         verify_sources = [product] if bulk else sources
         for source in verify_sources:
-            tools.commands.run(
+            execute(
                 [executable, "snapshot", "verify", "--sources", source, "--verify-files-percent=100", "--no-progress"],
                 description=f"{lane_spec.label} verify {source.name}",
                 env=env,
             )
     elif kind == "plakar":
-        tools.commands.run(
+        execute(
             _plakar_command(executable, repo, plakar_cache_directory, "check"),
             description=f"{lane_spec.label} check",
             env=env,
         )
     else:
-        tools.commands.run([executable, "check", "--verify-data", repo], description=f"{lane_spec.label} check", env=env)
-    verify = time.perf_counter() - verify_started
-    differences = _compare(sources, output)
+        execute([executable, "check", "--verify-data", repo], description=f"{lane_spec.label} check", env=env)
+    verify = sum(elapsed_commands[verify_started:])
+    for source in sources:
+        dataset.validate(source, output / source.name, lane.stats / f"validate-final-{source.name}.json")
+    differences = []
     return LaneResult(
         lane_spec.label,
         lane_spec.kind,
         {
             "backup": backup,
             "restore": restore,
-            "verify": verify,
+            "repository_check": verify,
             "compare": 0.0 if not differences else 1.0,
             "corrupt": corrupt_seconds,
-            "repair": repair_seconds,
+            "full_restore_recovery": repair_seconds,
             "growth": repo_stats.total_bytes,
             "repo_size": repo_stats.total_bytes,
             "repo_files": repo_stats.file_count,
         },
         {},
         {
+            "binary_sha256": file_sha256(executable) if executable.is_file() else None,
             "verify_invocations": 1 if bulk or kind != "kopia" else len(sources),
             "verify_position": "after_recovery",
             "corrupt_repair_after_reconstruct": recovery_enabled,

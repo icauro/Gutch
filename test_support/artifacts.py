@@ -12,7 +12,9 @@ from .filesystem import remove_tree
 
 def safe_component(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
-    return cleaned or "unnamed"
+    if cleaned in {"", ".", ".."}:
+        raise ValueError(f"invalid artifact name: {value!r}")
+    return cleaned
 
 
 def create_run_dir(root: Path, source_name: str, fixture_name: str) -> Path:
@@ -51,9 +53,36 @@ class RunLayout:
             directory.mkdir(parents=True, exist_ok=True)
         return LaneLayout(lane_root, stats, traces, payload)
 
+    def write_manifest(self, status: str, **details) -> None:
+        target = self.root / "run.json"
+        previous = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
+        previous.update(details)
+        previous.update(status=status, updated_at=datetime.now(timezone.utc).isoformat())
+        self.write_json(target, previous)
+
+    def write_json(self, target: Path, value) -> None:
+        def portable(item):
+            if isinstance(item, dict):
+                return {key: portable(child) for key, child in item.items()}
+            if isinstance(item, (list, tuple)):
+                return [portable(child) for child in item]
+            if isinstance(item, (str, Path)):
+                path = Path(item)
+                if path.is_absolute():
+                    try:
+                        return path.relative_to(self.root.resolve()).as_posix()
+                    except ValueError:
+                        pass
+            return item
+        value = portable(value)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(target.suffix + ".tmp")
+        temporary.write_text(json.dumps(value, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+        temporary.replace(target)
+
     def write_results(self, results: list[dict]) -> None:
         target = self.root / "results.json"
-        target.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        self.write_json(target, results)
 
     def remove_payloads(self) -> None:
         payload_root = self.root / "lanes"

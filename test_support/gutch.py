@@ -1,0 +1,220 @@
+"""Gutch operations; no fixture scheduling or run cleanup policy."""
+from dataclasses import dataclass
+import json
+import math
+import re
+from pathlib import Path
+from typing import Any
+from .commands import GutchCli
+from .command import CommandRunner
+from .models import GutchProfile
+from .artifacts import LaneLayout, safe_component
+from .recovery import build_corruption_plan
+
+def snapshot_version(name: str) -> str:
+    match = re.search(r"(?<!\d)(\d+\.\d+\.\d+(?:\.\d+)?)(?!\d)", name)
+    if match is None:
+        raise ValueError(f"target {name!r} must contain a semantic version")
+    return match.group(1)
+
+
+def read_stats(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def snapshot_id(stats: dict[str, Any]) -> str:
+    value = stats.get("snapshot_id")
+    if not isinstance(value, str) or not value:
+        raise ValueError("capture stats did not contain snapshot_id")
+    return value
+
+
+def verification_seconds(stats: dict[str, Any]) -> float:
+    timings = stats.get("verify_timings")
+    if not isinstance(timings, dict):
+        raise ValueError("missing verification timings in Gutch result")
+    value = timings.get("total_seconds")
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value < 0:
+        raise ValueError("invalid verification duration in Gutch result")
+    return float(value)
+
+
+@dataclass
+class GutchOperations:
+    cli: GutchCli
+    commands: CommandRunner
+
+    def init_repo(self, repo: Path, label: str) -> None:
+        self.commands.run(
+            self.cli.command("repo", "init", "--path", repo),
+            description=f"{label} repository init",
+        )
+
+    def capture(
+        self,
+        lane_root: Path,
+        repo: Path,
+        source: Path,
+        profile: GutchProfile,
+        stats_path: Path,
+        trace_path: Path,
+        tag: str,
+        version_name: str | None = None,
+    ) -> tuple[float, dict[str, Any]]:
+        result = self.commands.run(
+            self.cli.command(
+                "snapshot",
+                "capture",
+                "--source-dir",
+                source,
+                "--repo",
+                repo,
+                "--yes",
+                "--tag",
+                f"version::{snapshot_version(version_name or source.name)}",
+                "--tag",
+                f"benchmark::{tag}",
+                *GutchCli.profile_args(profile),
+                "--stats-json-out",
+                stats_path,
+                "--trace-out",
+                trace_path,
+            ),
+            description=f"{tag} capture {source.name}",
+        )
+        return result.elapsed_seconds, read_stats(stats_path)
+
+    def capture_many(
+        self,
+        repo: Path,
+        source_root: Path,
+        profile: GutchProfile,
+        stats_path: Path,
+        trace_path: Path,
+        tag: str,
+        label: str,
+    ) -> tuple[float, dict[str, Any]]:
+        result = self.commands.run(
+            self.cli.command(
+                "snapshot",
+                "capture",
+                "--source-root",
+                source_root,
+                "--repo",
+                repo,
+                "--yes",
+                "--tag",
+                f"benchmark::{tag}",
+                *GutchCli.profile_args(profile),
+                "--stats-json-out",
+                stats_path,
+                "--trace-out",
+                trace_path,
+            ),
+            description=f"capture-many {label}",
+        )
+        return result.elapsed_seconds, read_stats(stats_path)
+
+    def reconstruct(
+        self,
+        repo: Path,
+        snapshot_id: str,
+        destination: Path,
+        profile: GutchProfile,
+        stats_path: Path,
+        trace_path: Path,
+        label: str,
+    ) -> tuple[float, dict[str, Any]]:
+        result = self.commands.run(
+            self.cli.command(
+                "snapshot",
+                "reconstruct",
+                "--repo",
+                repo,
+                "--snapshot-id",
+                snapshot_id,
+                "--destination",
+                destination,
+                *GutchCli.runtime_args(profile),
+                "--stats-json-out",
+                stats_path,
+                "--trace-out",
+                trace_path,
+            ),
+            description=f"reconstruct {label}",
+        )
+        return result.elapsed_seconds, read_stats(stats_path)
+
+    def corrupt_and_repair(
+        self,
+        lane: LaneLayout,
+        repo: Path,
+        snapshots: list[tuple[str, str, Path]],
+        profile: GutchProfile,
+        label: str,
+    ) -> dict[str, float | list[str]]:
+        corrupt_seconds = 0.0
+        repair_seconds = 0.0
+        corrupt_traces: list[str] = []
+        repair_traces: list[str] = []
+        plans = []
+        for index, (name, snapshot_id, destination) in enumerate(snapshots, start=1):
+            plan = build_corruption_plan(
+                destination,
+                lane.stats / f"corruption-{safe_component(label)}-{index:03d}.json",
+                index,
+            )
+            plans.append((name, snapshot_id, destination, plan))
+        for index, (name, _snapshot_id, destination, plan) in enumerate(plans, start=1):
+            stats = lane.stats / f"corrupt-{safe_component(label)}-{index:03d}.json"
+            trace = lane.traces / f"corrupt-{safe_component(label)}-{index:03d}.json"
+            result = self.commands.run(
+                self.cli.command(
+                    "reconstructed",
+                    "corrupt",
+                    "--destination",
+                    destination,
+                    "--plan",
+                    plan,
+                    "--stats-json-out",
+                    stats,
+                    "--yes",
+                    "--trace-out",
+                    trace,
+                ),
+                description=f"{label} corrupt {name}",
+            )
+            corrupt_seconds += result.elapsed_seconds
+            corrupt_traces.append(str(trace))
+        for index, (name, snapshot_id, destination, _plan) in enumerate(plans, start=1):
+            stats = lane.stats / f"repair-{safe_component(label)}-{index:03d}.json"
+            trace = lane.traces / f"repair-{safe_component(label)}-{index:03d}.json"
+            result = self.commands.run(
+                self.cli.command(
+                    "reconstructed",
+                    "repair",
+                    "--repo",
+                    repo,
+                    "--snapshot-id",
+                    snapshot_id,
+                    "--destination",
+                    destination,
+                    "--remove-added-files",
+                    "--yes",
+                    *GutchCli.runtime_args(profile),
+                    "--stats-json-out",
+                    stats,
+                    "--trace-out",
+                    trace,
+                ),
+                description=f"{label} repair {name}",
+            )
+            repair_seconds += result.elapsed_seconds
+            repair_traces.append(str(trace))
+        return {
+            "corrupt": corrupt_seconds,
+            "repair": repair_seconds,
+            "corrupt_traces": corrupt_traces,
+            "repair_traces": repair_traces,
+        }
+

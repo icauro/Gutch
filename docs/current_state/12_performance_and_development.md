@@ -122,6 +122,26 @@ The committed official Blender repo is checked by the ignored large-fixture
 test with `cargo test --manifest-path gutch_repo/Cargo.toml --test
 fixture_regression -- --ignored checked_in_blender_repo_is_processable`.
 
+## Benchmark Execution
+
+Python benchmark fixtures separate tool selection from workload and Gutch
+profile configuration. Local and S3 cycle workflows share a scheduler that
+runs warmups, rotates repeated cases, and retains partial results and payloads
+on failure. Shared operation mechanics live in `gutch_repo/test_support`; S3
+regressions no longer import benchmark workflow internals.
+
+Dataset inventories determine numeric version order, selected input size,
+and a reproducible fingerprint before execution. Reconstruction is checked
+before and after recovery, including empty directories, symlink targets, and
+supported file permissions. Command measurements exclude cooldown. Gutch
+embedded verification and incremental repair remain distinct from external
+repository checks and full-restore recovery.
+
+Performance mode suppresses Gutch trace arguments; profile mode retains traces.
+Completed runs include raw evidence, a status manifest, samples, and summary
+statistics. Docker copies the evidence archive to a unique host directory
+before successful environment cleanup. OS caches remain uncontrolled.
+
 ## Failure Boundaries
 
 - Performance overrides cannot disable path containment or promotion safety.

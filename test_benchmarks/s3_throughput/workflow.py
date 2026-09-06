@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from ..gutch_fixture_runner.s3 import S3Client, S3Settings, make_client
+from gutch_repo.test_support.s3 import S3Client, S3Settings, make_client
 from .config import StorageTarget
 
 
@@ -44,7 +44,9 @@ def _settings(target: StorageTarget) -> S3Settings:
 
 
 def _payload(path: Path, size_bytes: int) -> None:
-    digest = hashlib.sha256(b"hostapp-benchmark-payload").digest()
+    if size_bytes <= 0:
+        raise ValueError("payload size must be positive")
+    digest = hashlib.sha256(b"hostapp-benchmark-payload").digest() * 32768
     with path.open("wb") as handle:
         remaining = size_bytes
         while remaining:

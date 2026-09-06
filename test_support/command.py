@@ -2,9 +2,11 @@
 
 from dataclasses import dataclass
 import itertools
+import json
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -84,6 +86,10 @@ def _redact(value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
+def redact_output(value: str) -> str:
+    return re.sub(r"https?://[^\s\"<>]+", lambda match: _redact(match.group()), value)
+
+
 class CommandRunner:
     def __init__(
         self,
@@ -98,6 +104,8 @@ class CommandRunner:
         self.step_wait_seconds = step_wait_seconds
         self.on_step = on_step
         self._has_completed_step = False
+        self.evidence_directory: Path | None = None
+        self.measurements: list[dict] = []
 
     def begin_lane(self) -> None:
         """Reset the step boundary before starting a new benchmark lane."""
@@ -135,25 +143,10 @@ class CommandRunner:
         progress.start()
         started = time.perf_counter()
         try:
-            if on_output is None:
-                completed = subprocess.run(
-                    rendered,
-                    cwd=cwd,
-                    env=process_env,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                stdout = completed.stdout
-                stderr = completed.stderr
-                returncode = completed.returncode
-            else:
-                stdout, stderr, returncode = self._run_streamed(
-                    rendered,
-                    cwd=cwd,
-                    env=process_env,
-                    on_output=on_output,
-                )
+            stdout, stderr, returncode = self._run_streamed(
+                rendered, cwd=cwd, env=process_env,
+                on_output=on_output or (lambda line, is_stderr: None),
+            )
         except BaseException:
             progress.finish(False)
             raise
@@ -164,6 +157,17 @@ class CommandRunner:
             stdout=stdout,
             stderr=stderr,
         )
+        measurement = {"operation": description, "boundary": "process_elapsed",
+            "elapsed_seconds": result.elapsed_seconds, "command": result.command,
+            "returncode": result.returncode}
+        self.measurements.append(measurement)
+        if self.evidence_directory is not None:
+            self.evidence_directory.mkdir(parents=True, exist_ok=True)
+            sequence = len(self.measurements)
+            (self.evidence_directory / f"{sequence:04d}.json").write_text(
+                json.dumps(measurement, indent=2) + "\n", encoding="utf-8")
+            (self.evidence_directory / f"{sequence:04d}.stdout.log").write_text(redact_output(stdout), encoding="utf-8")
+            (self.evidence_directory / f"{sequence:04d}.stderr.log").write_text(redact_output(stderr), encoding="utf-8")
         success = (result.returncode == 0) != expected_failure
         progress.finish(success)
         self._has_completed_step = True
@@ -187,15 +191,22 @@ class CommandRunner:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
+            start_new_session=os.name != "nt",
         )
-        events: queue.Queue[tuple[bool, str | None]] = queue.Queue()
+        events: queue.Queue[tuple[bool, str | BaseException | None]] = queue.Queue()
 
         def read_stream(stream: TextIO, is_stderr: bool) -> None:
-            for line in iter(stream.readline, ""):
-                events.put((is_stderr, line))
-            stream.close()
-            events.put((is_stderr, None))
+            try:
+                for line in iter(stream.readline, ""):
+                    events.put((is_stderr, line))
+            except BaseException as error:
+                events.put((is_stderr, error))
+            finally:
+                stream.close()
+                events.put((is_stderr, None))
 
         threads = [
             threading.Thread(
@@ -215,15 +226,27 @@ class CommandRunner:
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
         closed_streams = 0
-        while closed_streams < len(threads):
-            is_stderr, line = events.get()
-            if line is None:
-                closed_streams += 1
-                continue
-            (stderr_lines if is_stderr else stdout_lines).append(line)
-            on_output(line, is_stderr)
-
-        returncode = process.wait()
-        for thread in threads:
-            thread.join()
+        try:
+            while closed_streams < len(threads):
+                is_stderr, line = events.get()
+                if line is None:
+                    closed_streams += 1
+                    continue
+                if isinstance(line, BaseException):
+                    raise line
+                (stderr_lines if is_stderr else stdout_lines).append(line)
+                on_output(line, is_stderr)
+            returncode = process.wait()
+        except BaseException:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)
+            else:
+                import signal
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+            process.wait()
+            raise
+        finally:
+            for thread in threads:
+                thread.join(timeout=5)
         return "".join(stdout_lines), "".join(stderr_lines), returncode

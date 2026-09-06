@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from gutch_repo.test_benchmarks.common.filesystem import scan_tree
 from .models import FixtureSpec, LaneResult
 
 
@@ -66,9 +65,7 @@ def print_comparison_table(
     results: list[LaneResult],
 ) -> None:
     """Print the compact lane comparison table used by the legacy benchmark."""
-    source_stats = scan_tree(product)
-    source_mib = source_stats.total_bytes / 1_048_576
-    source_ratio = source_stats.total_bytes
+    source_mib = max((float(result.metrics.get("input_bytes", 0)) for result in results), default=0) / 1_048_576
 
     def bytes_value(result: LaneResult, *keys: str) -> str:
         value = _number(result, *keys)
@@ -76,6 +73,7 @@ def print_comparison_table(
 
     def ratio(result: LaneResult) -> str:
         value = _number(result, "repo_size", "growth")
+        source_ratio = result.metrics.get("input_bytes", 0)
         return "-" if value is None or source_ratio == 0 else f"{float(value) / source_ratio * 100:.1f} %"
 
     rows = [
@@ -84,18 +82,20 @@ def print_comparison_table(
         ("Capture min", [_seconds(result, "backup_min") for result in results]),
         ("Capture max", [_seconds(result, "backup_max") for result in results]),
         ("Reconstruct time", [_seconds(result, "restore", "fetch_reconstruct") for result in results]),
-        ("Verify time", [_seconds(result, "verify") for result in results]),
+        ("Embedded verify", [_seconds(result, "verify") for result in results]),
         ("Corrupt time", [_seconds(result, "corrupt") for result in results]),
-        ("Repair time", [_seconds(result, "repair") for result in results]),
+        ("Incremental repair", [_seconds(result, "repair") for result in results]),
+        ("Repository check", [_seconds(result, "repository_check") for result in results]),
+        ("Full restore recovery", [_seconds(result, "full_restore_recovery") for result in results]),
         ("Comparison", [_comparison(result) for result in results]),
         ("Repo growth", [bytes_value(result, "growth", "repo_size") for result in results]),
         ("Repo size ratio", [ratio(result) for result in results]),
         ("Repo size on disk", [bytes_value(result, "repo_size", "growth") for result in results]),
-        ("Capture speed", [_speed(source_mib, result, "backup") for result in results]),
-        ("Reconstruct speed", [_speed(source_mib, result, "restore", "fetch_reconstruct") for result in results]),
+        ("Capture speed", [_speed(float(result.metrics.get("input_bytes", 0)) / 1_048_576, result, "backup") for result in results]),
+        ("Reconstruct speed", [_speed(float(result.metrics.get("input_bytes", 0)) / 1_048_576, result, "restore", "fetch_reconstruct") for result in results]),
     ]
     print()
-    print(f"  Fixture Benchmark: {fixture.name} / {product.name} ({source_mib:.1f} MiB, {source_stats.file_count} files)")
+    print(f"  Fixture Benchmark: {fixture.name} / {product.name} (up to {source_mib:.1f} MiB selected per lane)")
     _table("Fixture Benchmark", [result.label for result in results], rows)
 
 

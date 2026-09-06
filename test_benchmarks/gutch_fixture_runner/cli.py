@@ -9,12 +9,12 @@ from gutch_repo.test_benchmarks.common.environment import load_benchmark_environ
 from gutch_repo.test_benchmarks.common.config import load_scenario
 from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
 from .binary import resolve_gutch_executable
-from .commands import GutchCli
-from .config import FixtureCatalog, _wait_seconds
+from gutch_repo.test_support.commands import GutchCli
+from .config import FixtureCatalog, _wait_seconds, _profile
 from .models import LaneResult
 from .report import print_fixture_report
-from .reconstruction_storage import run_reconstruction_storage
-from .s3 import S3Settings
+from gutch_repo.test_support.reconstruction import run_reconstruction_storage
+from gutch_repo.test_support.s3 import S3Settings
 from .s3_cycle import S3CycleOptions, load_s3_cycle, run_s3_cycle
 from .workflow import run_fixture
 
@@ -87,15 +87,15 @@ def add_reconstruction_storage_arguments(parser: argparse.ArgumentParser) -> Non
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths, S3 credentials, and SSH targets")
-    parser.add_argument("--s3-prefix", default="S3_MAIN")
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths and S3 credentials")
+    parser.add_argument("--s3-prefix")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
     parser.add_argument("--region")
     parser.add_argument("--access-key-id")
     parser.add_argument("--secret-access-key")
-    parser.add_argument("--transfer-concurrency", type=int, default=4)
-    parser.add_argument("--upload-concurrency", type=int, default=8)
+    parser.add_argument("--transfer-concurrency", type=int)
+    parser.add_argument("--upload-concurrency", type=int)
     parser.add_argument("--keep-artifacts", action="store_true")
 
 
@@ -122,13 +122,18 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
     _wait_seconds(scenario.values, "lane_wait_seconds")
     step_wait_seconds = _wait_seconds(scenario.values, "step_wait_seconds")
     settings = _s3_settings(args, scenario.values.get("storage"))
+    transfer_concurrency = args.transfer_concurrency if args.transfer_concurrency is not None else scenario.values.get('transfer', {}).get('concurrency', 4)
+    upload_concurrency = args.upload_concurrency if args.upload_concurrency is not None else scenario.values.get('storage', {}).get('upload_concurrency', 8)
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in (transfer_concurrency, upload_concurrency)):
+        raise SystemExit('concurrency values must be positive integers')
     result = run_reconstruction_storage(
         product,
         GutchCli(executable),
         settings,
         args.artifacts_root or config.artifacts_root,
-        transfer_concurrency=args.transfer_concurrency,
-        upload_concurrency=args.upload_concurrency,
+        profile=_profile(scenario.values, scenario.name),
+        transfer_concurrency=transfer_concurrency,
+        upload_concurrency=upload_concurrency,
         recovery_enabled=recovery_enabled,
         open_perfetto=open_perfetto,
         step_wait_seconds=step_wait_seconds,
@@ -141,7 +146,7 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
 
 def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings:
     values = storage if isinstance(storage, dict) else {}
-    env_prefix = str(values.get("env_prefix", "S3_MAIN")).strip() or "S3_MAIN"
+    env_prefix = getattr(args, "s3_prefix", None) or str(values.get("env_prefix", "S3_MAIN")).strip() or "S3_MAIN"
     access_key_env = str(values.get("access_key_env", "")).strip()
     secret_key_env = str(values.get("secret_key_env", "")).strip()
 
@@ -173,8 +178,8 @@ def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths, S3 credentials, and SSH targets")
-    parser.add_argument("--s3-prefix", default="S3_MAIN")
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths and S3 credentials")
+    parser.add_argument("--s3-prefix")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
     parser.add_argument("--region")
@@ -200,10 +205,12 @@ def run_s3_cycle_command(args: argparse.Namespace) -> int:
     scenario_values = load_scenario(fixture_path).values
     options = S3CycleOptions(
         prefix_root=args.prefix_root or defaults.prefix_root,
-        transfer_concurrency=args.transfer_concurrency or defaults.transfer_concurrency,
-        transfer_max_concurrency=args.transfer_max_concurrency or defaults.transfer_max_concurrency,
-        upload_concurrency=args.upload_concurrency or defaults.upload_concurrency,
+        transfer_concurrency=args.transfer_concurrency if args.transfer_concurrency is not None else defaults.transfer_concurrency,
+        transfer_max_concurrency=args.transfer_max_concurrency if args.transfer_max_concurrency is not None else defaults.transfer_max_concurrency,
+        upload_concurrency=args.upload_concurrency if args.upload_concurrency is not None else defaults.upload_concurrency,
     )
+    if min(options.transfer_concurrency, options.transfer_max_concurrency, options.upload_concurrency) < 1:
+        raise SystemExit("concurrency values must be positive")
     if options.transfer_concurrency > options.transfer_max_concurrency:
         raise SystemExit("transfer concurrency exceeds transfer max concurrency")
     repo_root = _repo_root()

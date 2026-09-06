@@ -79,10 +79,10 @@ def main() -> int:
     from gutch_repo.test_dataset.ensure_test_dataset import prepare_blender_product
     from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
     from gutch_repo.test_benchmarks.common.environment import load_benchmark_environment
-    from gutch_repo.test_benchmarks.gutch_fixture_runner.commands import GutchCli
+    from gutch_repo.test_support.commands import GutchCli
     from gutch_repo.test_benchmarks.gutch_fixture_runner.config import load_fixture
     from gutch_repo.test_benchmarks.gutch_fixture_runner.report import print_fixture_report
-    from gutch_repo.test_benchmarks.gutch_fixture_runner.s3 import S3Settings
+    from gutch_repo.test_support.s3 import S3Settings
     from gutch_repo.test_benchmarks.gutch_fixture_runner.s3_cycle import (
         load_s3_cycle,
         run_s3_cycle,
@@ -193,7 +193,13 @@ def main() -> int:
     _emit_progress("complete", f"benchmark results ready: {run_root.name}")
     print_fixture_report(fixture, product, results)
 
+    evidence_path = workspace / 'evidence.zip'
+    with zipfile.ZipFile(evidence_path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in run_root.rglob('*'):
+            if path.is_file() and 'payload' not in path.relative_to(run_root).parts:
+                archive.write(path, path.relative_to(run_root).as_posix())
     manifest = {
+        "evidence_path": str(evidence_path),
         "fixture": fixture.name,
         "product": str(product),
         "dataset_path": str(dataset_root),

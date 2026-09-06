@@ -5,6 +5,8 @@ delete_artifacts: true
 open_perfetto: false
 lanes:
   - label: gutch-batch-default
-    kind: gutch-batch
+    tool: gutch
+    workload: batch
   - label: gutch-individual-default
-    kind: gutch-individual
+    tool: gutch
+    workload: individual

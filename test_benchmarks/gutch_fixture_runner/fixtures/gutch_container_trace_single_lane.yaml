@@ -8,7 +8,8 @@ execution:
   default_host: container
 lanes:
   - label: container-default-gutch
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_128KiB
       bundle: bundle_8MiB

@@ -14,9 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if __package__ in {None, ""}:
     sys.path.insert(0, str(REPO_ROOT))
 
-from gutch_repo.test_benchmarks.gutch_fixture_runner.commands import GutchCli
-from gutch_repo.test_benchmarks.gutch_fixture_runner.reconstruction_storage import run_reconstruction_storage
-from gutch_repo.test_benchmarks.gutch_fixture_runner.s3 import S3Settings, temporary_bucket
+from gutch_repo.test_support.commands import GutchCli
+from gutch_repo.test_support.reconstruction import run_reconstruction_storage
+from gutch_repo.test_support.s3 import S3Settings, temporary_bucket
 from gutch_repo.test_regressions.run_all import (
     build_release_gutch_cli,
     materialize_regression_product,

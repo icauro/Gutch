@@ -5,7 +5,8 @@ delete_artifacts: false
 open_perfetto: false
 lanes:
   - label: bundled-default
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_128KiB
       bundle: bundle_16MiB
@@ -14,7 +15,8 @@ lanes:
         level: 3
       storage: bundled
   - label: loose-default
-    kind: gutch-individual
+    tool: gutch
+    workload: individual
     profile:
       chunk: chunk_128KiB
       bundle: bundle_16MiB

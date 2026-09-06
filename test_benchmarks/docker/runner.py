@@ -11,8 +11,8 @@ import zipfile
 import yaml
 
 from ..benchmark_config import BenchmarkConfig, load_benchmark_config
-from ..common.artifacts import safe_component
-from ..common.traces import open_trace_in_perfetto
+from gutch_repo.test_support.artifacts import safe_component, create_run_dir
+from gutch_repo.test_support.traces import open_trace_in_perfetto
 from ..gutch_fixture_runner.config import load_fixture
 from ..gutch_fixture_runner.external_tools import ensure_linux_external_tools
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
@@ -32,6 +32,8 @@ def _package_sources(destination: Path) -> None:
                 continue
             if path.suffix not in {".py", ".yaml"}:
                 continue
+            package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
+        for path in (REPOSITORY_ROOT / "gutch_repo" / "test_support").glob("*.py"):
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
         dataset_script = REPOSITORY_ROOT / "gutch_repo" / "test_dataset" / "ensure_test_dataset.py"
         package.write(dataset_script, "gutch_repo/test_dataset/ensure_test_dataset.py")
@@ -102,7 +104,7 @@ def _run_docker_benchmark(
     target = DockerTarget.start(config, REPOSITORY_ROOT)
     launcher = DockerLauncher(target)
     workspace = target.workspace
-    local_root = (artifacts_root or config.artifacts_root) / "container" / safe_component(fixture)
+    local_root = create_run_dir((artifacts_root or config.artifacts_root) / "container", "linux", fixture)
     local_root.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="gutch-docker-") as temporary:
@@ -175,6 +177,14 @@ def _run_docker_benchmark(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         launcher.download(manifest["results_path"], results_path, description="download container results")
         launcher.download(manifest["trace_path"], trace_path, description="download container Perfetto trace")
+        evidence_path = local_root / "evidence.zip"
+        launcher.download(manifest["evidence_path"], evidence_path, description="download complete benchmark evidence")
+        with zipfile.ZipFile(evidence_path) as archive:
+            for member in archive.infolist():
+                target_path = (local_root / member.filename).resolve()
+                if not target_path.is_relative_to(local_root.resolve()):
+                    raise ValueError("benchmark evidence contains an unsafe path")
+            archive.extractall(local_root)
         print(f"Container benchmark results: {results_path}")
         print(f"Container benchmark trace: {trace_path}")
         if load_benchmark_fixture_open_perfetto(manifest["fixture"]):

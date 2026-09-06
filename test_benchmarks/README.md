@@ -1,8 +1,33 @@
 # Gutch and Storage Benchmark Suite
 
-The benchmark packages under `gutch_repo/test_benchmarks` own the shared external-tool
-binaries, command execution, typed fixture configuration, deterministic
-artifact retention, and one verification measurement per reconstruct lane.
+The suite separates three responsibilities:
+
+- `common/dataset.py` freezes selected input inventories and numeric version order.
+- `common/runner.py` schedules local and S3 fixture cases, records outcomes and
+  repeated samples, and removes payloads only after success.
+- `gutch_repo/test_support/` owns command execution, Gutch operations, filesystem
+  validation, S3 transport, traces, and evidence layout. Regression tests use
+  these primitives directly without importing benchmark workflows.
+
+Fixture lanes declare `tool` and `workload` separately. Only Gutch lanes accept
+Gutch profiles. `measurement_mode: performance` disables Gutch traces;
+`profile` (the default) retains them. `repetitions` defaults to one and rotates
+case order across samples. Warmup lanes execute once and are excluded from
+measured results. OS caches are uncontrolled; these are fresh-repository runs,
+not guaranteed cold-cache measurements.
+
+Each run retains `run.json`, incremental `results.json`, `summary.json`
+(sample count, median, minimum, maximum), command logs, raw stats, validation
+results, and available traces. Artifact links in serialized fixture results
+are relative to the run directory. Failed or cancelled runs retain payloads.
+Docker exports an evidence archive into a unique host run directory.
+
+Process timings exclude cooldown and independent correctness checks. Embedded
+Gutch verification, external repository checks, incremental Gutch repair, and
+external full-restore recovery are separate metrics. Throughput uses selected
+input bytes. Dataset fingerprints identify the exact input inventory: whole
+product and selected-snapshot workloads can differ and must not be treated as
+identical merely because they share a product directory.
 
 Run Gutch benchmarks interactively:
 
