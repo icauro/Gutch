@@ -9,7 +9,7 @@ import re
 import subprocess
 import time
 
-from tests.common._process import start_process as start_independent_process, stop_process
+from tests.common._process import stop_process
 from .filesystem import assert_tree, write_json
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,13 +17,14 @@ REPOSITORY = ROOT.parent
 
 
 def start_process(command, directory, environment, *, log_path):
-    if os.name == "nt" or not os.environ.get("GUTCH_SCENARIO_WORKER"):
-        return start_independent_process(command, directory, environment, log_path=log_path)
     # Keep POSIX descendants in the scenario worker's process group for hard timeouts.
+    # Automated commands must never inherit an interactive confirmation prompt.
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as log:
         return subprocess.Popen(command, cwd=directory, env={**os.environ, **environment},
-                                stdout=log, stderr=subprocess.STDOUT)
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+                                start_new_session=os.name != "nt" and not os.environ.get("GUTCH_SCENARIO_WORKER"))
 
 
 def execute(command, directory: Path, environment: dict, log: Path, *, timeout=180, success=True):

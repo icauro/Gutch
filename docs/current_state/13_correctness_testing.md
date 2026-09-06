@@ -73,6 +73,8 @@ inventory and comparison evidence. Each Python scenario runs in a separate
 process with a fixed **10-second deadline**, including dataset creation, CLI
 operations and assertions. CLI builds, Rust tests and shared S3 startup happen
 before these timers. Rust tests retain their separate runner deadline.
+Automated commands receive closed stdin, so confirmation prompts cannot wait
+for input from the terminal that launched the runner.
 
 On timeout the runner kills the scenario and its CLI descendants, marks it
 failed, retains its evidence and continues with the next scenario. Inspect
