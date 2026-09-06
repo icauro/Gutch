@@ -37,6 +37,7 @@ impl<'de> Deserialize<'de> for SnapshotTagSet {
             }
             for raw_value in values {
                 let value = raw_value.trim();
+                validate_snapshot_tag_value(value).map_err(serde::de::Error::custom)?;
                 if value.is_empty() {
                     return Err(serde::de::Error::custom(format!(
                         "snapshot scoped tag '{name}' cannot have an empty value"
@@ -49,6 +50,7 @@ impl<'de> Deserialize<'de> for SnapshotTagSet {
         for (raw_name, raw_value) in fields.exclusive {
             let name = normalize_snapshot_tag_name(&raw_name).map_err(serde::de::Error::custom)?;
             let value = raw_value.trim();
+            validate_snapshot_tag_value(value).map_err(serde::de::Error::custom)?;
             if value.is_empty() {
                 return Err(serde::de::Error::custom(format!(
                     "snapshot exclusive tag '{name}' cannot have an empty value"
@@ -71,6 +73,15 @@ impl<'de> Deserialize<'de> for SnapshotTagSet {
 
         Ok(normalized)
     }
+}
+
+fn validate_snapshot_tag_value(value: &str) -> crate::Result<()> {
+    if value.contains('-') {
+        return Err(crate::Error::manifest(
+            "snapshot tag values cannot contain hyphens".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn normalize_snapshot_tag_name(raw_name: &str) -> crate::Result<String> {
@@ -196,6 +207,7 @@ impl SnapshotTagSet {
 
         if let Some((raw_prefix, value)) = trimmed.split_once("::") {
             let prefix = raw_prefix.trim().to_ascii_lowercase();
+            validate_snapshot_tag_value(value)?;
             if prefix.is_empty() || value.is_empty() || value.contains("::") {
                 return Err(crate::Error::manifest(format!(
                     "invalid tag '{}'. Use scoped:value or exclusive::value",
@@ -235,6 +247,7 @@ impl SnapshotTagSet {
                 )));
             };
             let prefix = raw_prefix.trim().to_ascii_lowercase();
+            validate_snapshot_tag_value(value)?;
             if prefix.is_empty() || value.is_empty() || value.contains(':') {
                 return Err(crate::Error::manifest(format!(
                     "invalid tag '{}'. Use scoped:value or exclusive::value",
@@ -282,7 +295,7 @@ mod update_family_tests {
     fn update_family_excludes_version_and_date_handlers_but_keeps_unknown_tags() {
         let tags = SnapshotTagSet::from_compact_strings(&[
             "version::1.2.0".into(),
-            "released_at::2026-07-18".into(),
+            "released_at::2026_07_18".into(),
             "os::windows".into(),
             "tier::supporter".into(),
         ])
@@ -398,5 +411,24 @@ impl StructuredVersion {
                 self.major, self.minor, self.patch, self.revision
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tag_value_grammar_tests {
+    use super::*;
+
+    #[test]
+    fn hyphens_are_rejected_by_cli_and_json_for_both_tag_kinds() {
+        for tag in ["released_at::2026-07-18", "channel:early-access"] {
+            assert!(SnapshotTagSet::from_compact_strings(&[tag.into()]).is_err());
+        }
+        for json in [
+            r#"{"exclusive":{"released_at":"2026-07-18"}}"#,
+            r#"{"scoped":{"channel":["early-access"]}}"#,
+        ] {
+            assert!(serde_json::from_str::<SnapshotTagSet>(json).is_err());
+        }
+        assert!(SnapshotTagSet::from_compact_strings(&["released_at::2026_07_18".into()]).is_ok());
     }
 }
