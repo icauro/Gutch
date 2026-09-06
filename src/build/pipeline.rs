@@ -517,10 +517,6 @@ fn capture_chunk_trace_args(
     ])
 }
 
-fn base_build_config(snapshot_id: &str, snapshot_tags: &SnapshotTagSet) -> BuildConfig<'static> {
-    BuildConfig::for_snapshot(snapshot_id, snapshot_tags)
-}
-
 fn build_loose_chunk(
     chunk_hash: ChunkHash,
     payload: ChunkPayload,
@@ -589,12 +585,8 @@ fn build_bundle_compressed_group(
     })
 }
 
-pub fn build_from_directory(
-    dir: &Path,
-    snapshot_id: &str,
-    snapshot_tags: &SnapshotTagSet,
-) -> Result<BuildResult> {
-    Ok(build_with_config_timed(dir, &base_build_config(snapshot_id, snapshot_tags))?.0)
+pub fn build_from_directory(dir: &Path, snapshot_tags: &SnapshotTagSet) -> Result<BuildResult> {
+    Ok(build_with_config_timed(dir, &BuildConfig::for_snapshot(snapshot_tags))?.0)
 }
 
 pub(crate) fn build_with_config_timed(
@@ -874,8 +866,10 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
         let _construct_span = config
             .control
             .profile_span("capture.build_snapshot_manifest.construct");
-        let mut vm =
-            SnapshotManifest::new(config.snapshot_id.clone(), config.snapshot_tags.clone());
+        let mut vm = SnapshotManifest::new(
+            crate::compute_snapshot_id_from_entries(&snapshot_entries),
+            config.snapshot_tags.clone(),
+        );
         vm.total_logical_size = total_logical_size;
         vm.total_compressed_size_estimate = total_compressed;
         vm.entries = snapshot_entries;

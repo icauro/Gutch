@@ -10,7 +10,7 @@ from ..support.filesystem import assert_tree
 
 
 def run(case):
-    fixture = Path(__file__).resolve().parents[1] / "datasets/reference-v1"
+    fixture = Path(__file__).resolve().parents[1] / "datasets/reference-v2"
     expected = json.loads((fixture / "expected.json").read_text())
     repo = case.payload / "repo"
     shutil.copytree(fixture, repo)

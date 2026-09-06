@@ -94,7 +94,7 @@ pub fn verify_gutch_repo_artifacts(
     })
 }
 
-fn verify_snapshot_artifacts(
+pub(crate) fn verify_snapshot_artifacts(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::manifest::ChunkIndex,
     compression_profile: &crate::manifest::CompressionProfile,

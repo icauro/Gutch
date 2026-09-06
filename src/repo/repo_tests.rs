@@ -38,6 +38,7 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
             full_file_hash: test_hash(content_label),
             chunks: Vec::new(),
         });
+        manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
         write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
     }
 
@@ -59,19 +60,21 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
     let temp = tempfile::tempdir().unwrap();
     let paths = GutchRepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
-    let snapshot_ids = vec!["snapshot-a".to_string(), "snapshot-b".to_string()];
-    for snapshot_id in &snapshot_ids {
+    let mut snapshot_ids = Vec::new();
+    for label in ["snapshot-a", "snapshot-b"] {
         let mut snapshot =
-            SnapshotManifest::new(snapshot_id.clone(), manifest::SnapshotTagSet::default());
+            SnapshotManifest::new(label.to_string(), manifest::SnapshotTagSet::default());
         snapshot.push_file(manifest::FileManifest {
             path: "game.exe".to_string(),
             size: 0,
             executable: true,
             read_only: false,
-            full_file_hash: test_hash(""),
+            full_file_hash: test_hash(label),
             chunks: Vec::new(),
         });
+        snapshot.snapshot_id = crate::compute_snapshot_id_from_entries(&snapshot.entries);
         write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+        snapshot_ids.push(snapshot.snapshot_id);
     }
 
     save_snapshot_product_metadata_for_snapshots(
@@ -289,6 +292,8 @@ fn check_gutch_repo_reports_snapshots() {
         chunks: Vec::new(),
     });
 
+    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
+
     write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
     let bundle_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let bundle_path = crate::bundle_path(&repo_paths, bundle_id).unwrap();
@@ -302,7 +307,7 @@ fn check_gutch_repo_reports_snapshots() {
     assert_eq!(status.name, "base");
     assert_eq!(status.bundle_count, 1);
     assert_eq!(status.snapshots.len(), 1);
-    assert_eq!(status.snapshots[0].snapshot_id, snapshot_id);
+    assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -364,6 +369,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
             raw_size: raw_bytes.len() as u64,
         }],
     });
+    snapshot.snapshot_id = crate::compute_snapshot_id_from_entries(&snapshot.entries);
     write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
     let index = manifest::ChunkIndex {
@@ -388,7 +394,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
     let verification = crate::verify_gutch_repo_artifacts(
         temp.path(),
-        Some(&snapshot_id),
+        Some(&snapshot.snapshot_id),
         crate::VerifyMode::Strict,
     )
     .unwrap();
@@ -605,11 +611,12 @@ fn inspect_repo_shows_snapshot_tags() {
         full_file_hash: test_hash("game.bin"),
         chunks: vec![],
     });
+    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
 
     let status = check_gutch_repo(&root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
-    assert_eq!(status.snapshots[0].snapshot_id, snapshot_id);
+    assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
     assert_eq!(status.snapshots[0].version_id, "2.0.0");
     assert_eq!(status.snapshots[0].os, "linux");
 
@@ -647,18 +654,21 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         ],
     });
 
+    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
+
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
     let local_json =
-        std::fs::read_to_string(snapshot_metadata_path(&paths, "snapshot-a").unwrap()).unwrap();
+        std::fs::read_to_string(snapshot_metadata_path(&paths, &manifest.snapshot_id).unwrap())
+            .unwrap();
     let local_value: serde_json::Value = serde_json::from_str(&local_json).unwrap();
     assert!(local_value.get("source_modified_at").is_none());
     assert!(local_value.get("files").is_none());
     assert!(
-        snapshot_blueprint_path(&paths, "snapshot-a")
+        snapshot_blueprint_path(&paths, &manifest.snapshot_id)
             .unwrap()
             .is_file()
     );
-    let loaded = load_snapshot_manifest(&paths, "snapshot-a").unwrap();
+    let loaded = load_snapshot_manifest(&paths, &manifest.snapshot_id).unwrap();
 
     assert_eq!(loaded.file_count(), 1);
     assert_eq!(

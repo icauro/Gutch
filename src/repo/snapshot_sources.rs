@@ -317,6 +317,7 @@ mod tests {
             full_file_hash: test_hash("game.exe"),
             chunks: Vec::new(),
         }]);
+        manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
         write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
 
         std::thread::sleep(Duration::from_millis(1100));

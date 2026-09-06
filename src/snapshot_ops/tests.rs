@@ -28,6 +28,7 @@ fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
             })
             .collect(),
     );
+    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
     manifest
 }
 
@@ -129,6 +130,7 @@ fn resolved_snapshot_state_uses_product_runtime() {
         full_file_hash: test_hash("Game.exe"),
         chunks: Vec::new(),
     });
+    snapshot.snapshot_id = crate::compute_snapshot_id_from_entries(&snapshot.entries);
     crate::write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
     snapshot.launch = Some(crate::ResolvedLaunchConfiguration {
@@ -140,8 +142,9 @@ fn resolved_snapshot_state_uses_product_runtime() {
             working_directory: None,
         }],
     });
+    snapshot.snapshot_id = crate::compute_snapshot_id_from_entries(&snapshot.entries);
     crate::write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
-    let resolved = resolve_snapshot_state(&root, "snapshot").unwrap();
+    let resolved = resolve_snapshot_state(&root, &snapshot.snapshot_id).unwrap();
     assert_eq!(
         resolved.launch.unwrap().actions[0].arguments,
         ["--snapshot"]
@@ -271,6 +274,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             }],
         },
     ]);
+    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
     crate::write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
 
     let destination_dir = root.join("destination");
@@ -280,7 +284,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
 
     let plan = crate::plan_repair_snapshot_from_repo(crate::SnapshotRepairPlanFromRepoRequest {
         repo_path: root.clone(),
-        snapshot_id: "snapshot".to_string(),
+        snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         remove_added_files: false,
         runtime_hints: RuntimeResourceHints::default(),
@@ -463,6 +467,7 @@ fn repair_restores_manifest_file_attributes() {
         file.read_only = true;
         file.executable = true;
     }
+    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
     repair_snapshot_from_repo(crate::SnapshotRepairFromRepoRequest {
         repo_path: root.path().to_path_buf(),

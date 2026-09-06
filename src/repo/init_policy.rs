@@ -303,6 +303,8 @@ mod tests {
             full_file_hash: test_hash("game.exe"),
             chunks: vec![],
         });
+        snapshot_manifest.snapshot_id =
+            crate::compute_snapshot_id_from_entries(&snapshot_manifest.entries);
         write_snapshot_manifest_artifacts(&repo_paths, &snapshot_manifest).unwrap();
         let bundle_path = crate::bundle_path(&repo_paths, &"a".repeat(64)).unwrap();
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();

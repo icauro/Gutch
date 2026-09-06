@@ -15,12 +15,13 @@ pub use crate::error::{Error, Result};
 pub use crate::manifest::gutch_repo::{ArtifactProfile, GutchRepoManifest};
 pub use crate::manifest::launch::{ResolvedLaunchAction, ResolvedLaunchConfiguration};
 pub use crate::manifest::{
-    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, BundleTableEntry, ChunkRef,
-    CompressionKind, DirectoryManifest, Estimate, ExternalProductDependencyRequirement,
-    FileManifest, PUBLIC_METADATA_FORMAT_VERSION, SnapshotDirectRuntimeMetadata, SnapshotEntry,
-    SnapshotHostVariant, SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction,
-    SnapshotManifest, SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagKind,
-    SnapshotTagSet, StructuredVersion, SymlinkManifest,
+    ArtifactSizingPreset, ArtifactStorageMode, BundleSizingPreset, BundleTableEntry,
+    CONTENT_METADATA_FORMAT_VERSION, ChunkRef, CompressionKind, DirectoryManifest, Estimate,
+    ExternalProductDependencyRequirement, FileManifest, PUBLIC_METADATA_FORMAT_VERSION,
+    SnapshotDirectRuntimeMetadata, SnapshotEntry, SnapshotHostVariant,
+    SnapshotHostVariantRuntimeMetadata, SnapshotLaunchAction, SnapshotManifest,
+    SnapshotProductMetadata, SnapshotRuntimeMetadata, SnapshotTagKind, SnapshotTagSet,
+    StructuredVersion, SymlinkManifest,
 };
 pub use crate::path_compare::{PathComparisonResult, compare_paths};
 pub use crate::progress::{

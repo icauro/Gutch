@@ -13,7 +13,6 @@ use crate::runtime::{RuntimePlan, RuntimeResourceHints};
 
 #[derive(Debug, Clone)]
 pub struct BuildConfig<'a> {
-    pub(crate) snapshot_id: String,
     pub(crate) snapshot_tags: SnapshotTagSet,
     pub(crate) existing_chunk_locations: Option<&'a HashMap<String, ExistingChunkLocation>>,
     pub(crate) existing_bundle_ids: Option<&'a HashSet<String>>,
@@ -28,9 +27,8 @@ pub struct BuildConfig<'a> {
 }
 
 impl<'a> BuildConfig<'a> {
-    pub fn for_snapshot(snapshot_id: &str, snapshot_tags: &SnapshotTagSet) -> BuildConfig<'a> {
+    pub fn for_snapshot(snapshot_tags: &SnapshotTagSet) -> BuildConfig<'a> {
         BuildConfig {
-            snapshot_id: snapshot_id.to_string(),
             snapshot_tags: snapshot_tags.clone(),
             existing_chunk_locations: None,
             existing_bundle_ids: None,

@@ -305,6 +305,15 @@ pub fn capture_repo_snapshot(
     drop(_existing_state_span);
 
     let (_, mut manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
+    // Compression is repository-wide in this format; existing artifacts must
+    // never be decoded using a newly requested algorithm.
+    if (!store_state.bundle_ids.is_empty() || !store_state.chunk_locations.is_empty())
+        && manifest.artifact_profile.compression != request.compression_algorithm
+    {
+        return Err(crate::Error::manifest(
+            "cannot change compression in a populated repository; capture into a fresh repository",
+        ));
+    }
     manifest.set_artifact_profile(
         request.chunk_profile,
         request.compression_algorithm,
@@ -416,7 +425,7 @@ fn execute_repo_snapshot_capture(
             ),
         ]),
     );
-    let mut build_config = crate::BuildConfig::for_snapshot("", &resolved_tags.snapshot_tags)
+    let mut build_config = crate::BuildConfig::for_snapshot(&resolved_tags.snapshot_tags)
         .with_existing_chunks(&store_state.chunk_locations)
         .with_existing_bundles(&store_state.bundle_ids)
         .with_previous_manifests(&store_state.previous_file_manifests)
@@ -484,8 +493,7 @@ fn execute_repo_snapshot_capture(
     let _publish_span = request.control.profile_span("capture.publish_snapshot");
     request.control.checkpoint()?;
     let mut result = result;
-    let snapshot_id = crate::compute_snapshot_id_from_entries(&result.snapshot_manifest.entries);
-    result.snapshot_manifest.snapshot_id = snapshot_id.clone();
+    let snapshot_id = result.snapshot_manifest.snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
         crate::repo::format_system_time_utc(source_inventory.source_modified_at);
     crate::snapshot::identity::apply_resolved_snapshot_tags(
@@ -497,18 +505,6 @@ fn execute_repo_snapshot_capture(
     let snapshot_already_existed = existing_manifest_path.exists();
     if snapshot_already_existed {
         let existing_manifest = crate::load_snapshot_manifest(&repo_paths, &snapshot_id)?;
-        // Integrity: the stored blueprint must reproduce its path ID. A
-        // mismatch means the repository is corrupt; stop without changing
-        // metadata or artifacts.
-        let stored_snapshot_id =
-            crate::compute_snapshot_id_from_entries(&existing_manifest.entries);
-        if stored_snapshot_id != snapshot_id {
-            return Err(crate::Error::SnapshotCaptureConflict {
-                outcome: SnapshotCaptureOutcome::IntegrityConflict {
-                    snapshot_id: snapshot_id.clone(),
-                },
-            });
-        }
         // The content-derived ID already exists. Compare metadata without
         // mutating anything: identical metadata returns unchanged, differing
         // metadata returns a typed conflict for an explicit update.
@@ -551,7 +547,10 @@ fn execute_repo_snapshot_capture(
                 },
             });
         }
-        if result.bundles.is_empty() && result.loose_chunks.is_empty() {
+        if crate::repo::required_chunk_hashes(&existing_manifest)
+            .iter()
+            .all(|hash| store_state.chunk_locations.contains_key(*hash))
+        {
             let required_chunk_count = crate::repo::required_chunk_hashes(&existing_manifest).len();
             let required_bundle_count =
                 crate::repo::required_bundle_ids(&existing_manifest, &store_state.chunk_index)?
@@ -590,8 +589,13 @@ fn execute_repo_snapshot_capture(
                 build_timings: timings,
             });
         }
-        // Rebuild absent artifacts while retaining the existing metadata.
+        // A damaged snapshot may be rebuilt with a different chunk layout. Publish
+        // its new blueprint with its artifacts, retaining descriptive metadata.
+        let rebuilt_entries = std::mem::take(&mut result.snapshot_manifest.entries);
+        let rebuilt_estimate = result.snapshot_manifest.total_compressed_size_estimate;
         result.snapshot_manifest = existing_manifest;
+        result.snapshot_manifest.entries = rebuilt_entries;
+        result.snapshot_manifest.total_compressed_size_estimate = rebuilt_estimate;
     }
 
     // Snapshot publication below persists the captured snapshot. The snapshot

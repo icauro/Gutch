@@ -502,6 +502,27 @@ fn compute_pull_plan(
     let mut snapshots_to_skip = Vec::new();
     let mut kept_newer_local_snapshots = Vec::new();
     for snapshot in snapshots {
+        // A healthy local installation does not need another repository's layout.
+        // This also avoids attempting to fetch local-only chunks from that layout.
+        if hashes_differ(
+            &local_snapshot_blueprint_hash_b3(repo_paths, &snapshot.snapshot_id)?,
+            &snapshot.blueprint_hash_b3,
+        ) && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
+            && crate::compute_snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
+            && let Ok((_, local_repo)) = load_gutch_repo_manifest(repo_root)
+            && let Ok(index) = load_chunk_index(repo_paths)
+            && super::verify::verify_snapshot_artifacts(
+                repo_paths,
+                &index,
+                &local_repo.compression_profile(),
+                &snapshot.snapshot_id,
+                crate::VerifyMode::Strict,
+            )
+            .is_ok_and(|result| result.ok)
+        {
+            snapshots_to_skip.push(snapshot.snapshot_id.clone());
+            continue;
+        }
         let updated_at = if snapshot.uploaded_at.is_empty() {
             &snapshot.created_at
         } else {
@@ -1002,6 +1023,16 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
         let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
             crate::helpers::from_json_bytes(&bytes)?;
+        if repo_paths.repo_metadata_path.is_file()
+            && !load_chunk_index(&repo_paths)?.entries.is_empty()
+        {
+            let (_, local_repo) = load_gutch_repo_manifest(&repo_paths.repo_root)?;
+            if local_repo.artifact_profile.compression != manifest.artifact_profile.compression {
+                return Err(Error::manifest(
+                    "cannot pull a different compression algorithm into a populated repository; use a fresh repository",
+                ));
+            }
+        }
         manifest.remote_repo_id = repository.id.clone();
         crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
         stats.repo_manifest_downloaded = true;
@@ -1025,10 +1056,20 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             &control,
         )?;
         verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
-        let chunk_index: crate::manifest::ChunkIndex = crate::helpers::from_json_bytes(&bytes)
+        let mut chunk_index: crate::manifest::ChunkIndex = crate::helpers::from_json_bytes(&bytes)
             .map_err(|error| {
                 Error::manifest(format!("downloaded chunk map is invalid JSON: {error}"))
             })?;
+        // Keep available local mappings and local-only chunks when importing a map.
+        // Skipped snapshots may use a different layout from the remote snapshot.
+        for (hash, entry) in load_chunk_index(&repo_paths)?.entries {
+            let artifact = crate::ArtifactRef::from_chunk_entry(&hash, &entry);
+            if artifact.local_path(&repo_paths)?.is_file()
+                || !chunk_index.entries.contains_key(&hash)
+            {
+                chunk_index.entries.insert(hash, entry);
+            }
+        }
         crate::repo::write_chunk_index(&repo_paths, &chunk_index)?;
         stats.chunk_map_downloaded = true;
     }
@@ -1915,6 +1956,84 @@ mod tests {
             PullConflictPolicy::KeepLocal,
         );
         assert_eq!(missing, ArtifactDecision::Fetch);
+    }
+
+    #[test]
+    fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("file"), vec![37; 512 * 1024]).unwrap();
+        let capture = |name: &str, chunk_profile| {
+            let repo = root.path().join(name);
+            let paths = GutchRepoPaths::from_repo_root(&repo);
+            crate::ensure_gutch_repo_layout(&paths, name).unwrap();
+            let captured = crate::capture_repo_snapshot(crate::RepoSnapshotCaptureRequest {
+                repo_root: repo.clone(),
+                source_dir: source.clone(),
+                explicit_tags: Default::default(),
+                chunk_profile,
+                bundle_profile: Default::default(),
+                compression_algorithm: crate::manifest::CompressionKind::Zstd,
+                compression_level: None,
+                storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+                runtime_hints: crate::RuntimeResourceHints { jobs: Some(1) },
+                control: Default::default(),
+            })
+            .unwrap();
+            (repo, paths, captured.snapshot_id)
+        };
+        let (local, paths, id) =
+            capture("local", crate::manifest::ArtifactSizingPreset::Chunk16KiB);
+        let (_, remote_paths, remote_id) =
+            capture("remote", crate::manifest::ArtifactSizingPreset::Chunk1MiB);
+        assert_eq!(id, remote_id);
+        let remote = RemoteRepository {
+            id: "remote".into(),
+            scope_id: "scope".into(),
+            name: "remote".into(),
+            metadata_hash_b3: String::new(),
+            chunk_map_hash_b3: String::new(),
+            updated_at: String::new(),
+        };
+        let snapshot = RemoteSnapshot {
+            remote_id: "remote-snapshot".into(),
+            snapshot_id: id.clone(),
+            metadata_hash_b3: String::new(),
+            product_metadata_hash_b3: String::new(),
+            blueprint_hash_b3: local_snapshot_blueprint_hash_b3(&remote_paths, &id).unwrap(),
+            uploaded_at: String::new(),
+            created_at: String::new(),
+            tags: vec![],
+            artifact_state: None,
+            artifact_ready: true,
+        };
+        assert_ne!(
+            local_snapshot_blueprint_hash_b3(&paths, &id).unwrap(),
+            snapshot.blueprint_hash_b3
+        );
+        let plan = compute_pull_plan(
+            &local,
+            &paths,
+            &remote,
+            &[snapshot.clone()],
+            PullConflictPolicy::KeepRemote,
+        )
+        .unwrap();
+        assert_eq!(plan.snapshots_to_skip, vec![id.clone()]);
+        assert!(plan.snapshots_to_download.is_empty());
+        for path in local_bundle_paths(&paths.bundles_root).unwrap() {
+            std::fs::remove_file(path).unwrap();
+        }
+        let plan = compute_pull_plan(
+            &local,
+            &paths,
+            &remote,
+            &[snapshot],
+            PullConflictPolicy::KeepRemote,
+        )
+        .unwrap();
+        assert_eq!(plan.snapshots_to_download, vec![id]);
     }
 
     #[test]

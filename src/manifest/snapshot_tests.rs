@@ -10,7 +10,7 @@ fn test_snapshot_manifest_new() {
     let m = SnapshotManifest::new("abc123def".into(), tags.clone());
     assert_eq!(m.snapshot_id, "abc123def");
     assert_eq!(m.snapshot_tags.get_exclusive("os"), Some("windows"));
-    assert_eq!(m.metadata_version, PUBLIC_METADATA_FORMAT_VERSION);
+    assert_eq!(m.metadata_version, CONTENT_METADATA_FORMAT_VERSION);
     assert!(!m.captured_at.is_empty());
 }
 

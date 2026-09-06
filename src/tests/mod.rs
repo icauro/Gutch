@@ -57,9 +57,9 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let v1 = build_from_directory(&v1_dir, "1", &tags).unwrap();
+    let v1 = build_from_directory(&v1_dir, &tags).unwrap();
     let tags_v2 = exclusive_tags("2.0.0", "windows", "x86_64", "base");
-    let v2 = build_from_directory(&v2_dir, "2", &tags_v2).unwrap();
+    let v2 = build_from_directory(&v2_dir, &tags_v2).unwrap();
 
     std::fs::create_dir_all(&destination_dir).unwrap();
     std::fs::copy(
@@ -188,7 +188,7 @@ fn test_verify_directory_reports_extra_file() {
     std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let result = build_from_directory(&dir, "1", &tags).unwrap();
+    let result = build_from_directory(&dir, &tags).unwrap();
 
     let mut manifest = result.snapshot_manifest.clone();
     manifest
@@ -217,7 +217,7 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let result = build_from_directory(&dir, "1", &tags).unwrap();
+    let result = build_from_directory(&dir, &tags).unwrap();
 
     std::fs::remove_file(dir.join("healthy.txt")).unwrap();
     std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
@@ -301,7 +301,7 @@ fn test_large_game_build_200mb() {
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let t1 = Instant::now();
-    let result = build_from_directory(&root, "1", &tags).unwrap();
+    let result = build_from_directory(&root, &tags).unwrap();
     let build_ms = t1.elapsed().as_millis();
 
     let bundle_total: u64 = result.bundles.iter().map(|b| b.size).sum();

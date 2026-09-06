@@ -3,7 +3,7 @@
 Expected: Both installations match, repair succeeds, and the warm fetch sends no extra artifact
 requests.
 """
-from ..support.delivery import DeliveryServer
+from ..support.delivery import DeliveryServer, fetch_arguments
 from ..support.delivery_workflow import published, exercise_delivery
 
 
@@ -15,3 +15,17 @@ def run(case):
         for path in server.files:
             if path.startswith("/bundles/"):
                 assert server.requests[path] == 2, f"unexpected artifact requests for {path}"
+    alternative = case.init("alternative")
+    captured = case.capture(alternative, data.root, "--chunk-profile", "chunk_16KiB")
+    assert captured["snapshot_id"] == snapshot
+    cached = case.payload / "cache-repo"
+    blueprint = cached / "snapshots" / snapshot / "snapshot_blueprint.gtcbin"
+    before = blueprint.read_bytes()
+    assert before != (alternative / "snapshots" / snapshot / "snapshot_blueprint.gtcbin").read_bytes()
+    with DeliveryServer(alternative) as server:
+        case.command(*fetch_arguments(case, cached, snapshot, alternative, server.url))
+        assert blueprint.read_bytes() == before
+        assert not any(count for path, count in server.requests.items() if path.startswith("/bundles/"))
+        destination = case.payload / "retained-layout"
+        case.reconstruct(cached, snapshot, destination)
+        case.compare(data, destination, "retained-layout")

@@ -72,6 +72,13 @@ pub fn load_snapshot_manifest(
         )));
     }
     manifest.entries = binary::read_snapshot_blueprint_binary(&blueprint_path)?;
+    if crate::compute_snapshot_id_from_entries(&manifest.entries) != manifest.snapshot_id {
+        return Err(crate::Error::SnapshotCaptureConflict {
+            outcome: crate::repo::capture_plan::SnapshotCaptureOutcome::IntegrityConflict {
+                snapshot_id: manifest.snapshot_id.clone(),
+            },
+        });
+    }
     manifest.total_logical_size = manifest.files().map(|file| file.size).sum();
     manifest.sync_launch_from_product_metadata();
     if let Some(launch) = manifest.launch.as_ref() {
@@ -86,6 +93,11 @@ pub(crate) fn snapshot_manifest_from_parts(
     blueprint: &[u8],
 ) -> Result<SnapshotManifest> {
     metadata.entries = binary::read_snapshot_blueprint_bytes(blueprint)?;
+    if crate::compute_snapshot_id_from_entries(&metadata.entries) != metadata.snapshot_id {
+        return Err(crate::Error::manifest(
+            "snapshot blueprint does not match its installation ID",
+        ));
+    }
     metadata.total_logical_size = metadata.files().map(|file| file.size).sum();
     metadata.product_metadata = product_metadata;
     metadata.sync_launch_from_product_metadata();
@@ -253,6 +265,11 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
     metadata_json: &str,
 ) -> Result<SnapshotManifest> {
     let mut metadata: SnapshotMetadata = serde_json::from_str(metadata_json)?;
+    if metadata.metadata_version != crate::manifest::CONTENT_METADATA_FORMAT_VERSION {
+        return Err(crate::Error::manifest(
+            "unsupported snapshot format; recapture from source (content metadata 2.0.0 required)",
+        ));
+    }
     metadata.snapshot_id = snapshot_id.to_string();
     Ok(SnapshotManifest::from_metadata(metadata))
 }
@@ -273,6 +290,34 @@ pub fn write_snapshot_metadata_only(
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn rejects_old_metadata_and_blueprints_with_a_different_installation_id() {
+        let old = r#"{"snapshot_metadata_version":"1.0.0","captured_at":"2026-09-07T00:00:00Z","snapshot_tags":[]}"#;
+        assert!(
+            load_snapshot_metadata_from_json_text(&"a".repeat(64), old)
+                .unwrap_err()
+                .to_string()
+                .contains("recapture")
+        );
+        let root = tempfile::tempdir().unwrap();
+        let manifest = SnapshotManifest::new(
+            crate::compute_snapshot_id_from_entries(&[]),
+            Default::default(),
+        );
+        let path = root.path().join("blueprint");
+        binary::write_snapshot_blueprint_binary(&path, &manifest.blueprint()).unwrap();
+        let bytes = std::fs::read(path).unwrap();
+        assert!(snapshot_manifest_from_parts(manifest.clone(), None, &bytes).is_ok());
+        let mut incorrect = manifest;
+        incorrect.snapshot_id = "a".repeat(64);
+        assert!(
+            snapshot_manifest_from_parts(incorrect, None, &bytes)
+                .unwrap_err()
+                .to_string()
+                .contains("installation ID")
+        );
+    }
 
     #[test]
     fn rejects_unsafe_snapshot_path_components() {

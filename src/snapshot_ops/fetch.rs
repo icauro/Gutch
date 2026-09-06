@@ -349,11 +349,31 @@ fn prepare_snapshot_fetch(
         detail: Some(request.snapshot_id.as_str()),
     }
     .download_bounded(MAX_SNAPSHOT_BLUEPRINT_BYTES)?;
-    let snapshot_manifest = crate::repo::snapshot_manifests::snapshot_manifest_from_parts(
+    let mut snapshot_manifest = crate::repo::snapshot_manifests::snapshot_manifest_from_parts(
         snapshot_metadata,
         product_metadata,
         &blueprint_bytes,
     )?;
+
+    // Equivalent installations can have different blueprints. Preserve a complete
+    // cached representation instead of replacing it merely because packaging differs.
+    let local_blueprint = crate::repo::snapshot_blueprint_path(&repo_paths, &request.snapshot_id)?;
+    if local_blueprint.is_file() && crate::helpers::read(&local_blueprint)? != blueprint_bytes {
+        let local = crate::load_snapshot_manifest(&repo_paths, &request.snapshot_id)?;
+        let local_index = crate::load_chunk_index(&repo_paths)?;
+        if crate::compute_snapshot_id_from_entries(&local.entries) == request.snapshot_id
+            && crate::repo::verify::verify_snapshot_artifacts(
+                &repo_paths,
+                &local_index,
+                &repo_manifest.compression_profile(),
+                &request.snapshot_id,
+                crate::VerifyMode::Strict,
+            )
+            .is_ok_and(|result| result.ok)
+        {
+            snapshot_manifest = local;
+        }
+    }
 
     let mut chunk_index = if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
         emit_progress(
@@ -408,6 +428,17 @@ fn prepare_snapshot_fetch(
         }
     }
     request.control.checkpoint()?;
+    repo_manifest.validate_format()?;
+    if repo_paths.repo_metadata_path.is_file()
+        && !crate::load_chunk_index(&repo_paths)?.entries.is_empty()
+    {
+        let (_, local_repo) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
+        if local_repo.artifact_profile.compression != repo_manifest.artifact_profile.compression {
+            return Err(Error::manifest(
+                "cannot import a different compression algorithm into a populated repository; use a fresh repository",
+            ));
+        }
+    }
     let compression_profile = repo_manifest.compression_profile();
     let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
     let mut existing_artifacts = HashSet::new();

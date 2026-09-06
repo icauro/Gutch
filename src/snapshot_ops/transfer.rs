@@ -853,12 +853,10 @@ pub(crate) fn snapshot_manifest_from_download(
 ) -> Result<crate::manifest::snapshot::SnapshotManifest> {
     let metadata_json = std::str::from_utf8(manifest_bytes)
         .map_err(|err| Error::manifest(format!("snapshot metadata is not valid UTF-8: {}", err)))?;
-    let mut metadata =
-        serde_json::from_str::<crate::manifest::snapshot::SnapshotMetadata>(metadata_json)?;
-    metadata.snapshot_id = snapshot_id.to_string();
-    Ok(crate::manifest::snapshot::SnapshotManifest::from_metadata(
-        metadata,
-    ))
+    crate::repo::snapshot_manifests::load_snapshot_metadata_from_json_text(
+        snapshot_id,
+        metadata_json,
+    )
 }
 
 pub(super) fn download_pending_bundle(

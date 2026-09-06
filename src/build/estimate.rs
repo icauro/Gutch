@@ -15,7 +15,7 @@ pub fn estimate_snapshot(
     tags: &crate::manifest::SnapshotTagSet,
 ) -> crate::Result<SnapshotEstimateResult> {
     let input = prepare_input_path(source)?;
-    let result = crate::build_from_directory(&input.dir, "estimate", tags)?;
+    let result = crate::build_from_directory(&input.dir, tags)?;
     let estimate = crate::estimate_build(
         &result.snapshot_manifest,
         &Default::default(),

@@ -50,6 +50,11 @@ A separate batch case confirms that a later tag conflict returns failure while
 an earlier completed snapshot remains reconstructable. The Rust capture contract
 compares API and CLI content, tags, snapshot identity, and persisted profiles.
 
+Profile scenarios require equal IDs across different chunk counts, compression,
+and storage modes. Repair covers changed chunk sizing, and delivery checks reuse
+of an equivalent local blueprint. Rust tests cover canonical ordering, identity
+fields, invalid blueprint IDs, old-format rejection, and remote pull planning.
+
 The promotion-denial scenario uses Windows file sharing. It explicitly skips
 on other platforms. Link scenarios skip when the host cannot create links.
 Skipped cases remain visible in the report.
@@ -62,7 +67,7 @@ permissions, sizes around chunk boundaries and an 8 MiB transfer dataset that
 spans multiple bundles. Expectations come from the input bytes using SHA-256;
 they are independent of Gutch's manifests and verification implementation.
 
-`tests/datasets/reference-v1/` contains a small frozen repository with four
+`tests/datasets/reference-v2/` contains a small frozen repository with four
 snapshots. Its expected inventory was recorded from original source bytes.
 Tests copy the fixture into the run before reconstructing it. Normal test runs
 never regenerate expected output. Intentional format changes replace the

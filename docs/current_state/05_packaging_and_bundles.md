@@ -44,6 +44,12 @@ Build callers choose the chunk, bundle, compression, and storage presets. The
 engine expands those presets into resolved profiles internally; callers do not
 construct or depend on the profile implementation structs.
 
+Compression kind is repository-wide because artifacts do not store it themselves.
+Capture, fetch, and pull reject changing that kind in a populated repository;
+use a fresh repository for a different algorithm. Chunking and compression can
+vary between independently captured repositories without changing installation
+identity. Existing complete blueprints remain reusable when chunk sizing changes.
+
 ## Bundle Contract
 
 Bundle objects have extensionless content-addressed names under
