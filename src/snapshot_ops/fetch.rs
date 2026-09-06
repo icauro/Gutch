@@ -428,7 +428,6 @@ fn prepare_snapshot_fetch(
         }
     }
     request.control.checkpoint()?;
-    repo_manifest.validate_format()?;
     if repo_paths.repo_metadata_path.is_file()
         && !crate::load_chunk_index(&repo_paths)?.entries.is_empty()
     {

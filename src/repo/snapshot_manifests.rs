@@ -265,11 +265,6 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
     metadata_json: &str,
 ) -> Result<SnapshotManifest> {
     let mut metadata: SnapshotMetadata = serde_json::from_str(metadata_json)?;
-    if metadata.metadata_version != crate::manifest::CONTENT_METADATA_FORMAT_VERSION {
-        return Err(crate::Error::manifest(
-            "unsupported snapshot format; recapture from source (content metadata 2.0.0 required)",
-        ));
-    }
     metadata.snapshot_id = snapshot_id.to_string();
     Ok(SnapshotManifest::from_metadata(metadata))
 }
@@ -292,14 +287,7 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn rejects_old_metadata_and_blueprints_with_a_different_installation_id() {
-        let old = r#"{"snapshot_metadata_version":"1.0.0","captured_at":"2026-09-07T00:00:00Z","snapshot_tags":[]}"#;
-        assert!(
-            load_snapshot_metadata_from_json_text(&"a".repeat(64), old)
-                .unwrap_err()
-                .to_string()
-                .contains("recapture")
-        );
+    fn rejects_blueprints_with_a_different_installation_id() {
         let root = tempfile::tempdir().unwrap();
         let manifest = SnapshotManifest::new(
             crate::compute_snapshot_id_from_entries(&[]),

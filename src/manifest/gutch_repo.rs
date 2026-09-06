@@ -72,23 +72,12 @@ impl GutchRepoManifest {
     pub fn new(name: String) -> Self {
         Self {
             format: CONTENT_REPO_FORMAT.to_string(),
-            format_version: CONTENT_METADATA_FORMAT_VERSION.to_string(),
+            format_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             name,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),
             remote_repo_id: String::new(),
         }
-    }
-
-    pub(crate) fn validate_format(&self) -> crate::Result<()> {
-        if self.format != CONTENT_REPO_FORMAT
-            || self.format_version != CONTENT_METADATA_FORMAT_VERSION
-        {
-            return Err(crate::Error::manifest(
-                "unsupported repository format; rebuild the repository from source (content metadata 2.0.0 required)",
-            ));
-        }
-        Ok(())
     }
 
     pub fn set_artifact_profile(

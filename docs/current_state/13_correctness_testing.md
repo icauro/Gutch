@@ -53,7 +53,7 @@ compares API and CLI content, tags, snapshot identity, and persisted profiles.
 Profile scenarios require equal IDs across different chunk counts, compression,
 and storage modes. Repair covers changed chunk sizing, and delivery checks reuse
 of an equivalent local blueprint. Rust tests cover canonical ordering, identity
-fields, invalid blueprint IDs, old-format rejection, and remote pull planning.
+fields, invalid blueprint IDs, and remote pull planning.
 
 The promotion-denial scenario uses Windows file sharing. It explicitly skips
 on other platforms. Link scenarios skip when the host cannot create links.

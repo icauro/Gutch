@@ -4,7 +4,7 @@ use super::*;
 fn test_gutch_repo_manifest_new() {
     let repo = GutchRepoManifest::new("base".into());
     assert_eq!(repo.format, CONTENT_REPO_FORMAT);
-    assert_eq!(repo.format_version, CONTENT_METADATA_FORMAT_VERSION);
+    assert_eq!(repo.format_version, PUBLIC_METADATA_FORMAT_VERSION);
     assert_eq!(repo.name, "base");
     assert_eq!(
         repo.artifact_profile.chunk,
