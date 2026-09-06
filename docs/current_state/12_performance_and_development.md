@@ -68,8 +68,9 @@ The Perfetto process track name is the output trace filename stem, so comparing
 `local-reconstruct.json` with `seaweed-fetch-reconstruct.json` shows distinct
 process names without exposing the output directory path.
 
-The Gutch benchmark runners retain traces for every Gutch operation and print
-the same span summary across compared configurations. The regression runner archives
+In profile mode, the Gutch benchmark runners retain operation traces and print
+the same span summary across compared configurations. Performance mode disables
+those traces. The regression runner archives
 capture, reconstruction, and verification traces beside each snapshot and
 uses their root spans for run-level comparison.
 
@@ -136,6 +137,13 @@ before and after recovery, including empty directories, symlink targets, and
 supported file permissions. Command measurements exclude cooldown. Gutch
 embedded verification and incremental repair remain distinct from external
 repository checks and full-restore recovery.
+
+External-tool comparison fixtures select performance mode to suppress Gutch
+trace overhead. Bulk lanes capture and validate the same whole-product tree,
+including root files and hidden directories. Restic restores enable content
+verification. Local repository size means logical file bytes sampled after
+capture; filesystem copy has a separate timing metric. Compression, protection,
+and recovery differences are documented in the [benchmark README](../../test_benchmarks/README.md).
 
 Performance mode suppresses Gutch trace arguments; profile mode retains traces.
 Completed runs include raw evidence, a status manifest, samples, and summary

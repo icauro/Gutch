@@ -48,20 +48,30 @@ performance ranking or equivalence of backup features.
 | Measurement | When comparable | Current limitations |
 |---|---|---|
 | Individual capture and restore | Same selected target directories, history, order, host, and performance mode | Each tool uses its own repository format, chunking, compression, protection, and concurrency settings. Initialization is outside capture timing. |
-| Bulk capture and restore | Only after matching the actual captured trees | Gutch and Kopia capture the entire product root; Restic, Borg, and Plakar capture selected non-hidden child directories. Kopia's input-byte count, fingerprint, and validation cover only those selected directories, despite capturing the whole root. Root files and hidden directories therefore invalidate an apples-to-apples comparison. |
-| Restore time | Time until each configured restore command completes | Gutch includes embedded output verification. External repository checks run separately; they are not equivalent to verifying restored files. Embedded verification is already part of Gutch restore time and must not be added again. |
+| Bulk capture and restore | Same whole-product inventory | All five tools capture the entire product root, including root files and hidden directories. Input counts, fingerprints, and validation use that same whole tree. Restic, Borg, and Plakar capture `.` from the product directory; Kopia and Gutch receive the product path. |
+| Restore time | Time until each configured restore command completes | Gutch includes embedded output verification; Restic restores use `--verify` to check restored contents. Other adapters have no equivalent output-reread switch established by their installed restore help. External repository checks run separately; they are not equivalent to verifying restored files. Embedded verification is already part of Gutch restore time and must not be added again. |
 | Recovery | Operational cost of the stated recovery strategy | Gutch repairs an existing damaged output incrementally. External tools restore the output from scratch; deleting the old output is outside that timer. This compares strategies, not equivalent repair implementations. Corruption targets output files, not stored repository data. |
-| Repository size and ratio | Logical repository-file bytes relative to matched input bytes | The table's “Repo size on disk” sums file lengths, not allocated disk space, and excludes caches outside the repository. “Repo growth” repeats total repository size rather than measuring a snapshot delta. External size is sampled after capture; Gutch size is sampled after reconstruction/recovery. |
-| Filesystem copy | A local copy baseline | One copy duration populates both capture and restore columns. These are not two independent operations and must not be summed. The baseline provides no versioned repository. |
+| Repository size and ratio | Logical repository-file bytes relative to matched input bytes | "Repo logical size" sums file lengths, not allocated disk space, and excludes caches outside the repository. All local repository lanes sample immediately after capture, before restore or recovery. This is total retained repository size, not incremental snapshot growth. |
+| Filesystem copy | A local copy baseline | The separate "Copy time" column measures one local copy. The baseline provides no versioned repository and has no capture or restore timing. |
 | S3 cycles | Comparing Gutch layouts under the same storage conditions | These exercise publication, fetching, and reconstruction; they do not establish a cross-tool network-performance comparison. |
 
-For timing comparisons, explicitly set `measurement_mode: performance`.
-The default is `profile`, including in the external comparison fixtures;
-`open_perfetto: false` only disables opening the viewer. Profiling instruments
-Gutch alone, so default timings are diagnostic rather than a fair speed ranking.
-The fixture description “zstd1-equivalent” is shorthand for requested presets,
-not proof of equal compression work: the adapters pass different tool options,
-and Plakar uses a different compression configuration.
+The external comparison fixtures explicitly use `measurement_mode: performance`
+to disable Gutch tracing. Other fixtures still default to `profile`; set
+performance mode when adding timing comparisons. `open_perfetto: false` only
+disables opening the viewer. Profiling instruments Gutch alone.
+
+Compression remains tool-specific: Gutch uses Zstd level 1, Restic requests
+`fastest`, Kopia requests `zstd-fastest`, and Borg requests `zstd,1`; Plakar
+keeps its native configuration. Matching preset names would not match chunk
+boundaries, codecs, or CPU work. Borg explicitly disables encryption and
+Plakar uses plaintext; Restic and Kopia use password-protected repositories.
+These configured protection and format differences remain part of the timing.
+Installed restore help exposes Restic overwrite/delete controls, Kopia
+overwrite/skip-existing/delete-extra controls, and Borg interrupted-extraction
+continuation. These are not a common content-verified incremental repair
+contract; the suite retains full restore for external recovery. Plakar restore
+help exposes destination/selection options, without an equivalent repair mode.
+Repository verification and recovery metrics stay separate.
 
 Use repeated samples and inspect `summary.json`, keeping the host, dataset,
 tool binaries, and competing workload fixed. One repetition is the default;

@@ -1,8 +1,9 @@
 name: gutch_vs_external_tools_individual
 runner: gutch-fixture
-description: Compare per-snapshot backups using zstd1-equivalent compression where supported; Plakar remains native LZ4.
+measurement_mode: performance
+description: Compare per-snapshot backups using tool-specific fast compression presets; compression work is not identical.
 delete_artifacts: true
-open_perfetto: true
+open_perfetto: false
 corrupt_repair: false
 lanes:
   - label: restic

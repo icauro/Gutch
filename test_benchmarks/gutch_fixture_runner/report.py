@@ -77,10 +77,12 @@ def print_comparison_table(
         return "-" if value is None or source_ratio == 0 else f"{float(value) / source_ratio * 100:.1f} %"
 
     rows = [
-        ("Repo files", [str(int(_number(result, "repo_files") or 0)) for result in results]),
+        ("Input bytes", [bytes_value(result, "input_bytes") for result in results]),
+        ("Repo files", [str(int(result.metrics["repo_files"])) if "repo_files" in result.metrics else "-" for result in results]),
+        ("Copy time", [_seconds(result, "copy") for result in results]),
         ("Capture time", [_seconds(result, "backup") for result in results]),
-        ("Capture min", [_seconds(result, "backup_min") for result in results]),
-        ("Capture max", [_seconds(result, "backup_max") for result in results]),
+        ("Snapshot capture min", [_seconds(result, "backup_min") for result in results]),
+        ("Snapshot capture max", [_seconds(result, "backup_max") for result in results]),
         ("Reconstruct time", [_seconds(result, "restore", "fetch_reconstruct") for result in results]),
         ("Embedded verify", [_seconds(result, "verify") for result in results]),
         ("Corrupt time", [_seconds(result, "corrupt") for result in results]),
@@ -88,9 +90,8 @@ def print_comparison_table(
         ("Repository check", [_seconds(result, "repository_check") for result in results]),
         ("Full restore recovery", [_seconds(result, "full_restore_recovery") for result in results]),
         ("Comparison", [_comparison(result) for result in results]),
-        ("Repo growth", [bytes_value(result, "growth", "repo_size") for result in results]),
         ("Repo size ratio", [ratio(result) for result in results]),
-        ("Repo size on disk", [bytes_value(result, "repo_size", "growth") for result in results]),
+        ("Repo logical size", [bytes_value(result, "repo_size", "growth") for result in results]),
         ("Capture speed", [_speed(float(result.metrics.get("input_bytes", 0)) / 1_048_576, result, "backup") for result in results]),
         ("Reconstruct speed", [_speed(float(result.metrics.get("input_bytes", 0)) / 1_048_576, result, "restore", "fetch_reconstruct") for result in results]),
     ]

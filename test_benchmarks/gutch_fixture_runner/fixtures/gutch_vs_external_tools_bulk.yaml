@@ -1,6 +1,7 @@
 name: gutch_vs_external_tools_bulk
 runner: gutch-fixture
-description: Compare whole-product snapshots using zstd1-equivalent compression where supported; Plakar remains native LZ4.
+measurement_mode: performance
+description: Compare whole-product snapshots using tool-specific fast compression presets; compression work is not identical.
 delete_artifacts: true
 open_perfetto: false
 lanes:

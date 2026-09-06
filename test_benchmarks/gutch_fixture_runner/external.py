@@ -119,7 +119,8 @@ def run_external(
     remove_tree(output)
     repo.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
-    dataset = dataset or DatasetSelection.resolve(product, snapshot_limit)
+    bulk = lane_spec.kind.endswith("exact-bulk")
+    dataset = dataset or DatasetSelection.resolve(product, snapshot_limit, whole_product=bulk)
     sources = list(dataset.sources)
     if not sources:
         raise ValueError(f"product has no target directories: {product}")
@@ -187,12 +188,11 @@ def run_external(
             env=env,
         )
 
-    bulk = lane_spec.kind.endswith("exact-bulk")
     started = len(elapsed_commands)
     identifiers: dict[str, str] = {}
     if bulk and kind == "restic":
         result = execute(
-            [executable, "backup", *lane_spec.arguments, "--json", "--repo", repo, *[source.name for source in sources]],
+            [executable, "backup", *lane_spec.arguments, "--json", "--repo", repo, "."],
             description=f"{lane_spec.label} backup",
             cwd=product,
             env=env,
@@ -203,7 +203,7 @@ def run_external(
         identifiers["bulk"] = product.name
     elif bulk and kind == "plakar":
         execute(
-            _plakar_command(executable, repo, plakar_cache_directory, "backup", *lane_spec.arguments, "-cache", "no", "-no-progress", *[source.name for source in sources]),
+            _plakar_command(executable, repo, plakar_cache_directory, "backup", *lane_spec.arguments, "-cache", "no", "-no-progress", "."),
             description=f"{lane_spec.label} backup",
             cwd=product,
             env=env,
@@ -212,7 +212,7 @@ def run_external(
     elif bulk:
         archive = f"{lane_spec.label}-bulk"
         execute(
-            [executable, "create", *lane_spec.arguments, f"{repo}::{archive}", *[source.name for source in sources]],
+            [executable, "create", *lane_spec.arguments, f"{repo}::{archive}", "."],
             description=f"{lane_spec.label} create",
             cwd=product,
             env=env,
@@ -257,7 +257,7 @@ def run_external(
         output.mkdir(parents=True, exist_ok=True)
         if bulk and kind == "restic":
             execute(
-                [executable, "restore", "latest", "--repo", repo, "--target", output],
+                [executable, "restore", "latest", "--verify", "--repo", repo, "--target", output],
                 description=f"{lane_spec.label} restore",
                 env=env,
             )
@@ -284,7 +284,7 @@ def run_external(
             for source in reversed(sources):
                 if kind == "restic":
                     execute(
-                        [executable, "restore", identifiers[source.name], "--repo", repo, "--target", output, "--include", source.name],
+                        [executable, "restore", identifiers[source.name], "--verify", "--repo", repo, "--target", output, "--include", source.name],
                         description=f"{lane_spec.label} restore {source.name}",
                         env=env,
                     )
@@ -313,7 +313,7 @@ def run_external(
 
     restore = restore_output()
     for source in sources:
-        dataset.validate(source, output / source.name, lane.stats / f"validate-restored-{source.name}.json")
+        dataset.validate(source, output if bulk else output / source.name, lane.stats / f"validate-restored-{source.name}.json")
     corrupt_seconds = 0.0
     repair_seconds = 0.0
     if recovery_enabled:
@@ -354,7 +354,7 @@ def run_external(
         execute([executable, "check", "--verify-data", repo], description=f"{lane_spec.label} check", env=env)
     verify = sum(elapsed_commands[verify_started:])
     for source in sources:
-        dataset.validate(source, output / source.name, lane.stats / f"validate-final-{source.name}.json")
+        dataset.validate(source, output if bulk else output / source.name, lane.stats / f"validate-final-{source.name}.json")
     differences = []
     return LaneResult(
         lane_spec.label,
@@ -366,7 +366,6 @@ def run_external(
             "compare": 0.0 if not differences else 1.0,
             "corrupt": corrupt_seconds,
             "full_restore_recovery": repair_seconds,
-            "growth": repo_stats.total_bytes,
             "repo_size": repo_stats.total_bytes,
             "repo_files": repo_stats.file_count,
         },
