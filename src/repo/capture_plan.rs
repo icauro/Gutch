@@ -268,6 +268,7 @@ pub fn retag_snapshot_by_id(
     snapshot_id: &str,
     new_tags: SnapshotTagSet,
 ) -> Result<RetagSnapshotResult> {
+    let new_tags = SnapshotTagSet::from_compact_strings(&new_tags.to_canonical_strings())?;
     let (repo_paths, _) = crate::load_gutch_repo_manifest(repo_root)?;
     let mut manifest = crate::load_snapshot_manifest(&repo_paths, snapshot_id)?;
     let previous_tags = manifest.snapshot_tags.clone();

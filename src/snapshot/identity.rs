@@ -23,7 +23,7 @@ pub(crate) fn resolve_snapshot_tags(
     _context: &str,
 ) -> crate::Result<ResolvedSnapshotTags> {
     Ok(ResolvedSnapshotTags {
-        snapshot_tags: explicit_tags.clone(),
+        snapshot_tags: SnapshotTagSet::from_compact_strings(&explicit_tags.to_canonical_strings())?,
     })
 }
 

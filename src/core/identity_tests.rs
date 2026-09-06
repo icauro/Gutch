@@ -50,3 +50,13 @@ fn test_resolve_tags_allows_tagless_snapshots() {
 
     assert!(resolved.snapshot_tags.is_empty());
 }
+
+#[test]
+fn direct_capture_and_retag_reject_hyphenated_tag_values() {
+    let mut explicit = SnapshotTagSet::default();
+    explicit.upsert_exclusive("released_at", "2026-09-07");
+    assert!(resolve_snapshot_tags(Path::new("unused"), &explicit, "test").is_err());
+    let error =
+        crate::api::retag_snapshot_by_id(Path::new("unused"), "unused", explicit).unwrap_err();
+    assert!(error.to_string().contains("hyphens"));
+}
