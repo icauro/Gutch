@@ -541,7 +541,7 @@ pub(crate) fn run(
             let prepared_input = prepare_input_path(&source_dir)?;
             let explicit_tags = parse_cli_tags(&tags)?;
             let context = format!("snapshot estimate input '{}'", source_dir.display());
-            let resolved_identity = g::snapshot::identity::resolve_snapshot_identity(
+            let resolved_tags = g::snapshot::identity::resolve_snapshot_tags(
                 &source_dir,
                 &explicit_tags,
                 &context,
@@ -549,7 +549,7 @@ pub(crate) fn run(
             let result = g::build_from_directory(
                 &prepared_input.dir,
                 "estimate",
-                &resolved_identity.snapshot_tags,
+                &resolved_tags.snapshot_tags,
             )?;
 
             let est = g::estimate_build(

@@ -106,7 +106,8 @@ fn normalized_sources_path(sources_path: Option<&Path>) -> Option<std::path::Pat
 pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan) -> Vec<String> {
     let mut lines = Vec::new();
     for candidate in &plan.to_capture {
-        let tags = candidate.snapshot_tags.to_canonical_strings().join(" ");
+        let tags =
+            super::snapshot_descriptor::format_snapshot_tag_summary(&candidate.snapshot_tags);
         if candidate.error.is_some() {
             lines.push(format!(
                 "Capture new snapshot from {} (tags {}): previously reported {}",
@@ -328,8 +329,6 @@ mod tests {
 
     #[test]
     fn equal_tag_sources_plan_without_removals() {
-        use super::plan_snapshot_sources_capture_with_context;
-        use crate::repo::SourceSnapshotOperationCandidate;
         use crate::repo::check::SourceSnapshotOperationDisposition;
 
         let temp = tempfile::tempdir().unwrap();
@@ -343,10 +342,9 @@ mod tests {
             "os::windows".to_string(),
         ])
         .unwrap();
-        let candidate = |folder: &str| SourceSnapshotOperationCandidate {
+        let candidate = |folder: &str| crate::repo::check::SourceSnapshotOperationCandidate {
             path: source_root.join(folder).display().to_string(),
             folder_name: folder.to_string(),
-            snapshot_id: String::new(),
             source_modified_at: String::new(),
             version_id: String::from("1.0.0"),
             os: String::from("windows"),
@@ -365,5 +363,37 @@ mod tests {
         assert_eq!(plan.candidate_count, 2);
         assert_eq!(plan.capturable_count, 2);
         assert_eq!(plan.to_capture.len(), 2);
+    }
+
+    #[test]
+    fn pre_scan_contracts_carry_no_snapshot_id() {
+        use crate::repo::capture_plan::SnapshotCapturePlan;
+
+        let candidate = crate::repo::check::SourceSnapshotOperationCandidate {
+            path: "game-a".to_string(),
+            folder_name: String::from("game-a"),
+            source_modified_at: String::new(),
+            version_id: String::from("1.0.0"),
+            os: String::from("windows"),
+            arch: String::new(),
+            snapshot_tags: manifest::SnapshotTagSet::from_compact_strings(&[
+                "version::1.0.0".to_string()
+            ])
+            .unwrap(),
+            disposition: crate::repo::check::SourceSnapshotOperationDisposition::Unchanged,
+            error: None,
+        };
+        let candidate_json = serde_json::to_value(&candidate).unwrap();
+        assert!(
+            candidate_json.get("snapshotId").is_none(),
+            "candidate exposes tags as an ID: {candidate_json}"
+        );
+
+        let plan = SnapshotCapturePlan::from_candidate(candidate);
+        let plan_json = serde_json::to_value(&plan).unwrap();
+        assert!(
+            plan_json.get("snapshotId").is_none(),
+            "plan exposes tags as an ID: {plan_json}"
+        );
     }
 }

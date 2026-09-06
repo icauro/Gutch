@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::manifest::{SnapshotManifest, SnapshotTagSet};
 
 #[derive(Debug, Clone)]
-pub(crate) struct ResolvedSnapshotIdentity {
+pub(crate) struct ResolvedSnapshotTags {
     pub snapshot_tags: SnapshotTagSet,
 }
 
@@ -11,25 +11,27 @@ pub(crate) fn parse_cli_tags(tag_values: &[String]) -> crate::Result<SnapshotTag
     SnapshotTagSet::from_compact_strings(tag_values)
 }
 
-/// Resolves a snapshot identity from explicitly assigned tags.
+/// Resolves explicitly assigned snapshot tags.
 ///
 /// Gutch deliberately does not infer tags from source names or apply repository
-/// tag-schema defaults. The backend owns the remote version-tag rule.
-pub(crate) fn resolve_snapshot_identity(
+/// tag-schema defaults. The backend owns the remote version-tag rule. Tags are
+/// descriptive metadata, not snapshot identity: the content-derived snapshot ID
+/// is only available after the source scan.
+pub(crate) fn resolve_snapshot_tags(
     _input_path: &Path,
     explicit_tags: &SnapshotTagSet,
     _context: &str,
-) -> crate::Result<ResolvedSnapshotIdentity> {
-    Ok(ResolvedSnapshotIdentity {
+) -> crate::Result<ResolvedSnapshotTags> {
+    Ok(ResolvedSnapshotTags {
         snapshot_tags: explicit_tags.clone(),
     })
 }
 
-pub(crate) fn apply_resolved_snapshot_identity(
+pub(crate) fn apply_resolved_snapshot_tags(
     snapshot_manifest: &mut SnapshotManifest,
-    resolved_identity: &ResolvedSnapshotIdentity,
+    resolved_tags: &ResolvedSnapshotTags,
 ) {
-    snapshot_manifest.snapshot_tags = resolved_identity.snapshot_tags.clone();
+    snapshot_manifest.snapshot_tags = resolved_tags.snapshot_tags.clone();
 }
 
 #[cfg(test)]

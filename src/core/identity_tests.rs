@@ -24,12 +24,12 @@ fn test_parse_cli_tags_rejects_bare_values() {
 }
 
 #[test]
-fn test_resolve_identity_uses_only_explicit_tags() {
+fn test_resolve_tags_uses_only_explicit_tags() {
     let mut explicit = SnapshotTagSet::default();
     explicit.upsert_exclusive("release_channel", "nightly");
     explicit.insert_scoped("loader", "fabric");
 
-    let resolved = resolve_snapshot_identity(
+    let resolved = resolve_snapshot_tags(
         std::path::Path::new("game-v1.0.0-win-x64"),
         &explicit,
         "test",
@@ -40,8 +40,8 @@ fn test_resolve_identity_uses_only_explicit_tags() {
 }
 
 #[test]
-fn test_resolve_identity_allows_tagless_snapshots() {
-    let resolved = resolve_snapshot_identity(
+fn test_resolve_tags_allows_tagless_snapshots() {
+    let resolved = resolve_snapshot_tags(
         std::path::Path::new("some-random-folder"),
         &SnapshotTagSet::default(),
         "test",

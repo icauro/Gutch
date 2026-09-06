@@ -102,7 +102,6 @@ pub struct RetagSnapshotResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotCapturePlan {
-    pub snapshot_id: String,
     pub folder_name: String,
     pub path: String,
     pub version_id: String,
@@ -149,7 +148,6 @@ pub struct RepoSnapshotCaptureResult {
 impl SnapshotCapturePlan {
     pub fn from_candidate(candidate: SourceSnapshotOperationCandidate) -> Self {
         Self {
-            snapshot_id: candidate.snapshot_id,
             folder_name: candidate.folder_name,
             path: candidate.path,
             version_id: candidate.version_id,
@@ -359,8 +357,8 @@ fn execute_repo_snapshot_capture(
 
     let _identity_span = request
         .control
-        .profile_span("capture.prepare_source.resolve_identity");
-    let resolved_identity = crate::snapshot::identity::resolve_snapshot_identity(
+        .profile_span("capture.prepare_source.resolve_tags");
+    let resolved_tags = crate::snapshot::identity::resolve_snapshot_tags(
         request.source_dir.as_path(),
         &request.explicit_tags,
         &format!("snapshot capture input '{}'", request.source_dir.display()),
@@ -404,7 +402,7 @@ fn execute_repo_snapshot_capture(
             ),
         ]),
     );
-    let mut build_config = crate::BuildConfig::for_snapshot("", &resolved_identity.snapshot_tags)
+    let mut build_config = crate::BuildConfig::for_snapshot("", &resolved_tags.snapshot_tags)
         .with_existing_chunks(&store_state.chunk_locations)
         .with_existing_bundles(&store_state.bundle_ids)
         .with_previous_manifests(&store_state.previous_file_manifests)
@@ -435,9 +433,9 @@ fn execute_repo_snapshot_capture(
     result.snapshot_manifest.snapshot_id = snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
         crate::repo::format_system_time_utc(source_inventory.source_modified_at);
-    crate::snapshot::identity::apply_resolved_snapshot_identity(
+    crate::snapshot::identity::apply_resolved_snapshot_tags(
         &mut result.snapshot_manifest,
-        &resolved_identity,
+        &resolved_tags,
     );
 
     let existing_manifest_path = crate::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
@@ -507,17 +505,17 @@ fn execute_repo_snapshot_capture(
                 snapshot_id: snapshot_id.clone(),
             },
             manifest_path: existing_manifest_path,
-            version_id: resolved_identity
+            version_id: resolved_tags
                 .snapshot_tags
                 .get_exclusive("version")
                 .unwrap_or_default()
                 .to_string(),
-            os: resolved_identity
+            os: resolved_tags
                 .snapshot_tags
                 .get_exclusive("os")
                 .unwrap_or_default()
                 .to_string(),
-            arch: resolved_identity
+            arch: resolved_tags
                 .snapshot_tags
                 .get_exclusive("arch")
                 .unwrap_or_default()
@@ -646,17 +644,17 @@ fn execute_repo_snapshot_capture(
             snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         },
         manifest_path,
-        version_id: resolved_identity
+        version_id: resolved_tags
             .snapshot_tags
             .get_exclusive("version")
             .unwrap_or_default()
             .to_string(),
-        os: resolved_identity
+        os: resolved_tags
             .snapshot_tags
             .get_exclusive("os")
             .unwrap_or_default()
             .to_string(),
-        arch: resolved_identity
+        arch: resolved_tags
             .snapshot_tags
             .get_exclusive("arch")
             .unwrap_or_default()

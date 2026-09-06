@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::inventory::{list_repo_snapshot_ids, scan_artifact_inventory, scan_bundle_inventory};
-use super::snapshot_descriptor::{preview_snapshot_identity, summarize_snapshot_tags};
+use super::snapshot_descriptor::summarize_snapshot_tags;
 use super::{
     GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest,
     required_bundle_ids, source_modified_at_from_directory,
@@ -84,7 +84,6 @@ pub struct RepoCheckSnapshotStatus {
 pub struct SourceSnapshotOperationCandidate {
     pub path: String,
     pub folder_name: String,
-    pub snapshot_id: String,
     #[serde(default)]
     pub source_modified_at: String,
     pub version_id: String,
@@ -218,7 +217,6 @@ pub fn discover_source_snapshot_operations(
                     candidates.push(SourceSnapshotOperationCandidate {
                         path: snapshot.path.display().to_string(),
                         folder_name,
-                        snapshot_id: String::new(),
                         source_modified_at: String::new(),
                         version_id: String::new(),
                         os: String::new(),
@@ -358,10 +356,10 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
     explicit_tags: &manifest::SnapshotTagSet,
     source_modified_at: String,
 ) -> Result<SourceSnapshotOperationCandidate> {
-    use crate::snapshot::identity::resolve_snapshot_identity;
+    use crate::snapshot::identity::resolve_snapshot_tags;
 
     let context = format!("source snapshot '{}'", path.display());
-    let resolved = resolve_snapshot_identity(path, explicit_tags, &context)?;
+    let resolved = resolve_snapshot_tags(path, explicit_tags, &context)?;
 
     let folder_name = path
         .file_name()
@@ -377,7 +375,6 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
     Ok(SourceSnapshotOperationCandidate {
         path: path.display().to_string(),
         folder_name,
-        snapshot_id: preview_snapshot_identity(&resolved.snapshot_tags),
         source_modified_at,
         version_id: summary.version_id,
         os: summary.os,
