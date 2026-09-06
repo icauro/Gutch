@@ -20,7 +20,15 @@ Each run retains `run.json`, incremental `results.json`, `summary.json`
 (sample count, median, minimum, maximum), command logs, raw stats, validation
 results, and available traces. Artifact links in serialized fixture results
 are relative to the run directory. Failed or cancelled runs retain payloads.
-Docker exports an evidence archive into a unique host run directory.
+Docker exports an evidence archive into a unique host run directory. Generated
+run and lane directory names are bounded and hash-suffixed when shortened;
+full fixture and case labels remain in result metadata. This limits Windows
+path growth; use a short artifact root when source trees are deeply nested.
+
+The Borg adapter reads the executable's major version: the pinned Linux Borg 1
+uses repository/archive syntax, while Windows Borg 2 uses explicit repository
+options and `repo-create`. The detected version is retained in lane metadata.
+Kopia disables credential persistence without platform-specific keyring flags.
 
 Process timings exclude cooldown and independent correctness checks. Embedded
 Gutch verification, external repository checks, incremental Gutch repair, and

@@ -1306,7 +1306,7 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
             break;
         }
         if !downloads_done && let Some(scheduler) = artifact_scheduler.as_ref() {
-            loop {
+            while !downloads_done {
                 match scheduler.try_recv() {
                     Ok(ArtifactDownloadEvent::Ready(artifact)) => {
                         let Some(&job_index) = artifact_job_indices.get(&artifact) else {

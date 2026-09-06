@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import hashlib
 from pathlib import Path
 import re
 import time
@@ -17,10 +18,18 @@ def safe_component(value: str) -> str:
     return cleaned
 
 
+def compact_component(value: str, maximum: int) -> str:
+    cleaned = safe_component(value)
+    if len(cleaned) <= maximum:
+        return cleaned
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
+    return f"{cleaned[:maximum - 9]}-{digest}"
+
+
 def create_run_dir(root: Path, source_name: str, fixture_name: str) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y.%m.%d")
-    prefix = f"{stamp}-{safe_component(source_name)}-{safe_component(fixture_name)}"
+    prefix = f"{stamp}-{compact_component(source_name, 16)}-{compact_component(fixture_name, 24)}"
     for sequence in range(1, 1000):
         candidate = root / f"{prefix}-{sequence:03d}"
         try:
@@ -45,7 +54,7 @@ class RunLayout:
     root: Path
 
     def lane(self, label: str) -> LaneLayout:
-        lane_root = self.root / "lanes" / safe_component(label)
+        lane_root = self.root / "lanes" / compact_component(label, 32)
         stats = lane_root / "stats"
         traces = lane_root / "traces"
         payload = lane_root / "payload"

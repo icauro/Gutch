@@ -123,6 +123,10 @@ Gutch. Backend authorization, session context, and entitlement decisions stay
 with the caller and its provider adapter. Remote fetch also bounds metadata,
 blueprint, and chunk-index sizes before they enter the local planning path.
 
+Once every download worker reports completion, reconstruction stops polling
+the download event channel and finishes outstanding reconstruction and
+verification work. Channel closure before all workers finish remains an error.
+
 ## Staging, verification, and promotion
 
 Staging is created beside the destination unless the caller supplies another

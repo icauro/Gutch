@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import time
@@ -83,6 +84,21 @@ def _plakar_command(
     ]
 
 
+def borg_command(command, repository: Path, major_version: int):
+    """Borg 1 is pinned on Linux; the Windows executable uses Borg 2."""
+    if major_version == 1:
+        return command
+    executable, operation, *arguments = command
+    if operation == "init":
+        return [executable, "repo-create", "--repo", repository, "--encryption", "none-sha256"]
+    if operation == "check":
+        arguments = arguments[:-1]
+    else:
+        prefix = f"{repository}::"
+        arguments = [str(value)[len(prefix):] if str(value).startswith(prefix) else value for value in arguments]
+    return [executable, operation, "--repo", repository, *arguments]
+
+
 def run_external(
     tools: ExternalTools,
     lane: object,
@@ -107,9 +123,19 @@ def run_external(
     sources = list(dataset.sources)
     if not sources:
         raise ValueError(f"product has no target directories: {product}")
+    borg_major = 1
+    tool_version = None
+    if kind == "borg":
+        tool_version = tools.commands.run([executable, "--version"], description=f"{lane_spec.label} version").stdout.strip()
+        match = re.search(r"\bborg(?:\.exe)?\s+([12])\.", tool_version)
+        if match is None:
+            raise ValueError(f"unsupported Borg version: {tool_version}")
+        borg_major = int(match.group(1))
     elapsed_commands: list[float] = []
-    def execute(*args, **kwargs):
-        result = tools.commands.run(*args, **kwargs)
+    def execute(command, **kwargs):
+        if kind == "borg":
+            command = borg_command(command, repo, borg_major)
+        result = tools.commands.run(command, **kwargs)
         elapsed_commands.append(result.elapsed_seconds)
         return result
 
@@ -133,7 +159,7 @@ def run_external(
             "KOPIA_CHECK_FOR_UPDATES": "false",
         }
         execute(
-            [executable, "repository", "create", "filesystem", "--path", repo, "--no-persist-credentials", "--no-use-keyring", "--no-progress"],
+            [executable, "repository", "create", "filesystem", "--path", repo, "--no-persist-credentials", "--no-progress"],
             description=f"{lane_spec.label} init",
             env=env,
         )
@@ -346,6 +372,7 @@ def run_external(
         },
         {},
         {
+            "tool_version": tool_version,
             "binary_sha256": file_sha256(executable) if executable.is_file() else None,
             "verify_invocations": 1 if bulk or kind != "kopia" else len(sources),
             "verify_position": "after_recovery",

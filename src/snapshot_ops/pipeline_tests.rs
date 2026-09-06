@@ -592,3 +592,90 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let _ = std::fs::remove_dir_all(&repo_root);
     let _ = std::fs::remove_dir_all(&destination);
 }
+
+#[test]
+fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
+    use std::io::{Read, Write};
+    let workspace = tempfile::tempdir().unwrap();
+    let repo_root = workspace.path().join("repo");
+    let destination = workspace.path().join("output");
+    let paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
+    let compression = manifest::CompressionProfile::default();
+    let chunk_hash = test_hash(b"game");
+    let artifact = crate::ArtifactRef::LooseChunk {
+        hash: chunk_hash.clone(),
+    };
+    let payload = crate::compress::compress_with_profile(b"game", &compression).unwrap();
+    let compressed_size = payload.len() as u64;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/chunk", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        stream.read(&mut request).unwrap();
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        )
+        .unwrap();
+        stream.write_all(&payload).unwrap();
+    });
+    let mut snapshot = snapshot_manifest_with_file("snapshot", &chunk_hash);
+    // One download fans out to many output files, keeping reconstruction busy
+    // after the download worker has sent its final event and closed the channel.
+    for index in 0..256 {
+        let mut file = snapshot.files().next().unwrap().clone();
+        file.path = format!("copy-{index}.bin");
+        snapshot.push_file(file);
+    }
+    let index = manifest::ChunkIndex {
+        format_version: "1".into(),
+        updated_at: String::new(),
+        entries: BTreeMap::from([(
+            chunk_hash.clone(),
+            manifest::ChunkIndexEntry {
+                bundle_id: chunk_hash.clone(),
+                raw_size: 4,
+                compressed_size,
+                storage_mode: manifest::ArtifactStorageMode::LooseChunks,
+            },
+        )]),
+    };
+    let plan =
+        build_reconstruct_pipeline_plan(&snapshot, &index, &paths, &HashSet::new(), None).unwrap();
+    let pending = [PendingBundleDownload {
+        bundle_path: artifact.local_path(&paths).unwrap(),
+        artifact,
+        bundle_id: chunk_hash,
+        url,
+        ordinal: 1,
+        total_missing_bundle_count: 1,
+    }];
+    apply_reconstruct_pipeline(
+        ReconstructPipelineApplyRequest {
+            repo_root: &repo_root,
+            compression_profile: compression,
+            snapshot_manifest: &snapshot,
+            destination_dir: &destination,
+            staging_dir: None,
+            source_destination_dir: None,
+            runtime_hints: &RuntimeResourceHints { jobs: Some(1) },
+            existing_artifacts: &HashSet::new(),
+            pending_bundle_downloads: &pending,
+            transfer_policy: crate::snapshot_ops::types::TransferConcurrencyPolicy::default(),
+            control: &crate::GutchOperationControl::default(),
+            download_client: Some(&reqwest::blocking::Client::new()),
+            transfer_progress: Some(&Arc::new(FetchTransferProgress::default())),
+        },
+        plan,
+    )
+    .unwrap();
+    server.join().unwrap();
+    for file in snapshot.files() {
+        assert_eq!(
+            std::fs::read(destination.join(&file.path)).unwrap(),
+            b"game"
+        );
+    }
+}

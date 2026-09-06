@@ -74,7 +74,9 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
         env=build_env,
         check=True,
     )
-    for candidate in candidates:
-        if candidate and _binary_is_current(candidate, repo_root):
-            return candidate
+    # Cargo's successful freshness check is authoritative: cfg(test)-only edits
+    # can be newer than a release binary without requiring a release rebuild.
+    built = cargo_target / "release" / executable_name
+    if built.is_file():
+        return built
     raise FileNotFoundError("could not locate gutch-cli after release build")
