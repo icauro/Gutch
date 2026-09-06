@@ -354,28 +354,7 @@ fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &str) -> Res
 }
 
 fn verify_remote_bundle(bundle_id: &str, bytes: &[u8]) -> Result<()> {
-    let expected_hash = crate::ChunkHash::parse_hex(bundle_id)?;
-    if bytes.len() < 64 {
-        return Err(Error::InvalidBundle(format!(
-            "bundle '{}' is missing its content hash",
-            bundle_id
-        )));
-    }
-    let actual_hash = repo_file_hash(&bytes[..bytes.len() - 64]);
-    if actual_hash != expected_hash.to_hex() {
-        return Err(Error::HashMismatch {
-            expected: expected_hash.to_hex(),
-            actual: actual_hash,
-        });
-    }
-    let expected_hex = expected_hash.to_hex();
-    if &bytes[bytes.len() - 64..] != expected_hex.as_bytes() {
-        return Err(Error::InvalidBundle(format!(
-            "bundle '{}' has an inconsistent trailing content hash",
-            bundle_id
-        )));
-    }
-    Ok(())
+    crate::artifact::bundle::verify_bundle_identity_bytes(bundle_id, bytes)
 }
 
 fn hashes_differ(local_hash: &str, remote_hash: &str) -> bool {
@@ -1865,6 +1844,37 @@ mod tests {
         assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_ok());
         bundle_bytes[0] ^= 1;
         assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_err());
+    }
+
+    #[test]
+    fn remote_bundle_identity_matches_local_verification() {
+        // Local strict verification and remote download share
+        // verify_bundle_identity_bytes, so both reject the same failures.
+        let payload = b"bundle payload";
+        let bundle_hash = repo_file_hash(payload);
+        let mut bundle_bytes = payload.to_vec();
+        bundle_bytes.extend_from_slice(bundle_hash.as_bytes());
+
+        assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_ok());
+        assert!(
+            crate::artifact::bundle::verify_bundle_identity_bytes(&bundle_hash, &bundle_bytes)
+                .is_ok()
+        );
+
+        // Corrupt trailing ID: content hash still matches, trailing does not.
+        let mut trailing = bundle_bytes.clone();
+        let last = trailing.len() - 1;
+        trailing[last] = if trailing[last] == b'0' { b'1' } else { b'0' };
+        assert!(verify_remote_bundle(&bundle_hash, &trailing).is_err());
+        assert!(
+            crate::artifact::bundle::verify_bundle_identity_bytes(&bundle_hash, &trailing).is_err()
+        );
+
+        // Truncated body without a trailing ID.
+        assert!(verify_remote_bundle(&bundle_hash, b"short").is_err());
+        assert!(
+            crate::artifact::bundle::verify_bundle_identity_bytes(&bundle_hash, b"short").is_err()
+        );
     }
 
     #[test]

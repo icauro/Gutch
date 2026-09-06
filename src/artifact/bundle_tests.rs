@@ -306,3 +306,77 @@ fn test_invalid_bundle_table() {
         "should reject invalid magic"
     );
 }
+
+fn test_bundle_with_id() -> (String, Vec<u8>) {
+    let data = b"identity test chunk data ".repeat(20);
+    let hash = ChunkHash::from_blake3(hash::hash_chunk(&data));
+    let mut builder = BundleBuilder::new(CompressionProfile::default());
+    builder.add_chunk(hash, data.to_vec());
+    builder.build_with_id().unwrap()
+}
+
+fn write_named_bundle(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn test_bundle_identity_accepts_intact_file_and_bytes() {
+    let temp = tempfile::tempdir().unwrap();
+    let (bundle_id, bundle_data) = test_bundle_with_id();
+    verify_bundle_identity_bytes(&bundle_id, &bundle_data).unwrap();
+    let path = write_named_bundle(temp.path(), &bundle_id, &bundle_data);
+    verify_bundle_identity_file(&path, &bundle_id).unwrap();
+}
+
+#[test]
+fn test_bundle_identity_rejects_corrupt_filename() {
+    let temp = tempfile::tempdir().unwrap();
+    let (bundle_id, bundle_data) = test_bundle_with_id();
+    // Valid hex that names nothing: the path-derived ID must match.
+    let other_id = "0".repeat(64);
+    assert_ne!(other_id, bundle_id);
+    let path = write_named_bundle(temp.path(), &other_id, &bundle_data);
+    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+    // A non-hex filename is rejected before any hashing.
+    let path = write_named_bundle(temp.path(), "not-a-bundle-id", &bundle_data);
+    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+}
+
+#[test]
+fn test_bundle_identity_rejects_corrupt_trailing_id() {
+    let (bundle_id, mut bundle_data) = test_bundle_with_id();
+    let last = bundle_data.len() - 1;
+    bundle_data[last] = if bundle_data[last] == b'0' {
+        b'1'
+    } else {
+        b'0'
+    };
+    assert!(verify_bundle_identity_bytes(&bundle_id, &bundle_data).is_err());
+
+    let temp = tempfile::tempdir().unwrap();
+    let path = write_named_bundle(temp.path(), &bundle_id, &bundle_data);
+    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+}
+
+#[test]
+fn test_bundle_identity_rejects_corrupt_framing_and_payload() {
+    let (bundle_id, bundle_data) = test_bundle_with_id();
+
+    // Corrupt framing: the magic no longer parses.
+    let mut framed = bundle_data.clone();
+    framed[0] ^= 0xff;
+    assert!(read_bundle(&framed, &profile()).is_err());
+    assert!(verify_bundle_identity_bytes(&bundle_id, &framed).is_err());
+
+    // Corrupt payload: framing still parses, but the content hash no longer
+    // matches the trailing ID.
+    let mut payload = bundle_data.clone();
+    payload[20] ^= 0xff;
+    assert!(verify_bundle_identity_bytes(&bundle_id, &payload).is_err());
+
+    let temp = tempfile::tempdir().unwrap();
+    let path = write_named_bundle(temp.path(), &bundle_id, &payload);
+    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+}

@@ -420,12 +420,53 @@ fn execute_repo_snapshot_capture(
     drop(_config_span);
 
     drop(_prepare_span);
-    let (result, timings) = crate::build::pipeline::build_with_config_timed_on_pool_with_inventory(
+    let (mut result, mut timings) =
+        crate::build::pipeline::build_with_config_timed_on_pool_with_inventory(
+            &prepared_input.dir,
+            &build_config,
+            build_pool,
+            &source_inventory,
+        )?;
+    // The source may have changed while its bytes were read. Compare fresh
+    // observations against the pre-read inventory, retry once with fresh
+    // observations, and fail without publishing anything on a second mismatch.
+    let mut source_inventory = source_inventory;
+    let stable_after_build = scan_source_inventory(
         &prepared_input.dir,
-        &build_config,
+        &request.control,
+        runtime_plan.worker_count,
         build_pool,
-        &source_inventory,
-    )?;
+    )
+    .and_then(|fresh| {
+        crate::build_scan::verify_source_inventory_stable(&source_inventory, &fresh)?;
+        Ok(fresh)
+    });
+    source_inventory = match stable_after_build {
+        Ok(fresh) => fresh,
+        Err(_) => {
+            source_inventory = scan_source_inventory(
+                &prepared_input.dir,
+                &request.control,
+                runtime_plan.worker_count,
+                build_pool,
+            )?;
+            (result, timings) =
+                crate::build::pipeline::build_with_config_timed_on_pool_with_inventory(
+                    &prepared_input.dir,
+                    &build_config,
+                    build_pool,
+                    &source_inventory,
+                )?;
+            let fresh = scan_source_inventory(
+                &prepared_input.dir,
+                &request.control,
+                runtime_plan.worker_count,
+                build_pool,
+            )?;
+            crate::build_scan::verify_source_inventory_stable(&source_inventory, &fresh)?;
+            fresh
+        }
+    };
     let _publish_span = request.control.profile_span("capture.publish_snapshot");
     request.control.checkpoint()?;
     let mut result = result;
@@ -533,15 +574,13 @@ fn execute_repo_snapshot_capture(
         });
     }
 
-    // Artifact publication below persists the captured snapshot. Check once before it and then complete the
-    // internally consistent manifest/bundle/index write set.
+    // Snapshot publication below persists the captured snapshot. The snapshot
+    // manifest is published last as the commit marker: immutable bundles and
+    // loose chunks go first, then the additive chunk index, then the snapshot
+    // directory. A failure before the manifest write leaves only unreferenced
+    // immutable artifacts, never a visible snapshot that cannot be
+    // reconstructed. Check once before the write set.
     request.control.checkpoint()?;
-    let _manifest_write_span = request
-        .control
-        .profile_span("capture.publish_snapshot.write_snapshot_manifest");
-    let (manifest_path, _) =
-        crate::write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest)?;
-    drop(_manifest_write_span);
     let _artifact_write_span = request
         .control
         .profile_span("capture.publish_snapshot.write_artifacts");
@@ -625,6 +664,12 @@ fn execute_repo_snapshot_capture(
         .profile_span("capture.publish_snapshot.write_chunk_index");
     crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
     drop(_chunk_index_write_span);
+    let _manifest_write_span = request
+        .control
+        .profile_span("capture.publish_snapshot.write_snapshot_manifest");
+    let (manifest_path, _) =
+        crate::write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest)?;
+    drop(_manifest_write_span);
     let required_chunks = crate::repo::required_chunk_hashes_typed(&result.snapshot_manifest)?;
     let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
@@ -1076,6 +1121,8 @@ mod tests {
         let (repo_paths, _) = crate::load_gutch_repo_manifest(&repo_root).unwrap();
         let retained = crate::load_snapshot_manifest(&repo_paths, &first.snapshot_id).unwrap();
         assert_eq!(retained.snapshot_tags, test_tags());
+        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        assert_eq!(status.snapshots.len(), 1);
         test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
     }
 
@@ -1220,5 +1267,92 @@ mod tests {
             outcome,
             SnapshotCaptureOutcome::IntegrityConflict { .. }
         ));
+    }
+
+    #[test]
+    fn content_change_with_frozen_mtime_creates_new_snapshot() {
+        use std::time::SystemTime;
+
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+        let source_b = temp.path().join("game-b");
+        std::fs::create_dir_all(&source_b).unwrap();
+        std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+        // Freeze modification times: snapshot identity must follow content,
+        // never timestamps.
+        let frozen = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        for source in [&source_a, &source_b] {
+            std::fs::File::options()
+                .write(true)
+                .open(source.join("game.exe"))
+                .unwrap()
+                .set_modified(frozen)
+                .unwrap();
+        }
+
+        let first = test_capture(
+            &repo_root,
+            &source_a,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        let second = test_capture(
+            &repo_root,
+            &source_b,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+        assert_ne!(first.snapshot_id, second.snapshot_id);
+
+        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        assert_eq!(status.snapshots.len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_artifact_write_publishes_no_snapshot() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+        let source_b = temp.path().join("game-b");
+        std::fs::create_dir_all(&source_b).unwrap();
+        std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+        let first = test_capture(
+            &repo_root,
+            &source_a,
+            &test_tags(),
+            crate::GutchOperationControl::default(),
+        );
+
+        let repo_paths = crate::GutchRepoPaths::from_repo_root(&repo_root);
+        let read_only = std::fs::Permissions::from_mode(0o555);
+        std::fs::set_permissions(&repo_paths.bundles_root, read_only.clone()).unwrap();
+        std::fs::set_permissions(&repo_paths.chunks_root, read_only).unwrap();
+        let failed = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+            repo_root: repo_root.clone(),
+            source_dir: source_b,
+            explicit_tags: test_tags(),
+            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+            compression_algorithm: manifest::CompressionKind::Zstd,
+            compression_level: None,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
+            runtime_hints: crate::RuntimeResourceHints::default(),
+            control: crate::GutchOperationControl::default(),
+        });
+        let read_write = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&repo_paths.bundles_root, read_write.clone()).unwrap();
+        std::fs::set_permissions(&repo_paths.chunks_root, read_write).unwrap();
+        assert!(failed.is_err());
+
+        // No partial snapshot became visible and the first snapshot still
+        // verifies and reconstructs.
+        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        assert_eq!(status.snapshots.len(), 1);
+        assert_eq!(status.snapshots[0].snapshot_id, first.snapshot_id);
+        test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
     }
 }

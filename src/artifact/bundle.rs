@@ -688,6 +688,85 @@ impl<R: Read + Seek> BundleReader<R> {
     }
 }
 
+/// Verifies complete bundle identity for in-memory bytes: the BLAKE3 of all
+/// bytes before the trailing 64-byte hex ID must equal the expected ID, and
+/// the trailing bytes must repeat it. Shared by local verification and
+/// remote download so both reject the same identity failures.
+pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Result<()> {
+    let expected_hash = ChunkHash::parse_hex(bundle_id)?;
+    let id_size = BUNDLE_ID_SIZE as usize;
+    if bytes.len() < id_size {
+        return Err(crate::error::Error::InvalidBundle(format!(
+            "bundle '{bundle_id}' is missing its content hash"
+        )));
+    }
+    let actual_hash = hash::hash_hex(&blake3::hash(&bytes[..bytes.len() - id_size]));
+    if actual_hash != expected_hash.to_hex() {
+        return Err(crate::error::Error::HashMismatch {
+            expected: expected_hash.to_hex(),
+            actual: actual_hash,
+        });
+    }
+    let expected_hex = expected_hash.to_hex();
+    if &bytes[bytes.len() - id_size..] != expected_hex.as_bytes() {
+        return Err(crate::error::Error::InvalidBundle(format!(
+            "bundle '{bundle_id}' has an inconsistent trailing content hash"
+        )));
+    }
+    Ok(())
+}
+
+/// Verifies complete bundle identity for a stored bundle file without
+/// loading it: the path-derived ID, the trailing ID, and the BLAKE3 of the
+/// pre-ID bytes must all match the expected manifest ID.
+pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Result<()> {
+    let expected_hash = ChunkHash::parse_hex(bundle_id)?;
+    let path_id = crate::repo::bundle_id_from_bundle_path(path).ok_or_else(|| {
+        crate::error::Error::InvalidBundle(format!(
+            "bundle path '{}' does not name a bundle ID",
+            path.display()
+        ))
+    })?;
+    if path_id != expected_hash.to_hex() {
+        return Err(crate::error::Error::HashMismatch {
+            expected: expected_hash.to_hex(),
+            actual: path_id,
+        });
+    }
+    let id_size = BUNDLE_ID_SIZE as usize;
+    let mut file = File::open(path)?;
+    let total_len = file.metadata()?.len();
+    let content_len = total_len.checked_sub(id_size as u64).ok_or_else(|| {
+        crate::error::Error::InvalidBundle(format!(
+            "bundle '{bundle_id}' is missing its content hash"
+        ))
+    })?;
+    let mut hasher = blake3::Hasher::new();
+    let mut remaining = content_len;
+    let mut buffer = vec![0u8; 1024 * 1024];
+    while remaining > 0 {
+        let take = remaining.min(buffer.len() as u64) as usize;
+        std::io::Read::read_exact(&mut file, &mut buffer[..take])?;
+        hasher.update(&buffer[..take]);
+        remaining -= take as u64;
+    }
+    let mut trailing = vec![0u8; id_size];
+    std::io::Read::read_exact(&mut file, &mut trailing)?;
+    let actual_hash = hash::hash_hex(&hasher.finalize());
+    if actual_hash != expected_hash.to_hex() {
+        return Err(crate::error::Error::HashMismatch {
+            expected: expected_hash.to_hex(),
+            actual: actual_hash,
+        });
+    }
+    if trailing != expected_hash.to_hex().as_bytes() {
+        return Err(crate::error::Error::InvalidBundle(format!(
+            "bundle '{bundle_id}' has an inconsistent trailing content hash"
+        )));
+    }
+    Ok(())
+}
+
 fn stream_decoded_chunks<R, F>(
     reader: &mut R,
     entries: &[BundleTableEntry],

@@ -120,7 +120,7 @@ fn verify_snapshot_artifacts(
             continue;
         }
         let result = match artifact {
-            ArtifactRef::Bundle { .. } => verify_bundle_file(&path, compression_profile, mode),
+            ArtifactRef::Bundle { id } => verify_bundle_file(&path, id, compression_profile, mode),
             ArtifactRef::LooseChunk { hash } => {
                 let entry = chunk_index.entries.get(hash).ok_or_else(|| {
                     Error::manifest(format!(
@@ -168,11 +168,13 @@ fn verify_snapshot_artifacts(
 
 fn verify_bundle_file(
     path: &Path,
+    bundle_id: &str,
     compression_profile: &crate::manifest::CompressionProfile,
     mode: VerifyMode,
 ) -> Result<()> {
     let mut reader = bundle::BundleReader::open(std::fs::File::open(path)?, compression_profile)?;
     if mode == VerifyMode::Strict {
+        bundle::verify_bundle_identity_file(path, bundle_id)?;
         reader.verify()?;
     }
     Ok(())

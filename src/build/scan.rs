@@ -476,3 +476,199 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
         metadata,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scan_dir(root: &std::path::Path) -> SourceInventory {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        scan_source_inventory(root, &crate::GutchOperationControl::default(), 1, &pool).unwrap()
+    }
+
+    fn write_source(root: &std::path::Path, name: &str, content: &[u8]) -> std::path::PathBuf {
+        let path = root.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn stable_source_verifies() {
+        let temp = tempfile::tempdir().unwrap();
+        write_source(temp.path(), "game.exe", b"content");
+        write_source(temp.path(), "sub/readme.txt", b"readme");
+        let before = scan_dir(temp.path());
+        let after = scan_dir(temp.path());
+        verify_source_inventory_stable(&before, &after).unwrap();
+    }
+
+    #[test]
+    fn modified_truncated_added_and_removed_files_are_unstable() {
+        use std::time::{Duration, SystemTime};
+
+        fn set_mtime(path: &std::path::Path, secs: u64) {
+            std::fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
+                .unwrap();
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        write_source(temp.path(), "game.exe", b"content-1234");
+        write_source(temp.path(), "keep.txt", b"keep");
+        set_mtime(&temp.path().join("game.exe"), 1_700_000_000);
+        set_mtime(&temp.path().join("keep.txt"), 1_700_000_000);
+        let before = scan_dir(temp.path());
+
+        // Same-size modification with a visibly newer timestamp.
+        write_source(temp.path(), "game.exe", b"content-5678");
+        set_mtime(&temp.path().join("game.exe"), 1_700_000_100);
+        let after = scan_dir(temp.path());
+        assert!(verify_source_inventory_stable(&before, &after).is_err());
+
+        // Truncation.
+        write_source(temp.path(), "game.exe", b"content-1234");
+        std::fs::File::options()
+            .write(true)
+            .open(temp.path().join("game.exe"))
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        let after = scan_dir(temp.path());
+        assert!(verify_source_inventory_stable(&before, &after).is_err());
+
+        // Addition.
+        write_source(temp.path(), "game.exe", b"content-1234");
+        write_source(temp.path(), "extra.dll", b"extra");
+        let after = scan_dir(temp.path());
+        assert!(verify_source_inventory_stable(&before, &after).is_err());
+
+        // Removal.
+        std::fs::remove_file(temp.path().join("extra.dll")).unwrap();
+        std::fs::remove_file(temp.path().join("keep.txt")).unwrap();
+        let after = scan_dir(temp.path());
+        assert!(verify_source_inventory_stable(&before, &after).is_err());
+    }
+
+    #[test]
+    fn replaced_files_and_permission_flips_are_unstable() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = write_source(temp.path(), "game.exe", b"content");
+        let before = scan_dir(temp.path());
+
+        // Permission flip without touching content or timestamps.
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(!permissions.readonly());
+        std::fs::set_permissions(&path, permissions).unwrap();
+        let after = scan_dir(temp.path());
+        assert!(verify_source_inventory_stable(&before, &after).is_err());
+
+        // Replace with different content under the same name.
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&path, permissions).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        write_source(temp.path(), "game.exe", b"replacement-bytes!!");
+        let after = scan_dir(temp.path());
+        assert!(verify_source_inventory_stable(&before, &after).is_err());
+    }
+}
+
+/// Compares normalized source observations from two inventories: entry paths,
+/// entry kinds, file sizes, high-resolution modification times, and supported
+/// permissions. Timestamps may be coarse or move backward on some filesystems,
+/// so equality only proves no observed change, never content identity (which
+/// the content-derived snapshot ID establishes).
+pub(crate) fn verify_source_inventory_stable(
+    before: &SourceInventory,
+    after: &SourceInventory,
+) -> Result<()> {
+    fn metadata_observation(entry: &SnapshotEntry) -> (String, String, String) {
+        match entry {
+            SnapshotEntry::File(file) => (
+                file.path.clone(),
+                String::from("file"),
+                format!("{}:{}:{}", file.size, file.executable, file.read_only),
+            ),
+            SnapshotEntry::Directory(directory) => (
+                directory.path.clone(),
+                String::from("directory"),
+                directory.read_only.to_string(),
+            ),
+            SnapshotEntry::Symlink(link) => (
+                link.path.clone(),
+                String::from("symlink"),
+                link.target_path.clone(),
+            ),
+        }
+    }
+
+    fn file_observation(
+        entry: &SourceFileEntry,
+    ) -> Result<(String, u64, std::time::SystemTime, bool, bool)> {
+        // Compare the metadata captured during that inventory's scan, never a
+        // fresh read: re-reading current state for both sides would always
+        // agree with itself.
+        let metadata = &entry.metadata;
+        let executable = is_executable(metadata);
+        Ok((
+            entry.normalized_relative.clone(),
+            metadata.len(),
+            metadata
+                .modified()
+                .map_err(|_| Error::manifest("source changed during capture".to_string()))?,
+            metadata.permissions().readonly(),
+            executable,
+        ))
+    }
+
+    #[cfg(unix)]
+    fn is_executable(metadata: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+
+    #[cfg(not(unix))]
+    fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+        false
+    }
+
+    let before_metadata: Vec<_> = before
+        .metadata_entries
+        .iter()
+        .map(metadata_observation)
+        .collect();
+    let after_metadata: Vec<_> = after
+        .metadata_entries
+        .iter()
+        .map(metadata_observation)
+        .collect();
+    if before_metadata != after_metadata {
+        return Err(Error::manifest("source changed during capture"));
+    }
+
+    let mut before_files: Vec<_> = before
+        .files
+        .iter()
+        .map(file_observation)
+        .collect::<Result<_>>()?;
+    let mut after_files: Vec<_> = after
+        .files
+        .iter()
+        .map(file_observation)
+        .collect::<Result<_>>()?;
+    before_files.sort();
+    after_files.sort();
+    if before_files != after_files {
+        return Err(Error::manifest("source changed during capture"));
+    }
+    Ok(())
+}
