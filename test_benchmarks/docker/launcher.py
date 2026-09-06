@@ -24,6 +24,8 @@ class DockerTarget:
             if key.startswith('S3_MAIN_'):
                 config.environment[key] = value
         config.environment['S3_MAIN_ENDPOINT'] = 'http://seaweedfs:8333'
+        from scripts.build._builder import project_name
+        os.environ['LINUX_BUILDER_IMAGE'] = project_name(repo_root) + '-builder'
         data = environments.read_manifest(Path(os.environ[environments.MANIFEST_ENV]))
         subprocess.run(environments.compose_command(data, 'up', '-d', '--no-deps', 'linux-benchmark'),
                        env=environments.compose_environment(data), check=True)
@@ -41,7 +43,7 @@ class DockerLauncher:
         command = list(command)
         if command[0] in ('python', 'python3'):
             command = ['uv', 'run', '--project', '/repository', 'python', *command[1:]]
-        return self.commands.run(['docker', 'exec', self.target.container, *command],
+        return self.commands.run(['docker', 'exec', '--user', '1000:1000', self.target.container, *command],
                                  description=description, on_output=on_output)
 
     def upload(self, source, destination, *, description):
