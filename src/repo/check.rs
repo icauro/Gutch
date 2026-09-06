@@ -197,7 +197,7 @@ pub fn discover_source_snapshot_operations(
         )));
     }
 
-    let (_repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    load_gutch_repo_manifest(repo_root)?;
     let config =
         crate::snapshot::source_config::SourceConfig::load_or_default(source_snapshots_root)?;
     let mut candidates = Vec::new();

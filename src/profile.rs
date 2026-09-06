@@ -137,10 +137,6 @@ impl GutchProfiler {
         }
     }
 
-    pub fn event(&self, name: impl Into<String>) {
-        self.event_with_args(name, BTreeMap::new());
-    }
-
     pub fn event_with_args(
         &self,
         name: impl Into<String>,

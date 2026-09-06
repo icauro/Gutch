@@ -535,7 +535,7 @@ pub(crate) fn run(
 
         SnapshotCommands::Estimate {
             source_dir,
-            repo,
+            repo: _,
             tags,
         } => {
             let prepared_input = prepare_input_path(&source_dir)?;

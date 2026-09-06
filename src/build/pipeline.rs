@@ -581,10 +581,6 @@ pub fn build_from_directory(
     Ok(build_with_config_timed(dir, &base_build_config(snapshot_id, snapshot_tags))?.0)
 }
 
-pub fn build_with_config(dir: &Path, config: &BuildConfig<'_>) -> Result<BuildResult> {
-    Ok(build_with_config_timed(dir, config)?.0)
-}
-
 pub(crate) fn build_with_config_timed(
     dir: &Path,
     config: &BuildConfig<'_>,

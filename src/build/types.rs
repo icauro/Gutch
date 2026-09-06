@@ -81,11 +81,6 @@ impl<'a> BuildConfig<'a> {
         self
     }
 
-    pub fn with_control(mut self, control: crate::GutchOperationControl) -> Self {
-        self.control = control;
-        self
-    }
-
     pub fn with_storage_mode(mut self, storage_mode: ArtifactStorageMode) -> Self {
         self.storage_mode = storage_mode;
         self
