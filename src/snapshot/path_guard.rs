@@ -339,3 +339,45 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 }
+
+pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Result<String> {
+    let link_path = Path::new(relative_path);
+    if target.is_absolute() {
+        return Err(Error::PathError {
+            path: link_path.to_path_buf(),
+            reason: "absolute symbolic-link target".into(),
+        });
+    }
+    let combined = Path::new(relative_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(target);
+    let mut normalized = PathBuf::new();
+    for component in combined.components() {
+        match component {
+            std::path::Component::Normal(part) => normalized.push(part),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir if normalized.pop() => {}
+            _ => {
+                return Err(Error::PathError {
+                    path: link_path.to_path_buf(),
+                    reason: "symbolic-link target escapes root".into(),
+                });
+            }
+        }
+    }
+    Ok(normalized.to_string_lossy().replace('\\', "/"))
+}
+
+#[cfg(test)]
+mod link_target_tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_targets_without_allowing_root_escape() {
+        assert_eq!(normalize_link_target("bin/link", Path::new("../lib/./target")).unwrap(), "lib/target");
+        assert!(normalize_link_target("link", Path::new("../outside")).is_err());
+        assert!(normalize_link_target("bin/link", Path::new("../../outside")).is_err());
+        assert!(normalize_link_target("bin/link", &std::env::current_dir().unwrap()).is_err());
+    }
+}

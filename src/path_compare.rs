@@ -196,32 +196,7 @@ fn entries_match(
 }
 
 fn normalized_link_target(relative_path: &str, link_path: &Path) -> g::Result<String> {
-    let target = std::fs::read_link(link_path)?;
-    if target.is_absolute() {
-        return Err(g::Error::PathError {
-            path: link_path.to_path_buf(),
-            reason: "absolute symbolic-link target".into(),
-        });
-    }
-    let combined = Path::new(relative_path)
-        .parent()
-        .unwrap_or_else(|| Path::new(""))
-        .join(target);
-    let mut normalized = PathBuf::new();
-    for component in combined.components() {
-        match component {
-            std::path::Component::Normal(part) => normalized.push(part),
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir if normalized.pop() => {}
-            _ => {
-                return Err(g::Error::PathError {
-                    path: link_path.to_path_buf(),
-                    reason: "symbolic-link target escapes root".into(),
-                });
-            }
-        }
-    }
-    Ok(normalized.to_string_lossy().replace('\\', "/"))
+    g::path_guard::normalize_link_target(relative_path, &std::fs::read_link(link_path)?)
 }
 
 #[cfg(test)]

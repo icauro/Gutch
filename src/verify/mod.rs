@@ -576,7 +576,8 @@ fn classify_inventory_non_files(
                 match inventory.entries.get(&inventory_path_key(&link.path)) {
                     Some(actual) if actual.kind == InventoryEntryKind::Symlink => {
                         let raw_target = std::fs::read_link(&actual.path)?;
-                        let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
+                        let actual_target =
+                            crate::path_guard::normalize_link_target(&link.path, &raw_target)?;
                         if actual_target != link.target_path {
                             classification.push(RepairIssue {
                                 kind: RepairIssueKind::Corrupt,
@@ -641,7 +642,8 @@ fn classify_resolved_non_files(
             manifest::SnapshotEntry::Symlink(link) => match std::fs::symlink_metadata(path) {
                 Ok(metadata) if metadata.file_type().is_symlink() => {
                     let raw_target = std::fs::read_link(path)?;
-                    let actual_target = normalize_actual_link_target(&link.path, &raw_target)?;
+                    let actual_target =
+                        crate::path_guard::normalize_link_target(&link.path, &raw_target)?;
                     if actual_target != link.target_path {
                         classification.push(RepairIssue {
                             kind: RepairIssueKind::Corrupt,
@@ -689,30 +691,6 @@ fn serpentine_worker_index(sorted_index: usize, worker_count: usize) -> usize {
     } else {
         worker_count - 1 - offset
     }
-}
-
-fn normalize_actual_link_target(link_path: &str, raw_target: &Path) -> Result<String> {
-    if raw_target.is_absolute() {
-        return Err(crate::Error::verify("symbolic-link target is absolute"));
-    }
-    let combined = Path::new(link_path)
-        .parent()
-        .unwrap_or_else(|| Path::new(""))
-        .join(raw_target);
-    let mut normalized = std::path::PathBuf::new();
-    for component in combined.components() {
-        match component {
-            std::path::Component::Normal(value) => normalized.push(value),
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                if !normalized.pop() {
-                    return Err(crate::Error::verify("symbolic-link target escapes root"));
-                }
-            }
-            _ => return Err(crate::Error::verify("symbolic-link target is invalid")),
-        }
-    }
-    Ok(normalized.to_string_lossy().replace('\\', "/"))
 }
 
 pub(crate) fn classify_directory(
