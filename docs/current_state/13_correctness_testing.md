@@ -1,5 +1,7 @@
 # Gutch Correctness Testing
 
+Status: Current
+
 The component owns one runner, independent of benchmark code and datasets:
 
 ```sh
@@ -80,7 +82,7 @@ attributes and link targets. There are no benchmark performance thresholds.
 
 ## Isolation and Evidence
 
-Each run writes `.artifacts/test/gutch/<timestamp>-<id>/summary.md` and `run.json`.
+Each run writes `tests/.artifacts/runs/gutch/<timestamp>-<id>/summary.md` and `run.json`.
 The terminal also prints the overall result, Rust test status and CLI scenario
 totals, including failures, skips, cancellations and cases that did not run.
 Each case has its own payload, configuration, command logs, stats, expected

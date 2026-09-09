@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run isolated Gutch correctness scenarios against the real CLI."""
 # Depends on Python, Cargo, and the real gutch-cli; S3 additionally uses test-owned Docker.
-# Writes isolated runs under .artifacts/test/gutch. No benchmark imports or datasets.
+# Writes isolated runs under tests/.artifacts/runs/gutch. No benchmark imports or datasets.
 # Run without arguments for every correctness case, including S3; --suite fast runs a quick check.
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY))
 
 from scripts._common.paths import get_default_cargo_target_dir
+from tests.common._artifacts import get_test_artifacts_root_dir
 from tests.common._run_events import RunEventWriter
 from gutch_repo.tests.support.cli import Case, execute
 from gutch_repo.tests.support.filesystem import write_json
@@ -82,7 +83,7 @@ def main(arguments=None):
         for scenario in scenarios:
             print(f"{scenario.name}: {scenario.suite}")
         return 0
-    root = REPOSITORY / ".artifacts/test/gutch" / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{uuid4().hex[:6]}"
+    root = get_test_artifacts_root_dir(REPOSITORY) / "runs/gutch" / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{uuid4().hex[:6]}"
     root.mkdir(parents=True)
     print(f"Run: {root}", flush=True)
     results = []
