@@ -47,8 +47,7 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
     candidates: list[Path | None] = []
     candidates.extend(
         [
-            repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "default" / "release" / executable_name,
-            repo_root / ".build" / "main" / "gutch_repo" / "intermediates" / "cargo" / "default" / "release" / executable_name,
+            repo_root / ".build" / "compiler-cache" / "cargo" / "default" / "release" / executable_name,
             repo_root / "target" / "release" / executable_name,
             repo_root / "gutch_repo" / "test_benchmarks" / "gutch_fixture_runner" / "bin" / executable_name,
         ]
@@ -56,7 +55,7 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
     for candidate in candidates:
         if candidate and _binary_is_current(candidate, repo_root):
             return candidate
-    cargo_target = repo_root / ".build" / "main" / "host_app" / "intermediates" / "cargo" / "default"
+    cargo_target = repo_root / ".build" / "compiler-cache" / "cargo" / "default"
     build_env = os.environ.copy()
     build_env["CARGO_TARGET_DIR"] = str(cargo_target)
     subprocess.run(
