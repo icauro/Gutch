@@ -92,25 +92,6 @@ class DeliveryServer:
         self.thread.join(timeout=5)
 
 
-def prepare_s3_environment():
-    """Start shared test infrastructure before any scenario deadline begins."""
-    from tests.common._e2e_harness import (create_runtime_context, load_backend_env_values,
-        ensure_docker_engine_ready, compose_up, wait_for_compose_service_health)
-    values, env_path = load_backend_env_values(REPOSITORY)
-    context = create_runtime_context(REPOSITORY, lane_name="gutch-correctness", project_name="",
-        backend_values=values, backend_env_file_path=env_path,
-        runtime_mode=os.environ.get("HOSTAPP_TEST_RUNTIME_MODE", "fast"))
-    ensure_docker_engine_ready(REPOSITORY)
-    compose_up(context.compose_file, context.project_name, context.env_file, services=["seaweedfs"], build=False)
-    wait_for_compose_service_health(context.compose_file, context.project_name, context.env_file, "seaweedfs")
-    return {
-        "GUTCH_TEST_S3_ENDPOINT": context.backend_values["S3_PUBLIC_BASE_URL"].removesuffix("/hostapp-public"),
-        "GUTCH_TEST_S3_ACCESS_KEY": context.backend_values["S3_MAIN_ACCESS_KEY"],
-        "GUTCH_TEST_S3_SECRET_KEY": context.backend_values["S3_MAIN_SECRET_KEY"],
-        "GUTCH_TEST_S3_PROJECT": context.project_name,
-    }
-
-
 def s3_client():
     import boto3
     from botocore.config import Config

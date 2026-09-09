@@ -77,15 +77,15 @@ uses their root spans for run-level comparison.
 ## Correctness and Benchmark Datasets
 
 [Correctness testing](13_correctness_testing.md) owns deterministic recipes and
-small frozen format fixtures under `gutch_repo/tests/`. Each run creates its own
+small frozen format fixtures under `tests/`. Each run creates its own
 mutable inputs and repositories. It does not use benchmark helpers or datasets.
 
-`gutch_repo/test_dataset/` prepares benchmark inputs from tracked recipes,
+`test_dataset/` prepares benchmark inputs from tracked recipes,
 including optional official Blender builds. These inputs are for workload
 measurements; correctness runs do not download Blender or regenerate them.
 
 ```sh
-python gutch_repo/test_dataset/ensure_test_dataset.py
+python test_dataset/ensure_test_dataset.py
 ```
 
 ## Benchmark Execution
@@ -94,7 +94,7 @@ Python benchmark fixtures separate tool selection from workload and Gutch
 profile configuration. Local and S3 cycle workflows share a scheduler that
 runs warmups, rotates repeated cases, and retains partial results and payloads
 on failure. Benchmark operation mechanics live in
-`gutch_repo/test_benchmarks/support/`.
+`test_benchmarks/support/`.
 
 Dataset inventories determine numeric version order, selected input size,
 and a reproducible fingerprint before execution. Reconstruction is checked
@@ -127,8 +127,3 @@ before successful environment cleanup. OS caches remain uncontrolled.
 For stage-by-stage execution details, see [`04_scan_pipeline.md`](04_scan_pipeline.md),
 [`06_reconstruct_pipeline.md`](06_reconstruct_pipeline.md), and
 [`07_verify_pipeline.md`](07_verify_pipeline.md).
-
-## Pinned Decisions
-
-- `docs_agentic/pinned_decisions/spec_paths_and_ids.md`
-- `docs_agentic/pinned_decisions/spec_quality.md`

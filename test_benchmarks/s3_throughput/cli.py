@@ -4,8 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from gutch_repo.test_benchmarks.common.environment import load_benchmark_environment
-from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
+from ..common.environment import load_benchmark_environment
+from ..benchmark_config import load_benchmark_config
 from .config import load_storage_scenario
 from .workflow import run_abort_multipart_uploads, run_delete, run_download, run_prepare
 

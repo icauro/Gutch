@@ -2,7 +2,7 @@
 
 Expected: The old installation survives interruption and the retry reconstructs exact content.
 """
-from tests.common._process import stop_process
+from ..support.process import stop_process
 from ..support.cli import start_process
 from ..support.cli import REPOSITORY
 from ..support.delivery import DeliveryServer, fetch_arguments

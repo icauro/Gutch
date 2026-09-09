@@ -1,3 +1,13 @@
+/.builds/*
+!/.builds/README.md
 /.artifacts/
+/tests/.artifacts/*
+!/tests/.artifacts/README.md
+/.venv/
+**/__pycache__/
+*.pyc
+/.pytest_cache/
+/test_benchmarks/config.yml
+/test_benchmarks/gutch_fixture_runner/bin/
 /test_dataset/.artifacts/
 /test_dataset/source/

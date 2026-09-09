@@ -93,9 +93,3 @@ implicit name-based ignores inside a selected snapshot source.
 
 The detailed scan, chunking, reuse, and capture parallelization stages are
 documented in [`04_scan_pipeline.md`](04_scan_pipeline.md).
-
-## Pinned Decisions
-
-- `docs_agentic/pinned_decisions/spec_paths_and_ids.md`
-- `docs_agentic/pinned_decisions/spec_tag_system.md`
-- `docs_agentic/pinned_decisions/spec_version.md`

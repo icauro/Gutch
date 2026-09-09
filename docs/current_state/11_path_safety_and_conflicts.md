@@ -120,8 +120,3 @@ delete it.
 - The current engine plan is artifact/snapshot oriented, not the rich per-file
   conflict-card model described by the retired blueprint.
 - Closing an app preview or declining CLI confirmation performs no mutation.
-
-## Pinned Decisions
-
-- `docs_agentic/pinned_decisions/spec_paths_and_ids.md`
-- `docs_agentic/pinned_decisions/spec_update_conflicts.md`

@@ -76,18 +76,18 @@ def main() -> int:
     _extract_package(args.package.resolve(), code_root)
     sys.path.insert(0, str(code_root))
 
-    from gutch_repo.test_dataset.ensure_test_dataset import prepare_blender_product
-    from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
-    from gutch_repo.test_benchmarks.common.environment import load_benchmark_environment
-    from gutch_repo.test_benchmarks.support.commands import GutchCli
-    from gutch_repo.test_benchmarks.gutch_fixture_runner.config import load_fixture
-    from gutch_repo.test_benchmarks.gutch_fixture_runner.report import print_fixture_report
-    from gutch_repo.test_benchmarks.support.s3 import S3Settings
-    from gutch_repo.test_benchmarks.gutch_fixture_runner.s3_cycle import (
+    from test_dataset.ensure_test_dataset import prepare_blender_product
+    from test_benchmarks.benchmark_config import load_benchmark_config
+    from test_benchmarks.common.environment import load_benchmark_environment
+    from test_benchmarks.support.commands import GutchCli
+    from test_benchmarks.gutch_fixture_runner.config import load_fixture
+    from test_benchmarks.gutch_fixture_runner.report import print_fixture_report
+    from test_benchmarks.support.s3 import S3Settings
+    from test_benchmarks.gutch_fixture_runner.s3_cycle import (
         load_s3_cycle,
         run_s3_cycle,
     )
-    from gutch_repo.test_benchmarks.gutch_fixture_runner.workflow import run_fixture
+    from test_benchmarks.gutch_fixture_runner.workflow import run_fixture
 
     config = load_benchmark_config(args.config.resolve())
     load_benchmark_environment(args.config.resolve(), overwrite=True)
@@ -102,9 +102,9 @@ def main() -> int:
             raise FileNotFoundError(f"uploaded external-tool directory was not found: {external_root}")
         _make_external_binaries_executable(external_root)
 
-    dataset_root = Path("/tmp/hostapp-benchmark/dataset") / CONTAINER_DATASET_DIRECTORY
+    dataset_root = Path("/tmp/gutch-benchmark/dataset") / CONTAINER_DATASET_DIRECTORY
     product = dataset_root / "Blender"
-    recipe_path = code_root / "gutch_repo" / "test_dataset" / "test_dataset_recipes" / "blender-official.json"
+    recipe_path = code_root / "test_dataset" / "test_dataset_recipes" / "blender-official.json"
     if config.blender_platforms != ("linux-x64",):
         raise RuntimeError("container Gutch benchmark requires dataset.blender_platforms: [linux-x64]")
     prepare_blender_product(
@@ -119,7 +119,7 @@ def main() -> int:
 
     fixture_path = (
         code_root
-        / "gutch_repo"
+
         / "test_benchmarks"
         / "gutch_fixture_runner"
         / "fixtures"
@@ -196,7 +196,7 @@ def main() -> int:
     evidence_path = workspace / 'evidence.zip'
     with zipfile.ZipFile(evidence_path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         for path in run_root.rglob('*'):
-            if path.is_file() and 'payload' not in path.relative_to(run_root).parts:
+            if path.is_file() and (args.keep_artifacts or 'payload' not in path.relative_to(run_root).parts):
                 archive.write(path, path.relative_to(run_root).as_posix())
     manifest = {
         "evidence_path": str(evidence_path),

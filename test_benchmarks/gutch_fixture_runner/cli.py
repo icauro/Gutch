@@ -5,22 +5,22 @@ import json
 import os
 from pathlib import Path
 
-from gutch_repo.test_benchmarks.common.environment import load_benchmark_environment
-from gutch_repo.test_benchmarks.common.config import load_scenario
-from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
+from ..common.environment import load_benchmark_environment
+from ..common.config import load_scenario
+from ..benchmark_config import load_benchmark_config
 from .binary import resolve_gutch_executable
-from gutch_repo.test_benchmarks.support.commands import GutchCli
+from ..support.commands import GutchCli
 from .config import FixtureCatalog, _wait_seconds, _profile
 from .models import LaneResult
 from .report import print_fixture_report
-from gutch_repo.test_benchmarks.support.reconstruction import run_reconstruction_storage
-from gutch_repo.test_benchmarks.support.s3 import S3Settings
+from ..support.reconstruction import run_reconstruction_storage
+from ..support.s3 import S3Settings
 from .s3_cycle import S3CycleOptions, load_s3_cycle, run_s3_cycle
 from .workflow import run_fixture
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return Path(__file__).resolve().parents[2]
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

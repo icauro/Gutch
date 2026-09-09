@@ -1,0 +1,21 @@
+services:
+  storage:
+    image: chrislusf/seaweedfs:4.29
+    command: [mini, -dir=/data, -bucket=gutch-tests, -s3.config=/etc/seaweedfs/s3.json]
+    ports:
+      - "127.0.0.1::8333"
+    volumes:
+      - ./s3.json:/etc/seaweedfs/s3.json:ro
+      - storage:/data
+  builder:
+    init: true
+    image: ${GUTCH_TEST_IMAGE:-gutch-builder}
+    working_dir: /gutch
+    command: [sleep, infinity]
+volumes:
+  storage:
+networks:
+  default:
+    # The fixture atomically reserves a free /24 before Compose starts.
+    external: true
+    name: ${GUTCH_TEST_NETWORK:?allocated by fixture}

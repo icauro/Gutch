@@ -2,8 +2,8 @@
 # and optional external storage values. The copied config.yml is ignored by Git.
 
 local:
-  product_root: C:/datasets/products
-  artifacts_root: .artifacts
+  product_root: ../tests/.artifacts/fixtures/products
+  artifacts_root: ../tests/.artifacts/runs/benchmarks
 
 environment:
   S3_MAIN_BUCKET_NAME: ""

@@ -6,8 +6,8 @@ import sys
 from typing import Sequence
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-    __package__ = "gutch_repo.test_benchmarks.s3_throughput"
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    __package__ = "test_benchmarks.s3_throughput"
 
 from .cli import add_arguments, run_command
 from .config import StorageScenario, load_storage_scenario

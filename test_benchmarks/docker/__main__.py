@@ -9,8 +9,8 @@ import sys
 from typing import Sequence
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-    __package__ = "gutch_repo.test_benchmarks.docker"
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    __package__ = "test_benchmarks.docker"
 
 from ..benchmark_config import load_benchmark_config
 from ..common.config import load_scenario

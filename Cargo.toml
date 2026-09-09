@@ -2,6 +2,11 @@
 name = "gutch"
 version = "0.2.0"
 edition = "2024"
+description = "Provider-independent snapshot, artifact delivery, reconstruction, and verification engine"
+
+[workspace]
+members = ["gutch-cli"]
+resolver = "3"
 
 [dependencies]
 fastcdc = "5.0.0"

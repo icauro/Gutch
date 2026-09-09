@@ -7,14 +7,14 @@ import subprocess
 
 def _iter_build_inputs(repo_root: Path):
     files = [
-        repo_root / "gutch_repo" / "Cargo.toml",
-        repo_root / "gutch_repo" / "Cargo.lock",
-        repo_root / "gutch_repo" / "gutch-cli" / "Cargo.toml",
-        repo_root / "gutch_repo" / "gutch-cli" / "Cargo.lock",
+        repo_root / "Cargo.toml",
+        repo_root / "Cargo.lock",
+        repo_root / "gutch-cli" / "Cargo.toml",
+        repo_root / "gutch-cli" / "Cargo.lock",
     ]
     directories = [
-        repo_root / "gutch_repo" / "src",
-        repo_root / "gutch_repo" / "gutch-cli" / "src",
+        repo_root / "src",
+        repo_root / "gutch-cli" / "src",
     ]
     yield from (path for path in files if path.is_file())
     for directory in directories:
@@ -47,15 +47,15 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
     candidates: list[Path | None] = []
     candidates.extend(
         [
-            repo_root / ".build" / "compiler-cache" / "cargo" / "default" / "release" / executable_name,
+            repo_root / ".builds" / "compiler-cache" / "cargo" / "release" / executable_name,
             repo_root / "target" / "release" / executable_name,
-            repo_root / "gutch_repo" / "test_benchmarks" / "gutch_fixture_runner" / "bin" / executable_name,
+            repo_root / "test_benchmarks" / "gutch_fixture_runner" / "bin" / executable_name,
         ]
     )
     for candidate in candidates:
         if candidate and _binary_is_current(candidate, repo_root):
             return candidate
-    cargo_target = repo_root / ".build" / "compiler-cache" / "cargo" / "default"
+    cargo_target = repo_root / ".builds" / "compiler-cache" / "cargo"
     build_env = os.environ.copy()
     build_env["CARGO_TARGET_DIR"] = str(cargo_target)
     subprocess.run(
@@ -65,7 +65,7 @@ def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> P
             "--release",
             "--locked",
             "--manifest-path",
-            repo_root / "gutch_repo" / "gutch-cli" / "Cargo.toml",
+            repo_root / "gutch-cli" / "Cargo.toml",
             "--bin",
             "gutch-cli",
         ],

@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from gutch_repo.test_benchmarks.support.s3 import S3Client, S3Settings, make_client
+from ..support.s3 import S3Client, S3Settings, make_client
 from .config import StorageTarget
 
 

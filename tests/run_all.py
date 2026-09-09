@@ -11,21 +11,21 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import traceback
 from uuid import uuid4
 
-REPOSITORY = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPOSITORY))
+REPOSITORY = Path(__file__).resolve().parents[1]
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(REPOSITORY))
+    __package__ = "tests"
 
-from scripts._common.paths import get_default_cargo_target_dir
-from tests.common._artifacts import get_test_artifacts_root_dir
-from tests.common._run_events import RunEventWriter
-from gutch_repo.tests.support.cli import Case, execute
-from gutch_repo.tests.support.filesystem import write_json
-from gutch_repo.tests.support.scenario_process import run_scenario
-from gutch_repo.tests.support.delivery import prepare_s3_environment
+from .support.events import RunEventWriter
+from .support.cli import Case, execute
+from .support.filesystem import write_json
+from .support.scenario_process import run_scenario
 @dataclass(frozen=True)
 class Scenario:
     name: str
@@ -77,41 +77,58 @@ def main(arguments=None):
     parser.add_argument("--case", choices=[s.name for s in SCENARIOS], action="append")
     parser.add_argument("--list", action="store_true", help="List cases without building or allocating resources")
     parser.add_argument("--keep-artifacts", action="store_true", help="Retain successful payloads as well as failed ones")
+    parser.add_argument("--artifacts-root", type=Path, default=REPOSITORY / "tests/.artifacts")
+    parser.add_argument("--event-file", type=Path)
+    parser.add_argument("--run-id")
+    parser.add_argument("--suite-id", default="gutch")
     args = parser.parse_args(arguments)
     scenarios = selected_scenarios(args.suite, args.case)
     if args.list:
         for scenario in scenarios:
             print(f"{scenario.name}: {scenario.suite}")
         return 0
-    root = get_test_artifacts_root_dir(REPOSITORY) / "runs/gutch" / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{uuid4().hex[:6]}"
+    root = args.artifacts_root.resolve() / "runs/gutch" / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{uuid4().hex[:6]}"
     root.mkdir(parents=True)
     print(f"Run: {root}", flush=True)
     results = []
-    writer = RunEventWriter.from_environment("gutch")
+    writer = RunEventWriter(args.event_file, args.run_id or root.name, args.suite_id)
     writer.phase_plan([(scenario.name, scenario.name) for scenario in scenarios])
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPOSITORY, capture_output=True, text=True, check=True).stdout.strip()
+    revision = "unversioned-export"
+    if (REPOSITORY / ".git").exists() and shutil.which("git"):
+        revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPOSITORY,
+                                  capture_output=True, text=True, check=False).stdout.strip() or revision
     manifest = {"schema_version": 1, "status": "running", "revision": revision,
                 "platform": platform.platform(), "suite": args.suite, "rust_tests": "not requested", "cases": results}
     write_json(root / "run.json", manifest)
+    services = None
     try:
-        target = get_default_cargo_target_dir(REPOSITORY)
+        target = REPOSITORY / ".builds/compiler-cache/cargo"
         environment = {"CARGO_TARGET_DIR": str(target)}
         if args.suite in {"fast", "all"} and not args.case:
+            execute([sys.executable, "-m", "pytest", "tests/tooling", "-q", "--basetemp", root / "tooling-temp"],
+                    REPOSITORY, environment, root / "tooling-tests.log", timeout=120)
             manifest["rust_tests"] = "running"
-            execute(["cargo", "test", "--manifest-path", REPOSITORY / "gutch_repo/Cargo.toml"],
+            execute(["cargo", "test", "--locked", "--workspace", "--manifest-path", REPOSITORY / "Cargo.toml"],
                     REPOSITORY, environment, root / "rust-tests.log", timeout=900)
             manifest["rust_tests"] = "passed"
-        execute(["cargo", "build", "--manifest-path", REPOSITORY / "gutch_repo/gutch-cli/Cargo.toml"],
+        execute(["cargo", "build", "--locked", "--manifest-path", REPOSITORY / "gutch-cli/Cargo.toml"],
                 REPOSITORY, environment, root / "build.log", timeout=900)
         executable = Path(target) / "debug" / ("gutch-cli.exe" if os.name == "nt" else "gutch-cli")
         assert executable.is_file(), f"Cargo did not produce {executable}"
-        scenario_environment = prepare_s3_environment() if any(s.suite == "s3" for s in scenarios) else {}
+        scenario_environment = {}
+        if any(s.suite == "s3" for s in scenarios):
+            from test_services.fixture import Services
+            services = Services()
+            services.start()
+            scenario_environment = {"GUTCH_TEST_S3_ENDPOINT": services.endpoint,
+                "GUTCH_TEST_S3_ACCESS_KEY": "gutch-test-access",
+                "GUTCH_TEST_S3_SECRET_KEY": "gutch-test-secret", "GUTCH_TEST_S3_PROJECT": services.project}
         for index, scenario in enumerate(scenarios, 1):
             case = Case(root / "cases" / f"{index:02d}-{scenario.name[:28]}", executable)
             result = {"name": scenario.name, "status": "running", "evidence": case.root.relative_to(root).as_posix()}
             results.append(result)
             writer.emit("phase_started", phase_id=scenario.name, phase_name=scenario.name)
-            result.update(run_scenario(f"gutch_repo.tests.workflows.{scenario.module}", case, scenario_environment,
+            result.update(run_scenario(f"tests.workflows.{scenario.module}", case, scenario_environment,
                                        keep_artifacts=args.keep_artifacts))
             write_json(case.root / "results.json", result)
             write_json(root / "run.json", manifest)
@@ -127,6 +144,11 @@ def main(arguments=None):
         manifest.update(status="failed", reason=str(error))
         (root / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
     finally:
+        if services is not None:
+            try:
+                services.close()
+            except Exception as error:
+                manifest.update(status="failed", reason=f"Service cleanup failed: {error}")
         if manifest["rust_tests"] == "running":
             manifest["rust_tests"] = manifest["status"]
         write_json(root / "run.json", manifest)
@@ -150,5 +172,4 @@ def main(arguments=None):
 
 
 if __name__ == "__main__":
-    from tests.common._test_environment import run_test_main
-    raise SystemExit(run_test_main(main))
+    raise SystemExit(main())

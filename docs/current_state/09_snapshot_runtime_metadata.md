@@ -64,7 +64,3 @@ plus every snapshot currently sharing the same complete metadata hash.
 - Editing one shared hash group is an explicit save-scope choice, not a
   repo-wide assignment.
 - Runtime metadata does not define snapshot identity or filesystem content.
-
-## Pinned Decisions
-
-- `docs_agentic/pinned_decisions/spec_paths_and_ids.md`

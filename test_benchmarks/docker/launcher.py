@@ -1,37 +1,31 @@
 """Docker process/copy boundary for isolated Linux benchmark runs."""
 from dataclasses import dataclass
-from pathlib import Path
-import os
-import subprocess
-from tests.common import _test_environment as environments
-from tests.common._test_runtime_mode import build_mode_runtime_context
-from tests.common._e2e_harness import start_backend_integration_stack
-from gutch_repo.test_benchmarks.support.command import CommandRunner
+from ..support.command import CommandRunner
 
 
-@dataclass(frozen=True)
+@dataclass
 class DockerTarget:
     container: str
-    workspace: str = "/tmp/hostapp-benchmark"
+    workspace: str = "/tmp/gutch-benchmark"
+    services: object = None
 
     @classmethod
     def start(cls, config, repo_root):
-        context = build_mode_runtime_context(repo_root, lane_name='gutch-docker-benchmark',
-            override_env_var='HOSTAPP_GUTCH_BENCHMARK_ENV_FILE', instance_index=0, mode='full')
-        start_backend_integration_stack(context, services=['seaweedfs'],
-                                       wait_for_services=['seaweedfs'], rebuild=False)
-        for key, value in context.backend_values.items():
-            if key.startswith('S3_MAIN_'):
-                config.environment[key] = value
-        config.environment['S3_MAIN_ENDPOINT'] = 'http://seaweedfs:8333'
-        from scripts.build._builder import project_name
-        os.environ['LINUX_BUILDER_IMAGE'] = project_name(repo_root) + '-builder'
-        data = environments.read_manifest(Path(os.environ[environments.MANIFEST_ENV]))
-        subprocess.run(environments.compose_command(data, 'up', '-d', '--no-deps', 'linux-benchmark'),
-                       env=environments.compose_environment(data), check=True)
-        identifier = subprocess.check_output(environments.compose_command(data, 'ps', '-q', 'linux-benchmark'),
-                       env=environments.compose_environment(data), text=True).strip()
-        return cls(identifier)
+        from test_services.fixture import Services
+        services = Services()
+        try:
+            services.start(builder=True)
+            config.environment.update({"S3_MAIN_ENDPOINT": "http://storage:8333",
+                "S3_MAIN_ACCESS_KEY": "gutch-test-access", "S3_MAIN_SECRET_KEY": "gutch-test-secret",
+                "S3_MAIN_BUCKET_NAME": "gutch-tests", "S3_MAIN_REGION": "us-east-1"})
+            identifier = services.command("ps", "-q", "builder", capture=True)
+            return cls(identifier, services=services)
+        except BaseException:
+            services.close()
+            raise
+
+    def close(self):
+        self.services.close()
 
 
 class DockerLauncher:
@@ -42,8 +36,8 @@ class DockerLauncher:
     def run(self, command, *, description, on_output=None):
         command = list(command)
         if command[0] in ('python', 'python3'):
-            command = ['uv', 'run', '--project', '/repository', 'python', *command[1:]]
-        return self.commands.run(['docker', 'exec', '--user', '1000:1000', self.target.container, *command],
+            command = ['python', *command[1:]]
+        return self.commands.run(['docker', 'exec', self.target.container, *command],
                                  description=description, on_output=on_output)
 
     def upload(self, source, destination, *, description):

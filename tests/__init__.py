@@ -1,1 +1,1 @@
-"""Gutch correctness tests; independent of benchmark code and datasets."""
+"""Gutch-owned correctness and tooling tests."""

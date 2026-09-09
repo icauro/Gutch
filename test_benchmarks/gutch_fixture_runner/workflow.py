@@ -12,18 +12,18 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from gutch_repo.test_benchmarks.support.artifacts import RunLayout, create_run_dir
-from gutch_repo.test_benchmarks.support.command import CommandRunner
-from gutch_repo.test_benchmarks.support.filesystem import remove_tree, scan_tree
-from gutch_repo.test_benchmarks.support.recovery import apply_corruption_plan, build_corruption_plan
-from gutch_repo.test_benchmarks.support.commands import GutchCli
+from ..support.artifacts import RunLayout, create_run_dir
+from ..support.command import CommandRunner
+from ..support.filesystem import remove_tree, scan_tree
+from ..support.recovery import apply_corruption_plan, build_corruption_plan
+from ..support.commands import GutchCli
 from .external import ExternalTools, run_external
 from .models import FixtureSpec, LaneResult, LaneSpec
 
 
-from gutch_repo.test_benchmarks.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
-from gutch_repo.test_benchmarks.common.dataset import select_sources as _selected_product_sources, DatasetSelection
-from gutch_repo.test_benchmarks.common.runner import execute_cases
+from ..support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from ..common.dataset import select_sources as _selected_product_sources, DatasetSelection
+from ..common.runner import execute_cases
 
 
 @dataclass
@@ -405,7 +405,7 @@ def run_fixture(
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
     commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
-    external = ExternalTools(repo_root or Path(__file__).resolve().parents[3], commands)
+    external = ExternalTools(repo_root or Path(__file__).resolve().parents[2], commands)
     if external_binary_root is not None:
         external = ExternalTools(
             external.repo_root,

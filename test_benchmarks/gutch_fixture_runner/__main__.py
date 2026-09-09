@@ -7,8 +7,8 @@ import sys
 from typing import Sequence
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-    __package__ = "gutch_repo.test_benchmarks.gutch_fixture_runner"
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    __package__ = "test_benchmarks.gutch_fixture_runner"
 
 from .cli import (
     add_arguments,
@@ -21,13 +21,13 @@ from .cli import (
 from .binary import resolve_gutch_executable
 from .config import FixtureCatalog
 from .s3_cycle import load_s3_cycle
-from gutch_repo.test_benchmarks.docker.runner import run_docker_benchmark
-from gutch_repo.test_benchmarks.common.config import load_scenario
-from gutch_repo.test_benchmarks.benchmark_config import load_benchmark_config
+from ..docker.runner import run_docker_benchmark
+from ..common.config import load_scenario
+from ..benchmark_config import load_benchmark_config
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = PACKAGE_ROOT.parents[2]
+REPO_ROOT = PACKAGE_ROOT.parents[1]
 DEFAULT_PRODUCTS_ROOT = load_benchmark_config().product_root
 S3_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_s3_cold_publication_cycle.yaml"
 RECONSTRUCTION_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "gutch_reconstruction_storage_paths.yaml"

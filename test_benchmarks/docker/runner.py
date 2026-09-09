@@ -11,8 +11,8 @@ import zipfile
 import yaml
 
 from ..benchmark_config import BenchmarkConfig, load_benchmark_config
-from gutch_repo.test_benchmarks.support.artifacts import safe_component, create_run_dir
-from gutch_repo.test_benchmarks.support.traces import open_trace_in_perfetto
+from ..support.artifacts import safe_component, create_run_dir
+from ..support.traces import open_trace_in_perfetto
 from ..gutch_fixture_runner.config import load_fixture
 from ..gutch_fixture_runner.external_tools import ensure_linux_external_tools
 from ..gutch_fixture_runner.s3_cycle import load_s3_cycle
@@ -20,7 +20,7 @@ from .launcher import DockerLauncher, DockerTarget
 
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = BENCHMARK_ROOT.parents[1]
+REPOSITORY_ROOT = BENCHMARK_ROOT.parent
 CONTAINER_ENTRY = Path(__file__).with_name("entry.py")
 CONTAINER_DATASET_DIRECTORY = "gutch-container-blender-cache"
 
@@ -33,16 +33,16 @@ def _package_sources(destination: Path) -> None:
             if path.suffix not in {".py", ".yaml"}:
                 continue
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
-        dataset_script = REPOSITORY_ROOT / "gutch_repo" / "test_dataset" / "ensure_test_dataset.py"
-        package.write(dataset_script, "gutch_repo/test_dataset/ensure_test_dataset.py")
-        recipe = REPOSITORY_ROOT / "gutch_repo" / "test_dataset" / "test_dataset_recipes" / "blender-official.json"
-        package.write(recipe, "gutch_repo/test_dataset/test_dataset_recipes/blender-official.json")
+        dataset_script = REPOSITORY_ROOT / "test_dataset" / "ensure_test_dataset.py"
+        package.write(dataset_script, "test_dataset/ensure_test_dataset.py")
+        recipe = REPOSITORY_ROOT / "test_dataset" / "test_dataset_recipes" / "blender-official.json"
+        package.write(recipe, "test_dataset/test_dataset_recipes/blender-official.json")
 
 
 def _runtime_config(config: BenchmarkConfig, path: Path, container_workspace: str) -> None:
     values = yaml.safe_load(config.path.read_text(encoding="utf-8")) or {}
     values["local"] = {
-        "product_root": f"/tmp/hostapp-benchmark/dataset/{CONTAINER_DATASET_DIRECTORY}/Blender",
+        "product_root": f"/tmp/gutch-benchmark/dataset/{CONTAINER_DATASET_DIRECTORY}/Blender",
         "artifacts_root": f"{container_workspace}/artifacts",
     }
     values.pop("remote", None)
@@ -71,11 +71,6 @@ def _print_container_output(line: str, is_stderr: bool) -> None:
     print(text, file=sys.stderr if is_stderr else sys.stdout, flush=True)
 
 
-def _build_linux_cli(repo_root: Path) -> Path:
-    from scripts.build.launcher._linux_builder import build_linux_gutch
-    return build_linux_gutch(repo_root)
-
-
 def _run_docker_benchmark(
     *,
     fixture: str,
@@ -98,8 +93,16 @@ def _run_docker_benchmark(
         if lane.kind.startswith(("restic-", "kopia-", "borg-", "plakar-"))
     }
     linux_external_tools = ensure_linux_external_tools(REPOSITORY_ROOT, external_kinds)
-    binary_path = _build_linux_cli(REPOSITORY_ROOT)
     target = DockerTarget.start(config, REPOSITORY_ROOT)
+    try:
+        return _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurrency,
+                                  transfer_max_concurrency, keep_artifacts, linux_external_tools)
+    finally:
+        target.close()
+
+
+def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurrency,
+                       transfer_max_concurrency, keep_artifacts, linux_external_tools):
     launcher = DockerLauncher(target)
     workspace = target.workspace
     local_root = create_run_dir((artifacts_root or config.artifacts_root) / "container", "linux", fixture)
@@ -129,7 +132,8 @@ def _run_docker_benchmark(
         launcher.upload(package_path, container_package, description="upload benchmark package")
         launcher.upload(runtime_config_path, container_config, description="upload benchmark config")
         launcher.upload(CONTAINER_ENTRY, container_entry, description="upload container benchmark runner")
-        launcher.upload(binary_path, container_binary, description="upload Docker-built Linux gutch-cli")
+        launcher.run(["cp", "/gutch/.builds/compiler-cache/cargo/release/gutch-cli", container_binary],
+                     description="copy Docker-built Linux gutch-cli")
         for kind, path in sorted(linux_external_tools.items()):
             launcher.upload(
                 path,
@@ -158,11 +162,16 @@ def _run_docker_benchmark(
             command.extend(["--external-root", container_external_root])
         if keep_artifacts:
             command.append("--keep-artifacts")
-        launcher.run(
-            command,
-            description=f"run container Gutch fixture {fixture}",
-            on_output=_print_container_output,
-        )
+        try:
+            launcher.run(command, description=f"run container Gutch fixture {fixture}",
+                         on_output=_print_container_output)
+        except BaseException:
+            try:
+                launcher.download(workspace, local_root / "failed-container",
+                                  description="preserve failed benchmark evidence")
+            except Exception as error:
+                print(f"Could not export failed benchmark evidence: {error}", file=sys.stderr)
+            raise
 
         manifest_path = local_root / "container-result.json"
         results_path = local_root / "results.json"
@@ -198,13 +207,4 @@ def load_benchmark_fixture_open_perfetto(fixture: str) -> bool:
 
 
 def run_docker_benchmark(**kwargs):
-    from tests.common import _test_environment as environments
-    success = False
-    try:
-        result = _run_docker_benchmark(**kwargs)
-        success = True
-        return result
-    finally:
-        if kwargs.get('keep_artifacts'):
-            environments.retain_environment()
-        environments.finish_environments(success)
+    return _run_docker_benchmark(**kwargs)

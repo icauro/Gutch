@@ -1,0 +1,16 @@
+.git
+.builds
+.artifacts
+.venv
+.pytest_cache
+tests/.artifacts
+tests/.artifacts/**
+**/__pycache__
+**/.pytest_cache
+**/target
+test_benchmarks/config.yml
+test_benchmarks/gutch_fixture_runner/bin
+test_dataset/source
+test_dataset/test_dataset
+test_dataset/.artifacts
+test_dataset/repos

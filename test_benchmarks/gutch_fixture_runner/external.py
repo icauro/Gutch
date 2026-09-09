@@ -9,11 +9,11 @@ from pathlib import Path
 import tempfile
 import time
 
-from gutch_repo.test_benchmarks.support.command import CommandRunner
-from gutch_repo.test_benchmarks.support.filesystem import remove_tree, scan_tree
-from gutch_repo.test_benchmarks.support.recovery import apply_corruption_plan, build_corruption_plan
-from gutch_repo.test_benchmarks.common.dataset import DatasetSelection
-from gutch_repo.test_benchmarks.support.filesystem import file_sha256
+from ..support.command import CommandRunner
+from ..support.filesystem import remove_tree, scan_tree
+from ..support.recovery import apply_corruption_plan, build_corruption_plan
+from ..common.dataset import DatasetSelection
+from ..support.filesystem import file_sha256
 from .models import LaneResult, LaneSpec
 
 
@@ -37,7 +37,7 @@ class ExternalTools:
             if not explicit.is_file():
                 raise FileNotFoundError(f"configured {kind} executable does not exist: {explicit}")
             return explicit
-        candidate = self.repo_root / "gutch_repo" / "test_benchmarks" / "gutch_fixture_runner" / "bin"
+        candidate = self.repo_root / "test_benchmarks" / "gutch_fixture_runner" / "bin"
         if os.name == "nt":
             if kind == "plakar":
                 candidate = candidate / "plakar" / "plakar.exe"

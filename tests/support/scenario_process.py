@@ -5,14 +5,13 @@ import importlib
 import json
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
 import time
 import traceback
 import unittest
 
-from tests.common._process import start_process
+from .cli import start_process
 from .cli import Case, REPOSITORY
 from .filesystem import remove_owned, write_json
 
@@ -21,19 +20,12 @@ CLEANUP_TIMEOUT_SECONDS = 10
 
 
 def kill_process_tree(process):
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=True)
-    else:
-        # Scenario CLI children inherit this group, including interrupted-download children.
-        os.killpg(process.pid, signal.SIGKILL)
-    process.wait(timeout=5)
+    from .process import stop_process
+    stop_process(process)
 
 
 def run_worker(mode, module, case, environment, timeout):
-    process = start_process([sys.executable, "-m", __name__, mode, module,
+    process = start_process([sys.executable, "-m", "tests.support.scenario_process", mode, module,
                              str(case.root), str(case.executable)], REPOSITORY,
                             {**environment, "GUTCH_SCENARIO_WORKER": "1"},
                             log_path=case.root / f"{mode}.log")

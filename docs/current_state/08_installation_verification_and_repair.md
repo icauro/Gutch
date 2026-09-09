@@ -98,10 +98,7 @@ scheduling and hash modes are detailed in
 - Local verification does not grant remote access or change backend library
   state.
 
-## Pinned Decisions
 
-- `docs_agentic/pinned_decisions/spec_library.md`
-- `docs_agentic/pinned_decisions/spec_paths_and_ids.md`
 
 Atomic metadata and artifact writes resolve their destination parent before
 creating and promoting the temporary file. On Windows this retains the extended

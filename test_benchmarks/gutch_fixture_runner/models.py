@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 
-from gutch_repo.test_benchmarks.support.models import GutchProfile
+from ..support.models import GutchProfile
 
 
 @dataclass(frozen=True)

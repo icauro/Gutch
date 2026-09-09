@@ -9,11 +9,11 @@ import re
 import subprocess
 import time
 
-from tests.common._process import stop_process
+from .process import stop_process
 from .filesystem import assert_tree, write_json
 
 ROOT = Path(__file__).resolve().parents[2]
-REPOSITORY = ROOT.parent
+REPOSITORY = ROOT
 
 
 def start_process(command, directory, environment, *, log_path):

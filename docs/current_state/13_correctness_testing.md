@@ -5,23 +5,23 @@ Status: Current
 The component owns one runner, independent of benchmark code and datasets:
 
 ```sh
-uv run python gutch_repo/tests/run_all.py
-uv run python gutch_repo/tests/run_all.py --suite fast
-uv run python gutch_repo/tests/run_all.py --suite local
-uv run python gutch_repo/tests/run_all.py --suite s3
-uv run python gutch_repo/tests/run_all.py --suite all
-uv run python gutch_repo/tests/run_all.py --case snapshot_cleanup
-uv run python gutch_repo/tests/run_all.py --suite all --list
+uv run python tests/run_all.py
+uv run python tests/run_all.py --suite fast
+uv run python tests/run_all.py --suite local
+uv run python tests/run_all.py --suite s3
+uv run python tests/run_all.py --suite all
+uv run python tests/run_all.py --case snapshot_cleanup
+uv run python tests/run_all.py --suite all --list
 ```
 
 ## Ownership and Execution
 
 | Suite | Runs | Needs |
 |---|---|---|
-| `fast` | Rust tests and a CLI round trip | Python, Cargo |
+| `fast` | Python tooling tests, Rust tests and a CLI round trip | Python, Cargo |
 | `local` | All local CLI scenarios, including controlled HTTP faults | Python, Cargo; loopback networking |
-| `s3` | Capture, cold/warm fetch, combined fetch/reconstruct, repair | Python with repository dependencies, Cargo, Docker |
-| `all` (default) | Rust tests and every Python scenario | All above |
+| `s3` | Capture, cold/warm fetch, combined fetch/reconstruct, repair | Python with Gutch dependencies, Cargo, Docker |
+| `all` (default) | Python tooling tests, Rust tests and every CLI scenario | All above |
 
 The default command requires Docker running. S3 startup failures fail the run;
 the runner does not silently skip S3 when Docker is unavailable.
@@ -98,7 +98,7 @@ failed, retains its evidence and continues with the next scenario. Inspect
 `scenario.log` and `commands/` to locate the last operation. Successful payload
 and S3 bucket cleanup run in another process with their own 10-second deadline;
 `cleanup_seconds` is recorded separately. A cleanup timeout also fails the case.
-The environment manager handles final Compose teardown after the suite.
+The Gutch runner tears down its Compose services after the suite.
 
 The download interruption test uses a request
 barrier instead of a sleep to select its failure point.
@@ -107,11 +107,12 @@ Successful case payloads are deleted by default; `--keep-artifacts` retains them
 Failed payloads and tracebacks remain available. Compact logs and comparisons
 remain after success. A failed command, assertion or cleanup makes the run fail.
 
-S3 uses the repository's test environment manager with only SeaweedFS enabled
-and a unique bucket. Success deletes the bucket and owned Compose resources,
-including volumes. Failure retains its environment for inspection. Nested runs
-inherit the parent environment's ownership. Development S3 is not used.
+S3 uses Gutch's `test_services/compose.yml` with synthetic credentials, a
+run-owned /24 network, a dynamically published loopback port, and a unique
+bucket. Final teardown removes containers, volumes, and the network even after
+failure. Local case evidence remains available. No host application environment
+is loaded or inherited as fixture ownership.
 
-Control Center registers local and S3 execution; the pre-deploy Gutch regression
-target runs the local suite. The old fixture and regression runners are removed.
+All paths and commands on this page are relative to the Gutch root. Consumers
+can invoke this script and pass explicit artifact and JSONL event paths.
 Benchmark preparation and scheduling remain under their own component folders.

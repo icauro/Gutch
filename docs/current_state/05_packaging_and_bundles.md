@@ -96,7 +96,3 @@ The capture-side ordering and artifact-grouping timeline is documented in
 [`04_scan_pipeline.md`](04_scan_pipeline.md). The artifact-side execution,
 cache, and remote-fetch behavior is documented in
 [`06_reconstruct_pipeline.md`](06_reconstruct_pipeline.md).
-
-## Pinned Decisions
-
-- `docs_agentic/pinned_decisions/spec_paths_and_ids.md`

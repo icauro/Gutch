@@ -1,0 +1,12 @@
+[project]
+name = "gutch-tooling"
+version = "0.2.0"
+requires-python = ">=3.12"
+dependencies = ["boto3>=1.35", "PyYAML>=6", "pytest>=8", "psutil>=6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/tooling"]
+cache_dir = "tests/.artifacts/cache/pytest"
+
+[tool.uv]
+package = false
