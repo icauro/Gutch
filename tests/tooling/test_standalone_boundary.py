@@ -5,8 +5,8 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
-from test_services.build_image import ROOT, source_files
-from test_services.fixture import Services
+from tools.build_image import ROOT, source_files
+from tools.services import Services
 
 
 def test_source_inventory_excludes_private_configuration_and_artifacts():
@@ -25,7 +25,7 @@ def test_source_inventory_excludes_private_configuration_and_artifacts():
 
 
 def test_network_reservation_retries_a_concurrent_overlap(monkeypatch):
-    import test_services.fixture as fixture
+    import tools.services as fixture
     monkeypatch.setattr(fixture.subprocess, "check_output", lambda *args, **kwargs: "")
     attempts = []
 
@@ -48,7 +48,7 @@ def test_consumer_names_stay_in_the_integration_example():
     example = ROOT / "docs/current_state/hostapp_integration_example.md"
     candidates = {path for path, _ in source_files()}
     candidates.update((ROOT / "docs").rglob("*.md"))
-    candidates.update(ROOT / name for name in ("README.md", "usage.md", "AGENTS.md", "index.md", "test_benchmarks/README.md", "test_benchmarks/.gitignore"))
+    candidates.update(ROOT / name for name in ("README.md", "usage.md", "AGENTS.md", "index.md", "tests/benchmarks/README.md", "tests/benchmarks/.gitignore"))
     for path in sorted(candidates):
         if not path.is_file() or path == example or path.resolve() == Path(__file__).resolve():
             continue
@@ -71,13 +71,13 @@ def test_local_cargo_dependencies_stay_inside_the_project():
 
 def test_reconstruction_requires_explicit_storage(monkeypatch):
     import os
-    from test_benchmarks.common.config import load_scenario
-    from test_benchmarks.gutch_fixture_runner.cli import _s3_settings
+    from tests.benchmarks.scheduling.config import load_scenario
+    from tests.benchmarks.comparison.cli import _s3_settings
     import pytest
     for name in list(os.environ):
         if name.startswith("GUTCH_S3_"):
             monkeypatch.delenv(name)
-    fixture = load_scenario(ROOT / "test_benchmarks/gutch_fixture_runner/fixtures/gutch_reconstruction_storage_paths.yaml")
+    fixture = load_scenario(ROOT / "tests/benchmarks/comparison/fixtures/gutch_reconstruction_storage_paths.yaml")
     args = SimpleNamespace(bucket=None, endpoint=None, region=None, access_key_id=None, secret_access_key=None)
     with pytest.raises(ValueError, match="GUTCH_S3_BUCKET_NAME"):
         _s3_settings(args, fixture.values["storage"])

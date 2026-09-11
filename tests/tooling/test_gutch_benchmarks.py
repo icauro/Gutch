@@ -7,44 +7,44 @@ from pathlib import Path
 from types import SimpleNamespace
 import zipfile
 
-import test_benchmarks.support.command as command_module
-from test_benchmarks.support.artifacts import RunLayout
-from test_benchmarks.support.command import CommandResult, CommandRunner
-from test_benchmarks.common.config import ScenarioCatalog
-from test_benchmarks.common.environment import load_benchmark_environment
-from test_benchmarks.support.traces import combine_labeled_traces, combine_traces
-from test_benchmarks.benchmark_config import load_benchmark_config
-import test_benchmarks.gutch_fixture_runner.cli as gutch_cli
-import test_benchmarks.gutch_fixture_runner.binary as gutch_binary
-from test_benchmarks.support.commands import GutchCli
-from test_benchmarks.gutch_fixture_runner.config import FixtureCatalog, load_fixture
-import test_benchmarks.gutch_fixture_runner.__main__ as gutch_launcher
-from test_benchmarks.gutch_fixture_runner.__main__ import _prompt_product, main as gutch_main
-from test_benchmarks.gutch_fixture_runner.binary import resolve_gutch_executable
-from test_benchmarks.gutch_fixture_runner.external import ExternalTools, _plakar_cache_directory, _plakar_command, run_external
-import test_benchmarks.gutch_fixture_runner.external_tools as external_tools
-from test_benchmarks.support.s3 import S3Settings, s3_key
-from test_benchmarks.gutch_fixture_runner.s3_cycle import load_s3_cycle
-from test_benchmarks.gutch_fixture_runner.models import FixtureSpec, LaneResult, LaneSpec
-from test_benchmarks.gutch_fixture_runner.report import print_gutch_profile_table
-import test_benchmarks.gutch_fixture_runner.workflow as gutch_workflow
-import test_benchmarks.common.runner as benchmark_runner
-from test_benchmarks.gutch_fixture_runner.workflow import LocalFixtureRunner
-from test_benchmarks.docker.launcher import DockerLauncher, DockerTarget
-import test_benchmarks.docker.runner as container_runner
-import test_benchmarks.docker.__main__ as container_launcher
-import test_benchmarks.docker.entry as container_entry
-from test_benchmarks.s3_throughput.config import load_storage_scenario
-from test_benchmarks.s3_throughput.__main__ import main as storage_main
-import test_benchmarks.s3_throughput.workflow as storage_workflow
-import test_benchmarks.s3_throughput.cli as storage_cli
-from test_benchmarks.s3_throughput.config import StorageTarget
+import tests.benchmarks.support.command as command_module
+from tests.benchmarks.support.artifacts import RunLayout
+from tests.benchmarks.support.command import CommandResult, CommandRunner
+from tests.benchmarks.scheduling.config import ScenarioCatalog
+from tests.benchmarks.scheduling.environment import load_benchmark_environment
+from tests.benchmarks.support.traces import combine_labeled_traces, combine_traces
+from tests.benchmarks.benchmark_config import load_benchmark_config
+import tests.benchmarks.comparison.cli as gutch_cli
+import tests.benchmarks.comparison.binary as gutch_binary
+from tests.benchmarks.support.commands import GutchCli
+from tests.benchmarks.comparison.config import FixtureCatalog, load_fixture
+import tests.benchmarks.comparison.__main__ as gutch_launcher
+from tests.benchmarks.comparison.__main__ import _prompt_product, main as gutch_main
+from tests.benchmarks.comparison.binary import resolve_gutch_executable
+from tests.benchmarks.comparison.external import ExternalTools, _plakar_cache_directory, _plakar_command, run_external
+import tests.benchmarks.comparison.external_tools as external_tools
+from tests.benchmarks.support.s3 import S3Settings, s3_key
+from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
+from tests.benchmarks.comparison.models import FixtureSpec, LaneResult, LaneSpec
+from tests.benchmarks.comparison.report import print_gutch_profile_table
+import tests.benchmarks.comparison.workflow as gutch_workflow
+import tests.benchmarks.scheduling.runner as benchmark_runner
+from tests.benchmarks.comparison.workflow import LocalFixtureRunner
+from tests.benchmarks.docker.launcher import DockerLauncher, DockerTarget
+import tests.benchmarks.docker.runner as container_runner
+import tests.benchmarks.docker.__main__ as container_launcher
+import tests.benchmarks.docker.entry as container_entry
+from tests.benchmarks.s3_throughput.config import load_storage_scenario
+from tests.benchmarks.s3_throughput.__main__ import main as storage_main
+import tests.benchmarks.s3_throughput.workflow as storage_workflow
+import tests.benchmarks.s3_throughput.cli as storage_cli
+from tests.benchmarks.s3_throughput.config import StorageTarget
 
 
 def test_catalog_contains_all_gutch_benchmark_scenarios() -> None:
     names = {
         document.name
-        for document in ScenarioCatalog(Path("test_benchmarks/gutch_fixture_runner/fixtures")).list()
+        for document in ScenarioCatalog(Path("tests/benchmarks/comparison/fixtures")).list()
     }
     assert {
         "gutch_default_trace_with_corrupt_repair",
@@ -76,7 +76,7 @@ def test_external_fixture_lanes_include_plakar() -> None:
 
 
 def test_external_tools_resolve_nested_plakar_binary(tmp_path: Path) -> None:
-    executable = tmp_path / "test_benchmarks" / "gutch_fixture_runner" / "bin" / ("plakar/plakar.exe" if os.name == "nt" else "linux-x64/plakar")
+    executable = tmp_path / "tests/benchmarks" / "comparison" / "bin" / ("plakar/plakar.exe" if os.name == "nt" else "linux-x64/plakar")
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"plakar")
 
@@ -176,8 +176,8 @@ def test_linux_external_tool_installation_uses_bin_linux_x64_and_manifest(tmp_pa
     paths = external_tools.ensure_linux_external_tools(tmp_path, {"borg", "restic"})
 
     assert paths == {
-        "borg": tmp_path / "test_benchmarks/gutch_fixture_runner/bin/linux-x64/borg",
-        "restic": tmp_path / "test_benchmarks/gutch_fixture_runner/bin/linux-x64/restic",
+        "borg": tmp_path / "tests/benchmarks/comparison/bin/linux-x64/borg",
+        "restic": tmp_path / "tests/benchmarks/comparison/bin/linux-x64/restic",
     }
     manifest = paths["borg"].parent / ".versions.json"
     assert json.loads(manifest.read_text(encoding="utf-8")) == {"borg": "1.4.5", "restic": "0.19.1"}
@@ -371,12 +371,12 @@ def test_gutch_product_prompt_selects_from_lookup_root(tmp_path: Path, monkeypat
 
 def test_s3_cycle_fixture_is_typed_and_has_no_post_reconstruct_verify() -> None:
     fixture, options = load_s3_cycle(
-        Path("test_benchmarks/gutch_fixture_runner/fixtures/gutch_s3_cold_publication_cycle.yaml")
+        Path("tests/benchmarks/comparison/fixtures/gutch_s3_cold_publication_cycle.yaml")
     )
     assert fixture.runner == "gutch-s3"
     assert len(fixture.lanes) == 3
     assert options.transfer_concurrency == 4
-    source = Path("test_benchmarks/gutch_fixture_runner/s3_cycle.py").read_text(encoding="utf-8")
+    source = Path("tests/benchmarks/comparison/s3_cycle.py").read_text(encoding="utf-8")
     assert '"snapshot",\n                "verify"' not in source
 
 
@@ -536,7 +536,7 @@ def test_default_gutch_binary_rebuilds_when_source_is_newer(tmp_path: Path, monk
 def test_default_fixture_enables_corruption_without_extra_verify_phase() -> None:
     fixture = FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair")
     assert fixture.corrupt_repair is True
-    source = Path("test_benchmarks/gutch_fixture_runner/workflow.py").read_text(encoding="utf-8")
+    source = Path("tests/benchmarks/comparison/workflow.py").read_text(encoding="utf-8")
     assert '"snapshot",\n                "verify"' not in source
 
 
@@ -682,7 +682,7 @@ def test_combine_labeled_traces_keeps_phases_in_one_perfetto_lane(tmp_path: Path
 
 def test_storage_fixture_and_shared_boundaries() -> None:
     scenario = load_storage_scenario(
-        Path("test_benchmarks/s3_throughput/fixtures/s3_object_storage_8mib.yaml")
+        Path("tests/benchmarks/s3_throughput/fixtures/s3_object_storage_8mib.yaml")
     )
     assert scenario.size_bytes == 8 * 1024 * 1024
     assert s3_key("benchmarks/set", Path("repo/chunk")) == "benchmarks/set/repo/chunk"
@@ -734,9 +734,9 @@ def test_container_package_contains_runner_inputs_without_external_binaries(tmp_
     with zipfile.ZipFile(package_path) as package:
         names = set(package.namelist())
 
-    assert "test_dataset/ensure_test_dataset.py" in names
-    assert "test_dataset/test_dataset_recipes/blender-official.json" in names
-    assert "test_benchmarks/docker/entry.py" in names
+    assert "tests/datasets/generator/product.py" in names
+    assert "tests/datasets/recipes/blender-official.json" in names
+    assert "tests/benchmarks/docker/entry.py" in names
     assert all("Cargo.toml" not in name and "/bin/" not in name for name in names)
 
 

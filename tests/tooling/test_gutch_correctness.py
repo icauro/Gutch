@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 
-from tests import run_all
+from tests import run
 from tests.support.cli import execute
 from tests.support.datasets import basic
 from tests.support.filesystem import assert_tree, remove_owned
@@ -14,27 +14,27 @@ from tests.support.filesystem import assert_tree, remove_owned
 
 class GutchCorrectnessTests(unittest.TestCase):
     def test_correctness_has_no_benchmark_or_legacy_dataset_dependencies(self):
-        root = run_all.REPOSITORY / "tests"
-        paths = [root / "run_all.py", *(root / "support").rglob("*.py"),
-                 *(root / "workflows").rglob("*.py")]
+        root = run.REPOSITORY / "tests"
+        paths = [root / "run.py", *(root / "support").rglob("*.py"),
+                 *(root / "scenarios").rglob("*.py")]
         for path in paths:
             source = path.read_text(encoding="utf-8")
             for node in ast.walk(ast.parse(source)):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
                     self.assertNotIn("test_dataset", node.value, str(path))
                 if isinstance(node, ast.ImportFrom):
-                    self.assertNotIn("test_benchmarks", node.module or "", str(path))
+                    self.assertNotIn("tests/benchmarks", node.module or "", str(path))
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        self.assertNotIn("test_benchmarks", alias.name, str(path))
+                        self.assertNotIn("tests/benchmarks", alias.name, str(path))
 
     def test_fast_selection_needs_no_docker_and_case_selection_is_exact(self):
-        fast = run_all.selected_scenarios("fast", None)
-        self.assertEqual([s.name for s in fast], ["capture_roundtrip"])
-        local = run_all.selected_scenarios("local", None)
+        fast = run.selected_scenarios("fast", None)
+        self.assertEqual([s.name for s in fast], ["capture/repeated_capture_preserves_identity"])
+        local = run.selected_scenarios("local", None)
         self.assertFalse(any(s.suite == "s3" for s in local))
-        selected = run_all.selected_scenarios("fast", ["snapshot_cleanup"])
-        self.assertEqual([s.name for s in selected], ["snapshot_cleanup"])
+        selected = run.selected_scenarios("fast", ["repository/deletion_preserves_shared_artifacts"])
+        self.assertEqual([s.name for s in selected], ["repository/deletion_preserves_shared_artifacts"])
 
     def test_independent_inventory_detects_same_size_corruption_and_extra_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -80,7 +80,7 @@ execute([sys.executable, '-c', 'import sys; assert sys.stdin.read() == ""'],
         with tempfile.TemporaryDirectory() as directory:
             # Keep the outer pipe open throughout: inherited stdin would block the child.
             process = subprocess.Popen([sys.executable, "-c", script, str(Path(directory) / "stdin.log")],
-                                       cwd=run_all.REPOSITORY, stdin=subprocess.PIPE)
+                                       cwd=run.REPOSITORY, stdin=subprocess.PIPE)
             try:
                 self.assertEqual(process.wait(timeout=5), 0)
             finally:
@@ -127,12 +127,12 @@ execute([sys.executable, '-c', 'import sys; assert sys.stdin.read() == ""'],
             self.assertEqual(run_scenario(module, following, {"GUTCH_FIXTURE_BEHAVIOR": "success"})["status"], "passed")
 
     def test_each_registered_scenario_has_its_own_documented_file(self):
-        root = run_all.REPOSITORY / "tests/workflows"
-        registered = {scenario.module for scenario in run_all.SCENARIOS}
-        self.assertEqual(registered, {p.stem for p in root.glob("*.py") if p.name != "__init__.py"})
-        self.assertEqual(len(registered), len(run_all.SCENARIOS))
+        root = run.REPOSITORY / "tests/scenarios"
+        registered = {scenario.module for scenario in run.SCENARIOS}
+        self.assertEqual(registered, {p.relative_to(root).with_suffix("").as_posix().replace("/", ".") for p in root.rglob("*.py") if p.name != "__init__.py"})
+        self.assertEqual(len(registered), len(run.SCENARIOS))
         for module in registered:
-            tree = ast.parse((root / f"{module}.py").read_text(encoding="utf-8"))
+            tree = ast.parse((root / (module.replace(".", "/") + ".py")).read_text(encoding="utf-8"))
             description = ast.get_docstring(tree)
             self.assertIn("Operations:", description)
             self.assertIn("Expected:", description)

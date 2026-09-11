@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from test_benchmarks.support.s3 import (
+from tests.benchmarks.support.s3 import (
     S3Settings,
     make_artifact_url_manifest,
 )

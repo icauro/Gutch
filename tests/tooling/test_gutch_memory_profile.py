@@ -4,14 +4,14 @@ import os
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from test_benchmarks.support.memory import ProcessMemorySampler
+from tests.benchmarks.support.memory import ProcessMemorySampler
 
 
 def test_sampler_streams_samples_and_does_not_invent_os_counters(tmp_path):
     timeline = tmp_path / "memory.jsonl"
     sampler = ProcessMemorySampler(os.getpid(), timeline)
     sampler.stopped.set()
-    with patch("test_benchmarks.support.memory.psutil.Process") as process:
+    with patch("tests.benchmarks.support.memory.psutil.Process") as process:
         process.return_value.memory_info.return_value = SimpleNamespace(rss=8192)
         sampler.start()
         result = sampler.finish()
@@ -25,7 +25,7 @@ def test_sampler_streams_samples_and_does_not_invent_os_counters(tmp_path):
 def test_sampler_records_failure_without_a_false_zero_measurement(tmp_path):
     import psutil
     sampler = ProcessMemorySampler(os.getpid(), tmp_path / "memory.jsonl")
-    with patch("test_benchmarks.support.memory.psutil.Process", side_effect=psutil.AccessDenied()):
+    with patch("tests.benchmarks.support.memory.psutil.Process", side_effect=psutil.AccessDenied()):
         sampler.start()
         result = sampler.finish()
     assert result["sampled_peak_rss_bytes"] is None

@@ -6,13 +6,13 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from test_benchmarks.common.dataset import DatasetSelection
-from test_benchmarks.common.runner import execute_cases
-from test_benchmarks.gutch_fixture_runner.models import FixtureSpec, LaneSpec, LaneResult
-from test_benchmarks.support.artifacts import RunLayout
-from test_benchmarks.support.command import CommandRunner, CommandError
-from test_benchmarks.support.gutch import verification_seconds
-from test_benchmarks.support.filesystem import compare_directories
+from tests.benchmarks.scheduling.dataset import DatasetSelection
+from tests.benchmarks.scheduling.runner import execute_cases
+from tests.benchmarks.comparison.models import FixtureSpec, LaneSpec, LaneResult
+from tests.benchmarks.support.artifacts import RunLayout
+from tests.benchmarks.support.command import CommandRunner, CommandError
+from tests.benchmarks.support.gutch import verification_seconds
+from tests.benchmarks.support.filesystem import compare_directories
 
 def fixture_spec(tmp_path):
     return FixtureSpec('contract', 'local', '', True, False, (LaneSpec('first', 'filesystem'), LaneSpec('second', 'filesystem')), tmp_path / 'fixture.yaml', lane_wait_seconds=0, step_wait_seconds=0)
@@ -88,7 +88,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
 
     def test_borg_two_commands_use_explicit_repository(self):
         for operation, arguments, expected in [('init', ['--encryption', 'none', 'repo'], ['repo-create', '--repo', 'repo', '--encryption', 'none-sha256']), ('create', ['--compression', 'zstd,1', 'repo::snapshot', 'source'], ['create', '--repo', 'repo', '--compression', 'zstd,1', 'snapshot', 'source']), ('extract', ['repo::snapshot'], ['extract', '--repo', 'repo', 'snapshot']), ('check', ['--verify-data', 'repo'], ['check', '--repo', 'repo', '--verify-data'])]:
-            from test_benchmarks.gutch_fixture_runner.external import borg_command
+            from tests.benchmarks.comparison.external import borg_command
             command = ['borg', operation, *arguments]
             assert list(map(str, borg_command(command, Path('repo'), 2))) == ['borg', *expected]
             assert borg_command(command, Path('repo'), 1) == command
@@ -96,7 +96,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
     def test_long_artifact_names_remain_bounded_distinct_and_reusable(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             tmp_path = Path(temporary_directory)
-            from test_benchmarks.support.artifacts import create_run_dir
+            from tests.benchmarks.support.artifacts import create_run_dir
             common = 'blender-validation-' * 12
             first = create_run_dir(tmp_path, common, common + 'first')
             second = create_run_dir(tmp_path, common, common + 'second')
@@ -113,7 +113,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
             tmp_path = Path(temporary_directory)
             import os
             from types import SimpleNamespace
-            from test_benchmarks.gutch_fixture_runner import binary
+            from tests.benchmarks.comparison import binary
             name = 'gutch-cli.exe' if os.name == 'nt' else 'gutch-cli'
             executable = tmp_path / '.builds/compiler-cache/cargo/release' / name
             executable.parent.mkdir(parents=True)
@@ -138,10 +138,10 @@ class GutchBenchmarkContractTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     tmp_path = Path(temporary_directory)
                     import shutil
-                    from test_benchmarks.gutch_fixture_runner.external import ExternalTools
-                    from test_benchmarks.gutch_fixture_runner.workflow import LocalFixtureRunner
-                    from test_benchmarks.support.command import CommandResult
-                    from test_benchmarks.support.commands import GutchCli
+                    from tests.benchmarks.comparison.external import ExternalTools
+                    from tests.benchmarks.comparison.workflow import LocalFixtureRunner
+                    from tests.benchmarks.support.command import CommandResult
+                    from tests.benchmarks.support.commands import GutchCli
                     product = tmp_path / 'product'
                     for name in ('1.0.0', '.hidden'):
                         (product / name).mkdir(parents=True)

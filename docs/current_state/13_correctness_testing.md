@@ -5,25 +5,28 @@ Status: Current
 The component owns one runner, independent of benchmark code and datasets:
 
 ```sh
-uv run python tests/run_all.py
-uv run python tests/run_all.py --suite fast
-uv run python tests/run_all.py --suite local
-uv run python tests/run_all.py --suite s3
-uv run python tests/run_all.py --suite all
-uv run python tests/run_all.py --case snapshot_cleanup
-uv run python tests/run_all.py --suite all --list
+python gutch.py test
+python gutch.py test --suite fast
+python gutch.py test --suite local
+python gutch.py test --suite repository
+python gutch.py test --suite s3
+python gutch.py test --suite all
+python gutch.py test --case repository/deletion_preserves_shared_artifacts
+python gutch.py test --suite all --list
 ```
 
 ## Ownership and Execution
 
 | Suite | Runs | Needs |
 |---|---|---|
+| `check` (default) | Python tooling tests, Rust tests and all local CLI scenarios | Python, Cargo; loopback networking |
 | `fast` | Python tooling tests, Rust tests and a CLI round trip | Python, Cargo |
 | `local` | All local CLI scenarios, including controlled HTTP faults | Python, Cargo; loopback networking |
 | `s3` | Capture, cold/warm fetch, combined fetch/reconstruct, repair | Python with Gutch dependencies, Cargo, Docker |
-| `all` (default) | Python tooling tests, Rust tests and every CLI scenario | All above |
+| `all` | Python tooling tests, Rust tests and every CLI scenario | All above |
 
-The default command requires Docker running. S3 startup failures fail the run;
+Behavior categories select their local scenarios. The default command needs no Docker.
+S3 startup failures fail the run;
 the runner does not silently skip S3 when Docker is unavailable.
 
 `--case` selects exact scenarios and skips the Rust pass. The runner builds the
@@ -31,10 +34,10 @@ debug CLI once using the configured Cargo cache. It does not accept arbitrary
 executables or invoke benchmark measurements. Rust retains algorithm invariants,
 provider-policy tests and cancellation contracts that need engine hooks.
 
-Each Python scenario has one descriptively named file under `tests/workflows/`
+Each Python scenario has one descriptively named file under `tests/scenarios/`
 and one `run(case)` entrypoint. Its opening docstring explains the operations
-and expected outcome. The runner explicitly maps short `--case` names to these
-files; reusable operations belong in `tests/support/`.
+and expected outcome. Each `--case` identifier is its path relative to
+`tests/scenarios/`, without `.py`; reusable operations belong in `tests/support/`.
 
 Python scenarios cover capture identity and deduplication, compression/storage
 modes, explicit and automatic source discovery, version updates and source
@@ -69,7 +72,7 @@ permissions, sizes around chunk boundaries and an 8 MiB transfer dataset that
 spans multiple bundles. Expectations come from the input bytes using SHA-256;
 they are independent of Gutch's manifests and verification implementation.
 
-`tests/datasets/reference-v2/` contains a small frozen repository with four
+`tests/fixtures/repositories/reference-v2/` contains a small frozen repository with four
 snapshots. Its expected inventory was recorded from original source bytes.
 Tests copy the fixture into the run before reconstructing it. Normal test runs
 never regenerate expected output. Intentional format changes replace the
@@ -107,7 +110,17 @@ Successful case payloads are deleted by default; `--keep-artifacts` retains them
 Failed payloads and tracebacks remain available. Compact logs and comparisons
 remain after success. A failed command, assertion or cleanup makes the run fail.
 
-S3 uses Gutch's `test_services/compose.yml` with synthetic credentials, a
+Each case also contains `replay.json`. `python gutch.py replay <case-directory>`
+validates the case identifier and runs it in a fresh workspace, preserving the
+original evidence. A SHA-256 fingerprint of the standalone source inventory
+detects source changes, including uncommitted edits, without requiring Git or a
+containing repository. Replay reports a changed fingerprint; it does not check
+out an older revision or reproduce an operating-system schedule. Existing
+scenarios use fixed inputs; generated seed replay and minimization are not yet
+implemented. `python gutch.py clean` removes only retained successful case
+payloads under the default runs directory, keeping reports and failed runs.
+
+S3 uses Gutch's `tools/docker/compose.yml` with synthetic credentials, a
 run-owned /24 network, a dynamically published loopback port, and a unique
 bucket. Final teardown removes containers, volumes, and the network even after
 failure. Local case evidence remains available. No host application environment

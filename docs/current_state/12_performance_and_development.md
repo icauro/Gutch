@@ -103,12 +103,12 @@ authority for success or failure.
 small frozen format fixtures under `tests/`. Each run creates its own
 mutable inputs and repositories. It does not use benchmark helpers or datasets.
 
-`test_dataset/` prepares benchmark inputs from tracked recipes,
+`tests/datasets/` prepares benchmark inputs from tracked recipes,
 including optional official Blender builds. These inputs are for workload
 measurements; correctness runs do not download Blender or regenerate them.
 
 ```sh
-python test_dataset/ensure_test_dataset.py
+python tests/datasets/generator/product.py
 ```
 
 ## Benchmark Execution
@@ -117,7 +117,7 @@ Python benchmark fixtures separate tool selection from workload and Gutch
 profile configuration. Local and S3 cycle workflows share a scheduler that
 runs warmups, rotates repeated cases, and retains partial results and payloads
 on failure. Benchmark operation mechanics live in
-`test_benchmarks/support/`.
+`tests/benchmarks/support/`.
 
 Dataset inventories determine numeric version order, selected input size,
 and a reproducible fingerprint before execution. Reconstruction is checked
@@ -131,7 +131,7 @@ Gutch diagnostic overhead. Bulk lanes capture and validate the same whole-produc
 including root files and hidden directories. Restic restores enable content
 verification. Local repository size means logical file bytes sampled after
 capture; filesystem copy has a separate timing metric. Compression, protection,
-and recovery differences are documented in the [benchmark README](../../test_benchmarks/README.md).
+and recovery differences are documented in the [benchmark README](../../tests/benchmarks/README.md).
 
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed retains traces.
 Completed runs include raw evidence, a status manifest, samples, and summary
@@ -144,7 +144,7 @@ The opt-in `gutch_default_memory_with_corrupt_repair` fixture records streamed
 process-memory samples at a requested 2 ms interval beside each command, plus peak summaries and phase
 traces. Unsupported counters remain null. These measurements include mapped
 pages and worker stacks; they are not allocation accounting. Sampling and traces
-are disabled in off and summary modes. See the [benchmark instructions](../../test_benchmarks/README.md#process-memory-profiling).
+are disabled in off and summary modes. See the [benchmark instructions](../../tests/benchmarks/README.md#process-memory-profiling).
 
 Manifests, indexes, classifications, and job plans still grow with input size.
 The shared installation executor and artifact admission budget do not establish

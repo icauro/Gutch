@@ -7,7 +7,12 @@
 **/__pycache__/
 *.pyc
 /.pytest_cache/
-/test_benchmarks/config.yml
-/test_benchmarks/gutch_fixture_runner/bin/
+/tests/benchmarks/config.yml
+/tests/benchmarks/comparison/bin/
 /test_dataset/.artifacts/
 /test_dataset/source/
+
+/test_dataset/
+/test_benchmarks/
+/test_services/
+/tests/workflows/

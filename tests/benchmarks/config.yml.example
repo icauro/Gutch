@@ -1,0 +1,20 @@
+# Copy this file to config.yml and fill in the benchmark paths, credentials,
+# and optional external storage values. The copied config.yml is ignored by Git.
+
+local:
+  product_root: ../.artifacts/datasets/products
+  artifacts_root: ../.artifacts/runs/benchmarks
+
+environment:
+  GUTCH_S3_BUCKET_NAME: ""
+  GUTCH_S3_ENDPOINT: ""
+  GUTCH_S3_REGION: auto
+  GUTCH_S3_ACCESS_KEY: ""
+  GUTCH_S3_SECRET_KEY: ""
+
+dataset:
+  blender_versions:
+    - 5.2.0
+    - 5.2.1
+  blender_platforms:
+    - linux-x64

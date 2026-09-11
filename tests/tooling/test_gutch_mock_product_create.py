@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 
-from test_dataset.ensure_test_dataset import (
+from tests.datasets.generator.product import (
     DEFAULT_SEED,
     GenerationRanges,
     IntRange,
@@ -242,7 +242,7 @@ class GutchMockProductCreateTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch("test_dataset.ensure_test_dataset._write_test_manifest"):
+            with mock.patch("tests.datasets.generator.product._write_test_manifest"):
                 results = prepare_test_dataset(
                     recipes_root=recipes_root,
                     test_dataset_root=test_dataset_root,
@@ -263,7 +263,7 @@ class GutchMockProductCreateTests(unittest.TestCase):
             self.assertEqual(metadata["latest_version"], recipe["versions"])
 
     def test_blender_recipe_is_pinned_and_selects_requested_targets(self) -> None:
-        recipe_path = Path("test_dataset/test_dataset_recipes/blender-official.json")
+        recipe_path = Path("tests/datasets/recipes/blender-official.json")
         base_url, assets = _load_blender_assets(recipe_path)
 
         self.assertEqual(base_url, "https://download.blender.org/release")

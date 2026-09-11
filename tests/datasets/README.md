@@ -1,14 +1,20 @@
-# Correctness Datasets
+# Generate a reproducible dataset
 
-Generated inputs live in each run, using `../support/datasets.py`. They never
-read or modify benchmark inputs.
+Run from the Gutch root:
 
-`reference-v2/` freezes four compact snapshots in the current format, recaptured into the clean-cut 16-byte-magic v1 formats
-on 2026-09-11 against the original independent inventories. `expected.json` records paths, SHA-256 content hashes, sizes and
-attributes from the original input bytes. It is not derived by reconstructing
-the fixture under test. The repository payload is under 100 KiB.
+```sh
+python gutch.py dataset --help
+python gutch.py dataset --name small-example --versions 2 --size-mib 4 --seed 123
+```
 
-Normal runs only copy this fixture. For an intentional format change, capture
-a replacement from independently specified source bytes and review the new
-expected inventory together with the format change. Do not automatically
-rewrite expectations after a failing test.
+The generator writes products beneath `tests/.artifacts/datasets/products/` by
+default. `--fixtures-root` selects another output root. Record the seed and all
+size/version settings to reproduce the same generation request. Recipes under
+`recipes/` define the fixed benchmark workloads; they are source-controlled inputs.
+
+`generator/product.py` owns generation, mutation and archive preparation.
+Correctness assertions do not use the generator's engine-derived manifest as an
+oracle. The small correctness trees and independent SHA-256 inventories currently
+live in `tests/support/datasets.py`.
+
+Frozen encoded repositories belong in `tests/fixtures/repositories/`, not here.
