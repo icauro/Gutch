@@ -1,27 +1,39 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::Metadata;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use rayon::prelude::*;
 
 use crate::Result;
-use crate::hash::ChunkHash;
-use crate::manifest::runtime::typed_file_manifest;
-use crate::manifest::{self, snapshot::SnapshotManifest};
-use crate::progress::{
-    GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
-    GutchProgressSink, emit_progress,
-};
-use crate::runtime::{RuntimeResourceHints, build_thread_pool, plan_runtime};
+use crate::artifact::hash::ChunkHash;
+use crate::manifest;
+use crate::manifest::snapshot::SnapshotManifest;
+use crate::manifest::typed::typed_file_manifest;
+use crate::progress::GutchOperation;
+use crate::progress::GutchOperationControl;
+use crate::progress::GutchProgressEvent;
+use crate::progress::GutchProgressPhase;
+use crate::progress::GutchProgressSink;
+use crate::progress::emit_progress;
+use crate::runtime::RuntimeResourceHints;
+use crate::runtime::build_thread_pool;
+use crate::runtime::plan_runtime;
 mod estimate;
 mod types;
 
 pub(crate) use estimate::estimate_build;
-pub use types::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings};
+pub use types::RepairClassification;
+pub use types::RepairIssue;
+pub use types::RepairIssueKind;
+pub use types::VerifyMode;
+pub use types::VerifyTimings;
 
 // ---------------------------------------------------------------------------
 // Options
@@ -172,7 +184,7 @@ fn classify_inner(
         );
         (Some(inventory), None)
     } else {
-        let path_resolver = crate::path_guard::ManifestPathResolver::new(dir)?;
+        let path_resolver = crate::filesystem::paths::ManifestPathResolver::new(dir)?;
         let resolved_paths = {
             let _resolve_paths_span = opts.control.profile_span_with_args(
                 marker_name(marker_namespace, "prepare.paths"),
@@ -367,7 +379,7 @@ fn build_filesystem_inventory(
         .map(crate::manifest::SnapshotEntry::path)
         .collect();
     for path in &expected_paths {
-        crate::validate_manifest_relative_path(path, false)?;
+        crate::filesystem::paths::validate_manifest_relative_path(path, false)?;
     }
     let canonical_root = match dir.canonicalize() {
         Ok(path) => path,
@@ -468,7 +480,7 @@ fn augment_inventory_for_symlinked_parents(
     if !needs_fallback {
         return Ok(());
     }
-    let path_resolver = crate::path_guard::ManifestPathResolver::new(dir)?;
+    let path_resolver = crate::filesystem::paths::ManifestPathResolver::new(dir)?;
     for entry in &snapshot_manifest.entries {
         control.checkpoint()?;
         let key = inventory_path_key(entry.path());
@@ -576,8 +588,10 @@ fn classify_inventory_non_files(
                 match inventory.entries.get(&inventory_path_key(&link.path)) {
                     Some(actual) if actual.kind == InventoryEntryKind::Symlink => {
                         let raw_target = std::fs::read_link(&actual.path)?;
-                        let actual_target =
-                            crate::path_guard::normalize_link_target(&link.path, &raw_target)?;
+                        let actual_target = crate::filesystem::paths::normalize_link_target(
+                            &link.path,
+                            &raw_target,
+                        )?;
                         if actual_target != link.target_path {
                             classification.push(RepairIssue {
                                 kind: RepairIssueKind::Corrupt,
@@ -643,7 +657,7 @@ fn classify_resolved_non_files(
                 Ok(metadata) if metadata.file_type().is_symlink() => {
                     let raw_target = std::fs::read_link(path)?;
                     let actual_target =
-                        crate::path_guard::normalize_link_target(&link.path, &raw_target)?;
+                        crate::filesystem::paths::normalize_link_target(&link.path, &raw_target)?;
                     if actual_target != link.target_path {
                         classification.push(RepairIssue {
                             kind: RepairIssueKind::Corrupt,
@@ -1009,7 +1023,8 @@ fn verify_file_streaming(
 
         if verify_mode.checks_chunk_hashes() {
             let t = Instant::now();
-            let chunk_hash_actual = ChunkHash::from_blake3(crate::hash::hash_chunk(&chunk_buffer));
+            let chunk_hash_actual =
+                ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(&chunk_buffer));
             timings.chunk_hash += t.elapsed();
             timings.chunk_hash_bytes += chunk_ref.raw_size;
             if chunk_hash_actual != chunk_ref.hash {

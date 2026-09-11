@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use crate::{Error, Result};
+use crate::Error;
+use crate::Result;
 
 /// Identifies which gutch operation is emitting progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -64,7 +65,7 @@ impl GutchProgressPhase {
             GutchProgressPhase::DeleteOrphans => "delete_orphans",
             GutchProgressPhase::RemoveManifest => "remove_manifest",
             GutchProgressPhase::Scan => "scan",
-            GutchProgressPhase::Build => "build",
+            GutchProgressPhase::Build => "capture",
             GutchProgressPhase::Planning => "planning",
             GutchProgressPhase::RemoveSnapshots => "remove_snapshots",
             GutchProgressPhase::UploadRepoMetadata => "upload_repo_metadata",
@@ -85,7 +86,7 @@ impl GutchProgressPhase {
 pub struct GutchProgressEvent {
     /// Which operation is running.
     pub operation: GutchOperation,
-    /// Current phase within the operation (e.g. "scan", "build", "upload", "apply").
+    /// Current phase within the operation (e.g. "scan", "capture", "upload", "apply").
     pub phase: GutchProgressPhase,
     /// Human-readable message for the current step.
     pub message: String,
@@ -125,7 +126,7 @@ pub trait GutchCancellationHook: Send + Sync + std::fmt::Debug {
 pub struct GutchOperationControl {
     progress: Option<Arc<dyn GutchProgressSink>>,
     cancellation: Option<Arc<dyn GutchCancellationHook>>,
-    profiler: Option<Arc<crate::GutchProfiler>>,
+    profiler: Option<Arc<crate::profile::GutchProfiler>>,
 }
 
 impl GutchOperationControl {
@@ -139,7 +140,7 @@ impl GutchOperationControl {
         self
     }
 
-    pub(crate) fn with_profiler(mut self, profiler: Arc<crate::GutchProfiler>) -> Self {
+    pub(crate) fn with_profiler(mut self, profiler: Arc<crate::profile::GutchProfiler>) -> Self {
         self.profiler = Some(profiler);
         self
     }
@@ -153,11 +154,14 @@ impl GutchOperationControl {
         }
     }
 
-    pub(crate) fn profile_span(&self, name: impl Into<String>) -> Option<crate::GutchProfileSpan> {
+    pub(crate) fn profile_span(
+        &self,
+        name: impl Into<String>,
+    ) -> Option<crate::profile::GutchProfileSpan> {
         self.profiler.as_ref().map(|profiler| profiler.span(name))
     }
 
-    pub(crate) fn profiler(&self) -> Option<&crate::GutchProfiler> {
+    pub(crate) fn profiler(&self) -> Option<&crate::profile::GutchProfiler> {
         self.profiler.as_deref()
     }
 
@@ -165,7 +169,7 @@ impl GutchOperationControl {
         &self,
         name: impl Into<String>,
         args: std::collections::BTreeMap<String, serde_json::Value>,
-    ) -> Option<crate::GutchProfileSpan> {
+    ) -> Option<crate::profile::GutchProfileSpan> {
         self.profiler
             .as_ref()
             .map(|profiler| profiler.span_with_args(name, args))
@@ -212,9 +216,11 @@ pub(crate) fn emit_progress(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
 
-    use super::{GutchCancellationHook, GutchOperationControl};
+    use super::GutchCancellationHook;
+    use super::GutchOperationControl;
 
     #[derive(Debug)]
     struct TestCancellation(AtomicBool);

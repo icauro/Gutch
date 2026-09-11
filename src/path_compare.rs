@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::Path;
+use std::path::PathBuf;
 
-use gutch as g;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +34,7 @@ pub struct PathComparisonResult {
     pub extra_files: Vec<String>,
 }
 
-pub fn compare_paths(expected: &Path, actual: &Path) -> g::Result<PathComparisonResult> {
+pub fn compare_paths(expected: &Path, actual: &Path) -> crate::Result<PathComparisonResult> {
     let expected_files = collect_comparable_files(expected)?;
     let mut actual_files = collect_comparable_files(actual)?;
     if expected.is_file()
@@ -100,12 +101,14 @@ pub fn compare_paths(expected: &Path, actual: &Path) -> g::Result<PathComparison
     })
 }
 
-fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, ComparableEntry)>> {
+fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, ComparableEntry)>> {
     if root_path.is_file() {
-        let file_name = root_path.file_name().ok_or_else(|| g::Error::PathError {
-            path: root_path.to_path_buf(),
-            reason: "file path has no file name".to_string(),
-        })?;
+        let file_name = root_path
+            .file_name()
+            .ok_or_else(|| crate::Error::PathError {
+                path: root_path.to_path_buf(),
+                reason: "file path has no file name".to_string(),
+            })?;
         return Ok(vec![(
             file_name.to_string_lossy().to_string(),
             ComparableEntry {
@@ -125,7 +128,7 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, Comparab
             let relative_path = entry
                 .path()
                 .strip_prefix(root_path)
-                .map_err(|err| g::Error::PathError {
+                .map_err(|err| crate::Error::PathError {
                     path: entry.path().to_path_buf(),
                     reason: err.to_string(),
                 })?
@@ -138,7 +141,7 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, Comparab
             } else if entry.file_type().is_symlink() {
                 ComparableKind::Symlink
             } else {
-                return Err(g::Error::PathError {
+                return Err(crate::Error::PathError {
                     path: entry.path().to_path_buf(),
                     reason: "unsupported filesystem entry".to_string(),
                 });
@@ -154,7 +157,7 @@ fn collect_comparable_files(root_path: &Path) -> g::Result<Vec<(String, Comparab
         return Ok(files);
     }
 
-    Err(g::Error::PathError {
+    Err(crate::Error::PathError {
         path: root_path.to_path_buf(),
         reason: "path does not exist or is unsupported".to_string(),
     })
@@ -164,7 +167,7 @@ fn entries_match(
     expected: &ComparableEntry,
     actual: &ComparableEntry,
     relative_path: &str,
-) -> g::Result<bool> {
+) -> crate::Result<bool> {
     if expected.kind != actual.kind {
         return Ok(false);
     }
@@ -190,13 +193,14 @@ fn entries_match(
                     return Ok(false);
                 }
             }
-            Ok(g::hash::hash_file(&expected.path)? == g::hash::hash_file(&actual.path)?)
+            Ok(crate::artifact::hash::hash_file(&expected.path)?
+                == crate::artifact::hash::hash_file(&actual.path)?)
         }
     }
 }
 
-fn normalized_link_target(relative_path: &str, link_path: &Path) -> g::Result<String> {
-    g::path_guard::normalize_link_target(relative_path, &std::fs::read_link(link_path)?)
+fn normalized_link_target(relative_path: &str, link_path: &Path) -> crate::Result<String> {
+    crate::filesystem::paths::normalize_link_target(relative_path, &std::fs::read_link(link_path)?)
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use super::ChunkIndexEntry;
-use crate::ChunkHash;
+use crate::artifact::hash::ChunkHash;
 
 /// Sorted binary keys and contiguous values. Text is decoded only at boundaries.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

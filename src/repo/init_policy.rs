@@ -1,11 +1,14 @@
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use super::{
-    GutchRepoPaths, check_gutch_repo, ensure_gutch_repo_layout, write_gutch_repo_manifest,
-};
-use crate::{Error, Result};
+use super::GutchRepoPaths;
+use super::check_gutch_repo;
+use super::ensure_gutch_repo_layout;
+use super::write_gutch_repo_manifest;
+use crate::Error;
+use crate::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -232,16 +235,16 @@ pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
         }
     }
     if paths.snapshots_root.exists() {
-        crate::helpers::remove_dir_all(&paths.snapshots_root)?;
+        crate::filesystem::remove_dir_all(&paths.snapshots_root)?;
     }
     if paths.repo_metadata_path.exists() {
-        crate::helpers::remove_file(&paths.repo_metadata_path)?;
+        crate::filesystem::remove_file(&paths.repo_metadata_path)?;
     }
     if paths.local_repo_config_path.exists() {
-        crate::helpers::remove_file(&paths.local_repo_config_path)?;
+        crate::filesystem::remove_file(&paths.local_repo_config_path)?;
     }
     if paths.chunk_map_path.exists() {
-        crate::helpers::remove_file(&paths.chunk_map_path)?;
+        crate::filesystem::remove_file(&paths.chunk_map_path)?;
     }
     Ok(())
 }
@@ -249,10 +252,11 @@ pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hash::hash_hex;
+    use crate::artifact::hash::hash_hex;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
-    use crate::{ensure_gutch_repo_layout, write_snapshot_manifest_artifacts};
+    use crate::repo::paths::ensure_gutch_repo_layout;
+    use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 
     fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
         let mut tags = manifest::SnapshotTagSet::default();
@@ -264,7 +268,7 @@ mod tests {
     }
 
     fn test_hash(label: &str) -> String {
-        hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
+        hash_hex(&crate::artifact::hash::hash_chunk(label.as_bytes()))
     }
 
     #[test]
@@ -314,10 +318,10 @@ mod tests {
             }],
         });
         snapshot_manifest.snapshot_id =
-            crate::compute_snapshot_id_from_entries(&snapshot_manifest.entries);
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot_manifest.entries);
         write_snapshot_manifest_artifacts(&repo_paths, &snapshot_manifest).unwrap();
         crate::test_util::index_manifest(&repo_paths, &snapshot_manifest);
-        let bundle_path = crate::bundle_path(&repo_paths, &"a".repeat(64)).unwrap();
+        let bundle_path = crate::repo::paths::bundle_path(&repo_paths, &"a".repeat(64)).unwrap();
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
         std::fs::write(bundle_path, b"bundle").unwrap();
 

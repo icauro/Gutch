@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 use super::ArtifactStorageMode;
 
@@ -58,7 +59,7 @@ impl SnapshotEntry {
 pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Result<()> {
     let mut paths = std::collections::HashSet::with_capacity(entries.len());
     for entry in entries {
-        crate::validate_manifest_relative_path(entry.path(), false)?;
+        crate::filesystem::paths::validate_manifest_relative_path(entry.path(), false)?;
         if !paths.insert(entry.path()) {
             return Err(crate::Error::manifest(format!(
                 "snapshot blueprint contains duplicate path '{}'",
@@ -66,9 +67,9 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             )));
         }
         if let SnapshotEntry::File(file) = entry {
-            crate::ChunkHash::parse_hex(&file.full_file_hash)?;
+            crate::artifact::hash::ChunkHash::parse_hex(&file.full_file_hash)?;
             for chunk in &file.chunks {
-                crate::ChunkHash::parse_hex(&chunk.chunk_hash)?;
+                crate::artifact::hash::ChunkHash::parse_hex(&chunk.chunk_hash)?;
                 if chunk.raw_size == 0
                     || u64::from(chunk.raw_size) > crate::artifact::format::MAX_RAW_CHUNK_SIZE
                 {
@@ -90,7 +91,7 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
     }
     for entry in entries {
         if let SnapshotEntry::Symlink(link) = entry {
-            crate::validate_manifest_relative_path(&link.target_path, false)?;
+            crate::filesystem::paths::validate_manifest_relative_path(&link.target_path, false)?;
             if !paths.contains(link.target_path.as_str()) {
                 return Err(crate::Error::manifest(format!(
                     "snapshot symlink '{}' has missing target '{}'",

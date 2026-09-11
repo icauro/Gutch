@@ -1,15 +1,19 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::path::Path;
 
+use crate::Error;
+use crate::Result;
 use crate::artifact::bundle;
 use crate::artifact::store::ArtifactRef;
 use crate::verify::VerifyMode;
-use crate::{Error, Result};
 
-use super::{
-    GutchRepoPaths, check_gutch_repo, load_chunk_index, load_gutch_repo_manifest,
-    load_snapshot_manifest, required_bundle_ids,
-};
+use super::GutchRepoPaths;
+use super::check_gutch_repo;
+use super::load_chunk_index;
+use super::load_gutch_repo_manifest;
+use super::load_snapshot_manifest;
+use super::required_bundle_ids;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,7 +129,8 @@ fn verify_snapshot_artifacts_cached(
     verified: &mut std::collections::HashMap<ArtifactRef, std::result::Result<(), String>>,
 ) -> Result<SnapshotVerifyResult> {
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
-    let required_artifacts = crate::required_artifacts(&snapshot_manifest, chunk_index)?;
+    let required_artifacts =
+        crate::artifact::store::required_artifacts(&snapshot_manifest, chunk_index)?;
     let required_bundles = required_bundle_ids(&snapshot_manifest, chunk_index)?;
 
     let mut missing_bundles = Vec::new();

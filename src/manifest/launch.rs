@@ -1,9 +1,11 @@
 use std::collections::HashSet;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 use super::snapshot::SnapshotManifest;
-use crate::{Error, Result};
+use crate::Error;
+use crate::Result;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedLaunchConfiguration {
@@ -97,11 +99,13 @@ pub(crate) fn validate_resolved_launch_for_snapshot_os(
 }
 
 pub(crate) fn validate_launch_path(value: &str, allow_install_root: bool) -> Result<()> {
-    crate::validate_manifest_relative_path(value, allow_install_root).map_err(|error| {
-        Error::manifest(format!(
-            "launch path must be normalized inside the installation: {error}"
-        ))
-    })
+    crate::filesystem::paths::validate_manifest_relative_path(value, allow_install_root).map_err(
+        |error| {
+            Error::manifest(format!(
+                "launch path must be normalized inside the installation: {error}"
+            ))
+        },
+    )
 }
 
 fn validate_arguments(arguments: &[String]) -> Result<()> {

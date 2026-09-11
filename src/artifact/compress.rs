@@ -1,9 +1,11 @@
 #[cfg(test)]
 use std::io::Cursor;
-use std::io::{Read, Write};
+use std::io::Read;
+use std::io::Write;
 
 use crate::error::Result;
-use crate::manifest::{CompressionKind, CompressionProfile};
+use crate::manifest::CompressionKind;
+use crate::manifest::CompressionProfile;
 
 trait CompressionAdapter {
     fn default_level(&self) -> i32;

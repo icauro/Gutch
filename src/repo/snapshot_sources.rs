@@ -1,15 +1,20 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use super::{
-    RepoCheckStatus, Result, SourceSnapshotOperationCandidate, check_gutch_repo,
-    discover_source_snapshot_operations, scan_existing_store_state_with_pool,
-};
-use crate::progress::{
-    self, GutchOperation, GutchProgressEvent, GutchProgressPhase, GutchProgressSink,
-};
+use super::RepoCheckStatus;
+use super::Result;
+use super::SourceSnapshotOperationCandidate;
+use super::check_gutch_repo;
+use super::discover_source_snapshot_operations;
+use super::scan_existing_store_state_with_pool;
+use crate::progress;
+use crate::progress::GutchOperation;
+use crate::progress::GutchProgressEvent;
+use crate::progress::GutchProgressPhase;
+use crate::progress::GutchProgressSink;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,7 +133,7 @@ pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan)
 pub fn capture_snapshot_sources(
     repo_root: &Path,
     sources_path: &Path,
-    control: &crate::GutchOperationControl,
+    control: &crate::progress::GutchOperationControl,
 ) -> Result<SnapshotSourcesCaptureResult> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
@@ -147,7 +152,8 @@ pub fn capture_snapshot_sources(
         let total_steps = plan.to_capture.len();
         let mut current_step = 0usize;
 
-        let runtime_plan = crate::plan_runtime(&crate::RuntimeResourceHints::default());
+        let runtime_plan =
+            crate::runtime::plan_runtime(&crate::runtime::RuntimeResourceHints::default());
         let _pool_span = control.profile_span_with_args(
             "capture.create_worker_pool",
             std::collections::BTreeMap::from([(
@@ -155,10 +161,11 @@ pub fn capture_snapshot_sources(
                 serde_json::json!(runtime_plan.worker_count),
             )]),
         );
-        let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+        let build_pool =
+            crate::runtime::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
         drop(_pool_span);
 
-        let repo_paths = crate::GutchRepoPaths::from_repo_root(repo_root);
+        let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(repo_root);
         let _existing_state_span = control.profile_span_with_args(
             "capture.prepare_source.load_existing_store_state",
             std::collections::BTreeMap::from([(
@@ -192,7 +199,7 @@ pub fn capture_snapshot_sources(
             captured_count += 1;
         }
 
-        let _ = crate::cleanup_orphan_artifacts_in_repo(repo_root, control)?;
+        let _ = crate::repo::cleanup::cleanup_orphan_artifacts_in_repo(repo_root, control)?;
 
         progress::emit_progress(
             control.progress(),
@@ -216,7 +223,7 @@ pub fn capture_snapshot_sources(
 fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotOperationCandidate,
-    control: &crate::GutchOperationControl,
+    control: &crate::progress::GutchOperationControl,
     store_state: &mut super::ExistingStoreState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<()> {
@@ -228,8 +235,8 @@ fn capture_source_snapshot(
     } else {
         control.clone()
     };
-    crate::capture_repo_snapshot_with_existing_store_state(
-        crate::RepoSnapshotCaptureRequest {
+    crate::capture::execute::capture_repo_snapshot_with_existing_store_state(
+        crate::capture::execute::RepoSnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
             source_dir: std::path::PathBuf::from(&candidate.path),
             explicit_tags: candidate.snapshot_tags.clone(),
@@ -238,7 +245,7 @@ fn capture_source_snapshot(
             compression_algorithm: crate::manifest::CompressionKind::Zstd,
             compression_level: Some(3),
             storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-            runtime_hints: crate::RuntimeResourceHints::default(),
+            runtime_hints: crate::runtime::RuntimeResourceHints::default(),
             control: candidate_control,
         },
         store_state,
@@ -266,17 +273,19 @@ impl GutchProgressSink for SnapshotSourcesCandidateProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::GutchRepoPaths;
-    use crate::hash::hash_hex;
-    use crate::manifest::{self, snapshot::SnapshotManifest};
-    use crate::repo::{
-        discover_source_snapshot_operations, ensure_gutch_repo_layout, format_system_time_utc,
-        write_snapshot_manifest_artifacts,
-    };
-    use std::time::{Duration, SystemTime};
+    use crate::artifact::hash::hash_hex;
+    use crate::manifest;
+    use crate::manifest::snapshot::SnapshotManifest;
+    use crate::repo::discover_source_snapshot_operations;
+    use crate::repo::ensure_gutch_repo_layout;
+    use crate::repo::format_system_time_utc;
+    use crate::repo::paths::GutchRepoPaths;
+    use crate::repo::write_snapshot_manifest_artifacts;
+    use std::time::Duration;
+    use std::time::SystemTime;
 
     fn test_hash(label: &str) -> String {
-        hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
+        hash_hex(&crate::artifact::hash::hash_chunk(label.as_bytes()))
     }
 
     #[test]
@@ -324,7 +333,8 @@ mod tests {
                 raw_size: 12,
             }],
         }]);
-        manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
+        manifest.snapshot_id =
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
         write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
         crate::test_util::index_manifest(&repo_paths, &manifest);
 
@@ -376,7 +386,7 @@ mod tests {
 
     #[test]
     fn pre_scan_contracts_carry_no_snapshot_id() {
-        use crate::repo::capture_plan::SnapshotCapturePlan;
+        use crate::capture::execute::SnapshotCapturePlan;
 
         let candidate = crate::repo::check::SourceSnapshotOperationCandidate {
             path: "game-a".to_string(),

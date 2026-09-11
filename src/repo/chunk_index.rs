@@ -1,14 +1,20 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 use rayon::prelude::*;
 
-use crate::hash::ChunkHash;
-use crate::manifest::{
-    self, ArtifactStorageMode, FileManifest, binary, snapshot::SnapshotManifest,
-};
-use crate::{Result, bundle_id_from_bundle_path, chunk_path, load_snapshot_manifest};
+use crate::Result;
+use crate::artifact::hash::ChunkHash;
+use crate::manifest;
+use crate::manifest::ArtifactStorageMode;
+use crate::manifest::FileManifest;
+use crate::manifest::binary;
+use crate::manifest::snapshot::SnapshotManifest;
+use crate::repo::paths::bundle_id_from_bundle_path;
+use crate::repo::paths::chunk_path;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
 use super::GutchRepoPaths;
 
@@ -16,7 +22,8 @@ use super::GutchRepoPaths;
 pub struct ExistingStoreState {
     pub bundle_ids: HashSet<String>,
     pub chunk_index: manifest::ChunkIndex,
-    pub chunk_locations: std::collections::HashMap<String, crate::ExistingChunkLocation>,
+    pub chunk_locations:
+        std::collections::HashMap<String, crate::capture::types::ExistingChunkLocation>,
     pub previous_file_manifests: std::collections::HashMap<String, Vec<FileManifest>>,
 }
 
@@ -67,13 +74,15 @@ pub fn required_bundle_ids(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &manifest::ChunkIndex,
 ) -> Result<HashSet<String>> {
-    Ok(crate::required_artifacts(snapshot_manifest, chunk_index)?
-        .into_iter()
-        .filter_map(|artifact| match artifact {
-            crate::ArtifactRef::Bundle { id } => Some(id),
-            crate::ArtifactRef::LooseChunk { .. } => None,
-        })
-        .collect())
+    Ok(
+        crate::artifact::store::required_artifacts(snapshot_manifest, chunk_index)?
+            .into_iter()
+            .filter_map(|artifact| match artifact {
+                crate::artifact::store::ArtifactRef::Bundle { id } => Some(id),
+                crate::artifact::store::ArtifactRef::LooseChunk { .. } => None,
+            })
+            .collect(),
+    )
 }
 
 /// Scan the existing store using the caller's operation pool.
@@ -84,7 +93,7 @@ pub fn required_bundle_ids(
 pub fn scan_existing_store_state_with_pool(
     paths: &GutchRepoPaths,
     pool: &rayon::ThreadPool,
-    control: &crate::GutchOperationControl,
+    control: &crate::progress::GutchOperationControl,
 ) -> Result<ExistingStoreState> {
     let mut state = ExistingStoreState::default();
     let chunk_index = load_chunk_index(paths)?;
@@ -157,7 +166,9 @@ fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
 fn collect_snapshot_manifest_paths(paths: &GutchRepoPaths) -> Result<Vec<PathBuf>> {
     super::inventory::list_repo_snapshot_ids(paths)?
         .into_iter()
-        .map(|snapshot_id| crate::snapshot_metadata_path(paths, &snapshot_id))
+        .map(|snapshot_id| {
+            crate::repo::snapshot_manifests::snapshot_metadata_path(paths, &snapshot_id)
+        })
         .collect()
 }
 
@@ -191,7 +202,7 @@ pub(crate) fn existing_chunk_locations_from_index_with_pool_and_bundle_ids(
     paths: &GutchRepoPaths,
     pool: &rayon::ThreadPool,
     available_bundle_ids: &HashSet<String>,
-) -> Result<std::collections::HashMap<String, crate::ExistingChunkLocation>> {
+) -> Result<std::collections::HashMap<String, crate::capture::types::ExistingChunkLocation>> {
     let locations = pool.install(|| {
         chunk_index
             .entries
@@ -208,7 +219,7 @@ pub(crate) fn existing_chunk_locations_from_index_with_pool_and_bundle_ids(
                 Ok(path_exists.then(|| {
                     (
                         chunk_hash.to_hex(),
-                        crate::ExistingChunkLocation {
+                        crate::capture::types::ExistingChunkLocation {
                             bundle_id: entry.bundle_id.to_string(),
                             compressed_size: u64::from(entry.compressed_size),
                             storage_mode: entry.storage_mode,
@@ -247,7 +258,7 @@ fn read_bundle_index_entries(
     let shared_bundle_id = smol_str::SmolStr::new(&bundle_id);
     let artifact_size = crate::artifact::format::size_u32(std::fs::metadata(path)?.len())?;
     let file = std::fs::File::open(path)?;
-    let reader = crate::bundle::BundleReader::open(file, compression_profile)?;
+    let reader = crate::artifact::bundle::BundleReader::open(file, compression_profile)?;
     Ok(reader
         .entries()
         .iter()
@@ -287,7 +298,7 @@ fn build_chunk_index_from_bundle_entries(
 
 pub(crate) fn add_built_bundles_to_chunk_index(
     chunk_index: &mut manifest::ChunkIndex,
-    bundles: &[crate::BuiltBundle],
+    bundles: &[crate::capture::types::BuiltBundle],
     _compression_profile: &crate::manifest::CompressionProfile,
 ) -> Result<()> {
     let mut updates = Vec::new();
@@ -314,7 +325,7 @@ pub(crate) fn add_built_bundles_to_chunk_index(
 
 pub(crate) fn add_built_loose_chunks_to_chunk_index(
     chunk_index: &mut manifest::ChunkIndex,
-    chunks: &[crate::BuiltLooseChunk],
+    chunks: &[crate::capture::types::BuiltLooseChunk],
 ) -> Result<()> {
     let mut updates = Vec::new();
     for chunk in chunks {

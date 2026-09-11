@@ -36,7 +36,7 @@ pub enum Error {
 
     #[error("{outcome}")]
     SnapshotCaptureConflict {
-        outcome: crate::repo::capture_plan::SnapshotCaptureOutcome,
+        outcome: crate::capture::execute::SnapshotCaptureOutcome,
     },
 
     #[error("Reconstruction error: {0}")]

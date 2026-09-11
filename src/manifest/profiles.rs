@@ -1,8 +1,11 @@
 use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use smol_str::SmolStr;
 
-use super::{CHUNK_HASH_BLAKE3, CHUNKER_FASTCDC, FORMAT_VERSION};
+use super::CHUNK_HASH_BLAKE3;
+use super::CHUNKER_FASTCDC;
+use super::FORMAT_VERSION;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum ArtifactStorageMode {

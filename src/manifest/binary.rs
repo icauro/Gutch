@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::BufReader;
+use std::io::BufWriter;
+use std::io::Read;
+use std::io::Write;
 use std::path::Path;
 
-use crate::hash::ChunkHash;
-use crate::manifest::{self, snapshot::SnapshotBlueprint};
-use crate::{Error, Result};
+use crate::Error;
+use crate::Result;
+use crate::artifact::hash::ChunkHash;
+use crate::manifest;
+use crate::manifest::snapshot::SnapshotBlueprint;
 
-use crate::artifact::format::{
-    CHUNK_INDEX_MAGIC as CHUNK_INDEX_BINARY_MAGIC,
-    SNAPSHOT_BLUEPRINT_MAGIC as SNAPSHOT_FILES_BINARY_MAGIC,
-};
+use crate::artifact::format::CHUNK_INDEX_MAGIC as CHUNK_INDEX_BINARY_MAGIC;
+use crate::artifact::format::SNAPSHOT_BLUEPRINT_MAGIC as SNAPSHOT_FILES_BINARY_MAGIC;
 
 const SNAPSHOT_FILES_BINARY_VERSION: u16 = 1;
 
@@ -255,7 +258,7 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex
         .enumerate()
         .map(|(row, id)| (*id, row as u32))
         .collect();
-    crate::helpers::write_atomic_with(path, |file| {
+    crate::filesystem::write_atomic_with(path, |file| {
         let mut writer = BufWriter::new(file);
         writer.write_all(CHUNK_INDEX_BINARY_MAGIC)?;
         write_u16(&mut writer, 1)?;
@@ -298,7 +301,7 @@ pub(crate) fn write_snapshot_blueprint_binary(
     snapshot_blueprint: &SnapshotBlueprint,
 ) -> Result<()> {
     manifest::validate_snapshot_entries(&snapshot_blueprint.entries)?;
-    crate::helpers::write_atomic_with(path, |file| {
+    crate::filesystem::write_atomic_with(path, |file| {
         let mut writer = BufWriter::new(file);
         writer.write_all(SNAPSHOT_FILES_BINARY_MAGIC)?;
         write_u16(&mut writer, SNAPSHOT_FILES_BINARY_VERSION)?;

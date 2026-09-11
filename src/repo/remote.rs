@@ -4,21 +4,31 @@
 //! artifact transfer. Gutch owns the comparison rules, local repo
 //! mutations, progress, cancellation, and synchronization order.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::Error;
+use crate::Result;
 use crate::manifest::SnapshotTagSet;
-use crate::repo::{
-    GutchRepoPaths, RepoCheckStatus, load_chunk_index, load_gutch_repo_manifest,
-    load_snapshot_manifest, required_bundle_ids, summarize_snapshot_tags,
-    write_gutch_repo_manifest,
-};
-use crate::{
-    Error, GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
-    GutchProgressSink, Result, advisory_tag_references,
-};
+use crate::progress::GutchOperation;
+use crate::progress::GutchOperationControl;
+use crate::progress::GutchProgressEvent;
+use crate::progress::GutchProgressPhase;
+use crate::progress::GutchProgressSink;
+use crate::repo::GutchRepoPaths;
+use crate::repo::RepoCheckStatus;
+use crate::repo::load_chunk_index;
+use crate::repo::load_gutch_repo_manifest;
+use crate::repo::load_snapshot_manifest;
+use crate::repo::required_bundle_ids;
+use crate::repo::summarize_snapshot_tags;
+use crate::repo::tag_references::advisory_tag_references;
+use crate::repo::write_gutch_repo_manifest;
 
 pub(crate) const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_REMOTE_BINARY_BYTES: u64 = 256 * 1024 * 1024;
@@ -194,7 +204,7 @@ pub struct RemoteRepositorySummary {
 pub struct RemoteTagReferencesResult {
     pub repo_root: String,
     pub remote_repo_id: String,
-    pub referenced_tags: Vec<crate::TagReferenceStatus>,
+    pub referenced_tags: Vec<crate::repo::tag_references::TagReferenceStatus>,
 }
 
 /// HostApp or another host application supplies this context to Gutch's remote CLI.
@@ -213,7 +223,7 @@ pub trait RemoteRepositoryCommandProvider {
     fn referenced_tag_references(
         &self,
         repository: &RemoteRepository,
-    ) -> Result<Vec<crate::TagReference>>;
+    ) -> Result<Vec<crate::repo::tag_references::TagReference>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -335,7 +345,7 @@ struct LocalSyncSnapshot {
 }
 
 fn repo_file_hash(bytes: &[u8]) -> String {
-    crate::hash::hash_hex(&blake3::hash(bytes))
+    crate::artifact::hash::hash_hex(&blake3::hash(bytes))
 }
 
 fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &str) -> Result<()> {
@@ -419,7 +429,7 @@ fn local_repo_metadata_hash_b3(repo_paths: &GutchRepoPaths) -> Result<String> {
     if !repo_paths.repo_metadata_path.exists() {
         return Ok(String::new());
     }
-    Ok(repo_file_hash(&crate::helpers::read(
+    Ok(repo_file_hash(&crate::filesystem::read(
         &repo_paths.repo_metadata_path,
     )?))
 }
@@ -428,7 +438,7 @@ fn local_chunk_map_hash_b3(repo_paths: &GutchRepoPaths) -> Result<String> {
     if !repo_paths.chunk_map_path.exists() {
         return Ok(String::new());
     }
-    Ok(repo_file_hash(&crate::helpers::read(
+    Ok(repo_file_hash(&crate::filesystem::read(
         &repo_paths.chunk_map_path,
     )?))
 }
@@ -444,7 +454,7 @@ fn local_snapshot_metadata_hash_b3(
     }
     let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     Ok(repo_file_hash(
-        &crate::serialize_snapshot_metadata_for_remote(&manifest)?,
+        &crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote(&manifest)?,
     ))
 }
 
@@ -458,7 +468,9 @@ fn local_snapshot_product_metadata_hash_b3(
         return Ok(String::new());
     }
     let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
-    let Some(bytes) = crate::serialize_snapshot_product_metadata_for_remote(&manifest)? else {
+    let Some(bytes) =
+        crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote(&manifest)?
+    else {
         return Ok(String::new());
     };
     Ok(repo_file_hash(&bytes))
@@ -472,7 +484,9 @@ fn local_snapshot_blueprint_hash_b3(
     if !path.exists() {
         return Ok(String::new());
     }
-    Ok(crate::hash::hash_hex(&crate::hash::hash_file(&path)?))
+    Ok(crate::artifact::hash::hash_hex(
+        &crate::artifact::hash::hash_file(&path)?,
+    ))
 }
 
 fn compute_pull_plan(
@@ -509,7 +523,8 @@ fn compute_pull_plan(
             &local_snapshot_blueprint_hash_b3(repo_paths, &snapshot.snapshot_id)?,
             &snapshot.blueprint_hash_b3,
         ) && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
-            && crate::compute_snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
+            && crate::snapshot::identity::compute_snapshot_id_from_entries(&local.entries)
+                == snapshot.snapshot_id
             && let Ok((_, local_repo)) = load_gutch_repo_manifest(repo_root)
             && let Ok(index) = load_chunk_index(repo_paths)
             && super::verify::verify_snapshot_artifacts(
@@ -517,7 +532,7 @@ fn compute_pull_plan(
                 &index,
                 &local_repo.compression_profile(),
                 &snapshot.snapshot_id,
-                crate::VerifyMode::Strict,
+                crate::verify::VerifyMode::Strict,
             )
             .is_ok_and(|result| result.ok)
         {
@@ -646,7 +661,7 @@ impl RemoteProgress {
         detail: Option<String>,
         done: bool,
     ) {
-        crate::emit_progress(
+        crate::progress::emit_progress(
             &self.sink,
             GutchProgressEvent {
                 operation: self.operation,
@@ -908,7 +923,9 @@ fn local_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
         let entry = entry?;
-        if entry.path().is_file() && crate::bundle_id_from_bundle_path(entry.path()).is_some() {
+        if entry.path().is_file()
+            && crate::repo::paths::bundle_id_from_bundle_path(entry.path()).is_some()
+        {
             paths.push(entry.path().to_path_buf());
         }
     }
@@ -980,7 +997,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         let repository =
             provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
         let repo_paths = GutchRepoPaths::from_repo_root(&repo);
-        crate::ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
+        crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
         progress.emit(
             GutchProgressPhase::Planning,
             "Planning pull changes",
@@ -1035,9 +1052,9 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             )?;
             verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
             let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
-                crate::helpers::from_json_bytes(&bytes)?;
+                crate::filesystem::from_json_bytes(&bytes)?;
             manifest.remote_repo_id = repository.id.clone();
-            crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
+            crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &manifest)?;
             stats.repo_manifest_downloaded = true;
         }
 
@@ -1062,7 +1079,8 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             let mut chunk_index =
                 crate::manifest::binary::load_chunk_index_binary_from_bytes(&bytes)?;
             for (hash, entry) in load_chunk_index(&repo_paths)?.entries {
-                let artifact = crate::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
+                let artifact =
+                    crate::artifact::store::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
                 if artifact.local_path(&repo_paths)?.is_file()
                     || chunk_index.entries.get_hash(&hash).is_none()
                 {
@@ -1110,7 +1128,8 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 &snapshot.metadata_hash_b3,
                 "snapshot metadata",
             )?;
-            let metadata = crate::snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
+            let metadata =
+                crate::installation::snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
             let product_metadata = if let Some(source) = sources.product_metadata {
                 let product_metadata_bytes =
                     source_bytes(&source, &download_client, MAX_REMOTE_JSON_BYTES, &control)?;
@@ -1120,7 +1139,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                     "snapshot product metadata",
                 )?;
                 let product_metadata: crate::manifest::SnapshotProductMetadata =
-                    crate::helpers::from_json_bytes(&product_metadata_bytes)?;
+                    crate::filesystem::from_json_bytes(&product_metadata_bytes)?;
                 product_metadata.validate_structure()?;
                 Some(product_metadata)
             } else {
@@ -1164,7 +1183,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             .collect();
         let mut missing_bundles = Vec::new();
         for id in &required_set {
-            if !crate::bundle_path(&repo_paths, id)?.is_file() {
+            if !crate::repo::paths::bundle_path(&repo_paths, id)?.is_file() {
                 missing_bundles.push(id.clone());
             }
         }
@@ -1213,8 +1232,8 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             );
             let bytes = source_bytes(source, &download_client, MAX_REMOTE_BINARY_BYTES, &control)?;
             verify_remote_bundle(bundle_id, &bytes)?;
-            let bundle_path = crate::bundle_path(&repo_paths, bundle_id)?;
-            crate::helpers::write(&bundle_path, &bytes)?;
+            let bundle_path = crate::repo::paths::bundle_path(&repo_paths, bundle_id)?;
+            crate::filesystem::write(&bundle_path, &bytes)?;
             bundle_downloaded += 1;
         }
         stats.bundle_downloaded_count = bundle_downloaded;
@@ -1238,7 +1257,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             }
             for path in local_bundle_paths(&repo_paths.bundles_root)? {
                 control.checkpoint()?;
-                if let Some(bundle_id) = crate::bundle_id_from_bundle_path(&path)
+                if let Some(bundle_id) = crate::repo::paths::bundle_id_from_bundle_path(&path)
                     && !required_set.contains(&bundle_id)
                 {
                     std::fs::remove_file(&path)?;
@@ -1264,7 +1283,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
 fn collect_local_sync_snapshots(
     repo_root: &Path,
 ) -> Result<(RepoCheckStatus, GutchRepoPaths, Vec<LocalSyncSnapshot>)> {
-    let status = crate::check_gutch_repo(repo_root)?;
+    let status = crate::repo::check::check_gutch_repo(repo_root)?;
     if !status.is_repo {
         return Err(Error::manifest(format!(
             "no gutch repo found at {}",
@@ -1476,7 +1495,7 @@ struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter + ?Sized> {
 
 fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context: &mut SnapshotUploadContext<'_, P>,
-    snapshot: &crate::RepoCheckSnapshotStatus,
+    snapshot: &crate::repo::check::RepoCheckSnapshotStatus,
     remote_snapshot: &RemoteSnapshot,
 ) -> Result<()> {
     context.control.checkpoint()?;
@@ -1493,7 +1512,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context.provider.upload_snapshot_metadata(
         context.repository,
         remote_snapshot,
-        crate::serialize_snapshot_metadata_for_remote(&manifest)?,
+        crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote(&manifest)?,
         context.control,
     )?;
     context.stats.snapshot_manifest_uploaded_count += 1;
@@ -1513,7 +1532,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context.provider.upload_snapshot_blueprint(
         context.repository,
         remote_snapshot,
-        crate::helpers::read(&blueprint_path)?,
+        crate::filesystem::read(&blueprint_path)?,
         context.control,
     )?;
     context.stats.snapshot_blueprint_uploaded_count += 1;
@@ -1528,7 +1547,9 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
         Some(snapshot.snapshot_id.clone()),
         false,
     );
-    if let Some(bytes) = crate::serialize_snapshot_product_metadata_for_remote(&manifest)? {
+    if let Some(bytes) =
+        crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote(&manifest)?
+    {
         context.provider.upload_snapshot_product_metadata(
             context.repository,
             remote_snapshot,
@@ -1638,7 +1659,7 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
         if plan.repo_manifest_changed {
             provider.upload_repository_metadata(
                 &repository,
-                crate::helpers::read(&repo_paths.repo_metadata_path)?,
+                crate::filesystem::read(&repo_paths.repo_metadata_path)?,
                 &control,
             )?;
             stats.repo_manifest_uploaded = true;
@@ -1657,7 +1678,7 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
             if plan.chunk_index_changed {
                 provider.upload_chunk_index(
                     &repository,
-                    crate::helpers::read(&repo_paths.chunk_map_path)?,
+                    crate::filesystem::read(&repo_paths.chunk_map_path)?,
                     &control,
                 )?;
                 stats.chunk_index_uploaded = true;
@@ -1704,7 +1725,8 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
         for bundle_path in bundle_paths {
             control.checkpoint()?;
             step += 1;
-            let Some(bundle_id) = crate::bundle_id_from_bundle_path(&bundle_path) else {
+            let Some(bundle_id) = crate::repo::paths::bundle_id_from_bundle_path(&bundle_path)
+            else {
                 continue;
             };
             if provider.bundle_exists(&repository, &bundle_id)? {
@@ -1719,7 +1741,7 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
                 );
                 continue;
             }
-            let bundle_bytes = crate::helpers::read(&bundle_path)?;
+            let bundle_bytes = crate::filesystem::read(&bundle_path)?;
             let bundle_size = bundle_bytes.len() as u64;
             progress.emit(
                 GutchProgressPhase::UploadBundle,
@@ -1970,19 +1992,21 @@ mod tests {
         let capture = |name: &str, chunk_profile| {
             let repo = root.path().join(name);
             let paths = GutchRepoPaths::from_repo_root(&repo);
-            crate::ensure_gutch_repo_layout(&paths, name).unwrap();
-            let captured = crate::capture_repo_snapshot(crate::RepoSnapshotCaptureRequest {
-                repo_root: repo.clone(),
-                source_dir: source.clone(),
-                explicit_tags: Default::default(),
-                chunk_profile,
-                bundle_profile: Default::default(),
-                compression_algorithm: crate::manifest::CompressionKind::Zstd,
-                compression_level: None,
-                storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-                runtime_hints: crate::RuntimeResourceHints { jobs: Some(1) },
-                control: Default::default(),
-            })
+            crate::repo::paths::ensure_gutch_repo_layout(&paths, name).unwrap();
+            let captured = crate::capture::execute::capture_repo_snapshot(
+                crate::capture::execute::RepoSnapshotCaptureRequest {
+                    repo_root: repo.clone(),
+                    source_dir: source.clone(),
+                    explicit_tags: Default::default(),
+                    chunk_profile,
+                    bundle_profile: Default::default(),
+                    compression_algorithm: crate::manifest::CompressionKind::Zstd,
+                    compression_level: None,
+                    storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+                    runtime_hints: crate::runtime::RuntimeResourceHints { jobs: Some(1) },
+                    control: Default::default(),
+                },
+            )
             .unwrap();
             (repo, paths, captured.snapshot_id)
         };
@@ -2043,8 +2067,12 @@ mod tests {
     fn pull_plan_preserves_local_repository_metadata_and_index() {
         let root = tempfile::tempdir().unwrap();
         let paths = GutchRepoPaths::from_repo_root(root.path());
-        crate::ensure_gutch_repo_layout(&paths, "local").unwrap();
-        crate::write_chunk_index(&paths, &crate::load_chunk_index(&paths).unwrap()).unwrap();
+        crate::repo::paths::ensure_gutch_repo_layout(&paths, "local").unwrap();
+        crate::repo::chunk_index::write_chunk_index(
+            &paths,
+            &crate::repo::chunk_index::load_chunk_index(&paths).unwrap(),
+        )
+        .unwrap();
         let remote = RemoteRepository {
             id: "remote".into(),
             scope_id: "scope".into(),
@@ -2133,7 +2161,7 @@ mod tests {
     #[test]
     fn binding_a_remote_repo_keeps_the_id_opaque() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        crate::ensure_gutch_repo_layout(
+        crate::repo::paths::ensure_gutch_repo_layout(
             &GutchRepoPaths::from_repo_root(directory.path()),
             "fixture",
         )

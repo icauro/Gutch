@@ -1,6 +1,7 @@
 use super::*;
-use crate::hash::ChunkHash;
-use crate::manifest::{SnapshotTagSet, snapshot::SnapshotManifest};
+use crate::artifact::hash::ChunkHash;
+use crate::manifest::SnapshotTagSet;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::test_util;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -8,18 +9,18 @@ use std::sync::Arc;
 #[derive(Debug)]
 struct AlwaysCancelled;
 
-impl crate::GutchCancellationHook for AlwaysCancelled {
+impl crate::progress::GutchCancellationHook for AlwaysCancelled {
     fn is_cancelled(&self) -> bool {
         true
     }
 }
 
 fn test_chunk_hash(label: &str) -> ChunkHash {
-    ChunkHash::from_blake3(crate::hash::hash_chunk(label.as_bytes()))
+    ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(label.as_bytes()))
 }
 
 fn test_file_hash(label: &str) -> String {
-    crate::hash::hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
+    crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(label.as_bytes()))
 }
 
 fn empty_manifest() -> SnapshotManifest {
@@ -37,7 +38,7 @@ fn verify_with<'a>(
         dir,
         mode,
         runtime_hints,
-        control: crate::GutchOperationControl::default(),
+        control: crate::progress::GutchOperationControl::default(),
     })?;
     Ok((classification.into_messages(), timings))
 }
@@ -63,7 +64,7 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
         dir: &missing_dir,
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
-        control: crate::GutchOperationControl::default()
+        control: crate::progress::GutchOperationControl::default()
             .with_cancellation(Arc::new(AlwaysCancelled)),
     });
 
@@ -151,7 +152,7 @@ fn verify_contiguous_chunks_detects_corruption() {
     let mut full_file = Vec::new();
     full_file.extend_from_slice(chunk_a_data);
     full_file.extend_from_slice(chunk_b_data);
-    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&full_file));
+    let file_hash = crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(&full_file));
 
     std::fs::write(dir.join("data.bin"), &full_file).unwrap();
 
@@ -164,11 +165,15 @@ fn verify_contiguous_chunks_detects_corruption() {
         full_file_hash: file_hash,
         chunks: vec![
             crate::manifest::ChunkRef {
-                chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_a_data)),
+                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                    chunk_a_data,
+                )),
                 raw_size: chunk_a_data.len() as u32,
             },
             crate::manifest::ChunkRef {
-                chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_b_data)),
+                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                    chunk_b_data,
+                )),
                 raw_size: chunk_b_data.len() as u32,
             },
         ],
@@ -193,7 +198,7 @@ fn verify_contiguous_chunks_single_chunk() {
     test_util::recreate_dir(&dir);
 
     let data = b"single chunk content here";
-    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(data));
+    let file_hash = crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data));
     std::fs::write(dir.join("single.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
@@ -204,7 +209,7 @@ fn verify_contiguous_chunks_single_chunk() {
         read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
+            chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
             raw_size: data.len() as u32,
         }],
     });
@@ -220,7 +225,7 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
     test_util::recreate_dir(&dir);
 
     let data = b"fast mode content";
-    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(data));
+    let file_hash = crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data));
     std::fs::write(dir.join("fast.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
@@ -231,7 +236,7 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
         read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
+            chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
             raw_size: data.len() as u32,
         }],
     });
@@ -258,7 +263,9 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
         size: expected.len() as u64,
         executable: false,
         read_only: false,
-        full_file_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(expected)),
+        full_file_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+            expected,
+        )),
         chunks: Vec::new(),
     });
 
@@ -267,7 +274,7 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
         dir: &dir,
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
-        control: crate::GutchOperationControl::default(),
+        control: crate::progress::GutchOperationControl::default(),
     })
     .unwrap();
 
@@ -286,7 +293,7 @@ fn verify_strict_mode_checks_chunk_hashing() {
     let mut full_file = Vec::new();
     full_file.extend_from_slice(chunk_a_data);
     full_file.extend_from_slice(chunk_b_data);
-    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(&full_file));
+    let file_hash = crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(&full_file));
 
     std::fs::write(dir.join("strict.bin"), &full_file).unwrap();
 
@@ -299,11 +306,15 @@ fn verify_strict_mode_checks_chunk_hashing() {
         full_file_hash: file_hash,
         chunks: vec![
             crate::manifest::ChunkRef {
-                chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_b_data)),
+                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                    chunk_b_data,
+                )),
                 raw_size: chunk_a_data.len() as u32,
             },
             crate::manifest::ChunkRef {
-                chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_a_data)),
+                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                    chunk_a_data,
+                )),
                 raw_size: chunk_b_data.len() as u32,
             },
         ],
@@ -368,7 +379,7 @@ fn verify_with_hints_records_runtime_plan() {
     test_util::recreate_dir(&dir);
 
     let data = b"runtime plan content";
-    let file_hash = crate::hash::hash_hex(&crate::hash::hash_chunk(data));
+    let file_hash = crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data));
     std::fs::write(dir.join("runtime.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
@@ -379,7 +390,7 @@ fn verify_with_hints_records_runtime_plan() {
         read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
+            chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
             raw_size: data.len() as u32,
         }],
     });
@@ -415,7 +426,8 @@ fn verify_inventory_supports_symlinked_parent_inside_root() {
     std::fs::write(dir.join("real/data.bin"), b"symlink parent").unwrap();
     symlink("real", dir.join("link")).unwrap();
 
-    let hash = crate::hash::hash_hex(&crate::hash::hash_chunk(b"symlink parent"));
+    let hash =
+        crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(b"symlink parent"));
     let mut manifest = empty_manifest();
     manifest.entries = vec![
         crate::manifest::SnapshotEntry::Directory(crate::manifest::DirectoryManifest {

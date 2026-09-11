@@ -67,7 +67,7 @@ pub fn hash_chunk(data: &[u8]) -> blake3::Hash {
 }
 
 pub(crate) fn hash_file(path: &std::path::Path) -> Result<blake3::Hash> {
-    let data = crate::helpers::read(path)?;
+    let data = crate::filesystem::read(path)?;
     Ok(blake3::hash(&data))
 }
 

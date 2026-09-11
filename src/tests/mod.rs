@@ -1,8 +1,28 @@
-use super::*;
-use crate::manifest::{FileManifest, SnapshotTagSet, snapshot::SnapshotManifest};
+use crate::capture::pipeline::build_from_directory;
+use crate::installation::SnapshotReconstructFromRepoRequest;
+use crate::installation::reconstruct_snapshot_from_repo;
+use crate::manifest;
+use crate::manifest::FileManifest;
+use crate::manifest::SnapshotTagSet;
+use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::GutchOperationControl;
+use crate::repo::chunk_index::add_built_bundles_to_chunk_index;
+use crate::repo::chunk_index::load_chunk_index;
+use crate::repo::chunk_index::write_chunk_index;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::bundle_path;
+use crate::repo::paths::bundle_path_in_root;
+use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+use crate::runtime::RuntimeResourceHints;
 use crate::test_util;
-use crate::verify::{VerifyRequest, classify_directory};
-use std::path::{Path, PathBuf};
+use crate::verify::RepairClassification;
+use crate::verify::VerifyMode;
+use crate::verify::VerifyRequest;
+use crate::verify::classify_directory;
+use crate::verify::estimate_build;
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Instant;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> SnapshotTagSet {
@@ -20,7 +40,7 @@ fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String>
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        control: crate::GutchOperationControl::default(),
+        control: crate::progress::GutchOperationControl::default(),
     })
     .unwrap()
     .0
@@ -33,7 +53,7 @@ fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairCla
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        control: crate::GutchOperationControl::default(),
+        control: crate::progress::GutchOperationControl::default(),
     })
     .unwrap()
     .0
@@ -372,7 +392,7 @@ fn test_large_game_build_200mb() {
     .unwrap();
 
     println!();
-    println!("=== 200 MB mock game build ===");
+    println!("=== 200 MB mock game capture ===");
     println!(
         "  files:           {}",
         result.snapshot_manifest.file_count()
@@ -401,7 +421,7 @@ fn test_large_game_build_200mb() {
     println!("  bundles:         {}", result.bundles.len());
     println!();
     println!("  gen files:       {} ms", gen_ms);
-    println!("  build:           {} ms", build_ms);
+    println!("  capture:           {} ms", build_ms);
     println!("  reconstruct:     {} ms", recon_ms);
     println!("  total no verify: {} ms", pipeline_without_verify_ms);
     println!("  verify:          {} ms", verify_ms);

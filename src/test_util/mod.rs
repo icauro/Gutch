@@ -111,7 +111,7 @@ fn generate_config_json(size: usize) -> String {
 fn generate_text(size: usize) -> String {
     let words = [
         "the", "game", "version", "update", "patch", "install", "launcher", "data", "file",
-        "config", "build", "release", "asset", "texture", "audio", "level", "player", "enemy",
+        "config", "capture", "release", "asset", "texture", "audio", "level", "player", "enemy",
         "weapon", "health", "score", "save", "load", "menu",
     ];
     let mut out = String::with_capacity(size + 64);
@@ -157,7 +157,12 @@ pub(crate) fn chunk_entries(
     }
     entries
         .into_iter()
-        .map(|(hash, entry)| (crate::ChunkHash::parse_hex(&hash).unwrap(), entry))
+        .map(|(hash, entry)| {
+            (
+                crate::artifact::hash::ChunkHash::parse_hex(&hash).unwrap(),
+                entry,
+            )
+        })
         .collect()
 }
 
@@ -165,7 +170,7 @@ pub(crate) fn loose_bytes(bytes: &[u8], profile: &crate::manifest::CompressionPr
     let mut encoded = Vec::new();
     crate::artifact::store::write_loose_chunk(
         &mut encoded,
-        crate::ChunkHash::from_blake3(blake3::hash(bytes)),
+        crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes)),
         bytes,
         profile,
     )
@@ -174,13 +179,16 @@ pub(crate) fn loose_bytes(bytes: &[u8], profile: &crate::manifest::CompressionPr
 }
 
 /// Populate declared locations for metadata-only fixtures; these tests never decode artifacts.
-pub fn index_manifest(paths: &crate::GutchRepoPaths, manifest: &crate::manifest::SnapshotManifest) {
+pub fn index_manifest(
+    paths: &crate::repo::paths::GutchRepoPaths,
+    manifest: &crate::manifest::SnapshotManifest,
+) {
     let entries = manifest
         .files()
         .flat_map(|file| &file.chunks)
         .map(|chunk| {
             (
-                crate::ChunkHash::parse_hex(&chunk.chunk_hash).unwrap(),
+                crate::artifact::hash::ChunkHash::parse_hex(&chunk.chunk_hash).unwrap(),
                 crate::manifest::ChunkIndexEntry {
                     bundle_id: chunk.chunk_hash.as_str().into(),
                     raw_size: chunk.raw_size,
@@ -192,7 +200,7 @@ pub fn index_manifest(paths: &crate::GutchRepoPaths, manifest: &crate::manifest:
             )
         })
         .collect();
-    crate::write_chunk_index(
+    crate::repo::chunk_index::write_chunk_index(
         paths,
         &crate::manifest::ChunkIndex {
             format_version: "1".into(),

@@ -1,8 +1,10 @@
 //! The only supported artifact generation. All integers are little endian.
-use std::io::{Read, Write};
+use std::io::Read;
+use std::io::Write;
 
+use crate::Error;
+use crate::Result;
 use crate::manifest::CompressionKind;
-use crate::{Error, Result};
 
 pub(crate) const VERSION: u16 = 1;
 pub(crate) const BUNDLE_MAGIC: &[u8; 16] = b"GUTCH_BUNDLE\0\0\0\0";

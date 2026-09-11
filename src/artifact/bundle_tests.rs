@@ -3,7 +3,8 @@ use super::*;
 fn profile() -> CompressionProfile {
     CompressionProfile::default()
 }
-use crate::hash::{self, ChunkHash};
+use crate::artifact::hash;
+use crate::artifact::hash::ChunkHash;
 
 #[test]
 fn test_build_and_read_bundle() {
@@ -128,7 +129,7 @@ fn test_build_and_read_bundle_compressed_payload() {
     std::fs::write(staged.path(), &bundle_data).unwrap();
     let mut file_reader =
         BundleReader::open(std::fs::File::open(staged.path()).unwrap(), &profile).unwrap();
-    let profiler = crate::GutchProfiler::new();
+    let profiler = crate::profile::GutchProfiler::new();
     let (read, metrics) = file_reader
         .read_bundle_payload_with_profiler(Some(&profiler))
         .unwrap();
@@ -152,7 +153,7 @@ fn test_build_and_read_bundle_compressed_payload() {
     }
 
     let staging = tempfile::tempdir().unwrap();
-    let capture_profiler = crate::GutchProfiler::new();
+    let capture_profiler = crate::profile::GutchProfiler::new();
     builder
         .write_to_staging(staging.path(), Some(&capture_profiler))
         .unwrap();
@@ -336,13 +337,13 @@ fn invalid_download_is_not_promoted_over_a_valid_cached_bundle() {
     let path = write_named_bundle(temp.path(), &bundle_id, &bundle_data);
     let mut corrupt = bundle_data.clone();
     corrupt[0] ^= 0xff;
-    let result = crate::helpers::write_atomic_with(&path, |file| {
+    let result = crate::filesystem::write_atomic_with(&path, |file| {
         file.write_all(&corrupt)?;
         verify_bundle_identity_reader(file, &bundle_id)
     });
     assert!(matches!(result, Err(crate::Error::HashMismatch { .. })));
     assert_eq!(std::fs::read(&path).unwrap(), bundle_data);
-    crate::helpers::write_atomic_with(&path, |file| {
+    crate::filesystem::write_atomic_with(&path, |file| {
         file.write_all(&bundle_data)?;
         verify_bundle_identity_reader(file, &bundle_id)
     })

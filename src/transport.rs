@@ -1,7 +1,9 @@
 use std::io::Read;
 use std::time::Duration;
 
-use crate::{Error, GutchOperationControl, Result};
+use crate::Error;
+use crate::Result;
+use crate::progress::GutchOperationControl;
 
 pub(crate) fn build_download_client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()

@@ -1,7 +1,9 @@
 use rayon::ThreadPool;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use crate::{Error, Result};
+use crate::Error;
+use crate::Result;
 
 /// Shared per-operation admission for payload and codec working memory.
 pub(crate) struct MemoryBudget {
@@ -22,7 +24,7 @@ impl MemoryBudget {
     pub(crate) fn acquire(
         &self,
         bytes: u64,
-        control: &crate::GutchOperationControl,
+        control: &crate::progress::GutchOperationControl,
     ) -> Result<MemoryPermit<'_>> {
         if bytes > 512 * 1024 * 1024 {
             return Err(Error::manifest(

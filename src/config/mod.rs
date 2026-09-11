@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -71,8 +72,8 @@ pub fn load_config(path: &Path) -> Result<GutchConfig, crate::Error> {
         return Ok(GutchConfig::default());
     }
 
-    let raw = crate::helpers::read_to_string(path)?;
-    let config: GutchConfig = crate::helpers::from_json_str(&raw)?;
+    let raw = crate::filesystem::read_to_string(path)?;
+    let config: GutchConfig = crate::filesystem::from_json_str(&raw)?;
     validate_config_paths(&config)?;
     Ok(config)
 }
@@ -80,9 +81,9 @@ pub fn load_config(path: &Path) -> Result<GutchConfig, crate::Error> {
 pub fn save_config(path: &Path, config: &GutchConfig) -> Result<(), crate::Error> {
     validate_config_paths(config)?;
     if let Some(dir) = path.parent() {
-        crate::helpers::create_dir_all(dir)?;
+        crate::filesystem::create_dir_all(dir)?;
     }
-    crate::helpers::write_json(path, config)
+    crate::filesystem::write_json(path, config)
 }
 
 fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {
@@ -107,7 +108,8 @@ fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GutchConfig, TrackedRepo};
+    use super::GutchConfig;
+    use super::TrackedRepo;
 
     #[test]
     fn config_round_trips_at_explicit_path() {

@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
 use crate::Result;
-use crate::hash::ChunkHash;
-use crate::manifest::runtime::typed_file_manifest;
-use crate::manifest::{self, snapshot::SnapshotManifest};
+use crate::artifact::hash::ChunkHash;
+use crate::manifest;
+use crate::manifest::snapshot::SnapshotManifest;
+use crate::manifest::typed::typed_file_manifest;
 
 pub(crate) fn estimate_build(
     snapshot_manifest: &SnapshotManifest,

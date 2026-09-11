@@ -1,8 +1,11 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
 
 use serde::Serialize;
 
@@ -301,7 +304,8 @@ impl Drop for GutchProfileSpan {
 
 #[cfg(test)]
 mod tests {
-    use super::{GutchProfiler, file_trace_args};
+    use super::GutchProfiler;
+    use super::file_trace_args;
 
     #[test]
     fn file_trace_args_use_mib_and_relative_path() {

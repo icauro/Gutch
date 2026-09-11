@@ -1,9 +1,11 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use crate::Result;
 
-use super::{GutchRepoPaths, bundle_id_from_bundle_path};
+use super::GutchRepoPaths;
+use super::bundle_id_from_bundle_path;
 
 pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<String>> {
     if !paths.snapshots_root.is_dir() {
@@ -39,7 +41,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<Strin
 
 pub(crate) fn list_repo_artifact_paths(
     paths: &GutchRepoPaths,
-) -> Result<Vec<(crate::ArtifactRef, PathBuf)>> {
+) -> Result<Vec<(crate::artifact::store::ArtifactRef, PathBuf)>> {
     let mut artifacts = Vec::new();
     if paths.bundles_root.exists() {
         for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
@@ -49,7 +51,7 @@ pub(crate) fn list_repo_artifact_paths(
             }
             if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
                 artifacts.push((
-                    crate::ArtifactRef::Bundle { id: bundle_id },
+                    crate::artifact::store::ArtifactRef::Bundle { id: bundle_id },
                     entry.path().to_path_buf(),
                 ));
             }
@@ -64,9 +66,9 @@ pub(crate) fn list_repo_artifact_paths(
             let Some(hash) = entry.file_name().to_str() else {
                 continue;
             };
-            if crate::ChunkHash::parse_hex(hash).is_ok() {
+            if crate::artifact::hash::ChunkHash::parse_hex(hash).is_ok() {
                 artifacts.push((
-                    crate::ArtifactRef::LooseChunk {
+                    crate::artifact::store::ArtifactRef::LooseChunk {
                         hash: hash.to_string(),
                     },
                     entry.path().to_path_buf(),
@@ -103,7 +105,7 @@ pub(crate) fn scan_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<Stri
 
 pub(crate) fn scan_artifact_inventory(
     paths: &GutchRepoPaths,
-) -> Result<(HashSet<crate::ArtifactRef>, usize, u64)> {
+) -> Result<(HashSet<crate::artifact::store::ArtifactRef>, usize, u64)> {
     let mut artifacts = HashSet::new();
     let mut artifact_count = 0usize;
     let mut artifact_bytes = 0u64;
@@ -117,7 +119,7 @@ pub(crate) fn scan_artifact_inventory(
             let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) else {
                 continue;
             };
-            artifacts.insert(crate::ArtifactRef::Bundle { id: bundle_id });
+            artifacts.insert(crate::artifact::store::ArtifactRef::Bundle { id: bundle_id });
             artifact_count += 1;
             artifact_bytes += entry.metadata()?.len();
         }
@@ -132,10 +134,10 @@ pub(crate) fn scan_artifact_inventory(
             let Some(chunk_hash) = entry.file_name().to_str() else {
                 continue;
             };
-            if crate::ChunkHash::parse_hex(chunk_hash).is_err() {
+            if crate::artifact::hash::ChunkHash::parse_hex(chunk_hash).is_err() {
                 continue;
             }
-            artifacts.insert(crate::ArtifactRef::LooseChunk {
+            artifacts.insert(crate::artifact::store::ArtifactRef::LooseChunk {
                 hash: chunk_hash.to_string(),
             });
             artifact_count += 1;

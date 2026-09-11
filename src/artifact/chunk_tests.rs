@@ -61,8 +61,12 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
 
     let profile = ChunkSizingProfile::default();
     let in_memory = chunk_bytes(&data, &profile);
-    let (scan, timings) =
-        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
+    let (scan, timings) = scan_file_chunks(
+        &path,
+        &profile,
+        &crate::progress::GutchOperationControl::default(),
+    )
+    .unwrap();
     let streaming = scan.chunks;
 
     assert_eq!(in_memory.len(), streaming.len());
@@ -87,8 +91,12 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
     std::fs::write(&path, &data).unwrap();
 
     let profile = ChunkSizingProfile::default();
-    let (scan, timings) =
-        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
+    let (scan, timings) = scan_file_chunks(
+        &path,
+        &profile,
+        &crate::progress::GutchOperationControl::default(),
+    )
+    .unwrap();
 
     assert_eq!(scan.file_size, data.len() as u64);
     assert_eq!(
@@ -111,10 +119,18 @@ fn repeated_chunk_scans_have_identical_boundaries() {
     std::fs::write(&path, &data).unwrap();
 
     let profile = ChunkSizingProfile::default();
-    let serial =
-        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
-    let parallel =
-        scan_file_chunks(&path, &profile, &crate::GutchOperationControl::default()).unwrap();
+    let serial = scan_file_chunks(
+        &path,
+        &profile,
+        &crate::progress::GutchOperationControl::default(),
+    )
+    .unwrap();
+    let parallel = scan_file_chunks(
+        &path,
+        &profile,
+        &crate::progress::GutchOperationControl::default(),
+    )
+    .unwrap();
 
     assert_eq!(serial.0.file_size, parallel.0.file_size);
     assert_eq!(serial.0.full_file_hash, parallel.0.full_file_hash);

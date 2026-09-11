@@ -2,10 +2,13 @@ use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use crate::hash::ChunkHash;
-use crate::{Error, GutchOperationControl, Result};
+use crate::Error;
+use crate::Result;
+use crate::artifact::hash::ChunkHash;
+use crate::progress::GutchOperationControl;
 
 pub(crate) const PARALLEL_FULL_HASH_MIN_BYTES: u64 = 16 * 1024 * 1024;
 const STREAM_BUFFER_BYTES: usize = 1024 * 1024;

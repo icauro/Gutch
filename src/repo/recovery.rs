@@ -1,6 +1,12 @@
-use crate::manifest::{ArtifactStorageMode, ChunkIndex, ChunkIndexEntry, CompressionProfile};
-use crate::{Error, GutchOperationControl, Result};
-use serde::{Deserialize, Serialize};
+use crate::Error;
+use crate::Result;
+use crate::manifest::ArtifactStorageMode;
+use crate::manifest::ChunkIndex;
+use crate::manifest::ChunkIndexEntry;
+use crate::manifest::CompressionProfile;
+use crate::progress::GutchOperationControl;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -44,8 +50,8 @@ pub fn regenerate_chunk_map(
             let recovered = (|| -> Result<Vec<(String, ChunkIndexEntry)>> {
                 let size = crate::artifact::format::size_u32(std::fs::metadata(&path)?.len())?;
                 match &artifact {
-                    crate::ArtifactRef::Bundle { id } => {
-                        let mut reader = crate::bundle::BundleReader::open(
+                    crate::artifact::store::ArtifactRef::Bundle { id } => {
+                        let mut reader = crate::artifact::bundle::BundleReader::open(
                             std::fs::File::open(&path)?,
                             &profile,
                         )?;
@@ -70,7 +76,7 @@ pub fn regenerate_chunk_map(
                             })
                             .collect())
                     }
-                    crate::ArtifactRef::LooseChunk { hash } => {
+                    crate::artifact::store::ArtifactRef::LooseChunk { hash } => {
                         let (declared, raw, _) = crate::artifact::store::read_loose_header(
                             &mut std::fs::File::open(&path)?,
                         )?;
@@ -157,7 +163,9 @@ pub fn regenerate_chunk_map(
                     updated_at: chrono::Utc::now().to_rfc3339(),
                     entries: entries
                         .into_iter()
-                        .map(|(hash, entry)| Ok((crate::ChunkHash::parse_hex(&hash)?, entry)))
+                        .map(|(hash, entry)| {
+                            Ok((crate::artifact::hash::ChunkHash::parse_hex(&hash)?, entry))
+                        })
                         .collect::<Result<_>>()?,
                 },
             )?;

@@ -1,12 +1,14 @@
 use std::path::PathBuf;
 
+use crate::Result;
+use crate::filesystem;
 use crate::manifest::{
     binary,
     snapshot::{SnapshotManifest, SnapshotMetadata, SnapshotProductMetadata},
 };
-use crate::{Result, helpers};
 
-use super::{GutchRepoPaths, validate_path_component};
+use super::GutchRepoPaths;
+use super::validate_path_component;
 
 pub(crate) const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
 pub(crate) const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
@@ -61,7 +63,7 @@ pub fn load_snapshot_manifest(
     snapshot_id: &str,
 ) -> Result<SnapshotManifest> {
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
-    let metadata_json = helpers::read_to_string(&metadata_path)?;
+    let metadata_json = filesystem::read_to_string(&metadata_path)?;
     let mut manifest = load_snapshot_metadata_from_json_text(snapshot_id, &metadata_json)?;
     manifest.product_metadata = load_snapshot_product_metadata(paths, snapshot_id)?;
     let blueprint_path = snapshot_blueprint_path(paths, snapshot_id)?;
@@ -72,9 +74,11 @@ pub fn load_snapshot_manifest(
         )));
     }
     manifest.entries = binary::read_snapshot_blueprint_binary(&blueprint_path)?;
-    if crate::compute_snapshot_id_from_entries(&manifest.entries) != manifest.snapshot_id {
+    if crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries)
+        != manifest.snapshot_id
+    {
         return Err(crate::Error::SnapshotCaptureConflict {
-            outcome: crate::repo::capture_plan::SnapshotCaptureOutcome::IntegrityConflict {
+            outcome: crate::capture::execute::SnapshotCaptureOutcome::IntegrityConflict {
                 snapshot_id: manifest.snapshot_id.clone(),
             },
         });
@@ -93,7 +97,9 @@ pub(crate) fn snapshot_manifest_from_parts(
     blueprint: &[u8],
 ) -> Result<SnapshotManifest> {
     metadata.entries = binary::read_snapshot_blueprint_bytes(blueprint)?;
-    if crate::compute_snapshot_id_from_entries(&metadata.entries) != metadata.snapshot_id {
+    if crate::snapshot::identity::compute_snapshot_id_from_entries(&metadata.entries)
+        != metadata.snapshot_id
+    {
         return Err(crate::Error::manifest(
             "snapshot blueprint does not match its installation ID",
         ));
@@ -136,7 +142,7 @@ pub(crate) fn load_snapshot_product_metadata(
         return Ok(None);
     }
     let metadata: SnapshotProductMetadata =
-        helpers::from_json_str(&helpers::read_to_string(&metadata_path)?)?;
+        filesystem::from_json_str(&filesystem::read_to_string(&metadata_path)?)?;
     metadata.validate_structure()?;
     Ok(Some(metadata))
 }
@@ -149,14 +155,14 @@ pub(crate) fn write_snapshot_product_metadata(
     let metadata_path = snapshot_product_metadata_path(paths, snapshot_id)?;
     if let Some(metadata) = metadata {
         metadata.validate_structure()?;
-        helpers::create_dir_all(&paths.snapshots_root.join(snapshot_id))?;
+        filesystem::create_dir_all(&paths.snapshots_root.join(snapshot_id))?;
         let bytes = serde_json::to_vec_pretty(metadata)?;
-        helpers::write(&metadata_path, &bytes)?;
+        filesystem::write(&metadata_path, &bytes)?;
         let size = std::fs::metadata(&metadata_path)?.len();
         return Ok(Some((metadata_path, size)));
     }
     if metadata_path.exists() {
-        helpers::remove_file(&metadata_path)?;
+        filesystem::remove_file(&metadata_path)?;
     }
     Ok(None)
 }
@@ -227,7 +233,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     if let Some(product) = snapshot_manifest.product_metadata.as_ref() {
         product.validate_for_snapshot(snapshot_manifest)?;
     }
-    helpers::create_dir_all(&paths.snapshots_root)?;
+    filesystem::create_dir_all(&paths.snapshots_root)?;
     let snapshot_id = &snapshot_manifest.snapshot_id;
     super::validate_path_component(snapshot_id, "snapshot ID")?;
     let staging_dir = tempfile::Builder::new()
@@ -242,10 +248,10 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     metadata.sync_product_metadata_from_launch();
     let product_metadata = metadata.product_metadata.clone();
     let metadata_json = serde_json::to_vec_pretty(&metadata.metadata())?;
-    helpers::write(&staging_path.join(SNAPSHOT_METADATA_FILE), &metadata_json)?;
+    filesystem::write(&staging_path.join(SNAPSHOT_METADATA_FILE), &metadata_json)?;
     if let Some(product_metadata) = product_metadata.as_ref() {
         product_metadata.validate_structure()?;
-        helpers::write(
+        filesystem::write(
             &staging_path.join(SNAPSHOT_PRODUCT_METADATA_FILE),
             &serde_json::to_vec_pretty(product_metadata)?,
         )?;
@@ -256,7 +262,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     )?;
     let staging_path = staging_dir.keep();
     let snapshot_dir = paths.snapshots_root.join(snapshot_id);
-    helpers::replace_directory(&staging_path, &snapshot_dir)?;
+    filesystem::replace_directory(&staging_path, &snapshot_dir)?;
 
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
     let metadata_size = std::fs::metadata(&metadata_path)?.len();
@@ -277,7 +283,7 @@ pub fn write_snapshot_metadata_only(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<()> {
     let metadata_path = snapshot_metadata_path(paths, &snapshot_manifest.snapshot_id)?;
-    helpers::write(
+    filesystem::write(
         &metadata_path,
         &serde_json::to_vec_pretty(&snapshot_manifest.metadata())?,
     )?;
@@ -293,7 +299,7 @@ mod tests {
     fn rejects_blueprints_with_a_different_installation_id() {
         let root = tempfile::tempdir().unwrap();
         let manifest = SnapshotManifest::new(
-            crate::compute_snapshot_id_from_entries(&[]),
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&[]),
             Default::default(),
         );
         let path = root.path().join("blueprint");

@@ -1,7 +1,11 @@
 //! Source selection and batch capture shared by hosts and the CLI.
+use crate::Result;
+use crate::capture::execute::RepoSnapshotCaptureRequest;
+use crate::capture::execute::RepoSnapshotCaptureResult;
+use crate::capture::execute::SnapshotCapturePlan;
 use crate::manifest::SnapshotTagSet;
-use crate::{RepoSnapshotCaptureRequest, RepoSnapshotCaptureResult, Result, SnapshotCapturePlan};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct ResolvedCaptureSource {
@@ -43,7 +47,7 @@ pub fn plan_repo_snapshot_captures(
     requests
         .iter()
         .map(|request| {
-            crate::plan_snapshot_capture_with_control(
+            crate::capture::plan::plan_snapshot_capture_with_control(
                 &request.repo_root,
                 &request.source_dir,
                 &request.explicit_tags,
@@ -60,15 +64,15 @@ pub fn capture_repo_snapshots(
     plan_repo_snapshot_captures(&requests)?;
     requests
         .into_iter()
-        .map(crate::capture_repo_snapshot)
+        .map(crate::capture::execute::capture_repo_snapshot)
         .collect()
 }
 
 fn collect_capture_sources(
     source_root: Option<PathBuf>,
     explicit_dirs: Vec<PathBuf>,
-) -> crate::Result<Vec<crate::source_config::ResolvedSourceSnapshot>> {
-    let mut sources: Vec<crate::source_config::ResolvedSourceSnapshot> = Vec::new();
+) -> crate::Result<Vec<crate::snapshot::source_config::ResolvedSourceSnapshot>> {
+    let mut sources: Vec<crate::snapshot::source_config::ResolvedSourceSnapshot> = Vec::new();
     if let Some(source_root) = source_root {
         if !source_root.is_dir() {
             return Err(crate::Error::manifest(format!(
@@ -76,11 +80,11 @@ fn collect_capture_sources(
                 source_root.display()
             )));
         }
-        let config = crate::source_config::SourceConfig::load_or_create(&source_root)?;
+        let config = crate::snapshot::source_config::SourceConfig::load_or_create(&source_root)?;
         sources.extend(config.discover_snapshot_sources(&source_root)?);
     }
     for dir in explicit_dirs {
-        sources.push(crate::source_config::ResolvedSourceSnapshot {
+        sources.push(crate::snapshot::source_config::ResolvedSourceSnapshot {
             path: dir.clone(),
             relative_path: dir,
             config_tags: None,
@@ -111,7 +115,7 @@ fn resolve_single_source_config_tags(
             dir.display()
         ))
     })?;
-    let Some(config) = crate::source_config::SourceConfig::load(parent)? else {
+    let Some(config) = crate::snapshot::source_config::SourceConfig::load(parent)? else {
         return Ok(None);
     };
     let Some(name) = dir.file_name().and_then(|value| value.to_str()) else {
@@ -121,14 +125,14 @@ fn resolve_single_source_config_tags(
         )));
     };
     match config.ingestion_mode {
-        crate::source_config::IngestionMode::Auto => Ok(None),
-        crate::source_config::IngestionMode::Explicit => {
+        crate::snapshot::source_config::IngestionMode::Auto => Ok(None),
+        crate::snapshot::source_config::IngestionMode::Explicit => {
             let entry = config
                 .explicit_ingestion_rules
                 .snapshots
                 .iter()
                 .find(|rule| {
-                    crate::source_config::normalize_relative_path(&rule.path)
+                    crate::snapshot::source_config::normalize_relative_path(&rule.path)
                         .ok()
                         .as_deref()
                         == Some(name)

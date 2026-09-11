@@ -18,12 +18,15 @@
 //! and it sits outside every snapshot source tree.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
+use crate::Error;
+use crate::Result;
 use crate::manifest::SnapshotTagSet;
-use crate::{Error, Result};
 
 pub const SOURCE_CONFIG_FILE_NAME: &str = ".gutch_source_config.json";
 
@@ -92,8 +95,8 @@ impl SourceConfig {
         if !path.is_file() {
             return Ok(None);
         }
-        let text = crate::helpers::read_to_string(&path)?;
-        let config: Self = crate::helpers::from_json_str(&text)?;
+        let text = crate::filesystem::read_to_string(&path)?;
+        let config: Self = crate::filesystem::from_json_str(&text)?;
         Ok(Some(config))
     }
 
@@ -117,7 +120,7 @@ impl SourceConfig {
         let path = source_root.join(SOURCE_CONFIG_FILE_NAME);
         let text = serde_json::to_string_pretty(self)
             .map_err(|err| Error::manifest(format!("serialize source config: {err}")))?;
-        crate::helpers::write(&path, text)
+        crate::filesystem::write(&path, text)
     }
 
     /// Resolve the snapshot sources for this config under `source_root`.
@@ -293,10 +296,10 @@ pub fn fnmatch_name(name: &str, pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helpers;
+    use crate::filesystem;
 
     fn write_config(source_root: &Path, json: &str) {
-        helpers::write(&source_root.join(SOURCE_CONFIG_FILE_NAME), json).unwrap();
+        filesystem::write(&source_root.join(SOURCE_CONFIG_FILE_NAME), json).unwrap();
     }
 
     #[test]

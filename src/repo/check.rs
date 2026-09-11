@@ -1,17 +1,23 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use super::inventory::{list_repo_snapshot_ids, scan_artifact_inventory, scan_bundle_inventory};
+use super::GutchRepoPaths;
+use super::inventory::list_repo_snapshot_ids;
+use super::inventory::scan_artifact_inventory;
+use super::inventory::scan_bundle_inventory;
+use super::load_chunk_index;
+use super::load_gutch_repo_manifest;
+use super::load_snapshot_manifest;
+use super::required_bundle_ids;
 use super::snapshot_descriptor::summarize_snapshot_tags;
-use super::{
-    GutchRepoPaths, load_chunk_index, load_gutch_repo_manifest, load_snapshot_manifest,
-    required_bundle_ids, source_modified_at_from_directory,
-};
+use super::source_modified_at_from_directory;
+use crate::Error;
+use crate::Result;
+use crate::manifest;
 use crate::manifest::REPO_METADATA_FILE;
-use crate::manifest::{self};
-use crate::{Error, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -266,7 +272,7 @@ fn empty_repo_check_status(
 fn check_snapshot_manifests(
     repo_paths: &GutchRepoPaths,
     snapshots_root: &Path,
-    available_artifacts: &HashSet<crate::ArtifactRef>,
+    available_artifacts: &HashSet<crate::artifact::store::ArtifactRef>,
 ) -> Result<(Vec<RepoCheckSnapshotStatus>, SnapshotManifestCheckTimings)> {
     if !snapshots_root.exists() {
         return Ok((Vec::new(), SnapshotManifestCheckTimings::default()));
@@ -279,21 +285,25 @@ fn check_snapshot_manifests(
     let manifests_start = std::time::Instant::now();
     let mut snapshots = Vec::new();
     for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
-        let manifest_path = crate::snapshot_metadata_path(repo_paths, &snapshot_id)?;
+        let manifest_path =
+            crate::repo::snapshot_manifests::snapshot_metadata_path(repo_paths, &snapshot_id)?;
         let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
         let snapshot_metadata =
             Some(serde_json::to_value(manifest.metadata()).map_err(|error| {
                 Error::manifest(format!("failed to serialize snapshot metadata: {error}"))
             })?);
         let snapshot_product_metadata_hash_b3 =
-            crate::serialize_snapshot_product_metadata_for_remote(&manifest)?
-                .map(|bytes| crate::hash::hash_hex(&blake3::hash(&bytes)));
-        let required_artifacts = crate::required_artifacts(&manifest, &chunk_index)?;
+            crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote(
+                &manifest,
+            )?
+            .map(|bytes| crate::artifact::hash::hash_hex(&blake3::hash(&bytes)));
+        let required_artifacts =
+            crate::artifact::store::required_artifacts(&manifest, &chunk_index)?;
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index)?;
         let missing_bundle_count = required_bundle_ids
             .iter()
             .filter(|bundle_id| {
-                !available_artifacts.contains(&crate::ArtifactRef::Bundle {
+                !available_artifacts.contains(&crate::artifact::store::ArtifactRef::Bundle {
                     id: (*bundle_id).clone(),
                 })
             })
@@ -363,7 +373,7 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
     explicit_tags: &manifest::SnapshotTagSet,
     source_modified_at: String,
 ) -> Result<SourceSnapshotOperationCandidate> {
-    use crate::snapshot::identity::resolve_snapshot_tags;
+    use crate::cli::tags::resolve_snapshot_tags;
 
     let context = format!("source snapshot '{}'", path.display());
     let resolved = resolve_snapshot_tags(path, explicit_tags, &context)?;

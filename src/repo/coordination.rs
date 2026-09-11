@@ -1,10 +1,13 @@
 //! Cross-process repository protection and recoverable metadata publication.
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::path::Path;
+use std::path::PathBuf;
 
-use crate::{Error, Result};
+use crate::Error;
+use crate::Result;
 
 thread_local! {
     static HELD: RefCell<HashMap<PathBuf, bool>> = RefCell::new(HashMap::new());
@@ -30,22 +33,32 @@ impl Drop for Guard {
 }
 
 pub(crate) fn read<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
-    protected(root, false, &crate::GutchOperationControl::default(), work)
+    protected(
+        root,
+        false,
+        &crate::progress::GutchOperationControl::default(),
+        work,
+    )
 }
 pub(crate) fn write<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
-    protected(root, true, &crate::GutchOperationControl::default(), work)
+    protected(
+        root,
+        true,
+        &crate::progress::GutchOperationControl::default(),
+        work,
+    )
 }
 
 pub(crate) fn read_with_control<T>(
     root: &Path,
-    control: &crate::GutchOperationControl,
+    control: &crate::progress::GutchOperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     protected(root, false, control, work)
 }
 pub(crate) fn write_with_control<T>(
     root: &Path,
-    control: &crate::GutchOperationControl,
+    control: &crate::progress::GutchOperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     protected(root, true, control, work)
@@ -54,7 +67,7 @@ pub(crate) fn write_with_control<T>(
 fn protected<T>(
     root: &Path,
     write: bool,
-    control: &crate::GutchOperationControl,
+    control: &crate::progress::GutchOperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     let root = std::fs::canonicalize(root)?;
@@ -124,7 +137,7 @@ fn protected<T>(
     // Save a complete generation before any mutation, including repositories
     // whose metadata was created by initialization or explicit fixture setup.
     publish_generation(&root, &journal)?;
-    crate::helpers::write(&pending, b"1")?;
+    crate::filesystem::write(&pending, b"1")?;
     DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
     match work().and_then(|value| {
         control.checkpoint()?;
@@ -165,7 +178,7 @@ fn copy_entry(source: &Path, target: &Path) -> Result<()> {
             copy_entry(&entry.path(), &target.join(entry.file_name()))?;
         }
     } else if metadata.is_file() {
-        crate::helpers::write_atomic_with(target, |output| {
+        crate::filesystem::write_atomic_with(target, |output| {
             std::io::copy(&mut File::open(source)?, output)?;
             Ok(())
         })?;
@@ -208,7 +221,7 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::manifest("invalid generated directory name"))?;
-    crate::helpers::write(&journal.join("committed"), name.as_bytes())?;
+    crate::filesystem::write(&journal.join("committed"), name.as_bytes())?;
     let _committed_generation = generation.keep();
     if let Some(previous) = previous {
         std::fs::remove_dir_all(previous)?;
@@ -342,14 +355,15 @@ mod tests {
         };
         #[derive(Debug)]
         struct Cancel(AtomicBool);
-        impl crate::GutchCancellationHook for Cancel {
+        impl crate::progress::GutchCancellationHook for Cancel {
             fn is_cancelled(&self) -> bool {
                 self.0.load(Ordering::Acquire)
             }
         }
         let root = tempfile::tempdir().unwrap();
         let cancelled = Arc::new(Cancel(AtomicBool::new(false)));
-        let control = crate::GutchOperationControl::default().with_cancellation(cancelled.clone());
+        let control =
+            crate::progress::GutchOperationControl::default().with_cancellation(cancelled.clone());
         read(root.path(), || {
             let path = root.path().to_path_buf();
             let worker = std::thread::spawn(move || write_with_control(&path, &control, || Ok(())));

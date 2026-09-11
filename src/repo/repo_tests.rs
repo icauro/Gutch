@@ -1,8 +1,9 @@
 use super::*;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use crate::hash::hash_hex;
+use crate::artifact::hash::hash_hex;
 use crate::manifest;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -18,7 +19,7 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::
 }
 
 fn test_hash(label: &str) -> String {
-    hash_hex(&crate::hash::hash_chunk(label.as_bytes()))
+    hash_hex(&crate::artifact::hash::hash_chunk(label.as_bytes()))
 }
 
 #[test]
@@ -41,16 +42,17 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
                 raw_size: 9,
             }],
         });
-        manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
+        manifest.snapshot_id =
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
         write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
         crate::test_util::index_manifest(&paths, &manifest);
     }
 
-    let pool = crate::build_thread_pool(1, "gutch-test").unwrap();
+    let pool = crate::runtime::build_thread_pool(1, "gutch-test").unwrap();
     let state = scan_existing_store_state_with_pool(
         &paths,
         &pool,
-        &crate::GutchOperationControl::default(),
+        &crate::progress::GutchOperationControl::default(),
     )
     .unwrap();
     let candidates = state.previous_file_manifests.get("game.bin").unwrap();
@@ -76,7 +78,8 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
             full_file_hash: test_hash(label),
             chunks: Vec::new(),
         });
-        snapshot.snapshot_id = crate::compute_snapshot_id_from_entries(&snapshot.entries);
+        snapshot.snapshot_id =
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot.entries);
         write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
         snapshot_ids.push(snapshot.snapshot_id);
     }
@@ -175,14 +178,14 @@ fn payload_paths_are_extensionless_and_bundle_names_are_hashes() {
     let root = PathBuf::from("/test/repo");
     let chunk_hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
     assert_eq!(
-        crate::chunk_path_in_root(&root.join("chunks"), chunk_hash).unwrap(),
+        crate::repo::paths::chunk_path_in_root(&root.join("chunks"), chunk_hash).unwrap(),
         root.join("chunks").join("ab").join(chunk_hash)
     );
     assert_eq!(
-        crate::bundle_id_from_bundle_path(Path::new(chunk_hash)),
+        crate::repo::paths::bundle_id_from_bundle_path(Path::new(chunk_hash)),
         Some(chunk_hash.to_string())
     );
-    assert!(crate::bundle_id_from_bundle_path(Path::new("bundle.bundle")).is_none());
+    assert!(crate::repo::paths::bundle_id_from_bundle_path(Path::new("bundle.bundle")).is_none());
 }
 
 #[test]
@@ -191,7 +194,7 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     let snapshot_id = "0123456789abcdef";
     assert_eq!(
-        crate::snapshot_metadata_path(&paths, snapshot_id).unwrap(),
+        crate::repo::snapshot_manifests::snapshot_metadata_path(&paths, snapshot_id).unwrap(),
         root.join("snapshots")
             .join(snapshot_id)
             .join("snapshot_metadata.json")
@@ -303,12 +306,13 @@ fn check_gutch_repo_reports_snapshots() {
         }],
     });
 
-    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id =
+        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
 
     write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
     crate::test_util::index_manifest(&repo_paths, &manifest);
     let bundle_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let bundle_path = crate::bundle_path(&repo_paths, bundle_id).unwrap();
+    let bundle_path = crate::repo::paths::bundle_path(&repo_paths, bundle_id).unwrap();
     std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     std::fs::write(bundle_path, b"bundle-a").unwrap();
 
@@ -380,7 +384,8 @@ fn check_and_verify_report_loose_chunk_artifacts() {
             raw_size: raw_bytes.len() as u32,
         }],
     });
-    snapshot.snapshot_id = crate::compute_snapshot_id_from_entries(&snapshot.entries);
+    snapshot.snapshot_id =
+        crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot.entries);
     write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
     let index = manifest::ChunkIndex {
@@ -405,10 +410,10 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     assert_eq!(status.snapshots[0].required_artifact_count, 1);
     assert_eq!(status.snapshots[0].missing_artifact_count, 0);
 
-    let verification = crate::verify_gutch_repo_artifacts(
+    let verification = crate::repo::verify::verify_gutch_repo_artifacts(
         temp.path(),
         Some(&snapshot.snapshot_id),
-        crate::VerifyMode::Strict,
+        crate::verify::VerifyMode::Strict,
     )
     .unwrap();
     assert!(verification.ok);
@@ -560,17 +565,20 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    let chunk_hash = crate::hash::ChunkHash::from_blake3(crate::hash::hash_chunk(b"hello"));
-    let mut builder = crate::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
+    let chunk_hash =
+        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(b"hello"));
+    let mut builder =
+        crate::artifact::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
     builder.add_chunk(chunk_hash, b"hello".to_vec());
     let (bundle_id, data) = builder.build_with_id().unwrap();
     let staged_path = root.join("staged-bundle");
     std::fs::write(&staged_path, &data).unwrap();
     let reader =
-        crate::bundle::read_bundle(&data, &manifest::CompressionProfile::default()).unwrap();
-    let built_bundle = crate::BuiltBundle {
+        crate::artifact::bundle::read_bundle(&data, &manifest::CompressionProfile::default())
+            .unwrap();
+    let built_bundle = crate::capture::types::BuiltBundle {
         bundle_id: bundle_id.clone(),
-        staged_file: crate::build_types::StagedArtifactFile::new(staged_path),
+        staged_file: crate::capture::types::StagedArtifactFile::new(staged_path),
         size: data.len() as u64,
         entries: reader.entries().to_vec(),
     };
@@ -590,7 +598,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let bundle_path = bundle_path(&paths, &bundle_id).unwrap();
     std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     std::fs::copy(built_bundle.staged_file.path(), bundle_path).unwrap();
-    let pool = crate::build_thread_pool(1, "gutch-test").unwrap();
+    let pool = crate::runtime::build_thread_pool(1, "gutch-test").unwrap();
     let rebuilt = rebuild_chunk_index_from_bundles_with_pool(
         &paths,
         &manifest::CompressionProfile::default(),
@@ -633,7 +641,8 @@ fn inspect_repo_shows_snapshot_tags() {
             raw_size: 100,
         }],
     });
-    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id =
+        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
     crate::test_util::index_manifest(&paths, &manifest);
 
@@ -677,7 +686,8 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         ],
     });
 
-    manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id =
+        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
 
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
     crate::test_util::index_manifest(&paths, &manifest);

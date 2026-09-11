@@ -1,11 +1,15 @@
 #[cfg(test)]
-use fastcdc::v2020::{Chunk, FastCDC};
-use fastcdc::v2020::{Normalization, StreamCDC};
+use fastcdc::v2020::Chunk;
+#[cfg(test)]
+use fastcdc::v2020::FastCDC;
+use fastcdc::v2020::Normalization;
+use fastcdc::v2020::StreamCDC;
 use std::io::BufReader;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
+use crate::artifact::hash::hash_hex;
 use crate::error::Result;
-use crate::hash::hash_hex;
 use crate::manifest::ChunkSizingProfile;
 
 pub(crate) struct ChunkResult {
@@ -93,7 +97,7 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
 pub(crate) fn scan_file_chunks(
     path: &std::path::Path,
     profile: &ChunkSizingProfile,
-    control: &crate::GutchOperationControl,
+    control: &crate::progress::GutchOperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     control.checkpoint()?;
     let min = profile.min_chunk_size_bytes() as usize;

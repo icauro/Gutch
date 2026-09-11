@@ -1,17 +1,28 @@
 #[cfg(test)]
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::io::Seek;
+use std::io::SeekFrom;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use crate::compress::validate_profile;
+use crate::artifact::compress::validate_profile;
+use crate::artifact::hash;
+use crate::artifact::hash::ChunkHash;
 use crate::error::Result;
-use crate::hash::{self, ChunkHash};
-use crate::manifest::{BundleTableEntry, CompressionKind, CompressionProfile, CompressionUnit};
+use crate::manifest::BundleTableEntry;
+use crate::manifest::CompressionKind;
+use crate::manifest::CompressionProfile;
+use crate::manifest::CompressionUnit;
 
-use crate::artifact::format::{self, BUNDLE_FOOTER_MAGIC as FOOTER_MAGIC, BUNDLE_MAGIC};
+use crate::artifact::format;
+use crate::artifact::format::BUNDLE_FOOTER_MAGIC as FOOTER_MAGIC;
+use crate::artifact::format::BUNDLE_MAGIC;
 const BUNDLE_HEADER_SIZE: u64 = 16 + 2 + 2 + 4;
 const BUNDLE_TRAILER_SIZE: u64 = 4 + 16;
 const BUNDLE_ID_SIZE: u64 = 64;
@@ -130,25 +141,25 @@ impl BundleBuilder {
     pub(crate) fn write_to_staging(
         &self,
         staging_root: &Path,
-        profiler: Option<&crate::GutchProfiler>,
+        profiler: Option<&crate::profile::GutchProfiler>,
     ) -> Result<BundleBuildArtifact> {
         if self.profile.compression_unit != CompressionUnit::Bundle {
             return Err(crate::error::Error::InvalidBundle(
                 "gutch only supports bundle-compressed bundles".into(),
             ));
         }
-        crate::helpers::create_dir_all(staging_root)?;
+        crate::filesystem::create_dir_all(staging_root)?;
 
         let temporary = tempfile::NamedTempFile::new_in(staging_root)?;
-        let build = {
+        let capture = {
             let mut file = temporary.reopen()?;
-            let build = self.write_bundle(&mut file, profiler)?;
+            let capture = self.write_bundle(&mut file, profiler)?;
             let _flush_span = profiler.map(|profiler| {
                 profiler.span_with_args(
                     "capture.compress_bundle_artifact.flush_staged_file",
                     std::collections::BTreeMap::from([(
                         "bundle_size_bytes".to_string(),
-                        serde_json::json!(build.size),
+                        serde_json::json!(capture.size),
                     )]),
                 )
             });
@@ -159,13 +170,13 @@ impl BundleBuilder {
                     "capture.compress_bundle_artifact.sync_staged_file",
                     std::collections::BTreeMap::from([(
                         "bundle_size_bytes".to_string(),
-                        serde_json::json!(build.size),
+                        serde_json::json!(capture.size),
                     )]),
                 )
             });
             file.sync_all()?;
             drop(_sync_span);
-            build
+            capture
         };
         let _keep_span = profiler
             .map(|profiler| profiler.span("capture.compress_bundle_artifact.keep_staged_file"));
@@ -179,11 +190,11 @@ impl BundleBuilder {
                 std::collections::BTreeMap::from([
                     (
                         "bundle_size_bytes".to_string(),
-                        serde_json::json!(build.size),
+                        serde_json::json!(capture.size),
                     ),
                     (
                         "id_present".to_string(),
-                        serde_json::json!(!build.bundle_id.is_empty()),
+                        serde_json::json!(!capture.bundle_id.is_empty()),
                     ),
                     (
                         "next_phase".to_string(),
@@ -195,14 +206,14 @@ impl BundleBuilder {
 
         Ok(BundleBuildArtifact {
             staged_path,
-            ..build
+            ..capture
         })
     }
 
     fn write_bundle(
         &self,
         file: &mut File,
-        profiler: Option<&crate::GutchProfiler>,
+        profiler: Option<&crate::profile::GutchProfiler>,
     ) -> Result<BundleBuildArtifact> {
         let chunk_count = u32::try_from(self.chunks.len()).map_err(|_| {
             crate::error::Error::InvalidBundle("bundle contains too many chunks".into())
@@ -218,7 +229,7 @@ impl BundleBuilder {
         for chunk in &self.chunks {
             let raw = chunk.raw.as_ref().ok_or_else(|| {
                 crate::error::Error::InvalidBundle(
-                    "bundle-compressed chunks must retain raw bytes until bundle build".into(),
+                    "bundle-compressed chunks must retain raw bytes until bundle capture".into(),
                 )
             })?;
             if raw.as_slice().len() as u64 != chunk.raw_size {
@@ -268,12 +279,17 @@ impl BundleBuilder {
         if raw_size > format::MAX_RAW_BUNDLE_SIZE {
             return Err(crate::Error::bundle("bundle exceeds raw size limit"));
         }
-        crate::compress::encode_to_writer(&mut hashing, &self.profile, raw_size, |writer| {
-            for segment in &raw_segments {
-                writer.write_all(segment)?;
-            }
-            Ok(())
-        })?;
+        crate::artifact::compress::encode_to_writer(
+            &mut hashing,
+            &self.profile,
+            raw_size,
+            |writer| {
+                for segment in &raw_segments {
+                    writer.write_all(segment)?;
+                }
+                Ok(())
+            },
+        )?;
         let compression_time = compression_started_at.elapsed();
         let payload_end = hashing.position()?;
         let compressed_output_bytes =
@@ -537,7 +553,7 @@ impl<R: Read + Seek> BundleReader<R> {
     #[cfg(test)]
     pub(crate) fn read_bundle_payload_with_profiler(
         &mut self,
-        profiler: Option<&crate::GutchProfiler>,
+        profiler: Option<&crate::profile::GutchProfiler>,
     ) -> Result<(Vec<u8>, BundleReadMetrics)> {
         let required = vec![true; self.entries.len()];
         let expected_raw_size = self.entries.iter().try_fold(0u64, |total, entry| {
@@ -575,7 +591,7 @@ impl<R: Read + Seek> BundleReader<R> {
     /// next one without changing the one-frame-per-bundle format.
     pub(crate) fn stream_bundle_chunks_with_profiler<F>(
         &mut self,
-        profiler: Option<&crate::GutchProfiler>,
+        profiler: Option<&crate::profile::GutchProfiler>,
         required: &[bool],
         mut on_chunk: F,
     ) -> Result<BundleReadMetrics>
@@ -628,7 +644,8 @@ impl<R: Read + Seek> BundleReader<R> {
             reader: (&mut self.reader).take(compressed_size),
             hasher: &mut hasher,
         };
-        let mut decoder = crate::compress::decoder_from_reader(&mut encoded, self.compression)?;
+        let mut decoder =
+            crate::artifact::compress::decoder_from_reader(&mut encoded, self.compression)?;
         let stream_result = stream_decoded_chunks(
             &mut decoder,
             &self.entries,
@@ -1029,7 +1046,7 @@ mod tests;
 
 /// Inspect a bundle using its repository's compression profile without rendering output.
 pub fn inspect_bundle(bundle: &Path, repo: &Path) -> Result<Vec<BundleTableEntry>> {
-    let (_, manifest) = crate::load_gutch_repo_manifest(repo)?;
+    let (_, manifest) = crate::repo::paths::load_gutch_repo_manifest(repo)?;
     let reader = BundleReader::open(File::open(bundle)?, &manifest.compression_profile())?;
     Ok(reader.entries().to_vec())
 }
