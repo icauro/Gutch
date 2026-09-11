@@ -54,8 +54,8 @@ identity. Existing complete blueprints remain reusable when chunk sizing changes
 
 Bundle objects have extensionless content-addressed names under
 `bundles/<first-two-hash-characters>/`. Their bytes contain the chunk table
-and payload framing. They do not embed a magic value, compression profile, or
-repo identity. The repo's
+and payload framing with header and footer magic values. They do not embed a
+compression profile or repo identity. The repo's
 packaging profile supplies compression kind and compression unit when a bundle
 is read.
 
