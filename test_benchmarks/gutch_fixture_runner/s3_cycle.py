@@ -29,7 +29,7 @@ from ..support.gutch import GutchOperations, snapshot_id as _snapshot_id, verifi
 
 @dataclass(frozen=True)
 class S3CycleOptions:
-    prefix_root: str = "hostapp/gutch-benchmark"
+    prefix_root: str = "gutch/benchmark"
     transfer_concurrency: int = 4
     transfer_max_concurrency: int = 16
     upload_concurrency: int = 8
@@ -45,7 +45,7 @@ def load_s3_cycle(path: Path) -> tuple[FixtureSpec, S3CycleOptions]:
     if not isinstance(storage, dict) or not isinstance(transfer, dict):
         raise ValueError(f"S3 fixture storage and transfer must be mappings: {path}")
     options = S3CycleOptions(
-        prefix_root=str(storage.get("prefix_root", "hostapp/gutch-benchmark")).strip("/"),
+        prefix_root=str(storage.get("prefix_root", "gutch/benchmark")).strip("/"),
         transfer_concurrency=int(transfer.get("concurrency", 4)),
         transfer_max_concurrency=int(transfer.get("max_concurrency", 16)),
         upload_concurrency=int(storage.get("upload_concurrency", 8)),

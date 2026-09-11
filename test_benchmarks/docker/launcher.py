@@ -15,9 +15,9 @@ class DockerTarget:
         services = Services()
         try:
             services.start(builder=True)
-            config.environment.update({"S3_MAIN_ENDPOINT": "http://storage:8333",
-                "S3_MAIN_ACCESS_KEY": "gutch-test-access", "S3_MAIN_SECRET_KEY": "gutch-test-secret",
-                "S3_MAIN_BUCKET_NAME": "gutch-tests", "S3_MAIN_REGION": "us-east-1"})
+            config.environment.update({"GUTCH_S3_ENDPOINT": "http://storage:8333",
+                "GUTCH_S3_ACCESS_KEY": "gutch-test-access", "GUTCH_S3_SECRET_KEY": "gutch-test-secret",
+                "GUTCH_S3_BUCKET_NAME": "gutch-tests", "GUTCH_S3_REGION": "us-east-1"})
             identifier = services.command("ps", "-q", "builder", capture=True)
             return cls(identifier, services=services)
         except BaseException:

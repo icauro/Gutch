@@ -83,7 +83,7 @@ def run_reconstruction_storage(
 
         validate_output(product, local_destination, lane.stats / "validate-local-restored.json")
         client = make_client(settings)
-        prefix = f"hostapp/gutch-reconstruction-benchmark/{run_root.name}"
+        prefix = f"gutch/reconstruction-benchmark/{run_root.name}"
         upload = publish_repository(client, settings, repo, prefix, workers=upload_concurrency)
         manifest = lane.root / "artifact-urls.json"
         make_artifact_url_manifest(client, settings, repo, prefix, manifest)

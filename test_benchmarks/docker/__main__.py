@@ -122,7 +122,7 @@ def _run_interactive(config_path: Path | None = None) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m gutch_repo.test_benchmarks.docker")
+    parser = argparse.ArgumentParser(prog="python -m test_benchmarks.docker")
     parser.add_argument("--config", type=Path, help="Benchmark YAML config")
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     try:

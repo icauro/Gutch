@@ -161,7 +161,7 @@ def _run_interactive_fixture(fixture: InteractiveFixture, executable: Path) -> i
         "gutch_exe": executable,
         "artifacts_root": artifacts_root,
         "config": None,
-        "s3_prefix": "S3_MAIN",
+        "s3_prefix": "GUTCH_S3",
         "bucket": None,
         "endpoint": None,
         "region": None,
@@ -211,20 +211,20 @@ def _run_explicit(arguments: list[str]) -> int:
         _print_fixtures()
         return 0
     if arguments[0] == "reconstruction-storage":
-        parser = argparse.ArgumentParser(prog="gutch_repo.test_benchmarks.gutch_fixture_runner reconstruction-storage")
+        parser = argparse.ArgumentParser(prog="test_benchmarks.gutch_fixture_runner reconstruction-storage")
         add_reconstruction_storage_arguments(parser)
         parsed = parser.parse_args(arguments[1:])
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
         return run_reconstruction_storage_command(parsed)
     if arguments[0] == "s3-cycle":
-        parser = argparse.ArgumentParser(prog="gutch_repo.test_benchmarks.gutch_fixture_runner s3-cycle")
+        parser = argparse.ArgumentParser(prog="test_benchmarks.gutch_fixture_runner s3-cycle")
         add_s3_cycle_arguments(parser)
         parsed = parser.parse_args(arguments[1:])
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
         return run_s3_cycle_command(parsed)
     if arguments[0] == "docker":
         parser = argparse.ArgumentParser(
-            prog="gutch_repo.test_benchmarks.gutch_fixture_runner docker"
+            prog="test_benchmarks.gutch_fixture_runner docker"
         )
         parser.add_argument("--fixture", default="gutch_s3_cold_publication_cycle")
         parser.add_argument("--config", type=Path)
@@ -248,7 +248,7 @@ def _run_explicit(arguments: list[str]) -> int:
         except (OSError, RuntimeError, ValueError) as error:
             raise SystemExit(f"Docker benchmark failed: {error}") from error
         return 0
-    parser = argparse.ArgumentParser(prog="gutch_repo.test_benchmarks.gutch_fixture_runner")
+    parser = argparse.ArgumentParser(prog="test_benchmarks.gutch_fixture_runner")
     add_arguments(parser)
     parsed = parser.parse_args(arguments)
     parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)

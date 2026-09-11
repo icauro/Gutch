@@ -28,7 +28,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config (default: gutch_repo/benchmarks/config.yml)")
+    parser.add_argument("--config", type=Path, help="Benchmark YAML config (default: test_benchmarks/config.yml)")
     parser.add_argument("--keep-artifacts", action="store_true")
 
 
@@ -146,7 +146,7 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
 
 def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings:
     values = storage if isinstance(storage, dict) else {}
-    env_prefix = getattr(args, "s3_prefix", None) or str(values.get("env_prefix", "S3_MAIN")).strip() or "S3_MAIN"
+    env_prefix = getattr(args, "s3_prefix", None) or str(values.get("env_prefix", "GUTCH_S3")).strip() or "GUTCH_S3"
     access_key_env = str(values.get("access_key_env", "")).strip()
     secret_key_env = str(values.get("secret_key_env", "")).strip()
 
@@ -162,7 +162,7 @@ def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings
         "access_key": fixture_secret(access_key_env, "access_key_default"),
         "secret_key": fixture_secret(secret_key_env, "secret_key_default"),
     }
-    return S3Settings.from_environment(
+    settings = S3Settings.from_environment(
         env_prefix,
         defaults=defaults,
         bucket_name=args.bucket or "",
@@ -171,6 +171,9 @@ def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings
         access_key=args.access_key_id or "",
         secret_key=args.secret_access_key or "",
     )
+    if not settings.bucket:
+        raise ValueError("S3 benchmarks require --bucket or GUTCH_S3_BUCKET_NAME in benchmark configuration")
+    return settings
 
 
 def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:

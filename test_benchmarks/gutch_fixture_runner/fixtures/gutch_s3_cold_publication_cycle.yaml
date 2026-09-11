@@ -7,8 +7,8 @@ open_perfetto: false
 corrupt_repair: false
 storage:
   backend: s3
-  env_prefix: S3_MAIN
-  prefix_root: hostapp/gutch-benchmark
+  env_prefix: GUTCH_S3
+  prefix_root: gutch/benchmark
   upload_concurrency: 8
 transfer:
   policy: fixed

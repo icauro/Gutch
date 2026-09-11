@@ -46,7 +46,7 @@ def _settings(target: StorageTarget) -> S3Settings:
 def _payload(path: Path, size_bytes: int) -> None:
     if size_bytes <= 0:
         raise ValueError("payload size must be positive")
-    digest = hashlib.sha256(b"hostapp-benchmark-payload").digest() * 32768
+    digest = hashlib.sha256(b"gutch-benchmark-payload").digest() * 32768
     with path.open("wb") as handle:
         remaining = size_bytes
         while remaining:

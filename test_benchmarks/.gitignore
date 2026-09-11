@@ -3,4 +3,4 @@ __pycache__/
 .pytest-v2-tmp/
 config.yml
 gutch_fixture_runner/bin/linux-x64/
-gutch_fixture_runner/bin/hostapp-cli.exe
+gutch_fixture_runner/bin/gutch-cli.exe

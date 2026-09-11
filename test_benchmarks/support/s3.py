@@ -23,7 +23,7 @@ class S3Settings:
     @classmethod
     def from_environment(
         cls,
-        prefix: str = "S3_MAIN",
+        prefix: str = "GUTCH_S3",
         *,
         defaults: Mapping[str, str] | None = None,
         **overrides: str,

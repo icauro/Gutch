@@ -629,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn pull_planning_accepts_a_reader_without_hostapp_or_http() {
+    fn pull_planning_accepts_a_reader_without_host_or_http() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let plan = plan_pull_with_provider(
             directory.path(),

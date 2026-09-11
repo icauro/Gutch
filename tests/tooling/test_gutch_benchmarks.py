@@ -231,8 +231,8 @@ def test_benchmark_environment_is_in_yaml_and_preserves_process_values(tmp_path:
                 "  product_root: products",
                 "  artifacts_root: artifacts",
                 "environment:",
-                "  S3_MAIN_BUCKET_NAME: file-bucket",
-                "  S3_MAIN_ENDPOINT: http://file-endpoint",
+                "  GUTCH_S3_BUCKET_NAME: file-bucket",
+                "  GUTCH_S3_ENDPOINT: http://file-endpoint",
                 "container:",
                 "  default_target: test-server",
                 "  workspace_root: /tmp/benchmark",
@@ -246,7 +246,7 @@ def test_benchmark_environment_is_in_yaml_and_preserves_process_values(tmp_path:
         ),
         encoding="utf-8",
     )
-    monkeypatch.setenv("S3_MAIN_BUCKET_NAME", "process-bucket")
+    monkeypatch.setenv("GUTCH_S3_BUCKET_NAME", "process-bucket")
 
     loaded = load_benchmark_environment(config_path)
 
@@ -256,8 +256,8 @@ def test_benchmark_environment_is_in_yaml_and_preserves_process_values(tmp_path:
 
 
 def test_s3_settings_use_fixture_values_when_environment_is_absent(monkeypatch) -> None:
-    monkeypatch.delenv("S3_MAIN_BUCKET_NAME", raising=False)
-    monkeypatch.delenv("S3_MAIN_ENDPOINT", raising=False)
+    monkeypatch.delenv("GUTCH_S3_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("GUTCH_S3_ENDPOINT", raising=False)
 
     settings = gutch_cli._s3_settings(
         SimpleNamespace(
@@ -269,16 +269,16 @@ def test_s3_settings_use_fixture_values_when_environment_is_absent(monkeypatch) 
         ),
         {
             "endpoint": "http://127.0.0.1:9744",
-            "bucket": "hostapp-main",
+            "bucket": "gutch-tests",
             "region": "auto",
-            "access_key_default": "hostapp-local",
-            "secret_key_default": "hostapp-local-secret-key",
+            "access_key_default": "gutch-test-access",
+            "secret_key_default": "gutch-test-secret",
         },
     )
 
     assert settings.endpoint == "http://127.0.0.1:9744"
-    assert settings.bucket == "hostapp-main"
-    assert settings.access_key_id == "hostapp-local"
+    assert settings.bucket == "gutch-tests"
+    assert settings.access_key_id == "gutch-test-access"
 
 
 def test_gutch_no_argument_launcher_is_interactive(monkeypatch, capsys) -> None:
@@ -697,7 +697,7 @@ def test_benchmark_config_owns_server_and_path_settings(tmp_path: Path) -> None:
                 "  product_root: products",
                 "  artifacts_root: artifacts",
                 "environment:",
-                "  S3_MAIN_BUCKET_NAME: test-bucket",
+                "  GUTCH_S3_BUCKET_NAME: test-bucket",
                 "dataset:",
                 "  blender_versions:",
                 "    - 5.2.0",
@@ -722,7 +722,7 @@ def test_benchmark_config_owns_server_and_path_settings(tmp_path: Path) -> None:
     loaded = load_benchmark_config(config_path)
     assert loaded.product_root == (tmp_path / "products").resolve()
     assert loaded.artifacts_root == (tmp_path / "artifacts").resolve()
-    assert loaded.environment == {"S3_MAIN_BUCKET_NAME": "test-bucket"}
+    assert loaded.environment == {"GUTCH_S3_BUCKET_NAME": "test-bucket"}
     assert loaded.blender_versions == ("5.2.0",)
     assert loaded.blender_platforms == ("linux-x64",)
 
@@ -749,10 +749,10 @@ def test_container_runner_uploads_fixed_bundle_and_downloads_outputs(tmp_path: P
                 f"  product_root: {tmp_path.as_posix()}/products",
                 f"  artifacts_root: {tmp_path.as_posix()}/artifacts",
                 "environment:",
-                "  S3_MAIN_BUCKET_NAME: test-bucket",
+                "  GUTCH_S3_BUCKET_NAME: test-bucket",
                 "container:",
                 "  default_target: test-server",
-                "  workspace_root: /tmp/hostapp-gutch-benchmark",
+                "  workspace_root: /tmp/gutch-benchmark",
                 "  fixtures_root: /tmp/fixtures",
                 "  python: python3",
                 "ssh:",

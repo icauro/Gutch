@@ -740,7 +740,7 @@ mod path_tests {
     #[test]
     fn cli_rejects_relative_filesystem_paths() {
         let error =
-            Cli::try_parse_from(["hostapp-cli", "repo", "status", "--repo", "relative/repo"])
+            Cli::try_parse_from(["gutch-cli", "repo", "status", "--repo", "relative/repo"])
                 .err()
                 .expect("relative repo path must be rejected");
         assert!(error.to_string().contains("path must be absolute"));

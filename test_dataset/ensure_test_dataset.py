@@ -398,7 +398,7 @@ def _download_blender_asset(asset: BlenderAsset, destination: Path, base_url: st
     temporary_path.unlink(missing_ok=True)
     request = urllib.request.Request(
         series_url,
-        headers={"User-Agent": "hostapp-gutch-test-data/1"},
+        headers={"User-Agent": "gutch-test-data/1"},
     )
     try:
         with urllib.request.urlopen(request, timeout=120) as response, temporary_path.open("wb") as output:

@@ -12,13 +12,7 @@ source:
     seed: 0
 storage:
   backend: s3
-  endpoint: http://127.0.0.1:9744
-  bucket: hostapp-main
-  region: auto
-  access_key_env: HOSTAPP_SEAWEED_ACCESS_KEY
-  secret_key_env: HOSTAPP_SEAWEED_SECRET_KEY
-  access_key_default: hostapp-local
-  secret_key_default: hostapp-local-secret-key
+  env_prefix: GUTCH_S3
   upload_concurrency: 8
 transfer:
   policy: fixed

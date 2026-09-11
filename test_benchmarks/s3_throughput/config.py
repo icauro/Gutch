@@ -64,7 +64,7 @@ def load_storage_scenario(path: Path) -> StorageScenario:
         targets.append(
             StorageTarget(
                 name=raw["name"],
-                env_prefix=str(raw.get("env_prefix", "S3_MAIN")),
+                env_prefix=str(raw.get("env_prefix", "GUTCH_S3")),
                 endpoint=str(raw["endpoint"]) if raw.get("endpoint") else None,
                 region=str(raw.get("region", "auto")),
                 bucket=str(raw["bucket"]) if raw.get("bucket") else None,

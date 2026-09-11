@@ -106,7 +106,7 @@ def _run_explicit(arguments: list[str]) -> int:
             raise SystemExit("storage list does not accept additional arguments")
         _print_fixtures()
         return 0
-    parser = argparse.ArgumentParser(prog="gutch_repo.test_benchmarks.s3_throughput")
+    parser = argparse.ArgumentParser(prog="test_benchmarks.s3_throughput")
     add_arguments(parser)
     return run_command(parser.parse_args(arguments))
 

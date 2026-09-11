@@ -6,11 +6,11 @@ local:
   artifacts_root: ../tests/.artifacts/runs/benchmarks
 
 environment:
-  S3_MAIN_BUCKET_NAME: ""
-  S3_MAIN_ENDPOINT: ""
-  S3_MAIN_REGION: auto
-  S3_MAIN_ACCESS_KEY: ""
-  S3_MAIN_SECRET_KEY: ""
+  GUTCH_S3_BUCKET_NAME: ""
+  GUTCH_S3_ENDPOINT: ""
+  GUTCH_S3_REGION: auto
+  GUTCH_S3_ACCESS_KEY: ""
+  GUTCH_S3_SECRET_KEY: ""
 
 dataset:
   blender_versions:

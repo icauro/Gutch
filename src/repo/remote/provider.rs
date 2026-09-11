@@ -177,7 +177,7 @@ pub struct RemoteRepositorySummary {
     pub repository_name: String,
 }
 
-/// Provider-neutral result listing tags referenced by the remote access ruleset.
+/// Provider-neutral result listing tags referenced by the remote provider ruleset.
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteTagReferencesResult {
     pub repo_root: String,
@@ -185,7 +185,7 @@ pub struct RemoteTagReferencesResult {
     pub referenced_tags: Vec<crate::repo::tag_references::TagReferenceStatus>,
 }
 
-/// HostApp or another host application supplies this context to Gutch's remote CLI.
+/// The host application supplies this context to Gutch's remote CLI.
 ///
 /// The context owns backend configuration and authentication. Gutch only receives the
 /// provider-neutral operations needed to synchronize repos and evaluate tags.

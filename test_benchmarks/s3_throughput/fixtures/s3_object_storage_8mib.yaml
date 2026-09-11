@@ -4,7 +4,7 @@ description: Upload and download a shared 8 MiB object set against S3 targets.
 targets:
   - name: testing
     enabled: true
-    env_prefix: S3_MAIN
+    env_prefix: GUTCH_S3
 prepare:
   prefix: benchmarks/8mib-set
   size: 8MiB

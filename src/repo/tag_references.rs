@@ -1,4 +1,4 @@
-//! Provider-neutral references to tags used by remote access rulesets.
+//! Provider-neutral references to tags used by remote provider rulesets.
 
 use serde::Serialize;
 

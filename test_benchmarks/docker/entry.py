@@ -155,7 +155,7 @@ def main() -> int:
     fixture = replace(fixture, open_perfetto=False)
     artifacts_root = workspace / "artifacts"
     before = {path for path in artifacts_root.iterdir()} if artifacts_root.is_dir() else set()
-    settings = S3Settings.from_environment("S3_MAIN")
+    settings = S3Settings.from_environment("GUTCH_S3")
     run_root: Path | None = None
     _emit_progress(
         "benchmark",
