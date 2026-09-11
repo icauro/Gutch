@@ -32,7 +32,7 @@ pub(crate) fn typed_file_manifest(file_manifest: &FileManifest) -> Result<TypedF
                         chunk_ref.chunk_hash, file_manifest.path, err
                     ))
                 })?,
-                raw_size: chunk_ref.raw_size,
+                raw_size: u64::from(chunk_ref.raw_size),
                 hash_hex: chunk_ref.chunk_hash.as_str(),
             })
         })

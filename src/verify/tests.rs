@@ -165,11 +165,11 @@ fn verify_contiguous_chunks_detects_corruption() {
         chunks: vec![
             crate::manifest::ChunkRef {
                 chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_a_data)),
-                raw_size: chunk_a_data.len() as u64,
+                raw_size: chunk_a_data.len() as u32,
             },
             crate::manifest::ChunkRef {
                 chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_b_data)),
-                raw_size: chunk_b_data.len() as u64,
+                raw_size: chunk_b_data.len() as u32,
             },
         ],
     });
@@ -205,7 +205,7 @@ fn verify_contiguous_chunks_single_chunk() {
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
             chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
-            raw_size: data.len() as u64,
+            raw_size: data.len() as u32,
         }],
     });
     let (errors, _) = verify_fast(&manifest, &dir).unwrap();
@@ -232,7 +232,7 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
             chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
-            raw_size: data.len() as u64,
+            raw_size: data.len() as u32,
         }],
     });
 
@@ -300,11 +300,11 @@ fn verify_strict_mode_checks_chunk_hashing() {
         chunks: vec![
             crate::manifest::ChunkRef {
                 chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_b_data)),
-                raw_size: chunk_a_data.len() as u64,
+                raw_size: chunk_a_data.len() as u32,
             },
             crate::manifest::ChunkRef {
                 chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(chunk_a_data)),
-                raw_size: chunk_b_data.len() as u64,
+                raw_size: chunk_b_data.len() as u32,
             },
         ],
     });
@@ -380,7 +380,7 @@ fn verify_with_hints_records_runtime_plan() {
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
             chunk_hash: crate::hash::hash_hex(&crate::hash::hash_chunk(data)),
-            raw_size: data.len() as u64,
+            raw_size: data.len() as u32,
         }],
     });
 

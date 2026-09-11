@@ -66,12 +66,21 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             )));
         }
         if let SnapshotEntry::File(file) = entry {
+            crate::ChunkHash::parse_hex(&file.full_file_hash)?;
+            for chunk in &file.chunks {
+                crate::ChunkHash::parse_hex(&chunk.chunk_hash)?;
+                if chunk.raw_size == 0
+                    || u64::from(chunk.raw_size) > crate::artifact::format::MAX_RAW_CHUNK_SIZE
+                {
+                    return Err(crate::Error::manifest("invalid snapshot chunk size"));
+                }
+            }
             let chunk_bytes = file.chunks.iter().try_fold(0u64, |total, chunk| {
                 total
-                    .checked_add(chunk.raw_size)
+                    .checked_add(u64::from(chunk.raw_size))
                     .ok_or_else(|| crate::Error::manifest("snapshot blueprint chunk size overflow"))
             })?;
-            if !file.chunks.is_empty() && chunk_bytes != file.size {
+            if chunk_bytes != file.size {
                 return Err(crate::Error::manifest(format!(
                     "snapshot blueprint file '{}' size does not match its chunks",
                     file.path
@@ -96,17 +105,16 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkRef {
     pub chunk_hash: String,
-    pub raw_size: u64,
+    pub raw_size: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleTableEntry {
     pub chunk_hash: String,
-    pub raw_size: u64,
-    pub compressed_size: u64,
-    pub compressed_offset: u64,
+    pub raw_size: u32,
+    pub compressed_size: u32,
     #[serde(default)]
-    pub raw_offset: u64,
+    pub raw_offset: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,15 +133,17 @@ pub struct Estimate {
 pub struct ChunkIndex {
     pub format_version: String,
     pub updated_at: String,
-    pub entries: std::collections::BTreeMap<String, ChunkIndexEntry>,
+    pub entries: super::ChunkIndexEntries,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkIndexEntry {
-    pub bundle_id: String,
-    pub raw_size: u64,
-    pub compressed_size: u64,
+    pub artifact_size: u32,
+    pub chunk_ordinal: u32,
+    pub bundle_id: smol_str::SmolStr,
+    pub raw_size: u32,
+    pub compressed_size: u32,
     #[serde(default)]
     pub storage_mode: ArtifactStorageMode,
 }

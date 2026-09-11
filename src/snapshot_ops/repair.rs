@@ -46,110 +46,121 @@ pub fn repair_snapshot_from_repo(
     request: SnapshotRepairFromRepoRequest,
 ) -> Result<SnapshotRepairFromRepoResult> {
     request.control.checkpoint()?;
-    let _operation_span = request.control.profile_span("reconstructed.repair");
-    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
-        &request.repo_path,
-        &request.snapshot_id,
-    )?;
-    let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
-    let chunk_index = crate::load_chunk_index(&repo_paths)?;
-    let operation_pool = if snapshot_manifest.entries.is_empty() {
-        None
-    } else {
-        let worker_count = plan_runtime(&request.runtime_hints).worker_count;
-        let _pool_span = request.control.profile_span_with_args(
-            "reconstructed.repair.prepare.pool",
-            std::collections::BTreeMap::from([(
-                "worker_count".to_string(),
-                serde_json::json!(worker_count),
-            )]),
-        );
-        Some(build_thread_pool(worker_count, "gutch-repair")?)
-    };
-    let repair_plan = plan_repair_snapshot_ops(
-        &snapshot_manifest,
-        Some(&chunk_index),
-        &request.destination_dir,
-        request.remove_added_files,
-        &request.runtime_hints,
-        &request.control,
-        operation_pool.as_ref(),
-    )?;
-    let staging_dir = request.staging_dir.unwrap_or_else(|| {
-        default_snapshot_staging_dir(&request.destination_dir, &snapshot_manifest.snapshot_id)
-    });
-    let staging = super::apply::create_snapshot_staging(
-        &request.destination_dir,
-        &staging_dir,
-        &repo_paths.repo_root,
-        None,
-    )?;
-    let staging_dir = staging.path().to_path_buf();
-    let resolved_bundle_file_count = repair_plan
-        .required_artifacts
-        .iter()
-        .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
-        .count();
-    if repair_plan.needs_rebuild {
-        let _reconstruct_span = request
-            .control
-            .profile_span("reconstructed.repair.reconstruct");
-        let mut existing_artifacts = HashSet::new();
-        for artifact in &repair_plan.required_artifacts {
-            if artifact.local_path(&repo_paths)?.is_file() {
-                existing_artifacts.insert(artifact.clone());
-            }
-        }
-        let pipeline_plan = {
-            let _plan_span = request
-                .control
-                .profile_span("reconstructed.repair.prepare.plan");
-            build_reconstruct_pipeline_plan(
-                &repair_plan.affected_manifest,
-                &chunk_index,
-                &repo_paths,
-                &existing_artifacts,
-                None,
-            )?
+    let operation_root = (&request.repo_path).to_path_buf();
+    crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
+        request.control.checkpoint()?;
+        let _operation_span = request.control.profile_span("reconstructed.repair");
+        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+            &request.repo_path,
+            &request.snapshot_id,
+        )?;
+        let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
+        let chunk_index = crate::load_chunk_index(&repo_paths)?;
+        let operation_pool = if snapshot_manifest.entries.is_empty() {
+            None
+        } else {
+            let worker_count = plan_runtime(&request.runtime_hints).worker_count;
+            let _pool_span = request.control.profile_span_with_args(
+                "reconstructed.repair.prepare.pool",
+                std::collections::BTreeMap::from([(
+                    "worker_count".to_string(),
+                    serde_json::json!(worker_count),
+                )]),
+            );
+            Some(build_thread_pool(worker_count, "gutch-repair")?)
         };
-        let compression_profile = repo_manifest.compression_profile();
-        let output_paths = prepare_snapshot_entries(
-            &repair_plan.affected_manifest,
-            &staging_dir,
+        let _promotion_lock = super::apply::prepare_directory_promotion(
+            &request.destination_dir,
+            request.staging_dir.as_deref(),
+            &request.repo_path,
+            &request.control,
+        )?;
+        let repair_plan = plan_repair_snapshot_ops(
+            &snapshot_manifest,
+            Some(&chunk_index),
+            &request.destination_dir,
+            request.remove_added_files,
+            &request.runtime_hints,
             &request.control,
             operation_pool.as_ref(),
         )?;
-        let _ = execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
-            pipeline_plan,
-            output_paths,
-            snapshot_id: &snapshot_manifest.snapshot_id,
-            compression_profile: &compression_profile,
-            runtime_hints: &request.runtime_hints,
-            existing_artifacts: &existing_artifacts,
-            pending_bundle_downloads: &[],
-            transfer_policy: super::types::TransferConcurrencyPolicy::default(),
-            control: &request.control,
-            download_client: None,
-            transfer_progress: None,
-            reconstruct_pool: operation_pool.as_ref(),
-        })?;
-    }
-    let repair_result = finalize_repair_result_after_reconstruction(
-        &snapshot_manifest,
-        &request.destination_dir,
-        &staging_dir,
-        request.remove_added_files,
-        &request.runtime_hints,
-        &repair_plan,
-        &request.control,
-        operation_pool.as_ref(),
-    )?;
+        let staging_dir = request.staging_dir.unwrap_or_else(|| {
+            default_snapshot_staging_dir(&request.destination_dir, &snapshot_manifest.snapshot_id)
+        });
+        let staging = super::apply::create_snapshot_staging(
+            &request.destination_dir,
+            &staging_dir,
+            &repo_paths.repo_root,
+            None,
+        )?;
+        let staging_dir = staging.path().to_path_buf();
+        let resolved_bundle_file_count = repair_plan
+            .required_artifacts
+            .iter()
+            .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
+            .count();
+        if repair_plan.needs_rebuild {
+            let _reconstruct_span = request
+                .control
+                .profile_span("reconstructed.repair.reconstruct");
+            let mut existing_artifacts = HashSet::new();
+            for artifact in &repair_plan.required_artifacts {
+                if artifact.local_path(&repo_paths)?.is_file() {
+                    existing_artifacts.insert(artifact.clone());
+                }
+            }
+            let pipeline_plan = {
+                let _plan_span = request
+                    .control
+                    .profile_span("reconstructed.repair.prepare.plan");
+                build_reconstruct_pipeline_plan(
+                    &repair_plan.affected_manifest,
+                    &chunk_index,
+                    &repo_paths,
+                    &existing_artifacts,
+                    None,
+                )?
+            };
+            let compression_profile = repo_manifest.compression_profile();
+            let output_paths = prepare_snapshot_entries(
+                &repair_plan.affected_manifest,
+                &staging_dir,
+                &request.control,
+                operation_pool.as_ref(),
+            )?;
+            let _ =
+                execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
+                    pipeline_plan,
+                    output_paths,
+                    snapshot_id: &snapshot_manifest.snapshot_id,
+                    compression_profile: &compression_profile,
+                    runtime_hints: &request.runtime_hints,
+                    existing_artifacts: &existing_artifacts,
+                    pending_bundle_downloads: &[],
+                    transfer_policy: super::types::TransferConcurrencyPolicy::default(),
+                    control: &request.control,
+                    download_client: None,
+                    transfer_progress: None,
+                    reconstruct_pool: operation_pool.as_ref(),
+                })?;
+        }
+        let repair_result = finalize_repair_result_after_reconstruction(
+            &snapshot_manifest,
+            &request.destination_dir,
+            &staging_dir,
+            request.remove_added_files,
+            &request.runtime_hints,
+            &repair_plan,
+            &request.control,
+            operation_pool.as_ref(),
+        )?;
 
-    Ok(SnapshotRepairFromRepoResult {
-        repo_root: repo_paths.repo_root,
-        snapshot_manifest,
-        repair_result,
-        resolved_bundle_file_count,
+        Ok(SnapshotRepairFromRepoResult {
+            repo_root: repo_paths.repo_root,
+            snapshot_manifest,
+            repair_result,
+            resolved_bundle_file_count,
+        })
     })
 }
 
@@ -157,33 +168,37 @@ pub fn plan_repair_snapshot_from_repo(
     request: SnapshotRepairPlanFromRepoRequest,
 ) -> Result<SnapshotRepairPlanFromRepoResult> {
     request.control.checkpoint()?;
-    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
-        &request.repo_path,
-        &request.snapshot_id,
-    )?;
-    let chunk_index = crate::load_chunk_index(&repo_paths)?;
-    let repair_plan = plan_repair_snapshot_ops(
-        &snapshot_manifest,
-        Some(&chunk_index),
-        &request.destination_dir,
-        request.remove_added_files,
-        &request.runtime_hints,
-        &request.control,
-        None,
-    )?;
+    let operation_root = (&request.repo_path).to_path_buf();
+    crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
+        request.control.checkpoint()?;
+        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+            &request.repo_path,
+            &request.snapshot_id,
+        )?;
+        let chunk_index = crate::load_chunk_index(&repo_paths)?;
+        let repair_plan = plan_repair_snapshot_ops(
+            &snapshot_manifest,
+            Some(&chunk_index),
+            &request.destination_dir,
+            request.remove_added_files,
+            &request.runtime_hints,
+            &request.control,
+            None,
+        )?;
 
-    Ok(SnapshotRepairPlanFromRepoResult {
-        repo_root: repo_paths.repo_root,
-        snapshot_manifest,
-        missing_file_count: repair_plan.missing_file_count,
-        corrupt_file_count: repair_plan.corrupt_file_count,
-        extra_file_count: repair_plan.extra_file_count,
-        needs_rebuild: repair_plan.needs_rebuild,
-        required_bundle_ids: repair_plan
-            .required_artifacts
-            .into_iter()
-            .map(|artifact| artifact.id().to_string())
-            .collect(),
+        Ok(SnapshotRepairPlanFromRepoResult {
+            repo_root: repo_paths.repo_root,
+            snapshot_manifest,
+            missing_file_count: repair_plan.missing_file_count,
+            corrupt_file_count: repair_plan.corrupt_file_count,
+            extra_file_count: repair_plan.extra_file_count,
+            needs_rebuild: repair_plan.needs_rebuild,
+            required_bundle_ids: repair_plan
+                .required_artifacts
+                .into_iter()
+                .map(|artifact| artifact.id().to_string())
+                .collect(),
+        })
     })
 }
 

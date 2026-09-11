@@ -120,23 +120,27 @@ pub fn verify_installed_snapshot(
     request: SnapshotVerifyFromRepoRequest,
 ) -> Result<SnapshotVerifyFromRepoResult> {
     request.control.checkpoint()?;
-    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
-        &request.repo_path,
-        &request.snapshot_id,
-    )?;
-    let (classification, verify_timings) = classify_directory(VerifyRequest {
-        snapshot_manifest: &snapshot_manifest,
-        dir: &request.destination_dir,
-        mode: request.verify_mode,
-        runtime_hints: &request.runtime_hints,
-        control: request.control,
-    })?;
+    let root = request.repo_path.clone();
+    crate::repo::coordination::read_with_control(&root, &request.control.clone(), || {
+        request.control.checkpoint()?;
+        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+            &request.repo_path,
+            &request.snapshot_id,
+        )?;
+        let (classification, verify_timings) = classify_directory(VerifyRequest {
+            snapshot_manifest: &snapshot_manifest,
+            dir: &request.destination_dir,
+            mode: request.verify_mode,
+            runtime_hints: &request.runtime_hints,
+            control: request.control,
+        })?;
 
-    Ok(SnapshotVerifyFromRepoResult {
-        repo_root: repo_paths.repo_root,
-        snapshot_manifest,
-        classification,
-        verify_timings,
+        Ok(SnapshotVerifyFromRepoResult {
+            repo_root: repo_paths.repo_root,
+            snapshot_manifest,
+            classification,
+            verify_timings,
+        })
     })
 }
 
@@ -144,75 +148,85 @@ pub fn reconstruct_snapshot_from_repo(
     request: SnapshotReconstructFromRepoRequest,
 ) -> Result<SnapshotReconstructFromRepoResult> {
     request.control.checkpoint()?;
-    let _operation_span = request.control.profile_span("snapshot.reconstruct");
-    let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
-        &request.repo_path,
-        &request.snapshot_id,
-    )?;
-    let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
-    let chunk_index = crate::load_chunk_index(&repo_paths)?;
-    let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
-    let mut existing_artifacts = HashSet::new();
-    for artifact in &required_artifacts {
-        if artifact.local_path(&repo_paths)?.is_file() {
-            existing_artifacts.insert(artifact.clone());
+    let operation_root = (&request.repo_path).to_path_buf();
+    crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
+        request.control.checkpoint()?;
+        let _operation_span = request.control.profile_span("snapshot.reconstruct");
+        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+            &request.repo_path,
+            &request.snapshot_id,
+        )?;
+        let (_, repo_manifest) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
+        let chunk_index = crate::load_chunk_index(&repo_paths)?;
+        let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
+        let mut existing_artifacts = HashSet::new();
+        for artifact in &required_artifacts {
+            if artifact.local_path(&repo_paths)?.is_file() {
+                existing_artifacts.insert(artifact.clone());
+            }
         }
-    }
 
-    let source_manifest = match request.source_snapshot_id.as_ref() {
-        Some(source_snapshot_id) => Some(crate::load_snapshot_manifest(
-            &repo_paths,
-            source_snapshot_id,
-        )?),
-        None => None,
-    };
-    let source_destination_dir = source_manifest.as_ref().map(|_| {
-        request
-            .source_dir
-            .clone()
-            .unwrap_or_else(|| request.destination_dir.clone())
-    });
-    let source = source_manifest
-        .as_ref()
-        .zip(source_destination_dir.as_ref())
-        .map(
-            |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
-                snapshot_manifest: source_manifest,
-                destination_dir: source_destination_dir,
+        let _promotion_lock = prepare_directory_promotion(
+            &request.destination_dir,
+            request.staging_dir.as_deref(),
+            &request.repo_path,
+            &request.control,
+        )?;
+        let source_manifest = match request.source_snapshot_id.as_ref() {
+            Some(source_snapshot_id) => Some(crate::load_snapshot_manifest(
+                &repo_paths,
+                source_snapshot_id,
+            )?),
+            None => None,
+        };
+        let source_destination_dir = source_manifest.as_ref().map(|_| {
+            request
+                .source_dir
+                .clone()
+                .unwrap_or_else(|| request.destination_dir.clone())
+        });
+        let source = source_manifest
+            .as_ref()
+            .zip(source_destination_dir.as_ref())
+            .map(
+                |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
+                    snapshot_manifest: source_manifest,
+                    destination_dir: source_destination_dir,
+                },
+            );
+        let verified_source =
+            resolve_verified_source(source, &request.runtime_hints, &request.control)?;
+        let pipeline_plan = {
+            let _plan_span = request
+                .control
+                .profile_span("snapshot.reconstruct.prepare.plan");
+            super::pipeline::build_reconstruct_pipeline_plan(
+                &snapshot_manifest,
+                &chunk_index,
+                &repo_paths,
+                &existing_artifacts,
+                verified_source,
+            )?
+        };
+        super::pipeline::apply_reconstruct_pipeline(
+            super::pipeline::ReconstructPipelineApplyRequest {
+                repo_root: &repo_paths.repo_root,
+                compression_profile: repo_manifest.compression_profile(),
+                snapshot_manifest: &snapshot_manifest,
+                destination_dir: &request.destination_dir,
+                staging_dir: request.staging_dir.as_deref(),
+                source_destination_dir,
+                runtime_hints: &request.runtime_hints,
+                existing_artifacts: &existing_artifacts,
+                pending_bundle_downloads: &[],
+                transfer_policy: super::types::TransferConcurrencyPolicy::default(),
+                control: &request.control,
+                download_client: None,
+                transfer_progress: None,
             },
-        );
-    let verified_source =
-        resolve_verified_source(source, &request.runtime_hints, &request.control)?;
-    let pipeline_plan = {
-        let _plan_span = request
-            .control
-            .profile_span("snapshot.reconstruct.prepare.plan");
-        super::pipeline::build_reconstruct_pipeline_plan(
-            &snapshot_manifest,
-            &chunk_index,
-            &repo_paths,
-            &existing_artifacts,
-            verified_source,
-        )?
-    };
-    super::pipeline::apply_reconstruct_pipeline(
-        super::pipeline::ReconstructPipelineApplyRequest {
-            repo_root: &repo_paths.repo_root,
-            compression_profile: repo_manifest.compression_profile(),
-            snapshot_manifest: &snapshot_manifest,
-            destination_dir: &request.destination_dir,
-            staging_dir: request.staging_dir.as_deref(),
-            source_destination_dir,
-            runtime_hints: &request.runtime_hints,
-            existing_artifacts: &existing_artifacts,
-            pending_bundle_downloads: &[],
-            transfer_policy: super::types::TransferConcurrencyPolicy::default(),
-            control: &request.control,
-            download_client: None,
-            transfer_progress: None,
-        },
-        pipeline_plan,
-    )
+            pipeline_plan,
+        )
+    })
 }
 
 pub(super) struct BuildSnapshotReconstructResultRequest<'a> {
@@ -246,3 +260,36 @@ pub(super) fn build_snapshot_reconstruct_result(
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+pub(super) fn prepare_directory_promotion(
+    destination: &Path,
+    staging: Option<&Path>,
+    repository_path: &Path,
+    control: &crate::GutchOperationControl,
+) -> Result<std::fs::File> {
+    if let Some(staging) = staging {
+        crate::path_guard::require_disjoint_paths(staging, destination)?;
+    }
+    let resolved_destination = crate::path_guard::resolve_operation_path(destination)?;
+    let repository = crate::path_guard::resolve_operation_path(repository_path)?;
+    if repository.starts_with(&resolved_destination) {
+        return Err(Error::manifest(
+            "destination must not contain the repository",
+        ));
+    }
+    for owned in [
+        "bundles",
+        "chunks",
+        "snapshots",
+        ".gutch-transactions",
+        "repo_metadata.json",
+        "chunk_map.gtcbin",
+        "local_repo_config.json",
+        ".gutch-lock",
+    ] {
+        crate::path_guard::require_disjoint_paths(destination, &repository_path.join(owned))?;
+    }
+    let lock = crate::helpers::lock_directory_promotion(destination, control)?;
+    crate::helpers::recover_directory_promotion(destination)?;
+    Ok(lock)
+}

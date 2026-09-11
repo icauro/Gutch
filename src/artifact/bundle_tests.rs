@@ -115,8 +115,6 @@ fn test_build_and_read_bundle_compressed_payload() {
         payload.len(),
         "a bundled payload must be exactly one zstd frame"
     );
-    assert_eq!(reader.entries()[0].compressed_offset, 0);
-    assert_eq!(reader.entries()[1].compressed_offset, 0);
     assert!(
         reader
             .entries()

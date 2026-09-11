@@ -110,9 +110,11 @@ fn estimate_bundle_raw_capacity(
     let normalized_ratio = compression_ratio.max(0.01);
     ((compressed_target_bytes as f64 / normalized_ratio).ceil() as u64)
         .max(bundle_policy.preferred_size)
+        .min(crate::artifact::format::MAX_RAW_BUNDLE_SIZE)
 }
 
 struct PlannedBundleGroups {
+    encoded_limit: u64,
     groups: Vec<PlannedChunkGroup>,
     sort_duration: std::time::Duration,
     sort_bytes: u64,
@@ -131,6 +133,7 @@ fn plan_bundle_compressed_groups(
 ) -> Result<PlannedBundleGroups> {
     if chunks.is_empty() {
         return Ok(PlannedBundleGroups {
+            encoded_limit: bundle_policy.max_size,
             groups: Vec::new(),
             sort_duration: std::time::Duration::ZERO,
             sort_bytes: 0,
@@ -236,6 +239,7 @@ fn plan_bundle_compressed_groups(
     };
 
     Ok(PlannedBundleGroups {
+        encoded_limit: bundle_policy.max_size,
         groups: planned_groups,
         sort_duration: hash_sort_duration + locality_sort_duration,
         sort_bytes,
@@ -355,6 +359,8 @@ fn build_bundled_chunks(
     let artifact_staging_root = artifact_staging_root.to_path_buf();
     let progress_for_work = progress.clone();
     let total_bundle_count = planned_bundle_groups.groups.len();
+    let encoded_limit = planned_bundle_groups.encoded_limit;
+    let memory = crate::runtime::MemoryBudget::new();
     let work_items = planned_bundle_groups
         .groups
         .into_iter()
@@ -369,6 +375,7 @@ fn build_bundled_chunks(
                 .iter()
                 .map(|(_, payload)| payload.raw_size())
                 .sum();
+            let _memory = memory.acquire(raw_size + 128 * 1024 * 1024, control)?;
             let chunk_count = planned_bundle.len();
             let _bundle_span = control.profile_span_with_args(
                 "capture.compress_bundle_artifact",
@@ -381,8 +388,9 @@ fn build_bundled_chunks(
                     None,
                 ),
             );
-            build_bundle_compressed_group(
+            build_bounded_bundle_groups(
                 planned_bundle,
+                encoded_limit,
                 &compression_profile_for_work,
                 &artifact_staging_root,
                 control,
@@ -397,12 +405,15 @@ fn build_bundled_chunks(
                         total_bundle_count,
                         chunk_count,
                         raw_size,
-                        Some((&built.bundle_id, built.bundle_size)),
+                        built
+                            .first()
+                            .map(|bundle| (bundle.bundle_id.as_str(), bundle.bundle_size)),
                     ),
                 );
             })
         },
     )
+    .map(|groups| groups.into_iter().flatten().collect())
 }
 
 fn build_loose_chunks(
@@ -530,11 +541,16 @@ fn build_loose_chunk(
     let bytes = payload.load_bytes()?;
     let payload_load = load_start.elapsed();
 
-    let data = compress::compress_with_profile(&bytes, compression_profile)?;
-    use std::io::Write;
     let mut staged = tempfile::NamedTempFile::new_in(artifact_staging_root)?;
-    staged.write_all(&data)?;
-    let compressed_size = data.len() as u64;
+    crate::artifact::store::write_loose_chunk(
+        &mut staged,
+        chunk_hash,
+        &bytes,
+        compression_profile,
+    )?;
+    staged.as_file().sync_all()?;
+    let compressed_size = staged.as_file().metadata()?.len();
+    crate::artifact::format::size_u32(compressed_size)?;
     let staged_file = StagedArtifactFile::new(
         staged
             .into_temp_path()
@@ -551,6 +567,36 @@ fn build_loose_chunk(
         payload_load,
         payload_load_bytes: raw_size,
     })
+}
+
+fn build_bounded_bundle_groups(
+    planned: Vec<(ChunkHash, ChunkPayload)>,
+    encoded_limit: u64,
+    profile: &manifest::CompressionProfile,
+    staging: &Path,
+    control: &crate::GutchOperationControl,
+) -> Result<Vec<BuiltBundleCompressedGroup>> {
+    let built = build_bundle_compressed_group(planned.clone(), profile, staging, control)?;
+    if built.bundle_size <= encoded_limit {
+        return Ok(vec![built]);
+    }
+    drop(built);
+    if planned.len() < 2 {
+        return Err(crate::Error::bundle(
+            "single chunk cannot fit encoded bundle limit",
+        ));
+    }
+    let mut left = planned;
+    let right = left.split_off(left.len() / 2);
+    let mut result = build_bounded_bundle_groups(left, encoded_limit, profile, staging, control)?;
+    result.extend(build_bounded_bundle_groups(
+        right,
+        encoded_limit,
+        profile,
+        staging,
+        control,
+    )?);
+    Ok(result)
 }
 
 fn build_bundle_compressed_group(

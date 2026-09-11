@@ -5,7 +5,7 @@ Expected: Fetch fails without changing cached bytes and the previously cached sn
 usable.
 """
 from ..support.delivery import DeliveryServer, fetch_arguments
-from ..support.filesystem import inventory
+from ..support.filesystem import repository_inventory as inventory
 from ..support.delivery_workflow import published
 
 

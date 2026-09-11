@@ -13,13 +13,20 @@ impl ChunkHash {
     }
 
     pub fn parse_hex(hex: &str) -> Result<Self> {
-        let bytes = hex_decode(hex)?;
-        let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
-            crate::error::Error::verify(format!(
-                "chunk hash hex decoded to {} bytes, expected 32",
-                hex.len() / 2
-            ))
-        })?;
+        if hex.len() != 64 {
+            return Err(crate::Error::verify("hash must contain 64 hex bytes"));
+        }
+        let mut bytes = [0u8; 32];
+        for (output, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
+            let digit = |byte: u8| match byte {
+                b'0'..=b'9' => Ok(byte - b'0'),
+                b'a'..=b'f' => Ok(byte - b'a' + 10),
+                _ => Err(crate::Error::verify(
+                    "hash must use lowercase ASCII hexadecimal",
+                )),
+            };
+            *output = digit(pair[0])? * 16 + digit(pair[1])?;
+        }
         Ok(Self(bytes))
     }
 
@@ -29,6 +36,23 @@ impl ChunkHash {
 
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+}
+
+impl serde::Serialize for ChunkHash {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_hex())
+    }
+}
+impl<'de> serde::Deserialize<'de> for ChunkHash {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Self::parse_hex(&value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -51,6 +75,7 @@ pub fn hash_hex(hash: &blake3::Hash) -> String {
     hash.to_hex().to_string()
 }
 
+#[cfg(test)]
 pub(crate) fn hex_decode(hex: &str) -> Result<Vec<u8>> {
     if !hex.len().is_multiple_of(2) {
         return Err(crate::error::Error::verify("hex string has odd length"));

@@ -929,6 +929,8 @@ def test_storage_delete_and_abort_multipart_cover_all_pages(monkeypatch) -> None
 
 
 def test_storage_destructive_actions_require_confirmation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_cli, "load_storage_scenario", lambda _path: SimpleNamespace(
+        targets=[SimpleNamespace(name="main-prod", enabled=True)], prefix="test-owned"))
     monkeypatch.setattr(storage_cli, "load_benchmark_environment", lambda _path: None)
     try:
         storage_cli.run_command(

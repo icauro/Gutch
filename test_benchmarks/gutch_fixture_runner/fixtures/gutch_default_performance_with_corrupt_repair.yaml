@@ -1,0 +1,19 @@
+name: gutch_default_performance_with_corrupt_repair
+runner: gutch-fixture
+description: Default full-flow workload without tracing, repeated five times.
+delete_artifacts: true
+open_perfetto: false
+measurement_mode: performance
+repetitions: 5
+corrupt_repair: true
+lanes:
+  - label: default-gutch
+    tool: gutch
+    workload: individual
+    profile:
+      chunk: chunk_128KiB
+      bundle: bundle_8MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: bundled

@@ -106,6 +106,13 @@ pub enum SourceSnapshotOperationDisposition {
 }
 
 pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
+    if !repo_root.is_dir() {
+        return check_gutch_repo_unlocked(repo_root);
+    }
+    crate::repo::coordination::read(repo_root, || check_gutch_repo_unlocked(repo_root))
+}
+
+fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoCheckStatus> {
     let total_start = std::time::Instant::now();
     let repo_path = repo_root.to_path_buf();
     let repo_path_display = repo_path.display().to_string();

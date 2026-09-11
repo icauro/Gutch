@@ -76,8 +76,9 @@ The pool is reused across these units of work:
 Inventory enumeration, dedupe accounting, group assignment, and final manifest
 ordering provide deterministic boundaries between parallel work. The scan
 keeps the pending chunks needed for a file's hash phase in memory; the worker
-count limits concurrent file and packaging work, but the current capture API
-does not expose a separate byte-oriented memory budget.
+count limits concurrent file work. Bundle encoding additionally uses a shared
+512 MiB admission budget with raw-payload and codec reservations; callers do
+not configure that internal budget.
 
 ## Chunk and bundle locality
 
@@ -110,7 +111,9 @@ Capture retains chunk identities and source ranges instead of all source bytes.
 Duplicate chunks share one encoding plan. Payload memory scales with active file
 workers and artifact group sizes; inventory and chunk-reference metadata still
 scale with the dataset. Encoding re-reads source ranges, trading additional reads
-for lower retained memory. Both bundles and loose chunks are staged on disk and
+for lower retained memory. Encoded bundle bytes stream directly to staged files.
+Actual encoded size is checked against the preset maximum; oversized groups
+are split at chunk boundaries. Raw groups are capped at 256 MiB. Both bundles and loose chunks are staged on disk and
 released through the same operation-owned artifact lifecycle.
 
 ## Failure boundaries

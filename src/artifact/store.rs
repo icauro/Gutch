@@ -1,3 +1,5 @@
+use crate::artifact::format;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -19,7 +21,7 @@ impl ArtifactRef {
     pub(crate) fn from_chunk_entry(chunk_hash: &str, entry: &ChunkIndexEntry) -> Self {
         match entry.storage_mode {
             ArtifactStorageMode::Bundled => Self::Bundle {
-                id: entry.bundle_id.clone(),
+                id: entry.bundle_id.to_string(),
             },
             ArtifactStorageMode::LooseChunks => Self::LooseChunk {
                 hash: chunk_hash.to_string(),
@@ -103,25 +105,34 @@ pub(crate) fn read_loose_chunk_with_metrics(
     path: &std::path::Path,
     chunk_hash: &str,
     raw_size: u64,
-    compression_profile: &CompressionProfile,
+    _compression_profile: &CompressionProfile,
     profiler: Option<&crate::GutchProfiler>,
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
-    crate::compress::validate_profile(compression_profile)?;
     let mut metrics = LooseChunkReadMetrics::default();
-    let compressed = {
+    let (mut file, codec) = {
         let started_at = Instant::now();
         let _read_span =
             profiler.map(|profiler| profiler.span("artifact.loose_chunk.payload_read"));
-        let compressed = std::fs::read(path)?;
+        let mut file = std::fs::File::open(path)?;
+        metrics.compressed_bytes = file.metadata()?.len();
+        format::size_u32(metrics.compressed_bytes)?;
+        let (declared_hash, declared_size, codec) = read_loose_header(&mut file)?;
+        if declared_hash.to_hex() != chunk_hash || u64::from(declared_size) != raw_size {
+            return Err(Error::manifest(
+                "loose chunk header disagrees with requested content",
+            ));
+        }
         metrics.read = started_at.elapsed();
-        metrics.compressed_bytes = compressed.len() as u64;
-        compressed
+        (file, codec)
     };
     let bytes = {
         let started_at = Instant::now();
         let _decompress_span =
             profiler.map(|profiler| profiler.span("artifact.loose_chunk.payload_decompress"));
-        let bytes = crate::compress::decompress_data(&compressed, compression_profile.compression)?;
+        let mut decoder =
+            crate::compress::decoder_from_reader(&mut file, codec)?.take(raw_size + 1);
+        let mut bytes = Vec::with_capacity(raw_size as usize);
+        decoder.read_to_end(&mut bytes)?;
         metrics.decompress = started_at.elapsed();
         metrics.raw_bytes = bytes.len() as u64;
         bytes
@@ -152,4 +163,45 @@ pub(crate) fn read_loose_chunk_with_metrics(
         metrics.hash_verify = started_at.elapsed();
     }
     Ok((bytes, metrics))
+}
+
+pub(crate) fn write_loose_chunk(
+    writer: &mut impl Write,
+    hash: crate::ChunkHash,
+    bytes: &[u8],
+    profile: &CompressionProfile,
+) -> Result<()> {
+    if bytes.is_empty() || bytes.len() as u64 > format::MAX_RAW_CHUNK_SIZE {
+        return Err(Error::manifest("loose chunk exceeds raw size limit"));
+    }
+    writer.write_all(format::LOOSE_CHUNK_MAGIC)?;
+    writer.write_all(&format::VERSION.to_le_bytes())?;
+    format::write_codec(writer, profile.compression)?;
+    writer.write_all(&format::size_u32(bytes.len() as u64)?.to_le_bytes())?;
+    writer.write_all(hash.as_bytes())?;
+    crate::compress::encode_to_writer(writer, profile, bytes.len() as u64, |writer| {
+        writer.write_all(bytes)?;
+        Ok(())
+    })
+}
+
+pub(crate) fn read_loose_header(
+    reader: &mut impl Read,
+) -> Result<(crate::ChunkHash, u32, crate::manifest::CompressionKind)> {
+    let mut magic = [0u8; 16];
+    reader.read_exact(&mut magic)?;
+    if &magic != format::LOOSE_CHUNK_MAGIC {
+        return Err(Error::manifest("invalid loose chunk magic"));
+    }
+    format::read_version(reader)?;
+    let codec = format::read_codec(reader)?;
+    let mut size = [0u8; 4];
+    reader.read_exact(&mut size)?;
+    let size = u32::from_le_bytes(size);
+    if size == 0 || u64::from(size) > format::MAX_RAW_CHUNK_SIZE {
+        return Err(Error::manifest("invalid loose chunk raw size"));
+    }
+    let mut hash = [0u8; 32];
+    reader.read_exact(&mut hash)?;
+    Ok((crate::ChunkHash::from_bytes(hash), size, codec))
 }

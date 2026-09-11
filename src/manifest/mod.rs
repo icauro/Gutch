@@ -1,5 +1,7 @@
 pub(crate) mod binary;
+mod chunk_entries;
 mod content;
+pub(crate) use chunk_entries::ChunkIndexEntries;
 pub(crate) mod external_dependency;
 pub(crate) mod gutch_repo;
 pub(crate) mod launch;

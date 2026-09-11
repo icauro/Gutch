@@ -3,8 +3,8 @@
 Generated inputs live in each run, using `../support/datasets.py`. They never
 read or modify benchmark inputs.
 
-`reference-v2/` freezes four compact snapshots in the current format, recaptured
-on 2026-09-07 against the original independent inventories. `expected.json` records paths, SHA-256 content hashes, sizes and
+`reference-v2/` freezes four compact snapshots in the current format, recaptured into the clean-cut 16-byte-magic v1 formats
+on 2026-09-11 against the original independent inventories. `expected.json` records paths, SHA-256 content hashes, sizes and
 attributes from the original input bytes. It is not derived by reconstructing
 the fixture under test. The repository payload is under 100 KiB.
 

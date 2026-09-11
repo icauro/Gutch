@@ -21,6 +21,7 @@ pub(super) fn reconstruct_job(
     output_paths: &[PathBuf],
     precomputed_file_hashes: &[Mutex<Option<crate::ChunkHash>>],
     output_handles: &OutputHandleCache,
+    source_handles: &SourceHandleCache,
     compression_profile: &crate::manifest::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
@@ -29,7 +30,7 @@ pub(super) fn reconstruct_job(
             reconstruct_artifact_job(job, output_handles, compression_profile, control)
         }
         ReconstructJob::SourceChunk(job) => {
-            reconstruct_source_chunk_job(job, file_plans, output_handles, control)
+            reconstruct_source_chunk_job(job, file_plans, output_handles, source_handles, control)
         }
         ReconstructJob::CopySourceFile {
             file_index,
@@ -72,7 +73,15 @@ fn reconstruct_artifact_job(
             let mut required = vec![false; reader.entries().len()];
             let mut required_chunks = vec![None; reader.entries().len()];
             for (index, entry) in reader.entries().iter().enumerate() {
-                if let Some(chunk) = job.chunks.get(&entry.chunk_hash).cloned() {
+                if let Some(chunk) = job
+                    .chunks
+                    .binary_search_by_key(
+                        &crate::ChunkHash::parse_hex(&entry.chunk_hash)?,
+                        |chunk| chunk.chunk_hash,
+                    )
+                    .ok()
+                    .map(|index| &job.chunks[index])
+                {
                     required[index] = true;
                     required_chunks[index] = Some((entry.clone(), chunk));
                 }
@@ -92,7 +101,9 @@ fn reconstruct_artifact_job(
             let decoded_payload_bytes = reader
                 .entries()
                 .iter()
-                .try_fold(0u64, |total, entry| total.checked_add(entry.raw_size))
+                .try_fold(0u64, |total, entry| {
+                    total.checked_add(u64::from(entry.raw_size))
+                })
                 .ok_or_else(|| Error::reconstruct("bundle raw size overflows"))?;
             let _fanout_span = profiler.map(|profiler| {
                 profiler.span_with_args(
@@ -115,7 +126,6 @@ fn reconstruct_artifact_job(
                             ))
                         })?;
                     if chunk.raw_size != entry.raw_size
-                        || chunk.compressed_size != entry.compressed_size
                     {
                         return Err(Error::reconstruct(format!(
                             "bundle chunk '{}' size mismatch in '{}': expected raw {}, compressed {}; table has raw {}, compressed {}",
@@ -134,14 +144,15 @@ fn reconstruct_artifact_job(
                     timings.chunk_verify_bytes = timings
                         .chunk_verify_bytes
                         .saturating_add(bytes.len() as u64);
-                    if actual_hash.to_string() != chunk.chunk_hash {
+                    if actual_hash != chunk.chunk_hash {
                         return Err(Error::HashMismatch {
-                            expected: chunk.chunk_hash.clone(),
+                            expected: chunk.chunk_hash.to_hex(),
                             actual: actual_hash.to_string(),
                         });
                     }
                     write_reconstruct_targets(
                         chunk,
+                        &job.targets[chunk.targets.clone()],
                         bytes,
                         output_handles,
                         &mut target_handles,
@@ -162,14 +173,16 @@ fn reconstruct_artifact_job(
             timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
         }
         crate::ArtifactRef::LooseChunk { hash } => {
-            if job.chunks.len() != 1 || !job.chunks.contains_key(hash) {
+            if job.chunks.len() != 1
+                || job.chunks[0].chunk_hash != crate::ChunkHash::parse_hex(hash)?
+            {
                 return Err(Error::reconstruct(format!(
                     "loose artifact '{}' does not contain exactly its requested chunk",
                     hash
                 )));
             }
-            let chunk = job.chunks.get(hash).expect("validated loose chunk entry");
-            if compressed_bytes != chunk.compressed_size {
+            let chunk = &job.chunks[0];
+            if compressed_bytes != u64::from(chunk.compressed_size) {
                 return Err(Error::reconstruct(format!(
                     "loose artifact '{}' has compressed size {}, expected {}",
                     hash, compressed_bytes, chunk.compressed_size
@@ -178,7 +191,7 @@ fn reconstruct_artifact_job(
             let (bytes, read_metrics) = crate::artifact::store::read_loose_chunk_with_metrics(
                 &job.artifact_path,
                 hash,
-                chunk.raw_size,
+                u64::from(chunk.raw_size),
                 compression_profile,
                 profiler,
             )?;
@@ -192,6 +205,7 @@ fn reconstruct_artifact_job(
             timings.chunk_verify_bytes = read_metrics.raw_bytes;
             write_reconstruct_targets(
                 chunk,
+                &job.targets[chunk.targets.clone()],
                 &bytes,
                 output_handles,
                 &mut target_handles,
@@ -207,6 +221,7 @@ fn reconstruct_source_chunk_job(
     job: &ReconstructSourceChunkJob,
     file_plans: &[ReconstructPipelineFile],
     output_handles: &OutputHandleCache,
+    source_handles: &SourceHandleCache,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
@@ -214,10 +229,6 @@ fn reconstruct_source_chunk_job(
         "snapshot.reconstruct.job.source_chunk",
         source_chunk_trace_args(job),
     );
-    let mut input = {
-        let _open_span = control.profile_span("snapshot.reconstruct.source_chunk.open");
-        File::open(&job.source_path)?
-    };
     let mut bytes = vec![
         0u8;
         usize::try_from(job.raw_size).map_err(|_| {
@@ -233,8 +244,7 @@ fn reconstruct_source_chunk_job(
             "snapshot.reconstruct.source_chunk.read",
             source_chunk_trace_args(job),
         );
-        input.seek(SeekFrom::Start(job.source_offset))?;
-        input.read_exact(&mut bytes)?;
+        source_handles.read_range(&job.source_path, job.source_offset, &mut bytes)?;
     }
     let read_elapsed = read_started_at.elapsed();
     let hash_started_at = Instant::now();
@@ -383,13 +393,14 @@ fn copy_source_file_job(
 
 fn write_reconstruct_targets(
     chunk: &ReconstructArtifactChunk,
+    targets: &[ReconstructTarget],
     bytes: &[u8],
     output_handles: &OutputHandleCache,
     target_handles: &mut HashMap<usize, Arc<File>>,
     control: &GutchOperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {
-    if bytes.len() as u64 != chunk.raw_size {
+    if bytes.len() as u64 != u64::from(chunk.raw_size) {
         return Err(Error::reconstruct(format!(
             "artifact chunk '{}' has size {}, expected {}",
             chunk.chunk_hash,
@@ -398,7 +409,7 @@ fn write_reconstruct_targets(
         )));
     }
     let rebuild_started_at = Instant::now();
-    for target in &chunk.targets {
+    for target in targets {
         control.checkpoint()?;
         let write_started_at = Instant::now();
         let output = cached_target_handle(output_handles, target_handles, target.file_index)?;
@@ -417,6 +428,41 @@ pub(super) struct OutputHandleCache {
     output_paths: Arc<Vec<PathBuf>>,
     output_sizes: Arc<Vec<u64>>,
     state: Mutex<OutputHandleCacheState>,
+}
+
+#[derive(Default)]
+pub(super) struct SourceHandleCache {
+    handles: Mutex<HashMap<PathBuf, Arc<Mutex<File>>>>,
+}
+impl SourceHandleCache {
+    fn read_range(&self, path: &std::path::Path, offset: u64, bytes: &mut [u8]) -> Result<()> {
+        let input = {
+            let mut handles = self
+                .handles
+                .lock()
+                .map_err(|_| Error::reconstruct("source cache poisoned"))?;
+            if let Some(file) = handles.get(path) {
+                Arc::clone(file)
+            } else {
+                if handles.len() >= 64
+                    && let Some(key) = handles.keys().next().cloned()
+                {
+                    handles.remove(&key);
+                }
+                let file = Arc::new(Mutex::new(File::open(path)?));
+                handles.insert(path.to_path_buf(), Arc::clone(&file));
+                file
+            }
+        };
+        let mut input = input
+            .lock()
+            .map_err(|_| Error::reconstruct("source handle poisoned"))?;
+        if input.stream_position()? != offset {
+            input.seek(SeekFrom::Start(offset))?;
+        }
+        input.read_exact(bytes)?;
+        Ok(())
+    }
 }
 
 struct OutputHandleCacheState {
@@ -542,8 +588,8 @@ fn reconstruct_artifact_trace_args(
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let logical_bytes = job
         .chunks
-        .values()
-        .map(|chunk| chunk.raw_size.saturating_mul(chunk.targets.len() as u64))
+        .iter()
+        .map(|chunk| u64::from(chunk.raw_size).saturating_mul(chunk.targets.len() as u64))
         .sum::<u64>();
     std::collections::BTreeMap::from([
         (

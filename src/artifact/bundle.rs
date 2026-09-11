@@ -11,12 +11,11 @@ use crate::error::Result;
 use crate::hash::{self, ChunkHash};
 use crate::manifest::{BundleTableEntry, CompressionKind, CompressionProfile, CompressionUnit};
 
-const BUNDLE_MAGIC: &[u8; 8] = b"ZNRBNDL\0";
-const FOOTER_MAGIC: &[u8; 8] = b"ZNRFOOT\0";
-const BUNDLE_HEADER_SIZE: u64 = 8 + 4;
-const BUNDLE_TRAILER_SIZE: u64 = 8 + 8;
+use crate::artifact::format::{self, BUNDLE_FOOTER_MAGIC as FOOTER_MAGIC, BUNDLE_MAGIC};
+const BUNDLE_HEADER_SIZE: u64 = 16 + 2 + 2 + 4;
+const BUNDLE_TRAILER_SIZE: u64 = 4 + 16;
 const BUNDLE_ID_SIZE: u64 = 64;
-const BUNDLE_TABLE_ENTRY_SIZE: usize = 32 + (8 * 4);
+const BUNDLE_TABLE_ENTRY_SIZE: usize = 36;
 const STREAM_BUFFER_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Default)]
@@ -104,6 +103,7 @@ impl BundleBuilder {
         self.chunks.is_empty()
     }
 
+    #[cfg(test)]
     #[cfg(test)]
     pub(crate) fn chunk_count(&self) -> usize {
         self.chunks.len()
@@ -209,6 +209,8 @@ impl BundleBuilder {
         })?;
         let mut hashing = HashingWriter::new(file);
         hashing.write_all(BUNDLE_MAGIC)?;
+        hashing.write_all(&format::VERSION.to_le_bytes())?;
+        format::write_codec(&mut hashing, self.profile.compression)?;
         hashing.write_all(&chunk_count.to_le_bytes())?;
 
         let mut entries = Vec::with_capacity(self.chunks.len());
@@ -226,16 +228,16 @@ impl BundleBuilder {
             }
             entries.push(BundleTableEntry {
                 chunk_hash: chunk.hash.to_hex(),
-                raw_size: chunk.raw_size,
+                raw_size: format::size_u32(chunk.raw_size)?,
                 compressed_size: 0,
-                compressed_offset: 0,
-                raw_offset,
+                raw_offset: format::size_u32(raw_offset)?,
             });
             raw_offset = raw_offset.checked_add(chunk.raw_size).ok_or_else(|| {
                 crate::error::Error::InvalidBundle("bundle raw size overflow".into())
             })?;
         }
 
+        validate_bundle_entries(&entries, 0, 0)?;
         let compression_started_at = Instant::now();
         let _payload_span = profiler.map(|profiler| {
             profiler.span_with_args(
@@ -263,14 +265,15 @@ impl BundleBuilder {
             })
         })?;
         validate_profile(&self.profile)?;
-        if !raw_segments.is_empty() {
-            let compressed_payload = crate::compress::compress_segments_with_profile(
-                &raw_segments,
-                raw_size,
-                &self.profile,
-            )?;
-            hashing.write_all(&compressed_payload)?;
+        if raw_size > format::MAX_RAW_BUNDLE_SIZE {
+            return Err(crate::Error::bundle("bundle exceeds raw size limit"));
         }
+        crate::compress::encode_to_writer(&mut hashing, &self.profile, raw_size, |writer| {
+            for segment in &raw_segments {
+                writer.write_all(segment)?;
+            }
+            Ok(())
+        })?;
         let compression_time = compression_started_at.elapsed();
         let payload_end = hashing.position()?;
         let compressed_output_bytes =
@@ -295,7 +298,7 @@ impl BundleBuilder {
         let footer_length = u64::try_from(footer.len())
             .map_err(|_| crate::error::Error::InvalidBundle("bundle footer is too large".into()))?;
         hashing.write_all(&footer)?;
-        hashing.write_all(&footer_length.to_le_bytes())?;
+        hashing.write_all(&format::size_u32(footer_length)?.to_le_bytes())?;
         hashing.write_all(FOOTER_MAGIC)?;
         let bytes_without_id = hashing.position()?;
 
@@ -323,6 +326,7 @@ impl BundleBuilder {
         let bundle_size = bytes_without_id
             .checked_add(BUNDLE_ID_SIZE)
             .ok_or_else(|| crate::error::Error::InvalidBundle("bundle size overflow".into()))?;
+        format::size_u32(bundle_size)?;
         drop(_finalize_span);
         if let Some(profiler) = profiler {
             profiler.event_with_args(
@@ -405,33 +409,29 @@ pub(crate) struct BundleReader<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> BundleReader<R> {
-    pub(crate) fn open(mut reader: R, compression_profile: &CompressionProfile) -> Result<Self> {
-        if compression_profile.compression_unit != CompressionUnit::Bundle {
-            return Err(crate::error::Error::InvalidBundle(
-                "gutch only supports bundle-compressed bundles".into(),
-            ));
-        }
-        crate::compress::validate_profile(compression_profile)?;
-
+    pub(crate) fn open(mut reader: R, _compression_profile: &CompressionProfile) -> Result<Self> {
         let end = reader.seek(SeekFrom::End(0))?;
         let minimum_size = BUNDLE_HEADER_SIZE + BUNDLE_TRAILER_SIZE + BUNDLE_ID_SIZE;
+        format::size_u32(end)?;
         if end < minimum_size {
             return Err(crate::error::Error::InvalidBundle(
                 "bundle is smaller than its fixed framing".into(),
             ));
         }
         reader.seek(SeekFrom::Start(0))?;
-        if &read_exact_array::<8>(&mut reader)? != BUNDLE_MAGIC {
+        if &read_exact_array::<16>(&mut reader)? != BUNDLE_MAGIC {
             return Err(crate::error::Error::InvalidBundle(
                 "bundle magic is invalid".into(),
             ));
         }
+        format::read_version(&mut reader)?;
+        let compression = format::read_codec(&mut reader)?;
         let chunk_count = read_u32(&mut reader)? as usize;
         let data_start = BUNDLE_HEADER_SIZE;
 
         reader.seek(SeekFrom::Start(end - BUNDLE_ID_SIZE - BUNDLE_TRAILER_SIZE))?;
-        let footer_length = read_u64(&mut reader)?;
-        if &read_exact_array::<8>(&mut reader)? != FOOTER_MAGIC {
+        let footer_length = u64::from(read_u32(&mut reader)?);
+        if &read_exact_array::<16>(&mut reader)? != FOOTER_MAGIC {
             return Err(crate::error::Error::InvalidBundle(
                 "bundle footer magic is invalid".into(),
             ));
@@ -453,6 +453,19 @@ impl<R: Read + Seek> BundleReader<R> {
             )
         })?;
         reader.seek(SeekFrom::Start(footer_start))?;
+        if footer_length_usize
+            != 4usize
+                .checked_add(
+                    chunk_count
+                        .checked_mul(BUNDLE_TABLE_ENTRY_SIZE)
+                        .ok_or_else(|| crate::Error::bundle("bundle table size overflow"))?,
+                )
+                .ok_or_else(|| crate::Error::bundle("bundle footer size overflow"))?
+        {
+            return Err(crate::Error::bundle(
+                "bundle footer length disagrees with chunk count",
+            ));
+        }
         let mut footer = vec![0u8; footer_length_usize];
         reader.read_exact(&mut footer)?;
         let mut footer_reader = std::io::Cursor::new(footer.as_slice());
@@ -466,13 +479,14 @@ impl<R: Read + Seek> BundleReader<R> {
         let table_length = footer_length_usize.checked_sub(4).ok_or_else(|| {
             crate::error::Error::InvalidBundle("bundle footer is missing its table".into())
         })?;
-        let (entries, chunk_hashes) =
+        let (mut entries, chunk_hashes) =
             read_bundle_table_entries(&mut footer_reader, chunk_count, table_length)?;
         if footer_reader.position() != footer_length {
             return Err(crate::error::Error::InvalidBundle(
                 "bundle footer contains trailing bytes".into(),
             ));
         }
+        assign_compressed_size_estimates(&mut entries, footer_start - data_start)?;
         validate_bundle_entries(&entries, data_start, footer_start)?;
 
         #[cfg(test)]
@@ -489,13 +503,14 @@ impl<R: Read + Seek> BundleReader<R> {
             chunk_index_by_hash,
             data_start,
             payload_end: footer_start,
-            compression: compression_profile.compression,
+            compression,
             #[cfg(test)]
-            compression_unit: compression_profile.compression_unit,
+            compression_unit: CompressionUnit::Bundle,
             reader,
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn chunk_count(&self) -> usize {
         self.entries.len()
     }
@@ -514,17 +529,19 @@ impl<R: Read + Seek> BundleReader<R> {
     /// This compatibility helper uses the streaming decoder internally, but
     /// retains the complete decoded payload for callers such as verification
     /// that need random access to every chunk.
+    #[cfg(test)]
     pub(crate) fn read_bundle_payload(&mut self) -> Result<(Vec<u8>, BundleReadMetrics)> {
         self.read_bundle_payload_with_profiler(None)
     }
 
+    #[cfg(test)]
     pub(crate) fn read_bundle_payload_with_profiler(
         &mut self,
         profiler: Option<&crate::GutchProfiler>,
     ) -> Result<(Vec<u8>, BundleReadMetrics)> {
         let required = vec![true; self.entries.len()];
         let expected_raw_size = self.entries.iter().try_fold(0u64, |total, entry| {
-            total.checked_add(entry.raw_size).ok_or_else(|| {
+            total.checked_add(u64::from(entry.raw_size)).ok_or_else(|| {
                 crate::error::Error::InvalidBundle("bundle raw size overflow".into())
             })
         })?;
@@ -579,13 +596,8 @@ impl<R: Read + Seek> BundleReader<R> {
             .ok_or_else(|| {
                 crate::error::Error::InvalidBundle("bundle payload position underflow".into())
             })?;
-        let compressed_size_usize = usize::try_from(compressed_size).map_err(|_| {
-            crate::error::Error::InvalidBundle(
-                "bundle payload is too large for this platform".into(),
-            )
-        })?;
         let expected_raw_size = self.entries.iter().try_fold(0u64, |total, entry| {
-            total.checked_add(entry.raw_size).ok_or_else(|| {
+            total.checked_add(u64::from(entry.raw_size)).ok_or_else(|| {
                 crate::error::Error::InvalidBundle("bundle raw size overflow".into())
             })
         })?;
@@ -597,9 +609,11 @@ impl<R: Read + Seek> BundleReader<R> {
                 bundle_payload_trace_args(compressed_size, expected_raw_size),
             )
         });
-        self.reader.seek(SeekFrom::Start(self.data_start))?;
-        let mut compressed = vec![0u8; compressed_size_usize];
-        self.reader.read_exact(&mut compressed)?;
+        self.reader.seek(SeekFrom::Start(0))?;
+        let mut hasher = blake3::Hasher::new();
+        let mut header = [0u8; BUNDLE_HEADER_SIZE as usize];
+        self.reader.read_exact(&mut header)?;
+        hasher.update(&header);
         let read = read_started_at.elapsed();
         drop(_read_span);
 
@@ -610,7 +624,11 @@ impl<R: Read + Seek> BundleReader<R> {
             )
         });
         let mut decompress = Duration::default();
-        let mut decoder = crate::compress::decoder_for(compressed.as_slice(), self.compression)?;
+        let mut encoded = HashingReader {
+            reader: (&mut self.reader).take(compressed_size),
+            hasher: &mut hasher,
+        };
+        let mut decoder = crate::compress::decoder_from_reader(&mut encoded, self.compression)?;
         let stream_result = stream_decoded_chunks(
             &mut decoder,
             &self.entries,
@@ -619,6 +637,26 @@ impl<R: Read + Seek> BundleReader<R> {
             &mut on_chunk,
         );
         stream_result?;
+        drop(decoder);
+        std::io::copy(&mut encoded, &mut std::io::sink())?;
+        if encoded.reader.limit() != 0 {
+            return Err(crate::Error::bundle("truncated bundle payload"));
+        }
+        drop(encoded);
+        let end = self.reader.seek(SeekFrom::End(0))?;
+        self.reader.seek(SeekFrom::Start(self.payload_end))?;
+        let metadata_length = end - BUNDLE_ID_SIZE - self.payload_end;
+        std::io::copy(
+            &mut HashingReader {
+                reader: (&mut self.reader).take(metadata_length),
+                hasher: &mut hasher,
+            },
+            &mut std::io::sink(),
+        )?;
+        let trailer = read_exact_array::<64>(&mut self.reader)?;
+        if trailer != *hasher.finalize().to_hex().as_bytes() {
+            return Err(crate::Error::bundle("bundle content identity mismatch"));
+        }
         // Keep the timing metric focused on decoder reads. The callback can
         // perform hashing and positional output writes, which are accounted
         // for separately by reconstruction timings.
@@ -664,26 +702,31 @@ impl<R: Read + Seek> BundleReader<R> {
         self.read_chunk(index)
     }
 
+    pub(crate) fn verify_identity(&mut self, expected_id: &str) -> Result<()> {
+        let expected = ChunkHash::parse_hex(expected_id)?;
+        self.reader.seek(SeekFrom::End(-(BUNDLE_ID_SIZE as i64)))?;
+        if read_exact_array::<64>(&mut self.reader)?.as_slice() != expected.to_hex().as_bytes() {
+            return Err(crate::Error::bundle(
+                "bundle filename and trailing identity disagree",
+            ));
+        }
+        self.verify()?;
+        Ok(())
+    }
+
     pub(crate) fn verify(&mut self) -> Result<bool> {
-        let (bytes, _) = self.read_bundle_payload()?;
-        for (index, entry) in self.entries.iter().enumerate() {
-            let raw_offset = usize::try_from(entry.raw_offset).map_err(|_| {
-                crate::error::Error::InvalidBundle("bundle raw offset is too large".into())
-            })?;
-            let raw_size = usize::try_from(entry.raw_size).map_err(|_| {
-                crate::error::Error::InvalidBundle("bundle raw size is too large".into())
-            })?;
-            let raw_end = raw_offset.checked_add(raw_size).ok_or_else(|| {
-                crate::error::Error::InvalidBundle("bundle raw size overflow".into())
-            })?;
-            let actual_hash = ChunkHash::from_blake3(hash::hash_chunk(&bytes[raw_offset..raw_end]));
-            if actual_hash != self.chunk_hashes[index] {
-                return Err(crate::error::Error::HashMismatch {
-                    expected: self.chunk_hashes[index].to_hex(),
-                    actual: actual_hash.to_hex(),
+        let hashes = self.chunk_hashes.clone();
+        let required = vec![true; hashes.len()];
+        self.stream_bundle_chunks_with_profiler(None, &required, |index, bytes| {
+            let actual = ChunkHash::from_blake3(hash::hash_chunk(bytes));
+            if actual != hashes[index] {
+                return Err(crate::Error::HashMismatch {
+                    expected: hashes[index].to_hex(),
+                    actual: actual.to_hex(),
                 });
             }
-        }
+            Ok(())
+        })?;
         Ok(true)
     }
 }
@@ -775,6 +818,18 @@ pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     Ok(())
 }
 
+struct HashingReader<'a, R> {
+    reader: R,
+    hasher: &'a mut blake3::Hasher,
+}
+impl<R: Read> Read for HashingReader<'_, R> {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.reader.read(bytes)?;
+        self.hasher.update(&bytes[..count]);
+        Ok(count)
+    }
+}
+
 fn stream_decoded_chunks<R, F>(
     reader: &mut R,
     entries: &[BundleTableEntry],
@@ -848,17 +903,12 @@ fn assign_compressed_size_estimates(
     compressed_payload_size: u64,
 ) -> Result<()> {
     if entries.is_empty() {
-        if compressed_payload_size != 0 {
-            return Err(crate::error::Error::InvalidBundle(
-                "empty bundle has a non-empty payload".into(),
-            ));
-        }
         return Ok(());
     }
 
     let total_raw_size = entries.iter().try_fold(0u64, |total, entry| {
         total
-            .checked_add(entry.raw_size)
+            .checked_add(u64::from(entry.raw_size))
             .ok_or_else(|| crate::error::Error::InvalidBundle("bundle raw size overflow".into()))
     })?;
     let mut assigned = 0u64;
@@ -873,8 +923,7 @@ fn assign_compressed_size_estimates(
             ((entry.raw_size as u128 * compressed_payload_size as u128) / total_raw_size as u128)
                 as u64
         };
-        entry.compressed_size = compressed_size;
-        entry.compressed_offset = 0;
+        entry.compressed_size = format::size_u32(compressed_size)?;
         assigned = assigned.checked_add(compressed_size).ok_or_else(|| {
             crate::error::Error::InvalidBundle("bundle compressed size overflow".into())
         })?;
@@ -889,41 +938,24 @@ fn assign_compressed_size_estimates(
 
 fn validate_bundle_entries(
     entries: &[BundleTableEntry],
-    data_start: u64,
-    payload_end: u64,
+    _data_start: u64,
+    _payload_end: u64,
 ) -> Result<()> {
-    let payload_size = payload_end.checked_sub(data_start).ok_or_else(|| {
-        crate::error::Error::InvalidBundle("bundle payload position underflow".into())
-    })?;
-    let mut expected_raw_offset = 0u64;
-    let mut compressed_size_estimate = 0u64;
-    for (index, entry) in entries.iter().enumerate() {
-        if entry.raw_offset != expected_raw_offset {
-            return Err(crate::error::Error::InvalidBundle(format!(
-                "bundle chunk {} starts at raw offset {}, expected {}",
-                index, entry.raw_offset, expected_raw_offset
-            )));
+    let mut total = 0u64;
+    let mut hashes = std::collections::HashSet::with_capacity(entries.len());
+    for entry in entries {
+        if entry.raw_size == 0
+            || u64::from(entry.raw_size) > format::MAX_RAW_CHUNK_SIZE
+            || !hashes.insert(&entry.chunk_hash)
+        {
+            return Err(crate::Error::bundle("invalid or duplicate bundle chunk"));
         }
-        if entry.compressed_offset != 0 {
-            return Err(crate::error::Error::InvalidBundle(format!(
-                "bundle chunk {} has compressed offset {}, expected 0 for a bundle frame",
-                index, entry.compressed_offset
-            )));
+        total = total
+            .checked_add(u64::from(entry.raw_size))
+            .ok_or_else(|| crate::Error::bundle("bundle size overflow"))?;
+        if total > format::MAX_RAW_BUNDLE_SIZE {
+            return Err(crate::Error::bundle("bundle exceeds raw size limit"));
         }
-        expected_raw_offset = expected_raw_offset
-            .checked_add(entry.raw_size)
-            .ok_or_else(|| crate::error::Error::InvalidBundle("bundle raw size overflow".into()))?;
-        compressed_size_estimate = compressed_size_estimate
-            .checked_add(entry.compressed_size)
-            .ok_or_else(|| {
-                crate::error::Error::InvalidBundle("bundle compressed size overflow".into())
-            })?;
-    }
-    if compressed_size_estimate != payload_size {
-        return Err(crate::error::Error::InvalidBundle(format!(
-            "bundle compressed-size estimates cover {}, payload is {} bytes",
-            compressed_size_estimate, payload_size
-        )));
     }
     Ok(())
 }
@@ -931,10 +963,7 @@ fn validate_bundle_entries(
 fn write_bundle_table_entries(writer: &mut impl Write, entries: &[BundleTableEntry]) -> Result<()> {
     for entry in entries {
         writer.write_all(ChunkHash::parse_hex(&entry.chunk_hash)?.as_bytes())?;
-        writer.write_all(&entry.raw_size.to_le_bytes())?;
-        writer.write_all(&entry.compressed_size.to_le_bytes())?;
-        writer.write_all(&entry.compressed_offset.to_le_bytes())?;
-        writer.write_all(&entry.raw_offset.to_le_bytes())?;
+        writer.write_all(&format::size_u32(entry.raw_size)?.to_le_bytes())?;
     }
     Ok(())
 }
@@ -956,20 +985,21 @@ fn read_bundle_table_entries(
 
     let mut entries = Vec::with_capacity(chunk_count);
     let mut chunk_hashes = Vec::with_capacity(chunk_count);
+    let mut raw_offset = 0u64;
     for _ in 0..chunk_count {
         let chunk_hash = ChunkHash::from_bytes(read_exact_array(reader)?);
-        let raw_size = read_u64(reader)?;
-        let compressed_size = read_u64(reader)?;
-        let compressed_offset = read_u64(reader)?;
-        let raw_offset = read_u64(reader)?;
+        let raw_size = u64::from(read_u32(reader)?);
+        let compressed_size = 0;
         chunk_hashes.push(chunk_hash);
         entries.push(BundleTableEntry {
             chunk_hash: chunk_hash.to_hex(),
-            raw_size,
+            raw_size: format::size_u32(raw_size)?,
             compressed_size,
-            compressed_offset,
-            raw_offset,
+            raw_offset: format::size_u32(raw_offset)?,
         });
+        raw_offset = raw_offset
+            .checked_add(raw_size)
+            .ok_or_else(|| crate::Error::bundle("bundle raw offset overflow"))?;
     }
     Ok((entries, chunk_hashes))
 }
@@ -982,10 +1012,6 @@ fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
 
 fn read_u32(reader: &mut impl Read) -> Result<u32> {
     Ok(u32::from_le_bytes(read_exact_array(reader)?))
-}
-
-fn read_u64(reader: &mut impl Read) -> Result<u64> {
-    Ok(u64::from_le_bytes(read_exact_array(reader)?))
 }
 
 #[cfg(test)]

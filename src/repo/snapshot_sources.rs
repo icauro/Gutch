@@ -130,83 +130,87 @@ pub fn capture_snapshot_sources(
     sources_path: &Path,
     control: &crate::GutchOperationControl,
 ) -> Result<SnapshotSourcesCaptureResult> {
-    control.checkpoint()?;
-    let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path))?;
-    if !plan.sources_ready {
-        return Err(crate::Error::manifest(
-            "snapshot sources path is missing or invalid",
-        ));
-    }
-
-    if !plan.has_changes() {
-        return Ok(SnapshotSourcesCaptureResult { captured_count: 0 });
-    }
-
-    let total_steps = plan.to_capture.len();
-    let mut current_step = 0usize;
-
-    let runtime_plan = crate::plan_runtime(&crate::RuntimeResourceHints::default());
-    let _pool_span = control.profile_span_with_args(
-        "capture.create_worker_pool",
-        std::collections::BTreeMap::from([(
-            "worker_count".to_string(),
-            serde_json::json!(runtime_plan.worker_count),
-        )]),
-    );
-    let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
-    drop(_pool_span);
-
-    let repo_paths = crate::GutchRepoPaths::from_repo_root(repo_root);
-    let _existing_state_span = control.profile_span_with_args(
-        "capture.prepare_source.load_existing_store_state",
-        std::collections::BTreeMap::from([(
-            "source_count".to_string(),
-            serde_json::json!(plan.to_capture.len()),
-        )]),
-    );
-    let mut store_state = scan_existing_store_state_with_pool(&repo_paths, &build_pool, control)?;
-    drop(_existing_state_span);
-
-    let mut captured_count = 0usize;
-    for candidate in &plan.to_capture {
+    let operation_root = (repo_root).to_path_buf();
+    crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
-        current_step += 1;
+        let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path))?;
+        if !plan.sources_ready {
+            return Err(crate::Error::manifest(
+                "snapshot sources path is missing or invalid",
+            ));
+        }
+
+        if !plan.has_changes() {
+            return Ok(SnapshotSourcesCaptureResult { captured_count: 0 });
+        }
+
+        let total_steps = plan.to_capture.len();
+        let mut current_step = 0usize;
+
+        let runtime_plan = crate::plan_runtime(&crate::RuntimeResourceHints::default());
+        let _pool_span = control.profile_span_with_args(
+            "capture.create_worker_pool",
+            std::collections::BTreeMap::from([(
+                "worker_count".to_string(),
+                serde_json::json!(runtime_plan.worker_count),
+            )]),
+        );
+        let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+        drop(_pool_span);
+
+        let repo_paths = crate::GutchRepoPaths::from_repo_root(repo_root);
+        let _existing_state_span = control.profile_span_with_args(
+            "capture.prepare_source.load_existing_store_state",
+            std::collections::BTreeMap::from([(
+                "source_count".to_string(),
+                serde_json::json!(plan.to_capture.len()),
+            )]),
+        );
+        let mut store_state =
+            scan_existing_store_state_with_pool(&repo_paths, &build_pool, control)?;
+        drop(_existing_state_span);
+
+        let mut captured_count = 0usize;
+        for candidate in &plan.to_capture {
+            control.checkpoint()?;
+            current_step += 1;
+            progress::emit_progress(
+                control.progress(),
+                GutchProgressEvent {
+                    operation: GutchOperation::SnapshotSourcesCapture,
+                    phase: GutchProgressPhase::Capture,
+                    message: format!("Capturing snapshot '{}'", candidate.folder_name),
+                    current: current_step,
+                    total: total_steps,
+                    transferred_bytes: 0,
+                    total_bytes: 0,
+                    detail: Some(candidate.folder_name.clone()),
+                    done: false,
+                },
+            );
+            capture_source_snapshot(repo_root, candidate, control, &mut store_state, &build_pool)?;
+            captured_count += 1;
+        }
+
+        let _ = crate::cleanup_orphan_artifacts_in_repo(repo_root, control)?;
+
         progress::emit_progress(
             control.progress(),
             GutchProgressEvent {
                 operation: GutchOperation::SnapshotSourcesCapture,
-                phase: GutchProgressPhase::Capture,
-                message: format!("Capturing snapshot '{}'", candidate.folder_name),
-                current: current_step,
+                phase: GutchProgressPhase::Done,
+                message: "Snapshot sources capture complete".to_string(),
+                current: total_steps,
                 total: total_steps,
                 transferred_bytes: 0,
                 total_bytes: 0,
-                detail: Some(candidate.folder_name.clone()),
-                done: false,
+                detail: None,
+                done: true,
             },
         );
-        capture_source_snapshot(repo_root, candidate, control, &mut store_state, &build_pool)?;
-        captured_count += 1;
-    }
 
-    let _ = crate::cleanup_orphan_artifacts_in_repo(repo_root, control)?;
-
-    progress::emit_progress(
-        control.progress(),
-        GutchProgressEvent {
-            operation: GutchOperation::SnapshotSourcesCapture,
-            phase: GutchProgressPhase::Done,
-            message: "Snapshot sources capture complete".to_string(),
-            current: total_steps,
-            total: total_steps,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: true,
-        },
-    );
-
-    Ok(SnapshotSourcesCaptureResult { captured_count })
+        Ok(SnapshotSourcesCaptureResult { captured_count })
+    })
 }
 
 fn capture_source_snapshot(
@@ -315,10 +319,14 @@ mod tests {
             executable: false,
             read_only: false,
             full_file_hash: test_hash("game.exe"),
-            chunks: Vec::new(),
+            chunks: vec![crate::manifest::ChunkRef {
+                chunk_hash: test_hash("game.exe"),
+                raw_size: 12,
+            }],
         }]);
         manifest.snapshot_id = crate::compute_snapshot_id_from_entries(&manifest.entries);
         write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
+        crate::test_util::index_manifest(&repo_paths, &manifest);
 
         std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&game_path, b"new-content").unwrap();

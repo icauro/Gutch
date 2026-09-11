@@ -164,7 +164,9 @@ pub(crate) fn remove_orphan_artifacts(
 ) -> Result<usize> {
     for orphan_path in orphan_artifacts {
         control.checkpoint()?;
-        std::fs::remove_file(orphan_path)?;
+        if !super::coordination::defer_artifact_deletion(orphan_path)? {
+            std::fs::remove_file(orphan_path)?;
+        }
     }
     Ok(orphan_artifacts.len())
 }

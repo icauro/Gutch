@@ -44,11 +44,9 @@ Build callers choose the chunk, bundle, compression, and storage presets. The
 engine expands those presets into resolved profiles internally; callers do not
 construct or depend on the profile implementation structs.
 
-Compression kind is repository-wide because artifacts do not store it themselves.
-Capture, fetch, and pull reject changing that kind in a populated repository;
-use a fresh repository for a different algorithm. Chunking and compression can
-vary between independently captured repositories without changing installation
-identity. Existing complete blueprints remain reusable when chunk sizing changes.
+Each artifact records its codec. Capture defaults can change without making
+existing artifacts unreadable; reused chunks retain their existing encoding.
+Existing complete blueprints remain reusable when chunk sizing changes.
 
 ## Bundle Contract
 
@@ -57,15 +55,10 @@ chunk, chunk-map, and snapshot-blueprint definitions and size formulas.
 
 Bundle objects have extensionless content-addressed names under
 `bundles/<first-two-hash-characters>/`. Their bytes contain the chunk table
-and payload framing with header and footer magic values. They do not embed a
-compression profile or repo identity. The repo's
-packaging profile supplies compression kind and compression unit when a bundle
-is read.
-
-Loose compressed chunks, when used, have extensionless hash names under
-`chunks/<prefix>/`. The repo-wide `chunk_map.gtcbin` maps chunk identity
-to the current local artifact location and begins with its own `GTCI` binary
-header.
+and payload framing with 16-byte GUTCH magic values and binary version 1.
+Bundled and loose artifacts record their codec and raw chunk sizes. The repo-wide
+`chunk_map.gtcbin` begins with zero-padded `GUTCH_INDEX` and maps typed chunk
+identity to the selected artifact and ordinal. See the layouts above for bounds.
 
 ## Build and Delivery Flow
 
@@ -90,7 +83,7 @@ identity. The benchmark CLI accepts the same mapping through
 ## Integrity and Failure Boundaries
 
 - Chunk and bundle identities are content-derived rather than creator-chosen.
-- Bundle and loose-chunk decoding requires the matching repo packaging profile.
+- Bundle and loose-chunk decoding reads the codec from each artifact.
 - Corrupt framing, decompression failure, or hash mismatch fails the operation.
 - A partially written download is not promoted as a final artifact.
 - Metadata cannot redirect a chunk outside the fixed repo layout.

@@ -16,8 +16,8 @@ def run(case):
     original = blueprint.read_bytes()
     for path in ("../outside", "/outside", "C:/outside", "nested\\outside"):
         encoded = path.encode()
-        # A single directory entry in the documented GTCT v1 framing.
-        blueprint.write_bytes(b"GTCT\x01\0\0\0" + struct.pack("<IQBI", 1, 0, 1, len(encoded)) + encoded + b"\0")
+        # A single directory entry in the documented GUTCH_BLUEPRINT v1 framing.
+        blueprint.write_bytes(b"GUTCH_BLUEPRINT\0\x01\0\0\0" + struct.pack("<IQBI", 1, 0, 1, len(encoded)) + encoded + b"\0")
         destination = case.payload / "installed"
         before = inventory(case.payload)
         case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot-id", snapshot,

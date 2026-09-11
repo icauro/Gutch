@@ -165,20 +165,28 @@ pub fn initialize_gutch_repo_with_options(
         return Err(repo_init_needs_confirmation_error(&assessment));
     }
 
-    if options.force && assessment.path_kind != RepoInitPathKind::Missing {
-        clear_gutch_repo_artifacts(repo_root)?;
-    }
+    std::fs::create_dir_all(repo_root)?;
+    super::coordination::write(repo_root, || {
+        if !options.force && repo_root.join("repo_metadata.json").exists() {
+            return Err(Error::manifest(
+                "repository was initialized by another writer",
+            ));
+        }
+        if options.force && assessment.path_kind != RepoInitPathKind::Missing {
+            clear_gutch_repo_artifacts(repo_root)?;
+        }
 
-    let repo_name = repo_root
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("base");
-    let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
-    let repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
-    write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
+        let repo_name = repo_root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("base");
+        let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
+        let repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
+        write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
-    Ok(())
+        Ok(())
+    })
 }
 
 fn existing_repo_risk() -> RepoInitRisk {
@@ -218,14 +226,13 @@ pub(crate) fn repo_init_needs_confirmation_error(assessment: &RepoInitAssessment
 
 pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
     let paths = GutchRepoPaths::from_repo_root(repo_root);
-    for dir in [
-        &paths.snapshots_root,
-        &paths.bundles_root,
-        &paths.chunks_root,
-    ] {
-        if dir.exists() {
-            crate::helpers::remove_dir_all(dir)?;
+    for (_, artifact) in super::inventory::list_repo_artifact_paths(&paths)? {
+        if !super::coordination::defer_artifact_deletion(&artifact)? {
+            std::fs::remove_file(artifact)?;
         }
+    }
+    if paths.snapshots_root.exists() {
+        crate::helpers::remove_dir_all(&paths.snapshots_root)?;
     }
     if paths.repo_metadata_path.exists() {
         crate::helpers::remove_file(&paths.repo_metadata_path)?;
@@ -301,11 +308,15 @@ mod tests {
             executable: true,
             read_only: false,
             full_file_hash: test_hash("game.exe"),
-            chunks: vec![],
+            chunks: vec![crate::manifest::ChunkRef {
+                chunk_hash: test_hash("game.exe"),
+                raw_size: 4,
+            }],
         });
         snapshot_manifest.snapshot_id =
             crate::compute_snapshot_id_from_entries(&snapshot_manifest.entries);
         write_snapshot_manifest_artifacts(&repo_paths, &snapshot_manifest).unwrap();
+        crate::test_util::index_manifest(&repo_paths, &snapshot_manifest);
         let bundle_path = crate::bundle_path(&repo_paths, &"a".repeat(64)).unwrap();
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
         std::fs::write(bundle_path, b"bundle").unwrap();

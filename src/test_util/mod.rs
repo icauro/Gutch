@@ -140,3 +140,65 @@ pub fn recreate_dir(path: &std::path::Path) {
     let _ = std::fs::remove_dir_all(path);
     std::fs::create_dir_all(path).unwrap();
 }
+
+pub(crate) fn chunk_entries(
+    mut entries: std::collections::BTreeMap<String, crate::manifest::ChunkIndexEntry>,
+) -> crate::manifest::ChunkIndexEntries {
+    let mut sizes = std::collections::HashMap::new();
+    for entry in entries.values() {
+        *sizes.entry(entry.bundle_id.clone()).or_insert(0u32) += entry.compressed_size;
+    }
+    let mut ordinals = std::collections::HashMap::new();
+    for entry in entries.values_mut() {
+        entry.artifact_size = sizes[&entry.bundle_id];
+        let ordinal = ordinals.entry(entry.bundle_id.clone()).or_insert(0u32);
+        entry.chunk_ordinal = *ordinal;
+        *ordinal += 1;
+    }
+    entries
+        .into_iter()
+        .map(|(hash, entry)| (crate::ChunkHash::parse_hex(&hash).unwrap(), entry))
+        .collect()
+}
+
+pub(crate) fn loose_bytes(bytes: &[u8], profile: &crate::manifest::CompressionProfile) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    crate::artifact::store::write_loose_chunk(
+        &mut encoded,
+        crate::ChunkHash::from_blake3(blake3::hash(bytes)),
+        bytes,
+        profile,
+    )
+    .unwrap();
+    encoded
+}
+
+/// Populate declared locations for metadata-only fixtures; these tests never decode artifacts.
+pub fn index_manifest(paths: &crate::GutchRepoPaths, manifest: &crate::manifest::SnapshotManifest) {
+    let entries = manifest
+        .files()
+        .flat_map(|file| &file.chunks)
+        .map(|chunk| {
+            (
+                crate::ChunkHash::parse_hex(&chunk.chunk_hash).unwrap(),
+                crate::manifest::ChunkIndexEntry {
+                    bundle_id: chunk.chunk_hash.as_str().into(),
+                    raw_size: chunk.raw_size,
+                    compressed_size: chunk.raw_size,
+                    artifact_size: chunk.raw_size,
+                    chunk_ordinal: 0,
+                    storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+                },
+            )
+        })
+        .collect();
+    crate::write_chunk_index(
+        paths,
+        &crate::manifest::ChunkIndex {
+            format_version: "1".into(),
+            updated_at: String::new(),
+            entries,
+        },
+    )
+    .unwrap();
+}

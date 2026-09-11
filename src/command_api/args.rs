@@ -118,6 +118,15 @@ pub(crate) enum Commands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoCommands {
+    /// Verify artifacts and regenerate the chunk map; report only unless --publish is given.
+    RegenerateChunkMap {
+        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long)]
+        publish: bool,
+        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        json_out: Option<PathBuf>,
+    },
     Init {
         #[arg(long = "path", value_parser = parse_absolute_path)]
         path: PathBuf,
@@ -696,15 +705,10 @@ mod path_tests {
 
     #[test]
     fn cli_rejects_relative_filesystem_paths() {
-        let error = Cli::try_parse_from([
-            "hostapp-cli",
-            "repo",
-            "status",
-            "--repo",
-            "relative/repo",
-        ])
-        .err()
-        .expect("relative repo path must be rejected");
+        let error =
+            Cli::try_parse_from(["hostapp-cli", "repo", "status", "--repo", "relative/repo"])
+                .err()
+                .expect("relative repo path must be rejected");
         assert!(error.to_string().contains("path must be absolute"));
     }
 

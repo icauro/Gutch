@@ -1,4 +1,6 @@
-use std::io::{Cursor, Read, Write};
+#[cfg(test)]
+use std::io::Cursor;
+use std::io::{Read, Write};
 
 use crate::error::Result;
 use crate::manifest::{CompressionKind, CompressionProfile};
@@ -7,6 +9,7 @@ trait CompressionAdapter {
     fn default_level(&self) -> i32;
     fn validate_level(&self, level: Option<i32>) -> Result<i32>;
     fn compress_segments(&self, segments: &[&[u8]], raw_size: u64, level: i32) -> Result<Vec<u8>>;
+    #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>>;
 }
 
@@ -37,6 +40,7 @@ impl CompressionAdapter for NoneAdapter {
         Ok(output)
     }
 
+    #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>> {
         Ok(Box::new(Cursor::new(data)))
     }
@@ -76,6 +80,7 @@ impl CompressionAdapter for ZstdAdapter {
             .map_err(|error| crate::error::Error::bundle(format!("zstd compress: {error}")))
     }
 
+    #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>> {
         let decoder = zstd::stream::read::Decoder::new(Cursor::new(data))
             .map_err(|error| crate::error::Error::bundle(format!("zstd decompress: {error}")))?;
@@ -119,6 +124,7 @@ impl CompressionAdapter for Lz4Adapter {
         Ok(output)
     }
 
+    #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>> {
         let decoder = lz4::Decoder::new(Cursor::new(data))
             .map_err(|error| crate::error::Error::bundle(format!("lz4 decompress: {error}")))?;
@@ -138,6 +144,7 @@ pub(crate) fn validate_profile(profile: &CompressionProfile) -> Result<i32> {
     adapter_for(profile.compression).validate_level(profile.level)
 }
 
+#[cfg(test)]
 pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Result<Vec<u8>> {
     if data.is_empty() {
         return Ok(Vec::new());
@@ -150,11 +157,47 @@ pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Resu
     Ok(output)
 }
 
-pub(crate) fn decoder_for(data: &[u8], compression: CompressionKind) -> Result<Box<dyn Read + '_>> {
-    if data.is_empty() {
-        return Ok(Box::new(Cursor::new(data)));
+pub(crate) fn decoder_from_reader<'a>(
+    reader: impl Read + 'a,
+    compression: CompressionKind,
+) -> Result<Box<dyn Read + 'a>> {
+    Ok(match compression {
+        CompressionKind::None => Box::new(reader),
+        CompressionKind::Zstd => {
+            let mut decoder = zstd::stream::read::Decoder::new(reader)?;
+            decoder.window_log_max(27)?;
+            Box::new(decoder)
+        }
+        CompressionKind::Lz4 => Box::new(lz4::Decoder::new(reader)?),
+    })
+}
+
+pub(crate) fn encode_to_writer(
+    writer: &mut impl Write,
+    profile: &CompressionProfile,
+    raw_size: u64,
+    write_raw: impl FnOnce(&mut dyn Write) -> Result<()>,
+) -> Result<()> {
+    let level = validate_profile(profile)?;
+    match profile.compression {
+        CompressionKind::None => write_raw(writer),
+        CompressionKind::Zstd => {
+            let mut encoder = zstd::stream::Encoder::new(writer, level)?;
+            encoder.window_log(27)?;
+            encoder.set_pledged_src_size(Some(raw_size))?;
+            write_raw(&mut encoder)?;
+            encoder.finish()?;
+            Ok(())
+        }
+        CompressionKind::Lz4 => {
+            let mut encoder = lz4::EncoderBuilder::new()
+                .level(level as u32)
+                .build(writer)?;
+            write_raw(&mut encoder)?;
+            encoder.finish().1?;
+            Ok(())
+        }
     }
-    adapter_for(compression).decoder(data)
 }
 
 pub(crate) fn compress_with_profile(data: &[u8], profile: &CompressionProfile) -> Result<Vec<u8>> {

@@ -10,6 +10,28 @@ pub(crate) fn run(
     profile: &crate::command_api::Profile,
 ) -> g::Result<()> {
     match command {
+        RepoCommands::RegenerateChunkMap {
+            repo,
+            publish,
+            json_out,
+        } => {
+            let result = crate::api::regenerate_chunk_map(
+                &repo,
+                publish,
+                &crate::GutchOperationControl::default(),
+            )?;
+            let json = serde_json::to_vec_pretty(&result)?;
+            if let Some(path) = json_out {
+                ensure_parent_directory(&path)?;
+                crate::helpers::write(&path, &json)?;
+            }
+            println!("{}", String::from_utf8_lossy(&json));
+            if !result.complete {
+                return Err(crate::Error::manifest(
+                    "chunk map regeneration is incomplete; no index was published",
+                ));
+            }
+        }
         RepoCommands::Init { path, force } => {
             actions::repo::init_repo(&path, force)?;
         }

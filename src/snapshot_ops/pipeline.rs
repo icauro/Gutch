@@ -31,8 +31,9 @@ mod reconstruct_io;
 mod tests;
 
 use reconstruct_io::{
-    OutputHandleCache, ReconstructedFileVerification, build_source_chunk_locations,
-    reconstruct_file_trace_metadata, reconstruct_job, verify_reconstructed_output_file,
+    OutputHandleCache, ReconstructedFileVerification, SourceHandleCache,
+    build_source_chunk_locations, reconstruct_file_trace_metadata, reconstruct_job,
+    verify_reconstructed_output_file,
 };
 
 pub(super) struct ReconstructPipelinePlan {
@@ -69,7 +70,7 @@ struct ReconstructPipelineFile {
     size: u64,
     full_file_hash: crate::ChunkHash,
     trace_metadata: ReconstructFileTraceMetadata,
-    #[allow(dead_code)]
+    #[cfg(test)]
     reconstruction: ReconstructPipelineReconstruction,
 }
 
@@ -115,21 +116,22 @@ enum ReconstructJob {
 struct ReconstructArtifactJob {
     artifact: crate::ArtifactRef,
     artifact_path: PathBuf,
-    chunks: HashMap<String, ReconstructArtifactChunk>,
+    chunks: Vec<ReconstructArtifactChunk>,
+    targets: Vec<ReconstructTarget>,
 }
 
 #[derive(Clone)]
 struct ReconstructArtifactChunk {
-    chunk_hash: String,
-    raw_size: u64,
-    compressed_size: u64,
-    targets: Vec<ReconstructTarget>,
+    chunk_hash: crate::ChunkHash,
+    raw_size: u32,
+    compressed_size: u32,
+    targets: std::ops::Range<usize>,
 }
 
 #[derive(Clone)]
 struct ReconstructSourceChunkJob {
     chunk_hash: String,
-    raw_size: u64,
+    raw_size: u32,
     source_path: PathBuf,
     source_offset: u64,
     targets: Vec<ReconstructTarget>,
@@ -639,8 +641,10 @@ pub(super) fn build_reconstruct_pipeline_plan(
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
     let mut jobs = Vec::new();
+    let mut chunk_positions: HashMap<(usize, crate::ChunkHash), usize> = HashMap::new();
+    let mut chunk_targets: HashMap<(usize, usize), Vec<ReconstructTarget>> = HashMap::new();
     let mut artifact_job_indices: HashMap<crate::ArtifactRef, usize> = HashMap::new();
-    let mut source_chunk_job_indices: HashMap<(PathBuf, u64, u64, String), usize> = HashMap::new();
+    let mut source_chunk_job_indices: HashMap<(PathBuf, u64, u32, String), usize> = HashMap::new();
     let mut missing_artifact_to_file_indices: HashMap<crate::ArtifactRef, Vec<usize>> =
         HashMap::new();
     let mut missing_artifact_counts = Vec::with_capacity(snapshot_manifest.file_count());
@@ -677,6 +681,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
                 size: file_manifest.size,
                 full_file_hash: crate::ChunkHash::parse_hex(&file_manifest.full_file_hash)?,
                 trace_metadata: ReconstructFileTraceMetadata::default(),
+                #[cfg(test)]
                 reconstruction: ReconstructPipelineReconstruction::CopyFromSource,
             });
             jobs.push(ReconstructJob::CopySourceFile {
@@ -695,7 +700,7 @@ pub(super) fn build_reconstruct_pipeline_plan(
         for chunk_ref in &file_manifest.chunks {
             if let Some(source_chunk) = source_chunk_locations
                 .get(&chunk_ref.chunk_hash)
-                .filter(|source_chunk| source_chunk.raw_size == chunk_ref.raw_size)
+                .filter(|source_chunk| source_chunk.raw_size == u64::from(chunk_ref.raw_size))
             {
                 let source_key = (
                     source_chunk.path.clone(),
@@ -729,9 +734,11 @@ pub(super) fn build_reconstruct_pipeline_plan(
                     chunk_hash: chunk_ref.chunk_hash.clone(),
                 });
                 reused_source_chunk_count += 1;
-                file_offset = file_offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
-                    Error::manifest(format!("file '{}' size overflows u64", file_manifest.path))
-                })?;
+                file_offset = file_offset
+                    .checked_add(u64::from(chunk_ref.raw_size))
+                    .ok_or_else(|| {
+                        Error::manifest(format!("file '{}' size overflows u64", file_manifest.path))
+                    })?;
                 continue;
             }
             let entry = chunk_index
@@ -760,7 +767,8 @@ pub(super) fn build_reconstruct_pipeline_plan(
                 jobs.push(ReconstructJob::Artifact(ReconstructArtifactJob {
                     artifact: artifact.clone(),
                     artifact_path: artifact.local_path(repo_paths)?,
-                    chunks: HashMap::new(),
+                    chunks: Vec::new(),
+                    targets: Vec::new(),
                 }));
                 artifact_job_indices.insert(artifact.clone(), job_index);
                 job_index
@@ -768,28 +776,29 @@ pub(super) fn build_reconstruct_pipeline_plan(
             let ReconstructJob::Artifact(artifact_job) = &mut jobs[job_index] else {
                 unreachable!("artifact job index points to another job kind");
             };
-            let artifact_chunk = artifact_job
-                .chunks
-                .entry(chunk_ref.chunk_hash.clone())
-                .or_insert_with(|| ReconstructArtifactChunk {
-                    chunk_hash: chunk_ref.chunk_hash.clone(),
+            let hash = crate::ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+            let position = *chunk_positions.entry((job_index, hash)).or_insert_with(|| {
+                let position = artifact_job.chunks.len();
+                artifact_job.chunks.push(ReconstructArtifactChunk {
+                    chunk_hash: hash,
                     raw_size: chunk_ref.raw_size,
                     compressed_size: entry.compressed_size,
-                    targets: Vec::new(),
+                    targets: 0..0,
                 });
-            if artifact_chunk.raw_size != chunk_ref.raw_size
-                || artifact_chunk.compressed_size != entry.compressed_size
-            {
-                return Err(Error::manifest(format!(
-                    "chunk '{}' has inconsistent sizes in artifact '{}'",
-                    chunk_ref.chunk_hash,
-                    artifact.id()
-                )));
-            }
-            artifact_chunk.targets.push(ReconstructTarget {
-                file_index,
-                file_offset,
+                position
             });
+            if artifact_job.chunks[position].raw_size != chunk_ref.raw_size {
+                return Err(Error::manifest(
+                    "inconsistent chunk sizes in reconstruction plan",
+                ));
+            }
+            chunk_targets
+                .entry((job_index, position))
+                .or_default()
+                .push(ReconstructTarget {
+                    file_index,
+                    file_offset,
+                });
             required_artifacts.insert(artifact.clone());
             if !existing_artifacts.contains(&artifact) {
                 missing_artifact_dependencies.insert(artifact.clone());
@@ -800,9 +809,11 @@ pub(super) fn build_reconstruct_pipeline_plan(
                     artifact,
                 },
             ));
-            file_offset = file_offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
-                Error::manifest(format!("file '{}' size overflows u64", file_manifest.path))
-            })?;
+            file_offset = file_offset
+                .checked_add(u64::from(chunk_ref.raw_size))
+                .ok_or_else(|| {
+                    Error::manifest(format!("file '{}' size overflows u64", file_manifest.path))
+                })?;
         }
 
         if file_offset != file_manifest.size {
@@ -825,10 +836,33 @@ pub(super) fn build_reconstruct_pipeline_plan(
             size: file_manifest.size,
             full_file_hash: crate::ChunkHash::parse_hex(&file_manifest.full_file_hash)?,
             trace_metadata,
+            #[cfg(test)]
             reconstruction,
         });
     }
 
+    for (job_index, job) in jobs.iter_mut().enumerate() {
+        if let ReconstructJob::Artifact(job) = job {
+            for (position, chunk) in job.chunks.iter_mut().enumerate() {
+                let start = job.targets.len();
+                job.targets.extend(
+                    chunk_targets
+                        .remove(&(job_index, position))
+                        .unwrap_or_default(),
+                );
+                chunk.targets = start..job.targets.len();
+            }
+            job.chunks.sort_by_key(|chunk| chunk.chunk_hash);
+        }
+    }
+    jobs.sort_by(|left, right| match (left, right) {
+        (ReconstructJob::SourceChunk(left), ReconstructJob::SourceChunk(right)) => {
+            (&left.source_path, left.source_offset).cmp(&(&right.source_path, right.source_offset))
+        }
+        (ReconstructJob::SourceChunk(_), _) => std::cmp::Ordering::Less,
+        (_, ReconstructJob::SourceChunk(_)) => std::cmp::Ordering::Greater,
+        _ => std::cmp::Ordering::Equal,
+    });
     Ok(ReconstructPipelinePlan {
         files,
         jobs,
@@ -1012,6 +1046,8 @@ enum ReconstructJobEvent {
 }
 
 struct ReconstructWorkContext {
+    memory: crate::runtime::MemoryBudget,
+    source_handles: SourceHandleCache,
     jobs: Arc<Vec<ReconstructJob>>,
     file_plans: Arc<Vec<ReconstructPipelineFile>>,
     output_paths: Arc<Vec<PathBuf>>,
@@ -1032,16 +1068,25 @@ fn spawn_reconstruct_work(
     let event_tx = event_tx.clone();
     pool.spawn(move || {
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
-            ReconstructWorkItem::Job(job_index) => reconstruct_job(
-                &context.jobs[job_index],
-                &context.file_plans,
-                &context.output_paths,
-                &context.precomputed_file_hashes,
-                &context.output_handles,
-                &context.compression_profile,
-                &context.control,
-            )
-            .map(|timings| ReconstructJobEvent::Completed { job_index, timings }),
+            ReconstructWorkItem::Job(job_index) => {
+                let working_bytes = match &context.jobs[job_index] {
+                    ReconstructJob::Artifact(_) => 136 * 1024 * 1024,
+                    ReconstructJob::SourceChunk(chunk) => u64::from(chunk.raw_size) + 1024 * 1024,
+                    ReconstructJob::CopySourceFile { .. } => 1024 * 1024,
+                };
+                let _memory = context.memory.acquire(working_bytes, &context.control)?;
+                reconstruct_job(
+                    &context.jobs[job_index],
+                    &context.file_plans,
+                    &context.output_paths,
+                    &context.precomputed_file_hashes,
+                    &context.output_handles,
+                    &context.source_handles,
+                    &context.compression_profile,
+                    &context.control,
+                )
+                .map(|timings| ReconstructJobEvent::Completed { job_index, timings })
+            }
             ReconstructWorkItem::VerifyFile(file_index) => verify_reconstructed_output_file(
                 file_index,
                 &context.file_plans[file_index],
@@ -1191,6 +1236,8 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
     let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
     let compression_profile = Arc::new((*compression_profile).clone());
     let work_context = Arc::new(ReconstructWorkContext {
+        memory: crate::runtime::MemoryBudget::new(),
+        source_handles: SourceHandleCache::default(),
         jobs: Arc::clone(&jobs),
         file_plans: Arc::clone(&file_plans),
         output_paths: Arc::clone(&output_paths),
@@ -1545,8 +1592,12 @@ fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {
     let mut file_indices = match job {
         ReconstructJob::Artifact(job) => job
             .chunks
-            .values()
-            .flat_map(|chunk| chunk.targets.iter().map(|target| target.file_index))
+            .iter()
+            .flat_map(|chunk| {
+                job.targets[chunk.targets.clone()]
+                    .iter()
+                    .map(|target| target.file_index)
+            })
             .collect::<Vec<_>>(),
         ReconstructJob::SourceChunk(job) => job
             .targets

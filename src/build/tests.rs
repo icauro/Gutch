@@ -189,3 +189,61 @@ fn source_range_payload_rejects_changes_between_scan_and_encoding() {
     std::fs::write(&source, b"short").unwrap();
     assert!(payload.load_bytes().is_err());
 }
+
+#[test]
+fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
+    let root = tempfile::tempdir().unwrap();
+    let source = std::sync::Arc::new(root.path().join("source"));
+    let bytes = [vec![b'a'; 32], vec![b'b'; 32]].concat();
+    std::fs::write(source.as_ref(), &bytes).unwrap();
+    let staging = root.path().join("artifacts");
+    std::fs::create_dir(&staging).unwrap();
+    let planned: Vec<_> = (0..2)
+        .map(|index| {
+            let hash = ChunkHash::from_blake3(blake3::hash(&bytes[index * 32..(index + 1) * 32]));
+            (
+                hash,
+                ChunkPayload {
+                    source: source.clone(),
+                    offset: (index * 32) as u64,
+                    size: 32,
+                    hash,
+                },
+            )
+        })
+        .collect();
+    let profile =
+        manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::None, None);
+    let control = crate::GutchOperationControl::default();
+    let exact =
+        build_bounded_bundle_groups(planned.clone(), 248, &profile, &staging, &control).unwrap();
+    assert_eq!(exact.len(), 1);
+    assert_eq!(exact[0].bundle_size, 248);
+    drop(exact);
+    let split =
+        build_bounded_bundle_groups(planned.clone(), 247, &profile, &staging, &control).unwrap();
+    assert_eq!(split.len(), 2);
+    assert!(
+        split
+            .iter()
+            .all(|bundle| bundle.bundle_size == 180 && bundle.bundle_entries.len() == 1)
+    );
+    drop(split);
+    assert!(
+        build_bounded_bundle_groups(vec![planned[0].clone()], 179, &profile, &staging, &control)
+            .is_err()
+    );
+    assert_eq!(std::fs::read_dir(staging).unwrap().count(), 0);
+}
+
+#[test]
+fn optimistic_probe_cannot_exceed_raw_bundle_cap() {
+    assert_eq!(
+        estimate_bundle_raw_capacity(
+            256 * 1024 * 1024,
+            0.00001,
+            BundleSizingPolicy::new(256 * 1024 * 1024, 128 * 1024 * 1024)
+        ),
+        crate::artifact::format::MAX_RAW_BUNDLE_SIZE
+    );
+}

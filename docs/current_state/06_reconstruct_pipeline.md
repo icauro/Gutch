@@ -10,7 +10,7 @@ The reconstruction pipeline turns a snapshot blueprint and repo chunk index
 into a verified filesystem tree. It can source artifacts from the local repo,
 reuse a verified source snapshot, or consume bundles downloaded by the remote
 fetch path. It always writes the destination through a local staging directory
-and promotes the completed tree atomically.
+and promotes the completed tree through a locked, recoverable backup-and-rename sequence.
 
 In the current remote flow, “remote reconstruction” means remote artifacts are
 made available to the local engine; Gutch does not reconstruct into a remote
@@ -61,14 +61,19 @@ beyond roughly two jobs per reconstruction worker.
 
 Bundled storage opens one bundle reader for the artifact job, identifies the
 required bundle entries, and streams decoded chunks in bundle-table order. It
-verifies each selected raw chunk with BLAKE3, checks raw and compressed sizes,
-and writes the verified bytes to every recorded target. Unneeded bundle entries
+verifies each selected raw chunk with BLAKE3, validates declared raw sizes and
+full encoded bundle identity, and writes verified bytes to every recorded target. Unneeded bundle entries
 may be decoded while advancing the stream but are not retained as output.
 
 Loose-chunk storage reads one compressed artifact for its one requested chunk,
 validates the stored size and decoded raw hash, and writes that chunk to all of
 its target offsets. Both storage modes use the same job graph, staging rules,
 chunk verification, file dependency counters, and final file verification.
+
+Artifact work also passes a 512 MiB admission budget: bundle jobs reserve
+136 MiB for the bounded decoder window and chunk buffer. Source-copy work
+reserves only its I/O buffer. This limits admitted artifact work, not total
+process RSS, which also includes indexes, worker stacks, and other allocations.
 
 ## Reuse and locality
 
@@ -82,7 +87,9 @@ The planner prefers reuse in this order:
    same local artifact job.
 
 Source-chunk jobs are deduplicated by source path, offset, raw size, and hash.
-Artifact jobs are deduplicated by artifact identity. This prevents repeated
+Source handles are cached (up to 64 entries), and source jobs are ordered by
+path and offset to reduce reopen/seek work. Artifact job targets occupy flat
+arrays and refer to typed chunk hashes. Artifact jobs are deduplicated by artifact identity. This prevents repeated
 decoding while preserving positional writes for files whose chunks are shared.
 
 Output file handles are shared through a bounded LRU cache with a maximum of

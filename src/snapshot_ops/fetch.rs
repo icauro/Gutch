@@ -48,163 +48,187 @@ pub fn fetch_snapshot_for_required_bundle_ids(
     required_bundle_ids_override: Option<&HashSet<String>>,
 ) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
-    let _operation_span = request.control.profile_span("snapshot.fetch");
-    let progress = request.control.progress().clone();
-    let download_client = build_download_client()?;
-    let transfer_progress = Arc::new(FetchTransferProgress::default());
-    let prepared =
-        prepare_snapshot_fetch(request, &download_client, &progress, &transfer_progress)?;
-    let required_artifacts = required_bundle_ids_override
-        .map(|ids| {
-            prepared
-                .required_artifacts
-                .iter()
-                .filter(|artifact| ids.contains(artifact.id()))
-                .cloned()
-                .collect::<HashSet<_>>()
-        })
-        .unwrap_or_else(|| prepared.required_artifacts.clone());
-    let pending_bundle_downloads =
-        select_pending_bundle_downloads(&prepared.pending_bundle_downloads, &required_artifacts);
-    let downloaded_artifact_count = download_pending_bundle_files(
-        request,
-        &download_client,
-        &transfer_progress,
-        &pending_bundle_downloads,
-    )?;
-    transfer_progress.finish();
-    publish_fetched_snapshot(&prepared)?;
-    let transfer_stats = transfer_progress.stats(request.transfer_policy);
-    let required_bundle_count = required_artifacts
-        .iter()
-        .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
-        .count();
-    let downloaded_bundle_count = pending_bundle_downloads
-        .iter()
-        .filter(|download| matches!(download.artifact, crate::ArtifactRef::Bundle { .. }))
-        .count();
+    let operation_root = (&request.repo_path).to_path_buf();
+    std::fs::create_dir_all(&operation_root)?;
+    crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
+        request.control.checkpoint()?;
+        let _operation_span = request.control.profile_span("snapshot.fetch");
+        let progress = request.control.progress().clone();
+        let download_client = build_download_client()?;
+        let transfer_progress = Arc::new(FetchTransferProgress::default());
+        let prepared =
+            prepare_snapshot_fetch(request, &download_client, &progress, &transfer_progress)?;
+        let required_artifacts = required_bundle_ids_override
+            .map(|ids| {
+                prepared
+                    .required_artifacts
+                    .iter()
+                    .filter(|artifact| ids.contains(artifact.id()))
+                    .cloned()
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_else(|| prepared.required_artifacts.clone());
+        let pending_bundle_downloads = select_pending_bundle_downloads(
+            &prepared.pending_bundle_downloads,
+            &required_artifacts,
+        );
+        let downloaded_artifact_count = download_pending_bundle_files(
+            request,
+            &download_client,
+            &transfer_progress,
+            &pending_bundle_downloads,
+        )?;
+        transfer_progress.finish();
+        publish_fetched_snapshot(&prepared)?;
+        let transfer_stats = transfer_progress.stats(request.transfer_policy);
+        let required_bundle_count = required_artifacts
+            .iter()
+            .filter(|artifact| matches!(artifact, crate::ArtifactRef::Bundle { .. }))
+            .count();
+        let downloaded_bundle_count = pending_bundle_downloads
+            .iter()
+            .filter(|download| matches!(download.artifact, crate::ArtifactRef::Bundle { .. }))
+            .count();
 
-    emit_progress(
-        &progress,
-        GutchProgressEvent {
-            operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::Done,
-            message: "Snapshot fetched".to_string(),
-            current: required_artifacts.len(),
-            total: required_artifacts.len().max(1),
-            transferred_bytes: transfer_progress.transferred_bytes(),
-            total_bytes: transfer_progress.total_bytes(),
-            detail: Some(request.snapshot_id.clone()),
-            done: true,
-        },
-    );
+        emit_progress(
+            &progress,
+            GutchProgressEvent {
+                operation: GutchOperation::Fetch,
+                phase: GutchProgressPhase::Done,
+                message: "Snapshot fetched".to_string(),
+                current: required_artifacts.len(),
+                total: required_artifacts.len().max(1),
+                transferred_bytes: transfer_progress.transferred_bytes(),
+                total_bytes: transfer_progress.total_bytes(),
+                detail: Some(request.snapshot_id.clone()),
+                done: true,
+            },
+        );
 
-    Ok(build_fetch_result(
-        &prepared.repo_paths.repo_root,
-        &request.snapshot_id,
-        required_artifacts.len(),
-        required_bundle_count,
-        downloaded_artifact_count,
-        downloaded_bundle_count,
-        request.transfer_policy,
-        transfer_stats,
-    ))
+        Ok(build_fetch_result(
+            &prepared.repo_paths.repo_root,
+            &request.snapshot_id,
+            required_artifacts.len(),
+            required_bundle_count,
+            downloaded_artifact_count,
+            downloaded_bundle_count,
+            request.transfer_policy,
+            transfer_stats,
+        ))
+    })
 }
 
 pub fn download_and_reconstruct_snapshot(
     request: SnapshotDownloadAndReconstructRequest,
 ) -> Result<SnapshotDownloadAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
-    let _operation_span = request
-        .fetch_request
-        .control
-        .profile_span("snapshot.fetch_reconstruct");
-    let progress = request.fetch_request.control.progress().clone();
-    let download_client = build_download_client()?;
-    let transfer_progress = Arc::new(FetchTransferProgress::default());
-    let prepared = prepare_snapshot_fetch(
-        &request.fetch_request,
-        &download_client,
-        &progress,
-        &transfer_progress,
-    )?;
-    let resolved_source = resolve_snapshot_source(&request, &prepared.repo_paths)?;
-    let verified_source = resolve_verified_source(
-        resolved_source
-            .source_manifest
-            .as_ref()
-            .zip(resolved_source.source_destination_dir.as_deref())
-            .map(
-                |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
-                    snapshot_manifest: source_manifest,
-                    destination_dir: source_destination_dir,
+    let operation_root = (&request.fetch_request.repo_path).to_path_buf();
+    std::fs::create_dir_all(&operation_root)?;
+    crate::repo::coordination::write_with_control(
+        &operation_root,
+        &request.fetch_request.control.clone(),
+        || {
+            request.fetch_request.control.checkpoint()?;
+            let _operation_span = request
+                .fetch_request
+                .control
+                .profile_span("snapshot.fetch_reconstruct");
+            let progress = request.fetch_request.control.progress().clone();
+            let download_client = build_download_client()?;
+            let transfer_progress = Arc::new(FetchTransferProgress::default());
+            let prepared = prepare_snapshot_fetch(
+                &request.fetch_request,
+                &download_client,
+                &progress,
+                &transfer_progress,
+            )?;
+            let _promotion_lock = super::apply::prepare_directory_promotion(
+                &request.destination_dir,
+                request.staging_dir.as_deref(),
+                &request.fetch_request.repo_path,
+                &request.fetch_request.control,
+            )?;
+            let resolved_source = resolve_snapshot_source(&request, &prepared.repo_paths)?;
+            let verified_source = resolve_verified_source(
+                resolved_source
+                    .source_manifest
+                    .as_ref()
+                    .zip(resolved_source.source_destination_dir.as_deref())
+                    .map(
+                        |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
+                            snapshot_manifest: source_manifest,
+                            destination_dir: source_destination_dir,
+                        },
+                    ),
+                &request.runtime_hints,
+                &request.fetch_request.control,
+            )?;
+
+            let pipeline_plan = {
+                let _plan_span = request
+                    .fetch_request
+                    .control
+                    .profile_span("snapshot.reconstruct.prepare.plan");
+                build_reconstruct_pipeline_plan(
+                    &prepared.snapshot_manifest,
+                    &prepared.chunk_index,
+                    &prepared.repo_paths,
+                    &prepared.existing_artifacts,
+                    verified_source,
+                )?
+            };
+            let pending_bundle_downloads = select_pending_bundle_downloads(
+                &prepared.pending_bundle_downloads,
+                &pipeline_plan.required_artifacts,
+            );
+            if pending_bundle_downloads.is_empty() {
+                transfer_progress.finish();
+            }
+
+            let reconstruct_result = apply_reconstruct_pipeline(
+                ReconstructPipelineApplyRequest {
+                    repo_root: &prepared.repo_paths.repo_root,
+                    compression_profile: prepared.compression_profile.clone(),
+                    snapshot_manifest: &prepared.snapshot_manifest,
+                    destination_dir: &request.destination_dir,
+                    staging_dir: request.staging_dir.as_deref(),
+                    source_destination_dir: resolved_source.source_destination_dir,
+                    runtime_hints: &request.runtime_hints,
+                    existing_artifacts: &prepared.existing_artifacts,
+                    pending_bundle_downloads: &pending_bundle_downloads,
+                    transfer_policy: request.fetch_request.transfer_policy,
+                    control: &request.fetch_request.control,
+                    download_client: Some(&download_client),
+                    transfer_progress: Some(&transfer_progress),
                 },
-            ),
-        &request.runtime_hints,
-        &request.fetch_request.control,
-    )?;
+                pipeline_plan,
+            )?;
+            publish_fetched_snapshot(&prepared)?;
+            let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);
+            let fetch_result = build_fetch_result(
+                &prepared.repo_paths.repo_root,
+                &request.fetch_request.snapshot_id,
+                reconstruct_result
+                    .reconstruct_result
+                    .required_artifact_count,
+                reconstruct_result.reconstruct_result.required_bundle_count,
+                pending_bundle_downloads.len(),
+                pending_bundle_downloads
+                    .iter()
+                    .filter(|download| {
+                        matches!(download.artifact, crate::ArtifactRef::Bundle { .. })
+                    })
+                    .count(),
+                request.fetch_request.transfer_policy,
+                transfer_stats,
+            );
 
-    let pipeline_plan = {
-        let _plan_span = request
-            .fetch_request
-            .control
-            .profile_span("snapshot.reconstruct.prepare.plan");
-        build_reconstruct_pipeline_plan(
-            &prepared.snapshot_manifest,
-            &prepared.chunk_index,
-            &prepared.repo_paths,
-            &prepared.existing_artifacts,
-            verified_source,
-        )?
-    };
-    let pending_bundle_downloads = select_pending_bundle_downloads(
-        &prepared.pending_bundle_downloads,
-        &pipeline_plan.required_artifacts,
-    );
-    if pending_bundle_downloads.is_empty() {
-        transfer_progress.finish();
-    }
-
-    let reconstruct_result = apply_reconstruct_pipeline(
-        ReconstructPipelineApplyRequest {
-            repo_root: &prepared.repo_paths.repo_root,
-            compression_profile: prepared.compression_profile.clone(),
-            snapshot_manifest: &prepared.snapshot_manifest,
-            destination_dir: &request.destination_dir,
-            staging_dir: request.staging_dir.as_deref(),
-            source_destination_dir: resolved_source.source_destination_dir,
-            runtime_hints: &request.runtime_hints,
-            existing_artifacts: &prepared.existing_artifacts,
-            pending_bundle_downloads: &pending_bundle_downloads,
-            transfer_policy: request.fetch_request.transfer_policy,
-            control: &request.fetch_request.control,
-            download_client: Some(&download_client),
-            transfer_progress: Some(&transfer_progress),
+            Ok(SnapshotDownloadAndReconstructResult {
+                fetch_result,
+                reconstruct_result,
+            })
         },
-        pipeline_plan,
-    )?;
-    publish_fetched_snapshot(&prepared)?;
-    let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);
-    let fetch_result = build_fetch_result(
-        &prepared.repo_paths.repo_root,
-        &request.fetch_request.snapshot_id,
-        reconstruct_result
-            .reconstruct_result
-            .required_artifact_count,
-        reconstruct_result.reconstruct_result.required_bundle_count,
-        pending_bundle_downloads.len(),
-        pending_bundle_downloads
-            .iter()
-            .filter(|download| matches!(download.artifact, crate::ArtifactRef::Bundle { .. }))
-            .count(),
-        request.fetch_request.transfer_policy,
-        transfer_stats,
-    );
-
-    Ok(SnapshotDownloadAndReconstructResult {
-        fetch_result,
-        reconstruct_result,
-    })
+    )
 }
 
 fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
@@ -404,40 +428,22 @@ fn prepare_snapshot_fetch(
             detail: None,
         }
         .download_bounded(MAX_CHUNK_INDEX_BYTES)?;
-        let chunk_index: crate::manifest::ChunkIndex =
-            match crate::helpers::from_json_bytes(&chunk_index_bytes) {
-                Ok(index) => index,
-                Err(json_error) => crate::manifest::binary::load_chunk_index_binary_from_bytes(
-                    &chunk_index_bytes,
-                )
-                .map_err(|binary_error| {
-                    Error::manifest(format!(
-                        "chunk index is neither valid JSON ({json_error}) nor valid Gutch binary ({binary_error})"
-                    ))
-                })?,
-            };
+        let chunk_index =
+            crate::manifest::binary::load_chunk_index_binary_from_bytes(&chunk_index_bytes)?;
         chunk_index
     } else {
         crate::load_chunk_index(&repo_paths)?
     };
     // Retain cached mappings whose artifacts are available, plus local-only entries.
     for (hash, entry) in crate::load_chunk_index(&repo_paths)?.entries {
-        let artifact = crate::ArtifactRef::from_chunk_entry(&hash, &entry);
-        if artifact.local_path(&repo_paths)?.is_file() || !chunk_index.entries.contains_key(&hash) {
+        let artifact = crate::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
+        if artifact.local_path(&repo_paths)?.is_file()
+            || chunk_index.entries.get_hash(&hash).is_none()
+        {
             chunk_index.entries.insert(hash, entry);
         }
     }
     request.control.checkpoint()?;
-    if repo_paths.repo_metadata_path.is_file()
-        && !crate::load_chunk_index(&repo_paths)?.entries.is_empty()
-    {
-        let (_, local_repo) = crate::load_gutch_repo_manifest(&repo_paths.repo_root)?;
-        if local_repo.artifact_profile.compression != repo_manifest.artifact_profile.compression {
-            return Err(Error::manifest(
-                "cannot import a different compression algorithm into a populated repository; use a fresh repository",
-            ));
-        }
-    }
     let compression_profile = repo_manifest.compression_profile();
     let required_artifacts = crate::required_artifacts(&snapshot_manifest, &chunk_index)?;
     let mut existing_artifacts = HashSet::new();

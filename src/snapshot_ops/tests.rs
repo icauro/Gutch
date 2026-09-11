@@ -128,7 +128,10 @@ fn resolved_snapshot_state_uses_product_runtime() {
         executable: true,
         read_only: false,
         full_file_hash: test_hash("Game.exe"),
-        chunks: Vec::new(),
+        chunks: vec![crate::manifest::ChunkRef {
+            chunk_hash: test_hash("Game.exe"),
+            raw_size: 1,
+        }],
     });
     snapshot.snapshot_id = crate::compute_snapshot_id_from_entries(&snapshot.entries);
     crate::write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
@@ -226,11 +229,13 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     let chunk_index = manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
-        entries: std::collections::BTreeMap::from([
+        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([
             (
                 chunk_a.clone(),
                 manifest::ChunkIndexEntry {
-                    bundle_id: "bundle-a".to_string(),
+                    artifact_size: 0,
+                    chunk_ordinal: 0,
+                    bundle_id: test_hash("bundle-a").into(),
                     raw_size: 4,
                     compressed_size: 4,
                     storage_mode: manifest::ArtifactStorageMode::Bundled,
@@ -239,13 +244,15 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             (
                 chunk_b.clone(),
                 manifest::ChunkIndexEntry {
-                    bundle_id: "bundle-b".to_string(),
+                    artifact_size: 0,
+                    chunk_ordinal: 0,
+                    bundle_id: test_hash("bundle-b").into(),
                     raw_size: 4,
                     compressed_size: 4,
                     storage_mode: manifest::ArtifactStorageMode::Bundled,
                 },
             ),
-        ]),
+        ])),
     };
     write_chunk_index(&paths, &chunk_index).unwrap();
 
@@ -294,7 +301,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
 
     assert_eq!(plan.missing_file_count, 0);
     assert_eq!(plan.corrupt_file_count, 1);
-    assert_eq!(plan.required_bundle_ids, vec!["bundle-a".to_string()]);
+    assert_eq!(plan.required_bundle_ids, vec![test_hash("bundle-a")]);
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -320,15 +327,17 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     let chunk_index = manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
-        entries: std::collections::BTreeMap::from([(
+        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             chunk_hash.clone(),
             manifest::ChunkIndexEntry {
-                bundle_id: bundle_id.clone(),
+                artifact_size: 0,
+                chunk_ordinal: 0,
+                bundle_id: (bundle_id.clone()).into(),
                 raw_size: 100,
                 compressed_size: 64,
                 storage_mode: manifest::ArtifactStorageMode::Bundled,
             },
-        )]),
+        )])),
     };
     let paths = GutchRepoPaths::from_repo_root(&repo_path);
     write_chunk_index(&paths, &chunk_index).unwrap();

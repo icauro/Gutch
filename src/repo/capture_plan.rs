@@ -208,48 +208,51 @@ pub fn delete_repo_snapshot_and_cleanup(
     snapshot_id: &str,
     control: &crate::GutchOperationControl,
 ) -> Result<usize> {
-    control.checkpoint()?;
-    // Total matches cleanup_orphan_artifacts_in_repo.
-    const TOTAL: usize = 1000;
+    let operation_root = (repo_root).to_path_buf();
+    crate::repo::coordination::write(&operation_root, || {
+        control.checkpoint()?;
+        // Total matches cleanup_orphan_artifacts_in_repo.
+        const TOTAL: usize = 1000;
 
-    progress::emit_progress(
-        control.progress(),
-        GutchProgressEvent {
-            operation: GutchOperation::SnapshotDelete,
-            phase: GutchProgressPhase::RemoveManifest,
-            message: format!("Removing snapshot '{}'", snapshot_id),
-            current: 0,
-            total: TOTAL,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: Some(snapshot_id.to_string()),
-            done: false,
-        },
-    );
-    let orphan_paths =
-        super::cleanup::plan_orphan_artifact_cleanup(repo_root, Some(snapshot_id), control)?;
-    control.checkpoint()?;
-    remove_snapshot_from_repo(repo_root, snapshot_id)?;
-    let orphan_count = super::cleanup::remove_orphan_artifacts(&orphan_paths, control)?;
+        progress::emit_progress(
+            control.progress(),
+            GutchProgressEvent {
+                operation: GutchOperation::SnapshotDelete,
+                phase: GutchProgressPhase::RemoveManifest,
+                message: format!("Removing snapshot '{}'", snapshot_id),
+                current: 0,
+                total: TOTAL,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                detail: Some(snapshot_id.to_string()),
+                done: false,
+            },
+        );
+        let orphan_paths =
+            super::cleanup::plan_orphan_artifact_cleanup(repo_root, Some(snapshot_id), control)?;
+        control.checkpoint()?;
+        remove_snapshot_from_repo(repo_root, snapshot_id)?;
+        let orphan_count = super::cleanup::remove_orphan_artifacts(&orphan_paths, control)?;
 
-    progress::emit_progress(
-        control.progress(),
-        GutchProgressEvent {
-            operation: GutchOperation::SnapshotDelete,
-            phase: GutchProgressPhase::Done,
-            message: format!(
-                "Deleted snapshot, removed {} orphan bundle(s)",
-                orphan_count
-            ),
-            current: TOTAL,
-            total: TOTAL,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: true,
-        },
-    );
-    Ok(orphan_count)
+        progress::emit_progress(
+            control.progress(),
+            GutchProgressEvent {
+                operation: GutchOperation::SnapshotDelete,
+                phase: GutchProgressPhase::Done,
+                message: format!(
+                    "Deleted snapshot, removed {} orphan bundle(s)",
+                    orphan_count
+                ),
+                current: TOTAL,
+                total: TOTAL,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                detail: None,
+                done: true,
+            },
+        );
+        Ok(orphan_count)
+    })
 }
 
 fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
@@ -269,15 +272,18 @@ pub fn retag_snapshot_by_id(
     new_tags: SnapshotTagSet,
 ) -> Result<RetagSnapshotResult> {
     let new_tags = SnapshotTagSet::from_compact_strings(&new_tags.to_canonical_strings())?;
-    let (repo_paths, _) = crate::load_gutch_repo_manifest(repo_root)?;
-    let mut manifest = crate::load_snapshot_manifest(&repo_paths, snapshot_id)?;
-    let previous_tags = manifest.snapshot_tags.clone();
-    manifest.snapshot_tags = new_tags.clone();
-    crate::write_snapshot_manifest_artifacts(&repo_paths, &manifest)?;
-    Ok(RetagSnapshotResult {
-        snapshot_id: snapshot_id.to_string(),
-        previous_tags,
-        new_tags,
+    let operation_root = (repo_root).to_path_buf();
+    crate::repo::coordination::write(&operation_root, || {
+        let (repo_paths, _) = crate::load_gutch_repo_manifest(repo_root)?;
+        let mut manifest = crate::load_snapshot_manifest(&repo_paths, snapshot_id)?;
+        let previous_tags = manifest.snapshot_tags.clone();
+        manifest.snapshot_tags = new_tags.clone();
+        crate::write_snapshot_manifest_artifacts(&repo_paths, &manifest)?;
+        Ok(RetagSnapshotResult {
+            snapshot_id: snapshot_id.to_string(),
+            previous_tags,
+            new_tags,
+        })
     })
 }
 
@@ -285,46 +291,44 @@ pub fn capture_repo_snapshot(
     request: RepoSnapshotCaptureRequest,
 ) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
-    let runtime_plan = crate::plan_runtime(&request.runtime_hints);
-    let _pool_span = request.control.profile_span_with_args(
-        "capture.create_worker_pool",
-        std::collections::BTreeMap::from([(
-            "worker_count".to_string(),
-            serde_json::json!(runtime_plan.worker_count),
-        )]),
-    );
-    let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
-    drop(_pool_span);
+    let operation_root = (&request.repo_root).to_path_buf();
+    crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
+        request.control.checkpoint()?;
+        let runtime_plan = crate::plan_runtime(&request.runtime_hints);
+        let _pool_span = request.control.profile_span_with_args(
+            "capture.create_worker_pool",
+            std::collections::BTreeMap::from([(
+                "worker_count".to_string(),
+                serde_json::json!(runtime_plan.worker_count),
+            )]),
+        );
+        let build_pool = crate::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+        drop(_pool_span);
 
-    let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_root);
-    let _existing_state_span = request
-        .control
-        .profile_span("capture.prepare_source.load_existing_store_state");
-    let mut store_state =
-        scan_existing_store_state_with_pool(&repo_paths, &build_pool, &request.control)?;
-    drop(_existing_state_span);
+        let repo_paths = crate::GutchRepoPaths::from_repo_root(&request.repo_root);
+        let _existing_state_span = request
+            .control
+            .profile_span("capture.prepare_source.load_existing_store_state");
+        let mut store_state =
+            scan_existing_store_state_with_pool(&repo_paths, &build_pool, &request.control)?;
+        drop(_existing_state_span);
 
-    let (_, mut manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
-    // Compression is repository-wide in this format; existing artifacts must
-    // never be decoded using a newly requested algorithm.
-    if (!store_state.bundle_ids.is_empty() || !store_state.chunk_locations.is_empty())
-        && manifest.artifact_profile.compression != request.compression_algorithm
-    {
-        return Err(crate::Error::manifest(
-            "cannot change compression in a populated repository; capture into a fresh repository",
-        ));
-    }
-    manifest.set_artifact_profile(
-        request.chunk_profile,
-        request.compression_algorithm,
-        request.compression_level,
-        request.bundle_profile,
-        request.storage_mode,
-    );
-    let result =
-        capture_repo_snapshot_with_existing_store_state(request, &mut store_state, &build_pool)?;
-    crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
-    Ok(result)
+        let (_, mut manifest) = crate::load_gutch_repo_manifest(&request.repo_root)?;
+        manifest.set_artifact_profile(
+            request.chunk_profile,
+            request.compression_algorithm,
+            request.compression_level,
+            request.bundle_profile,
+            request.storage_mode,
+        );
+        let result = capture_repo_snapshot_with_existing_store_state(
+            request,
+            &mut store_state,
+            &build_pool,
+        )?;
+        crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
+        Ok(result)
+    })
 }
 
 pub(crate) fn capture_repo_snapshot_with_existing_store_state(
@@ -332,13 +336,17 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<RepoSnapshotCaptureResult> {
-    plan_snapshot_capture_with_control(
-        request.repo_root.as_path(),
-        request.source_dir.as_path(),
-        &request.explicit_tags,
-        &request.control,
-    )?;
-    execute_repo_snapshot_capture(request, store_state, build_pool)
+    request.control.checkpoint()?;
+    let operation_root = (&request.repo_root).to_path_buf();
+    crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
+        plan_snapshot_capture_with_control(
+            request.repo_root.as_path(),
+            request.source_dir.as_path(),
+            &request.explicit_tags,
+            &request.control,
+        )?;
+        execute_repo_snapshot_capture(request, store_state, build_pool)
+    })
 }
 
 fn execute_repo_snapshot_capture(
@@ -555,6 +563,7 @@ fn execute_repo_snapshot_capture(
             let required_bundle_count =
                 crate::repo::required_bundle_ids(&existing_manifest, &store_state.chunk_index)?
                     .len();
+            crate::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
             return Ok(RepoSnapshotCaptureResult {
                 repo_root: repo_paths.repo_root,
                 snapshot_id: existing_manifest.snapshot_id.clone(),
@@ -655,7 +664,7 @@ fn execute_repo_snapshot_capture(
                 chunk.chunk_hash.clone(),
                 crate::ExistingChunkLocation {
                     bundle_id: bundle.bundle_id.clone(),
-                    compressed_size: chunk.compressed_size,
+                    compressed_size: u64::from(chunk.compressed_size),
                     storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
                 },
             );
@@ -987,7 +996,12 @@ mod tests {
             full_file_hash: crate::hash::hash_hex(
                 &crate::hash::hash_file(new_source.join("game.exe").as_path()).unwrap(),
             ),
-            chunks: Vec::new(),
+            chunks: vec![crate::manifest::ChunkRef {
+                chunk_hash: crate::hash::hash_hex(
+                    &crate::hash::hash_file(new_source.join("game.exe").as_path()).unwrap(),
+                ),
+                raw_size: 11,
+            }],
         }];
         let old_entries = old_files
             .iter()

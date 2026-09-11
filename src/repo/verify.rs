@@ -45,52 +45,57 @@ pub fn verify_gutch_repo_artifacts(
     snapshot_id: Option<&str>,
     mode: VerifyMode,
 ) -> Result<RepoVerifyResult> {
-    let check = check_gutch_repo(repo_root)?;
-    if !check.is_repo {
-        return Err(Error::manifest(format!(
-            "no gutch repo found at {}",
-            repo_root.display()
-        )));
-    }
+    let operation_root = (repo_root).to_path_buf();
+    crate::repo::coordination::read(&operation_root, || {
+        let check = check_gutch_repo(repo_root)?;
+        if !check.is_repo {
+            return Err(Error::manifest(format!(
+                "no gutch repo found at {}",
+                repo_root.display()
+            )));
+        }
 
-    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-    let chunk_index = load_chunk_index(&repo_paths)?;
+        let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+        let chunk_index = load_chunk_index(&repo_paths)?;
 
-    let selected_snapshots: Vec<_> = check
-        .snapshots
-        .iter()
-        .filter(|snapshot| {
-            snapshot_id
-                .map(|id| id == snapshot.snapshot_id)
-                .unwrap_or(true)
+        let selected_snapshots: Vec<_> = check
+            .snapshots
+            .iter()
+            .filter(|snapshot| {
+                snapshot_id
+                    .map(|id| id == snapshot.snapshot_id)
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        if let Some(id) = snapshot_id
+            && selected_snapshots.is_empty()
+        {
+            return Err(Error::manifest(format!("snapshot not found in repo: {id}")));
+        }
+
+        let mut snapshots = Vec::new();
+        let mut verified = std::collections::HashMap::new();
+        for snapshot in selected_snapshots {
+            snapshots.push(verify_snapshot_artifacts_cached(
+                &repo_paths,
+                &chunk_index,
+                &repo_manifest.compression_profile(),
+                &snapshot.snapshot_id,
+                mode,
+                &mut verified,
+            )?);
+        }
+        let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
+        let ok = snapshots_ok == snapshots.len();
+
+        Ok(RepoVerifyResult {
+            ok,
+            mode: mode.as_str().to_string(),
+            snapshot_count: snapshots.len(),
+            snapshots_ok,
+            snapshots,
         })
-        .collect();
-
-    if let Some(id) = snapshot_id
-        && selected_snapshots.is_empty()
-    {
-        return Err(Error::manifest(format!("snapshot not found in repo: {id}")));
-    }
-
-    let mut snapshots = Vec::new();
-    for snapshot in selected_snapshots {
-        snapshots.push(verify_snapshot_artifacts(
-            &repo_paths,
-            &chunk_index,
-            &repo_manifest.compression_profile(),
-            &snapshot.snapshot_id,
-            mode,
-        )?);
-    }
-    let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
-    let ok = snapshots_ok == snapshots.len();
-
-    Ok(RepoVerifyResult {
-        ok,
-        mode: mode.as_str().to_string(),
-        snapshot_count: snapshots.len(),
-        snapshots_ok,
-        snapshots,
     })
 }
 
@@ -100,6 +105,24 @@ pub(crate) fn verify_snapshot_artifacts(
     compression_profile: &crate::manifest::CompressionProfile,
     snapshot_id: &str,
     mode: VerifyMode,
+) -> Result<SnapshotVerifyResult> {
+    verify_snapshot_artifacts_cached(
+        repo_paths,
+        chunk_index,
+        compression_profile,
+        snapshot_id,
+        mode,
+        &mut std::collections::HashMap::new(),
+    )
+}
+
+fn verify_snapshot_artifacts_cached(
+    repo_paths: &GutchRepoPaths,
+    chunk_index: &crate::manifest::ChunkIndex,
+    compression_profile: &crate::manifest::CompressionProfile,
+    snapshot_id: &str,
+    mode: VerifyMode,
+    verified: &mut std::collections::HashMap<ArtifactRef, std::result::Result<(), String>>,
 ) -> Result<SnapshotVerifyResult> {
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let required_artifacts = crate::required_artifacts(&snapshot_manifest, chunk_index)?;
@@ -119,24 +142,33 @@ pub(crate) fn verify_snapshot_artifacts(
             missing_artifacts.push(artifact.id().to_string());
             continue;
         }
-        let result = match artifact {
-            ArtifactRef::Bundle { id } => verify_bundle_file(&path, id, compression_profile, mode),
-            ArtifactRef::LooseChunk { hash } => {
-                let entry = chunk_index.entries.get(hash).ok_or_else(|| {
-                    Error::manifest(format!(
-                        "missing chunk index entry for required chunk '{hash}'"
-                    ))
-                });
-                entry.and_then(|entry| {
-                    crate::artifact::store::read_loose_chunk(
-                        &path,
-                        hash,
-                        entry.raw_size,
-                        compression_profile,
-                    )
-                    .map(|_| ())
-                })
-            }
+        let result = if let Some(result) = verified.get(artifact) {
+            result.clone()
+        } else {
+            let result = match artifact {
+                ArtifactRef::Bundle { id } => {
+                    verify_bundle_file(&path, id, compression_profile, mode)
+                }
+                ArtifactRef::LooseChunk { hash } => {
+                    let entry = chunk_index.entries.get(hash).ok_or_else(|| {
+                        Error::manifest(format!(
+                            "missing chunk index entry for required chunk '{hash}'"
+                        ))
+                    });
+                    entry.and_then(|entry| {
+                        crate::artifact::store::read_loose_chunk(
+                            &path,
+                            hash,
+                            u64::from(entry.raw_size),
+                            compression_profile,
+                        )
+                        .map(|_| ())
+                    })
+                }
+            };
+            let result = result.map_err(|error| error.to_string());
+            verified.insert(artifact.clone(), result.clone());
+            result
         };
         if let Err(err) = result {
             if let ArtifactRef::Bundle { id } = artifact {
@@ -174,8 +206,7 @@ fn verify_bundle_file(
 ) -> Result<()> {
     let mut reader = bundle::BundleReader::open(std::fs::File::open(path)?, compression_profile)?;
     if mode == VerifyMode::Strict {
-        bundle::verify_bundle_identity_file(path, bundle_id)?;
-        reader.verify()?;
+        reader.verify_identity(bundle_id)?;
     }
     Ok(())
 }

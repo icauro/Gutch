@@ -1,7 +1,7 @@
 """Shared correctness operations for HTTP and S3 delivery scenarios."""
 from .datasets import delivery
 from .delivery import fetch_arguments
-from .filesystem import inventory
+from .filesystem import repository_inventory as inventory
 
 
 def published(case):

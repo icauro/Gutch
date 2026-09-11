@@ -45,7 +45,8 @@ pub use crate::repo::init_policy::{
     RepoInitAssessment, RepoInitOptions, RepoInitPathKind, RepoInitRisk, assess_repo_init_path,
     initialize_gutch_repo_with_options,
 };
-pub use crate::repo::paths::{GutchRepoPaths, load_gutch_repo_manifest};
+pub use crate::repo::paths::GutchRepoPaths;
+pub use crate::repo::recovery::{ChunkMapRegenerationResult, regenerate_chunk_map};
 pub use crate::repo::remote::{
     PullConflictPolicy, RemoteArtifactSource, RemoteBundleSource, RemoteRepository,
     RemoteRepositoryCommandProvider, RemoteRepositoryProvider, RemoteRepositoryReader,
@@ -56,7 +57,7 @@ pub use crate::repo::remote::{
     sync_up_repo, unlink_repo,
 };
 pub use crate::repo::snapshot_manifests::{
-    load_snapshot_manifest, save_snapshot_product_metadata_for_snapshots, snapshot_metadata_path,
+    save_snapshot_product_metadata_for_snapshots, snapshot_metadata_path,
     validate_snapshot_product_metadata_for_snapshots,
 };
 pub use crate::repo::snapshot_sources::{
@@ -91,3 +92,17 @@ pub use crate::snapshot_ops::{
 };
 pub use crate::transport::read_bounded_response;
 pub use crate::verify::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode};
+
+/// Load one committed repository metadata document under reader protection.
+pub fn load_gutch_repo_manifest(
+    root: &std::path::Path,
+) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
+    crate::repo::coordination::read(root, || crate::repo::paths::load_gutch_repo_manifest(root))
+}
+
+/// Load a coherent snapshot metadata/blueprint pair under reader protection.
+pub fn load_snapshot_manifest(paths: &GutchRepoPaths, snapshot: &str) -> Result<SnapshotManifest> {
+    crate::repo::coordination::read(&paths.repo_root, || {
+        crate::repo::snapshot_manifests::load_snapshot_manifest(paths, snapshot)
+    })
+}

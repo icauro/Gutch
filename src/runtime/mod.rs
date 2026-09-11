@@ -3,6 +3,61 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
+/// Shared per-operation admission for payload and codec working memory.
+pub(crate) struct MemoryBudget {
+    available: std::sync::Mutex<u64>,
+    changed: std::sync::Condvar,
+}
+pub(crate) struct MemoryPermit<'a> {
+    budget: &'a MemoryBudget,
+    bytes: u64,
+}
+impl MemoryBudget {
+    pub(crate) fn new() -> Self {
+        Self {
+            available: std::sync::Mutex::new(512 * 1024 * 1024),
+            changed: std::sync::Condvar::new(),
+        }
+    }
+    pub(crate) fn acquire(
+        &self,
+        bytes: u64,
+        control: &crate::GutchOperationControl,
+    ) -> Result<MemoryPermit<'_>> {
+        if bytes > 512 * 1024 * 1024 {
+            return Err(Error::manifest(
+                "artifact working memory exceeds operation budget",
+            ));
+        }
+        let mut available = self
+            .available
+            .lock()
+            .map_err(|_| Error::manifest("memory budget poisoned"))?;
+        while *available < bytes {
+            control.checkpoint()?;
+            available = self
+                .changed
+                .wait_timeout(available, std::time::Duration::from_millis(50))
+                .map_err(|_| Error::manifest("memory budget poisoned"))?
+                .0;
+        }
+        control.checkpoint()?;
+        *available -= bytes;
+        Ok(MemoryPermit {
+            budget: self,
+            bytes,
+        })
+    }
+}
+impl Drop for MemoryPermit<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut available) = self.budget.available.lock() {
+            *available += self.bytes;
+            self.budget.changed.notify_all();
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RuntimeResourceHints {
     pub jobs: Option<usize>,

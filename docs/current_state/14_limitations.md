@@ -16,16 +16,19 @@ its absence is not a permanent decision or a roadmap commitment.
 
 ## Repository Safety and Maintenance
 
+Local reader/writer locks, recoverable metadata publication, and explicit
+`repo regenerate-chunk-map` now cover local coordination and index recovery.
+Strict repository scrubbing verifies shared artifacts once per operation.
+Lock acquisition polls cancellation for operations with a control hook. Remote
+transactions, exhaustive power-loss testing, and resumable recovery are not provided.
+
+
 | Limitation | Current reason and effect |
 |---|---|
-| No engine cross-process writer lock | Staging and atomic writes do not serialize independent repository writers. Hosts may coordinate operations; standalone concurrent-writer safety is not established. This is not proof of a host race. |
-| No repository-wide crash rollback | Metadata, chunk index, and snapshot directory are separate atomic replacements. There is no public journal replay or transaction rollback; normal failure cleanup does not cover every crash boundary. |
-| No dedicated chunk-index recovery command | Capture internally rebuilds an empty/missing index from bundle tables using the repository compression profile. A corrupt index fails before fallback, and loose chunks are not scanned. There is no public recovery/validation command. |
 | No recovery of lost payload through parity | Repair needs healthy artifacts; recapture needs source content. No error-correcting parity is stored. Chunk tables cannot replace missing blueprints or recover original paths. |
 | No partial-bundle compaction | Cleanup removes wholly unreferenced artifacts. One live chunk keeps its entire bundle, including dead chunks. |
-| Repeated verification of shared artifacts | Repository verification walks snapshots separately and can check the same bundle multiple times. |
 | No budgeted/resumable scrub | Integrity checks select snapshots and a mode, without a saved coverage cursor, sampling selector, or byte/time budget. Fast checks, strict checks, and reconstructed-tree verification provide different coverage. |
-| No existing-data recompression | Compression kind is supplied by the repository profile. Populated repositories reject changing it; another algorithm requires a fresh repository. |
+| No existing-data recompression | Artifacts record their own codec, so new artifacts may use a different profile. Reused content is not automatically recompressed. |
 | No disk-cache eviction budget | Gutch reuses repository artifacts without deciding whether they are disposable. Hosts know whether an authoritative copy exists elsewhere. |
 
 ## Capture and Filesystem Content

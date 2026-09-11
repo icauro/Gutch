@@ -34,6 +34,8 @@ class Scenario:
 
 
 SCENARIOS = [
+    Scenario("repository_writer_lock", "concurrent_repository_writers_preserve_both_snapshots", "local"),
+    Scenario("chunk_map_recovery", "chunk_map_regeneration_verifies_before_publishing", "local"),
     Scenario("batch_capture_failure", "batch_capture_failure_preserves_earlier_completed_snapshots", "local"),
     Scenario("repository_verification", "repository_verification_returns_failure_for_missing_artifacts", "local"),
     Scenario("path_comparison", "path_comparison_reports_mismatches_and_returns_failure", "local"),

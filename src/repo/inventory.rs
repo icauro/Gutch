@@ -10,23 +10,29 @@ pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<Strin
         return Ok(Vec::new());
     }
 
-    let mut snapshot_ids = std::fs::read_dir(&paths.snapshots_root)?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry.path().is_dir()
-                && entry
-                    .path()
-                    .join(super::snapshot_manifests::SNAPSHOT_METADATA_FILE)
-                    .is_file()
-        })
-        .filter_map(|entry| {
-            entry
-                .path()
-                .file_name()
-                .and_then(|value| value.to_str())
-                .map(str::to_string)
-        })
-        .collect::<Vec<_>>();
+    let mut snapshot_ids = Vec::new();
+    for entry in std::fs::read_dir(&paths.snapshots_root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let id = entry
+            .file_name()
+            .to_str()
+            .ok_or_else(|| crate::Error::manifest("invalid snapshot directory name"))?
+            .to_string();
+        super::validate_snapshot_id(&id)?;
+        if !entry
+            .path()
+            .join(super::snapshot_manifests::SNAPSHOT_METADATA_FILE)
+            .is_file()
+        {
+            return Err(crate::Error::manifest(format!(
+                "snapshot {id} is missing metadata"
+            )));
+        }
+        snapshot_ids.push(id);
+    }
     snapshot_ids.sort();
     Ok(snapshot_ids)
 }

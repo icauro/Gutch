@@ -439,7 +439,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
             let raw_size = cr.size;
             chunk_refs.push(ChunkRef {
                 chunk_hash: chunk_hash.to_hex(),
-                raw_size,
+                raw_size: crate::artifact::format::size_u32(raw_size)?,
             });
             if !options.existing_chunk_locations.contains_key(&chunk_hash) {
                 let payload = ChunkPayload {

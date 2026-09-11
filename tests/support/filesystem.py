@@ -67,3 +67,13 @@ def remove_owned(path: Path, owner: Path) -> None:
                 child.chmod(child.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
     target.chmod(target.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
     shutil.rmtree(target)
+
+
+def repository_inventory(root: Path) -> dict:
+    """Compare repository data, excluding engine lock/journal bookkeeping.
+
+    Transaction tests separately validate these files and their recovery behavior.
+    Installation inventories continue to include every path.
+    """
+    return {path: entry for path, entry in inventory(root).items()
+            if not any(part in {".gutch-lock", ".gutch-transactions"} for part in Path(path).parts)}

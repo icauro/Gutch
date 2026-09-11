@@ -428,8 +428,9 @@ fn local_chunk_map_hash_b3(repo_paths: &GutchRepoPaths) -> Result<String> {
     if !repo_paths.chunk_map_path.exists() {
         return Ok(String::new());
     }
-    let chunk_index = load_chunk_index(repo_paths)?;
-    Ok(repo_file_hash(&serde_json::to_vec_pretty(&chunk_index)?))
+    Ok(repo_file_hash(&crate::helpers::read(
+        &repo_paths.chunk_map_path,
+    )?))
 }
 
 fn local_snapshot_metadata_hash_b3(
@@ -727,14 +728,17 @@ pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
 }
 
 pub fn bind_repo_remote(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
-    let remote_repo_id = remote_repo_id.trim();
-    if remote_repo_id.is_empty() {
-        return Err(Error::manifest("remote repo ID is required"));
-    }
+    let operation_root = (repo_root).to_path_buf();
+    crate::repo::coordination::write(&operation_root, || {
+        let remote_repo_id = remote_repo_id.trim();
+        if remote_repo_id.is_empty() {
+            return Err(Error::manifest("remote repo ID is required"));
+        }
 
-    let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
-    manifest.remote_repo_id = remote_repo_id.to_string();
-    write_gutch_repo_manifest(&paths, &manifest)
+        let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
+        manifest.remote_repo_id = remote_repo_id.to_string();
+        write_gutch_repo_manifest(&paths, &manifest)
+    })
 }
 
 pub fn list_remote_repositories(
@@ -748,26 +752,29 @@ pub fn link_repo(
     scope_id: &str,
     provider: &dyn RemoteRepositoryCommandProvider,
 ) -> Result<()> {
-    let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
-    if manifest.is_linked() {
-        return Err(Error::manifest(format!(
-            "repo '{}' is already linked (remote_repo_id={}). Unlink first.",
-            paths.repo_root().display(),
-            manifest.remote_repo_id
-        )));
-    }
+    let operation_root = (repo_root).to_path_buf();
+    crate::repo::coordination::write(&operation_root, || {
+        let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
+        if manifest.is_linked() {
+            return Err(Error::manifest(format!(
+                "repo '{}' is already linked (remote_repo_id={}). Unlink first.",
+                paths.repo_root().display(),
+                manifest.remote_repo_id
+            )));
+        }
 
-    let scope_id = scope_id.trim();
-    if scope_id.is_empty() {
-        return Err(Error::manifest("remote repo scope is required"));
-    }
-    let remote_repo_id = provider.create_remote_repository(scope_id, &manifest.name)?;
-    if remote_repo_id.trim().is_empty() {
-        return Err(Error::manifest("remote provider returned an empty repo ID"));
-    }
-    manifest.remote_repo_id = remote_repo_id;
-    write_gutch_repo_manifest(&paths, &manifest)?;
-    Ok(())
+        let scope_id = scope_id.trim();
+        if scope_id.is_empty() {
+            return Err(Error::manifest("remote repo scope is required"));
+        }
+        let remote_repo_id = provider.create_remote_repository(scope_id, &manifest.name)?;
+        if remote_repo_id.trim().is_empty() {
+            return Err(Error::manifest("remote provider returned an empty repo ID"));
+        }
+        manifest.remote_repo_id = remote_repo_id;
+        write_gutch_repo_manifest(&paths, &manifest)?;
+        Ok(())
+    })
 }
 
 pub fn unlink_repo(
@@ -775,32 +782,35 @@ pub fn unlink_repo(
     delete_remote: bool,
     provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> Result<()> {
-    let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
-    if !manifest.is_linked() {
-        return Ok(());
-    }
-
-    if delete_remote {
-        let remote_repo_id = manifest.remote_repo_id.trim();
-        if remote_repo_id.is_empty() {
-            return Err(Error::manifest(format!(
-                "invalid remote_repo_id '{}' in manifest",
-                manifest.remote_repo_id
-            )));
+    let operation_root = (repo_root).to_path_buf();
+    crate::repo::coordination::write(&operation_root, || {
+        let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
+        if !manifest.is_linked() {
+            return Ok(());
         }
-        let remote_repo_id = remote_repo_id.to_string();
-        let provider = provider.ok_or_else(|| {
-            Error::manifest("remote provider context is required when deleting the remote repo")
-        })?;
-        let repository = provider
-            .repository_provider()
-            .resolve_repository(None, Some(&remote_repo_id))?;
-        provider.delete_remote_repository(&repository)?;
-    }
 
-    manifest.remote_repo_id.clear();
-    write_gutch_repo_manifest(&paths, &manifest)?;
-    Ok(())
+        if delete_remote {
+            let remote_repo_id = manifest.remote_repo_id.trim();
+            if remote_repo_id.is_empty() {
+                return Err(Error::manifest(format!(
+                    "invalid remote_repo_id '{}' in manifest",
+                    manifest.remote_repo_id
+                )));
+            }
+            let remote_repo_id = remote_repo_id.to_string();
+            let provider = provider.ok_or_else(|| {
+                Error::manifest("remote provider context is required when deleting the remote repo")
+            })?;
+            let repository = provider
+                .repository_provider()
+                .resolve_repository(None, Some(&remote_repo_id))?;
+            provider.delete_remote_repository(&repository)?;
+        }
+
+        manifest.remote_repo_id.clear();
+        write_gutch_repo_manifest(&paths, &manifest)?;
+        Ok(())
+    })
 }
 
 pub fn inspect_repo_tag_references(
@@ -961,304 +971,294 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
     prune: bool,
     control: GutchOperationControl,
 ) -> Result<RepoPullStats> {
-    control.checkpoint()?;
-    let progress = RemoteProgress::new(&control, GutchOperation::Pull);
-    let bound_remote_repo_id = bound_remote_repo_id(&repo)?;
-    let repository =
-        provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
-    let repo_paths = GutchRepoPaths::from_repo_root(&repo);
-    crate::ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
-    progress.emit(
-        GutchProgressPhase::Planning,
-        "Planning pull changes",
-        0,
-        1,
-        None,
-        false,
-    );
-    let snapshots = provider.list_snapshots(&repository)?;
-    let plan = compute_pull_plan(&repo, &repo_paths, &repository, &snapshots, policy)?;
-    control.checkpoint()?;
-    let download_client = crate::transport::build_download_client()?;
-
-    let mut stats = RepoPullStats {
-        command: "repo pull",
-        repo_root: repo_paths.repo_root.display().to_string(),
-        remote_repo_id: repository.id.clone(),
-        repo_manifest_downloaded: false,
-        chunk_map_downloaded: false,
-        snapshot_downloaded_count: 0,
-        snapshot_skipped_count: plan.snapshots_to_skip.len(),
-        bundle_downloaded_count: 0,
-        bundle_skipped_count: 0,
-        kept_newer_local_count: plan.kept_newer_local_snapshots.len(),
-        local_only_snapshots_kept: 0,
-        pruned_snapshot_count: 0,
-        pruned_bundle_count: 0,
-    };
-    let total_steps = 1
-        + usize::from(plan.repo_manifest_needed)
-        + usize::from(plan.chunk_map_needed)
-        + plan.snapshots_to_download.len()
-        + 2;
-    let mut step = 0usize;
-
-    if plan.repo_manifest_needed {
+    let operation_root = (&repo).to_path_buf();
+    std::fs::create_dir_all(&operation_root)?;
+    crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
-        step += 1;
+        let progress = RemoteProgress::new(&control, GutchOperation::Pull);
+        let bound_remote_repo_id = bound_remote_repo_id(&repo)?;
+        let repository =
+            provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
+        let repo_paths = GutchRepoPaths::from_repo_root(&repo);
+        crate::ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
         progress.emit(
-            GutchProgressPhase::RepoMetadata,
-            "Downloading repo metadata",
-            step,
-            total_steps,
+            GutchProgressPhase::Planning,
+            "Planning pull changes",
+            0,
+            1,
             None,
             false,
         );
-        let bytes = source_bytes(
-            &provider.repository_metadata_source(&repository)?,
-            &download_client,
-            MAX_REMOTE_JSON_BYTES,
-            &control,
-        )?;
-        verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
-        let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
-            crate::helpers::from_json_bytes(&bytes)?;
-        if repo_paths.repo_metadata_path.is_file()
-            && !load_chunk_index(&repo_paths)?.entries.is_empty()
-        {
-            let (_, local_repo) = load_gutch_repo_manifest(&repo_paths.repo_root)?;
-            if local_repo.artifact_profile.compression != manifest.artifact_profile.compression {
-                return Err(Error::manifest(
-                    "cannot pull a different compression algorithm into a populated repository; use a fresh repository",
-                ));
-            }
-        }
-        manifest.remote_repo_id = repository.id.clone();
-        crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
-        stats.repo_manifest_downloaded = true;
-    }
-
-    if plan.chunk_map_needed {
+        let snapshots = provider.list_snapshots(&repository)?;
+        let plan = compute_pull_plan(&repo, &repo_paths, &repository, &snapshots, policy)?;
         control.checkpoint()?;
-        step += 1;
-        progress.emit(
-            GutchProgressPhase::ChunkIndex,
-            "Downloading chunk map",
-            step,
-            total_steps,
-            None,
-            false,
-        );
-        let bytes = source_bytes(
-            &provider.chunk_index_source(&repository)?,
-            &download_client,
-            MAX_REMOTE_JSON_BYTES,
-            &control,
-        )?;
-        verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
-        let mut chunk_index: crate::manifest::ChunkIndex = crate::helpers::from_json_bytes(&bytes)
-            .map_err(|error| {
-                Error::manifest(format!("downloaded chunk map is invalid JSON: {error}"))
-            })?;
-        // Keep available local mappings and local-only chunks when importing a map.
-        // Skipped snapshots may use a different layout from the remote snapshot.
-        for (hash, entry) in load_chunk_index(&repo_paths)?.entries {
-            let artifact = crate::ArtifactRef::from_chunk_entry(&hash, &entry);
-            if artifact.local_path(&repo_paths)?.is_file()
-                || !chunk_index.entries.contains_key(&hash)
-            {
-                chunk_index.entries.insert(hash, entry);
-            }
-        }
-        crate::repo::write_chunk_index(&repo_paths, &chunk_index)?;
-        stats.chunk_map_downloaded = true;
-    }
+        let download_client = crate::transport::build_download_client()?;
 
-    let snapshot_start = step;
-    for snapshot_id in &plan.snapshots_to_download {
-        control.checkpoint()?;
-        step += 1;
-        progress.emit(
-            GutchProgressPhase::SnapshotMetadata,
-            format!(
-                "Downloading snapshot metadata ({}/{})",
-                step - snapshot_start,
-                plan.snapshots_to_download.len().max(1)
-            ),
-            step,
-            total_steps,
-            Some(snapshot_id.clone()),
-            false,
-        );
-        let snapshot = snapshots
-            .iter()
-            .find(|snapshot| snapshot.snapshot_id == *snapshot_id)
-            .ok_or_else(|| {
-                Error::manifest(format!(
-                    "remote snapshot '{}' disappeared during pull",
-                    snapshot_id
-                ))
-            })?;
-        let sources = provider.snapshot_sources(&repository, snapshot)?;
-        let metadata_bytes = source_bytes(
-            &sources.metadata,
-            &download_client,
-            MAX_REMOTE_JSON_BYTES,
-            &control,
-        )?;
-        verify_remote_artifact(
-            &metadata_bytes,
-            &snapshot.metadata_hash_b3,
-            "snapshot metadata",
-        )?;
-        let metadata = crate::snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
-        let product_metadata = if let Some(source) = sources.product_metadata {
-            let product_metadata_bytes =
-                source_bytes(&source, &download_client, MAX_REMOTE_JSON_BYTES, &control)?;
-            verify_remote_artifact(
-                &product_metadata_bytes,
-                &snapshot.product_metadata_hash_b3,
-                "snapshot product metadata",
-            )?;
-            let product_metadata: crate::manifest::SnapshotProductMetadata =
-                crate::helpers::from_json_bytes(&product_metadata_bytes)?;
-            product_metadata.validate_structure()?;
-            Some(product_metadata)
-        } else {
-            None
+        let mut stats = RepoPullStats {
+            command: "repo pull",
+            repo_root: repo_paths.repo_root.display().to_string(),
+            remote_repo_id: repository.id.clone(),
+            repo_manifest_downloaded: false,
+            chunk_map_downloaded: false,
+            snapshot_downloaded_count: 0,
+            snapshot_skipped_count: plan.snapshots_to_skip.len(),
+            bundle_downloaded_count: 0,
+            bundle_skipped_count: 0,
+            kept_newer_local_count: plan.kept_newer_local_snapshots.len(),
+            local_only_snapshots_kept: 0,
+            pruned_snapshot_count: 0,
+            pruned_bundle_count: 0,
         };
-        let blueprint_bytes = source_bytes(
-            &sources.blueprint,
-            &download_client,
-            MAX_REMOTE_BINARY_BYTES,
-            &control,
-        )?;
-        verify_remote_artifact(
-            &blueprint_bytes,
-            &snapshot.blueprint_hash_b3,
-            "snapshot blueprint",
-        )?;
-        write_remote_snapshot_artifacts(
-            &repo_paths,
-            snapshot_id,
-            &metadata,
-            product_metadata.as_ref(),
-            &blueprint_bytes,
-        )?;
-        stats.snapshot_downloaded_count += 1;
-    }
+        let total_steps = 1
+            + usize::from(plan.repo_manifest_needed)
+            + usize::from(plan.chunk_map_needed)
+            + plan.snapshots_to_download.len()
+            + 2;
+        let mut step = 0usize;
 
-    step += 1;
-    progress.emit(
-        GutchProgressPhase::Bundle,
-        "Resolving bundles",
-        step,
-        total_steps,
-        None,
-        false,
-    );
-    let bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
-    let required_set: HashSet<String> = bundles_by_snapshot
-        .iter()
-        .flat_map(|(_, ids)| ids.iter())
-        .cloned()
-        .collect();
-    let mut missing_bundles = Vec::new();
-    for id in &required_set {
-        if !crate::bundle_path(&repo_paths, id)?.is_file() {
-            missing_bundles.push(id.clone());
+        if plan.repo_manifest_needed {
+            control.checkpoint()?;
+            step += 1;
+            progress.emit(
+                GutchProgressPhase::RepoMetadata,
+                "Downloading repo metadata",
+                step,
+                total_steps,
+                None,
+                false,
+            );
+            let bytes = source_bytes(
+                &provider.repository_metadata_source(&repository)?,
+                &download_client,
+                MAX_REMOTE_JSON_BYTES,
+                &control,
+            )?;
+            verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
+            let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
+                crate::helpers::from_json_bytes(&bytes)?;
+            manifest.remote_repo_id = repository.id.clone();
+            crate::write_gutch_repo_manifest(&repo_paths, &manifest)?;
+            stats.repo_manifest_downloaded = true;
         }
-    }
-    missing_bundles.sort();
-    let mut bundle_sources = HashMap::new();
-    for (snapshot_id, missing_for_snapshot) in
-        bundle_source_requests(&bundles_by_snapshot, &missing_bundles)
-    {
-        let snapshot = snapshots
-            .iter()
-            .find(|snapshot| snapshot.snapshot_id == snapshot_id)
-            .ok_or_else(|| {
-                Error::manifest(format!(
-                    "remote snapshot '{}' disappeared during bundle resolution",
-                    snapshot_id
-                ))
-            })?;
-        let expected_for_request: HashSet<&str> =
-            missing_for_snapshot.iter().map(String::as_str).collect();
-        record_bundle_sources(
-            &mut bundle_sources,
-            &expected_for_request,
-            provider.bundle_sources(&repository, snapshot, &missing_for_snapshot)?,
-        )?;
-    }
-    let mut bundle_downloaded = 0usize;
-    for bundle_id in &missing_bundles {
-        control.checkpoint()?;
-        let source = bundle_sources.get(bundle_id).ok_or_else(|| {
-            Error::manifest(format!(
-                "remote provider did not return a source for required bundle '{}'",
-                bundle_id
-            ))
-        })?;
+
+        if plan.chunk_map_needed {
+            control.checkpoint()?;
+            step += 1;
+            progress.emit(
+                GutchProgressPhase::ChunkIndex,
+                "Downloading chunk map",
+                step,
+                total_steps,
+                None,
+                false,
+            );
+            let bytes = source_bytes(
+                &provider.chunk_index_source(&repository)?,
+                &download_client,
+                MAX_REMOTE_JSON_BYTES,
+                &control,
+            )?;
+            verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
+            let mut chunk_index =
+                crate::manifest::binary::load_chunk_index_binary_from_bytes(&bytes)?;
+            for (hash, entry) in load_chunk_index(&repo_paths)?.entries {
+                let artifact = crate::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
+                if artifact.local_path(&repo_paths)?.is_file()
+                    || chunk_index.entries.get_hash(&hash).is_none()
+                {
+                    chunk_index.entries.insert(hash, entry);
+                }
+            }
+            crate::repo::write_chunk_index(&repo_paths, &chunk_index)?;
+            stats.chunk_map_downloaded = true;
+        }
+
+        let snapshot_start = step;
+        for snapshot_id in &plan.snapshots_to_download {
+            control.checkpoint()?;
+            step += 1;
+            progress.emit(
+                GutchProgressPhase::SnapshotMetadata,
+                format!(
+                    "Downloading snapshot metadata ({}/{})",
+                    step - snapshot_start,
+                    plan.snapshots_to_download.len().max(1)
+                ),
+                step,
+                total_steps,
+                Some(snapshot_id.clone()),
+                false,
+            );
+            let snapshot = snapshots
+                .iter()
+                .find(|snapshot| snapshot.snapshot_id == *snapshot_id)
+                .ok_or_else(|| {
+                    Error::manifest(format!(
+                        "remote snapshot '{}' disappeared during pull",
+                        snapshot_id
+                    ))
+                })?;
+            let sources = provider.snapshot_sources(&repository, snapshot)?;
+            let metadata_bytes = source_bytes(
+                &sources.metadata,
+                &download_client,
+                MAX_REMOTE_JSON_BYTES,
+                &control,
+            )?;
+            verify_remote_artifact(
+                &metadata_bytes,
+                &snapshot.metadata_hash_b3,
+                "snapshot metadata",
+            )?;
+            let metadata = crate::snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
+            let product_metadata = if let Some(source) = sources.product_metadata {
+                let product_metadata_bytes =
+                    source_bytes(&source, &download_client, MAX_REMOTE_JSON_BYTES, &control)?;
+                verify_remote_artifact(
+                    &product_metadata_bytes,
+                    &snapshot.product_metadata_hash_b3,
+                    "snapshot product metadata",
+                )?;
+                let product_metadata: crate::manifest::SnapshotProductMetadata =
+                    crate::helpers::from_json_bytes(&product_metadata_bytes)?;
+                product_metadata.validate_structure()?;
+                Some(product_metadata)
+            } else {
+                None
+            };
+            let blueprint_bytes = source_bytes(
+                &sources.blueprint,
+                &download_client,
+                MAX_REMOTE_BINARY_BYTES,
+                &control,
+            )?;
+            verify_remote_artifact(
+                &blueprint_bytes,
+                &snapshot.blueprint_hash_b3,
+                "snapshot blueprint",
+            )?;
+            write_remote_snapshot_artifacts(
+                &repo_paths,
+                snapshot_id,
+                &metadata,
+                product_metadata.as_ref(),
+                &blueprint_bytes,
+            )?;
+            stats.snapshot_downloaded_count += 1;
+        }
+
+        step += 1;
         progress.emit(
             GutchProgressPhase::Bundle,
-            format!(
-                "Downloading bundles ({}/{})",
-                bundle_downloaded + 1,
-                missing_bundles.len().max(1)
-            ),
-            step,
-            total_steps,
-            Some(bundle_id.clone()),
-            false,
-        );
-        let bytes = source_bytes(source, &download_client, MAX_REMOTE_BINARY_BYTES, &control)?;
-        verify_remote_bundle(bundle_id, &bytes)?;
-        let bundle_path = crate::bundle_path(&repo_paths, bundle_id)?;
-        crate::helpers::write(&bundle_path, &bytes)?;
-        bundle_downloaded += 1;
-    }
-    stats.bundle_downloaded_count = bundle_downloaded;
-    stats.bundle_skipped_count = required_set.len().saturating_sub(bundle_downloaded);
-
-    if prune {
-        control.checkpoint()?;
-        step += 1;
-        progress.emit(
-            GutchProgressPhase::Prune,
-            "Removing local-only content",
+            "Resolving bundles",
             step,
             total_steps,
             None,
             false,
         );
-        for snapshot_id in &plan.local_only_snapshots {
-            control.checkpoint()?;
-            crate::repo::remove_snapshot_from_repo(&repo, snapshot_id)?;
-            stats.pruned_snapshot_count += 1;
-        }
-        for path in local_bundle_paths(&repo_paths.bundles_root)? {
-            control.checkpoint()?;
-            if let Some(bundle_id) = crate::bundle_id_from_bundle_path(&path)
-                && !required_set.contains(&bundle_id)
-            {
-                std::fs::remove_file(&path)?;
-                stats.pruned_bundle_count += 1;
+        let bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
+        let required_set: HashSet<String> = bundles_by_snapshot
+            .iter()
+            .flat_map(|(_, ids)| ids.iter())
+            .cloned()
+            .collect();
+        let mut missing_bundles = Vec::new();
+        for id in &required_set {
+            if !crate::bundle_path(&repo_paths, id)?.is_file() {
+                missing_bundles.push(id.clone());
             }
         }
-    } else {
-        stats.local_only_snapshots_kept = plan.local_only_snapshots.len();
-    }
+        missing_bundles.sort();
+        let mut bundle_sources = HashMap::new();
+        for (snapshot_id, missing_for_snapshot) in
+            bundle_source_requests(&bundles_by_snapshot, &missing_bundles)
+        {
+            let snapshot = snapshots
+                .iter()
+                .find(|snapshot| snapshot.snapshot_id == snapshot_id)
+                .ok_or_else(|| {
+                    Error::manifest(format!(
+                        "remote snapshot '{}' disappeared during bundle resolution",
+                        snapshot_id
+                    ))
+                })?;
+            let expected_for_request: HashSet<&str> =
+                missing_for_snapshot.iter().map(String::as_str).collect();
+            record_bundle_sources(
+                &mut bundle_sources,
+                &expected_for_request,
+                provider.bundle_sources(&repository, snapshot, &missing_for_snapshot)?,
+            )?;
+        }
+        let mut bundle_downloaded = 0usize;
+        for bundle_id in &missing_bundles {
+            control.checkpoint()?;
+            let source = bundle_sources.get(bundle_id).ok_or_else(|| {
+                Error::manifest(format!(
+                    "remote provider did not return a source for required bundle '{}'",
+                    bundle_id
+                ))
+            })?;
+            progress.emit(
+                GutchProgressPhase::Bundle,
+                format!(
+                    "Downloading bundles ({}/{})",
+                    bundle_downloaded + 1,
+                    missing_bundles.len().max(1)
+                ),
+                step,
+                total_steps,
+                Some(bundle_id.clone()),
+                false,
+            );
+            let bytes = source_bytes(source, &download_client, MAX_REMOTE_BINARY_BYTES, &control)?;
+            verify_remote_bundle(bundle_id, &bytes)?;
+            let bundle_path = crate::bundle_path(&repo_paths, bundle_id)?;
+            crate::helpers::write(&bundle_path, &bytes)?;
+            bundle_downloaded += 1;
+        }
+        stats.bundle_downloaded_count = bundle_downloaded;
+        stats.bundle_skipped_count = required_set.len().saturating_sub(bundle_downloaded);
 
-    progress.emit(
-        GutchProgressPhase::Done,
-        "Pull complete",
-        total_steps,
-        total_steps,
-        None,
-        true,
-    );
-    Ok(stats)
+        if prune {
+            control.checkpoint()?;
+            step += 1;
+            progress.emit(
+                GutchProgressPhase::Prune,
+                "Removing local-only content",
+                step,
+                total_steps,
+                None,
+                false,
+            );
+            for snapshot_id in &plan.local_only_snapshots {
+                control.checkpoint()?;
+                crate::repo::remove_snapshot_from_repo(&repo, snapshot_id)?;
+                stats.pruned_snapshot_count += 1;
+            }
+            for path in local_bundle_paths(&repo_paths.bundles_root)? {
+                control.checkpoint()?;
+                if let Some(bundle_id) = crate::bundle_id_from_bundle_path(&path)
+                    && !required_set.contains(&bundle_id)
+                {
+                    std::fs::remove_file(&path)?;
+                    stats.pruned_bundle_count += 1;
+                }
+            }
+        } else {
+            stats.local_only_snapshots_kept = plan.local_only_snapshots.len();
+        }
+
+        progress.emit(
+            GutchProgressPhase::Done,
+            "Pull complete",
+            total_steps,
+            total_steps,
+            None,
+            true,
+        );
+        Ok(stats)
+    })
 }
 
 fn collect_local_sync_snapshots(
@@ -1549,217 +1549,220 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
     provider: &P,
     control: GutchOperationControl,
 ) -> Result<RepoSyncUpStats> {
-    control.checkpoint()?;
-    let progress = RemoteProgress::new(&control, GutchOperation::SyncUp);
-    let bound_remote_repo_id = linked_remote_repo_id(&repo)?;
-    let repository = provider.resolve_repository(None, Some(&bound_remote_repo_id))?;
-    progress.emit(
-        GutchProgressPhase::Planning,
-        "Planning sync changes",
-        0,
-        1,
-        None,
-        false,
-    );
-    let remote_snapshots = provider.list_snapshots(&repository)?;
-    let plan = plan_sync_up(&repo, &repository, &remote_snapshots)?;
-    control.checkpoint()?;
-    let (status, repo_paths, _) = collect_local_sync_snapshots(&repo)?;
-    let bundle_paths = local_bundle_paths(&repo_paths.bundles_root)?;
-    let required_bundle_ids = {
-        let chunk_index = load_chunk_index(&repo_paths)?;
-        let mut ids = BTreeSet::new();
-        for snapshot in &status.snapshots {
-            let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
-            ids.extend(required_bundle_ids(&manifest, &chunk_index)?);
-        }
-        ids.into_iter().collect::<Vec<_>>()
-    };
-    let snapshot_upload_count = plan.to_add.len() + plan.to_update.len();
-    let total_steps = plan.to_remove.len()
-        + 1
-        + usize::from(repo_paths.chunk_map_path.exists())
-        + snapshot_upload_count * 3
-        + bundle_paths.len()
-        + 1;
-    let mut step = 0usize;
-    let mut stats = RepoSyncUpStats {
-        command: "repo push",
-        repo_root: repo_paths.repo_root.display().to_string(),
-        remote_repo_id: repository.id.clone(),
-        repo_manifest_uploaded: false,
-        chunk_index_uploaded: false,
-        snapshot_manifest_uploaded_count: 0,
-        product_metadata_uploaded_count: 0,
-        snapshot_blueprint_uploaded_count: 0,
-        bundle_uploaded_count: 0,
-        bundle_skipped_count: 0,
-        remote_bundle_deleted_count: 0,
-        snapshot_count: status.snapshots.len(),
-        bundle_count: bundle_paths.len(),
-        snapshot_added_count: plan.to_add.len(),
-        snapshot_removed_count: plan.to_remove.len(),
-        snapshot_updated_count: plan.to_update.len(),
-        snapshot_unchanged_count: plan.unchanged.len(),
-    };
-
-    let mut remote_by_snapshot_id: HashMap<String, RemoteSnapshot> = remote_snapshots
-        .into_iter()
-        .map(|snapshot| (snapshot.snapshot_id.clone(), snapshot))
-        .collect();
-    for change in &plan.to_remove {
+    let operation_root = (&repo).to_path_buf();
+    crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
-        step += 1;
+        let progress = RemoteProgress::new(&control, GutchOperation::SyncUp);
+        let bound_remote_repo_id = linked_remote_repo_id(&repo)?;
+        let repository = provider.resolve_repository(None, Some(&bound_remote_repo_id))?;
         progress.emit(
-            GutchProgressPhase::RemoveSnapshots,
-            "Removing remote snapshots",
-            step,
-            total_steps,
-            Some(change.snapshot_id.clone()),
+            GutchProgressPhase::Planning,
+            "Planning sync changes",
+            0,
+            1,
+            None,
             false,
         );
-        if let Some(snapshot) = remote_by_snapshot_id.remove(&change.snapshot_id) {
-            provider.delete_snapshot(&repository, &snapshot)?;
-        }
-    }
+        let remote_snapshots = provider.list_snapshots(&repository)?;
+        let plan = plan_sync_up(&repo, &repository, &remote_snapshots)?;
+        control.checkpoint()?;
+        let (status, repo_paths, _) = collect_local_sync_snapshots(&repo)?;
+        let bundle_paths = local_bundle_paths(&repo_paths.bundles_root)?;
+        let required_bundle_ids = {
+            let chunk_index = load_chunk_index(&repo_paths)?;
+            let mut ids = BTreeSet::new();
+            for snapshot in &status.snapshots {
+                let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
+                ids.extend(required_bundle_ids(&manifest, &chunk_index)?);
+            }
+            ids.into_iter().collect::<Vec<_>>()
+        };
+        let snapshot_upload_count = plan.to_add.len() + plan.to_update.len();
+        let total_steps = plan.to_remove.len()
+            + 1
+            + usize::from(repo_paths.chunk_map_path.exists())
+            + snapshot_upload_count * 3
+            + bundle_paths.len()
+            + 1;
+        let mut step = 0usize;
+        let mut stats = RepoSyncUpStats {
+            command: "repo push",
+            repo_root: repo_paths.repo_root.display().to_string(),
+            remote_repo_id: repository.id.clone(),
+            repo_manifest_uploaded: false,
+            chunk_index_uploaded: false,
+            snapshot_manifest_uploaded_count: 0,
+            product_metadata_uploaded_count: 0,
+            snapshot_blueprint_uploaded_count: 0,
+            bundle_uploaded_count: 0,
+            bundle_skipped_count: 0,
+            remote_bundle_deleted_count: 0,
+            snapshot_count: status.snapshots.len(),
+            bundle_count: bundle_paths.len(),
+            snapshot_added_count: plan.to_add.len(),
+            snapshot_removed_count: plan.to_remove.len(),
+            snapshot_updated_count: plan.to_update.len(),
+            snapshot_unchanged_count: plan.unchanged.len(),
+        };
 
-    control.checkpoint()?;
-    step += 1;
-    progress.emit(
-        GutchProgressPhase::UploadRepoMetadata,
-        "Uploading repo metadata",
-        step,
-        total_steps,
-        None,
-        false,
-    );
-    if plan.repo_manifest_changed {
-        provider.upload_repository_metadata(
-            &repository,
-            crate::helpers::read(&repo_paths.repo_metadata_path)?,
-            &control,
-        )?;
-        stats.repo_manifest_uploaded = true;
-    }
-    if repo_paths.chunk_map_path.exists() {
+        let mut remote_by_snapshot_id: HashMap<String, RemoteSnapshot> = remote_snapshots
+            .into_iter()
+            .map(|snapshot| (snapshot.snapshot_id.clone(), snapshot))
+            .collect();
+        for change in &plan.to_remove {
+            control.checkpoint()?;
+            step += 1;
+            progress.emit(
+                GutchProgressPhase::RemoveSnapshots,
+                "Removing remote snapshots",
+                step,
+                total_steps,
+                Some(change.snapshot_id.clone()),
+                false,
+            );
+            if let Some(snapshot) = remote_by_snapshot_id.remove(&change.snapshot_id) {
+                provider.delete_snapshot(&repository, &snapshot)?;
+            }
+        }
+
         control.checkpoint()?;
         step += 1;
         progress.emit(
-            GutchProgressPhase::UploadChunkIndex,
-            "Uploading chunk index",
+            GutchProgressPhase::UploadRepoMetadata,
+            "Uploading repo metadata",
             step,
             total_steps,
             None,
             false,
         );
-        if plan.chunk_index_changed {
-            provider.upload_chunk_index(
+        if plan.repo_manifest_changed {
+            provider.upload_repository_metadata(
                 &repository,
-                serde_json::to_vec_pretty(&load_chunk_index(&repo_paths)?)?,
+                crate::helpers::read(&repo_paths.repo_metadata_path)?,
                 &control,
             )?;
-            stats.chunk_index_uploaded = true;
+            stats.repo_manifest_uploaded = true;
         }
-    }
-
-    let snapshot_ids_to_upload: HashSet<&str> = plan
-        .to_add
-        .iter()
-        .chain(plan.to_update.iter())
-        .map(|change| change.snapshot_id.as_str())
-        .collect();
-    for snapshot in status
-        .snapshots
-        .iter()
-        .filter(|snapshot| snapshot_ids_to_upload.contains(snapshot.snapshot_id.as_str()))
-    {
-        let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
-        let remote_snapshot = match remote_by_snapshot_id.get(&manifest.snapshot_id) {
-            Some(snapshot) => snapshot.clone(),
-            None => {
-                let created = provider.create_snapshot(
-                    &repository,
-                    &manifest.snapshot_id,
-                    &manifest.snapshot_tags,
-                )?;
-                remote_by_snapshot_id.insert(manifest.snapshot_id.clone(), created.clone());
-                created
-            }
-        };
-        let mut snapshot_upload_context = SnapshotUploadContext {
-            provider,
-            repository: &repository,
-            repo_paths: &repo_paths,
-            control: &control,
-            stats: &mut stats,
-            progress: &progress,
-            step: &mut step,
-            total_steps,
-        };
-        write_snapshot_uploads(&mut snapshot_upload_context, snapshot, &remote_snapshot)?;
-    }
-
-    for bundle_path in bundle_paths {
-        control.checkpoint()?;
-        step += 1;
-        let Some(bundle_id) = crate::bundle_id_from_bundle_path(&bundle_path) else {
-            continue;
-        };
-        if provider.bundle_exists(&repository, &bundle_id)? {
-            stats.bundle_skipped_count += 1;
+        if repo_paths.chunk_map_path.exists() {
+            control.checkpoint()?;
+            step += 1;
             progress.emit(
-                GutchProgressPhase::UploadBundle,
-                "Skipping bundles already present remotely",
+                GutchProgressPhase::UploadChunkIndex,
+                "Uploading chunk index",
                 step,
                 total_steps,
-                Some(bundle_id),
+                None,
                 false,
             );
-            continue;
+            if plan.chunk_index_changed {
+                provider.upload_chunk_index(
+                    &repository,
+                    crate::helpers::read(&repo_paths.chunk_map_path)?,
+                    &control,
+                )?;
+                stats.chunk_index_uploaded = true;
+            }
         }
-        let bundle_bytes = crate::helpers::read(&bundle_path)?;
-        let bundle_size = bundle_bytes.len() as u64;
-        progress.emit(
-            GutchProgressPhase::UploadBundle,
-            "Uploading bundles",
-            step,
-            total_steps,
-            Some(bundle_id.clone()),
-            false,
-        );
-        provider.upload_bundle(&repository, &bundle_id, bundle_bytes, &control)?;
-        stats.bundle_uploaded_count += 1;
-        progress.emit(
-            GutchProgressPhase::UploadBundle,
-            "Uploaded bundle",
-            step,
-            total_steps,
-            Some(format!("{bundle_id} ({bundle_size} bytes)")),
-            false,
-        );
-    }
 
-    control.checkpoint()?;
-    step += 1;
-    progress.emit(
-        GutchProgressPhase::Prune,
-        "Removing unreferenced remote bundles",
-        step,
-        total_steps,
-        None,
-        false,
-    );
-    stats.remote_bundle_deleted_count =
-        provider.reconcile_bundles(&repository, &required_bundle_ids)?;
-    progress.emit(
-        GutchProgressPhase::Done,
-        "Sync complete",
-        total_steps,
-        total_steps,
-        None,
-        true,
-    );
-    Ok(stats)
+        let snapshot_ids_to_upload: HashSet<&str> = plan
+            .to_add
+            .iter()
+            .chain(plan.to_update.iter())
+            .map(|change| change.snapshot_id.as_str())
+            .collect();
+        for snapshot in status
+            .snapshots
+            .iter()
+            .filter(|snapshot| snapshot_ids_to_upload.contains(snapshot.snapshot_id.as_str()))
+        {
+            let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
+            let remote_snapshot = match remote_by_snapshot_id.get(&manifest.snapshot_id) {
+                Some(snapshot) => snapshot.clone(),
+                None => {
+                    let created = provider.create_snapshot(
+                        &repository,
+                        &manifest.snapshot_id,
+                        &manifest.snapshot_tags,
+                    )?;
+                    remote_by_snapshot_id.insert(manifest.snapshot_id.clone(), created.clone());
+                    created
+                }
+            };
+            let mut snapshot_upload_context = SnapshotUploadContext {
+                provider,
+                repository: &repository,
+                repo_paths: &repo_paths,
+                control: &control,
+                stats: &mut stats,
+                progress: &progress,
+                step: &mut step,
+                total_steps,
+            };
+            write_snapshot_uploads(&mut snapshot_upload_context, snapshot, &remote_snapshot)?;
+        }
+
+        for bundle_path in bundle_paths {
+            control.checkpoint()?;
+            step += 1;
+            let Some(bundle_id) = crate::bundle_id_from_bundle_path(&bundle_path) else {
+                continue;
+            };
+            if provider.bundle_exists(&repository, &bundle_id)? {
+                stats.bundle_skipped_count += 1;
+                progress.emit(
+                    GutchProgressPhase::UploadBundle,
+                    "Skipping bundles already present remotely",
+                    step,
+                    total_steps,
+                    Some(bundle_id),
+                    false,
+                );
+                continue;
+            }
+            let bundle_bytes = crate::helpers::read(&bundle_path)?;
+            let bundle_size = bundle_bytes.len() as u64;
+            progress.emit(
+                GutchProgressPhase::UploadBundle,
+                "Uploading bundles",
+                step,
+                total_steps,
+                Some(bundle_id.clone()),
+                false,
+            );
+            provider.upload_bundle(&repository, &bundle_id, bundle_bytes, &control)?;
+            stats.bundle_uploaded_count += 1;
+            progress.emit(
+                GutchProgressPhase::UploadBundle,
+                "Uploaded bundle",
+                step,
+                total_steps,
+                Some(format!("{bundle_id} ({bundle_size} bytes)")),
+                false,
+            );
+        }
+
+        control.checkpoint()?;
+        step += 1;
+        progress.emit(
+            GutchProgressPhase::Prune,
+            "Removing unreferenced remote bundles",
+            step,
+            total_steps,
+            None,
+            false,
+        );
+        stats.remote_bundle_deleted_count =
+            provider.reconcile_bundles(&repository, &required_bundle_ids)?;
+        progress.emit(
+            GutchProgressPhase::Done,
+            "Sync complete",
+            total_steps,
+            total_steps,
+            None,
+            true,
+        );
+        Ok(stats)
+    })
 }
 
 #[cfg(test)]

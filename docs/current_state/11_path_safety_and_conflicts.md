@@ -55,8 +55,11 @@ downloaded bundles against their content-addressed IDs.
 
 Direct fetch retains the previous snapshot while downloading and validating its
 replacement. It publishes the complete snapshot directory after successful
-transfer or reconstruction. Repository metadata and the chunk index are separate
-atomic files, not one transaction with the snapshot directory.
+transfer or reconstruction. Repository metadata, the chunk index, and snapshots are protected by a local
+reader/writer lock and recoverable metadata-generation publication. Pending
+publication fails reads explicitly and is restored by the next mutation.
+Installation promotion uses a destination lock and an owned, deterministic
+backup that a subsequent reconstruction or repair can restore.
 
 Reconstruction and repair treat `--staging-dir` as a staging parent. They create
 a unique operation-owned child, preserve preexisting contents, and remove that

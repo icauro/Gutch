@@ -34,15 +34,17 @@ fn bundled_chunk_index() -> crate::manifest::ChunkIndex {
     crate::manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
-        entries: std::collections::BTreeMap::from([(
+        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             test_hash(b"game"),
             manifest::ChunkIndexEntry {
-                bundle_id: "bundle-a".to_string(),
+                artifact_size: 0,
+                chunk_ordinal: 0,
+                bundle_id: ("bundle-a".to_string()).into(),
                 raw_size: 4,
                 compressed_size: 4,
                 storage_mode: manifest::ArtifactStorageMode::Bundled,
             },
-        )]),
+        )])),
     }
 }
 
@@ -200,15 +202,17 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
     let chunk_index = crate::manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
-        entries: std::collections::BTreeMap::from([(
+        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             snapshot_only_chunk_hash,
             manifest::ChunkIndexEntry {
-                bundle_id: "bundle-b".to_string(),
+                artifact_size: 0,
+                chunk_ordinal: 0,
+                bundle_id: ("bundle-b".to_string()).into(),
                 raw_size: 4,
                 compressed_size: 4,
                 storage_mode: manifest::ArtifactStorageMode::Bundled,
             },
-        )]),
+        )])),
     };
 
     let plan = build_reconstruct_pipeline_plan(
@@ -261,7 +265,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     std::fs::create_dir_all(replacement_path.parent().unwrap()).unwrap();
     std::fs::write(
         &replacement_path,
-        crate::compress::compress_with_profile(b"new!", &compression_profile).unwrap(),
+        crate::test_util::loose_bytes(b"new!", &compression_profile),
     )
     .unwrap();
 
@@ -280,15 +284,17 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     let chunk_index = manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
-        entries: std::collections::BTreeMap::from([(
+        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             replacement_chunk_hash.clone(),
             manifest::ChunkIndexEntry {
-                bundle_id: replacement_chunk_hash.clone(),
+                artifact_size: 0,
+                chunk_ordinal: 0,
+                bundle_id: (replacement_chunk_hash.clone()).into(),
                 raw_size: 4,
-                compressed_size: std::fs::metadata(&replacement_path).unwrap().len(),
+                compressed_size: std::fs::metadata(&replacement_path).unwrap().len() as u32,
                 storage_mode: manifest::ArtifactStorageMode::LooseChunks,
             },
-        )]),
+        )])),
     };
     let existing_artifacts = HashSet::from([replacement_artifact]);
     let plan = build_reconstruct_pipeline_plan(
@@ -366,21 +372,23 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     );
     std::fs::write(
         &chunk_path,
-        crate::compress::compress_with_profile(b"game", &compression_profile).unwrap(),
+        crate::test_util::loose_bytes(b"game", &compression_profile),
     )
     .unwrap();
     let chunk_index = crate::manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
-        entries: std::collections::BTreeMap::from([(
+        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             chunk_hash.clone(),
             manifest::ChunkIndexEntry {
-                bundle_id: chunk_hash.clone(),
+                artifact_size: 0,
+                chunk_ordinal: 0,
+                bundle_id: (chunk_hash.clone()).into(),
                 raw_size: 4,
-                compressed_size: std::fs::metadata(&chunk_path).unwrap().len(),
+                compressed_size: std::fs::metadata(&chunk_path).unwrap().len() as u32,
                 storage_mode: manifest::ArtifactStorageMode::LooseChunks,
             },
-        )]),
+        )])),
     };
     let snapshot_manifest =
         snapshot_manifest_with_chunk("loose-snapshot", &test_hash(b"game"), chunk_hash);
@@ -514,11 +522,13 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let chunk_index = manifest::ChunkIndex {
         format_version: "1".to_string(),
         updated_at: String::new(),
-        entries: std::collections::BTreeMap::from([
+        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([
             (
                 first_hash,
                 manifest::ChunkIndexEntry {
-                    bundle_id: bundle_id.clone(),
+                    artifact_size: 0,
+                    chunk_ordinal: 0,
+                    bundle_id: (bundle_id.clone()).into(),
                     raw_size: 4,
                     compressed_size: compressed_sizes[&test_hash(first)],
                     storage_mode: manifest::ArtifactStorageMode::Bundled,
@@ -527,7 +537,9 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             (
                 second_hash,
                 manifest::ChunkIndexEntry {
-                    bundle_id: bundle_id.clone(),
+                    artifact_size: 0,
+                    chunk_ordinal: 0,
+                    bundle_id: (bundle_id.clone()).into(),
                     raw_size: 4,
                     compressed_size: compressed_sizes[&test_hash(second)],
                     storage_mode: manifest::ArtifactStorageMode::Bundled,
@@ -536,13 +548,15 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             (
                 third_hash,
                 manifest::ChunkIndexEntry {
-                    bundle_id,
+                    artifact_size: 0,
+                    chunk_ordinal: 0,
+                    bundle_id: bundle_id.into(),
                     raw_size: 4,
                     compressed_size: compressed_sizes[&test_hash(third)],
                     storage_mode: manifest::ArtifactStorageMode::Bundled,
                 },
             ),
-        ]),
+        ])),
     };
     let existing_artifacts = HashSet::from([bundle]);
     let plan = build_reconstruct_pipeline_plan(
@@ -605,7 +619,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let artifact = crate::ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
     };
-    let payload = crate::compress::compress_with_profile(b"game", &compression).unwrap();
+    let payload = crate::test_util::loose_bytes(b"game", &compression);
     let compressed_size = payload.len() as u64;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/chunk", listener.local_addr().unwrap());
@@ -632,15 +646,17 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let index = manifest::ChunkIndex {
         format_version: "1".into(),
         updated_at: String::new(),
-        entries: BTreeMap::from([(
+        entries: crate::test_util::chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
             manifest::ChunkIndexEntry {
-                bundle_id: chunk_hash.clone(),
+                artifact_size: 0,
+                chunk_ordinal: 0,
+                bundle_id: (chunk_hash.clone()).into(),
                 raw_size: 4,
-                compressed_size,
+                compressed_size: compressed_size as u32,
                 storage_mode: manifest::ArtifactStorageMode::LooseChunks,
             },
-        )]),
+        )])),
     };
     let plan =
         build_reconstruct_pipeline_plan(&snapshot, &index, &paths, &HashSet::new(), None).unwrap();
