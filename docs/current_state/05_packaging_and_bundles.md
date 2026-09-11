@@ -52,6 +52,9 @@ identity. Existing complete blueprints remain reusable when chunk sizing changes
 
 ## Bundle Contract
 
+See [binary file layouts](15_binary_formats.md) for byte-level bundle, loose
+chunk, chunk-map, and snapshot-blueprint definitions and size formulas.
+
 Bundle objects have extensionless content-addressed names under
 `bundles/<first-two-hash-characters>/`. Their bytes contain the chunk table
 and payload framing with header and footer magic values. They do not embed a

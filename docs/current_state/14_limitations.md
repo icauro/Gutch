@@ -20,7 +20,7 @@ its absence is not a permanent decision or a roadmap commitment.
 |---|---|
 | No engine cross-process writer lock | Staging and atomic writes do not serialize independent repository writers. Hosts may coordinate operations; standalone concurrent-writer safety is not established. This is not proof of a host race. |
 | No repository-wide crash rollback | Metadata, chunk index, and snapshot directory are separate atomic replacements. There is no public journal replay or transaction rollback; normal failure cleanup does not cover every crash boundary. |
-| No chunk-index rebuild | Operations consume `chunk_map.gtcbin`. Bundle inspection exposes chunk tables but cannot rebuild/publish the index; decoding also needs the repository compression profile. |
+| No dedicated chunk-index recovery command | Capture internally rebuilds an empty/missing index from bundle tables using the repository compression profile. A corrupt index fails before fallback, and loose chunks are not scanned. There is no public recovery/validation command. |
 | No recovery of lost payload through parity | Repair needs healthy artifacts; recapture needs source content. No error-correcting parity is stored. Chunk tables cannot replace missing blueprints or recover original paths. |
 | No partial-bundle compaction | Cleanup removes wholly unreferenced artifacts. One live chunk keeps its entire bundle, including dead chunks. |
 | Repeated verification of shared artifacts | Repository verification walks snapshots separately and can check the same bundle multiple times. |
