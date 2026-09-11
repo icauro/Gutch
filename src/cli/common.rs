@@ -164,8 +164,9 @@ pub(crate) struct SnapshotFetchReconstructStats {
 pub(crate) fn write_report<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
+    profile: Option<&crate::profile::GutchProfiler>,
 ) -> crate::api::Result<()> {
-    write_stats_json_output(stats_json_out, stats)
+    write_stats_json_output(stats_json_out, stats, profile)
 }
 
 pub(crate) fn load_snapshot_manifest_from_repo(

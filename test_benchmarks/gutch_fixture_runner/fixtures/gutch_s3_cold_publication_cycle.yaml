@@ -1,3 +1,4 @@
+profile_mode: detailed
 name: gutch_s3_cold_publication_cycle
 runner: gutch-s3
 description: Compare Gutch loose-chunk and bundled S3 publication cycles.

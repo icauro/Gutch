@@ -39,20 +39,6 @@ pub struct RepoCheckStatus {
     #[serde(default)]
     pub artifact_bytes: u64,
     pub error: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) timings: Option<RepoCheckTimings>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RepoCheckTimings {
-    pub(crate) load_manifest_ms: u64,
-    pub(crate) scan_bundles_ms: u64,
-    pub(crate) scan_artifacts_ms: u64,
-    pub(crate) load_chunk_index_ms: u64,
-    pub(crate) load_snapshot_manifests_ms: u64,
-    pub(crate) snapshot_count: usize,
-    pub(crate) total_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,7 +105,6 @@ pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
 }
 
 fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoCheckStatus> {
-    let total_start = std::time::Instant::now();
     let repo_path = repo_root.to_path_buf();
     let repo_path_display = repo_path.display().to_string();
     if !repo_path.exists() {
@@ -146,27 +131,18 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoCheckStatus> {
         ));
     }
 
-    let manifest_start = std::time::Instant::now();
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo_path)?;
-    let load_manifest_ms = manifest_start.elapsed().as_millis() as u64;
 
-    let bundle_scan_start = std::time::Instant::now();
     let (_available_bundle_ids, bundle_count, bundle_bytes) =
         scan_bundle_inventory(&repo_paths.bundles_root)?;
-    let scan_bundles_ms = bundle_scan_start.elapsed().as_millis() as u64;
-    let artifact_scan_start = std::time::Instant::now();
     let (available_artifacts, artifact_count, artifact_bytes) =
         scan_artifact_inventory(&repo_paths)?;
-    let scan_artifacts_ms = artifact_scan_start.elapsed().as_millis() as u64;
 
-    let (snapshots, snapshot_check_timings) = check_snapshot_manifests(
+    let snapshots = check_snapshot_manifests(
         &repo_paths,
         &repo_paths.snapshots_root,
         &available_artifacts,
     )?;
-    let snapshot_count = snapshots.len();
-
-    let total_ms = total_start.elapsed().as_millis() as u64;
 
     Ok(RepoCheckStatus {
         exists: true,
@@ -181,15 +157,6 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoCheckStatus> {
         artifact_count,
         artifact_bytes,
         error: None,
-        timings: Some(RepoCheckTimings {
-            load_manifest_ms,
-            scan_bundles_ms,
-            scan_artifacts_ms,
-            load_chunk_index_ms: snapshot_check_timings.load_chunk_index_ms,
-            load_snapshot_manifests_ms: snapshot_check_timings.load_snapshot_manifests_ms,
-            snapshot_count,
-            total_ms,
-        }),
     })
 }
 
@@ -265,7 +232,6 @@ fn empty_repo_check_status(
         artifact_count: 0,
         artifact_bytes: 0,
         error,
-        timings: None,
     }
 }
 
@@ -273,16 +239,13 @@ fn check_snapshot_manifests(
     repo_paths: &GutchRepoPaths,
     snapshots_root: &Path,
     available_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
-) -> Result<(Vec<RepoCheckSnapshotStatus>, SnapshotManifestCheckTimings)> {
+) -> Result<Vec<RepoCheckSnapshotStatus>> {
     if !snapshots_root.exists() {
-        return Ok((Vec::new(), SnapshotManifestCheckTimings::default()));
+        return Ok(Vec::new());
     }
 
-    let chunk_start = std::time::Instant::now();
     let chunk_index = load_chunk_index(repo_paths)?;
-    let load_chunk_index_ms = chunk_start.elapsed().as_millis() as u64;
 
-    let manifests_start = std::time::Instant::now();
     let mut snapshots = Vec::new();
     for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
         let manifest_path =
@@ -343,21 +306,8 @@ fn check_snapshot_manifests(
     }
 
     snapshots.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
-    let load_snapshot_manifests_ms = manifests_start.elapsed().as_millis() as u64;
 
-    Ok((
-        snapshots,
-        SnapshotManifestCheckTimings {
-            load_chunk_index_ms,
-            load_snapshot_manifests_ms,
-        },
-    ))
-}
-
-#[derive(Debug, Clone, Default)]
-struct SnapshotManifestCheckTimings {
-    load_chunk_index_ms: u64,
-    load_snapshot_manifests_ms: u64,
+    Ok(snapshots)
 }
 
 pub(crate) fn build_source_snapshot_ops_candidate(

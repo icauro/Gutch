@@ -128,7 +128,9 @@ def _read_trace_spans(path: Path) -> list[tuple[str, float, dict[str, Any]]]:
         if not isinstance(name, str) or not isinstance(timestamp, int) or name == "cli.command":
             continue
         key = (event.get("pid"), event.get("tid"), name)
-        if phase == "B":
+        if phase == "X":
+            spans.append((name, max(0, event.get("dur", 0)) / 1_000_000, event.get("args", {})))
+        elif phase == "B":
             args = event.get("args", {})
             stacks.setdefault(key, []).append((timestamp, args if isinstance(args, dict) else {}))
         elif phase == "E" and stacks.get(key):
@@ -154,9 +156,9 @@ def _aggregate_hash_metrics(paths: list[Path]) -> dict[str, Any]:
     workers: set[int] = set()
     for path in paths:
         for name, elapsed, args in _read_trace_spans(path):
-            if name != "snapshot.reconstruct.file.full_hash":
+            if name != "installation.file.verify":
                 continue
-            size_mib = args.get("size_mib")
+            size_mib = args.get("size_bytes", 0) / 1048576
             if not isinstance(size_mib, (int, float)):
                 continue
             count += 1
@@ -224,7 +226,7 @@ def print_gutch_profile_table(results: list[LaneResult]) -> None:
         )
     print()
     print("  Gutch Perfetto Profiles")
-    print("  note: values are summed completed spans; counts are in parentheses.")
+    print("  note: values are inclusive recorded spans; job spans are samples, not exhaustive totals.")
     _table("Gutch Perfetto Profiles", [label for label, _ in aggregates], rows)
 
 

@@ -191,15 +191,13 @@ def load_fixture(path: Path) -> FixtureSpec:
     repetitions = values.get("repetitions", 1)
     if isinstance(repetitions, bool) or not isinstance(repetitions, int) or repetitions < 1:
         raise ValueError("repetitions must be a positive integer")
-    mode = values.get("measurement_mode", "profile")
-    if mode not in {"profile", "performance"}:
-        raise ValueError("measurement_mode must be profile or performance")
+    mode = values.get("profile_mode", "off")
+    if mode not in {"off", "summary", "detailed"}:
+        raise ValueError("profile_mode must be off, summary, or detailed")
     if all(lane.warmup for lane in lanes):
         raise ValueError("fixture must contain a measured lane")
-    if not isinstance(values.get("memory_profile", False), bool):
-        raise ValueError("memory_profile must be a boolean")
-    if values.get("memory_profile", False) and mode != "profile":
-        raise ValueError("memory profiling requires profile measurement mode")
+    if "memory_profile" in values or "measurement_mode" in values:
+        raise ValueError("use profile_mode: off, summary, or detailed")
     return FixtureSpec(
         name=document.name,
         runner=str(values.get("runner", "gutch-fixture")),
@@ -213,8 +211,7 @@ def load_fixture(path: Path) -> FixtureSpec:
         step_wait_seconds=_wait_seconds(values, "step_wait_seconds"),
         snapshot_limit=_snapshot_limit(values, path),
         repetitions=repetitions,
-        measurement_mode=mode,
-        memory_profile=values.get("memory_profile", False),
+        profile_mode=mode,
     )
 
 

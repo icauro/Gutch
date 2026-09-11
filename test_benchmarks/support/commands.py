@@ -6,15 +6,17 @@ from .models import GutchProfile
 
 
 class GutchCli:
-    def __init__(self, executable: Path, *, tracing: bool = True):
+    def __init__(self, executable: Path, *, profile_mode: str = "off"):
         self.executable = executable
-        self.tracing = tracing
+        self.profile_mode = profile_mode
 
     def command(self, *arguments: str | Path) -> list[str | Path]:
         command = [self.executable, *arguments]
-        if not self.tracing and "--trace-out" in command:
-            index = command.index("--trace-out")
-            del command[index:index + 2]
+        if "--profile-out" in command:
+            if self.profile_mode == "off":
+                index = command.index("--profile-out")
+                del command[index:index + 2]
+            command.extend(["--profile", self.profile_mode])
         return command
 
     @staticmethod

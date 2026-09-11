@@ -1,6 +1,6 @@
 use super::types::SnapshotReconstructSource;
+use crate::profile::ProfileInstant;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -13,15 +13,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
-use std::time::Instant;
 
 use super::jobs::ReconstructArtifactChunk;
 use super::jobs::ReconstructArtifactJob;
-use super::jobs::ReconstructFileTraceMetadata;
 use super::jobs::ReconstructJob;
-use super::jobs::ReconstructPipelineChunkInput;
 use super::jobs::ReconstructPipelineFile;
-use super::jobs::ReconstructPipelineReconstruction;
 use super::jobs::ReconstructSourceChunkJob;
 use super::jobs::ReconstructTarget;
 use super::jobs::SourceChunkLocation;
@@ -69,13 +65,15 @@ fn reconstruct_artifact_job(
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let artifact_span_name = match &job.artifact {
-        crate::repo::artifacts::ArtifactRef::Bundle { .. } => "snapshot.reconstruct.bundle",
+        crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
+            "installation.bundle.decode_verify_and_write"
+        }
         crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => {
-            "snapshot.reconstruct.job.loose_chunk"
+            "installation.reconstruct.job.loose_chunk"
         }
     };
     let _artifact_span =
-        control.profile_span_with_args(artifact_span_name, reconstruct_artifact_trace_args(job));
+        control.profile_span_with_args(artifact_span_name, || reconstruct_artifact_trace_args(job));
     let profiler = control.profiler();
     let compressed_bytes = std::fs::metadata(&job.artifact_path)?.len();
     let mut timings = ReconstructTimings::default();
@@ -115,19 +113,7 @@ fn reconstruct_artifact_job(
             // Each worker reads one bundle once and streams decoded chunks
             // directly into verification and positional fan-out. At most one
             // required chunk is retained while the next range is decoded.
-            let decoded_payload_bytes = reader
-                .entries()
-                .iter()
-                .try_fold(0u64, |total, entry| {
-                    total.checked_add(u64::from(entry.raw_size))
-                })
-                .ok_or_else(|| Error::reconstruct("bundle raw size overflows"))?;
-            let _fanout_span = profiler.map(|profiler| {
-                profiler.span_with_args(
-                    "snapshot.reconstruct.bundle.fanout_chunks",
-                    bundle_fanout_trace_args(job, decoded_payload_bytes),
-                )
-            });
+
             let read_metrics = reader.stream_bundle_chunks_with_profiler(
                 profiler,
                 &required,
@@ -154,7 +140,7 @@ fn reconstruct_artifact_job(
                             entry.compressed_size
                         )));
                     }
-                    let hash_started_at = Instant::now();
+                    let hash_started_at = ProfileInstant::detailed(control.profiler());
                     let actual_hash =
                         crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(bytes));
                     timings.chunk_verify += hash_started_at.elapsed();
@@ -184,7 +170,7 @@ fn reconstruct_artifact_job(
             timings.artifact_read_compressed_bytes = read_metrics.compressed_bytes;
             timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
             timings.bundle_read = artifact_read_elapsed;
-            drop(_fanout_span);
+
             timings.artifact_read_compressed_bytes = compressed_bytes;
             timings.bundle_read_compressed_bytes = compressed_bytes;
             timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
@@ -236,16 +222,20 @@ fn reconstruct_artifact_job(
 
 fn reconstruct_source_chunk_job(
     job: &ReconstructSourceChunkJob,
-    file_plans: &[ReconstructPipelineFile],
+    _file_plans: &[ReconstructPipelineFile],
     output_handles: &OutputHandleCache,
     source_handles: &SourceHandleCache,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
-    let _source_span = control.profile_span_with_args(
-        "snapshot.reconstruct.job.source_chunk",
-        source_chunk_trace_args(job),
-    );
+    let _source_job_span =
+        control.profile_span_with_args("installation.source_chunk.read_verify_and_write", || {
+            std::collections::BTreeMap::from([
+                ("size_bytes".into(), serde_json::json!(job.raw_size)),
+                ("target_count".into(), serde_json::json!(job.targets.len())),
+            ])
+        });
+
     let mut bytes = vec![
         0u8;
         usize::try_from(job.raw_size).map_err(|_| {
@@ -255,23 +245,14 @@ fn reconstruct_source_chunk_job(
             ))
         })?
     ];
-    let read_started_at = Instant::now();
+    let read_started_at = ProfileInstant::detailed(control.profiler());
     {
-        let _read_span = control.profile_span_with_args(
-            "snapshot.reconstruct.source_chunk.read",
-            source_chunk_trace_args(job),
-        );
         source_handles.read_range(&job.source_path, job.source_offset, &mut bytes)?;
     }
     let read_elapsed = read_started_at.elapsed();
-    let hash_started_at = Instant::now();
-    let actual_hash = {
-        let _hash_span = control.profile_span_with_args(
-            "snapshot.reconstruct.source_chunk.hash_verify",
-            source_chunk_trace_args(job),
-        );
-        crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(&bytes))
-    };
+    let hash_started_at = ProfileInstant::detailed(control.profiler());
+    let actual_hash =
+        { crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(&bytes)) };
     let hash_elapsed = hash_started_at.elapsed();
     if actual_hash != job.chunk_hash {
         return Err(Error::HashMismatch {
@@ -288,20 +269,13 @@ fn reconstruct_source_chunk_job(
         ..ReconstructTimings::default()
     };
     let mut target_handles = HashMap::new();
-    let rebuild_started_at = Instant::now();
+    let rebuild_started_at = ProfileInstant::detailed(control.profiler());
     for target in &job.targets {
         control.checkpoint()?;
-        let _target_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.source_chunk",
-            source_target_trace_args(job, target, &file_plans[target.file_index]),
-        );
-        let _write_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.source_chunk.write",
-            source_target_trace_args(job, target, &file_plans[target.file_index]),
-        );
-        let write_started_at = Instant::now();
+
+        let write_started_at = ProfileInstant::detailed(control.profiler());
         let output = cached_target_handle(output_handles, &mut target_handles, target.file_index)?;
-        write_file_at(&output, target.file_offset, &bytes)?;
+        write_file_at(&output, target.file_offset, &bytes, control)?;
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings
@@ -324,22 +298,11 @@ fn copy_source_file_job(
         Error::reconstruct(format!("source file job references file {file_index}"))
     })?;
     control.checkpoint()?;
-    let _source_span = control.profile_span_with_args(
-        "snapshot.reconstruct.job.source_file",
-        source_file_trace_args(file_plan, source_path),
-    );
-    let mut input = {
-        let _open_span = control.profile_span_with_args(
-            "snapshot.reconstruct.source_file.open",
-            source_file_trace_args(file_plan, source_path),
-        );
-        File::open(source_path)?
-    };
+    let _source_span = control.profile_span_with_args("installation.file.copy_and_hash", || {
+        crate::profile::file_trace_args(&file_plan.path, file_plan.size)
+    });
+    let mut input = { File::open(source_path)? };
     let mut output = {
-        let _open_span = control.profile_span_with_args(
-            "snapshot.reconstruct.source_file.output_open",
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-        );
         OpenOptions::new()
             .write(true)
             .create(true)
@@ -352,34 +315,29 @@ fn copy_source_file_job(
     let mut copied = 0u64;
     loop {
         control.checkpoint()?;
-        let read = {
-            let _read_span = control.profile_span_with_args(
-                "snapshot.reconstruct.source_file.read",
-                source_file_trace_args(file_plan, source_path),
-            );
-            input.read(&mut buffer)?
-        };
+        let read = { input.read(&mut buffer)? };
         if read == 0 {
             break;
         }
         full_file_hasher.update(&buffer[..read]);
-        let _write_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.source_file.write",
-            file_write_trace_args(file_plan, read as u64),
-        );
-        let write_started_at = Instant::now();
-        output.write_all(&buffer[..read])?;
+
+        let write_started_at = ProfileInstant::detailed(control.profiler());
+        let mut offset = 0;
+        while offset < read {
+            let count = output.write(&buffer[offset..read])?;
+            if count == 0 {
+                return Err(Error::reconstruct("output write returned zero bytes"));
+            }
+            control.written(count as u64);
+            offset += count;
+        }
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(read as u64);
         timings.file_rebuild_bytes = timings.file_rebuild_bytes.saturating_add(read as u64);
         copied = copied.saturating_add(read as u64);
     }
     {
-        let _flush_span = control.profile_span_with_args(
-            "snapshot.reconstruct.file.source_file.flush",
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-        );
-        let flush_started_at = Instant::now();
+        let flush_started_at = ProfileInstant::detailed(control.profiler());
         output.flush()?;
         timings.file_write += flush_started_at.elapsed();
     }
@@ -425,12 +383,12 @@ fn write_reconstruct_targets(
             chunk.raw_size
         )));
     }
-    let rebuild_started_at = Instant::now();
+    let rebuild_started_at = ProfileInstant::detailed(control.profiler());
     for target in targets {
         control.checkpoint()?;
-        let write_started_at = Instant::now();
+        let write_started_at = ProfileInstant::detailed(control.profiler());
         let output = cached_target_handle(output_handles, target_handles, target.file_index)?;
-        write_file_at(&output, target.file_offset, bytes)?;
+        write_file_at(&output, target.file_offset, bytes, control)?;
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings
@@ -570,7 +528,12 @@ fn cached_target_handle(
 }
 
 #[cfg(windows)]
-fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> Result<()> {
+fn write_file_at(
+    file: &File,
+    offset: u64,
+    bytes: &[u8],
+    control: &GutchOperationControl,
+) -> Result<()> {
     use std::os::windows::fs::FileExt;
 
     let mut written = 0usize;
@@ -580,23 +543,50 @@ fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> Result<()> {
             return Err(Error::reconstruct("output file write returned zero bytes"));
         }
         written += count;
+        control.written(count as u64);
     }
     Ok(())
 }
 
 #[cfg(unix)]
-fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> Result<()> {
+fn write_file_at(
+    file: &File,
+    offset: u64,
+    bytes: &[u8],
+    control: &GutchOperationControl,
+) -> Result<()> {
     use std::os::unix::fs::FileExt;
 
-    file.write_all_at(bytes, offset)?;
+    let mut written = 0;
+    while written < bytes.len() {
+        let count = file.write_at(&bytes[written..], offset + written as u64)?;
+        if count == 0 {
+            return Err(Error::reconstruct("output write returned zero bytes"));
+        }
+        written += count;
+        control.written(count as u64);
+    }
     Ok(())
 }
 
 #[cfg(not(any(unix, windows)))]
-fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> Result<()> {
+fn write_file_at(
+    file: &File,
+    offset: u64,
+    bytes: &[u8],
+    control: &GutchOperationControl,
+) -> Result<()> {
     let mut file = file.try_clone()?;
     file.seek(SeekFrom::Start(offset))?;
-    file.write_all(bytes)?;
+    let mut written = 0;
+    while written < bytes.len() {
+        let count = file.write(&bytes[written..])?;
+        if count == 0 {
+            return Err(Error::reconstruct("output write returned zero bytes"));
+        }
+        written += count;
+        control.written(count as u64);
+    }
     Ok(())
 }
 
@@ -621,108 +611,14 @@ fn reconstruct_artifact_trace_args(
             serde_json::json!(job.artifact.id()),
         ),
         (
-            "artifact_path".to_string(),
-            serde_json::json!(job.artifact_path.display().to_string()),
-        ),
-        (
             "required_chunk_count".to_string(),
             serde_json::json!(job.chunks.len()),
         ),
         (
-            "logical_write_mib".to_string(),
-            serde_json::json!(logical_bytes as f64 / (1024.0 * 1024.0)),
+            "logical_write_bytes".to_string(),
+            serde_json::json!(logical_bytes),
         ),
     ])
-}
-
-fn bundle_fanout_trace_args(
-    job: &ReconstructArtifactJob,
-    decoded_payload_bytes: u64,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = reconstruct_artifact_trace_args(job);
-    args.insert(
-        "decoded_payload_mib".to_string(),
-        serde_json::json!(decoded_payload_bytes as f64 / (1024.0 * 1024.0)),
-    );
-    args.insert(
-        "fanout_chunk_count".to_string(),
-        serde_json::json!(job.chunks.len()),
-    );
-    args
-}
-
-fn source_chunk_trace_args(
-    job: &ReconstructSourceChunkJob,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
-        ("chunk_hash".to_string(), serde_json::json!(job.chunk_hash)),
-        (
-            "source_path".to_string(),
-            serde_json::json!(job.source_path.display().to_string()),
-        ),
-        (
-            "source_offset".to_string(),
-            serde_json::json!(job.source_offset),
-        ),
-        (
-            "raw_size_mib".to_string(),
-            serde_json::json!(job.raw_size as f64 / (1024.0 * 1024.0)),
-        ),
-        (
-            "target_count".to_string(),
-            serde_json::json!(job.targets.len()),
-        ),
-    ])
-}
-
-fn source_target_trace_args(
-    job: &ReconstructSourceChunkJob,
-    target: &ReconstructTarget,
-    file_plan: &ReconstructPipelineFile,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size);
-    args.insert("chunk_hash".to_string(), serde_json::json!(job.chunk_hash));
-    args.insert(
-        "source_path".to_string(),
-        serde_json::json!(job.source_path.display().to_string()),
-    );
-    args.insert(
-        "source_offset".to_string(),
-        serde_json::json!(job.source_offset),
-    );
-    args.insert(
-        "raw_size_mib".to_string(),
-        serde_json::json!(job.raw_size as f64 / (1024.0 * 1024.0)),
-    );
-    args.insert(
-        "file_offset".to_string(),
-        serde_json::json!(target.file_offset),
-    );
-    args
-}
-
-fn source_file_trace_args(
-    file_plan: &ReconstructPipelineFile,
-    source_path: &Path,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size);
-    args.insert(
-        "source_path".to_string(),
-        serde_json::json!(source_path.display().to_string()),
-    );
-    args
-}
-
-fn file_write_trace_args(
-    file_plan: &ReconstructPipelineFile,
-    write_size: u64,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
-    args.insert(
-        "write_size_mib".to_string(),
-        serde_json::json!(write_size as f64 / (1024.0 * 1024.0)),
-    );
-    args
 }
 
 pub(super) struct ReconstructedFileVerification {
@@ -739,10 +635,7 @@ pub(super) fn verify_reconstructed_output_file(
     reconstruct_worker_count: usize,
 ) -> Result<ReconstructedFileVerification> {
     control.checkpoint()?;
-    let _file_span = control.profile_span_with_args(
-        "snapshot.reconstruct.file",
-        reconstruct_file_trace_args(file_plan),
-    );
+
     let precomputed_hash = *precomputed_file_hashes
         .get(file_index)
         .ok_or_else(|| {
@@ -755,7 +648,7 @@ pub(super) fn verify_reconstructed_output_file(
         precomputed_hash.is_some(),
         reconstruct_worker_count,
     );
-    let started_at = Instant::now();
+    let started_at = ProfileInstant::detailed(control.profiler());
     let output_path = &output_paths[file_index];
     let actual_size = std::fs::metadata(output_path)?.len();
     if actual_size != file_plan.size {
@@ -765,18 +658,17 @@ pub(super) fn verify_reconstructed_output_file(
         )));
     }
     let _hash_span = if precomputed_hash.is_some() {
-        control.profile_event_with_args(
-            "snapshot.reconstruct.file.full_hash.forwarded",
-            full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count),
-        );
+        control
+            .profile_event_with_args("installation.reconstruct.file.full_hash.forwarded", || {
+                full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count)
+            });
         None
     } else {
-        control.profile_span_with_args(
-            "snapshot.reconstruct.file.full_hash",
-            full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count),
-        )
+        control.profile_span_with_args("installation.file.verify", || {
+            full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count)
+        })
     };
-    let integrity = crate::file_integrity::verify_full_file_integrity(
+    crate::file_integrity::verify_full_file_integrity(
         output_path,
         file_plan.size,
         file_plan.full_file_hash,
@@ -784,30 +676,6 @@ pub(super) fn verify_reconstructed_output_file(
         reconstruct_worker_count,
         control,
     )?;
-    let hash_elapsed = if integrity.mode == crate::file_integrity::FullFileHashMode::Forwarded {
-        Duration::ZERO
-    } else {
-        integrity.elapsed
-    };
-    let hash_elapsed_seconds = hash_elapsed.as_secs_f64();
-    let mut hash_complete_args =
-        full_hash_trace_args(file_plan, integrity.mode.as_str(), reconstruct_worker_count);
-    hash_complete_args.insert(
-        "hash_elapsed_ms".to_string(),
-        serde_json::json!(hash_elapsed_seconds * 1000.0),
-    );
-    hash_complete_args.insert(
-        "hash_speed_mib_s".to_string(),
-        serde_json::json!(if hash_elapsed_seconds > 0.0 {
-            (file_plan.size as f64 / (1024.0 * 1024.0)) / hash_elapsed_seconds
-        } else {
-            0.0
-        }),
-    );
-    control.profile_event_with_args(
-        "snapshot.reconstruct.file.full_hash.complete",
-        hash_complete_args,
-    );
     Ok(ReconstructedFileVerification {
         elapsed: started_at.elapsed(),
         bytes: actual_size,
@@ -820,88 +688,17 @@ fn full_hash_trace_args(
     reconstruct_worker_count: usize,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     std::collections::BTreeMap::from([
-        (
-            "size_mib".to_string(),
-            serde_json::json!(file_plan.size as f64 / (1024.0 * 1024.0)),
-        ),
+        ("size_bytes".to_string(), serde_json::json!(file_plan.size)),
         ("hash_mode".to_string(), serde_json::json!(hash_mode)),
         (
-            "hash_threshold_mib".to_string(),
-            serde_json::json!(
-                crate::file_integrity::PARALLEL_FULL_HASH_MIN_BYTES as f64 / (1024.0 * 1024.0)
-            ),
+            "hash_threshold_bytes".to_string(),
+            serde_json::json!(crate::file_integrity::PARALLEL_FULL_HASH_MIN_BYTES),
         ),
         (
             "configured_workers".to_string(),
             serde_json::json!(reconstruct_worker_count),
         ),
     ])
-}
-
-fn reconstruct_file_trace_args(
-    file_plan: &ReconstructPipelineFile,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(&file_plan.path, file_plan.size);
-    args.insert(
-        "required_distinct_chunks".to_string(),
-        serde_json::json!(file_plan.trace_metadata.required_distinct_chunks),
-    );
-    args.insert(
-        "required_distinct_artifacts".to_string(),
-        serde_json::json!(file_plan.trace_metadata.required_distinct_artifacts),
-    );
-    args.insert(
-        "required_distinct_bundles".to_string(),
-        serde_json::json!(file_plan.trace_metadata.required_distinct_bundles),
-    );
-    args.insert(
-        "required_distinct_loose_chunks".to_string(),
-        serde_json::json!(file_plan.trace_metadata.required_distinct_loose_chunks),
-    );
-    args
-}
-
-pub(super) fn reconstruct_file_trace_metadata(
-    reconstruction: &ReconstructPipelineReconstruction,
-) -> ReconstructFileTraceMetadata {
-    let mut chunk_hashes = HashSet::new();
-    let mut artifacts = HashSet::new();
-    let mut bundle_artifacts = HashSet::new();
-    let mut loose_chunk_artifacts = HashSet::new();
-    let chunks = match reconstruction {
-        ReconstructPipelineReconstruction::ReconstructFromParts { chunks } => chunks,
-        #[cfg(test)]
-        ReconstructPipelineReconstruction::CopyFromSource => {
-            return ReconstructFileTraceMetadata::default();
-        }
-    };
-
-    for chunk in chunks {
-        match chunk {
-            ReconstructPipelineChunkInput::Source { chunk_hash } => {
-                chunk_hashes.insert(chunk_hash.as_str());
-            }
-            ReconstructPipelineChunkInput::Artifact(chunk) => {
-                chunk_hashes.insert(chunk.chunk_hash.as_str());
-                artifacts.insert(&chunk.artifact);
-                match &chunk.artifact {
-                    crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
-                        bundle_artifacts.insert(&chunk.artifact);
-                    }
-                    crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => {
-                        loose_chunk_artifacts.insert(&chunk.artifact);
-                    }
-                }
-            }
-        }
-    }
-
-    ReconstructFileTraceMetadata {
-        required_distinct_chunks: chunk_hashes.len(),
-        required_distinct_artifacts: artifacts.len(),
-        required_distinct_bundles: bundle_artifacts.len(),
-        required_distinct_loose_chunks: loose_chunk_artifacts.len(),
-    }
 }
 
 pub(super) fn build_source_chunk_locations(

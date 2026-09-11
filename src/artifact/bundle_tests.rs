@@ -130,7 +130,7 @@ fn test_build_and_read_bundle_compressed_payload() {
     std::fs::write(staged.path(), &bundle_data).unwrap();
     let mut file_reader =
         BundleReader::open(std::fs::File::open(staged.path()).unwrap(), &profile).unwrap();
-    let profiler = crate::profile::GutchProfiler::new();
+    let profiler = crate::profile::GutchProfiler::new(crate::profile::GutchProfileMode::Detailed);
     let (read, metrics) = file_reader
         .read_bundle_payload_with_profiler(Some(&profiler))
         .unwrap();
@@ -138,55 +138,25 @@ fn test_build_and_read_bundle_compressed_payload() {
         ..(reader.entries()[1].raw_offset + reader.entries()[1].raw_size) as usize];
     assert_eq!(second, chunk2.as_slice());
     assert_eq!(metrics.raw_bytes, (chunk1.len() + chunk2.len()) as u64);
-    let spans = profiler.summary().spans;
-    for name in [
-        "snapshot.reconstruct.bundle.read_payload",
-        "snapshot.reconstruct.bundle.decompress_payload",
-    ] {
-        assert_eq!(
-            spans
-                .iter()
-                .find(|span| span.name == name)
-                .map(|span| span.count),
-            Some(1),
-            "missing expected bundle phase marker {name}"
-        );
-    }
-
     let staging = tempfile::tempdir().unwrap();
-    let capture_profiler = crate::profile::GutchProfiler::new();
+    let capture_profiler =
+        crate::profile::GutchProfiler::new(crate::profile::GutchProfileMode::Detailed);
     builder
         .write_to_staging(staging.path(), Some(&capture_profiler))
         .unwrap();
     let trace_path = staging.path().join("trace.json");
-    capture_profiler.write_to(&trace_path).unwrap();
+    capture_profiler.write_trace(&trace_path).unwrap();
     let trace: serde_json::Value =
         serde_json::from_slice(&std::fs::read(trace_path).unwrap()).unwrap();
-    let finalize_complete = trace["traceEvents"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|event| event["name"] == "capture.compress_bundle_artifact.finalize_id.complete")
-        .expect("missing bundle ID finalization completion marker");
-    assert_eq!(finalize_complete["args"]["id_present"], true);
-    assert_eq!(finalize_complete["args"]["next_phase"], "flush_staged_file");
-    let keep_complete = trace["traceEvents"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|event| event["name"] == "capture.compress_bundle_artifact.keep_staged_file.complete")
-        .expect("missing staged artifact handoff marker");
-    assert_eq!(keep_complete["args"]["id_present"], true);
-    assert_eq!(
-        keep_complete["args"]["next_phase"],
-        "return_staged_artifact"
+    assert!(
+        trace["traceEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["ph"] == "X" || event["ph"] == "M")
     );
     let spans = capture_profiler.summary().spans;
-    for name in [
-        "capture.compress_bundle_artifact.flush_staged_file",
-        "capture.compress_bundle_artifact.sync_staged_file",
-        "capture.compress_bundle_artifact.keep_staged_file",
-    ] {
+    for name in ["capture.bundle.flush", "capture.bundle.sync"] {
         assert_eq!(
             spans
                 .iter()

@@ -83,7 +83,7 @@ def _fetch_profile(
     label: str,
 ) -> tuple[float, dict[str, Any], Path]:
     stats_path = lane.stats / f"fetch-reconstruct-{index:03d}.json"
-    trace_path = lane.traces / f"fetch-reconstruct-{index:03d}.json"
+    trace_path = lane.traces / f"fetch-reconstruct-{index:03d}" / "trace.json"
     result = commands.run(
         [
             *fetch_command(
@@ -126,8 +126,8 @@ def run_s3_cycle(
     options = options or S3CycleOptions()
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
-    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.memory_profile)
-    cli = GutchCli(cli.executable, tracing=fixture.measurement_mode == "profile")
+    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.profile_mode == "detailed")
+    cli = GutchCli(cli.executable, profile_mode=fixture.profile_mode)
     local = GutchOperations(cli, commands)
     client = make_client(settings)
     entries = _source_entries(product, fixture.snapshot_limit)
@@ -152,7 +152,7 @@ def run_s3_cycle(
         }
         for index, (source, version_name) in enumerate(entries, start=1):
             stats_path = lane.stats / f"capture-{index:03d}.json"
-            trace_path = lane.traces / f"capture-{index:03d}.json"
+            trace_path = lane.traces / f"capture-{index:03d}" / "trace.json"
             elapsed, stats = local.capture(
                 lane.root,
                 repo,

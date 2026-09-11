@@ -29,11 +29,13 @@ def snapshot_id(stats: dict[str, Any]) -> str:
     return value
 
 
-def verification_seconds(stats: dict[str, Any]) -> float:
+def verification_seconds(stats: dict[str, Any]) -> float | None:
     timings = stats.get("verify_timings")
     if not isinstance(timings, dict):
         raise ValueError("missing verification timings in Gutch result")
     value = timings.get("total_seconds")
+    if value is None and stats.get("profiling_mode") in {"off", "summary"}:
+        return None
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value < 0:
         raise ValueError("invalid verification duration in Gutch result")
     return float(value)
@@ -77,8 +79,8 @@ class GutchOperations:
                 *GutchCli.profile_args(profile),
                 "--stats-json-out",
                 stats_path,
-                "--trace-out",
-                trace_path,
+                "--profile-out",
+                trace_path.parent,
             ),
             description=f"{tag} capture {source.name}",
         )
@@ -108,8 +110,8 @@ class GutchOperations:
                 *GutchCli.profile_args(profile),
                 "--stats-json-out",
                 stats_path,
-                "--trace-out",
-                trace_path,
+                "--profile-out",
+                trace_path.parent,
             ),
             description=f"capture-many {label}",
         )
@@ -138,8 +140,8 @@ class GutchOperations:
                 *GutchCli.runtime_args(profile),
                 "--stats-json-out",
                 stats_path,
-                "--trace-out",
-                trace_path,
+                "--profile-out",
+                trace_path.parent,
             ),
             description=f"reconstruct {label}",
         )
@@ -167,7 +169,7 @@ class GutchOperations:
             plans.append((name, snapshot_id, destination, plan))
         for index, (name, _snapshot_id, destination, plan) in enumerate(plans, start=1):
             stats = lane.stats / f"corrupt-{safe_component(label)}-{index:03d}.json"
-            trace = lane.traces / f"corrupt-{safe_component(label)}-{index:03d}.json"
+            trace = lane.traces / f"corrupt-{safe_component(label)}-{index:03d}" / "trace.json"
             result = self.commands.run(
                 self.cli.command(
                     "reconstructed",
@@ -179,8 +181,8 @@ class GutchOperations:
                     "--stats-json-out",
                     stats,
                     "--yes",
-                    "--trace-out",
-                    trace,
+                    "--profile-out",
+                    trace.parent,
                 ),
                 description=f"{label} corrupt {name}",
             )
@@ -188,7 +190,7 @@ class GutchOperations:
             corrupt_traces.append(str(trace))
         for index, (name, snapshot_id, destination, _plan) in enumerate(plans, start=1):
             stats = lane.stats / f"repair-{safe_component(label)}-{index:03d}.json"
-            trace = lane.traces / f"repair-{safe_component(label)}-{index:03d}.json"
+            trace = lane.traces / f"repair-{safe_component(label)}-{index:03d}" / "trace.json"
             result = self.commands.run(
                 self.cli.command(
                     "reconstructed",
@@ -204,8 +206,8 @@ class GutchOperations:
                     *GutchCli.runtime_args(profile),
                     "--stats-json-out",
                     stats,
-                    "--trace-out",
-                    trace,
+                    "--profile-out",
+                    trace.parent,
                 ),
                 description=f"{label} repair {name}",
             )

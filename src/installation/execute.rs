@@ -1,3 +1,4 @@
+use crate::profile::ProfileInstant;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
@@ -9,7 +10,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::Duration;
-use std::time::Instant;
 
 use rayon::ThreadPool;
 
@@ -41,23 +41,26 @@ pub(crate) fn apply_reconstruct_pipeline(
     SnapshotReconstructFromRepoResult,
     Option<super::types::SnapshotRepairResult>,
 )> {
+    let _output_stage = request.control.output_stage();
     request.control.checkpoint()?;
-    let operation_started_at = Instant::now();
-    let _operation_span = request.control.profile_span("snapshot.reconstruct.apply");
-    let prepare_started_at = Instant::now();
+    let operation_started_at = ProfileInstant::start(request.control.profiler());
+    let _operation_span = request
+        .control
+        .profile_span("installation.reconstruct.apply");
+    let prepare_started_at = ProfileInstant::start(request.control.profiler());
     let reconstruct_worker_count = plan_runtime(request.runtime_hints).worker_count;
     let reconstruct_pool = if request.snapshot_manifest.entries.is_empty() {
         None
     } else {
         let _pool_span = request
             .control
-            .profile_span("snapshot.reconstruct.prepare.pool");
+            .profile_span("installation.reconstruct.prepare.pool");
         Some(build_reconstruct_pool(reconstruct_worker_count)?)
     };
     let staging = {
         let _staging_span = request
             .control
-            .profile_span("snapshot.reconstruct.prepare.staging");
+            .profile_span("installation.reconstruct.prepare.staging");
         let staging_dir = request
             .staging_dir
             .map(Path::to_path_buf)
@@ -80,7 +83,7 @@ pub(crate) fn apply_reconstruct_pipeline(
         let output_paths = {
             let _prepare_span = request
                 .control
-                .profile_span("snapshot.reconstruct.prepare.entries");
+                .profile_span("installation.reconstruct.prepare.entries");
             prepare_snapshot_entries(
                 request.snapshot_manifest,
                 &staging_dir,
@@ -112,16 +115,16 @@ pub(crate) fn apply_reconstruct_pipeline(
         reconstruct_timings.total = operation_started_at.elapsed();
         let repair_result = match &request.publication {
             super::publish::Publication::ReplaceDirectory => {
-                let started = Instant::now();
+                let started = ProfileInstant::start(request.control.profiler());
                 {
-                    let _span = request.control.profile_span("snapshot.reconstruct.finalize.entries");
+                    let _span = request.control.profile_span("installation.reconstruct.finalize.entries");
                     finalize_snapshot_entries(request.snapshot_manifest, &staging_dir, request.control,
                         reconstruct_worker_count, reconstruct_pool.as_ref())?;
                 }
                 reconstruct_timings.finalize_wall = started.elapsed();
-                let started = Instant::now();
+                let started = ProfileInstant::start(request.control.profiler());
                 {
-                    let _span = request.control.profile_span("snapshot.reconstruct.finalize.promote");
+                    let _span = request.control.profile_span("installation.reconstruct.finalize.promote");
                     request.control.checkpoint()?;
                     crate::filesystem::directory::replace_directory(&staging_dir, request.destination_dir)?;
                 }
@@ -129,7 +132,7 @@ pub(crate) fn apply_reconstruct_pipeline(
                 None
             }
             super::publish::Publication::Selective { target, changes, remove_extra_files } => {
-                let started = Instant::now();
+                let started = ProfileInstant::start(request.control.profiler());
                 let result = super::publish::finalize_repair_result_after_reconstruction(
                     target, request.destination_dir, &staging_dir, *remove_extra_files,
                     request.runtime_hints, changes, request.control, reconstruct_pool.as_ref(),
@@ -294,8 +297,8 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     } = request;
 
     control.checkpoint()?;
-    let _pipeline_span = control.profile_span("snapshot.reconstruct.pipeline");
-    let pipeline_started_at = Instant::now();
+    let _pipeline_span = control.profile_span("installation.reconstruct.pipeline");
+    let pipeline_started_at = ProfileInstant::start(control.profiler());
     let runtime_plan = plan_runtime(runtime_hints);
     let mut reconstruct_timings = ReconstructTimings {
         runtime_plan: Some(runtime_plan.clone()),
@@ -309,7 +312,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     };
 
     let artifact_priorities = {
-        let _priorities_span = control.profile_span("snapshot.reconstruct.prepare.priorities");
+        let _priorities_span = control.profile_span("installation.reconstruct.prepare.priorities");
         build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
     };
     let file_plans = Arc::new(pipeline_plan.files);
@@ -325,7 +328,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     );
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
-        let _artifacts_span = control.profile_span("snapshot.reconstruct.prepare.artifacts");
+        let _artifacts_span = control.profile_span("installation.reconstruct.prepare.artifacts");
         let pending_artifacts = pending_bundle_downloads
             .iter()
             .map(|download| download.artifact.clone())
@@ -384,6 +387,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     emit_progress(
         control.progress(),
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Reconstruct,
             message: format!("Preparing files (0/{})", file_plans.len().max(1)),
@@ -437,8 +441,11 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     let mut verified_file_bytes = 0u64;
     let mut pipeline_error = None;
     let mut finished_work_count = 0usize;
-    let reconstruct_started_at = Instant::now();
+    let reconstruct_started_at = ProfileInstant::start(control.profiler());
     let mut reconstruct_finished_at = jobs.is_empty().then_some(reconstruct_started_at);
+    if jobs.is_empty() {
+        control.output_finished();
+    }
     reconstruct_timings.prepare_wall = pipeline_started_at.elapsed();
 
     let pool = match reconstruct_pool {
@@ -454,7 +461,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         }
     };
     {
-        let _dispatch_span = control.profile_span("snapshot.reconstruct.dispatch.ready");
+        let _dispatch_span = control.profile_span("installation.reconstruct.dispatch.ready");
         for (job_index, job) in jobs.iter().enumerate() {
             let ready = match job {
                 ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
@@ -495,8 +502,8 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
             verification_queued[file_index] = true;
             submitted_work_count += 1;
             if verify_started_at.is_none() {
-                verify_started_at = Some(Instant::now());
-                verify_span = control.profile_span("snapshot.reconstruct.verify");
+                verify_started_at = Some(ProfileInstant::start(control.profiler()));
+                verify_span = control.profile_span("installation.reconstruct.verify");
             }
         }
     }
@@ -532,8 +539,8 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                             break;
                         }
                         if scheduled_job_indices.insert(job_index) {
-                            let _dispatch_span =
-                                control.profile_span("snapshot.reconstruct.dispatch.downloaded");
+                            let _dispatch_span = control
+                                .profile_span("installation.reconstruct.dispatch.downloaded");
                             spawn_reconstruct_work(
                                 pool,
                                 ReconstructWorkItem::Job(job_index),
@@ -560,6 +567,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                             downloads_done = true;
                             if let Some(transfer_progress) = transfer_progress {
                                 transfer_progress.finish();
+                                control.download_finished();
                             }
                         }
                     }
@@ -603,6 +611,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 emit_progress(
                     control.progress(),
                     GutchProgressEvent {
+                        feedback: None,
                         operation: GutchOperation::Fetch,
                         phase: GutchProgressPhase::Reconstruct,
                         message: format!(
@@ -619,15 +628,16 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                     },
                 );
                 if reconstruct_finished_at.is_none() && completed_job_count == jobs.len() {
-                    reconstruct_finished_at = Some(Instant::now());
+                    reconstruct_finished_at = Some(ProfileInstant::start(control.profiler()));
+                    control.output_finished();
                 }
                 for &file_index in &job_file_indices[job_index] {
                     remaining_file_jobs[file_index] =
                         remaining_file_jobs[file_index].saturating_sub(1);
                     if remaining_file_jobs[file_index] == 0 && !verification_queued[file_index] {
                         if verify_started_at.is_none() {
-                            verify_started_at = Some(Instant::now());
-                            verify_span = control.profile_span("snapshot.reconstruct.verify");
+                            verify_started_at = Some(ProfileInstant::start(control.profiler()));
+                            verify_span = control.profile_span("installation.reconstruct.verify");
                         }
                         spawn_reconstruct_work(
                             pool,
@@ -644,7 +654,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 finished_work_count += 1;
                 completed_file_count += 1;
                 if verify_finished_at.is_none() && completed_file_count == file_plans.len() {
-                    verify_finished_at = Some(Instant::now());
+                    verify_finished_at = Some(ProfileInstant::start(control.profiler()));
                 }
                 reconstruct_timings.file_verify += file_verification.elapsed;
                 reconstruct_timings.file_verify_bytes = reconstruct_timings
@@ -654,6 +664,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 emit_progress(
                     control.progress(),
                     GutchProgressEvent {
+                        feedback: None,
                         operation: GutchOperation::Fetch,
                         phase: GutchProgressPhase::Reconstruct,
                         message: format!(
@@ -726,6 +737,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     emit_progress(
         control.progress(),
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Reconstruct,
             message: format!(
@@ -793,15 +805,15 @@ fn ensure_empty_reconstruct_output_file(
     output_path: &Path,
     control: &GutchOperationControl,
 ) -> Result<()> {
-    let _file_span = control.profile_span_with_args(
-        "snapshot.reconstruct.prepare.file",
-        crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-    );
+    let _file_span = control
+        .profile_span_with_args("installation.reconstruct.prepare.file", || {
+            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size)
+        });
     let output = {
-        let _create_span = control.profile_span_with_args(
-            "snapshot.reconstruct.prepare.file.create",
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-        );
+        let _create_span = control
+            .profile_span_with_args("installation.reconstruct.prepare.file.create", || {
+                crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size)
+            });
         OpenOptions::new()
             .write(true)
             .create(true)
@@ -809,10 +821,10 @@ fn ensure_empty_reconstruct_output_file(
             .open(output_path)?
     };
     {
-        let _size_span = control.profile_span_with_args(
-            "snapshot.reconstruct.prepare.file.set_len",
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size),
-        );
+        let _size_span = control
+            .profile_span_with_args("installation.reconstruct.prepare.file.set_len", || {
+                crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size)
+            });
         output.set_len(file_plan.size)?;
     }
     Ok(())

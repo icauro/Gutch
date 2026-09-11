@@ -217,8 +217,8 @@ def fetch_command(
         if stats_path is None:
             raise ValueError("fetch-reconstruct requires stats_path")
         command.extend(["--destination", destination, *GutchCli.runtime_args(profile), "--stats-json-out", stats_path])
-    if trace_path is not None and cli.tracing:
-        command.extend(["--trace-out", trace_path])
+    if trace_path is not None and cli.profile_mode != "off":
+        command.extend(["--profile", cli.profile_mode, "--profile-out", trace_path.parent])
     product_metadata = urls.get("product_metadata_url")
     if product_metadata:
         command.extend(["--product-metadata-url", product_metadata])

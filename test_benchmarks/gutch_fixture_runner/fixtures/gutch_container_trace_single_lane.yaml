@@ -1,3 +1,4 @@
+profile_mode: detailed
 name: gutch_container_trace_single_lane
 runner: gutch-fixture
 description: Single-lane container Gutch trace benchmark with corruption and repair enabled.

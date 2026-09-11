@@ -34,6 +34,7 @@ class Scenario:
 
 
 SCENARIOS = [
+    Scenario("profiling_modes", "profiling_modes_preserve_content_and_report_availability", "local"),
     Scenario("repository_writer_lock", "concurrent_repository_writers_preserve_both_snapshots", "local"),
     Scenario("chunk_map_recovery", "chunk_map_regeneration_verifies_before_publishing", "local"),
     Scenario("batch_capture_failure", "batch_capture_failure_preserves_earlier_completed_snapshots", "local"),

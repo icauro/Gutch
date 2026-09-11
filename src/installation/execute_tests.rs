@@ -110,8 +110,8 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
     assert_eq!(plan.required_bundle_count, 0);
     assert_eq!(plan.reused_source_chunk_count, 1);
     assert!(matches!(
-        plan.files[0].reconstruction,
-        ReconstructPipelineReconstruction::CopyFromSource
+        plan.jobs[0],
+        ReconstructJob::CopySourceFile { .. }
     ));
 
     apply_reconstruct_pipeline(
@@ -172,10 +172,7 @@ fn pipeline_plan_reconstructs_changed_source_file_from_bundles() {
 
     assert_eq!(plan.required_bundle_count, 1);
     assert_eq!(plan.reused_source_chunk_count, 0);
-    assert!(matches!(
-        plan.files[0].reconstruction,
-        ReconstructPipelineReconstruction::ReconstructFromParts { .. }
-    ));
+    assert!(matches!(plan.jobs[0], ReconstructJob::Artifact(_)));
 
     let _ = std::fs::remove_dir_all(&source_root);
     let _ = std::fs::remove_dir_all(&repo_root);
@@ -236,12 +233,16 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
 
     assert_eq!(plan.required_bundle_count, 1);
     assert_eq!(plan.reused_source_chunk_count, 1);
-    assert!(matches!(
-        &plan.files[0].reconstruction,
-        ReconstructPipelineReconstruction::ReconstructFromParts { chunks }
-            if matches!(chunks[0], ReconstructPipelineChunkInput::Source { .. })
-                && matches!(chunks[1], ReconstructPipelineChunkInput::Artifact(_))
-    ));
+    assert!(
+        plan.jobs
+            .iter()
+            .any(|job| matches!(job, ReconstructJob::SourceChunk(_)))
+    );
+    assert!(
+        plan.jobs
+            .iter()
+            .any(|job| matches!(job, ReconstructJob::Artifact(_)))
+    );
 
     let _ = std::fs::remove_dir_all(&source_root);
     let _ = std::fs::remove_dir_all(&repo_root);

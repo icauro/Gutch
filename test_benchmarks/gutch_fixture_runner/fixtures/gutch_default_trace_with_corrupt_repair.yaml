@@ -1,3 +1,4 @@
+profile_mode: detailed
 name: gutch_default_trace_with_corrupt_repair
 runner: gutch-fixture
 description: Default local Gutch trace lane with corruption and repair enabled.

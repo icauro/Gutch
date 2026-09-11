@@ -120,23 +120,37 @@ where
         Err(error) => return Err(crate::Error::manifest(error.to_string())),
     };
     set_verbose_output_enabled(cli.verbose);
-    let trace_out = cli.trace_out.clone();
-    let profiler = trace_out
-        .as_ref()
-        .map(|_| Arc::new(crate::profile::GutchProfiler::new()));
+    let profile_out = cli.profile_out.clone();
+    if (cli.profile == crate::profile::GutchProfileMode::Off && profile_out.is_some())
+        || (cli.profile == crate::profile::GutchProfileMode::Detailed && profile_out.is_none())
+    {
+        return Err(crate::Error::manifest(
+            "--profile detailed requires --profile-out; off forbids profile output",
+        ));
+    }
+    let mode = cli.profile;
+    let profiler = (mode != crate::profile::GutchProfileMode::Off)
+        .then(|| Arc::new(crate::profile::GutchProfiler::new(mode)));
     let command_result = {
         let _command_span = profiler
             .as_ref()
             .map(|profiler| profiler.span("cli.command"));
         commands::run(cli, remote_provider, &profiler)
     };
-    let trace_result = match (trace_out.as_ref(), profiler.as_ref()) {
-        (Some(path), Some(profiler)) => profiler.write_to(path),
+    let profile_result = match (profile_out.as_ref(), profiler.as_ref()) {
+        (Some(path), Some(profiler)) => profiler.finish(path, command_result.is_ok()),
         _ => Ok(()),
     };
-    match (command_result, trace_result) {
-        (Err(error), _) => Err(error),
-        (Ok(()), Err(error)) => Err(error),
+    match (command_result, profile_result) {
+        (Err(error), profile_result) => {
+            if let Err(profile_error) = profile_result {
+                eprintln!("Profiling export also failed: {profile_error}");
+            }
+            Err(error)
+        }
+        (Ok(()), Err(error)) => Err(crate::Error::manifest(format!(
+            "Operation succeeded but profiling export failed: {error}"
+        ))),
         (Ok(()), Ok(())) => Ok(()),
     }
 }

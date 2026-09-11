@@ -45,38 +45,6 @@ pub(crate) struct ReconstructPipelineFile {
     pub(crate) path: String,
     pub(crate) size: u64,
     pub(crate) full_file_hash: crate::artifact::hash::ChunkHash,
-    pub(crate) trace_metadata: ReconstructFileTraceMetadata,
-    #[cfg(test)]
-    pub(crate) reconstruction: ReconstructPipelineReconstruction,
-}
-
-#[derive(Clone, Copy, Default)]
-pub(crate) struct ReconstructFileTraceMetadata {
-    pub(crate) required_distinct_chunks: usize,
-    pub(crate) required_distinct_artifacts: usize,
-    pub(crate) required_distinct_bundles: usize,
-    pub(crate) required_distinct_loose_chunks: usize,
-}
-
-#[derive(Clone)]
-pub(crate) enum ReconstructPipelineReconstruction {
-    #[cfg(test)]
-    CopyFromSource,
-    ReconstructFromParts {
-        chunks: Vec<ReconstructPipelineChunkInput>,
-    },
-}
-
-#[derive(Clone)]
-pub(crate) enum ReconstructPipelineChunkInput {
-    Source { chunk_hash: String },
-    Artifact(ReconstructPipelineChunk),
-}
-
-#[derive(Clone)]
-pub(crate) struct ReconstructPipelineChunk {
-    pub(crate) chunk_hash: String,
-    pub(crate) artifact: crate::repo::artifacts::ArtifactRef,
 }
 
 #[derive(Clone)]

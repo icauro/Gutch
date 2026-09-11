@@ -1,8 +1,8 @@
 use crate::artifact::format;
+use crate::profile::ProfileInstant;
 use std::io::Read;
 use std::io::Write;
 use std::time::Duration;
-use std::time::Instant;
 
 use crate::Error;
 use crate::Result;
@@ -46,9 +46,8 @@ pub(crate) fn read_loose_chunk_with_metrics(
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
     let mut metrics = LooseChunkReadMetrics::default();
     let (mut file, codec) = {
-        let started_at = Instant::now();
-        let _read_span =
-            profiler.map(|profiler| profiler.span("artifact.loose_chunk.payload_read"));
+        let started_at = ProfileInstant::detailed(profiler);
+
         let mut file = std::fs::File::open(path)?;
         metrics.compressed_bytes = file.metadata()?.len();
         format::size_u32(metrics.compressed_bytes)?;
@@ -62,9 +61,8 @@ pub(crate) fn read_loose_chunk_with_metrics(
         (file, codec)
     };
     let bytes = {
-        let started_at = Instant::now();
-        let _decompress_span =
-            profiler.map(|profiler| profiler.span("artifact.loose_chunk.payload_decompress"));
+        let started_at = ProfileInstant::detailed(profiler);
+
         let mut decoder =
             crate::artifact::compression::decoder_from_reader(&mut file, codec)?.take(raw_size + 1);
         let mut bytes = Vec::with_capacity(raw_size as usize);
@@ -74,8 +72,8 @@ pub(crate) fn read_loose_chunk_with_metrics(
         bytes
     };
     {
-        let started_at = Instant::now();
-        let _size_span = profiler.map(|profiler| profiler.span("artifact.loose_chunk.size_verify"));
+        let started_at = ProfileInstant::detailed(profiler);
+
         if bytes.len() as u64 != raw_size {
             return Err(Error::reconstruct(format!(
                 "loose chunk '{}' has size {}, expected {}",
@@ -87,8 +85,8 @@ pub(crate) fn read_loose_chunk_with_metrics(
         metrics.size_verify = started_at.elapsed();
     }
     {
-        let started_at = Instant::now();
-        let _hash_span = profiler.map(|profiler| profiler.span("artifact.loose_chunk.hash_verify"));
+        let started_at = ProfileInstant::detailed(profiler);
+
         let actual_hash =
             crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(&bytes));
         if actual_hash != chunk_hash {

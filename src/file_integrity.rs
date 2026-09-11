@@ -1,9 +1,9 @@
+use crate::profile::ProfileInstant;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
-use std::time::Instant;
 
 use crate::Error;
 use crate::Result;
@@ -37,11 +37,9 @@ impl FullFileHashMode {
 }
 
 pub(crate) struct FullFileIntegrityResult {
-    pub(crate) elapsed: Duration,
     pub(crate) read_elapsed: Duration,
     pub(crate) hash_elapsed: Duration,
     pub(crate) bytes: u64,
-    pub(crate) mode: FullFileHashMode,
 }
 
 pub(crate) fn select_full_file_hash_mode(
@@ -69,7 +67,6 @@ pub(crate) fn verify_full_file_integrity(
     control: &GutchOperationControl,
 ) -> Result<FullFileIntegrityResult> {
     control.checkpoint()?;
-    let started_at = Instant::now();
     let mode = select_full_file_hash_mode(file_size, precomputed_hash.is_some(), worker_count);
     let mut read_elapsed = Duration::ZERO;
     let mut hash_elapsed = Duration::ZERO;
@@ -77,14 +74,14 @@ pub(crate) fn verify_full_file_integrity(
     let actual_hash = match (mode, precomputed_hash) {
         (FullFileHashMode::Forwarded, Some(hash)) => hash,
         (FullFileHashMode::MmapRayon, None) => {
-            let hash_started_at = Instant::now();
+            let hash_started_at = ProfileInstant::detailed(control.profiler());
             let mut hasher = blake3::Hasher::new();
             hasher.update_mmap_rayon(path)?;
             hash_elapsed = hash_started_at.elapsed();
             ChunkHash::from_blake3(hasher.finalize())
         }
         (FullFileHashMode::Mmap, None) => {
-            let hash_started_at = Instant::now();
+            let hash_started_at = ProfileInstant::detailed(control.profiler());
             let mut hasher = blake3::Hasher::new();
             hasher.update_mmap(path)?;
             hash_elapsed = hash_started_at.elapsed();
@@ -100,13 +97,13 @@ pub(crate) fn verify_full_file_integrity(
                     let mut measured_hash = Duration::ZERO;
                     loop {
                         control.checkpoint()?;
-                        let read_started_at = Instant::now();
+                        let read_started_at = ProfileInstant::detailed(control.profiler());
                         let read = input.read(&mut buffer)?;
                         measured_read += read_started_at.elapsed();
                         if read == 0 {
                             break;
                         }
-                        let hash_started_at = Instant::now();
+                        let hash_started_at = ProfileInstant::detailed(control.profiler());
                         hasher.update(&buffer[..read]);
                         measured_hash += hash_started_at.elapsed();
                     }
@@ -136,11 +133,9 @@ pub(crate) fn verify_full_file_integrity(
     }
 
     Ok(FullFileIntegrityResult {
-        elapsed: started_at.elapsed(),
         read_elapsed,
         hash_elapsed,
         bytes: file_size,
-        mode,
     })
 }
 

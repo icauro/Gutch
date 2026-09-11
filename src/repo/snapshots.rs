@@ -34,6 +34,7 @@ pub fn delete_repo_snapshot_and_cleanup(
         progress::emit_progress(
             control.progress(),
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::SnapshotDelete,
                 phase: GutchProgressPhase::RemoveManifest,
                 message: format!("Removing snapshot '{}'", snapshot_id),
@@ -54,6 +55,7 @@ pub fn delete_repo_snapshot_and_cleanup(
         progress::emit_progress(
             control.progress(),
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::SnapshotDelete,
                 phase: GutchProgressPhase::Done,
                 message: format!(

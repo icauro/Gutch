@@ -1,3 +1,4 @@
+profile_mode: detailed
 name: gutch_reconstruction_storage_paths
 runner: gutch-reconstruction-storage
 description: Compare local, fetched, and fetch-reconstruct Gutch paths.

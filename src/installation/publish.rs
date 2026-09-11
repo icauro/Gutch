@@ -48,7 +48,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     control: &crate::progress::GutchOperationControl,
     operation_pool: Option<&ThreadPool>,
 ) -> Result<SnapshotRepairResult> {
-    let _finalize_span = control.profile_span("reconstructed.repair.finalize");
+    let _finalize_span = control.profile_span("installation.repair.finalize");
     let mut reconstructed_extra_file_count = 0usize;
     let mut removed_extra_file_count = 0usize;
     let mut preserved_extra_dir = None;
@@ -136,7 +136,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
                 runtime_hints,
                 control: control.clone(),
             },
-            "reconstructed.repair.verify.final",
+            "installation.repair.verify.final",
             operation_pool,
         )?
         .0

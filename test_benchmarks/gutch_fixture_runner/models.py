@@ -36,8 +36,7 @@ class FixtureSpec:
     step_wait_seconds: float = 4.0
     snapshot_limit: int | None = None
     repetitions: int = 1
-    measurement_mode: str = "profile"
-    memory_profile: bool = False
+    profile_mode: str = "off"
 
 
 @dataclass

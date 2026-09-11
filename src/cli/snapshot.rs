@@ -142,7 +142,7 @@ pub(crate) fn run(
                     outputs: optional_output_paths(&stats_json_out),
                     ..snapshot_stats.into_iter().next().unwrap()
                 };
-                write_report(&stats_json_out, &stats)?;
+                write_report(&stats_json_out, &stats, profile.as_deref())?;
             } else {
                 let total_logical_size = snapshot_stats
                     .iter()
@@ -187,7 +187,7 @@ pub(crate) fn run(
                     outputs: optional_output_paths(&stats_json_out),
                 };
 
-                write_report(&stats_json_out, &aggregate_stats)?;
+                write_report(&stats_json_out, &aggregate_stats, profile.as_deref())?;
             }
             print_profile_summary(profile.as_deref());
         }

@@ -154,13 +154,12 @@ pub fn capture_snapshot_sources(
 
         let runtime_plan =
             crate::runtime::plan_runtime(&crate::runtime::RuntimeResourceHints::default());
-        let _pool_span = control.profile_span_with_args(
-            "capture.create_worker_pool",
+        let _pool_span = control.profile_span_with_args("capture.create_worker_pool", || {
             std::collections::BTreeMap::from([(
                 "worker_count".to_string(),
                 serde_json::json!(runtime_plan.worker_count),
-            )]),
-        );
+            )])
+        });
         let build_pool =
             crate::runtime::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
         drop(_pool_span);
@@ -168,10 +167,12 @@ pub fn capture_snapshot_sources(
         let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(repo_root);
         let _existing_state_span = control.profile_span_with_args(
             "capture.prepare_source.load_existing_store_state",
-            std::collections::BTreeMap::from([(
-                "source_count".to_string(),
-                serde_json::json!(plan.to_capture.len()),
-            )]),
+            || {
+                std::collections::BTreeMap::from([(
+                    "source_count".to_string(),
+                    serde_json::json!(plan.to_capture.len()),
+                )])
+            },
         );
         let mut store_state =
             scan_existing_store_state_with_pool(&repo_paths, &build_pool, control)?;
@@ -184,6 +185,7 @@ pub fn capture_snapshot_sources(
             progress::emit_progress(
                 control.progress(),
                 GutchProgressEvent {
+                    feedback: None,
                     operation: GutchOperation::SnapshotSourcesCapture,
                     phase: GutchProgressPhase::Capture,
                     message: format!("Capturing snapshot '{}'", candidate.folder_name),
@@ -204,6 +206,7 @@ pub fn capture_snapshot_sources(
         progress::emit_progress(
             control.progress(),
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::SnapshotSourcesCapture,
                 phase: GutchProgressPhase::Done,
                 message: "Snapshot sources capture complete".to_string(),

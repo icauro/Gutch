@@ -281,13 +281,14 @@ pub(crate) fn scan_directory_into_file_entries(
     inventory: &SourceInventory,
     options: ScanDirectoryOptions<'_>,
 ) -> Result<Vec<FileBuildEntry>> {
-    options.control.profile_event_with_args(
-        "capture.scan_source.inventory.complete",
-        std::collections::BTreeMap::from([(
-            "file_count".to_string(),
-            serde_json::json!(inventory.files.len()),
-        )]),
-    );
+    options
+        .control
+        .profile_event_with_args("capture.scan_source.inventory.complete", || {
+            std::collections::BTreeMap::from([(
+                "file_count".to_string(),
+                serde_json::json!(inventory.files.len()),
+            )])
+        });
 
     let progress = BuildProgressTracker::new(
         &options.control,
@@ -310,10 +311,9 @@ pub(crate) fn scan_directory_into_file_entries(
                 .get(&normalized_relative)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let _file_span = control_for_scan.profile_span_with_args(
-                "capture.scan_source.file",
-                crate::profile::file_trace_args(&normalized_relative, source_metadata.len()),
-            );
+            let _file_span = control_for_scan.profile_span_with_args("capture.scan.file", || {
+                crate::profile::file_trace_args(&normalized_relative, source_metadata.len())
+            });
 
             scan_changed_file(ScanChangedFileRequest {
                 path,
@@ -378,25 +378,13 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     };
     #[cfg(not(unix))]
     let executable = false;
-    let (chunk_scan, chunk_timings) = {
-        let _chunk_span = control.profile_span_with_args(
-            "capture.scan_source.file.chunk_and_hash",
-            std::collections::BTreeMap::from([(
-                "size_mib".to_string(),
-                serde_json::json!(source_metadata.len() as f64 / (1024.0 * 1024.0)),
-            )]),
-        );
-        crate::artifact::chunk::scan_file_chunks(path, options.chunking_profile, control)?
-    };
+    let (chunk_scan, chunk_timings) =
+        { crate::artifact::chunk::scan_file_chunks(path, options.chunking_profile, control)? };
     let file_size = chunk_scan.file_size;
     let full_file_hash = chunk_scan.full_file_hash;
     let file_hash = chunk_scan.full_file_hash_duration;
 
     let previous = {
-        let _reuse_span = control.profile_span_with_args(
-            "capture.scan_source.file.check_previous_snapshot",
-            crate::profile::file_trace_args(&normalized_relative, file_size),
-        );
         previous_candidates.iter().find(|candidate| {
             candidate.size == file_size
                 && candidate.full_file_hash == full_file_hash
@@ -409,10 +397,6 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
         })
     };
     if let Some(previous) = previous {
-        control.profile_event_with_args(
-            "capture.scan_source.file.reused_previous_manifest",
-            crate::profile::file_trace_args(&normalized_relative, file_size),
-        );
         return Ok(FileBuildEntry {
             manifest: previous.clone(),
             chunks: Vec::new(),
@@ -431,10 +415,6 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     let stream_chunk = chunk_timings.boundary_scan;
 
     let (chunk_refs, chunks, new_chunk_offsets) = {
-        let _refs_span = control.profile_span_with_args(
-            "capture.scan_source.file.build_chunk_references",
-            crate::profile::file_trace_args(&normalized_relative, file_size),
-        );
         let mut chunk_refs = Vec::with_capacity(chunk_scan.chunks.len());
         let mut chunks = Vec::with_capacity(chunk_scan.chunks.len());
         let mut new_chunk_offsets = Vec::with_capacity(chunk_scan.chunks.len());

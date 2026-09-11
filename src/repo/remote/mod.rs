@@ -257,6 +257,7 @@ impl RemoteProgress {
         crate::progress::emit_progress(
             &self.sink,
             GutchProgressEvent {
+                feedback: None,
                 operation: self.operation,
                 phase,
                 message: message.into(),

@@ -98,8 +98,9 @@ properties.
 ## Timeline and diagnostic evidence
 
 The capture profiler exposes the operation as `capture.build_snapshot`, with
-spans for inventory, source scanning, per-file chunking and reuse checks,
-dedupe planning, artifact grouping, compression, and manifest construction.
+coarse spans for inventory, source scanning, dedupe planning, artifact grouping,
+and manifest construction. Detailed mode samples file scan and bundle jobs;
+`capture.scan.file` includes chunk discovery, hashing, and result construction.
 Capture timing results separate scan, file hash, chunk processing, dedupe,
 artifact encoding, compression output, manifest finalization, and total wall
 time. A trace shows overlap between file workers and artifact workers without

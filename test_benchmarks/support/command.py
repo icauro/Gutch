@@ -170,6 +170,10 @@ class CommandRunner:
             "returncode": result.returncode}
         if memory is not None:
             measurement["memory"] = memory
+        if memory is not None and "--profile-out" in rendered:
+            directory = Path(rendered[rendered.index("--profile-out") + 1])
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "memory.json").write_text(json.dumps(memory, indent=2), encoding="utf-8")
         self.measurements.append(measurement)
         if self.evidence_directory is not None:
             self.evidence_directory.mkdir(parents=True, exist_ok=True)

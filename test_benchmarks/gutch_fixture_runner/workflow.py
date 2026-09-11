@@ -61,7 +61,7 @@ class LocalFixtureRunner:
         traces: dict[str, list[str]] = {"capture": [], "reconstruct": [], "corrupt": [], "repair": []}
         for index, source in enumerate(sources, start=1):
             capture_stats = lane.stats / f"capture-{index:03d}.json"
-            capture_trace = lane.traces / f"capture-{index:03d}.json"
+            capture_trace = lane.traces / f"capture-{index:03d}" / "trace.json"
             elapsed, stats = self.gutch.capture(lane.root, repo, source, lane_spec.profile, capture_stats, capture_trace, lane_spec.label)
             backup_times.append(elapsed)
             traces["capture"].append(str(capture_trace))
@@ -71,7 +71,7 @@ class LocalFixtureRunner:
         reconstructed: list[tuple[str, str, Path]] = []
         for index, (name, snapshot_id, destination) in enumerate(reversed(snapshots), start=1):
             reconstruct_stats = lane.stats / f"reconstruct-{index:03d}.json"
-            reconstruct_trace = lane.traces / f"reconstruct-{index:03d}.json"
+            reconstruct_trace = lane.traces / f"reconstruct-{index:03d}" / "trace.json"
             elapsed, stats = self.gutch.reconstruct(
                 repo,
                 snapshot_id,
@@ -82,7 +82,7 @@ class LocalFixtureRunner:
                 f"{lane_spec.label} {name}",
             )
             restore_seconds += elapsed
-            verify_seconds += _verify_seconds(stats)
+            verify_seconds = _add_optional(verify_seconds, _verify_seconds(stats))
             traces["reconstruct"].append(str(reconstruct_trace))
             reconstructed.append((name, snapshot_id, destination))
         for source in sources:
@@ -133,7 +133,7 @@ class LocalFixtureRunner:
         remove_tree(output)
         self.gutch.init_repo(repo, lane_spec.label)
         capture_stats = lane.stats / "capture.json"
-        capture_trace = lane.traces / "capture.json"
+        capture_trace = lane.traces / "capture" / "trace.json"
         sources = _selected_product_sources(product)
         if not sources:
             raise ValueError(f"product has no target directories: {product}")
@@ -149,7 +149,7 @@ class LocalFixtureRunner:
         )
         repo_stats = scan_tree(repo)
         reconstruct_stats = lane.stats / "reconstruct.json"
-        reconstruct_trace = lane.traces / "reconstruct.json"
+        reconstruct_trace = lane.traces / "reconstruct" / "trace.json"
         restore, reconstruction = self.gutch.reconstruct(repo, _snapshot_id(capture), output, lane_spec.profile, reconstruct_stats, reconstruct_trace, lane_spec.label)
         dataset.validate(product, output, lane.stats / "validate-restored.json")
         snapshots = [(product.name, _snapshot_id(capture), output)]
@@ -200,7 +200,7 @@ class LocalFixtureRunner:
         if not sources:
             raise ValueError(f"product has no target directories: {product}")
         capture_stats = lane.stats / "capture-many.json"
-        capture_trace = lane.traces / "capture-many.json"
+        capture_trace = lane.traces / "capture-many" / "trace.json"
         backup, capture = self.gutch.capture_many(repo, product, lane_spec.profile, capture_stats, capture_trace, lane_spec.label, lane_spec.label)
         repo_stats = scan_tree(repo)
         snapshots = capture.get("snapshots", [])
@@ -219,7 +219,7 @@ class LocalFixtureRunner:
         for index, source in enumerate(reversed(sources), start=1):
             destination = output / source.name
             stats = lane.stats / f"reconstruct-{index:03d}.json"
-            trace = lane.traces / f"reconstruct-{index:03d}.json"
+            trace = lane.traces / f"reconstruct-{index:03d}" / "trace.json"
             elapsed, reconstruction = self.gutch.reconstruct(
                 repo,
                 by_name[source.name],
@@ -230,7 +230,7 @@ class LocalFixtureRunner:
                 f"{lane_spec.label} {source.name}",
             )
             restore += elapsed
-            verify += _verify_seconds(reconstruction)
+            verify = _add_optional(verify, _verify_seconds(reconstruction))
             traces["reconstruct"].append(str(trace))
             reconstructed.append((source.name, by_name[source.name], destination))
         for source in sources:
@@ -404,7 +404,7 @@ def run_fixture(
             )
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
-    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.memory_profile)
+    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.profile_mode == "detailed")
     external = ExternalTools(repo_root or Path(__file__).resolve().parents[2], commands)
     if external_binary_root is not None:
         external = ExternalTools(
@@ -415,7 +415,7 @@ def run_fixture(
             borg=external_binary_root / "borg",
             plakar=external_binary_root / "plakar",
         )
-    cli = GutchCli(cli.executable, tracing=fixture.measurement_mode == "profile")
+    cli = GutchCli(cli.executable, profile_mode=fixture.profile_mode)
     runner = LocalFixtureRunner(
         cli,
         commands,
@@ -426,3 +426,7 @@ def run_fixture(
         lambda case: runner.run_lane(product, case, fixture.corrupt_repair, snapshot_limit=fixture.snapshot_limit),
         executable=cli.executable, keep_artifacts=keep_artifacts,
         on_lane_complete=on_lane_complete, on_run_complete=on_run_complete)
+
+
+def _add_optional(left, right):
+    return None if left is None or right is None else left + right

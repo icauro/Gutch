@@ -211,7 +211,7 @@ pub(crate) fn fetch_and_reconstruct(
         verify_timings: crate::cli::reporting::verify_timings_summary(&reconstruct.verify_timings),
         outputs: crate::cli::reporting::optional_output_paths(&stats_json_out),
     };
-    write_report(&stats_json_out, &stats)?;
+    write_report(&stats_json_out, &stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
         println!(
@@ -228,9 +228,6 @@ pub(crate) fn fetch_and_reconstruct(
     }
     if profile.is_some() {
         crate::cli::reporting::print_profile_summary(profile.as_deref());
-    } else {
-        crate::cli::reporting::print_reconstruct_timings(&reconstruct.reconstruct_timings);
-        crate::cli::reporting::print_verify_timings(&reconstruct.verify_timings);
     }
     Ok(())
 }
@@ -352,7 +349,7 @@ pub(crate) fn repair(
             "reconstructed repair requires --yes flag",
         ));
     }
-    let started_at = std::time::Instant::now();
+    let started_at = crate::profile::ProfileInstant::start(profile.as_deref());
     let execution =
         crate::api::repair_snapshot_from_repo(crate::api::SnapshotRepairFromRepoRequest {
             repo_path: command.repo.clone(),
@@ -361,7 +358,8 @@ pub(crate) fn repair(
             staging_dir: command.staging_dir,
             remove_added_files: command.remove_added_files,
             runtime_hints: command.runtime.hints(),
-            control: crate::cli::control_with_profile(profile),
+            control: crate::cli::control_with_profile(profile)
+                .with_progress(CliProgressSink::new()),
         })?;
     let result = execution.repair_result;
     let stats = ReconstructedRepairStats {
@@ -379,7 +377,7 @@ pub(crate) fn repair(
         elapsed_seconds: started_at.elapsed().as_secs_f64(),
         outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats)?;
+    write_report(&command.stats_json_out, &stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
         println!(
@@ -430,12 +428,13 @@ pub(crate) fn corrupt(
                 command.plan.display()
             ))
         })?;
-    let started_at = std::time::Instant::now();
+    let started_at = crate::profile::ProfileInstant::start(profile.as_deref());
     let result =
         crate::api::corrupt_reconstructed_snapshot(crate::api::ReconstructedCorruptionRequest {
             destination_dir: command.destination.clone(),
             plan,
-            control: crate::cli::control_with_profile(profile),
+            control: crate::cli::control_with_profile(profile)
+                .with_progress(CliProgressSink::new()),
         })?;
     let stats = ReconstructedCorruptStats {
         command: "reconstructed corrupt",
@@ -445,7 +444,7 @@ pub(crate) fn corrupt(
         elapsed_seconds: started_at.elapsed().as_secs_f64(),
         outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats)?;
+    write_report(&command.stats_json_out, &stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
         println!(
@@ -498,7 +497,8 @@ pub(crate) fn run_reconstructed(
                     source_snapshot_id: source_snapshot,
                     source_dir,
                     runtime_hints: runtime.hints(),
-                    control: crate::cli::control_with_profile(profile),
+                    control: crate::cli::control_with_profile(profile)
+                        .with_progress(CliProgressSink::new()),
                 },
                 publication,
                 extra_files,
@@ -583,8 +583,6 @@ use crate::cli::common::SnapshotReconstructStats;
 use crate::cli::common::SnapshotVerifyStats;
 use crate::cli::reporting::optional_output_paths;
 use crate::cli::reporting::print_profile_summary;
-use crate::cli::reporting::print_reconstruct_timings;
-use crate::cli::reporting::print_verify_timings;
 use crate::cli::reporting::ratio_pct;
 use crate::cli::reporting::reconstruct_timings_summary;
 use crate::cli::reporting::verify_timings_summary;
@@ -612,7 +610,8 @@ pub(crate) fn reconstruct(
             source_snapshot_id: command.source_snapshot_id.clone(),
             source_dir: command.source_dir.clone(),
             runtime_hints: command.runtime.hints(),
-            control: crate::cli::control_with_profile(profile),
+            control: crate::cli::control_with_profile(profile)
+                .with_progress(CliProgressSink::new()),
         },
     )?;
     let tm = execution.snapshot_manifest;
@@ -646,7 +645,7 @@ pub(crate) fn reconstruct(
         verify_timings: verify_timings_summary(&result.verify_timings),
         outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats)?;
+    write_report(&command.stats_json_out, &stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
         println!(
@@ -662,9 +661,6 @@ pub(crate) fn reconstruct(
     }
     if profile.is_some() {
         print_profile_summary(profile.as_deref());
-    } else {
-        print_reconstruct_timings(&result.reconstruct_timings);
-        print_verify_timings(&result.verify_timings);
     }
     Ok(())
 }
@@ -703,7 +699,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::api::Result<()> 
         timings: verify_timings_summary(&timings),
         outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats)?;
+    write_report(&command.stats_json_out, &stats, command.profile.as_deref())?;
 
     if errors.is_empty() {
         if verbose_output_enabled() {
@@ -711,8 +707,6 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::api::Result<()> 
         }
         if command.profile.is_some() {
             print_profile_summary(command.profile.as_deref());
-        } else {
-            print_verify_timings(&timings);
         }
     } else {
         eprintln!("{} verification errors:", errors.len());

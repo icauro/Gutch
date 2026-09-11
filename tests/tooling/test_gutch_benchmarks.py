@@ -1110,6 +1110,7 @@ def test_fixture_perfetto_opens_after_lane_results(tmp_path: Path, monkeypatch) 
         description="",
         delete_artifacts=False,
         open_perfetto=True,
+        profile_mode="detailed",
         lanes=(LaneSpec("lane", "gutch", FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile),),
         source_path=tmp_path / "fixture.yaml",
     )
@@ -1187,14 +1188,14 @@ def test_gutch_profile_table_includes_hash_details(tmp_path: Path, capsys) -> No
             {
                 "traceEvents": [
                     {
-                        "name": "snapshot.reconstruct.file.full_hash",
+                        "name": "installation.file.verify",
                         "ph": "B",
                         "ts": 0,
                         "pid": 1,
                         "tid": 1,
-                        "args": {"size_mib": 4, "hash_mode": "full", "configured_workers": 2},
+                        "args": {"size_bytes": 4194304, "hash_mode": "full", "configured_workers": 2},
                     },
-                    {"name": "snapshot.reconstruct.file.full_hash", "ph": "E", "ts": 1_000_000, "pid": 1, "tid": 1},
+                    {"name": "installation.file.verify", "ph": "E", "ts": 1_000_000, "pid": 1, "tid": 1},
                 ]
             }
         ),

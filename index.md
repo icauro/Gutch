@@ -126,6 +126,7 @@ gutch_repo/src/path_compare.rs
 gutch_repo/src/path_compare_tests.rs
 gutch_repo/src/profile.rs
 gutch_repo/src/progress/
+gutch_repo/src/progress/feedback.rs
 gutch_repo/src/progress/mod.rs
 gutch_repo/src/repo/
 gutch_repo/src/repo/artifacts.rs
@@ -684,6 +685,7 @@ gutch_repo/tests/tooling/test_gutch_correctness.py
 gutch_repo/tests/tooling/test_gutch_memory_profile.py
 gutch_repo/tests/tooling/test_gutch_mock_product_create.py
 gutch_repo/tests/tooling/test_standalone_boundary.py
+gutch_repo/tests/tooling/test_unified_profiling.py
 gutch_repo/tests/workflows/
 gutch_repo/tests/workflows/__init__.py
 gutch_repo/tests/workflows/automatic_source_discovery_creates_config_and_ignores_excluded_folders.py
@@ -703,6 +705,7 @@ gutch_repo/tests/workflows/interrupted_download_preserves_installation_and_succe
 gutch_repo/tests/workflows/invalid_downloaded_metadata_preserves_the_existing_cached_snapshot.py
 gutch_repo/tests/workflows/overlapping_staging_paths_fail_without_modifying_installed_or_unrelated_files.py
 gutch_repo/tests/workflows/path_comparison_reports_mismatches_and_returns_failure.py
+gutch_repo/tests/workflows/profiling_modes_preserve_content_and_report_availability.py
 gutch_repo/tests/workflows/recapture_rebuilds_missing_artifacts_for_identical_and_changed_snapshots.py
 gutch_repo/tests/workflows/reconstruction_preserves_permissions_empty_directories_and_long_paths.py
 gutch_repo/tests/workflows/reconstruction_preserves_symbolic_link_targets_and_file_attributes.py

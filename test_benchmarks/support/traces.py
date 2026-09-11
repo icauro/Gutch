@@ -71,7 +71,7 @@ def combine_traces(inputs: Iterable[Path], output: Path) -> None:
             events.append(copied)
         pid_offset += max(pids, default=0) + 1
         tid_offset += max(tids, default=0) + 1
-        timestamp_offset = max((event.get("ts", 0.0) for event in events), default=0.0) + 1.0
+        timestamp_offset = max((event.get("ts", 0.0) + event.get("dur", 0.0) for event in events), default=0.0) + 1.0
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps({"traceEvents": events, "displayTimeUnit": "ms"}, indent=2) + "\n",
@@ -121,14 +121,14 @@ def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> 
             if source_event.get("cat") == "__metadata" and source_event.get("name") == "process_name":
                 continue
             event = dict(source_event)
-            source_thread_id = event.get("tid", 0)
+            source_thread_id = (str(source), event.get("tid", 0))
             if source_thread_id not in thread_ids:
                 thread_ids[source_thread_id] = len(thread_ids) + 1
             event["pid"] = process_id
             event["tid"] = thread_ids[source_thread_id]
             source_timestamp = event.get("ts", 0)
             if isinstance(source_timestamp, (int, float)):
-                source_duration = max(source_duration, int(source_timestamp))
+                source_duration = max(source_duration, int(source_timestamp + event.get("dur", 0)))
                 event["ts"] = int(source_timestamp) + offset
             events.append(event)
         lane_offsets[label] = offset + source_duration + 1

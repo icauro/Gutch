@@ -18,21 +18,23 @@ pub(super) fn prepare_snapshot_entries(
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<Arc<Vec<PathBuf>>> {
     {
-        let _validate_span = control.profile_span("snapshot.reconstruct.prepare.entries.validate");
+        let _validate_span =
+            control.profile_span("installation.reconstruct.prepare.entries.validate");
         crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
     }
     {
-        let _root_span = control.profile_span("snapshot.reconstruct.prepare.entries.create_root");
+        let _root_span =
+            control.profile_span("installation.reconstruct.prepare.entries.create_root");
         crate::filesystem::create_dir_all(output_dir)?;
     }
     let path_resolver = {
         let _resolver_span =
-            control.profile_span("snapshot.reconstruct.prepare.entries.path_resolver");
+            control.profile_span("installation.reconstruct.prepare.entries.path_resolver");
         crate::filesystem::paths::ManifestPathResolver::new(output_dir)?
     };
     {
         let _directories_span =
-            control.profile_span("snapshot.reconstruct.prepare.entries.directories");
+            control.profile_span("installation.reconstruct.prepare.entries.directories");
         create_snapshot_directories(snapshot_manifest, control, &path_resolver, reconstruct_pool)?;
     }
     Ok(Arc::new(resolve_snapshot_file_paths(
@@ -51,11 +53,13 @@ fn resolve_snapshot_file_paths(
 ) -> Result<Vec<PathBuf>> {
     let files = snapshot_manifest.files().collect::<Vec<_>>();
     let _resolve_paths_span = control.profile_span_with_args(
-        "snapshot.reconstruct.prepare.outputs.resolve_paths",
-        std::collections::BTreeMap::from([(
-            "path_count".to_string(),
-            serde_json::json!(files.len()),
-        )]),
+        "installation.reconstruct.prepare.outputs.resolve_paths",
+        || {
+            std::collections::BTreeMap::from([(
+                "path_count".to_string(),
+                serde_json::json!(files.len()),
+            )])
+        },
     );
     let resolve = |file: &&crate::manifest::FileManifest| path_resolver.resolve(&file.path);
     if let Some(reconstruct_pool) = reconstruct_pool {
@@ -102,8 +106,8 @@ fn create_snapshot_directories(
     for directories in directories_by_depth.values() {
         let create_directory = |(path, read_only): &(String, Option<bool>)| {
             let _directory_span = control.profile_span_with_args(
-                "snapshot.reconstruct.prepare.entries.directory",
-                prepare_directory_trace_args(path, *read_only),
+                "installation.reconstruct.prepare.entries.directory",
+                || prepare_directory_trace_args(path, *read_only),
             );
             let resolved_path = path_resolver.resolve(path)?;
             create_snapshot_directory(&resolved_path)
@@ -189,18 +193,20 @@ pub(super) fn finalize_snapshot_entries(
         .collect::<Vec<_>>();
     {
         let _symlink_phase = control.profile_span_with_args(
-            "snapshot.reconstruct.finalize.entries.symlinks",
-            finalize_phase_trace_args(
-                symlinks.len(),
-                symlinks.len(),
-                metadata_worker_count,
-                should_parallelize_finalize(symlinks.len(), metadata_worker_count),
-            ),
+            "installation.reconstruct.finalize.entries.symlinks",
+            || {
+                finalize_phase_trace_args(
+                    symlinks.len(),
+                    symlinks.len(),
+                    metadata_worker_count,
+                    should_parallelize_finalize(symlinks.len(), metadata_worker_count),
+                )
+            },
         );
         run_finalize_entries(&symlinks, metadata_worker_count, reconstruct_pool, |link| {
             let _entry_span = control.profile_span_with_args(
-                "snapshot.reconstruct.finalize.entries.symlink",
-                finalize_symlink_trace_args(link),
+                "installation.reconstruct.finalize.entries.symlink",
+                || finalize_symlink_trace_args(link),
             );
             let link_path = path_resolver.resolve(&link.path)?;
             let link_text = relative_link_text(&link.path, &link.target_path);
@@ -238,13 +244,18 @@ pub(super) fn finalize_snapshot_entries(
         .collect::<Vec<_>>();
     {
         let _file_phase = control.profile_span_with_args(
-            "snapshot.reconstruct.finalize.entries.files",
-            finalize_phase_trace_args(
-                file_count,
-                files_needing_metadata.len(),
-                metadata_worker_count,
-                should_parallelize_finalize(files_needing_metadata.len(), metadata_worker_count),
-            ),
+            "installation.reconstruct.finalize.entries.files",
+            || {
+                finalize_phase_trace_args(
+                    file_count,
+                    files_needing_metadata.len(),
+                    metadata_worker_count,
+                    should_parallelize_finalize(
+                        files_needing_metadata.len(),
+                        metadata_worker_count,
+                    ),
+                )
+            },
         );
         run_finalize_entries(
             &files_needing_metadata,
@@ -252,8 +263,8 @@ pub(super) fn finalize_snapshot_entries(
             reconstruct_pool,
             |file| {
                 let _entry_span = control.profile_span_with_args(
-                    "snapshot.reconstruct.finalize.entries.file",
-                    finalize_file_trace_args(file),
+                    "installation.reconstruct.finalize.entries.file",
+                    || finalize_file_trace_args(file),
                 );
                 let path = path_resolver.resolve(&file.path)?;
                 apply_entry_permissions(&path, file.read_only, Some(file.executable))?;
@@ -289,13 +300,15 @@ pub(super) fn finalize_snapshot_entries(
         .any(|directories| should_parallelize_finalize(directories.len(), metadata_worker_count));
     {
         let _directory_phase = control.profile_span_with_args(
-            "snapshot.reconstruct.finalize.entries.directories",
-            finalize_phase_trace_args(
-                directory_count,
-                directories_needing_metadata,
-                metadata_worker_count,
-                directories_parallel,
-            ),
+            "installation.reconstruct.finalize.entries.directories",
+            || {
+                finalize_phase_trace_args(
+                    directory_count,
+                    directories_needing_metadata,
+                    metadata_worker_count,
+                    directories_parallel,
+                )
+            },
         );
         run_finalize_directory_levels(
             &directories_by_depth,
@@ -303,8 +316,8 @@ pub(super) fn finalize_snapshot_entries(
             reconstruct_pool,
             |directory| {
                 let _entry_span = control.profile_span_with_args(
-                    "snapshot.reconstruct.finalize.entries.directory",
-                    finalize_directory_trace_args(directory),
+                    "installation.reconstruct.finalize.entries.directory",
+                    || finalize_directory_trace_args(directory),
                 );
                 let path = path_resolver.resolve(&directory.path)?;
                 let mut permissions = std::fs::metadata(&path)?.permissions();

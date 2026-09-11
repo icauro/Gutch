@@ -40,8 +40,8 @@ pub fn install_snapshot_from_repo(
     crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span(match publication {
-            InstallationPublication::ReplaceDirectory => "snapshot.reconstruct",
-            InstallationPublication::Selective => "reconstructed.repair",
+            InstallationPublication::ReplaceDirectory => "installation.reconstruct",
+            InstallationPublication::Selective => "installation.repair",
         });
         let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
             &request.repo_path,
@@ -113,7 +113,7 @@ pub fn install_snapshot_from_repo(
         let pipeline_plan = {
             let _plan_span = request
                 .control
-                .profile_span("snapshot.reconstruct.prepare.plan");
+                .profile_span("installation.reconstruct.prepare.plan");
             crate::installation::plan::build_reconstruct_pipeline_plan(
                 execution_manifest,
                 &chunk_index,

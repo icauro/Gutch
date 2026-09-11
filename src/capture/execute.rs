@@ -158,13 +158,15 @@ pub fn capture_repo_snapshot(
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let runtime_plan = crate::runtime::plan_runtime(&request.runtime_hints);
-        let _pool_span = request.control.profile_span_with_args(
-            "capture.create_worker_pool",
-            std::collections::BTreeMap::from([(
-                "worker_count".to_string(),
-                serde_json::json!(runtime_plan.worker_count),
-            )]),
-        );
+        let _pool_span =
+            request
+                .control
+                .profile_span_with_args("capture.create_worker_pool", || {
+                    std::collections::BTreeMap::from([(
+                        "worker_count".to_string(),
+                        serde_json::json!(runtime_plan.worker_count),
+                    )])
+                });
         let build_pool =
             crate::runtime::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
         drop(_pool_span);
@@ -219,13 +221,7 @@ fn execute_repo_snapshot_capture(
     build_pool: &rayon::ThreadPool,
 ) -> Result<RepoSnapshotCaptureResult> {
     request.control.checkpoint()?;
-    let _prepare_span = request.control.profile_span_with_args(
-        "capture.prepare_source",
-        std::collections::BTreeMap::from([(
-            "source_path".to_string(),
-            serde_json::json!(request.source_dir.display().to_string()),
-        )]),
-    );
+    let _prepare_span = request.control.profile_span("capture.prepare_source");
     let _repo_state_span = request
         .control
         .profile_span("capture.prepare_source.load_repo_state");
@@ -263,16 +259,18 @@ fn execute_repo_snapshot_capture(
 
     let _existing_chunks_span = request.control.profile_span_with_args(
         "capture.prepare_source.collect_existing_chunk_ids",
-        std::collections::BTreeMap::from([
-            (
-                "existing_chunk_location_count".to_string(),
-                serde_json::json!(store_state.chunk_locations.len()),
-            ),
-            (
-                "previous_file_manifest_path_count".to_string(),
-                serde_json::json!(store_state.previous_file_manifests.len()),
-            ),
-        ]),
+        || {
+            std::collections::BTreeMap::from([
+                (
+                    "existing_chunk_location_count".to_string(),
+                    serde_json::json!(store_state.chunk_locations.len()),
+                ),
+                (
+                    "previous_file_manifest_path_count".to_string(),
+                    serde_json::json!(store_state.previous_file_manifests.len()),
+                ),
+            ])
+        },
     );
     let existing_chunk_ids = store_state
         .chunk_locations
@@ -281,23 +279,25 @@ fn execute_repo_snapshot_capture(
         .collect::<Result<HashSet<_>>>()?;
     drop(_existing_chunks_span);
 
-    let _config_span = request.control.profile_span_with_args(
-        "capture.prepare_source.configure_build",
-        std::collections::BTreeMap::from([
-            (
-                "existing_bundle_count".to_string(),
-                serde_json::json!(store_state.bundle_ids.len()),
-            ),
-            (
-                "existing_chunk_location_count".to_string(),
-                serde_json::json!(store_state.chunk_locations.len()),
-            ),
-            (
-                "previous_file_manifest_path_count".to_string(),
-                serde_json::json!(store_state.previous_file_manifests.len()),
-            ),
-        ]),
-    );
+    let _config_span =
+        request
+            .control
+            .profile_span_with_args("capture.prepare_source.configure_build", || {
+                std::collections::BTreeMap::from([
+                    (
+                        "existing_bundle_count".to_string(),
+                        serde_json::json!(store_state.bundle_ids.len()),
+                    ),
+                    (
+                        "existing_chunk_location_count".to_string(),
+                        serde_json::json!(store_state.chunk_locations.len()),
+                    ),
+                    (
+                        "previous_file_manifest_path_count".to_string(),
+                        serde_json::json!(store_state.previous_file_manifests.len()),
+                    ),
+                ])
+            });
     let mut build_config =
         crate::capture::types::BuildConfig::for_snapshot(&resolved_tags.snapshot_tags)
             .with_existing_chunks(&store_state.chunk_locations)
@@ -646,6 +646,7 @@ impl RepoSnapshotCaptureResult {
         progress::emit_progress(
             progress,
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::SnapshotCapture,
                 phase: GutchProgressPhase::Done,
                 message: "Snapshot capture complete".to_string(),
@@ -691,11 +692,13 @@ fn write_bundles(
     pool: &rayon::ThreadPool,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<()> {
-    let total_bytes = bundles.iter().map(|bundle| bundle.size).sum::<u64>();
-    let _phase_span = control.profile_span_with_args(
-        "capture.publish_snapshot.write_bundle_artifacts",
-        capture_count_bytes_trace_args(bundles.len(), total_bytes),
-    );
+    let _phase_span =
+        control.profile_span_with_args("capture.publish_snapshot.write_bundle_artifacts", || {
+            capture_count_bytes_trace_args(
+                bundles.len(),
+                bundles.iter().map(|bundle| bundle.size).sum(),
+            )
+        });
     let control_for_work = control.clone();
     pool.install(|| {
         bundles
@@ -704,15 +707,15 @@ fn write_bundles(
                 control_for_work.checkpoint()?;
                 let bundle_path =
                     crate::repo::paths::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
-                let _bundle_span = control_for_work.profile_span_with_args(
-                    "capture.publish_snapshot.write_bundle_artifact",
-                    capture_artifact_write_trace_args(
-                        "bundle",
-                        &bundle.bundle_id,
-                        &bundle_path,
-                        bundle.size,
-                    ),
-                );
+                let _bundle_span =
+                    control_for_work.profile_span_with_args("capture.bundle.publish", || {
+                        capture_artifact_write_trace_args(
+                            "bundle",
+                            &bundle.bundle_id,
+                            &bundle_path,
+                            bundle.size,
+                        )
+                    });
                 if let Some(parent) = bundle_path.parent() {
                     crate::filesystem::create_dir_all(parent)?;
                 }
@@ -740,7 +743,7 @@ fn write_loose_chunks(
         .sum::<u64>();
     let _phase_span = control.profile_span_with_args(
         "capture.publish_snapshot.write_loose_chunk_artifacts",
-        capture_count_bytes_trace_args(chunks.len(), total_bytes),
+        || capture_count_bytes_trace_args(chunks.len(), total_bytes),
     );
     let control_for_work = control.clone();
     pool.install(|| {
@@ -753,15 +756,7 @@ fn write_loose_chunks(
                 if let Some(parent) = chunk_path.parent() {
                     crate::filesystem::create_dir_all(parent)?;
                 }
-                let _chunk_span = control_for_work.profile_span_with_args(
-                    "capture.publish_snapshot.write_loose_chunk_artifact",
-                    capture_artifact_write_trace_args(
-                        "loose_chunk",
-                        &chunk_hash,
-                        &chunk_path,
-                        chunk.compressed_size,
-                    ),
-                );
+
                 chunk.staged_file.promote_to(&chunk_path)?;
                 Ok(())
             })
@@ -776,10 +771,7 @@ fn capture_count_bytes_trace_args(
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     std::collections::BTreeMap::from([
         ("count".to_string(), serde_json::json!(count)),
-        (
-            "bytes_mib".to_string(),
-            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
-        ),
+        ("size_bytes".to_string(), serde_json::json!(bytes)),
     ])
 }
 

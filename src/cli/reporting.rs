@@ -31,10 +31,6 @@ fn print_metric_line(label: &str, value: impl std::fmt::Display) {
     println!("  {label:<22} {value}");
 }
 
-fn print_blank_line() {
-    println!();
-}
-
 const TABLE_PHASE_WIDTH: usize = 24;
 const TABLE_SECONDS_WIDTH: usize = 14;
 const TABLE_BYTES_WIDTH: usize = 32;
@@ -52,16 +48,6 @@ fn fit_table_cell(value: &str, width: usize) -> String {
     let mut shortened = value.chars().take(width - 3).collect::<String>();
     shortened.push_str("...");
     shortened
-}
-
-fn runtime_plan_detail(plan: &crate::runtime::RuntimePlan) -> String {
-    format!("workers={}", plan.worker_count)
-}
-
-fn print_runtime_plan(plan: Option<&crate::runtime::RuntimePlan>) {
-    if let Some(plan) = plan {
-        print_metric_line("runtime plan", runtime_plan_detail(plan));
-    }
 }
 
 fn print_table_border() {
@@ -119,54 +105,6 @@ fn print_table_row(
     print_table_border();
 }
 
-fn print_throughput_row(phase: &str, level: usize, duration: std::time::Duration, bytes: u64) {
-    print_table_row(
-        phase,
-        level,
-        Some(secs(duration)),
-        Some(format!("{:.2} MiB", mib(bytes))),
-        Some(format!("{:.2} MiB/s", mib_per_s(bytes, duration))),
-    );
-}
-
-fn print_in_out_throughput_row(
-    phase: &str,
-    level: usize,
-    duration: std::time::Duration,
-    input_bytes: u64,
-    output_bytes: u64,
-) {
-    print_in_out_throughput_row_with_rate(
-        phase,
-        level,
-        duration,
-        input_bytes,
-        output_bytes,
-        output_bytes,
-    );
-}
-
-fn print_in_out_throughput_row_with_rate(
-    phase: &str,
-    level: usize,
-    duration: std::time::Duration,
-    input_bytes: u64,
-    output_bytes: u64,
-    rate_bytes: u64,
-) {
-    print_table_row(
-        phase,
-        level,
-        Some(secs(duration)),
-        Some(format!(
-            "in {:.2} / out {:.2} MiB",
-            mib(input_bytes),
-            mib(output_bytes)
-        )),
-        Some(format!("{:.2} MiB/s", mib_per_s(rate_bytes, duration))),
-    );
-}
-
 pub(crate) fn print_profile_summary(profile: Option<&crate::profile::GutchProfiler>) {
     let Some(profile) = profile else {
         return;
@@ -177,13 +115,13 @@ pub(crate) fn print_profile_summary(profile: Option<&crate::profile::GutchProfil
         .iter()
         .filter(|span| span.name != "cli.command")
         .collect::<Vec<_>>();
-    print_section_title("Perfetto Profile Summary");
+    print_section_title("Profiling Summary");
     print_metric_line(
-        "completed spans",
+        "measured spans",
         spans.iter().map(|span| span.count).sum::<usize>(),
     );
     print_metric_line(
-        "sum of spans",
+        "inclusive span sum",
         format!(
             "{:.3} s",
             spans.iter().map(|span| span.total_seconds).sum::<f64>()
@@ -203,7 +141,10 @@ pub(crate) fn print_profile_summary(profile: Option<&crate::profile::GutchProfil
         );
     }
     println!("  +--------------------------------------+----------+------------+------------+");
-    print_metric_line("trace format", "Chrome JSON (Perfetto)");
+    print_metric_line(
+        "sampled jobs",
+        "job durations are samples; nested spans overlap",
+    );
 }
 
 pub(crate) fn ratio_pct(numerator: u64, denominator: u64) -> f64 {
@@ -684,107 +625,22 @@ pub(crate) fn ensure_parent_directory(path: &std::path::Path) -> crate::api::Res
 pub(crate) fn write_stats_json_output<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
+    profile: Option<&crate::profile::GutchProfiler>,
 ) -> crate::api::Result<()> {
     let Some(stats_json_out) = stats_json_out else {
         return Ok(());
     };
 
     ensure_parent_directory(stats_json_out)?;
-    let json = serde_json::to_string_pretty(stats)?;
+    let mut value = serde_json::to_value(stats)?;
+    let mode = profile.map(|p| p.mode()).unwrap_or_default();
+    if mode != crate::profile::GutchProfileMode::Detailed {
+        clear_diagnostic_timings(&mut value);
+    }
+    value["profiling_mode"] = serde_json::to_value(mode)?;
+    let json = serde_json::to_string_pretty(&value)?;
     std::fs::write(stats_json_out, json)?;
     Ok(())
-}
-
-pub(crate) fn print_reconstruct_timings(t: &crate::installation::ReconstructTimings) {
-    print_section_title("Reconstruct Timing Summary");
-    print_runtime_plan(t.runtime_plan.as_ref());
-    print_table_header("wall seconds");
-    print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
-    print_throughput_row("reconstruct", 0, t.reconstruct_wall, t.file_write_bytes);
-    print_table_row("finalize", 0, Some(secs(t.finalize_wall)), None, None);
-    print_table_row("promote", 0, Some(secs(t.promote_wall)), None, None);
-    let (_, unaccounted_seconds) = wall_timing_fields(
-        t.total,
-        &[
-            t.prepare_wall,
-            t.reconstruct_wall,
-            t.finalize_wall,
-            t.promote_wall,
-        ],
-    );
-    print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
-    print_throughput_row("total", 0, t.total, t.file_write_bytes);
-
-    if !super::verbose_output_enabled() {
-        return;
-    }
-
-    print_blank_line();
-    print_section_title("Reconstruct Worker Timing Details (worker time)");
-    print_table_header("worker seconds");
-    print_in_out_throughput_row(
-        "artifact read/decode",
-        0,
-        t.artifact_read,
-        t.artifact_read_compressed_bytes,
-        t.artifact_read_decompressed_bytes,
-    );
-    if t.bundle_read_compressed_bytes > 0 {
-        print_in_out_throughput_row(
-            "bundle read/decode",
-            1,
-            t.bundle_read,
-            t.bundle_read_compressed_bytes,
-            t.bundle_read_decompressed_bytes,
-        );
-    }
-    if t.file_rebuild > std::time::Duration::ZERO || t.file_rebuild_bytes > 0 {
-        print_throughput_row("file rebuild", 0, t.file_rebuild, t.file_rebuild_bytes);
-    }
-    if t.verify_chunks {
-        print_throughput_row("chunk verify", 0, t.chunk_verify, t.chunk_verify_bytes);
-    }
-    if t.verify_files {
-        print_throughput_row("file hash", 0, t.file_verify, t.file_verify_bytes);
-    }
-    print_throughput_row("file write", 0, t.file_write, t.file_write_bytes);
-}
-
-pub(crate) fn print_verify_timings(t: &crate::installation::inspect::VerifyTimings) {
-    print_section_title("Verify Timing Summary");
-    print_metric_line("mode", t.verify_mode.as_str());
-    print_runtime_plan(t.runtime_plan.as_ref());
-    print_table_header("wall seconds");
-    print_table_row("prepare", 0, Some(secs(t.prepare_wall)), None, None);
-    let wall_bytes = t.file_read_bytes.max(t.file_hash_bytes);
-    print_throughput_row("verify files", 0, t.verify_files_wall, wall_bytes);
-    print_table_row(
-        "extra file scan",
-        0,
-        Some(secs(t.extra_file_scan_wall)),
-        None,
-        None,
-    );
-    let (_, unaccounted_seconds) = wall_timing_fields(
-        t.total,
-        &[t.prepare_wall, t.verify_files_wall, t.extra_file_scan_wall],
-    );
-    print_table_row("unaccounted", 0, Some(unaccounted_seconds), None, None);
-    print_throughput_row("total", 0, t.total, wall_bytes);
-
-    if !super::verbose_output_enabled() {
-        return;
-    }
-
-    print_blank_line();
-    print_section_title("Verify Worker Timing Details (worker time)");
-    print_table_header("worker seconds");
-    print_table_row("stat", 0, Some(secs(t.stat)), None, None);
-    print_throughput_row("file read", 0, t.file_read, t.file_read_bytes);
-    print_throughput_row("file hash", 0, t.file_hash, t.file_hash_bytes);
-    if t.verify_mode.checks_chunk_hashes() {
-        print_throughput_row("chunk hash", 0, t.chunk_hash, t.chunk_hash_bytes);
-    }
 }
 
 pub(crate) fn print_transfer_timings(t: &crate::api::TransferStats) {
@@ -809,22 +665,28 @@ pub(crate) fn print_transfer_timings(t: &crate::api::TransferStats) {
     print_metric_line("retries", t.retry_count);
 }
 
-pub(crate) fn print_repo_check_timings(t: &crate::repo::check::RepoCheckTimings) {
-    print_section_title("Check Timing");
-    print_metric_line("load manifest", format!("{} ms", t.load_manifest_ms));
-    print_metric_line("scan bundles", format!("{} ms", t.scan_bundles_ms));
-    print_metric_line("scan artifacts", format!("{} ms", t.scan_artifacts_ms));
-    print_metric_line("load chunk index", format!("{} ms", t.load_chunk_index_ms));
-    print_metric_line(
-        "load snapshot manifests",
-        format!(
-            "{} ms  ({} snapshots)",
-            t.load_snapshot_manifests_ms, t.snapshot_count
-        ),
-    );
-    print_metric_line("total", format!("{} ms", t.total_ms));
-}
-
 #[cfg(test)]
 #[path = "reporting_tests.rs"]
 mod tests;
+
+fn clear_diagnostic_timings(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                if (key.ends_with("seconds") || key.ends_with("mib_per_second"))
+                    && !key.starts_with("transfer_")
+                {
+                    *value = serde_json::Value::Null;
+                } else {
+                    clear_diagnostic_timings(value);
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                clear_diagnostic_timings(value);
+            }
+        }
+        _ => {}
+    }
+}

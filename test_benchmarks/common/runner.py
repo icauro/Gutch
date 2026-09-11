@@ -30,7 +30,7 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
     layout.write_manifest('running', schema_version=1, fixture=asdict(fixture),
         host={'platform': platform.platform(), 'python': platform.python_version()},
         source_revision=revision, binary_sha256=file_sha256(executable) if executable.is_file() else None,
-        measurement_mode=fixture.measurement_mode, memory_profile=fixture.memory_profile, cache_state='fresh_repository_os_cache_uncontrolled')
+        profile_mode=fixture.profile_mode, memory_profile=fixture.profile_mode == "detailed", cache_state='fresh_repository_os_cache_uncontrolled')
     try:
         for index, (specification, repetition) in enumerate(schedule):
             label = specification.label
@@ -42,7 +42,7 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
             commands.evidence_directory = layout.lane(label).root / 'commands'
             result = execute(case)
             result.metadata.update(case=specification.label, repetition=repetition,
-                warmup=specification.warmup, measurement_mode=fixture.measurement_mode, memory_profile=fixture.memory_profile)
+                warmup=specification.warmup, profile_mode=fixture.profile_mode, memory_profile=fixture.profile_mode == "detailed")
             if result.metadata.get('differences'):
                 layout.write_results([item.as_json() for item in results] + [result.as_json()])
                 raise RuntimeError(f"{label} produced incorrect output")
@@ -60,7 +60,10 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
             samples = [result for result in results if result.metadata['case'] == case.label]
             metrics = {}
             for name in sorted(set.intersection(*(set(sample.metrics) for sample in samples))):
-                values = [sample.metrics[name] for sample in samples]
+                values = [sample.metrics[name] for sample in samples if sample.metrics[name] is not None]
+                if not values:
+                    metrics[name] = None
+                    continue
                 metrics[name] = {'samples': len(values), 'median': statistics.median(values),
                     'minimum': min(values), 'maximum': max(values)}
             summary[case.label] = metrics
@@ -72,6 +75,6 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
         layout.write_manifest('cancelled' if isinstance(error, KeyboardInterrupt) else 'failed', error=str(error))
         raise
     print(f"Wrote benchmark results: {layout.root / 'results.json'}")
-    if fixture.open_perfetto and fixture.measurement_mode == 'profile':
+    if fixture.open_perfetto and fixture.profile_mode == 'detailed':
         open_trace_in_perfetto(layout.root / 'trace.json', print)
     return results

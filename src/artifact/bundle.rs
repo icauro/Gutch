@@ -1,3 +1,4 @@
+use crate::profile::ProfileInstant;
 #[cfg(test)]
 use std::collections::HashMap;
 use std::fs::File;
@@ -9,7 +10,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 
 use crate::artifact::compression::validate_profile;
 use crate::artifact::hash;
@@ -154,54 +154,31 @@ impl BundleBuilder {
             let mut file = temporary.reopen()?;
             let capture = self.write_bundle(&mut file, profiler)?;
             let _flush_span = profiler.map(|profiler| {
-                profiler.span_with_args(
-                    "capture.compress_bundle_artifact.flush_staged_file",
+                profiler.span_with_args("capture.bundle.flush", || {
                     std::collections::BTreeMap::from([(
                         "bundle_size_bytes".to_string(),
                         serde_json::json!(capture.size),
-                    )]),
-                )
+                    )])
+                })
             });
             file.flush()?;
             drop(_flush_span);
             let _sync_span = profiler.map(|profiler| {
-                profiler.span_with_args(
-                    "capture.compress_bundle_artifact.sync_staged_file",
+                profiler.span_with_args("capture.bundle.sync", || {
                     std::collections::BTreeMap::from([(
                         "bundle_size_bytes".to_string(),
                         serde_json::json!(capture.size),
-                    )]),
-                )
+                    )])
+                })
             });
             file.sync_all()?;
             drop(_sync_span);
             capture
         };
-        let _keep_span = profiler
-            .map(|profiler| profiler.span("capture.compress_bundle_artifact.keep_staged_file"));
+
         let (_, staged_path) = temporary
             .keep()
             .map_err(|error| crate::error::Error::Io(error.error))?;
-        drop(_keep_span);
-        if let Some(profiler) = profiler {
-            profiler.event_with_args(
-                "capture.compress_bundle_artifact.keep_staged_file.complete",
-                std::collections::BTreeMap::from([
-                    (
-                        "bundle_size_bytes".to_string(),
-                        serde_json::json!(capture.size),
-                    ),
-                    (
-                        "id_present".to_string(),
-                        serde_json::json!(!capture.bundle_id.is_empty()),
-                    ),
-                    (
-                        "next_phase".to_string(),
-                        serde_json::json!("return_staged_artifact"),
-                    ),
-                ]),
-            );
-        }
 
         Ok(BundleBuildArtifact {
             staged_path,
@@ -248,15 +225,14 @@ impl BundleBuilder {
         }
 
         validate_bundle_entries(&entries, 0, 0)?;
-        let compression_started_at = Instant::now();
+        let compression_started_at = ProfileInstant::detailed(profiler);
         let _payload_span = profiler.map(|profiler| {
-            profiler.span_with_args(
-                "capture.compress_bundle_artifact.compress_payload",
+            profiler.span_with_args("capture.bundle.encode_and_write", || {
                 std::collections::BTreeMap::from([(
                     "chunk_count".to_string(),
                     serde_json::json!(self.chunks.len()),
-                )]),
-            )
+                )])
+            })
         });
         let raw_segments: Vec<&[u8]> = self
             .chunks
@@ -297,16 +273,8 @@ impl BundleBuilder {
             })?;
         assign_compressed_size_estimates(&mut entries, compressed_output_bytes)?;
         drop(_payload_span);
-        let serialization_started_at = Instant::now();
-        let _footer_span = profiler.map(|profiler| {
-            profiler.span_with_args(
-                "capture.compress_bundle_artifact.write_footer",
-                std::collections::BTreeMap::from([(
-                    "chunk_count".to_string(),
-                    serde_json::json!(entries.len()),
-                )]),
-            )
-        });
+        let serialization_started_at = ProfileInstant::detailed(profiler);
+
         let mut footer = Vec::with_capacity(4 + entries.len() * BUNDLE_TABLE_ENTRY_SIZE);
         footer.extend_from_slice(&chunk_count.to_le_bytes());
         write_bundle_table_entries(&mut footer, &entries)?;
@@ -317,24 +285,6 @@ impl BundleBuilder {
         hashing.write_all(FOOTER_MAGIC)?;
         let bytes_without_id = hashing.position()?;
 
-        drop(_footer_span);
-        let _finalize_span = profiler.map(|profiler| {
-            profiler.span_with_args(
-                "capture.compress_bundle_artifact.finalize_id",
-                std::collections::BTreeMap::from([
-                    ("chunk_count".to_string(), serde_json::json!(chunk_count)),
-                    (
-                        "hash_input_bytes".to_string(),
-                        serde_json::json!(bytes_without_id),
-                    ),
-                    (
-                        "payload_compressed_bytes".to_string(),
-                        serde_json::json!(compressed_output_bytes),
-                    ),
-                    ("footer_bytes".to_string(), serde_json::json!(footer.len())),
-                ]),
-            )
-        });
         let HashingWriter { file, hasher } = hashing;
         let bundle_id = hash::hash_hex(&hasher.finalize());
         file.write_all(bundle_id.as_bytes())?;
@@ -342,27 +292,6 @@ impl BundleBuilder {
             .checked_add(BUNDLE_ID_SIZE)
             .ok_or_else(|| crate::error::Error::InvalidBundle("bundle size overflow".into()))?;
         format::size_u32(bundle_size)?;
-        drop(_finalize_span);
-        if let Some(profiler) = profiler {
-            profiler.event_with_args(
-                "capture.compress_bundle_artifact.finalize_id.complete",
-                std::collections::BTreeMap::from([
-                    (
-                        "id_present".to_string(),
-                        serde_json::json!(!bundle_id.is_empty()),
-                    ),
-                    ("id_bytes".to_string(), serde_json::json!(bundle_id.len())),
-                    (
-                        "bundle_size_bytes".to_string(),
-                        serde_json::json!(bundle_size),
-                    ),
-                    (
-                        "next_phase".to_string(),
-                        serde_json::json!("flush_staged_file"),
-                    ),
-                ]),
-            );
-        }
 
         Ok(BundleBuildArtifact {
             bundle_id,
@@ -617,27 +546,15 @@ impl<R: Read + Seek> BundleReader<R> {
             })
         })?;
 
-        let read_started_at = Instant::now();
-        let _read_span = profiler.map(|profiler| {
-            profiler.span_with_args(
-                "snapshot.reconstruct.bundle.read_payload",
-                bundle_payload_trace_args(compressed_size, expected_raw_size),
-            )
-        });
+        let read_started_at = ProfileInstant::detailed(profiler);
+
         self.reader.seek(SeekFrom::Start(0))?;
         let mut hasher = blake3::Hasher::new();
         let mut header = [0u8; BUNDLE_HEADER_SIZE as usize];
         self.reader.read_exact(&mut header)?;
         hasher.update(&header);
         let read = read_started_at.elapsed();
-        drop(_read_span);
 
-        let _decompress_span = profiler.map(|profiler| {
-            profiler.span_with_args(
-                "snapshot.reconstruct.bundle.decompress_payload",
-                bundle_payload_trace_args(compressed_size, expected_raw_size),
-            )
-        });
         let mut decompress = Duration::default();
         let mut encoded = HashingReader {
             reader: (&mut self.reader).take(compressed_size),
@@ -650,6 +567,7 @@ impl<R: Read + Seek> BundleReader<R> {
             &self.entries,
             required,
             &mut decompress,
+            profiler,
             &mut on_chunk,
         );
         stream_result?;
@@ -676,7 +594,6 @@ impl<R: Read + Seek> BundleReader<R> {
         // Keep the timing metric focused on decoder reads. The callback can
         // perform hashing and positional output writes, which are accounted
         // for separately by reconstruction timings.
-        drop(_decompress_span);
 
         Ok(BundleReadMetrics {
             raw_bytes: expected_raw_size,
@@ -834,6 +751,7 @@ fn stream_decoded_chunks<R, F>(
     entries: &[BundleTableEntry],
     required: &[bool],
     decompress: &mut Duration,
+    profiler: Option<&crate::profile::GutchProfiler>,
     on_chunk: &mut F,
 ) -> Result<()>
 where
@@ -853,7 +771,7 @@ where
 
         if required[index] {
             chunk_buffer.resize(raw_size, 0);
-            let decode_started_at = Instant::now();
+            let decode_started_at = ProfileInstant::detailed(profiler);
             reader.read_exact(&mut chunk_buffer)?;
             *decompress += decode_started_at.elapsed();
             on_chunk(index, &chunk_buffer)?;
@@ -861,7 +779,7 @@ where
             let mut remaining = raw_size;
             while remaining > 0 {
                 let read_size = remaining.min(discard_buffer.len());
-                let decode_started_at = Instant::now();
+                let decode_started_at = ProfileInstant::detailed(profiler);
                 reader.read_exact(&mut discard_buffer[..read_size])?;
                 *decompress += decode_started_at.elapsed();
                 remaining -= read_size;
@@ -870,7 +788,7 @@ where
     }
 
     let mut trailing = [0u8; 1];
-    let decode_started_at = Instant::now();
+    let decode_started_at = ProfileInstant::detailed(profiler);
     let trailing_bytes = reader.read(&mut trailing)?;
     *decompress += decode_started_at.elapsed();
     if trailing_bytes != 0 {
@@ -879,22 +797,6 @@ where
         ));
     }
     Ok(())
-}
-
-fn bundle_payload_trace_args(
-    compressed_size: u64,
-    raw_size: u64,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
-        (
-            "compressed_payload_mib".to_string(),
-            serde_json::json!(compressed_size as f64 / (1024.0 * 1024.0)),
-        ),
-        (
-            "decoded_payload_mib".to_string(),
-            serde_json::json!(raw_size as f64 / (1024.0 * 1024.0)),
-        ),
-    ])
 }
 
 fn assign_compressed_size_estimates(

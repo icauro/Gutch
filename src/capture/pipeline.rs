@@ -1,8 +1,8 @@
+use crate::profile::ProfileInstant;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::Instant;
 
 use rayon::ThreadPool;
 use rayon::prelude::*;
@@ -155,25 +155,25 @@ fn plan_bundle_compressed_groups(
 
     let sort_bytes: u64 = chunks.iter().map(|(_, payload)| payload.raw_size()).sum();
     let hash_sort_duration = {
-        let _sort_span = control.profile_span_with_args(
-            "capture.plan_artifact_groups.sort_chunks_for_probe",
-            capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
-        );
-        let sort_start = Instant::now();
+        let _sort_span = control
+            .profile_span_with_args("capture.plan_artifact_groups.sort_chunks_for_probe", || {
+                capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes)
+            });
+        let sort_start = ProfileInstant::detailed(control.profiler());
         pool.install(|| chunks.par_sort_unstable_by(|left, right| left.0.cmp(&right.0)));
         sort_start.elapsed()
     };
     let (bundle_compression_ratio, probe_raw_bytes, probe_duration) = {
         let _probe_span = control.profile_span_with_args(
             "capture.plan_artifact_groups.estimate_compression_ratio",
-            BTreeMap::from([(
-                "probe_target_mib".to_string(),
-                serde_json::json!(
-                    bundle_profile.bundle_preferred_size_bytes() as f64 / (1024.0 * 1024.0)
-                ),
-            )]),
+            || {
+                BTreeMap::from([(
+                    "probe_target_bytes".to_string(),
+                    serde_json::json!(bundle_profile.bundle_preferred_size_bytes()),
+                )])
+            },
         );
-        let probe_start = Instant::now();
+        let probe_start = ProfileInstant::detailed(control.profiler());
         let (ratio, raw_bytes) = estimate_bundle_compression_ratio_from_probe(
             &chunks,
             compression_profile,
@@ -196,7 +196,7 @@ fn plan_bundle_compressed_groups(
     let locality_sort_duration = {
         let _sort_span = control.profile_span_with_args(
             "capture.plan_artifact_groups.sort_chunks_by_file_locality",
-            {
+            || {
                 let mut args = capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes);
                 args.insert(
                     "ordering".to_string(),
@@ -211,7 +211,7 @@ fn plan_bundle_compressed_groups(
                 args
             },
         );
-        let sort_start = Instant::now();
+        let sort_start = ProfileInstant::detailed(control.profiler());
         sort_chunks_by_file_locality(
             &mut chunks,
             chunk_placements,
@@ -224,7 +224,7 @@ fn plan_bundle_compressed_groups(
     let planned_groups = {
         let _group_span = control.profile_span_with_args(
             "capture.plan_artifact_groups.assign_chunks_to_bundles",
-            capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
+            || capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes),
         );
         let mut planned_groups = Vec::new();
         let mut current_group = Vec::new();
@@ -232,6 +232,7 @@ fn plan_bundle_compressed_groups(
 
         for (hash, payload) in chunks {
             let raw_size = payload.raw_size();
+
             if !current_group.is_empty() && current_group_raw_size + raw_size > bundle_raw_capacity
             {
                 planned_groups.push(current_group);
@@ -369,7 +370,6 @@ fn build_bundled_chunks(
     let compression_profile_for_work = compression_profile.clone();
     let artifact_staging_root = artifact_staging_root.to_path_buf();
     let progress_for_work = progress.clone();
-    let total_bundle_count = planned_bundle_groups.groups.len();
     let encoded_limit = planned_bundle_groups.encoded_limit;
     let memory = crate::runtime::MemoryBudget::new();
     let work_items = planned_bundle_groups
@@ -381,24 +381,14 @@ fn build_bundled_chunks(
         work_items,
         pool,
         control,
-        move |(bundle_index, planned_bundle), control| {
-            let raw_size = planned_bundle
+        move |(_bundle_index, planned_bundle), control| {
+            let raw_size: u64 = planned_bundle
                 .iter()
                 .map(|(_, payload)| payload.raw_size())
                 .sum();
+
             let _memory = memory.acquire(raw_size + 128 * 1024 * 1024, control)?;
-            let chunk_count = planned_bundle.len();
-            let _bundle_span = control.profile_span_with_args(
-                "capture.compress_bundle_artifact",
-                capture_artifact_trace_args(
-                    "bundle",
-                    bundle_index,
-                    total_bundle_count,
-                    chunk_count,
-                    raw_size,
-                    None,
-                ),
-            );
+
             build_bounded_bundle_groups(
                 planned_bundle,
                 encoded_limit,
@@ -406,21 +396,8 @@ fn build_bundled_chunks(
                 &artifact_staging_root,
                 control,
             )
-            .inspect(|built| {
+            .inspect(|_| {
                 progress_for_work.completed();
-                control.profile_event_with_args(
-                    "capture.compress_bundle_artifact.complete",
-                    capture_artifact_trace_args(
-                        "bundle",
-                        bundle_index,
-                        total_bundle_count,
-                        chunk_count,
-                        raw_size,
-                        built
-                            .first()
-                            .map(|bundle| (bundle.bundle_id.as_str(), bundle.bundle_size)),
-                    ),
-                );
             })
         },
     )
@@ -443,17 +420,12 @@ fn build_loose_chunks(
     progress.start(chunks_to_compress.len());
     let compression_profile_for_work = compression_profile.clone();
     let progress_for_work = progress.clone();
-    let total_chunk_count = chunks_to_compress.len();
+
     run_parallel_chunk_work(
         chunks_to_compress,
         pool,
         control,
         move |(chunk_hash, payload), control| {
-            let raw_size = payload.raw_size();
-            let _chunk_span = control.profile_span_with_args(
-                "capture.compress_loose_chunk_artifact",
-                capture_chunk_trace_args(&chunk_hash, raw_size, total_chunk_count),
-            );
             build_loose_chunk(
                 chunk_hash,
                 payload,
@@ -461,16 +433,8 @@ fn build_loose_chunks(
                 artifact_staging_root,
                 control,
             )
-            .inspect(|built| {
+            .inspect(|_| {
                 progress_for_work.completed();
-                control.profile_event_with_args(
-                    "capture.compress_loose_chunk_artifact.complete",
-                    capture_chunk_trace_args(
-                        &built.chunk.chunk_hash,
-                        built.chunk.compressed_size,
-                        total_chunk_count,
-                    ),
-                );
             })
         },
     )
@@ -483,59 +447,7 @@ fn capture_bytes_trace_args(
 ) -> BTreeMap<String, serde_json::Value> {
     BTreeMap::from([
         (count_name.to_string(), serde_json::json!(count)),
-        (
-            "bytes_mib".to_string(),
-            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
-        ),
-    ])
-}
-
-fn capture_artifact_trace_args(
-    kind: &str,
-    ordinal: usize,
-    total: usize,
-    chunk_count: usize,
-    raw_bytes: u64,
-    completed: Option<(&str, u64)>,
-) -> BTreeMap<String, serde_json::Value> {
-    let mut args = BTreeMap::from([
-        ("artifact_kind".to_string(), serde_json::json!(kind)),
-        ("ordinal".to_string(), serde_json::json!(ordinal + 1)),
-        ("total".to_string(), serde_json::json!(total)),
-        ("chunk_count".to_string(), serde_json::json!(chunk_count)),
-        (
-            "raw_size_mib".to_string(),
-            serde_json::json!(raw_bytes as f64 / (1024.0 * 1024.0)),
-        ),
-    ]);
-    if let Some((artifact_id, compressed_bytes)) = completed {
-        args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));
-        args.insert(
-            "compressed_size_mib".to_string(),
-            serde_json::json!(compressed_bytes as f64 / (1024.0 * 1024.0)),
-        );
-    }
-    args
-}
-
-fn capture_chunk_trace_args(
-    chunk_hash: &ChunkHash,
-    bytes: u64,
-    total_chunk_count: usize,
-) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        (
-            "chunk_hash".to_string(),
-            serde_json::json!(chunk_hash.to_hex()),
-        ),
-        (
-            "size_mib".to_string(),
-            serde_json::json!(bytes as f64 / (1024.0 * 1024.0)),
-        ),
-        (
-            "total_chunk_count".to_string(),
-            serde_json::json!(total_chunk_count),
-        ),
+        ("size_bytes".to_string(), serde_json::json!(bytes)),
     ])
 }
 
@@ -547,8 +459,12 @@ fn build_loose_chunk(
     control: &crate::progress::GutchOperationControl,
 ) -> Result<BuiltLooseChunkResult> {
     control.checkpoint()?;
-    let load_start = Instant::now();
+    let load_start = ProfileInstant::detailed(control.profiler());
     let raw_size = payload.raw_size();
+    let _artifact_span = control
+        .profile_span_with_args("capture.loose.load_encode_and_write", || {
+            BTreeMap::from([("size_bytes".into(), serde_json::json!(raw_size))])
+        });
     let bytes = payload.load_bytes()?;
     let payload_load = load_start.elapsed();
 
@@ -621,15 +537,17 @@ fn build_bundle_compressed_group(
     let mut payload_load = std::time::Duration::ZERO;
     let mut payload_load_bytes: u64 = 0;
 
+    let input_span = control.profile_span("capture.bundle.load_inputs");
     for (hash, payload) in planned_bundle {
         control.checkpoint()?;
-        let load_start = Instant::now();
+        let load_start = ProfileInstant::detailed(control.profiler());
         let bytes = std::sync::Arc::<[u8]>::from(payload.load_bytes()?);
         payload_load += load_start.elapsed();
         payload_load_bytes += bytes.len() as u64;
         builder.add_shared_chunk(hash, bytes);
     }
 
+    drop(input_span);
     let built = builder.write_to_staging(artifact_staging_root, control.profiler())?;
     Ok(BuiltBundleCompressedGroup {
         bundle_id: built.bundle_id,
@@ -651,13 +569,14 @@ pub(crate) fn build_with_config_timed(
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {
     let runtime_plan = plan_runtime(&config.runtime_hints);
-    let _pool_span = config.control.profile_span_with_args(
-        "capture.create_worker_pool",
-        BTreeMap::from([(
-            "worker_count".to_string(),
-            serde_json::json!(runtime_plan.worker_count),
-        )]),
-    );
+    let _pool_span = config
+        .control
+        .profile_span_with_args("capture.create_worker_pool", || {
+            BTreeMap::from([(
+                "worker_count".to_string(),
+                serde_json::json!(runtime_plan.worker_count),
+            )])
+        });
     let build_pool = build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
     drop(_pool_span);
     build_with_config_timed_on_pool(dir, config, &build_pool)
@@ -689,7 +608,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     compress::validate_profile(&config.compression_profile)?;
     config.control.checkpoint()?;
     let _operation_span = config.control.profile_span("capture.build_snapshot");
-    let total_start = Instant::now();
+    let total_start = ProfileInstant::start(config.control.profiler());
     let compression_profile = config.compression_profile.clone();
     let artifact_staging_root = config
         .artifact_staging_root
@@ -717,7 +636,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
         .existing_bundle_ids
         .unwrap_or(&empty_existing_bundle_ids);
 
-    let scan_chunk_start = Instant::now();
+    let scan_chunk_start = ProfileInstant::start(config.control.profiler());
     let (mut snapshot_entries, unique_chunks, chunk_placements, total_logical_size) = {
         let _scan_span = config.control.profile_span("capture.scan_source");
         collect_scanned_chunks(
@@ -735,7 +654,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     };
     timings.scan_chunk_wall = scan_chunk_start.elapsed();
 
-    let dedupe_plan_start = Instant::now();
+    let dedupe_plan_start = ProfileInstant::start(config.control.profiler());
     let mut total_compressed: u64 = 0;
     let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
     let mut chunks_to_compress: Vec<ChunkPayloadEntry> = Vec::new();
@@ -768,10 +687,11 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             let _new_chunks_span = config
                 .control
                 .profile_span("capture.plan_deduplicated_chunks.select_new_chunks");
-            let t = Instant::now();
+            let t = ProfileInstant::start(config.control.profiler());
             for (hash, payload) in unique_chunks {
-                config.control.checkpoint()?;
                 let raw_size = payload.raw_size();
+                config.control.checkpoint()?;
+
                 timings.dedupe_lookup_bytes += raw_size;
 
                 if let Some(existing) = existing_chunk_locations_by_hash.get(&hash) {
@@ -784,19 +704,22 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             }
             timings.dedupe_lookup += t.elapsed();
         }
-        config.control.profile_event_with_args(
-            "capture.plan_deduplicated_chunks.complete",
-            BTreeMap::from([
-                (
-                    "unique_chunk_count".to_string(),
-                    serde_json::json!(compressed_estimate_seen.len() + chunks_to_compress.len()),
-                ),
-                (
-                    "new_chunk_count".to_string(),
-                    serde_json::json!(chunks_to_compress.len()),
-                ),
-            ]),
-        );
+        config
+            .control
+            .profile_event_with_args("capture.plan_deduplicated_chunks.complete", || {
+                BTreeMap::from([
+                    (
+                        "unique_chunk_count".to_string(),
+                        serde_json::json!(
+                            compressed_estimate_seen.len() + chunks_to_compress.len()
+                        ),
+                    ),
+                    (
+                        "new_chunk_count".to_string(),
+                        serde_json::json!(chunks_to_compress.len()),
+                    ),
+                ])
+            });
     }
     timings.dedupe_plan_wall = dedupe_plan_start.elapsed();
 
@@ -805,7 +728,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
         .map(|(_, payload)| payload.raw_size())
         .sum();
 
-    let artifact_encode_start = Instant::now();
+    let artifact_encode_start = ProfileInstant::start(config.control.profiler());
     let (bundles, loose_chunks) = {
         let _artifact_encode_span = config.control.profile_span("capture.build_artifacts");
         let mut bundles = Vec::new();
@@ -908,16 +831,17 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             .map(|chunk| chunk.compressed_size)
             .sum::<u64>();
 
-    let manifest_finalize_start = Instant::now();
+    let manifest_finalize_start = ProfileInstant::start(config.control.profiler());
     let vm = {
         let _manifest_span = config
             .control
             .profile_span("capture.build_snapshot_manifest");
         {
-            let _sort_span = config.control.profile_span_with_args(
-                "capture.build_snapshot_manifest.sort_entries",
-                capture_bytes_trace_args("entry_count", snapshot_entries.len(), 0),
-            );
+            let _sort_span = config
+                .control
+                .profile_span_with_args("capture.build_snapshot_manifest.sort_entries", || {
+                    capture_bytes_trace_args("entry_count", snapshot_entries.len(), 0)
+                });
             snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
         }
         let _construct_span = config

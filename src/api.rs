@@ -190,3 +190,9 @@ pub use crate::installation::preview::{
     InstallationAction, InstallationInspection, InstallationPlanEvent, InstallationPlanSummary,
     visit_installation_plan,
 };
+
+pub use crate::profile::{
+    GutchProfileMode, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler,
+};
+
+pub use crate::progress::{GutchLiveFeedback, GutchThroughput};

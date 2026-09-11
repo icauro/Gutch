@@ -59,7 +59,7 @@ def run_reconstruction_storage(
             description="reconstruction-storage repository init",
         )
         capture_stats = lane.stats / "capture.json"
-        capture_trace = lane.traces / "capture.json"
+        capture_trace = lane.traces / "capture" / "trace.json"
         capture_elapsed, capture = local.capture(
             lane.root,
             repo,
@@ -77,7 +77,7 @@ def run_reconstruction_storage(
             local_destination,
             profile,
             lane.stats / "local-reconstruct.json",
-            lane.traces / "local-reconstruct.json",
+            lane.traces / "local-reconstruct" / "trace.json",
             "local filesystem",
         )
 
@@ -98,7 +98,7 @@ def run_reconstruction_storage(
                 manifest,
                 profile,
                 transfer_concurrency=transfer_concurrency,
-                trace_path=lane.traces / "fetch.json",
+                trace_path=lane.traces / "fetch" / "trace.json",
             ),
             description="S3 fetch",
         )
@@ -108,7 +108,7 @@ def run_reconstruction_storage(
             fetched_destination,
             profile,
             lane.stats / "fetched-reconstruct.json",
-            lane.traces / "fetched-reconstruct.json",
+            lane.traces / "fetched-reconstruct" / "trace.json",
             "S3 fetched repository",
         )
         validate_output(product, fetched_destination, lane.stats / "validate-fetched-restored.json")
@@ -126,7 +126,7 @@ def run_reconstruction_storage(
                     transfer_concurrency=transfer_concurrency,
                     destination=full_destination,
                     stats_path=lane.stats / "fetch-reconstruct.json",
-                    trace_path=lane.traces / "fetch-reconstruct.json",
+                    trace_path=lane.traces / "fetch-reconstruct" / "trace.json",
                 ),
                 description="S3 fetch-reconstruct",
             )
@@ -160,14 +160,14 @@ def run_reconstruction_storage(
         traces = {
             "capture": [str(capture_trace)],
             "reconstruct": [
-                str(lane.traces / "local-reconstruct.json"),
-                str(lane.traces / "fetched-reconstruct.json"),
+                str(lane.traces / "local-reconstruct" / "trace.json"),
+                str(lane.traces / "fetched-reconstruct" / "trace.json"),
             ],
-            "fetch": [str(lane.traces / "fetch.json")],
+            "fetch": [str(lane.traces / "fetch" / "trace.json")],
             **recovery_traces,
         }
         if include_fetch_reconstruct:
-            traces["fetch_reconstruct"] = [str(lane.traces / "fetch-reconstruct.json")]
+            traces["fetch_reconstruct"] = [str(lane.traces / "fetch-reconstruct" / "trace.json")]
         differences = {
             "local": compare_directories(product, local_destination),
             "fetched": compare_directories(product, fetched_destination),

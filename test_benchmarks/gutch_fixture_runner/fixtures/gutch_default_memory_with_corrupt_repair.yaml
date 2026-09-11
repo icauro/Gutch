@@ -3,7 +3,7 @@ runner: gutch-fixture
 description: Default local Gutch trace lane with corruption and repair enabled.
 delete_artifacts: true
 open_perfetto: false
-memory_profile: true
+profile_mode: detailed
 corrupt_repair: true
 lanes:
   - label: default-gutch

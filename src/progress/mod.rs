@@ -1,3 +1,5 @@
+mod feedback;
+pub use feedback::{GutchLiveFeedback, GutchThroughput};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -84,6 +86,8 @@ impl GutchProgressPhase {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GutchProgressEvent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<GutchLiveFeedback>,
     /// Which operation is running.
     pub operation: GutchOperation,
     /// Current phase within the operation (e.g. "scan", "capture", "upload", "apply").
@@ -127,20 +131,57 @@ pub struct GutchOperationControl {
     progress: Option<Arc<dyn GutchProgressSink>>,
     cancellation: Option<Arc<dyn GutchCancellationHook>>,
     profiler: Option<Arc<crate::profile::GutchProfiler>>,
+    feedback: Option<Arc<feedback::LiveProgress>>,
 }
 
 impl GutchOperationControl {
     pub fn with_progress(mut self, progress: Arc<dyn GutchProgressSink>) -> Self {
-        self.progress = Some(progress);
+        let feedback = feedback::LiveProgress::new(progress);
+        if let Some(profiler) = &self.profiler {
+            feedback.with_profiler(profiler.clone());
+        }
+        self.progress = Some(feedback.clone());
+        self.feedback = Some(feedback);
         self
     }
 
+    pub(crate) fn output_stage(&self) -> feedback::OutputStage {
+        feedback::OutputStage::new(self.feedback.clone())
+    }
+    pub(crate) fn output_finished(&self) {
+        if let Some(feedback) = &self.feedback {
+            feedback.finish(false);
+        }
+    }
+    pub(crate) fn download_started(&self) {
+        if let Some(f) = &self.feedback {
+            f.start(true);
+        }
+    }
+    pub(crate) fn download_finished(&self) {
+        if let Some(f) = &self.feedback {
+            f.finish(true);
+        }
+    }
+    pub(crate) fn downloaded(&self, bytes: u64) {
+        if let Some(f) = &self.feedback {
+            f.record(true, bytes);
+        }
+    }
+    pub(crate) fn written(&self, bytes: u64) {
+        if let Some(f) = &self.feedback {
+            f.record(false, bytes);
+        }
+    }
     pub fn with_cancellation(mut self, cancellation: Arc<dyn GutchCancellationHook>) -> Self {
         self.cancellation = Some(cancellation);
         self
     }
 
-    pub(crate) fn with_profiler(mut self, profiler: Arc<crate::profile::GutchProfiler>) -> Self {
+    pub fn with_profiler(mut self, profiler: Arc<crate::profile::GutchProfiler>) -> Self {
+        if let Some(feedback) = &self.feedback {
+            feedback.with_profiler(profiler.clone());
+        }
         self.profiler = Some(profiler);
         self
     }
@@ -151,14 +192,17 @@ impl GutchOperationControl {
             progress: Some(progress),
             cancellation: self.cancellation.clone(),
             profiler: self.profiler.clone(),
+            feedback: self.feedback.clone(),
         }
     }
 
     pub(crate) fn profile_span(
         &self,
-        name: impl Into<String>,
+        name: &'static str,
     ) -> Option<crate::profile::GutchProfileSpan> {
-        self.profiler.as_ref().map(|profiler| profiler.span(name))
+        self.profiler
+            .as_ref()
+            .and_then(|profiler| profiler.span(name))
     }
 
     pub(crate) fn profiler(&self) -> Option<&crate::profile::GutchProfiler> {
@@ -167,18 +211,18 @@ impl GutchOperationControl {
 
     pub(crate) fn profile_span_with_args(
         &self,
-        name: impl Into<String>,
-        args: std::collections::BTreeMap<String, serde_json::Value>,
+        name: &'static str,
+        args: impl FnOnce() -> std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Option<crate::profile::GutchProfileSpan> {
         self.profiler
             .as_ref()
-            .map(|profiler| profiler.span_with_args(name, args))
+            .and_then(|profiler| profiler.span_with_args(name, args))
     }
 
     pub(crate) fn profile_event_with_args(
         &self,
-        name: impl Into<String>,
-        args: std::collections::BTreeMap<String, serde_json::Value>,
+        name: &'static str,
+        args: impl FnOnce() -> std::collections::BTreeMap<String, serde_json::Value>,
     ) {
         if let Some(profiler) = &self.profiler {
             profiler.event_with_args(name, args);

@@ -259,8 +259,8 @@ impl<'a> TransferDownloadRequest<'a> {
                     Ok(())
                 },
                 |chunk| {
-                    file.write_all(chunk)?;
                     reporter.record_chunk(chunk.len() as u64);
+                    file.write_all(chunk)?;
                     Ok(())
                 },
             )?;
@@ -541,10 +541,9 @@ fn artifact_download_worker(
             let _ = event_tx.send(ArtifactDownloadEvent::WorkerDone);
             return;
         };
-        let _artifact_span = control.profile_span_with_args(
-            "fetch.artifact",
-            artifact_transfer_trace_args(&bundle_download),
-        );
+        let _artifact_span = control.profile_span_with_args("fetch.artifact", || {
+            artifact_transfer_trace_args(&bundle_download)
+        });
         let result = download_pending_bundle(
             &download_client,
             &bundle_download,
@@ -692,13 +691,12 @@ fn run_adaptive_transfer_controller(
         shared
             .target_worker_count
             .store(new_target, AtomicOrdering::Release);
-        control.profile_event_with_args(
-            "fetch.transfer_concurrency",
+        control.profile_event_with_args("transfer.concurrency", || {
             std::collections::BTreeMap::from([(
                 "target_workers".to_string(),
                 serde_json::json!(new_target),
-            )]),
-        );
+            )])
+        });
         transfer_progress.adjustment_recorded();
         shared.wake.notify_all();
     }
@@ -725,6 +723,7 @@ impl<'a> TransferProgressReporter<'a> {
         counters: TransferPhaseCounters,
         detail: Option<&'a str>,
     ) -> Self {
+        control.download_started();
         Self {
             control,
             transfer_progress,
@@ -744,6 +743,7 @@ impl<'a> TransferProgressReporter<'a> {
 
     fn record_chunk(&self, byte_count: u64) {
         self.transfer_progress.add_transferred_bytes(byte_count);
+        self.control.downloaded(byte_count);
         let emitted_chunk_bytes = self
             .emitted_chunk_bytes
             .fetch_add(byte_count, AtomicOrdering::Relaxed)
@@ -766,6 +766,7 @@ impl<'a> TransferProgressReporter<'a> {
         emit_progress(
             self.control.progress(),
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::Fetch,
                 phase: self.phase,
                 message: "Downloaded snapshot artifacts".to_string(),
@@ -885,10 +886,9 @@ pub(crate) fn download_pending_bundle(
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<usize> {
     control.checkpoint()?;
-    let _artifact_span = control.profile_span_with_args(
-        "fetch.artifact.transfer",
-        artifact_transfer_trace_args(bundle_download),
-    );
+    let _artifact_span = control.profile_span_with_args("fetch.artifact.transfer", || {
+        artifact_transfer_trace_args(bundle_download)
+    });
     if let Some(parent) = bundle_download.bundle_path.parent() {
         crate::filesystem::create_dir_all(parent)?;
     }
@@ -943,10 +943,6 @@ fn artifact_transfer_trace_args(
             serde_json::json!(bundle_download.artifact.id()),
         ),
         (
-            "artifact_path".to_string(),
-            serde_json::json!(bundle_download.bundle_path.display().to_string()),
-        ),
-        (
             "ordinal".to_string(),
             serde_json::json!(bundle_download.ordinal),
         ),
@@ -985,6 +981,7 @@ fn emit_transfer_progress(
     emit_progress(
         progress,
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::Fetch,
             phase,
             message: message.to_string(),

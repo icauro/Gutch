@@ -99,9 +99,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 full_file_hash: crate::artifact::hash::ChunkHash::parse_hex(
                     &file_manifest.full_file_hash,
                 )?,
-                trace_metadata: ReconstructFileTraceMetadata::default(),
-                #[cfg(test)]
-                reconstruction: ReconstructPipelineReconstruction::CopyFromSource,
             });
             jobs.push(ReconstructJob::CopySourceFile {
                 file_index,
@@ -113,7 +110,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         }
 
         let file_index = files.len();
-        let mut chunks = Vec::with_capacity(file_manifest.chunks.len());
         let mut missing_artifact_dependencies = HashSet::new();
         let mut file_offset = 0u64;
         for chunk_ref in &file_manifest.chunks {
@@ -148,9 +144,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 source_job.targets.push(ReconstructTarget {
                     file_index,
                     file_offset,
-                });
-                chunks.push(ReconstructPipelineChunkInput::Source {
-                    chunk_hash: chunk_ref.chunk_hash.clone(),
                 });
                 reused_source_chunk_count += 1;
                 file_offset = file_offset
@@ -223,12 +216,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             if !existing_artifacts.contains(&artifact) {
                 missing_artifact_dependencies.insert(artifact.clone());
             }
-            chunks.push(ReconstructPipelineChunkInput::Artifact(
-                ReconstructPipelineChunk {
-                    chunk_hash: chunk_ref.chunk_hash.clone(),
-                    artifact,
-                },
-            ));
             file_offset = file_offset
                 .checked_add(u64::from(chunk_ref.raw_size))
                 .ok_or_else(|| {
@@ -249,17 +236,12 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 .push(file_index);
         }
         missing_artifact_counts.push(missing_artifact_dependencies.len());
-        let reconstruction = ReconstructPipelineReconstruction::ReconstructFromParts { chunks };
-        let trace_metadata = reconstruct_file_trace_metadata(&reconstruction);
         files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
             full_file_hash: crate::artifact::hash::ChunkHash::parse_hex(
                 &file_manifest.full_file_hash,
             )?,
-            trace_metadata,
-            #[cfg(test)]
-            reconstruction,
         });
     }
 
@@ -339,7 +321,7 @@ pub(crate) fn inspect_installation_changes(
             runtime_hints,
             control: control.clone(),
         },
-        "reconstructed.repair.verify",
+        "installation.repair.verify",
         operation_pool,
     )?;
     let updates = resolve_metadata_updates(

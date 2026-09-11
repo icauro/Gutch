@@ -1,3 +1,4 @@
+use crate::profile::ProfileInstant;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::Metadata;
@@ -7,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
 
 use rayon::prelude::*;
 
@@ -120,10 +120,10 @@ fn classify_inner(
     dir: &Path,
     opts: &VerifyOptions,
     scan_extra_files: bool,
-    marker_namespace: &str,
+    marker_namespace: &'static str,
     supplied_pool: Option<&rayon::ThreadPool>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    let total_start = Instant::now();
+    let total_start = ProfileInstant::start(opts.control.profiler());
     opts.control.checkpoint()?;
     let _operation_span = opts.control.profile_span(marker_namespace);
     let mut classification = RepairClassification::default();
@@ -149,16 +149,18 @@ fn classify_inner(
     let (inventory, resolved_paths) = if scan_extra_files {
         let _resolve_paths_span = opts.control.profile_span_with_args(
             marker_name(marker_namespace, "prepare.paths"),
-            std::collections::BTreeMap::from([
-                (
-                    "path_count".to_string(),
-                    serde_json::json!(snapshot_manifest.entries.len()),
-                ),
-                (
-                    "strategy".to_string(),
-                    serde_json::json!("filesystem_inventory"),
-                ),
-            ]),
+            || {
+                std::collections::BTreeMap::from([
+                    (
+                        "path_count".to_string(),
+                        serde_json::json!(snapshot_manifest.entries.len()),
+                    ),
+                    (
+                        "strategy".to_string(),
+                        serde_json::json!("filesystem_inventory"),
+                    ),
+                ])
+            },
         );
         let mut inventory = build_filesystem_inventory(snapshot_manifest, dir, opts.control)?;
         augment_inventory_for_symlinked_parents(
@@ -169,16 +171,18 @@ fn classify_inner(
         )?;
         opts.control.profile_event_with_args(
             marker_name(marker_namespace, "prepare.paths.inventory"),
-            std::collections::BTreeMap::from([
-                (
-                    "inventory_entry_count".to_string(),
-                    serde_json::json!(inventory.entries.len()),
-                ),
-                (
-                    "extra_path_count".to_string(),
-                    serde_json::json!(inventory.extra_paths.len()),
-                ),
-            ]),
+            || {
+                std::collections::BTreeMap::from([
+                    (
+                        "inventory_entry_count".to_string(),
+                        serde_json::json!(inventory.entries.len()),
+                    ),
+                    (
+                        "extra_path_count".to_string(),
+                        serde_json::json!(inventory.extra_paths.len()),
+                    ),
+                ])
+            },
         );
         (Some(inventory), None)
     } else {
@@ -186,16 +190,18 @@ fn classify_inner(
         let resolved_paths = {
             let _resolve_paths_span = opts.control.profile_span_with_args(
                 marker_name(marker_namespace, "prepare.paths"),
-                std::collections::BTreeMap::from([
-                    (
-                        "path_count".to_string(),
-                        serde_json::json!(snapshot_manifest.entries.len()),
-                    ),
-                    (
-                        "strategy".to_string(),
-                        serde_json::json!("targeted_resolver"),
-                    ),
-                ]),
+                || {
+                    std::collections::BTreeMap::from([
+                        (
+                            "path_count".to_string(),
+                            serde_json::json!(snapshot_manifest.entries.len()),
+                        ),
+                        (
+                            "strategy".to_string(),
+                            serde_json::json!("targeted_resolver"),
+                        ),
+                    ])
+                },
             );
             verify_pool.install(|| {
                 snapshot_manifest
@@ -276,7 +282,7 @@ fn classify_inner(
             .expect("targeted verification paths must be prepared");
         classify_resolved_non_files(snapshot_manifest, resolved_paths, &mut classification)?;
     }
-    let verify_files_start = Instant::now();
+    let verify_files_start = ProfileInstant::start(opts.control.profiler());
     let per_file_results = {
         let worker_count = runtime_plan.worker_count.max(1);
         let mut worker_lanes = (0..worker_count).map(|_| Vec::new()).collect::<Vec<_>>();
@@ -284,20 +290,21 @@ fn classify_inner(
             worker_lanes[serpentine_worker_index(sorted_index, worker_count)]
                 .push((sorted_index, prepared_file));
         }
-        let _file_span = opts.control.profile_span_with_args(
-            marker_name(marker_namespace, "files"),
-            std::collections::BTreeMap::from([
-                (
-                    "file_count".to_string(),
-                    serde_json::json!(prepared_files.len()),
-                ),
-                (
-                    "scheduling".to_string(),
-                    serde_json::json!("largest_first_serpentine"),
-                ),
-                ("worker_count".to_string(), serde_json::json!(worker_count)),
-            ]),
-        );
+        let _file_span =
+            opts.control
+                .profile_span_with_args(marker_name(marker_namespace, "files"), || {
+                    std::collections::BTreeMap::from([
+                        (
+                            "file_count".to_string(),
+                            serde_json::json!(prepared_files.len()),
+                        ),
+                        (
+                            "scheduling".to_string(),
+                            serde_json::json!("largest_first_serpentine"),
+                        ),
+                        ("worker_count".to_string(), serde_json::json!(worker_count)),
+                    ])
+                });
         let mut results = verify_pool
             .broadcast(|context| {
                 worker_lanes[context.index()]
@@ -341,7 +348,7 @@ fn classify_inner(
     timings.verify_files_wall = verify_files_start.elapsed();
 
     if let Some(inventory) = inventory.as_ref() {
-        let extra_file_scan_start = Instant::now();
+        let extra_file_scan_start = ProfileInstant::start(opts.control.profiler());
         let _extra_scan_span = opts
             .control
             .profile_span(marker_name(marker_namespace, "extra_scan"));
@@ -708,19 +715,19 @@ fn serpentine_worker_index(sorted_index: usize, worker_count: usize) -> usize {
 pub(crate) fn classify_directory(
     request: VerifyRequest<'_>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_directory_with_marker_namespace(request, "reconstructed.verify")
+    classify_directory_with_marker_namespace(request, "installation.verify")
 }
 
 pub(crate) fn classify_directory_with_marker_namespace(
     request: VerifyRequest<'_>,
-    marker_namespace: &str,
+    marker_namespace: &'static str,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_directory_with_marker_namespace_and_pool(request, marker_namespace, None)
 }
 
 pub(crate) fn classify_directory_with_marker_namespace_and_pool(
     request: VerifyRequest<'_>,
-    marker_namespace: &str,
+    marker_namespace: &'static str,
     verify_pool: Option<&rayon::ThreadPool>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
@@ -740,19 +747,19 @@ pub(crate) fn classify_directory_with_marker_namespace_and_pool(
 pub(crate) fn classify_expected_entries(
     request: VerifyRequest<'_>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_expected_entries_with_marker_namespace(request, "reconstructed.verify")
+    classify_expected_entries_with_marker_namespace(request, "installation.verify")
 }
 
 pub(crate) fn classify_expected_entries_with_marker_namespace(
     request: VerifyRequest<'_>,
-    marker_namespace: &str,
+    marker_namespace: &'static str,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_expected_entries_with_marker_namespace_and_pool(request, marker_namespace, None)
 }
 
 pub(crate) fn classify_expected_entries_with_marker_namespace_and_pool(
     request: VerifyRequest<'_>,
-    marker_namespace: &str,
+    marker_namespace: &'static str,
     verify_pool: Option<&rayon::ThreadPool>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
     classify_inner(
@@ -768,8 +775,48 @@ pub(crate) fn classify_expected_entries_with_marker_namespace_and_pool(
     )
 }
 
-fn marker_name(namespace: &str, suffix: &str) -> String {
-    format!("{namespace}.{suffix}")
+fn marker_name(namespace: &'static str, suffix: &str) -> &'static str {
+    match (namespace, suffix) {
+        ("installation.verify", "prepare.paths") => "installation.verify.prepare.paths",
+        ("installation.verify", "prepare.paths.inventory") => {
+            "installation.verify.prepare.paths.inventory"
+        }
+        ("installation.verify", "files") => "installation.verify.files",
+        ("installation.verify", "extra_scan") => "installation.verify.extra_scan",
+        ("installation.verify", "file") => "installation.verify.file",
+        ("installation.repair.verify", "prepare.paths") => {
+            "installation.repair.verify.prepare.paths"
+        }
+        ("installation.repair.verify", "prepare.paths.inventory") => {
+            "installation.repair.verify.prepare.paths.inventory"
+        }
+        ("installation.repair.verify", "files") => "installation.repair.verify.files",
+        ("installation.repair.verify", "extra_scan") => "installation.repair.verify.extra_scan",
+        ("installation.repair.verify", "file") => "installation.repair.verify.file",
+        ("installation.repair.verify.final", "prepare.paths") => {
+            "installation.repair.verify.final.prepare.paths"
+        }
+        ("installation.repair.verify.final", "prepare.paths.inventory") => {
+            "installation.repair.verify.final.prepare.paths.inventory"
+        }
+        ("installation.repair.verify.final", "files") => "installation.repair.verify.final.files",
+        ("installation.repair.verify.final", "extra_scan") => {
+            "installation.repair.verify.final.extra_scan"
+        }
+        ("installation.repair.verify.final", "file") => "installation.repair.verify.final.file",
+        ("installation.reconstruct.inspect", "prepare.paths") => {
+            "installation.reconstruct.inspect.prepare.paths"
+        }
+        ("installation.reconstruct.inspect", "prepare.paths.inventory") => {
+            "installation.reconstruct.inspect.prepare.paths.inventory"
+        }
+        ("installation.reconstruct.inspect", "files") => "installation.reconstruct.inspect.files",
+        ("installation.reconstruct.inspect", "extra_scan") => {
+            "installation.reconstruct.inspect.extra_scan"
+        }
+        ("installation.reconstruct.inspect", "file") => "installation.reconstruct.inspect.file",
+        _ => "installation.inspect",
+    }
 }
 
 fn emit_verify_progress(
@@ -781,6 +828,7 @@ fn emit_verify_progress(
     emit_progress(
         progress,
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::Verify,
             phase: GutchProgressPhase::Verify,
             message: "Verifying files".to_string(),
@@ -824,13 +872,12 @@ fn verify_manifest_file(
     verify_mode: VerifyMode,
     control: &GutchOperationControl,
     worker_count: usize,
-    marker_namespace: &str,
+    marker_namespace: &'static str,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
     let fm = prepared_file.manifest;
-    let _file_span = control.profile_span_with_args(
-        marker_name(marker_namespace, "file"),
-        crate::profile::file_trace_args(&fm.path, fm.size),
-    );
+    let _file_span = control.profile_span_with_args(marker_name(marker_namespace, "file"), || {
+        crate::profile::file_trace_args(&fm.path, fm.size)
+    });
     control.checkpoint()?;
     let mut timings = VerifyTimings {
         verify_mode,
@@ -849,7 +896,7 @@ fn verify_manifest_file(
             ));
         }
         PreparedFileMetadata::ResolveDuringVerification => {
-            let t = Instant::now();
+            let t = ProfileInstant::detailed(control.profiler());
             let metadata = match std::fs::symlink_metadata(&prepared_file.path) {
                 Ok(metadata) => metadata,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1012,18 +1059,18 @@ fn verify_file_streaming(
 
         chunk_buffer.resize(chunk_size, 0);
 
-        let t = Instant::now();
+        let t = ProfileInstant::detailed(control.profiler());
         reader.read_exact(&mut chunk_buffer)?;
         timings.file_read += t.elapsed();
         timings.file_read_bytes += chunk_ref.raw_size;
 
-        let t = Instant::now();
+        let t = ProfileInstant::detailed(control.profiler());
         full_file_hasher.update(&chunk_buffer);
         timings.file_hash += t.elapsed();
         timings.file_hash_bytes += chunk_ref.raw_size;
 
         if verify_mode.checks_chunk_hashes() {
-            let t = Instant::now();
+            let t = ProfileInstant::detailed(control.profiler());
             let chunk_hash_actual =
                 ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(&chunk_buffer));
             timings.chunk_hash += t.elapsed();
@@ -1055,7 +1102,7 @@ fn verify_file_streaming(
         });
     }
 
-    let t = Instant::now();
+    let t = ProfileInstant::detailed(control.profiler());
     let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
     timings.file_hash += t.elapsed();
     if actual_hash != typed_file.full_file_hash {

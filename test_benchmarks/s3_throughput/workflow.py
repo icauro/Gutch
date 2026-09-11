@@ -200,3 +200,7 @@ def run_abort_multipart_uploads(target: StorageTarget, *, prefix: str | None) ->
             UploadId=upload["UploadId"],
         )
     return len(uploads)
+
+
+def _add_optional(left, right):
+    return None if left is None or right is None else left + right

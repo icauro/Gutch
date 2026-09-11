@@ -24,6 +24,7 @@ pub(crate) fn compare(
             result: &stats,
             outputs: optional_output_paths(&stats_json_out),
         },
+        None,
     )?;
 
     if stats.compare_passed {

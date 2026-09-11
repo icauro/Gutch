@@ -1,7 +1,6 @@
 use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::reporting::ensure_parent_directory;
-use crate::cli::reporting::print_repo_check_timings;
 
 pub(crate) fn run(
     command: RepoCommands,
@@ -94,6 +93,7 @@ pub(crate) fn run(
         }
 
         RepoCommands::Status { repo, json_out } => {
+            let _check_span = profile.as_ref().and_then(|p| p.span("repo.check"));
             let status = crate::api::check_gutch_repo(&repo)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
@@ -131,10 +131,6 @@ pub(crate) fn run(
                 println!("bundle_bytes: {}", status.bundle_bytes);
                 println!("artifacts: {}", status.artifact_count);
                 println!("artifact_bytes: {}", status.artifact_bytes);
-                if let Some(repo_timings) = status.timings.as_ref() {
-                    println!();
-                    print_repo_check_timings(repo_timings);
-                }
             } else if let Some(error) = status.error.as_deref() {
                 println!("status: {}", error);
             } else {

@@ -1,6 +1,6 @@
 name: gutch_container_vs_external_tools_individual
 runner: gutch-fixture
-measurement_mode: performance
+profile_mode: "off"
 description: Container Linux comparison of per-snapshot Gutch, Restic, Kopia, Borg, and Plakar lanes.
 delete_artifacts: true
 open_perfetto: false

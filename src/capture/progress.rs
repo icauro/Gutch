@@ -46,6 +46,7 @@ impl BuildProgressTracker {
         emit_progress(
             self.control.progress(),
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::SnapshotCapture,
                 phase: self.phase,
                 message: self.message.to_string(),

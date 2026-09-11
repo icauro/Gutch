@@ -89,8 +89,12 @@ pub(crate) struct Cli {
     #[arg(long, short = 'v', global = true)]
     pub(crate) verbose: bool,
 
-    #[arg(long = "trace-out", global = true, value_parser = parse_absolute_path)]
-    pub(crate) trace_out: Option<PathBuf>,
+    /// Diagnostic collection: off, coarse summary, or sampled detailed timelines.
+    #[arg(long, global = true, value_enum, default_value_t = crate::profile::GutchProfileMode::Off)]
+    pub(crate) profile: crate::profile::GutchProfileMode,
+    /// Absolute report directory; required for detailed, optional for summary.
+    #[arg(long = "profile-out", global = true, value_parser = parse_absolute_path)]
+    pub(crate) profile_out: Option<PathBuf>,
 
     #[command(subcommand)]
     pub(crate) command: Commands,
@@ -760,11 +764,17 @@ mod path_tests {
         } else {
             "/artifacts/gutch.trace.json"
         };
-        let cli =
-            Cli::try_parse_from(["gutch", "repo", "remote", "list", "--trace-out", trace_path])
-                .expect("absolute trace path");
+        let cli = Cli::try_parse_from([
+            "gutch",
+            "repo",
+            "remote",
+            "list",
+            "--profile-out",
+            trace_path,
+        ])
+        .expect("absolute trace path");
         assert_eq!(
-            cli.trace_out.as_deref().unwrap().to_string_lossy(),
+            cli.profile_out.as_deref().unwrap().to_string_lossy(),
             trace_path
         );
 
@@ -773,7 +783,7 @@ mod path_tests {
             "repo",
             "remote",
             "list",
-            "--trace-out",
+            "--profile-out",
             "relative.trace.json",
         ])
         .err()

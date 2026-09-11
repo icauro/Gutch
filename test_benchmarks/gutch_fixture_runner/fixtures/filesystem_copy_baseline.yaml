@@ -1,3 +1,4 @@
+profile_mode: detailed
 name: filesystem_copy_baseline
 runner: gutch-fixture
 description: Direct filesystem copy baseline.

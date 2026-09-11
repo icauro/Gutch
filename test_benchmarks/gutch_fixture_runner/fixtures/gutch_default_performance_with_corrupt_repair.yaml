@@ -3,7 +3,7 @@ runner: gutch-fixture
 description: Default full-flow workload without tracing, repeated five times.
 delete_artifacts: true
 open_perfetto: false
-measurement_mode: performance
+profile_mode: "off"
 repetitions: 5
 corrupt_repair: true
 lanes:

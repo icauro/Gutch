@@ -1,3 +1,4 @@
+profile_mode: detailed
 name: gutch_worker_count_profiles
 runner: gutch-fixture
 description: Compare Gutch capture and reconstruction worker counts.

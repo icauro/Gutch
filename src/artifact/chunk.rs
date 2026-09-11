@@ -1,3 +1,4 @@
+use crate::profile::ProfileInstant;
 #[cfg(test)]
 use fastcdc::v2020::Chunk;
 #[cfg(test)]
@@ -6,7 +7,6 @@ use fastcdc::v2020::Normalization;
 use fastcdc::v2020::StreamCDC;
 use std::io::BufReader;
 use std::time::Duration;
-use std::time::Instant;
 
 use crate::artifact::hash::hash_hex;
 use crate::error::Result;
@@ -59,12 +59,12 @@ fn chunk_slices(data: &[u8], profile: &ChunkSizingProfile) -> (Vec<ChunkSlice>, 
     let avg = profile.avg_chunk_size_bytes() as usize;
     let max = profile.max_chunk_size_bytes() as usize;
 
-    let boundary_start = Instant::now();
+    let boundary_start = ProfileInstant::detailed(None);
     let chunker = FastCDC::with_level(data, min, avg, max, Normalization::Level1);
     let chunks: Vec<Chunk> = chunker.collect();
     let boundary_scan = boundary_start.elapsed();
 
-    let hash_start = Instant::now();
+    let hash_start = ProfileInstant::detailed(None);
     let mut chunk_slices = Vec::with_capacity(chunks.len());
     for chunk in chunks {
         chunk_slices.push(chunk_slice_from_cdc(chunk, data));
@@ -116,18 +116,10 @@ pub(crate) fn scan_file_chunks(
     let mut full_file_hash = blake3::Hasher::new();
     let mut full_file_hash_duration = Duration::ZERO;
     let mut file_size = 0u64;
-    let _cdc_span = control.profile_span_with_args(
-        "capture.scan_source.file.discover_cdc_boundaries",
-        std::collections::BTreeMap::from([
-            ("min_chunk_bytes".to_string(), serde_json::json!(min)),
-            ("avg_chunk_bytes".to_string(), serde_json::json!(avg)),
-            ("max_chunk_bytes".to_string(), serde_json::json!(max)),
-        ]),
-    );
 
     loop {
         control.checkpoint()?;
-        let t = Instant::now();
+        let t = ProfileInstant::detailed(control.profiler());
         let next_chunk = chunker.next();
         boundary_scan += t.elapsed();
 
@@ -136,13 +128,13 @@ pub(crate) fn scan_file_chunks(
         };
         let chunk = chunk_result.map_err(|e| crate::error::Error::Chunk(e.to_string()))?;
 
-        let t = Instant::now();
+        let t = ProfileInstant::detailed(control.profiler());
         full_file_hash.update(&chunk.data);
         full_file_hash_duration += t.elapsed();
 
         file_size += chunk.length as u64;
         boundary_scan_bytes += chunk.length as u64;
-        let started_at = Instant::now();
+        let started_at = ProfileInstant::detailed(control.profiler());
         let hash = blake3::hash(&chunk.data);
         hash_judgment += started_at.elapsed();
         chunk_results.push(ChunkResult {
@@ -152,7 +144,6 @@ pub(crate) fn scan_file_chunks(
         });
         hash_judgment_bytes += chunk.length as u64;
     }
-    drop(_cdc_span);
 
     Ok((
         ChunkFileScan {

@@ -1,6 +1,6 @@
 name: gutch_vs_external_tools_individual
 runner: gutch-fixture
-measurement_mode: performance
+profile_mode: "off"
 description: Compare per-snapshot backups using tool-specific fast compression presets; compression work is not identical.
 delete_artifacts: true
 open_perfetto: false

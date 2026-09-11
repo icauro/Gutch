@@ -65,7 +65,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
     std::fs::create_dir_all(&operation_root)?;
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
-        let _operation_span = request.control.profile_span("snapshot.fetch");
+        let _operation_span = request.control.profile_span("transfer.fetch");
         let progress = request.control.progress().clone();
         let download_client = build_download_client()?;
         let transfer_progress = Arc::new(FetchTransferProgress::default());
@@ -92,6 +92,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
             &pending_bundle_downloads,
         )?;
         transfer_progress.finish();
+        request.control.download_finished();
         publish_fetched_snapshot(&prepared)?;
         let transfer_stats = transfer_progress.stats(request.transfer_policy);
         let required_bundle_count = required_artifacts
@@ -113,6 +114,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
         emit_progress(
             &progress,
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::Fetch,
                 phase: GutchProgressPhase::Done,
                 message: "Snapshot fetched".to_string(),
@@ -152,7 +154,7 @@ pub fn download_and_reconstruct_snapshot(
             let _operation_span = request
                 .fetch_request
                 .control
-                .profile_span("snapshot.fetch_reconstruct");
+                .profile_span("transfer.fetch_reconstruct");
             let progress = request.fetch_request.control.progress().clone();
             let download_client = build_download_client()?;
             let transfer_progress = Arc::new(FetchTransferProgress::default());
@@ -188,7 +190,7 @@ pub fn download_and_reconstruct_snapshot(
                 let _plan_span = request
                     .fetch_request
                     .control
-                    .profile_span("snapshot.reconstruct.prepare.plan");
+                    .profile_span("installation.reconstruct.prepare.plan");
                 build_reconstruct_pipeline_plan(
                     &prepared.snapshot_manifest,
                     &prepared.chunk_index,
@@ -273,10 +275,11 @@ fn prepare_snapshot_fetch(
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<PreparedSnapshotFetch> {
     request.control.checkpoint()?;
-    let _prepare_span = request.control.profile_span("fetch.prepare");
+    let _prepare_span = request.control.profile_span("transfer.prepare");
     emit_progress(
         progress,
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::Prepare,
             message: "Preparing local repo layout".to_string(),
@@ -296,6 +299,7 @@ fn prepare_snapshot_fetch(
         emit_progress(
             progress,
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::Fetch,
                 phase: GutchProgressPhase::RepoMetadata,
                 message: "Downloading repo metadata".to_string(),
@@ -331,6 +335,7 @@ fn prepare_snapshot_fetch(
     emit_progress(
         progress,
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::Fetch,
             phase: GutchProgressPhase::SnapshotMetadata,
             message: "Downloading snapshot metadata".to_string(),
@@ -434,6 +439,7 @@ fn prepare_snapshot_fetch(
         emit_progress(
             progress,
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::Fetch,
                 phase: GutchProgressPhase::ChunkIndex,
                 message: "Downloading chunk index".to_string(),
@@ -632,7 +638,7 @@ fn download_pending_bundle_files(
     if pending_bundle_downloads.is_empty() {
         return Ok(0);
     }
-    let _queue_span = request.control.profile_span("fetch.download_queue");
+    let _queue_span = request.control.profile_span("transfer.download_queue");
 
     let priorities = pending_bundle_downloads
         .iter()
@@ -675,5 +681,6 @@ fn download_pending_bundle_files(
     }
     scheduler.join()?;
     transfer_progress.finish();
+    request.control.download_finished();
     Ok(downloaded_count)
 }

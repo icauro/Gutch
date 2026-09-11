@@ -62,6 +62,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
     emit_progress(
         control.progress(),
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::SnapshotDelete,
             phase: GutchProgressPhase::ScanSnapshots,
             message: "Scanning remaining snapshots".to_string(),
@@ -89,6 +90,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
         emit_progress(
             control.progress(),
             GutchProgressEvent {
+                feedback: None,
                 operation: GutchOperation::SnapshotDelete,
                 phase: GutchProgressPhase::LoadManifests,
                 message: format!(
@@ -131,6 +133,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
             emit_progress(
                 control.progress(),
                 GutchProgressEvent {
+                    feedback: None,
                     operation: GutchOperation::SnapshotDelete,
                     phase: GutchProgressPhase::ScanBundles,
                     message: format!("Scanning artifacts ({}/{})", i + 1, artifact_files.len()),
@@ -151,6 +154,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
     emit_progress(
         control.progress(),
         GutchProgressEvent {
+            feedback: None,
             operation: GutchOperation::SnapshotDelete,
             phase: GutchProgressPhase::DeleteOrphans,
             message: format!("Removing {} orphan artifact(s)", orphan_artifacts.len()),
