@@ -1,4 +1,22 @@
 use super::*;
+use crate::repo::check::discover_source_snapshot_operations;
+use crate::repo::index::add_built_bundles_to_chunk_index;
+use crate::repo::index::load_chunk_index;
+use crate::repo::index::rebuild_chunk_index_from_bundles_with_pool;
+use crate::repo::index::required_bundle_ids;
+use crate::repo::index::scan_existing_store_state_with_pool;
+use crate::repo::index::write_chunk_index;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::bundle_path;
+use crate::repo::paths::chunk_path;
+use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots;
+use crate::repo::snapshot_manifests::snapshot_blueprint_path;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -200,7 +218,7 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
             .join("snapshot_metadata.json")
     );
     assert_eq!(
-        crate::repo::snapshot_blueprint_path(&paths, snapshot_id).unwrap(),
+        crate::repo::snapshot_manifests::snapshot_blueprint_path(&paths, snapshot_id).unwrap(),
         root.join("snapshots")
             .join(snapshot_id)
             .join("snapshot_blueprint.gtcbin")
@@ -413,7 +431,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     let verification = crate::repo::verify::verify_gutch_repo_artifacts(
         temp.path(),
         Some(&snapshot.snapshot_id),
-        crate::verify::VerifyMode::Strict,
+        crate::installation::inspect::VerifyMode::Strict,
     )
     .unwrap();
     assert!(verification.ok);

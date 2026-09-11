@@ -116,6 +116,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
+            publication: super::super::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: crate::manifest::CompressionProfile::default(),
             snapshot_manifest: &snapshot_manifest,
@@ -125,7 +126,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &HashSet::new(),
             pending_bundle_downloads: &[],
-            transfer_policy: crate::installation::types::TransferConcurrencyPolicy::default(),
+            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
             transfer_progress: None,
@@ -264,7 +265,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     let replacement_chunk_hash = test_hash(b"new!");
     let compression_profile =
         manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::Zstd, Some(3));
-    let replacement_artifact = crate::artifact::store::ArtifactRef::LooseChunk {
+    let replacement_artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
         hash: replacement_chunk_hash.clone(),
     };
     let replacement_path = replacement_artifact.local_path(&repo_paths).unwrap();
@@ -323,13 +324,14 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     assert!(plan.jobs.iter().any(|job| matches!(
         job,
         ReconstructJob::Artifact(ReconstructArtifactJob {
-            artifact: crate::artifact::store::ArtifactRef::LooseChunk { .. },
+            artifact: crate::repo::artifacts::ArtifactRef::LooseChunk { .. },
             ..
         })
     )));
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
+            publication: super::super::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile,
             snapshot_manifest: &snapshot_manifest,
@@ -339,7 +341,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
             runtime_hints: &RuntimeResourceHints { jobs: Some(2) },
             existing_artifacts: &existing_artifacts,
             pending_bundle_downloads: &[],
-            transfer_policy: crate::installation::types::TransferConcurrencyPolicy::default(),
+            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
             transfer_progress: None,
@@ -367,7 +369,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
 
     let chunk_hash = test_hash(b"game");
-    let artifact = crate::artifact::store::ArtifactRef::LooseChunk {
+    let artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
     };
     let chunk_path = artifact.local_path(&repo_paths).unwrap();
@@ -412,6 +414,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     assert_eq!(plan.required_artifact_count, 1);
     let result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
+            publication: super::super::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: crate::manifest::CompressionProfile::for_algorithm(
                 crate::manifest::CompressionKind::Zstd,
@@ -424,7 +427,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &existing_artifacts,
             pending_bundle_downloads: &[],
-            transfer_policy: crate::installation::types::TransferConcurrencyPolicy::default(),
+            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
             transfer_progress: None,
@@ -433,7 +436,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     )
     .unwrap();
 
-    assert_eq!(result.reconstruct_result.required_artifact_count, 1);
+    assert_eq!(result.0.reconstruct_result.required_artifact_count, 1);
     assert_eq!(
         std::fs::read(destination.join("game.exe")).unwrap(),
         b"game"
@@ -482,7 +485,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         .iter()
         .map(|entry| (entry.chunk_hash.clone(), entry.compressed_size))
         .collect::<HashMap<_, _>>();
-    let bundle = crate::artifact::store::ArtifactRef::Bundle {
+    let bundle = crate::repo::artifacts::ArtifactRef::Bundle {
         id: bundle_id.clone(),
     };
     let bundle_path = bundle.local_path(&repo_paths).unwrap();
@@ -577,12 +580,13 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     assert!(matches!(
         &plan.jobs[0],
         ReconstructJob::Artifact(job)
-            if matches!(job.artifact, crate::artifact::store::ArtifactRef::Bundle { .. })
+            if matches!(job.artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. })
                 && job.chunks.len() == 3
     ));
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
+            publication: super::super::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile,
             snapshot_manifest: &snapshot_manifest,
@@ -592,7 +596,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             runtime_hints: &RuntimeResourceHints { jobs: Some(2) },
             existing_artifacts: &existing_artifacts,
             pending_bundle_downloads: &[],
-            transfer_policy: crate::installation::types::TransferConcurrencyPolicy::default(),
+            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
             transfer_progress: None,
@@ -623,7 +627,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
     let compression = manifest::CompressionProfile::default();
     let chunk_hash = test_hash(b"game");
-    let artifact = crate::artifact::store::ArtifactRef::LooseChunk {
+    let artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
     };
     let payload = crate::test_util::loose_bytes(b"game", &compression);
@@ -677,6 +681,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     }];
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
+            publication: super::super::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: compression,
             snapshot_manifest: &snapshot,
@@ -686,7 +691,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
             runtime_hints: &RuntimeResourceHints { jobs: Some(1) },
             existing_artifacts: &HashSet::new(),
             pending_bundle_downloads: &pending,
-            transfer_policy: crate::installation::types::TransferConcurrencyPolicy::default(),
+            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: Some(&reqwest::blocking::Client::new()),
             transfer_progress: Some(&Arc::new(FetchTransferProgress::default())),

@@ -16,11 +16,24 @@ pub fn estimate_snapshot(
 ) -> crate::Result<SnapshotEstimateResult> {
     let input = prepare_input_path(source)?;
     let result = crate::capture::pipeline::build_from_directory(&input.dir, tags)?;
-    let estimate = crate::verify::estimate_build(
-        &result.snapshot_manifest,
-        &Default::default(),
-        1024 * 1024 * 1024,
-    )?;
+    let mut chunks = std::collections::HashMap::new();
+    for file in result.snapshot_manifest.files() {
+        for chunk in &file.chunks {
+            chunks.insert(&chunk.chunk_hash, chunk.raw_size);
+        }
+    }
+    let estimate = crate::manifest::Estimate {
+        unique_chunk_bytes: chunks.values().map(|size| u64::from(*size)).sum(),
+        unique_chunk_count: chunks.len(),
+        encoded_artifact_bytes: result.bundles.iter().map(|bundle| bundle.size).sum::<u64>()
+            + result
+                .loose_chunks
+                .iter()
+                .map(|chunk| chunk.compressed_size)
+                .sum::<u64>(),
+        artifact_count: result.bundles.len() + result.loose_chunks.len(),
+        bundle_count: result.bundles.len(),
+    };
     Ok(SnapshotEstimateResult {
         file_count: result.snapshot_manifest.file_count(),
         total_logical_size: result.snapshot_manifest.total_logical_size,

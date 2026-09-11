@@ -31,7 +31,7 @@ pub fn regenerate_chunk_map(
     control: &GutchOperationControl,
 ) -> Result<ChunkMapRegenerationResult> {
     let work = || {
-        let (paths, _) = super::load_gutch_repo_manifest(root)?;
+        let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(root)?;
         let profile = CompressionProfile::default();
         let mut entries: BTreeMap<String, ChunkIndexEntry> = BTreeMap::new();
         let mut result = ChunkMapRegenerationResult {
@@ -50,7 +50,7 @@ pub fn regenerate_chunk_map(
             let recovered = (|| -> Result<Vec<(String, ChunkIndexEntry)>> {
                 let size = crate::artifact::format::size_u32(std::fs::metadata(&path)?.len())?;
                 match &artifact {
-                    crate::artifact::store::ArtifactRef::Bundle { id } => {
+                    crate::repo::artifacts::ArtifactRef::Bundle { id } => {
                         let mut reader = crate::artifact::bundle::BundleReader::open(
                             std::fs::File::open(&path)?,
                             &profile,
@@ -76,8 +76,8 @@ pub fn regenerate_chunk_map(
                             })
                             .collect())
                     }
-                    crate::artifact::store::ArtifactRef::LooseChunk { hash } => {
-                        let (declared, raw, _) = crate::artifact::store::read_loose_header(
+                    crate::repo::artifacts::ArtifactRef::LooseChunk { hash } => {
+                        let (declared, raw, _) = crate::artifact::loose::read_loose_header(
                             &mut std::fs::File::open(&path)?,
                         )?;
                         if declared.to_hex() != *hash {
@@ -85,7 +85,7 @@ pub fn regenerate_chunk_map(
                                 "loose artifact filename disagrees with header",
                             ));
                         }
-                        crate::artifact::store::read_loose_chunk(
+                        crate::artifact::loose::read_loose_chunk(
                             &path,
                             hash,
                             u64::from(raw),
@@ -133,7 +133,8 @@ pub fn regenerate_chunk_map(
         }
         for snapshot in super::inventory::list_repo_snapshot_ids(&paths)? {
             control.checkpoint()?;
-            let manifest = super::load_snapshot_manifest(&paths, &snapshot)?;
+            let manifest =
+                crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &snapshot)?;
             let mut affected = false;
             for chunk in manifest.files().flat_map(|file| &file.chunks) {
                 if !entries
@@ -156,7 +157,7 @@ pub fn regenerate_chunk_map(
         result.complete = result.corrupt_artifacts.is_empty() && result.missing_chunks.is_empty();
         if publish && result.complete {
             control.checkpoint()?;
-            super::write_chunk_index(
+            crate::repo::index::write_chunk_index(
                 &paths,
                 &ChunkIndex {
                     format_version: "1".into(),

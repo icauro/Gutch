@@ -117,7 +117,7 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
 
 #[test]
 fn verify_summary_reports_wall_phases_and_strict_worker_details() {
-    let timings = crate::verify::VerifyTimings {
+    let timings = crate::installation::inspect::VerifyTimings {
         verify_mode: crate::api::VerifyMode::Strict,
         prepare_wall: Duration::from_secs(1),
         verify_files_wall: Duration::from_secs(4),
@@ -130,7 +130,7 @@ fn verify_summary_reports_wall_phases_and_strict_worker_details() {
         chunk_hash: Duration::from_secs(1),
         chunk_hash_bytes: 12 * 1024 * 1024,
         total: Duration::from_secs(6),
-        ..crate::verify::VerifyTimings::default()
+        ..crate::installation::inspect::VerifyTimings::default()
     };
 
     let summary = verify_timings_summary(&timings);

@@ -30,7 +30,7 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
     layout.write_manifest('running', schema_version=1, fixture=asdict(fixture),
         host={'platform': platform.platform(), 'python': platform.python_version()},
         source_revision=revision, binary_sha256=file_sha256(executable) if executable.is_file() else None,
-        measurement_mode=fixture.measurement_mode, cache_state='fresh_repository_os_cache_uncontrolled')
+        measurement_mode=fixture.measurement_mode, memory_profile=fixture.memory_profile, cache_state='fresh_repository_os_cache_uncontrolled')
     try:
         for index, (specification, repetition) in enumerate(schedule):
             label = specification.label
@@ -42,7 +42,7 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
             commands.evidence_directory = layout.lane(label).root / 'commands'
             result = execute(case)
             result.metadata.update(case=specification.label, repetition=repetition,
-                warmup=specification.warmup, measurement_mode=fixture.measurement_mode)
+                warmup=specification.warmup, measurement_mode=fixture.measurement_mode, memory_profile=fixture.memory_profile)
             if result.metadata.get('differences'):
                 layout.write_results([item.as_json() for item in results] + [result.as_json()])
                 raise RuntimeError(f"{label} produced incorrect output")

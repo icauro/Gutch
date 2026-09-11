@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use super::load_gutch_repo_manifest;
-use super::write_gutch_repo_manifest;
 use crate::Result;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::write_gutch_repo_manifest;
 
 pub fn update_gutch_repo_name(repo_root: &Path, name: &str) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();

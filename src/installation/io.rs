@@ -69,8 +69,8 @@ fn reconstruct_artifact_job(
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let artifact_span_name = match &job.artifact {
-        crate::artifact::store::ArtifactRef::Bundle { .. } => "snapshot.reconstruct.bundle",
-        crate::artifact::store::ArtifactRef::LooseChunk { .. } => {
+        crate::repo::artifacts::ArtifactRef::Bundle { .. } => "snapshot.reconstruct.bundle",
+        crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => {
             "snapshot.reconstruct.job.loose_chunk"
         }
     };
@@ -82,7 +82,7 @@ fn reconstruct_artifact_job(
     let mut target_handles = HashMap::new();
 
     match &job.artifact {
-        crate::artifact::store::ArtifactRef::Bundle { .. } => {
+        crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
             let mut reader = crate::artifact::bundle::BundleReader::open(
                 File::open(&job.artifact_path)?,
                 compression_profile,
@@ -189,7 +189,7 @@ fn reconstruct_artifact_job(
             timings.bundle_read_compressed_bytes = compressed_bytes;
             timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
         }
-        crate::artifact::store::ArtifactRef::LooseChunk { hash } => {
+        crate::repo::artifacts::ArtifactRef::LooseChunk { hash } => {
             if job.chunks.len() != 1
                 || job.chunks[0].chunk_hash != crate::artifact::hash::ChunkHash::parse_hex(hash)?
             {
@@ -205,7 +205,7 @@ fn reconstruct_artifact_job(
                     hash, compressed_bytes, chunk.compressed_size
                 )));
             }
-            let (bytes, read_metrics) = crate::artifact::store::read_loose_chunk_with_metrics(
+            let (bytes, read_metrics) = crate::artifact::loose::read_loose_chunk_with_metrics(
                 &job.artifact_path,
                 hash,
                 u64::from(chunk.raw_size),
@@ -612,8 +612,8 @@ fn reconstruct_artifact_trace_args(
         (
             "artifact_kind".to_string(),
             serde_json::json!(match &job.artifact {
-                crate::artifact::store::ArtifactRef::Bundle { .. } => "bundle",
-                crate::artifact::store::ArtifactRef::LooseChunk { .. } => "loose_chunk",
+                crate::repo::artifacts::ArtifactRef::Bundle { .. } => "bundle",
+                crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => "loose_chunk",
             }),
         ),
         (
@@ -868,8 +868,12 @@ pub(super) fn reconstruct_file_trace_metadata(
     let mut artifacts = HashSet::new();
     let mut bundle_artifacts = HashSet::new();
     let mut loose_chunk_artifacts = HashSet::new();
-    let ReconstructPipelineReconstruction::ReconstructFromParts { chunks } = reconstruction else {
-        return ReconstructFileTraceMetadata::default();
+    let chunks = match reconstruction {
+        ReconstructPipelineReconstruction::ReconstructFromParts { chunks } => chunks,
+        #[cfg(test)]
+        ReconstructPipelineReconstruction::CopyFromSource => {
+            return ReconstructFileTraceMetadata::default();
+        }
     };
 
     for chunk in chunks {
@@ -881,10 +885,10 @@ pub(super) fn reconstruct_file_trace_metadata(
                 chunk_hashes.insert(chunk.chunk_hash.as_str());
                 artifacts.insert(&chunk.artifact);
                 match &chunk.artifact {
-                    crate::artifact::store::ArtifactRef::Bundle { .. } => {
+                    crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
                         bundle_artifacts.insert(&chunk.artifact);
                     }
-                    crate::artifact::store::ArtifactRef::LooseChunk { .. } => {
+                    crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => {
                         loose_chunk_artifacts.insert(&chunk.artifact);
                     }
                 }

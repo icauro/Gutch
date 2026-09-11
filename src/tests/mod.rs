@@ -1,14 +1,18 @@
 use crate::capture::pipeline::build_from_directory;
 use crate::installation::SnapshotReconstructFromRepoRequest;
+use crate::installation::inspect::RepairClassification;
+use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::VerifyRequest;
+use crate::installation::inspect::classify_directory;
 use crate::installation::reconstruct_snapshot_from_repo;
 use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperationControl;
-use crate::repo::chunk_index::add_built_bundles_to_chunk_index;
-use crate::repo::chunk_index::load_chunk_index;
-use crate::repo::chunk_index::write_chunk_index;
+use crate::repo::index::add_built_bundles_to_chunk_index;
+use crate::repo::index::load_chunk_index;
+use crate::repo::index::write_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::bundle_path;
 use crate::repo::paths::bundle_path_in_root;
@@ -16,11 +20,6 @@ use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::runtime::RuntimeResourceHints;
 use crate::test_util;
-use crate::verify::RepairClassification;
-use crate::verify::VerifyMode;
-use crate::verify::VerifyRequest;
-use crate::verify::classify_directory;
-use crate::verify::estimate_build;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -384,13 +383,6 @@ fn test_large_game_build_200mb() {
 
     assert!(errors.is_empty(), "verification errors: {:?}", errors);
 
-    let est = estimate_build(
-        &result.snapshot_manifest,
-        &Default::default(),
-        1024 * 1024 * 1024,
-    )
-    .unwrap();
-
     println!();
     println!("=== 200 MB mock game capture ===");
     println!(
@@ -430,18 +422,6 @@ fn test_large_game_build_200mb() {
         gen_ms + build_ms + recon_ms + verify_ms
     );
     println!();
-    println!("  fresh reconstruction estimate:");
-    println!("    missing chunks:      {}", est.missing_chunk_count);
-    println!(
-        "    missing logical:     {:.1} MB",
-        est.missing_logical_bytes as f64 / (1024.0 * 1024.0)
-    );
-    println!(
-        "    missing compressed:  {:.1} MB",
-        est.missing_compressed_bytes as f64 / (1024.0 * 1024.0)
-    );
-    println!("    estimated bundles:   {}", est.required_bundle_count);
-
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&artifacts_dir);
     let _ = std::fs::remove_dir_all(&repo_root);

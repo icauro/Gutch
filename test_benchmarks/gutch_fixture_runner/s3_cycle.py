@@ -126,7 +126,7 @@ def run_s3_cycle(
     options = options or S3CycleOptions()
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
-    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
+    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.memory_profile)
     cli = GutchCli(cli.executable, tracing=fixture.measurement_mode == "profile")
     local = GutchOperations(cli, commands)
     client = make_client(settings)

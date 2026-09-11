@@ -49,11 +49,15 @@ transactions, exhaustive power-loss testing, and resumable recovery are not prov
 
 | Limitation | Current reason and effect |
 |---|---|
-| No snapshot-tree diff or historical file search | Tools list snapshots, inspect bundles, and compare physical paths. Pull differences concern synchronization artifacts, not file history. |
+| No snapshot-tree diff or historical file search | Installation preview compares a target snapshot with a physical destination; tools also list snapshots, inspect bundles, and compare physical paths. Pull differences concern synchronization artifacts, not file history. |
 | No arbitrary selected-path export or filesystem mount | Public reconstruction produces a complete local tree. Repair selects damaged entries, not arbitrary export paths; no mounted random-read interface exists. |
 | No transfer bandwidth ceiling | Worker limits and adaptive backpressure control concurrency, not a bytes-per-second budget. |
 | Loose-chunk publishing is limited | Engine operations support loose chunks; production remote delivery currently publishes bundled artifacts. |
 | No client-controlled repository encryption | Artifacts are compressed and hashed without an engine encryption/key-management layer. Hashes do not conceal bytes; host authorization does not supply this guarantee. |
+
+Selective repair is not an atomic multi-file commit; failure during publication
+can require a retry. Indexes, manifests, and job plans still scale with repository
+or snapshot size. Worker admission limits do not impose a fixed process-RAM ceiling.
 
 Whole-snapshot replacement removes entries absent from the target tree. Repair
 can handle extras separately; it does not change replacement semantics.
@@ -71,14 +75,14 @@ particular host deployment provides.
 
 ## Evidence
 
-- Surface and scope: [API](../../src/api.rs), [CLI](../../src/command_api/args.rs),
+- Surface and scope: [API](../../src/api.rs), [CLI](../../src/cli/args.rs),
   [ownership](../../AGENTS.md).
-- Persistence and recovery: [capture](../../src/repo/capture_plan.rs),
-  [remote operations](../../src/repo/remote.rs), [bundles](../../src/artifact/bundle.rs),
+- Persistence and recovery: [capture](../../src/capture/execute.rs),
+  [remote operations](../../src/repo/remote/mod.rs), [bundles](../../src/artifact/bundle.rs),
   [cleanup](../../src/repo/cleanup.rs), [path safety](11_path_safety_and_conflicts.md).
 - Verification and capture: [repository verifier](../../src/repo/verify.rs),
-  [scanner](../../src/build/scan.rs), [source ingestion](03_snapshot_source_ingestion.md).
+  [scanner](../../src/capture/scan.rs), [source ingestion](03_snapshot_source_ingestion.md).
 - Filesystem and delivery: [entry model](../../src/manifest/content.rs),
-  [identity](../../src/repo/source_identity.rs), [requests](../../src/snapshot_ops/types.rs),
-  [transfer](../../src/snapshot_ops/transfer.rs), [packaging](05_packaging_and_bundles.md),
+  [identity](../../src/snapshot/identity.rs), [requests](../../src/installation/types.rs),
+  [transfer](../../src/transfer/download.rs), [packaging](05_packaging_and_bundles.md),
   [reconstruction](06_reconstruct_pipeline.md), [repair](08_installation_verification_and_repair.md).

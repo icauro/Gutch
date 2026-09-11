@@ -5,18 +5,18 @@ use std::time::SystemTime;
 
 use rayon::prelude::*;
 
+use super::index::codec as binary;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::manifest;
 use crate::manifest::ArtifactStorageMode;
 use crate::manifest::FileManifest;
-use crate::manifest::binary;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::paths::bundle_id_from_bundle_path;
 use crate::repo::paths::chunk_path;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
-use super::GutchRepoPaths;
+use crate::repo::paths::GutchRepoPaths;
 
 #[derive(Debug)]
 pub struct ExistingStoreState {
@@ -75,11 +75,11 @@ pub fn required_bundle_ids(
     chunk_index: &manifest::ChunkIndex,
 ) -> Result<HashSet<String>> {
     Ok(
-        crate::artifact::store::required_artifacts(snapshot_manifest, chunk_index)?
+        crate::repo::artifacts::required_artifacts(snapshot_manifest, chunk_index)?
             .into_iter()
             .filter_map(|artifact| match artifact {
-                crate::artifact::store::ArtifactRef::Bundle { id } => Some(id),
-                crate::artifact::store::ArtifactRef::LooseChunk { .. } => None,
+                crate::repo::artifacts::ArtifactRef::Bundle { id } => Some(id),
+                crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => None,
             })
             .collect(),
     )
@@ -97,7 +97,7 @@ pub fn scan_existing_store_state_with_pool(
 ) -> Result<ExistingStoreState> {
     let mut state = ExistingStoreState::default();
     let chunk_index = load_chunk_index(paths)?;
-    let (_, repo_manifest) = super::load_gutch_repo_manifest(&paths.repo_root)?;
+    let (_, repo_manifest) = crate::repo::paths::load_gutch_repo_manifest(&paths.repo_root)?;
     let compression_profile = repo_manifest.compression_profile();
 
     let _bundle_ids_span =
@@ -353,3 +353,9 @@ pub(crate) fn write_chunk_index(
 ) -> Result<()> {
     binary::write_chunk_index_binary(&paths.chunk_map_path, index)
 }
+
+pub(crate) mod codec;
+mod entries;
+mod records;
+pub use entries::ChunkIndexEntries;
+pub use records::{ChunkIndex, ChunkIndexEntry};

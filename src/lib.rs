@@ -24,8 +24,7 @@ mod runtime;
 mod snapshot;
 #[cfg(test)]
 mod test_util;
-mod transport;
-mod verify;
+mod transfer;
 
 pub(crate) use error::Error;
 pub(crate) use error::Result;

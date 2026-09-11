@@ -131,8 +131,8 @@ released through the same operation-owned artifact lifecycle.
 
 ## Implementation anchors
 
-The owning implementation is `src/build/scan.rs` for inventory and per-file
-work, `src/build/pipeline.rs` for runtime setup, dedupe, artifact grouping, and
+The owning implementation is `src/capture/scan.rs` for inventory and per-file
+work, `src/capture/pipeline.rs` for runtime setup, dedupe, artifact grouping, and
 manifest finalization, `src/artifact/chunk.rs` for streaming FastCDC, and
 `src/runtime/mod.rs` for worker planning.
 

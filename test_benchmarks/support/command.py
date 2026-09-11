@@ -98,7 +98,9 @@ class CommandRunner:
         stream: TextIO | None = None,
         step_wait_seconds: float = 0.0,
         on_step: Callable[[str], None] | None = None,
+        memory_profile: bool = False,
     ):
+        self.memory_profile = memory_profile
         self.progress = progress
         self.stream = stream or sys.stderr
         self.step_wait_seconds = step_wait_seconds
@@ -142,9 +144,15 @@ class CommandRunner:
         progress = _CommandProgress(description, self.stream, self.progress)
         progress.start()
         started = time.perf_counter()
+        memory = {} if self.memory_profile else None
+        memory_options = {}
+        if memory is not None:
+            memory_options = {"memory": memory, "memory_timeline":
+                self.evidence_directory / f"{len(self.measurements) + 1:04d}.memory.jsonl"
+                if self.evidence_directory is not None else None}
         try:
             stdout, stderr, returncode = self._run_streamed(
-                rendered, cwd=cwd, env=process_env,
+                rendered, cwd=cwd, env=process_env, **memory_options,
                 on_output=on_output or (lambda line, is_stderr: None),
             )
         except BaseException:
@@ -160,6 +168,8 @@ class CommandRunner:
         measurement = {"operation": description, "boundary": "process_elapsed",
             "elapsed_seconds": result.elapsed_seconds, "command": result.command,
             "returncode": result.returncode}
+        if memory is not None:
+            measurement["memory"] = memory
         self.measurements.append(measurement)
         if self.evidence_directory is not None:
             self.evidence_directory.mkdir(parents=True, exist_ok=True)
@@ -182,6 +192,8 @@ class CommandRunner:
         cwd: Path | None,
         env: Mapping[str, str],
         on_output: Callable[[str, bool], None],
+        memory: dict | None = None,
+        memory_timeline: Path | None = None,
     ) -> tuple[str, str, int]:
         process = subprocess.Popen(
             rendered,
@@ -196,6 +208,11 @@ class CommandRunner:
             bufsize=1,
             start_new_session=os.name != "nt",
         )
+        sampler = None
+        if memory is not None:
+            from .memory import ProcessMemorySampler
+            sampler = ProcessMemorySampler(process.pid, memory_timeline)
+            sampler.start()
         events: queue.Queue[tuple[bool, str | BaseException | None]] = queue.Queue()
 
         def read_stream(stream: TextIO, is_stderr: bool) -> None:
@@ -247,6 +264,8 @@ class CommandRunner:
             process.wait()
             raise
         finally:
+            if sampler is not None:
+                memory.update(sampler.finish())
             for thread in threads:
                 thread.join(timeout=5)
         return "".join(stdout_lines), "".join(stderr_lines), returncode

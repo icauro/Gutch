@@ -7,6 +7,8 @@ pub enum VerifyMode {
     #[default]
     Fast,
     Strict,
+    /// Inspect entry metadata only; this does not establish content integrity.
+    MetadataOnly,
 }
 
 impl VerifyMode {
@@ -14,6 +16,7 @@ impl VerifyMode {
         match self {
             VerifyMode::Fast => "fast",
             VerifyMode::Strict => "strict",
+            VerifyMode::MetadataOnly => "metadata-only",
         }
     }
 

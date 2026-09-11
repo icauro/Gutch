@@ -176,6 +176,6 @@ missing content prevents publication. This cannot recover lost blueprints,
 original paths, or missing payload bytes.
 
 Sources: [formats](../../src/artifact/format.rs),
-[bundles](../../src/artifact/bundle.rs), [loose chunks](../../src/artifact/store.rs),
-[binary metadata](../../src/manifest/binary.rs),
+[bundles](../../src/artifact/bundle.rs), [loose chunks](../../src/artifact/loose.rs),
+[blueprint codec](../../src/manifest/binary.rs), [chunk-map codec](../../src/repo/index/codec.rs),
 [coordination](../../src/repo/coordination.rs), [recovery](../../src/repo/recovery.rs).

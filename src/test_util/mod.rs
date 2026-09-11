@@ -168,7 +168,7 @@ pub(crate) fn chunk_entries(
 
 pub(crate) fn loose_bytes(bytes: &[u8], profile: &crate::manifest::CompressionProfile) -> Vec<u8> {
     let mut encoded = Vec::new();
-    crate::artifact::store::write_loose_chunk(
+    crate::artifact::loose::write_loose_chunk(
         &mut encoded,
         crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes)),
         bytes,
@@ -200,7 +200,7 @@ pub fn index_manifest(
             )
         })
         .collect();
-    crate::repo::chunk_index::write_chunk_index(
+    crate::repo::index::write_chunk_index(
         paths,
         &crate::manifest::ChunkIndex {
             format_version: "1".into(),

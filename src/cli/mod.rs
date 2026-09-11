@@ -1,4 +1,3 @@
-pub(crate) mod actions;
 pub(crate) mod args;
 pub(crate) mod bundle;
 pub(crate) mod commands;

@@ -1,82 +1,12 @@
 use crate::artifact::format;
 use std::io::Read;
 use std::io::Write;
-use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
 
 use crate::Error;
 use crate::Result;
-use crate::manifest::ArtifactStorageMode;
-use crate::manifest::ChunkIndexEntry;
 use crate::manifest::CompressionProfile;
-use crate::repo::paths::GutchRepoPaths;
-
-/// A persisted artifact that can satisfy one or more logical chunks.
-///
-/// Bundles and loose chunks differ only at this boundary. Snapshot planning,
-/// reconstruction, and verification operate on this type; the remote transfer
-/// layer resolves bundle URLs at its provider-specific boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum ArtifactRef {
-    Bundle { id: String },
-    LooseChunk { hash: String },
-}
-
-impl ArtifactRef {
-    pub(crate) fn from_chunk_entry(chunk_hash: &str, entry: &ChunkIndexEntry) -> Self {
-        match entry.storage_mode {
-            ArtifactStorageMode::Bundled => Self::Bundle {
-                id: entry.bundle_id.to_string(),
-            },
-            ArtifactStorageMode::LooseChunks => Self::LooseChunk {
-                hash: chunk_hash.to_string(),
-            },
-        }
-    }
-
-    pub(crate) fn id(&self) -> &str {
-        match self {
-            Self::Bundle { id } => id,
-            Self::LooseChunk { hash } => hash,
-        }
-    }
-
-    pub(crate) fn local_path(&self, repo_paths: &GutchRepoPaths) -> Result<PathBuf> {
-        match self {
-            Self::Bundle { id } => crate::repo::paths::bundle_path(repo_paths, id),
-            Self::LooseChunk { hash } => crate::repo::paths::chunk_path(repo_paths, hash),
-        }
-    }
-}
-
-pub(crate) fn required_artifacts(
-    snapshot_manifest: &crate::manifest::snapshot::SnapshotManifest,
-    chunk_index: &crate::manifest::ChunkIndex,
-) -> Result<std::collections::HashSet<ArtifactRef>> {
-    snapshot_manifest
-        .files()
-        .flat_map(|file| file.chunks.iter())
-        .map(|chunk_ref| {
-            let entry = chunk_index
-                .entries
-                .get(&chunk_ref.chunk_hash)
-                .ok_or_else(|| {
-                    Error::manifest(format!(
-                        "missing chunk index entry for required chunk '{}'",
-                        chunk_ref.chunk_hash
-                    ))
-                })?;
-            if entry.raw_size != chunk_ref.raw_size {
-                return Err(Error::manifest(format!(
-                    "chunk index size disagrees with snapshot for '{}'",
-                    chunk_ref.chunk_hash
-                )));
-            }
-            Ok(ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry))
-        })
-        .collect()
-}
 
 pub(crate) fn read_loose_chunk(
     path: &std::path::Path,
@@ -136,7 +66,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
         let _decompress_span =
             profiler.map(|profiler| profiler.span("artifact.loose_chunk.payload_decompress"));
         let mut decoder =
-            crate::artifact::compress::decoder_from_reader(&mut file, codec)?.take(raw_size + 1);
+            crate::artifact::compression::decoder_from_reader(&mut file, codec)?.take(raw_size + 1);
         let mut bytes = Vec::with_capacity(raw_size as usize);
         decoder.read_to_end(&mut bytes)?;
         metrics.decompress = started_at.elapsed();
@@ -186,7 +116,7 @@ pub(crate) fn write_loose_chunk(
     format::write_codec(writer, profile.compression)?;
     writer.write_all(&format::size_u32(bytes.len() as u64)?.to_le_bytes())?;
     writer.write_all(hash.as_bytes())?;
-    crate::artifact::compress::encode_to_writer(writer, profile, bytes.len() as u64, |writer| {
+    crate::artifact::compression::encode_to_writer(writer, profile, bytes.len() as u64, |writer| {
         writer.write_all(bytes)?;
         Ok(())
     })

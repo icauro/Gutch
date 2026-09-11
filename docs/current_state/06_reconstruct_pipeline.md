@@ -9,8 +9,10 @@ Scope: Gutch component current state
 The reconstruction pipeline turns a snapshot blueprint and repo chunk index
 into a verified filesystem tree. It can source artifacts from the local repo,
 reuse a verified source snapshot, or consume bundles downloaded by the remote
-fetch path. It always writes the destination through a local staging directory
-and promotes the completed tree through a locked, recoverable backup-and-rename sequence.
+fetch path. Required content is written through local staging. Reconstruction publishes the
+completed tree through a locked, recoverable backup-and-rename sequence. Repair
+uses the same executor with selective entry publication; its failure boundary is
+described in [installation policies](08_installation_verification_and_repair.md).
 
 In the current remote flow, “remote reconstruction” means remote artifacts are
 made available to the local engine; Gutch does not reconstruct into a remote
@@ -29,7 +31,7 @@ and final verification are local operations.
 | 6. Fetch missing remote artifacts | Download missing bundles through the transfer scheduler and emit `Ready` only after an atomic local write completes. | In unified fetch-reconstruct, download and decode overlap. |
 | 7. Decode and fan out | Read each artifact, verify selected raw chunks, and positional-write bytes to all target files. | Artifact jobs run concurrently; a bundle is read once per artifact job. |
 | 8. Verify completed files | Enqueue a file verification job when all producing jobs for that file finish. | Unrelated files continue while another file is waiting on an artifact. |
-| 9. Finalize and promote | Apply file, directory, and symlink metadata, then atomically replace the destination with staging. | Promotion is gated on successful reconstruction and verification; entries absent from the new snapshot are removed with the old tree. |
+| 9. Finalize and promote | Apply file, directory, and symlink metadata, then publish through the selected directory or selective-entry policy. | Promotion is gated on successful reconstruction and verification; directory replacement removes the old tree; selective repair handles extras separately. |
 
 ## Job graph and parallelization
 
@@ -85,6 +87,10 @@ The planner prefers reuse in this order:
 3. Read the content-addressed bundle or loose chunk from the local repo.
 4. Wait for the remote scheduler to download a missing artifact, then use the
    same local artifact job.
+
+A damaged reuse source contributes only files that passed verification. Healthy
+files remain eligible for whole-file or chunk reuse; chunks inside damaged files
+are not salvaged. Reused bytes are validated again while staging.
 
 Source-chunk jobs are deduplicated by source path, offset, raw size, and hash.
 Source handles are cached (up to 64 entries), and source jobs are ordered by
@@ -178,11 +184,11 @@ adjustments.
 
 ## Implementation anchors
 
-The owning implementation is `src/snapshot_ops/pipeline.rs` for planning,
-staging, dispatch, and promotion, `src/snapshot_ops/reconstruct_io.rs` for
-artifact/source reads and positional writes, `src/snapshot_ops/apply.rs` for
-local reconstruction entry, `src/snapshot_ops/fetch.rs` for unified remote
-fetch-reconstruct, and `src/snapshot_ops/transfer.rs` for transfer scheduling.
+The owning implementation is `src/installation/execute.rs` for planning,
+staging, dispatch, and promotion, `src/installation/io.rs` for
+artifact/source reads and positional writes, `src/installation/apply.rs` for
+local reconstruction entry, `src/transfer/fetch.rs` for unified remote
+fetch-reconstruct, and `src/transfer/download.rs` for transfer scheduling.
 
 ## Related pages
 

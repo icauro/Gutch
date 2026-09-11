@@ -143,7 +143,7 @@ pub struct BuiltBundle {
     pub bundle_id: String,
     pub(crate) staged_file: StagedArtifactFile,
     pub(crate) size: u64,
-    pub(crate) entries: Vec<crate::manifest::BundleTableEntry>,
+    pub(crate) entries: Vec<crate::artifact::bundle::BundleTableEntry>,
 }
 
 impl BuiltBundle {

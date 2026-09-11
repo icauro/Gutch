@@ -9,7 +9,7 @@ use crate::progress::GutchOperation;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::repo::Result;
-use crate::repo::remove_snapshot_from_repo;
+use crate::repo::cleanup::remove_snapshot_from_repo;
 
 /// Result of explicitly retagging one exact snapshot ID.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

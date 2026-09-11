@@ -4,20 +4,20 @@ use std::path::Path;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::GutchRepoPaths;
 use super::inventory::list_repo_snapshot_ids;
 use super::inventory::scan_artifact_inventory;
 use super::inventory::scan_bundle_inventory;
-use super::load_chunk_index;
-use super::load_gutch_repo_manifest;
-use super::load_snapshot_manifest;
-use super::required_bundle_ids;
 use super::snapshot_descriptor::summarize_snapshot_tags;
-use super::source_modified_at_from_directory;
 use crate::Error;
 use crate::Result;
 use crate::manifest;
 use crate::manifest::REPO_METADATA_FILE;
+use crate::repo::index::load_chunk_index;
+use crate::repo::index::required_bundle_ids;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::snapshot::identity::source_modified_at_from_directory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -272,7 +272,7 @@ fn empty_repo_check_status(
 fn check_snapshot_manifests(
     repo_paths: &GutchRepoPaths,
     snapshots_root: &Path,
-    available_artifacts: &HashSet<crate::artifact::store::ArtifactRef>,
+    available_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
 ) -> Result<(Vec<RepoCheckSnapshotStatus>, SnapshotManifestCheckTimings)> {
     if !snapshots_root.exists() {
         return Ok((Vec::new(), SnapshotManifestCheckTimings::default()));
@@ -298,12 +298,12 @@ fn check_snapshot_manifests(
             )?
             .map(|bytes| crate::artifact::hash::hash_hex(&blake3::hash(&bytes)));
         let required_artifacts =
-            crate::artifact::store::required_artifacts(&manifest, &chunk_index)?;
+            crate::repo::artifacts::required_artifacts(&manifest, &chunk_index)?;
         let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index)?;
         let missing_bundle_count = required_bundle_ids
             .iter()
             .filter(|bundle_id| {
-                !available_artifacts.contains(&crate::artifact::store::ArtifactRef::Bundle {
+                !available_artifacts.contains(&crate::repo::artifacts::ArtifactRef::Bundle {
                     id: (*bundle_id).clone(),
                 })
             })

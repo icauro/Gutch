@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATHS = (
     "Cargo.toml", "Cargo.lock", "pyproject.toml", "uv.lock", ".cargo",
     "src", "gutch-cli/Cargo.toml", "gutch-cli/src", "test_services",
-    "tests/__init__.py", "tests/run_all.py", "tests/support", "tests/workflows",
+    "tests/public_api.rs", "tests/installation_plan.rs", "tests/__init__.py", "tests/run_all.py", "tests/support", "tests/workflows",
     "tests/datasets", "tests/tooling", "test_benchmarks",
     "test_dataset/ensure_test_dataset.py", "test_dataset/test_dataset_recipes",
 )

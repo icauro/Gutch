@@ -17,10 +17,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::time::Instant;
 
-use super::types::BundleDownload;
-use super::types::SnapshotFetchRequest;
-use super::types::TransferConcurrencyPolicy;
-use super::types::TransferStats;
 use crate::Error;
 use crate::Result;
 use crate::manifest::gutch_repo::GutchRepoManifest;
@@ -31,6 +27,10 @@ use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
 use crate::progress::emit_progress;
+use crate::transfer::types::BundleDownload;
+use crate::transfer::types::SnapshotFetchRequest;
+use crate::transfer::types::TransferConcurrencyPolicy;
+use crate::transfer::types::TransferStats;
 
 const DOWNLOAD_PROGRESS_EMIT_BYTES: u64 = 256 * 1024;
 const MAX_TRANSFER_CONCURRENCY: usize = 16;
@@ -39,12 +39,12 @@ const ADAPTIVE_SAMPLE_INTERVAL: Duration = Duration::from_secs(2);
 const ADAPTIVE_MIN_IMPROVEMENT: f64 = 1.05;
 const ADAPTIVE_MAX_REGRESSION: f64 = 0.90;
 const ADAPTIVE_STABLE_WINDOWS: usize = 2;
-pub(super) const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
-pub(super) const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
-pub(super) const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug)]
-pub(super) struct FetchTransferProgress {
+pub(crate) struct FetchTransferProgress {
     started_at: Instant,
     finished_at: Mutex<Option<Instant>>,
     transferred_bytes: AtomicU64,
@@ -75,35 +75,35 @@ impl Default for FetchTransferProgress {
 }
 
 impl FetchTransferProgress {
-    pub(super) fn add_total_bytes(&self, bytes: u64) -> u64 {
+    pub(crate) fn add_total_bytes(&self, bytes: u64) -> u64 {
         self.total_bytes.fetch_add(bytes, AtomicOrdering::Relaxed) + bytes
     }
 
-    pub(super) fn add_transferred_bytes(&self, bytes: u64) -> u64 {
+    pub(crate) fn add_transferred_bytes(&self, bytes: u64) -> u64 {
         self.transferred_bytes
             .fetch_add(bytes, AtomicOrdering::Relaxed)
             + bytes
     }
 
-    pub(super) fn mark_bundle_completed(&self) -> usize {
+    pub(crate) fn mark_bundle_completed(&self) -> usize {
         self.completed_bundle_count
             .fetch_add(1, AtomicOrdering::Relaxed)
             + 1
     }
 
-    pub(super) fn completed_bundle_count(&self) -> usize {
+    pub(crate) fn completed_bundle_count(&self) -> usize {
         self.completed_bundle_count.load(AtomicOrdering::Relaxed)
     }
 
-    pub(super) fn transferred_bytes(&self) -> u64 {
+    pub(crate) fn transferred_bytes(&self) -> u64 {
         self.transferred_bytes.load(AtomicOrdering::Relaxed)
     }
 
-    pub(super) fn total_bytes(&self) -> u64 {
+    pub(crate) fn total_bytes(&self) -> u64 {
         self.total_bytes.load(AtomicOrdering::Relaxed)
     }
 
-    pub(super) fn finish(&self) {
+    pub(crate) fn finish(&self) {
         if let Ok(mut finished_at) = self.finished_at.lock() {
             if finished_at.is_none() {
                 *finished_at = Some(Instant::now());
@@ -139,11 +139,11 @@ impl FetchTransferProgress {
         self.retry_count.fetch_add(1, AtomicOrdering::Relaxed);
     }
 
-    pub(super) fn adjustment_recorded(&self) {
+    pub(crate) fn adjustment_recorded(&self) {
         self.adjustment_count.fetch_add(1, AtomicOrdering::Relaxed);
     }
 
-    pub(super) fn set_downstream_backpressure(&self, enabled: bool) {
+    pub(crate) fn set_downstream_backpressure(&self, enabled: bool) {
         self.downstream_backpressure
             .store(enabled, AtomicOrdering::Release);
     }
@@ -152,11 +152,11 @@ impl FetchTransferProgress {
         self.downstream_backpressure.load(AtomicOrdering::Acquire)
     }
 
-    pub(super) fn retry_count(&self) -> usize {
+    pub(crate) fn retry_count(&self) -> usize {
         self.retry_count.load(AtomicOrdering::Acquire)
     }
 
-    pub(super) fn stats(&self, policy: TransferConcurrencyPolicy) -> TransferStats {
+    pub(crate) fn stats(&self, policy: TransferConcurrencyPolicy) -> TransferStats {
         let transferred_bytes = self.transferred_bytes();
         let total_bytes = self.total_bytes();
         let finished_at = self
@@ -187,24 +187,24 @@ impl FetchTransferProgress {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct TransferPhaseCounters {
+pub(crate) struct TransferPhaseCounters {
     pub current: usize,
     pub total: usize,
 }
 
-pub(super) struct TransferDownloadRequest<'a> {
-    pub(super) client: &'a reqwest::blocking::Client,
-    pub(super) url: &'a str,
-    pub(super) control: &'a GutchOperationControl,
-    pub(super) transfer_progress: &'a Arc<FetchTransferProgress>,
-    pub(super) phase: GutchProgressPhase,
-    pub(super) message: &'a str,
-    pub(super) counters: TransferPhaseCounters,
-    pub(super) detail: Option<&'a str>,
+pub(crate) struct TransferDownloadRequest<'a> {
+    pub(crate) client: &'a reqwest::blocking::Client,
+    pub(crate) url: &'a str,
+    pub(crate) control: &'a GutchOperationControl,
+    pub(crate) transfer_progress: &'a Arc<FetchTransferProgress>,
+    pub(crate) phase: GutchProgressPhase,
+    pub(crate) message: &'a str,
+    pub(crate) counters: TransferPhaseCounters,
+    pub(crate) detail: Option<&'a str>,
 }
 
 impl<'a> TransferDownloadRequest<'a> {
-    pub(super) fn download_bounded(self, maximum_bytes: u64) -> Result<Vec<u8>> {
+    pub(crate) fn download_bounded(self, maximum_bytes: u64) -> Result<Vec<u8>> {
         self.control.checkpoint()?;
         let mut bytes = Vec::new();
         let reporter = TransferProgressReporter::new(
@@ -215,7 +215,7 @@ impl<'a> TransferDownloadRequest<'a> {
             self.counters,
             self.detail,
         );
-        crate::transport::download_url_streaming(
+        crate::transfer::http::download_url_streaming(
             self.client,
             self.url,
             self.control,
@@ -234,10 +234,10 @@ impl<'a> TransferDownloadRequest<'a> {
         Ok(bytes)
     }
 
-    pub(super) fn download_to_path(
+    pub(crate) fn download_to_path(
         self,
         path: &Path,
-        artifact: &crate::artifact::store::ArtifactRef,
+        artifact: &crate::repo::artifacts::ArtifactRef,
     ) -> Result<()> {
         self.control.checkpoint()?;
         crate::filesystem::write_atomic_with(path, |file| {
@@ -249,7 +249,7 @@ impl<'a> TransferDownloadRequest<'a> {
                 self.counters,
                 self.detail,
             );
-            crate::transport::download_url_streaming(
+            crate::transfer::http::download_url_streaming(
                 self.client,
                 self.url,
                 self.control,
@@ -264,7 +264,7 @@ impl<'a> TransferDownloadRequest<'a> {
                     Ok(())
                 },
             )?;
-            if let crate::artifact::store::ArtifactRef::Bundle { id } = artifact {
+            if let crate::repo::artifacts::ArtifactRef::Bundle { id } = artifact {
                 crate::artifact::bundle::verify_bundle_identity_reader(file, id)?;
             }
             reporter.finish();
@@ -274,8 +274,8 @@ impl<'a> TransferDownloadRequest<'a> {
 }
 
 #[derive(Clone)]
-pub(super) struct PendingBundleDownload {
-    pub artifact: crate::artifact::store::ArtifactRef,
+pub(crate) struct PendingBundleDownload {
+    pub artifact: crate::repo::artifacts::ArtifactRef,
     pub bundle_id: String,
     pub url: String,
     pub bundle_path: PathBuf,
@@ -284,7 +284,7 @@ pub(super) struct PendingBundleDownload {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) struct ArtifactPriority {
+pub(crate) struct ArtifactPriority {
     pub ready_file_bytes: u64,
     pub near_ready_score: u64,
     pub dependent_file_count: usize,
@@ -299,8 +299,8 @@ impl ArtifactPriority {
     }
 }
 
-pub(super) enum ArtifactDownloadEvent {
-    Ready(crate::artifact::store::ArtifactRef),
+pub(crate) enum ArtifactDownloadEvent {
+    Ready(crate::repo::artifacts::ArtifactRef),
     Failed(Error),
     WorkerDone,
 }
@@ -357,7 +357,7 @@ impl GutchCancellationHook for SchedulerCancellationHook {
     }
 }
 
-pub(super) struct ArtifactDownloadScheduler {
+pub(crate) struct ArtifactDownloadScheduler {
     shared: Arc<ArtifactDownloadQueueShared>,
     events: mpsc::Receiver<ArtifactDownloadEvent>,
     worker_handles: Vec<JoinHandle<()>>,
@@ -366,9 +366,9 @@ pub(super) struct ArtifactDownloadScheduler {
 }
 
 impl ArtifactDownloadScheduler {
-    pub(super) fn new(
+    pub(crate) fn new(
         pending: &[PendingBundleDownload],
-        priorities: HashMap<crate::artifact::store::ArtifactRef, ArtifactPriority>,
+        priorities: HashMap<crate::repo::artifacts::ArtifactRef, ArtifactPriority>,
         policy: TransferConcurrencyPolicy,
         download_client: &reqwest::blocking::Client,
         control: &GutchOperationControl,
@@ -454,17 +454,17 @@ impl ArtifactDownloadScheduler {
         })
     }
 
-    pub(super) fn recv(&self) -> std::result::Result<ArtifactDownloadEvent, mpsc::RecvError> {
+    pub(crate) fn recv(&self) -> std::result::Result<ArtifactDownloadEvent, mpsc::RecvError> {
         self.events.recv()
     }
 
-    pub(super) fn try_recv(
+    pub(crate) fn try_recv(
         &self,
     ) -> std::result::Result<ArtifactDownloadEvent, mpsc::TryRecvError> {
         self.events.try_recv()
     }
 
-    pub(super) fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         self.shared.cancelled.store(true, AtomicOrdering::Release);
         if let Ok(mut state) = self.shared.state.lock() {
             state.stopped = true;
@@ -473,7 +473,7 @@ impl ArtifactDownloadScheduler {
         }
     }
 
-    pub(super) fn join(mut self) -> Result<()> {
+    pub(crate) fn join(mut self) -> Result<()> {
         self.controller_stop.store(true, AtomicOrdering::Release);
         self.shared.wake.notify_all();
         if let Some(handle) = self.controller_handle.take() {
@@ -489,7 +489,7 @@ impl ArtifactDownloadScheduler {
         Ok(())
     }
 
-    pub(super) fn worker_count(&self) -> usize {
+    pub(crate) fn worker_count(&self) -> usize {
         self.worker_handles.len()
     }
 }
@@ -704,7 +704,7 @@ fn run_adaptive_transfer_controller(
     }
 }
 
-pub(super) use crate::transport::build_download_client;
+pub(crate) use crate::transfer::http::build_download_client;
 
 struct TransferProgressReporter<'a> {
     control: &'a GutchOperationControl,
@@ -783,7 +783,7 @@ impl<'a> TransferProgressReporter<'a> {
     }
 }
 
-pub(super) fn normalize_bundle_downloads(
+pub(crate) fn normalize_bundle_downloads(
     bundles: &[BundleDownload],
 ) -> Result<HashMap<String, String>> {
     let mut normalized = HashMap::with_capacity(bundles.len());
@@ -803,7 +803,7 @@ pub(super) fn normalize_bundle_downloads(
     Ok(normalized)
 }
 
-pub(super) fn fetch_bundle_urls(
+pub(crate) fn fetch_bundle_urls(
     request: &SnapshotFetchRequest,
     required_bundle_ids: &std::collections::HashSet<String>,
     existing_bundle_ids: &std::collections::HashSet<String>,
@@ -859,7 +859,7 @@ pub(super) fn fetch_bundle_urls(
     Ok(bundle_urls)
 }
 
-pub(super) fn write_repo_manifest(
+pub(crate) fn write_repo_manifest(
     repo_paths: &crate::repo::paths::GutchRepoPaths,
     repo_manifest: &GutchRepoManifest,
 ) -> Result<()> {
@@ -878,7 +878,7 @@ pub(crate) fn snapshot_manifest_from_download(
     )
 }
 
-pub(super) fn download_pending_bundle(
+pub(crate) fn download_pending_bundle(
     download_client: &reqwest::blocking::Client,
     bundle_download: &PendingBundleDownload,
     control: &GutchOperationControl,
@@ -1013,7 +1013,7 @@ mod tests {
     use super::ArtifactPriority;
     use super::FetchTransferProgress;
     use super::resolve_transfer_worker_limits;
-    use crate::installation::TransferConcurrencyPolicy;
+    use crate::transfer::types::TransferConcurrencyPolicy;
     use std::time::Duration;
 
     #[test]

@@ -4,28 +4,27 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rayon::prelude::*;
-
-use super::transfer::FetchTransferProgress;
-use super::transfer::PendingBundleDownload;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperationControl;
 use crate::runtime::RuntimeResourceHints;
+use crate::transfer::download::FetchTransferProgress;
+use crate::transfer::download::PendingBundleDownload;
 
-pub(super) struct ReconstructPipelinePlan {
-    pub(super) files: Vec<ReconstructPipelineFile>,
-    pub(super) jobs: Vec<ReconstructJob>,
-    pub(super) missing_artifact_to_file_indices:
-        HashMap<crate::artifact::store::ArtifactRef, Vec<usize>>,
-    pub(super) missing_artifact_counts: Vec<usize>,
+pub(crate) struct ReconstructPipelinePlan {
+    pub(crate) files: Vec<ReconstructPipelineFile>,
+    pub(crate) jobs: Vec<ReconstructJob>,
+    pub(crate) missing_artifact_to_file_indices:
+        HashMap<crate::repo::artifacts::ArtifactRef, Vec<usize>>,
+    pub(crate) missing_artifact_counts: Vec<usize>,
     pub required_bundle_count: usize,
-    pub required_artifacts: HashSet<crate::artifact::store::ArtifactRef>,
+    pub required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
     pub required_artifact_count: usize,
-    pub(super) required_chunk_count: usize,
-    pub(super) reused_source_chunk_count: usize,
+    pub(crate) required_chunk_count: usize,
+    pub(crate) reused_source_chunk_count: usize,
 }
 
-pub(super) struct ReconstructPipelineApplyRequest<'a> {
+pub(crate) struct ReconstructPipelineApplyRequest<'a> {
+    pub publication: super::publish::Publication<'a>,
     pub repo_root: &'a Path,
     pub compression_profile: crate::manifest::CompressionProfile,
     pub snapshot_manifest: &'a SnapshotManifest,
@@ -33,34 +32,35 @@ pub(super) struct ReconstructPipelineApplyRequest<'a> {
     pub staging_dir: Option<&'a Path>,
     pub source_destination_dir: Option<PathBuf>,
     pub runtime_hints: &'a RuntimeResourceHints,
-    pub existing_artifacts: &'a HashSet<crate::artifact::store::ArtifactRef>,
+    pub existing_artifacts: &'a HashSet<crate::repo::artifacts::ArtifactRef>,
     pub pending_bundle_downloads: &'a [PendingBundleDownload],
-    pub transfer_policy: super::types::TransferConcurrencyPolicy,
+    pub transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     pub control: &'a GutchOperationControl,
     pub download_client: Option<&'a reqwest::blocking::Client>,
     pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
 }
 
 #[derive(Clone)]
-pub(super) struct ReconstructPipelineFile {
-    pub(super) path: String,
-    pub(super) size: u64,
-    pub(super) full_file_hash: crate::artifact::hash::ChunkHash,
-    pub(super) trace_metadata: ReconstructFileTraceMetadata,
+pub(crate) struct ReconstructPipelineFile {
+    pub(crate) path: String,
+    pub(crate) size: u64,
+    pub(crate) full_file_hash: crate::artifact::hash::ChunkHash,
+    pub(crate) trace_metadata: ReconstructFileTraceMetadata,
     #[cfg(test)]
-    pub(super) reconstruction: ReconstructPipelineReconstruction,
+    pub(crate) reconstruction: ReconstructPipelineReconstruction,
 }
 
 #[derive(Clone, Copy, Default)]
-pub(super) struct ReconstructFileTraceMetadata {
-    pub(super) required_distinct_chunks: usize,
-    pub(super) required_distinct_artifacts: usize,
-    pub(super) required_distinct_bundles: usize,
-    pub(super) required_distinct_loose_chunks: usize,
+pub(crate) struct ReconstructFileTraceMetadata {
+    pub(crate) required_distinct_chunks: usize,
+    pub(crate) required_distinct_artifacts: usize,
+    pub(crate) required_distinct_bundles: usize,
+    pub(crate) required_distinct_loose_chunks: usize,
 }
 
 #[derive(Clone)]
-pub(super) enum ReconstructPipelineReconstruction {
+pub(crate) enum ReconstructPipelineReconstruction {
+    #[cfg(test)]
     CopyFromSource,
     ReconstructFromParts {
         chunks: Vec<ReconstructPipelineChunkInput>,
@@ -68,19 +68,19 @@ pub(super) enum ReconstructPipelineReconstruction {
 }
 
 #[derive(Clone)]
-pub(super) enum ReconstructPipelineChunkInput {
+pub(crate) enum ReconstructPipelineChunkInput {
     Source { chunk_hash: String },
     Artifact(ReconstructPipelineChunk),
 }
 
 #[derive(Clone)]
-pub(super) struct ReconstructPipelineChunk {
-    pub(super) chunk_hash: String,
-    pub(super) artifact: crate::artifact::store::ArtifactRef,
+pub(crate) struct ReconstructPipelineChunk {
+    pub(crate) chunk_hash: String,
+    pub(crate) artifact: crate::repo::artifacts::ArtifactRef,
 }
 
 #[derive(Clone)]
-pub(super) enum ReconstructJob {
+pub(crate) enum ReconstructJob {
     Artifact(ReconstructArtifactJob),
     SourceChunk(ReconstructSourceChunkJob),
     CopySourceFile {
@@ -90,38 +90,38 @@ pub(super) enum ReconstructJob {
 }
 
 #[derive(Clone)]
-pub(super) struct ReconstructArtifactJob {
-    pub(super) artifact: crate::artifact::store::ArtifactRef,
-    pub(super) artifact_path: PathBuf,
-    pub(super) chunks: Vec<ReconstructArtifactChunk>,
-    pub(super) targets: Vec<ReconstructTarget>,
+pub(crate) struct ReconstructArtifactJob {
+    pub(crate) artifact: crate::repo::artifacts::ArtifactRef,
+    pub(crate) artifact_path: PathBuf,
+    pub(crate) chunks: Vec<ReconstructArtifactChunk>,
+    pub(crate) targets: Vec<ReconstructTarget>,
 }
 
 #[derive(Clone)]
-pub(super) struct ReconstructArtifactChunk {
-    pub(super) chunk_hash: crate::artifact::hash::ChunkHash,
-    pub(super) raw_size: u32,
-    pub(super) compressed_size: u32,
-    pub(super) targets: std::ops::Range<usize>,
+pub(crate) struct ReconstructArtifactChunk {
+    pub(crate) chunk_hash: crate::artifact::hash::ChunkHash,
+    pub(crate) raw_size: u32,
+    pub(crate) compressed_size: u32,
+    pub(crate) targets: std::ops::Range<usize>,
 }
 
 #[derive(Clone)]
-pub(super) struct ReconstructSourceChunkJob {
-    pub(super) chunk_hash: String,
-    pub(super) raw_size: u32,
-    pub(super) source_path: PathBuf,
-    pub(super) source_offset: u64,
-    pub(super) targets: Vec<ReconstructTarget>,
+pub(crate) struct ReconstructSourceChunkJob {
+    pub(crate) chunk_hash: String,
+    pub(crate) raw_size: u32,
+    pub(crate) source_path: PathBuf,
+    pub(crate) source_offset: u64,
+    pub(crate) targets: Vec<ReconstructTarget>,
 }
 
 #[derive(Clone)]
-pub(super) struct ReconstructTarget {
-    pub(super) file_index: usize,
-    pub(super) file_offset: u64,
+pub(crate) struct ReconstructTarget {
+    pub(crate) file_index: usize,
+    pub(crate) file_offset: u64,
 }
 
-pub(super) struct SourceChunkLocation {
-    pub(super) path: PathBuf,
-    pub(super) offset: u64,
-    pub(super) raw_size: u64,
+pub(crate) struct SourceChunkLocation {
+    pub(crate) path: PathBuf,
+    pub(crate) offset: u64,
+    pub(crate) raw_size: u64,
 }

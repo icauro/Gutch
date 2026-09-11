@@ -12,13 +12,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use rayon::ThreadPool;
-use rayon::prelude::*;
 
 use super::apply::build_snapshot_reconstruct_result;
-use super::transfer::ArtifactDownloadEvent;
-use super::transfer::ArtifactDownloadScheduler;
-use super::transfer::FetchTransferProgress;
-use super::transfer::PendingBundleDownload;
 use super::types::ReconstructTimings;
 use super::types::SnapshotReconstructFromRepoResult;
 use crate::Error;
@@ -30,15 +25,22 @@ use crate::progress::GutchProgressPhase;
 use crate::progress::emit_progress;
 use crate::runtime::RuntimeResourceHints;
 use crate::runtime::plan_runtime;
+use crate::transfer::download::ArtifactDownloadEvent;
+use crate::transfer::download::ArtifactDownloadScheduler;
+use crate::transfer::download::FetchTransferProgress;
+use crate::transfer::download::PendingBundleDownload;
 
 use super::entries::*;
 use super::io::*;
 use super::jobs::*;
 use super::plan::*;
-pub(super) fn apply_reconstruct_pipeline(
+pub(crate) fn apply_reconstruct_pipeline(
     request: ReconstructPipelineApplyRequest<'_>,
     pipeline_plan: ReconstructPipelinePlan,
-) -> Result<SnapshotReconstructFromRepoResult> {
+) -> Result<(
+    SnapshotReconstructFromRepoResult,
+    Option<super::types::SnapshotRepairResult>,
+)> {
     request.control.checkpoint()?;
     let operation_started_at = Instant::now();
     let _operation_span = request.control.profile_span("snapshot.reconstruct.apply");
@@ -74,7 +76,7 @@ pub(super) fn apply_reconstruct_pipeline(
     };
     let staging_dir = staging.path().to_path_buf();
 
-    let main_result = (|| -> Result<SnapshotReconstructFromRepoResult> {
+    let main_result = (|| -> Result<(SnapshotReconstructFromRepoResult, Option<super::types::SnapshotRepairResult>)> {
         let output_paths = {
             let _prepare_span = request
                 .control
@@ -108,34 +110,36 @@ pub(super) fn apply_reconstruct_pipeline(
             })?;
         reconstruct_timings.prepare_wall += apply_prepare_wall;
         reconstruct_timings.total = operation_started_at.elapsed();
-        let finalize_started_at = Instant::now();
-        {
-            let _finalize_span = request
-                .control
-                .profile_span("snapshot.reconstruct.finalize.entries");
-            let metadata_worker_count = plan_runtime(request.runtime_hints).worker_count;
-            finalize_snapshot_entries(
-                request.snapshot_manifest,
-                &staging_dir,
-                request.control,
-                metadata_worker_count,
-                reconstruct_pool.as_ref(),
-            )?;
-        }
-        reconstruct_timings.finalize_wall = finalize_started_at.elapsed();
-        // Promotion is a short consistency-critical section. Observe cancellation immediately
-        // before it, then finish the swap without interruption.
-        let promote_started_at = Instant::now();
-        {
-            let _promote_span = request
-                .control
-                .profile_span("snapshot.reconstruct.finalize.promote");
-            request.control.checkpoint()?;
-            crate::filesystem::replace_directory(&staging_dir, request.destination_dir)?;
-        }
-        reconstruct_timings.promote_wall = promote_started_at.elapsed();
+        let repair_result = match &request.publication {
+            super::publish::Publication::ReplaceDirectory => {
+                let started = Instant::now();
+                {
+                    let _span = request.control.profile_span("snapshot.reconstruct.finalize.entries");
+                    finalize_snapshot_entries(request.snapshot_manifest, &staging_dir, request.control,
+                        reconstruct_worker_count, reconstruct_pool.as_ref())?;
+                }
+                reconstruct_timings.finalize_wall = started.elapsed();
+                let started = Instant::now();
+                {
+                    let _span = request.control.profile_span("snapshot.reconstruct.finalize.promote");
+                    request.control.checkpoint()?;
+                    crate::filesystem::directory::replace_directory(&staging_dir, request.destination_dir)?;
+                }
+                reconstruct_timings.promote_wall = started.elapsed();
+                None
+            }
+            super::publish::Publication::Selective { target, changes, remove_extra_files } => {
+                let started = Instant::now();
+                let result = super::publish::finalize_repair_result_after_reconstruction(
+                    target, request.destination_dir, &staging_dir, *remove_extra_files,
+                    request.runtime_hints, changes, request.control, reconstruct_pool.as_ref(),
+                )?;
+                reconstruct_timings.promote_wall = started.elapsed();
+                Some(result)
+            }
+        };
         reconstruct_timings.total = operation_started_at.elapsed();
-        Ok(SnapshotReconstructFromRepoResult {
+        Ok((SnapshotReconstructFromRepoResult {
             repo_root: request.repo_root.to_path_buf(),
             snapshot_manifest: request.snapshot_manifest.clone(),
             reconstruct_result: build_snapshot_reconstruct_result(
@@ -154,13 +158,13 @@ pub(super) fn apply_reconstruct_pipeline(
             resolved_bundle_file_count: required_bundle_count,
             resolved_artifact_file_count: required_artifact_count,
             source_destination_dir: request.source_destination_dir.clone(),
-        })
+        }, repair_result))
     })();
 
     main_result
 }
 
-pub(super) fn build_reconstruct_pool(worker_count: usize) -> Result<ThreadPool> {
+pub(crate) fn build_reconstruct_pool(worker_count: usize) -> Result<ThreadPool> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(worker_count)
         .thread_name(|index| format!("gutch-reconstruct-{index}"))
@@ -172,19 +176,19 @@ pub(super) fn build_reconstruct_pool(worker_count: usize) -> Result<ThreadPool> 
         })
 }
 
-pub(super) struct ExecuteReconstructPipelineRequest<'a> {
-    pub(super) pipeline_plan: ReconstructPipelinePlan,
-    pub(super) output_paths: Arc<Vec<PathBuf>>,
-    pub(super) snapshot_id: &'a str,
-    pub(super) compression_profile: &'a crate::manifest::CompressionProfile,
-    pub(super) runtime_hints: &'a RuntimeResourceHints,
-    pub(super) existing_artifacts: &'a HashSet<crate::artifact::store::ArtifactRef>,
-    pub(super) pending_bundle_downloads: &'a [PendingBundleDownload],
-    pub(super) transfer_policy: super::types::TransferConcurrencyPolicy,
-    pub(super) control: &'a GutchOperationControl,
-    pub(super) download_client: Option<&'a reqwest::blocking::Client>,
-    pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
-    pub(super) reconstruct_pool: Option<&'a ThreadPool>,
+pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
+    pub(crate) pipeline_plan: ReconstructPipelinePlan,
+    pub(crate) output_paths: Arc<Vec<PathBuf>>,
+    pub(crate) snapshot_id: &'a str,
+    pub(crate) compression_profile: &'a crate::manifest::CompressionProfile,
+    pub(crate) runtime_hints: &'a RuntimeResourceHints,
+    pub(crate) existing_artifacts: &'a HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub(crate) pending_bundle_downloads: &'a [PendingBundleDownload],
+    pub(crate) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
+    pub(crate) control: &'a GutchOperationControl,
+    pub(crate) download_client: Option<&'a reqwest::blocking::Client>,
+    pub(crate) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
+    pub(crate) reconstruct_pool: Option<&'a ThreadPool>,
 }
 
 enum ReconstructWorkItem {
@@ -268,9 +272,12 @@ fn spawn_reconstruct_work(
     });
 }
 
-pub(super) fn execute_reconstruct_pipeline_reconstruction(
+pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     request: ExecuteReconstructPipelineRequest<'_>,
-) -> Result<(ReconstructTimings, crate::verify::VerifyTimings)> {
+) -> Result<(
+    ReconstructTimings,
+    crate::installation::inspect::VerifyTimings,
+)> {
     let ExecuteReconstructPipelineRequest {
         pipeline_plan,
         output_paths,
@@ -295,10 +302,10 @@ pub(super) fn execute_reconstruct_pipeline_reconstruction(
         verify_files: true,
         ..ReconstructTimings::default()
     };
-    let mut verify_timings = crate::verify::VerifyTimings {
-        verify_mode: crate::verify::VerifyMode::Fast,
+    let mut verify_timings = crate::installation::inspect::VerifyTimings {
+        verify_mode: crate::installation::inspect::VerifyMode::Fast,
         runtime_plan: Some(plan_runtime(runtime_hints)),
-        ..crate::verify::VerifyTimings::default()
+        ..crate::installation::inspect::VerifyTimings::default()
     };
 
     let artifact_priorities = {
@@ -813,7 +820,7 @@ fn ensure_empty_reconstruct_output_file(
 
 fn accumulate_pipeline_timings(
     reconstruct_timings: &mut ReconstructTimings,
-    verify_timings: &mut crate::verify::VerifyTimings,
+    verify_timings: &mut crate::installation::inspect::VerifyTimings,
     file_timings: &ReconstructTimings,
 ) {
     reconstruct_timings.artifact_read += file_timings.artifact_read;

@@ -17,9 +17,9 @@ use crate::progress::GutchOperation;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
-use crate::repo::ExistingStoreState;
 use crate::repo::Result;
-use crate::repo::scan_existing_store_state_with_pool;
+use crate::repo::index::ExistingStoreState;
+use crate::repo::index::scan_existing_store_state_with_pool;
 use crate::runtime::RuntimeResourceHints;
 
 use super::plan::*;
@@ -369,7 +369,7 @@ fn execute_repo_snapshot_capture(
     let mut result = result;
     let snapshot_id = result.snapshot_manifest.snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
-        crate::repo::format_system_time_utc(source_inventory.source_modified_at);
+        crate::snapshot::identity::format_system_time_utc(source_inventory.source_modified_at);
     crate::cli::tags::apply_resolved_snapshot_tags(&mut result.snapshot_manifest, &resolved_tags);
 
     let existing_manifest_path =
@@ -420,15 +420,18 @@ fn execute_repo_snapshot_capture(
                 },
             });
         }
-        if crate::repo::required_chunk_hashes(&existing_manifest)
+        if crate::repo::index::required_chunk_hashes(&existing_manifest)
             .iter()
             .all(|hash| store_state.chunk_locations.contains_key(*hash))
         {
-            let required_chunk_count = crate::repo::required_chunk_hashes(&existing_manifest).len();
-            let required_bundle_count =
-                crate::repo::required_bundle_ids(&existing_manifest, &store_state.chunk_index)?
-                    .len();
-            crate::repo::chunk_index::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
+            let required_chunk_count =
+                crate::repo::index::required_chunk_hashes(&existing_manifest).len();
+            let required_bundle_count = crate::repo::index::required_bundle_ids(
+                &existing_manifest,
+                &store_state.chunk_index,
+            )?
+            .len();
+            crate::repo::index::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
             return Ok(RepoSnapshotCaptureResult {
                 repo_root: repo_paths.repo_root,
                 snapshot_id: existing_manifest.snapshot_id.clone(),
@@ -502,7 +505,7 @@ fn execute_repo_snapshot_capture(
         let _bundle_index_span = request
             .control
             .profile_span("capture.publish_snapshot.index_bundle_entries");
-        crate::repo::chunk_index::add_built_bundles_to_chunk_index(
+        crate::repo::index::add_built_bundles_to_chunk_index(
             &mut store_state.chunk_index,
             &result.bundles,
             &compression_profile,
@@ -512,7 +515,7 @@ fn execute_repo_snapshot_capture(
         let _chunk_index_span = request
             .control
             .profile_span("capture.publish_snapshot.index_loose_chunk_entries");
-        crate::repo::chunk_index::add_built_loose_chunks_to_chunk_index(
+        crate::repo::index::add_built_loose_chunks_to_chunk_index(
             &mut store_state.chunk_index,
             &result.loose_chunks,
         )?;
@@ -560,9 +563,9 @@ fn execute_repo_snapshot_capture(
     let _chunk_index_write_span = request
         .control
         .profile_span("capture.publish_snapshot.write_chunk_index");
-    crate::repo::chunk_index::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
+    crate::repo::index::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
     drop(_chunk_index_write_span);
-    for artifact in crate::artifact::store::required_artifacts(
+    for artifact in crate::repo::artifacts::required_artifacts(
         &result.snapshot_manifest,
         &store_state.chunk_index,
     )? {
@@ -581,7 +584,8 @@ fn execute_repo_snapshot_capture(
         &result.snapshot_manifest,
     )?;
     drop(_manifest_write_span);
-    let required_chunks = crate::repo::required_chunk_hashes_typed(&result.snapshot_manifest)?;
+    let required_chunks =
+        crate::repo::index::required_chunk_hashes_typed(&result.snapshot_manifest)?;
     let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
         &result.snapshot_manifest,
@@ -805,7 +809,8 @@ fn count_required_bundles_for_build(
         })
         .collect::<HashMap<_, _>>();
     let mut required_bundle_ids = HashSet::new();
-    let Ok(required_chunks) = crate::repo::required_chunk_hashes_typed(snapshot_manifest) else {
+    let Ok(required_chunks) = crate::repo::index::required_chunk_hashes_typed(snapshot_manifest)
+    else {
         return generated_bundles.len();
     };
     for chunk_hash in required_chunks {
@@ -829,11 +834,11 @@ mod tests {
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
     use crate::repo::check::build_source_snapshot_ops_candidate;
-    use crate::repo::compute_snapshot_id_from_entries;
-    use crate::repo::ensure_gutch_repo_layout;
     use crate::repo::paths::GutchRepoPaths;
+    use crate::repo::paths::ensure_gutch_repo_layout;
+    use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
     use crate::repo::snapshots::retag_snapshot_by_id;
-    use crate::repo::write_snapshot_manifest_artifacts;
+    use crate::snapshot::identity::compute_snapshot_id_from_entries;
 
     #[test]
     fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
@@ -875,7 +880,7 @@ mod tests {
         let mut old_manifest =
             SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
         old_manifest.source_modified_at =
-            crate::repo::source_modified_at_from_directory(&new_source).unwrap();
+            crate::snapshot::identity::source_modified_at_from_directory(&new_source).unwrap();
         old_manifest.set_files(old_files);
         write_snapshot_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
 
@@ -935,7 +940,7 @@ mod tests {
     ) -> (std::path::PathBuf, std::path::PathBuf) {
         let repo_root = temp.path().join("repo");
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
-        crate::repo::ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+        crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
         let source_dir = temp.path().join(source_name);
         std::fs::create_dir_all(&source_dir).unwrap();
         std::fs::write(source_dir.join("game.exe"), content).unwrap();
@@ -961,7 +966,7 @@ mod tests {
         let verification = crate::repo::verify::verify_gutch_repo_artifacts(
             repo_root,
             Some(snapshot_id),
-            crate::verify::VerifyMode::Strict,
+            crate::installation::inspect::VerifyMode::Strict,
         )
         .unwrap();
         assert!(verification.ok, "strict verification failed");

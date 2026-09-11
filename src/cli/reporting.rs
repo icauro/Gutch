@@ -616,7 +616,7 @@ pub(crate) fn reconstruct_timings_summary(
 }
 
 pub(crate) fn verify_timings_summary(
-    timings: &crate::verify::VerifyTimings,
+    timings: &crate::installation::inspect::VerifyTimings,
 ) -> VerifyTimingsSummary {
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
@@ -750,7 +750,7 @@ pub(crate) fn print_reconstruct_timings(t: &crate::installation::ReconstructTimi
     print_throughput_row("file write", 0, t.file_write, t.file_write_bytes);
 }
 
-pub(crate) fn print_verify_timings(t: &crate::verify::VerifyTimings) {
+pub(crate) fn print_verify_timings(t: &crate::installation::inspect::VerifyTimings) {
     print_section_title("Verify Timing Summary");
     print_metric_line("mode", t.verify_mode.as_str());
     print_runtime_plan(t.runtime_plan.as_ref());

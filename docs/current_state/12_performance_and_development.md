@@ -115,6 +115,18 @@ Completed runs include raw evidence, a status manifest, samples, and summary
 statistics. Docker copies the evidence archive to a unique host directory
 before successful environment cleanup. OS caches remain uncontrolled.
 
+## Memory evidence
+
+The opt-in `gutch_default_memory_with_corrupt_repair` fixture records streamed
+process-memory samples at a requested 2 ms interval beside each command, plus peak summaries and phase
+traces. Unsupported counters remain null. These measurements include mapped
+pages and worker stacks; they are not allocation accounting. Sampling and traces
+are disabled in performance mode. See the [benchmark instructions](../../test_benchmarks/README.md#process-memory-profiling).
+
+Manifests, indexes, classifications, and job plans still grow with input size.
+The shared installation executor and artifact admission budget do not establish
+fixed total process memory for arbitrarily large repositories.
+
 ## Failure Boundaries
 
 - Performance overrides cannot disable path containment or promotion safety.

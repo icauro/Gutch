@@ -7,8 +7,8 @@ use crate::manifest::{
     snapshot::{SnapshotManifest, SnapshotMetadata, SnapshotProductMetadata},
 };
 
-use super::GutchRepoPaths;
-use super::validate_path_component;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::validate_path_component;
 
 pub(crate) const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
 pub(crate) const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
@@ -235,7 +235,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     }
     filesystem::create_dir_all(&paths.snapshots_root)?;
     let snapshot_id = &snapshot_manifest.snapshot_id;
-    super::validate_path_component(snapshot_id, "snapshot ID")?;
+    crate::repo::paths::validate_path_component(snapshot_id, "snapshot ID")?;
     let staging_dir = tempfile::Builder::new()
         .prefix(".gutch-snapshot-")
         .tempdir_in(&paths.snapshots_root)?;
@@ -262,7 +262,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     )?;
     let staging_path = staging_dir.keep();
     let snapshot_dir = paths.snapshots_root.join(snapshot_id);
-    filesystem::replace_directory(&staging_path, &snapshot_dir)?;
+    filesystem::directory::replace_directory(&staging_path, &snapshot_dir)?;
 
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
     let metadata_size = std::fs::metadata(&metadata_path)?.len();
@@ -276,18 +276,6 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
     let mut metadata: SnapshotMetadata = serde_json::from_str(metadata_json)?;
     metadata.snapshot_id = snapshot_id.to_string();
     Ok(SnapshotManifest::from_metadata(metadata))
-}
-
-pub fn write_snapshot_metadata_only(
-    paths: &GutchRepoPaths,
-    snapshot_manifest: &SnapshotManifest,
-) -> Result<()> {
-    let metadata_path = snapshot_metadata_path(paths, &snapshot_manifest.snapshot_id)?;
-    filesystem::write(
-        &metadata_path,
-        &serde_json::to_vec_pretty(&snapshot_manifest.metadata())?,
-    )?;
-    Ok(())
 }
 
 #[cfg(test)]

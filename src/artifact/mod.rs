@@ -1,6 +1,8 @@
 pub(crate) mod bundle;
 pub(crate) mod chunk;
-pub(crate) mod compress;
+pub(crate) mod compression;
 pub(crate) mod format;
 pub(crate) mod hash;
-pub(crate) mod store;
+pub(crate) mod loose;
+
+pub(crate) mod binary_io;

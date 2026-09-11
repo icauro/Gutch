@@ -3,12 +3,12 @@ use std::path::Path;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::GutchRepoPaths;
 use super::check_gutch_repo;
-use super::ensure_gutch_repo_layout;
-use super::write_gutch_repo_manifest;
 use crate::Error;
 use crate::Result;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::paths::write_gutch_repo_manifest;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

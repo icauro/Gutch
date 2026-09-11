@@ -9,7 +9,7 @@ use rayon::prelude::*;
 
 use crate::Result;
 use crate::artifact::bundle::BundleBuilder;
-use crate::artifact::compress;
+use crate::artifact::compression as compress;
 use crate::artifact::hash::ChunkHash;
 use crate::capture::progress::BuildProgressTracker;
 use crate::capture::scan::ChunkPlacementKey;
@@ -553,7 +553,7 @@ fn build_loose_chunk(
     let payload_load = load_start.elapsed();
 
     let mut staged = tempfile::NamedTempFile::new_in(artifact_staging_root)?;
-    crate::artifact::store::write_loose_chunk(
+    crate::artifact::loose::write_loose_chunk(
         &mut staged,
         chunk_hash,
         &bytes,

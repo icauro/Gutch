@@ -4,17 +4,17 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::RepoCheckStatus;
-use super::Result;
-use super::SourceSnapshotOperationCandidate;
-use super::check_gutch_repo;
-use super::discover_source_snapshot_operations;
-use super::scan_existing_store_state_with_pool;
+use crate::Result;
 use crate::progress;
 use crate::progress::GutchOperation;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
+use crate::repo::check::RepoCheckStatus;
+use crate::repo::check::SourceSnapshotOperationCandidate;
+use crate::repo::check::check_gutch_repo;
+use crate::repo::check::discover_source_snapshot_operations;
+use crate::repo::index::scan_existing_store_state_with_pool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,7 +112,7 @@ pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan)
     let mut lines = Vec::new();
     for candidate in &plan.to_capture {
         let tags =
-            super::snapshot_descriptor::format_snapshot_tag_summary(&candidate.snapshot_tags);
+            crate::repo::snapshot_descriptor::format_snapshot_tag_summary(&candidate.snapshot_tags);
         if candidate.error.is_some() {
             lines.push(format!(
                 "Capture new snapshot from {} (tags {}): previously reported {}",
@@ -224,7 +224,7 @@ fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotOperationCandidate,
     control: &crate::progress::GutchOperationControl,
-    store_state: &mut super::ExistingStoreState,
+    store_state: &mut crate::repo::index::ExistingStoreState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<()> {
     let candidate_control = if let Some(sink) = control.progress() {
@@ -276,11 +276,11 @@ mod tests {
     use crate::artifact::hash::hash_hex;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
-    use crate::repo::discover_source_snapshot_operations;
-    use crate::repo::ensure_gutch_repo_layout;
-    use crate::repo::format_system_time_utc;
+    use crate::repo::check::discover_source_snapshot_operations;
     use crate::repo::paths::GutchRepoPaths;
-    use crate::repo::write_snapshot_manifest_artifacts;
+    use crate::repo::paths::ensure_gutch_repo_layout;
+    use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+    use crate::snapshot::identity::format_system_time_utc;
     use std::time::Duration;
     use std::time::SystemTime;
 

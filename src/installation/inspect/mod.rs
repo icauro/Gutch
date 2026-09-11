@@ -25,10 +25,8 @@ use crate::progress::emit_progress;
 use crate::runtime::RuntimeResourceHints;
 use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
-mod estimate;
 mod types;
 
-pub(crate) use estimate::estimate_build;
 pub use types::RepairClassification;
 pub use types::RepairIssue;
 pub use types::RepairIssueKind;
@@ -922,6 +920,9 @@ fn verify_manifest_file(
         ));
     }
 
+    if verify_mode == VerifyMode::MetadataOnly {
+        return Ok((Vec::new(), timings));
+    }
     let verification = if verify_mode == VerifyMode::Fast {
         verify_file_fast(prepared_file, worker_count, &mut timings, control)
     } else {

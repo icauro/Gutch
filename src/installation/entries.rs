@@ -256,23 +256,7 @@ pub(super) fn finalize_snapshot_entries(
                     finalize_file_trace_args(file),
                 );
                 let path = path_resolver.resolve(&file.path)?;
-                let mut permissions = std::fs::metadata(&path)?.permissions();
-                let mut changed = false;
-                #[cfg(unix)]
-                if file.executable {
-                    use std::os::unix::fs::PermissionsExt;
-                    if permissions.mode() & 0o111 == 0 {
-                        permissions.set_mode(permissions.mode() | 0o111);
-                        changed = true;
-                    }
-                }
-                if permissions.readonly() != file.read_only {
-                    permissions.set_readonly(file.read_only);
-                    changed = true;
-                }
-                if changed {
-                    std::fs::set_permissions(&path, permissions)?;
-                }
+                apply_entry_permissions(&path, file.read_only, Some(file.executable))?;
                 Ok(())
             },
         )?;
@@ -458,4 +442,33 @@ fn finalize_directory_trace_args(
             serde_json::json!(directory.read_only),
         ),
     ])
+}
+
+/// Apply the metadata represented by the manifest, including clearing old flags.
+pub(super) fn apply_entry_permissions(
+    path: &Path,
+    read_only: bool,
+    executable: Option<bool>,
+) -> Result<()> {
+    let mut permissions = std::fs::symlink_metadata(path)?.permissions();
+    let original = permissions.clone();
+    #[cfg(unix)]
+    if let Some(executable) = executable {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = permissions.mode();
+        permissions.set_mode(if executable {
+            mode | 0o111
+        } else {
+            mode & !0o111
+        });
+    }
+    #[cfg(not(unix))]
+    let _ = executable;
+    if permissions.readonly() != read_only {
+        permissions.set_readonly(read_only);
+    }
+    if permissions != original {
+        std::fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
 }

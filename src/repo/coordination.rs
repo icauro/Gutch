@@ -190,7 +190,7 @@ fn copy_entry(source: &Path, target: &Path) -> Result<()> {
 
 fn committed_directory(journal: &Path) -> Result<PathBuf> {
     let name = std::fs::read_to_string(journal.join("committed"))?;
-    super::validate_path_component(&name, "metadata generation")?;
+    crate::repo::paths::validate_path_component(&name, "metadata generation")?;
     if !name.starts_with("generation-") {
         return Err(Error::manifest("invalid metadata generation"));
     }

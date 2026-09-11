@@ -136,8 +136,8 @@ operational reporting.
 
 ## Implementation anchors
 
-The owning implementation is `src/verify/mod.rs` for inventory, path modes,
-lane scheduling, and classification, `src/verify/types.rs` for timing results,
+The owning implementation is `src/installation/inspect/mod.rs` for inventory, path modes,
+lane scheduling, and classification, `src/installation/inspect/types.rs` for timing results,
 and `src/file_integrity.rs` for full-file hash-mode selection.
 
 ## Related pages

@@ -42,12 +42,12 @@ pub(crate) struct TransferArgs {
     pub(crate) policy: TransferPolicyArg,
     #[arg(
         long = "transfer-concurrency",
-        default_value_t = crate::installation::DEFAULT_TRANSFER_CONCURRENCY
+        default_value_t = crate::transfer::types::DEFAULT_TRANSFER_CONCURRENCY
     )]
     pub(crate) concurrency: usize,
     #[arg(
         long = "transfer-max-concurrency",
-        default_value_t = crate::installation::DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM
+        default_value_t = crate::transfer::types::DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM
     )]
     pub(crate) maximum: usize,
 }
@@ -391,6 +391,28 @@ pub(crate) enum SnapshotCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum ReconstructedCommands {
+    /// Stream a read-only installation plan as JSON lines, followed by its summary.
+    Plan {
+        #[arg(long, value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long)]
+        snapshot_id: String,
+        #[arg(long, value_parser = parse_absolute_path)]
+        destination: PathBuf,
+        #[arg(long, value_parser = ["selective", "replace-directory"], default_value = "selective")]
+        publication: String,
+        #[arg(long)]
+        remove_added_files: bool,
+        #[arg(long)]
+        metadata_only: bool,
+        #[arg(long)]
+        source_snapshot: Option<String>,
+        #[arg(long, value_parser = parse_absolute_path)]
+        source_dir: Option<PathBuf>,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
+    },
+
     Verify {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
         repo: PathBuf,

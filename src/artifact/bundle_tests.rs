@@ -1,4 +1,5 @@
 use super::*;
+use crate::repo::artifacts::verify_bundle_identity_file;
 
 fn profile() -> CompressionProfile {
     CompressionProfile::default()

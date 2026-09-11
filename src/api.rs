@@ -3,10 +3,16 @@
 //! The crate root intentionally exposes only this module. Internal modules and
 //! implementation paths are not part of the cross-crate contract.
 
-pub use crate::artifact::bundle::inspect_bundle;
+pub use crate::artifact::bundle::BundleTableEntry;
 pub use crate::artifact::hash::ChunkHash;
 pub use crate::artifact::hash::hash_chunk;
 pub use crate::artifact::hash::hash_hex;
+pub use crate::capture::configured_sources::SnapshotSourcesCapturePlan;
+pub use crate::capture::configured_sources::SnapshotSourcesCaptureResult;
+pub use crate::capture::configured_sources::capture_snapshot_sources;
+pub use crate::capture::configured_sources::describe_snapshot_sources_capture_plan;
+pub use crate::capture::configured_sources::plan_snapshot_sources_capture;
+pub use crate::capture::configured_sources::plan_snapshot_sources_capture_with_context;
 pub use crate::capture::estimate::SnapshotEstimateResult;
 pub use crate::capture::estimate::estimate_snapshot;
 pub use crate::capture::execute::MetadataFieldDifference;
@@ -18,6 +24,10 @@ pub use crate::capture::execute::capture_repo_snapshot;
 pub use crate::capture::plan::describe_snapshot_capture_plan;
 pub use crate::capture::plan::plan_snapshot_capture;
 pub use crate::capture::plan::plan_snapshot_capture_with_control;
+pub use crate::capture::sources::ResolvedCaptureSource;
+pub use crate::capture::sources::capture_repo_snapshots;
+pub use crate::capture::sources::plan_repo_snapshot_captures;
+pub use crate::capture::sources::resolve_capture_sources;
 pub use crate::cli::requires_remote_provider;
 pub use crate::cli::run_from_args;
 pub use crate::cli::run_from_args_with_remote_provider;
@@ -30,15 +40,9 @@ pub use crate::error::Error;
 pub use crate::error::Result;
 pub use crate::filesystem::paths::ExistingDestinationPathKind;
 pub use crate::filesystem::paths::resolve_existing_destination_path;
-pub use crate::installation::BundleDownload;
-pub use crate::installation::BundleUrlProvider;
 pub use crate::installation::ReconstructedCorruptionPlan;
 pub use crate::installation::ReconstructedCorruptionRequest;
 pub use crate::installation::ResolvedSnapshotOperationState;
-pub use crate::installation::SnapshotDownloadAndReconstructRequest;
-pub use crate::installation::SnapshotDownloadAndReconstructResult;
-pub use crate::installation::SnapshotFetchRequest;
-pub use crate::installation::SnapshotFetchResult;
 pub use crate::installation::SnapshotReconstructFromRepoRequest;
 pub use crate::installation::SnapshotReconstructFromRepoResult;
 pub use crate::installation::SnapshotReconstructResult;
@@ -49,12 +53,11 @@ pub use crate::installation::SnapshotRepairPlanFromRepoResult;
 pub use crate::installation::SnapshotRepairResult;
 pub use crate::installation::SnapshotVerifyFromRepoRequest;
 pub use crate::installation::SnapshotVerifyFromRepoResult;
-pub use crate::installation::TransferConcurrencyPolicy;
-pub use crate::installation::TransferStats;
 pub use crate::installation::corrupt_reconstructed_snapshot;
-pub use crate::installation::download_and_reconstruct_snapshot;
-pub use crate::installation::fetch_snapshot;
-pub use crate::installation::fetch_snapshot_for_required_bundle_ids;
+pub use crate::installation::inspect::RepairClassification;
+pub use crate::installation::inspect::RepairIssue;
+pub use crate::installation::inspect::RepairIssueKind;
+pub use crate::installation::inspect::VerifyMode;
 pub use crate::installation::plan_repair_snapshot_from_repo;
 pub use crate::installation::reconstruct_snapshot_from_repo;
 pub use crate::installation::repair_snapshot_from_repo;
@@ -65,7 +68,6 @@ pub use crate::installation::verify_installed_snapshot;
 pub use crate::manifest::ArtifactSizingPreset;
 pub use crate::manifest::ArtifactStorageMode;
 pub use crate::manifest::BundleSizingPreset;
-pub use crate::manifest::BundleTableEntry;
 pub use crate::manifest::ChunkRef;
 pub use crate::manifest::CompressionKind;
 pub use crate::manifest::DirectoryManifest;
@@ -97,10 +99,7 @@ pub use crate::progress::GutchOperationControl;
 pub use crate::progress::GutchProgressEvent;
 pub use crate::progress::GutchProgressPhase;
 pub use crate::progress::GutchProgressSink;
-pub use crate::repo::capture_sources::ResolvedCaptureSource;
-pub use crate::repo::capture_sources::capture_repo_snapshots;
-pub use crate::repo::capture_sources::plan_repo_snapshot_captures;
-pub use crate::repo::capture_sources::resolve_capture_sources;
+pub use crate::repo::artifacts::inspect_bundle;
 pub use crate::repo::check::RepoCheckSnapshotStatus;
 pub use crate::repo::check::RepoCheckStatus;
 pub use crate::repo::check::SourceSnapshotOperationCandidate;
@@ -145,12 +144,6 @@ pub use crate::repo::remote::unlink_repo;
 pub use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots;
 pub use crate::repo::snapshot_manifests::snapshot_metadata_path;
 pub use crate::repo::snapshot_manifests::validate_snapshot_product_metadata_for_snapshots;
-pub use crate::repo::snapshot_sources::SnapshotSourcesCapturePlan;
-pub use crate::repo::snapshot_sources::SnapshotSourcesCaptureResult;
-pub use crate::repo::snapshot_sources::capture_snapshot_sources;
-pub use crate::repo::snapshot_sources::describe_snapshot_sources_capture_plan;
-pub use crate::repo::snapshot_sources::plan_snapshot_sources_capture;
-pub use crate::repo::snapshot_sources::plan_snapshot_sources_capture_with_context;
 pub use crate::repo::snapshots::RetagSnapshotResult;
 pub use crate::repo::snapshots::delete_repo_snapshot_and_cleanup;
 pub use crate::repo::snapshots::retag_snapshot_by_id;
@@ -162,11 +155,18 @@ pub use crate::repo::verify::RepoVerifyResult;
 pub use crate::repo::verify::SnapshotVerifyResult;
 pub use crate::repo::verify::verify_gutch_repo_artifacts;
 pub use crate::runtime::RuntimeResourceHints;
-pub use crate::transport::read_bounded_response;
-pub use crate::verify::RepairClassification;
-pub use crate::verify::RepairIssue;
-pub use crate::verify::RepairIssueKind;
-pub use crate::verify::VerifyMode;
+pub use crate::transfer::fetch::download_and_reconstruct_snapshot;
+pub use crate::transfer::fetch::fetch_snapshot;
+pub use crate::transfer::fetch::fetch_snapshot_for_required_bundle_ids;
+pub use crate::transfer::http::read_bounded_response;
+pub use crate::transfer::types::BundleDownload;
+pub use crate::transfer::types::BundleUrlProvider;
+pub use crate::transfer::types::SnapshotDownloadAndReconstructRequest;
+pub use crate::transfer::types::SnapshotDownloadAndReconstructResult;
+pub use crate::transfer::types::SnapshotFetchRequest;
+pub use crate::transfer::types::SnapshotFetchResult;
+pub use crate::transfer::types::TransferConcurrencyPolicy;
+pub use crate::transfer::types::TransferStats;
 
 /// Load one committed repository metadata document under reader protection.
 pub fn load_gutch_repo_manifest(
@@ -181,3 +181,12 @@ pub fn load_snapshot_manifest(paths: &GutchRepoPaths, snapshot: &str) -> Result<
         crate::repo::snapshot_manifests::load_snapshot_manifest(paths, snapshot)
     })
 }
+
+pub use crate::installation::operation::{
+    ExtraFilePolicy, InstallationPublication, InstallationResult, install_snapshot_from_repo,
+};
+
+pub use crate::installation::preview::{
+    InstallationAction, InstallationInspection, InstallationPlanEvent, InstallationPlanSummary,
+    visit_installation_plan,
+};

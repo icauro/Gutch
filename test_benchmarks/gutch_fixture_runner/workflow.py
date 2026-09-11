@@ -404,7 +404,7 @@ def run_fixture(
             )
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
-    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step)
+    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.memory_profile)
     external = ExternalTools(repo_root or Path(__file__).resolve().parents[2], commands)
     if external_binary_root is not None:
         external = ExternalTools(

@@ -373,23 +373,22 @@ pub(crate) fn run(
             let result = crate::api::estimate_snapshot(&source_dir, &parse_cli_tags(&tags)?)?;
             let est = &result.estimate;
 
-            println!("fresh reconstruction estimate:");
+            println!("fresh capture measurement (default profile):");
             println!("  files: {}", result.file_count);
             println!(
                 "  logical size:  {:.2} MiB",
                 result.total_logical_size as f64 / (1024.0 * 1024.0)
             );
-            println!("  missing chunks: {}", est.missing_chunk_count);
+            println!("  unique chunks: {}", est.unique_chunk_count);
             println!(
-                "  missing logical: {:.2} MiB",
-                est.missing_logical_bytes as f64 / (1024.0 * 1024.0)
+                "  unique chunk bytes: {:.2} MiB",
+                est.unique_chunk_bytes as f64 / (1024.0 * 1024.0)
             );
             println!(
-                "  missing compressed: {:.2} MiB",
-                est.missing_compressed_bytes as f64 / (1024.0 * 1024.0)
+                "  encoded artifacts: {:.2} MiB",
+                est.encoded_artifact_bytes as f64 / (1024.0 * 1024.0)
             );
-            println!("  estimated bundles: {}", est.required_bundle_count);
-            println!("  fragmentation score: {:.1}", est.fragmentation_score);
+            println!("  bundles: {}", est.bundle_count);
         }
     }
 

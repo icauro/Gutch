@@ -1,7 +1,6 @@
 pub(crate) mod binary;
-mod chunk_entries;
 mod content;
-pub(crate) use chunk_entries::ChunkIndexEntries;
+pub(crate) use crate::repo::index::ChunkIndexEntries;
 pub(crate) mod external_dependency;
 pub(crate) mod gutch_repo;
 pub(crate) mod launch;
@@ -17,9 +16,9 @@ pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const REPO_METADATA_FILE: &str = "repo_metadata.json";
 
-pub use content::BundleTableEntry;
-pub use content::ChunkIndex;
-pub use content::ChunkIndexEntry;
+pub use crate::artifact::bundle::BundleTableEntry;
+pub use crate::repo::index::ChunkIndex;
+pub use crate::repo::index::ChunkIndexEntry;
 pub use content::ChunkRef;
 pub use content::DirectoryManifest;
 pub use content::Estimate;

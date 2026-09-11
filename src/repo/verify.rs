@@ -5,15 +5,15 @@ use std::path::Path;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle;
-use crate::artifact::store::ArtifactRef;
-use crate::verify::VerifyMode;
+use crate::installation::inspect::VerifyMode;
+use crate::repo::artifacts::ArtifactRef;
 
-use super::GutchRepoPaths;
 use super::check_gutch_repo;
-use super::load_chunk_index;
-use super::load_gutch_repo_manifest;
-use super::load_snapshot_manifest;
-use super::required_bundle_ids;
+use crate::repo::index::load_chunk_index;
+use crate::repo::index::required_bundle_ids;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,7 +130,7 @@ fn verify_snapshot_artifacts_cached(
 ) -> Result<SnapshotVerifyResult> {
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let required_artifacts =
-        crate::artifact::store::required_artifacts(&snapshot_manifest, chunk_index)?;
+        crate::repo::artifacts::required_artifacts(&snapshot_manifest, chunk_index)?;
     let required_bundles = required_bundle_ids(&snapshot_manifest, chunk_index)?;
 
     let mut missing_bundles = Vec::new();
@@ -161,7 +161,7 @@ fn verify_snapshot_artifacts_cached(
                         ))
                     });
                     entry.and_then(|entry| {
-                        crate::artifact::store::read_loose_chunk(
+                        crate::artifact::loose::read_loose_chunk(
                             &path,
                             hash,
                             u64::from(entry.raw_size),

@@ -6,11 +6,11 @@ use crate::Result;
 
 use super::inventory::list_repo_artifact_paths;
 use super::inventory::list_repo_snapshot_ids;
-use super::load_chunk_index;
-use super::load_gutch_repo_manifest;
-use super::load_snapshot_manifest;
-use super::snapshot_metadata_path;
-use super::validate_snapshot_id;
+use crate::repo::index::load_chunk_index;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::repo::snapshot_manifests::validate_snapshot_id;
 
 pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<()> {
     validate_snapshot_id(snapshot_id)?;
@@ -106,7 +106,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
         );
         let manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
         let required_artifacts =
-            crate::artifact::store::required_artifacts(&manifest, &chunk_index)?;
+            crate::repo::artifacts::required_artifacts(&manifest, &chunk_index)?;
         for artifact in &required_artifacts {
             let path = artifact.local_path(&repo_paths)?;
             if !path.is_file() {

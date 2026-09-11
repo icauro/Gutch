@@ -232,5 +232,5 @@ fn estimated_lz4_output_capacity(raw_size: u64) -> usize {
 }
 
 #[cfg(test)]
-#[path = "compress_tests.rs"]
+#[path = "compression_tests.rs"]
 mod tests;

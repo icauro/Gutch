@@ -1,40 +1,26 @@
-mod apply;
+pub(crate) mod apply;
 mod corrupt;
 mod entries;
 pub(crate) mod execute;
-pub(crate) mod fetch;
 mod io;
-mod jobs;
+pub(crate) mod jobs;
 pub(crate) mod plan;
 mod repair;
 mod snapshot_repo;
 pub(crate) mod state;
-mod transfer;
 
-pub(crate) use transfer::snapshot_manifest_from_download;
 pub(crate) mod types;
 
 pub use apply::reconstruct_snapshot_from_repo;
 pub use apply::verify_installed_snapshot;
 pub use corrupt::corrupt_reconstructed_snapshot;
-pub use fetch::download_and_reconstruct_snapshot;
-pub use fetch::fetch_snapshot;
-pub use fetch::fetch_snapshot_for_required_bundle_ids;
 pub use repair::plan_repair_snapshot_from_repo;
 pub use repair::repair_snapshot_from_repo;
 pub use state::resolve_snapshot_state;
-pub use types::BundleDownload;
-pub use types::BundleUrlProvider;
-pub use types::DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM;
-pub use types::DEFAULT_TRANSFER_CONCURRENCY;
 pub use types::ReconstructTimings;
 pub use types::ReconstructedCorruptionPlan;
 pub use types::ReconstructedCorruptionRequest;
 pub use types::ResolvedSnapshotOperationState;
-pub use types::SnapshotDownloadAndReconstructRequest;
-pub use types::SnapshotDownloadAndReconstructResult;
-pub use types::SnapshotFetchRequest;
-pub use types::SnapshotFetchResult;
 pub use types::SnapshotReconstructFromRepoRequest;
 pub use types::SnapshotReconstructFromRepoResult;
 pub use types::SnapshotReconstructResult;
@@ -45,5 +31,11 @@ pub use types::SnapshotRepairPlanFromRepoResult;
 pub use types::SnapshotRepairResult;
 pub use types::SnapshotVerifyFromRepoRequest;
 pub use types::SnapshotVerifyFromRepoResult;
-pub use types::TransferConcurrencyPolicy;
-pub use types::TransferStats;
+
+pub(crate) mod publish;
+
+pub(crate) mod operation;
+
+pub(crate) mod preview;
+
+pub(crate) mod inspect;

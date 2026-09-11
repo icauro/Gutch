@@ -1,9 +1,7 @@
 use super::*;
-use crate::artifact::hash::ChunkHash;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::test_util;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -13,14 +11,6 @@ impl crate::progress::GutchCancellationHook for AlwaysCancelled {
     fn is_cancelled(&self) -> bool {
         true
     }
-}
-
-fn test_chunk_hash(label: &str) -> ChunkHash {
-    ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(label.as_bytes()))
-}
-
-fn test_file_hash(label: &str) -> String {
-    crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(label.as_bytes()))
 }
 
 fn empty_manifest() -> SnapshotManifest {
@@ -70,76 +60,6 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
 
     assert!(matches!(result, Err(crate::Error::Cancelled)));
     assert!(!missing_dir.exists());
-}
-
-#[test]
-fn estimate_build_no_missing_chunks() {
-    let manifest = empty_manifest();
-    let available = HashSet::new();
-    let result = estimate_build(&manifest, &available, 1_000_000).unwrap();
-    assert_eq!(result.missing_chunk_count, 0);
-    assert_eq!(result.missing_logical_bytes, 0);
-    assert_eq!(result.required_bundle_count, 0);
-}
-
-#[test]
-fn estimate_build_missing_chunks_counted() {
-    let mut manifest = empty_manifest();
-    manifest.push_file(crate::manifest::FileManifest {
-        path: "game.exe".into(),
-        size: 1000,
-        executable: true,
-        read_only: false,
-        full_file_hash: test_file_hash("game.exe"),
-        chunks: vec![
-            crate::manifest::ChunkRef {
-                chunk_hash: test_chunk_hash("a").to_hex(),
-                raw_size: 500,
-            },
-            crate::manifest::ChunkRef {
-                chunk_hash: test_chunk_hash("b").to_hex(),
-                raw_size: 500,
-            },
-        ],
-    });
-    let available = HashSet::from([test_chunk_hash("a")]);
-    let result = estimate_build(&manifest, &available, 1_000_000).unwrap();
-    assert_eq!(result.missing_chunk_count, 1);
-    assert_eq!(result.missing_logical_bytes, 500);
-}
-
-#[test]
-fn estimate_build_all_chunks_available() {
-    let mut manifest = empty_manifest();
-    manifest.push_file(crate::manifest::FileManifest {
-        path: "data.bin".into(),
-        size: 200,
-        executable: false,
-        read_only: false,
-        full_file_hash: test_file_hash("data.bin"),
-        chunks: vec![
-            crate::manifest::ChunkRef {
-                chunk_hash: test_chunk_hash("x").to_hex(),
-                raw_size: 100,
-            },
-            crate::manifest::ChunkRef {
-                chunk_hash: test_chunk_hash("y").to_hex(),
-                raw_size: 100,
-            },
-        ],
-    });
-    let available = HashSet::from([test_chunk_hash("x"), test_chunk_hash("y")]);
-    let result = estimate_build(&manifest, &available, 500_000).unwrap();
-    assert_eq!(result.missing_chunk_count, 0);
-    assert_eq!(result.local_cache_hits, 0);
-}
-
-#[test]
-fn estimate_build_available_disk_space_passed_through() {
-    let manifest = empty_manifest();
-    let available = HashSet::new();
-    let result = estimate_build(&manifest, &available, 42_000).unwrap();
-    assert_eq!(result.available_disk_space, 42_000);
 }
 
 #[test]
@@ -341,15 +261,6 @@ fn verify_strict_mode_checks_chunk_hashing() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn estimate_build_empty_files_no_chunks() {
-    let manifest = empty_manifest();
-    let available = HashSet::new();
-    let result = estimate_build(&manifest, &available, 0).unwrap();
-    assert_eq!(result.missing_chunk_count, 0);
-    assert_eq!(result.required_bundle_count, 0);
 }
 
 #[test]

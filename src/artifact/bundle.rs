@@ -11,11 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::artifact::compress::validate_profile;
+use crate::artifact::compression::validate_profile;
 use crate::artifact::hash;
 use crate::artifact::hash::ChunkHash;
 use crate::error::Result;
-use crate::manifest::BundleTableEntry;
 use crate::manifest::CompressionKind;
 use crate::manifest::CompressionProfile;
 use crate::manifest::CompressionUnit;
@@ -279,7 +278,7 @@ impl BundleBuilder {
         if raw_size > format::MAX_RAW_BUNDLE_SIZE {
             return Err(crate::Error::bundle("bundle exceeds raw size limit"));
         }
-        crate::artifact::compress::encode_to_writer(
+        crate::artifact::compression::encode_to_writer(
             &mut hashing,
             &self.profile,
             raw_size,
@@ -645,7 +644,7 @@ impl<R: Read + Seek> BundleReader<R> {
             hasher: &mut hasher,
         };
         let mut decoder =
-            crate::artifact::compress::decoder_from_reader(&mut encoded, self.compression)?;
+            crate::artifact::compression::decoder_from_reader(&mut encoded, self.compression)?;
         let stream_result = stream_decoded_chunks(
             &mut decoder,
             &self.entries,
@@ -779,23 +778,6 @@ pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Res
 /// Verifies complete bundle identity for a stored bundle file without
 /// loading it: the path-derived ID, the trailing ID, and the BLAKE3 of the
 /// pre-ID bytes must all match the expected manifest ID.
-pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Result<()> {
-    let expected_hash = ChunkHash::parse_hex(bundle_id)?;
-    let path_id = crate::repo::bundle_id_from_bundle_path(path).ok_or_else(|| {
-        crate::error::Error::InvalidBundle(format!(
-            "bundle path '{}' does not name a bundle ID",
-            path.display()
-        ))
-    })?;
-    if path_id != expected_hash.to_hex() {
-        return Err(crate::error::Error::HashMismatch {
-            expected: expected_hash.to_hex(),
-            actual: path_id,
-        });
-    }
-    verify_bundle_identity_reader(&mut File::open(path)?, bundle_id)
-}
-
 pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     file: &mut R,
     bundle_id: &str,
@@ -1044,9 +1026,11 @@ pub(crate) fn read_bundle<'a>(
 #[path = "bundle_tests.rs"]
 mod tests;
 
-/// Inspect a bundle using its repository's compression profile without rendering output.
-pub fn inspect_bundle(bundle: &Path, repo: &Path) -> Result<Vec<BundleTableEntry>> {
-    let (_, manifest) = crate::repo::paths::load_gutch_repo_manifest(repo)?;
-    let reader = BundleReader::open(File::open(bundle)?, &manifest.compression_profile())?;
-    Ok(reader.entries().to_vec())
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BundleTableEntry {
+    pub chunk_hash: String,
+    pub raw_size: u32,
+    pub compressed_size: u32,
+    #[serde(default)]
+    pub raw_offset: u32,
 }

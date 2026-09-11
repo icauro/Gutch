@@ -13,44 +13,53 @@ use super::types::SnapshotVerifyFromRepoRequest;
 use super::types::SnapshotVerifyFromRepoResult;
 use crate::Error;
 use crate::Result;
-use crate::verify::VerifyRequest;
-use crate::verify::classify_directory;
+use crate::installation::inspect::VerifyRequest;
+use crate::installation::inspect::classify_directory;
 
-pub(super) fn resolve_verified_source<'a>(
+pub(crate) struct VerifiedSource<'a> {
+    manifest: SnapshotManifest,
+    directory: &'a Path,
+}
+impl VerifiedSource<'_> {
+    pub(crate) fn source(&self) -> SnapshotReconstructSource<'_> {
+        SnapshotReconstructSource {
+            snapshot_manifest: &self.manifest,
+            destination_dir: self.directory,
+        }
+    }
+}
+
+pub(crate) fn resolve_verified_source<'a>(
     source: Option<SnapshotReconstructSource<'a>>,
     runtime_hints: &RuntimeResourceHints,
     control: &crate::progress::GutchOperationControl,
-) -> Result<Option<SnapshotReconstructSource<'a>>> {
+) -> Result<Option<VerifiedSource<'a>>> {
     control.checkpoint()?;
-    match source {
-        Some(source) => {
-            let (source_classification, _) = classify_directory(VerifyRequest {
-                snapshot_manifest: source.snapshot_manifest,
-                dir: source.destination_dir,
-                mode: crate::verify::VerifyMode::Fast,
-                runtime_hints,
-                control: control.clone(),
-            })?;
-            if !source_classification.missing_files.is_empty()
-                || !source_classification.corrupt_files.is_empty()
-            {
-                let source_errors = source_classification
-                    .missing_files
-                    .iter()
-                    .chain(source_classification.corrupt_files.iter())
-                    .map(|issue| issue.detail.as_str())
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                return Err(Error::SourceSnapshotNotVerified(source_errors));
-            }
-
-            Ok(Some(SnapshotReconstructSource {
-                snapshot_manifest: source.snapshot_manifest,
-                destination_dir: source.destination_dir,
-            }))
-        }
-        None => Ok(None),
-    }
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    let (classification, _) = classify_directory(VerifyRequest {
+        snapshot_manifest: source.snapshot_manifest,
+        dir: source.destination_dir,
+        mode: crate::installation::inspect::VerifyMode::Fast,
+        runtime_hints,
+        control: control.clone(),
+    })?;
+    let invalid: HashSet<_> = classification
+        .missing_files
+        .iter()
+        .chain(classification.corrupt_files.iter())
+        .map(|issue| issue.path.as_str())
+        .collect();
+    let mut manifest = source.snapshot_manifest.clone();
+    manifest
+        .entries
+        .retain(|entry| !invalid.contains(entry.path()));
+    manifest.total_logical_size = manifest.files().map(|file| file.size).sum();
+    Ok(Some(VerifiedSource {
+        manifest,
+        directory: source.destination_dir,
+    }))
 }
 
 pub(crate) fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: &str) -> PathBuf {
@@ -64,13 +73,13 @@ pub(crate) fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: 
     ))
 }
 
-pub(super) struct SnapshotStaging {
+pub(crate) struct SnapshotStaging {
     directory: tempfile::TempDir,
     created_parent: Option<PathBuf>,
 }
 
 impl SnapshotStaging {
-    pub(super) fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         self.directory.path()
     }
 }
@@ -85,7 +94,7 @@ impl Drop for SnapshotStaging {
     }
 }
 
-pub(super) fn create_snapshot_staging(
+pub(crate) fn create_snapshot_staging(
     destination: &Path,
     staging_parent: &Path,
     repo_root: &Path,
@@ -153,93 +162,15 @@ pub fn verify_installed_snapshot(
 pub fn reconstruct_snapshot_from_repo(
     request: SnapshotReconstructFromRepoRequest,
 ) -> Result<SnapshotReconstructFromRepoResult> {
-    request.control.checkpoint()?;
-    let operation_root = (&request.repo_path).to_path_buf();
-    crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
-        request.control.checkpoint()?;
-        let _operation_span = request.control.profile_span("snapshot.reconstruct");
-        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
-            &request.repo_path,
-            &request.snapshot_id,
-        )?;
-        let (_, repo_manifest) =
-            crate::repo::paths::load_gutch_repo_manifest(&repo_paths.repo_root)?;
-        let chunk_index = crate::repo::chunk_index::load_chunk_index(&repo_paths)?;
-        let required_artifacts =
-            crate::artifact::store::required_artifacts(&snapshot_manifest, &chunk_index)?;
-        let mut existing_artifacts = HashSet::new();
-        for artifact in &required_artifacts {
-            if artifact.local_path(&repo_paths)?.is_file() {
-                existing_artifacts.insert(artifact.clone());
-            }
-        }
-
-        let _promotion_lock = prepare_directory_promotion(
-            &request.destination_dir,
-            request.staging_dir.as_deref(),
-            &request.repo_path,
-            &request.control,
-        )?;
-        let source_manifest = match request.source_snapshot_id.as_ref() {
-            Some(source_snapshot_id) => {
-                Some(crate::repo::snapshot_manifests::load_snapshot_manifest(
-                    &repo_paths,
-                    source_snapshot_id,
-                )?)
-            }
-            None => None,
-        };
-        let source_destination_dir = source_manifest.as_ref().map(|_| {
-            request
-                .source_dir
-                .clone()
-                .unwrap_or_else(|| request.destination_dir.clone())
-        });
-        let source = source_manifest
-            .as_ref()
-            .zip(source_destination_dir.as_ref())
-            .map(
-                |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
-                    snapshot_manifest: source_manifest,
-                    destination_dir: source_destination_dir,
-                },
-            );
-        let verified_source =
-            resolve_verified_source(source, &request.runtime_hints, &request.control)?;
-        let pipeline_plan = {
-            let _plan_span = request
-                .control
-                .profile_span("snapshot.reconstruct.prepare.plan");
-            crate::installation::plan::build_reconstruct_pipeline_plan(
-                &snapshot_manifest,
-                &chunk_index,
-                &repo_paths,
-                &existing_artifacts,
-                verified_source,
-            )?
-        };
-        super::execute::apply_reconstruct_pipeline(
-            crate::installation::jobs::ReconstructPipelineApplyRequest {
-                repo_root: &repo_paths.repo_root,
-                compression_profile: repo_manifest.compression_profile(),
-                snapshot_manifest: &snapshot_manifest,
-                destination_dir: &request.destination_dir,
-                staging_dir: request.staging_dir.as_deref(),
-                source_destination_dir,
-                runtime_hints: &request.runtime_hints,
-                existing_artifacts: &existing_artifacts,
-                pending_bundle_downloads: &[],
-                transfer_policy: super::types::TransferConcurrencyPolicy::default(),
-                control: &request.control,
-                download_client: None,
-                transfer_progress: None,
-            },
-            pipeline_plan,
-        )
-    })
+    super::operation::install_snapshot_from_repo(
+        request,
+        super::operation::InstallationPublication::ReplaceDirectory,
+        super::operation::ExtraFilePolicy::Remove,
+    )
+    .map(|result| result.reconstruction)
 }
 
-pub(super) struct BuildSnapshotReconstructResultRequest<'a> {
+pub(crate) struct BuildSnapshotReconstructResultRequest<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub destination_dir: &'a Path,
     pub staging_dir: &'a Path,
@@ -248,10 +179,10 @@ pub(super) struct BuildSnapshotReconstructResultRequest<'a> {
     pub required_bundle_count: usize,
     pub required_artifact_count: usize,
     pub reconstruct_timings: super::types::ReconstructTimings,
-    pub verify_timings: crate::verify::VerifyTimings,
+    pub verify_timings: crate::installation::inspect::VerifyTimings,
 }
 
-pub(super) fn build_snapshot_reconstruct_result(
+pub(crate) fn build_snapshot_reconstruct_result(
     request: BuildSnapshotReconstructResultRequest<'_>,
 ) -> SnapshotReconstructResult {
     SnapshotReconstructResult {
@@ -271,12 +202,23 @@ pub(super) fn build_snapshot_reconstruct_result(
 #[path = "tests.rs"]
 mod tests;
 
-pub(super) fn prepare_directory_promotion(
+pub(crate) fn prepare_directory_promotion(
     destination: &Path,
     staging: Option<&Path>,
     repository_path: &Path,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<std::fs::File> {
+    validate_installation_paths(destination, staging, repository_path)?;
+    let lock = crate::filesystem::directory::lock_directory_promotion(destination, control)?;
+    crate::filesystem::directory::recover_directory_promotion(destination)?;
+    Ok(lock)
+}
+
+pub(crate) fn validate_installation_paths(
+    destination: &Path,
+    staging: Option<&Path>,
+    repository_path: &Path,
+) -> Result<()> {
     if let Some(staging) = staging {
         crate::filesystem::paths::require_disjoint_paths(staging, destination)?;
     }
@@ -302,7 +244,5 @@ pub(super) fn prepare_directory_promotion(
             &repository_path.join(owned),
         )?;
     }
-    let lock = crate::filesystem::lock_directory_promotion(destination, control)?;
-    crate::filesystem::recover_directory_promotion(destination)?;
-    Ok(lock)
+    Ok(())
 }

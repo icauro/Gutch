@@ -7,3 +7,6 @@ pub(crate) mod estimate;
 
 pub(crate) mod execute;
 pub(crate) mod plan;
+
+pub(crate) mod configured_sources;
+pub(crate) mod sources;

@@ -37,6 +37,7 @@ class FixtureSpec:
     snapshot_limit: int | None = None
     repetitions: int = 1
     measurement_mode: str = "profile"
+    memory_profile: bool = False
 
 
 @dataclass

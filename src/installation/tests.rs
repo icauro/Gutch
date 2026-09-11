@@ -1,17 +1,17 @@
 use super::*;
 use crate::artifact::hash::hash_hex;
-use crate::installation::BundleDownload;
-use crate::installation::SnapshotFetchRequest;
-use crate::installation::fetch_snapshot;
 use crate::installation::repair_snapshot_from_repo;
 use crate::installation::resolve_snapshot_state;
-use crate::installation::transfer;
 use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
-use crate::repo::chunk_index::write_chunk_index;
+use crate::repo::index::write_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::runtime::RuntimeResourceHints;
+use crate::transfer::download as transfer;
+use crate::transfer::fetch::fetch_snapshot;
+use crate::transfer::types::BundleDownload;
+use crate::transfer::types::SnapshotFetchRequest;
 use std::collections::HashSet;
 use std::io::Read;
 use std::io::Write;
@@ -79,7 +79,7 @@ fn bundle_url_provider_rejects_unexpected_bundle_ids() {
             },
         )),
         control: crate::progress::GutchOperationControl::default(),
-        transfer_policy: crate::installation::TransferConcurrencyPolicy::default(),
+        transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
     let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
@@ -110,7 +110,7 @@ fn direct_bundle_urls_reject_duplicate_bundle_ids() {
         ],
         bundle_url_provider: None,
         control: crate::progress::GutchOperationControl::default(),
-        transfer_policy: crate::installation::TransferConcurrencyPolicy::default(),
+        transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
     let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
@@ -220,7 +220,8 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
     .repair_result;
 
     assert_eq!(result.extra_file_count, 2);
-    assert_eq!(result.removed_extra_file_count, 1);
+    assert_eq!(result.removed_extra_file_count, 2);
+    assert!(!destination_dir.join("mods").exists());
     assert!(!destination_dir.join("mods").join("mod.txt").exists());
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -442,7 +443,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
             },
         )),
         control: crate::progress::GutchOperationControl::default(),
-        transfer_policy: crate::installation::TransferConcurrencyPolicy::default(),
+        transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
     let result = fetch_snapshot(&request).unwrap();
 
@@ -474,7 +475,7 @@ fn fetch_snapshot_downloads_manifest_and_bundles() {
     std::fs::write(&cached, b"corrupted cached artifact").unwrap();
     let retry = fetch_snapshot(&request).unwrap();
     assert_eq!(retry.downloaded_bundle_count, 1);
-    crate::artifact::bundle::verify_bundle_identity_file(&cached, &expected_bundle_id).unwrap();
+    crate::repo::artifacts::verify_bundle_identity_file(&cached, &expected_bundle_id).unwrap();
     server.join().unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }

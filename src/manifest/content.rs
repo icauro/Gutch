@@ -1,8 +1,6 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::ArtifactStorageMode;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileManifest {
     pub path: String,
@@ -109,42 +107,12 @@ pub struct ChunkRef {
     pub raw_size: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BundleTableEntry {
-    pub chunk_hash: String,
-    pub raw_size: u32,
-    pub compressed_size: u32,
-    #[serde(default)]
-    pub raw_offset: u32,
-}
-
+/// Measured artifact sizes for a fresh capture with the default profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Estimate {
-    pub missing_logical_bytes: u64,
-    pub missing_compressed_bytes: u64,
-    pub missing_chunk_count: u64,
-    pub required_bundle_count: u64,
-    pub range_request_count: u64,
-    pub local_cache_hits: u64,
-    pub available_disk_space: u64,
-    pub fragmentation_score: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkIndex {
-    pub format_version: String,
-    pub updated_at: String,
-    pub entries: super::ChunkIndexEntries,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ChunkIndexEntry {
-    pub artifact_size: u32,
-    pub chunk_ordinal: u32,
-    pub bundle_id: smol_str::SmolStr,
-    pub raw_size: u32,
-    pub compressed_size: u32,
-    #[serde(default)]
-    pub storage_mode: ArtifactStorageMode,
+    pub unique_chunk_bytes: u64,
+    pub unique_chunk_count: usize,
+    pub encoded_artifact_bytes: u64,
+    pub artifact_count: usize,
+    pub bundle_count: usize,
 }
