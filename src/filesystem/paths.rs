@@ -1,13 +1,170 @@
-use std::collections::HashSet;
+use crate::Error;
+use crate::Result;
+use std::collections::{HashMap, HashSet};
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-
-use crate::Error;
-use crate::Result;
-
+use unicode_normalization::UnicodeNormalization;
+pub(crate) const MAX_MANIFEST_PATH_BYTES: usize = 128 * 1024;
+pub(crate) const MAX_MANIFEST_PATH_COMPONENTS: usize = 256;
+/// Encode separators structurally; never replace bytes inside a filename.
+pub(crate) fn manifest_path_from_native(path: &Path) -> Result<String> {
+    let parts = path
+        .components()
+        .map(|part| match part {
+            Component::Normal(name) => name.to_str().ok_or_else(|| Error::PathError {
+                path: path.to_path_buf(),
+                reason: "filename is not valid Unicode; lossless capture is unavailable".into(),
+            }),
+            _ => Err(Error::manifest(
+                "source path must be relative and normalized",
+            )),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let relative = parts.join("/");
+    validate_manifest_relative_path(&relative, false)?;
+    Ok(relative)
+}
+/// Validate output names before creating staging or touching installed content.
+pub(crate) fn validate_destination_paths<'a>(
+    root: &Path,
+    paths: impl Iterator<Item = &'a str>,
+) -> Result<()> {
+    let absolute = std::path::absolute(root)?;
+    // Probe the actual volume: Windows directories and macOS volumes may be case-sensitive.
+    let parent = absolute
+        .ancestors()
+        .find(|p| p.is_dir())
+        .ok_or_else(|| Error::manifest("destination has no existing parent"))?;
+    let probe = tempfile::Builder::new()
+        .prefix(".gutch-path-probe-")
+        .tempdir_in(parent)?;
+    std::fs::write(probe.path().join("Case"), b"")?;
+    std::fs::write(probe.path().join("é"), b"")?;
+    let fold_case = probe.path().join("case").exists();
+    let fold_normalization = probe.path().join("e\u{301}").exists();
+    let mut spellings = HashMap::<String, Vec<String>>::new();
+    for relative in paths {
+        validate_manifest_relative_path(relative, false)?;
+        validate_destination_length(&absolute.join(relative))?;
+        let mut prefix = String::new();
+        for part in relative.split('/') {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(part);
+            let key = if fold_normalization {
+                prefix.nfd().collect::<String>()
+            } else {
+                prefix.clone()
+            };
+            let key = if fold_case { key.to_uppercase() } else { key };
+            let previous_names = spellings.entry(key).or_default();
+            for previous in previous_names
+                .iter()
+                .filter(|previous| *previous != &prefix)
+            {
+                // Uppercasing is only a candidate filter. Ask the filesystem before
+                // rejecting names such as sharp-s versus SS on Windows.
+                let comparison = tempfile::tempdir_in(probe.path())?;
+                std::fs::write(
+                    comparison.path().join(previous.rsplit('/').next().unwrap()),
+                    b"",
+                )?;
+                if comparison.path().join(part).exists() {
+                    return Err(Error::PathError {
+                        path: absolute.join(relative),
+                        reason: format!(
+                            "destination aliases distinct paths {previous:?} and {prefix:?}"
+                        ),
+                    });
+                }
+            }
+            if !previous_names.contains(&prefix) {
+                previous_names.push(prefix.clone());
+            }
+        }
+    }
+    Ok(())
+}
+fn validate_destination_length(path: &Path) -> Result<()> {
+    let fail = |reason: &str| Error::PathError {
+        path: path.to_path_buf(),
+        reason: reason.into(),
+    };
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        if path.as_os_str().encode_wide().count() > 32766 {
+            return Err(fail("destination path exceeds 32766 UTF-16 code units"));
+        }
+        for part in path.components().filter_map(|c| {
+            if let Component::Normal(n) = c {
+                Some(n)
+            } else {
+                None
+            }
+        }) {
+            if part.encode_wide().count() > 255 {
+                return Err(fail("destination component exceeds 255 UTF-16 code units"));
+            }
+            let name = part
+                .to_str()
+                .ok_or_else(|| fail("destination name is not valid Unicode"))?;
+            let stem = name
+                .split('.')
+                .next()
+                .unwrap_or("")
+                .trim_end()
+                .to_uppercase();
+            if name.ends_with([' ', '.'])
+                || name.chars().any(|c| c < ' ' || "<>:\"|?*".contains(c))
+                || matches!(
+                    stem.as_str(),
+                    "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+                )
+                || ["COM", "LPT"].iter().any(|prefix| {
+                    stem.strip_prefix(prefix).is_some_and(|n| {
+                        matches!(
+                            n,
+                            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                        )
+                    })
+                })
+            {
+                return Err(fail(
+                    "destination name is reserved or unsupported on Windows",
+                ));
+            }
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let max_path = if cfg!(target_os = "macos") {
+            1023
+        } else {
+            4095
+        };
+        if path.as_os_str().as_bytes().len() > max_path {
+            return Err(fail("destination path exceeds platform path budget"));
+        }
+        for part in path.components().filter_map(|c| {
+            if let Component::Normal(n) = c {
+                Some(n)
+            } else {
+                None
+            }
+        }) {
+            if part.as_bytes().len() > 255 {
+                return Err(fail("destination component exceeds 255 bytes"));
+            }
+        }
+    }
+    Ok(())
+}
 /// Resolve existing components before comparing paths, including links and `..`.
 pub(crate) fn resolve_operation_path(path: &Path) -> Result<PathBuf> {
     let absolute = std::path::absolute(path)?;
@@ -32,7 +189,6 @@ pub(crate) fn resolve_operation_path(path: &Path) -> Result<PathBuf> {
     let resolved = PathBuf::from(resolved.as_os_str().to_string_lossy().to_lowercase());
     Ok(resolved)
 }
-
 pub(crate) fn require_disjoint_paths(left: &Path, right: &Path) -> Result<()> {
     let resolved_left = resolve_operation_path(left)?;
     let resolved_right = resolve_operation_path(right)?;
@@ -48,14 +204,12 @@ pub(crate) fn require_disjoint_paths(left: &Path, right: &Path) -> Result<()> {
     }
     Ok(())
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExistingDestinationPathKind {
     File,
     Directory,
     FileOrDirectory,
 }
-
 /// Resolves manifest paths beneath one root while reusing the root's canonical path.
 ///
 /// The per-component checks are intentionally retained: an existing symlinked
@@ -66,7 +220,6 @@ pub(crate) struct ManifestPathResolver {
     canonical_root: Option<PathBuf>,
     validated_ancestors: Arc<Mutex<HashSet<PathBuf>>>,
 }
-
 impl ManifestPathResolver {
     pub(crate) fn new(root: &Path) -> Result<Self> {
         let canonical_root = if root.exists() {
@@ -83,7 +236,6 @@ impl ManifestPathResolver {
             validated_ancestors: Arc::new(Mutex::new(HashSet::new())),
         })
     }
-
     pub(crate) fn resolve(&self, relative: &str) -> Result<PathBuf> {
         validate_manifest_relative_path(relative, false)?;
         let candidate = self.root.join(relative);
@@ -97,7 +249,6 @@ impl ManifestPathResolver {
         }
         Ok(candidate)
     }
-
     /// Resolves an entry that the caller will inspect without following its final component.
     /// Existing parents remain canonicalized and containment-checked, while the leaf is left for
     /// `symlink_metadata`, `read_link`, or an equivalent no-follow operation.
@@ -117,11 +268,17 @@ impl ManifestPathResolver {
         Ok(candidate)
     }
 }
-
 pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) -> Result<()> {
-    let trimmed = relative.trim();
+    if relative.len() > MAX_MANIFEST_PATH_BYTES
+        || relative.split('/').count() > MAX_MANIFEST_PATH_COMPONENTS
+    {
+        return Err(Error::PathError {
+            path: PathBuf::from(relative),
+            reason: "manifest path exceeds 128 KiB or 256 components".into(),
+        });
+    }
     let relative_path = Path::new(relative);
-    let has_windows_drive_prefix = trimmed.as_bytes().get(1) == Some(&b':');
+    let has_windows_drive_prefix = relative.as_bytes().get(1) == Some(&b':');
     if relative == "." {
         return if allow_root {
             Ok(())
@@ -132,8 +289,7 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
             })
         };
     }
-    if trimmed.is_empty()
-        || trimmed != relative
+    if relative.is_empty()
         || relative.contains('\0')
         || relative.contains('\\')
         || has_windows_drive_prefix
@@ -156,8 +312,10 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
             ),
         });
     }
-
-    if relative.split('/').any(str::is_empty) {
+    if relative
+        .split('/')
+        .any(|part| part.is_empty() || part == "." || part == "..")
+    {
         return Err(Error::PathError {
             path: relative_path.to_path_buf(),
             reason: format!(
@@ -166,14 +324,11 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
             ),
         });
     }
-
     Ok(())
 }
-
 pub(crate) fn resolve_manifest_relative_path(root: &Path, relative: &str) -> Result<PathBuf> {
     ManifestPathResolver::new(root)?.resolve(relative)
 }
-
 fn ensure_existing_ancestors_stay_within_root(
     root: &Path,
     candidate: &Path,
@@ -220,7 +375,6 @@ fn ensure_existing_ancestors_stay_within_root(
     }
     Ok(())
 }
-
 pub fn resolve_existing_destination_path(
     install_root: &Path,
     relative: &str,
@@ -228,7 +382,6 @@ pub fn resolve_existing_destination_path(
     expected_kind: ExistingDestinationPathKind,
 ) -> Result<PathBuf> {
     validate_manifest_relative_path(relative, allow_root)?;
-
     let canonical_root = install_root
         .canonicalize()
         .map_err(|error| Error::PathError {
@@ -250,7 +403,6 @@ pub fn resolve_existing_destination_path(
             reason: "declared installation path resolves outside the installation root".into(),
         });
     }
-
     let valid_kind = match expected_kind {
         ExistingDestinationPathKind::File => canonical_candidate.is_file(),
         ExistingDestinationPathKind::Directory => canonical_candidate.is_dir(),
@@ -264,15 +416,12 @@ pub fn resolve_existing_destination_path(
             reason: format!("declared installation path is not a {:?}", expected_kind),
         });
     }
-
     Ok(canonical_candidate)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
-
     #[test]
     fn rejects_cross_platform_escape_forms() {
         for path in [
@@ -288,13 +437,11 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn allows_install_root_only_when_requested() {
         assert!(validate_manifest_relative_path(".", false).is_err());
         assert!(validate_manifest_relative_path(".", true).is_ok());
     }
-
     #[test]
     fn entry_resolution_accepts_a_missing_leaf() {
         let base = crate::test_util::temp_path("gutch_entry_path_resolution");
@@ -302,36 +449,29 @@ mod tests {
         let root = base.join("root");
         std::fs::create_dir_all(&root).unwrap();
         let resolver = ManifestPathResolver::new(&root).unwrap();
-
         assert_eq!(
             resolver.resolve_entry("missing.txt").unwrap(),
             root.join("missing.txt")
         );
-
         let _ = std::fs::remove_dir_all(base);
     }
-
     #[cfg(unix)]
     #[test]
     fn rejects_symlinked_parent_that_escapes_root() {
         use std::os::unix::fs::symlink;
-
         let base = std::env::temp_dir().join(format!("gutch-path-guard-{}", std::process::id()));
         let root = base.join("root");
         let outside = base.join("outside");
         fs::create_dir_all(&root).unwrap();
         fs::create_dir_all(&outside).unwrap();
         symlink(&outside, root.join("escape")).unwrap();
-
         assert!(resolve_manifest_relative_path(&root, "escape/game").is_err());
         let _ = fs::remove_dir_all(base);
     }
-
     #[cfg(windows)]
     #[test]
     fn rejects_directory_link_that_escapes_root_when_links_are_available() {
         use std::os::windows::fs::symlink_dir;
-
         let base = std::env::temp_dir().join(format!("gutch-path-guard-{}", std::process::id()));
         let root = base.join("root");
         let outside = base.join("outside");
@@ -343,7 +483,6 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 }
-
 pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Result<String> {
     let link_path = Path::new(relative_path);
     if target.is_absolute() {
@@ -372,11 +511,9 @@ pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Resul
     }
     Ok(normalized.to_string_lossy().replace('\\', "/"))
 }
-
 #[cfg(test)]
 mod link_target_tests {
     use super::*;
-
     #[test]
     fn normalizes_targets_without_allowing_root_escape() {
         assert_eq!(
@@ -386,5 +523,59 @@ mod link_target_tests {
         assert!(normalize_link_target("link", Path::new("../outside")).is_err());
         assert!(normalize_link_target("bin/link", Path::new("../../outside")).is_err());
         assert!(normalize_link_target("bin/link", &std::env::current_dir().unwrap()).is_err());
+    }
+}
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+    #[test]
+    fn path_limits_count_utf8_bytes_and_components() {
+        let allowed = "é".repeat(MAX_MANIFEST_PATH_BYTES / 2);
+        assert!(validate_manifest_relative_path(&allowed, false).is_ok());
+        assert!(validate_manifest_relative_path(&(allowed + "x"), false).is_err());
+        let allowed = vec!["a"; MAX_MANIFEST_PATH_COMPONENTS].join("/");
+        assert!(validate_manifest_relative_path(&allowed, false).is_ok());
+        assert!(validate_manifest_relative_path(&(allowed + "/a"), false).is_err());
+        assert!(validate_manifest_relative_path("a/./b", false).is_err());
+    }
+    #[test]
+    fn destination_rejects_long_components_before_creating_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("output");
+        assert!(
+            validate_destination_paths(&destination, ["a".repeat(255)].iter().map(String::as_str))
+                .is_ok()
+        );
+        assert!(
+            validate_destination_paths(&destination, ["a".repeat(256)].iter().map(String::as_str))
+                .is_err()
+        );
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_aliases_and_reserved_names_are_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["CON", "nul.txt", "COM¹", "a.", "a ", "a:b", "x?y"] {
+            assert!(
+                validate_destination_paths(temp.path(), [name].into_iter()).is_err(),
+                "{name}"
+            );
+        }
+        assert!(validate_destination_paths(temp.path(), ["dir/a", "DIR/b"].into_iter()).is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn capture_rejects_non_unicode_and_literal_backslash_names() {
+        use std::os::unix::ffi::OsStrExt;
+        assert!(
+            manifest_path_from_native(Path::new(std::ffi::OsStr::from_bytes(b"bad\xff"))).is_err()
+        );
+        assert!(manifest_path_from_native(Path::new("literal\\name")).is_err());
+        assert_eq!(
+            manifest_path_from_native(Path::new("é/e\u{301}")).unwrap(),
+            "é/e\u{301}"
+        );
     }
 }

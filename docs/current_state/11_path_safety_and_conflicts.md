@@ -123,3 +123,27 @@ delete it.
 - The current engine plan is artifact/snapshot oriented, not the rich per-file
   conflict-card model described by the retired blueprint.
 - Closing an app preview or declining CLI confirmation performs no mutation.
+
+
+## Path limits and exact names
+
+Relative manifest paths and link targets are limited to 131,072 UTF-8 bytes and
+256 components. The binary string reader checks the byte limit before allocating;
+the writer and capture enforce the same bound. The wire length remains `u32`.
+Native path components must convert to Unicode without replacement. Capture joins
+components using `/`; a literal backslash in a Unix filename is rejected rather
+than reinterpreted as a directory separator. Unicode normalization is not applied
+to stored names.
+
+Before reconstruction creates staging, it checks the destination and staging
+paths, including the operation directory. Windows checks 255 UTF-16 units per
+component, 32,766 for the full path, reserved device names, trailing dots/spaces,
+and prohibited characters. Unix checks 255 component bytes and a full-path budget
+of 4,095 bytes (1,023 on macOS). These are supported platform budgets; unusual
+filesystems may impose smaller limits and can still return filesystem errors.
+
+A disposable probe on the target volume detects case and normalization behavior.
+Potential aliasing paths are confirmed on that filesystem before rejection.
+Names are never truncated, renamed or normalized to make an installation fit.
+Read-only directories or changes to mount/case settings can still prevent the
+probe or subsequent writes; errors leave installed content unpromoted.

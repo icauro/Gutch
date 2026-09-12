@@ -5,6 +5,8 @@ from .filesystem import remove_owned
 
 def metadata_roundtrip(case, *, links):
     data = metadata(case.payload / "source", links=links)
+    data.file("a" * 255, b"maximum ASCII component")
+    data.file("é" * 127 + "x", b"255 UTF-8 bytes")
     repo = case.init()
     captured = case.capture(repo, data.root)
     destination = case.payload / "installed"

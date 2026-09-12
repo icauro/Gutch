@@ -90,11 +90,12 @@ def main(arguments=None):
     parser.add_argument("--suite", choices=("check", "fast", "local", "s3", "all", "capture", "repository", "reconstruction", "delivery", "repair"), default="check", help="check: tooling, Rust and local scenarios; s3/all require Docker")
     parser.add_argument("--case", choices=[s.name for s in SCENARIOS], action="append")
     parser.add_argument("--repo", type=Path, help="Run the core lifecycle on an isolated copy of this repository")
-    from tests.datasets.generate import case_names
+    from tests.datasets.generate import case_names, GENERATOR_VERSION
     parser.add_argument("--dataset", choices=case_names(), help="Run the core lifecycle on a committed corpus case")
     parser.add_argument("--repository-version", default="v1", help="Frozen Gutch major version (default: v1)")
     parser.add_argument("--expected", type=Path, help="Independent snapshot inventories for --repo (snapshot ID -> entries)")
     parser.add_argument("--seed", type=int, help="Run the core lifecycle with this deterministic dataset/sequence seed")
+    parser.add_argument("--sequence", help="Replay explicit additional operations: capture,rebuild,repair,reject,delete")
     parser.add_argument("--steps", type=int, default=4, help="Additional seeded lifecycle operations (default: 4)")
     parser.add_argument("--storage", choices=("bundled", "loose_chunks"), default="bundled")
     parser.add_argument("--compression", choices=("none", "lz4", "zstd"), default="zstd")
@@ -109,11 +110,13 @@ def main(arguments=None):
     args = parser.parse_args(arguments)
     if args.steps < 0 or args.mutations < 0 or args.timeout < 1:
         parser.error("steps/mutations must be nonnegative and timeout must be positive")
+    if args.sequence and any(name not in {"capture", "rebuild", "repair", "reject", "delete"} for name in args.sequence.split(",")):
+        parser.error("unknown lifecycle operation in --sequence")
     if args.expected and not args.repo:
         parser.error("--expected requires --repo")
     if args.dataset and (args.repo or args.expected):
         parser.error("--dataset supplies its own repository and expected inventories")
-    if args.dataset or args.repo or args.seed is not None or args.mutations:
+    if args.dataset or args.repo or (args.seed is not None or args.sequence is not None) or args.mutations:
         if args.case and args.case != ["repository/lifecycle"]:
             parser.error("repository options select repository/lifecycle; remove other --case selections")
         args.case = ["repository/lifecycle"]
@@ -159,9 +162,11 @@ def main(arguments=None):
                 "GUTCH_TEST_S3_SECRET_KEY": "gutch-test-secret", "GUTCH_TEST_S3_PROJECT": services.project}
         for index, scenario in enumerate(scenarios, 1):
             case = Case(root / "cases" / scenario.name, executable)
-            options = {"seed": args.seed if args.seed is not None else 123, "steps": args.steps,
+            options = {"seed": args.seed if args.seed is not None else int.from_bytes(os.urandom(8), "big"), "steps": args.steps,
                        "storage": args.storage, "compression": args.compression, "mutations": args.mutations,
-                       "timeout": args.timeout}
+                       "timeout": args.timeout, "generator_version": GENERATOR_VERSION}
+            if args.sequence is not None:
+                options["sequence"] = args.sequence
             if args.repo:
                 options["repo"] = str(args.repo.resolve())
             if args.expected:

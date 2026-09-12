@@ -130,7 +130,7 @@ fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
         path: path.to_path_buf(),
         reason: error.to_string(),
     })?;
-    Ok(relative.to_string_lossy().replace('\\', "/"))
+    crate::filesystem::paths::manifest_path_from_native(relative)
 }
 
 fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Result<String> {
@@ -167,9 +167,7 @@ fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Re
         }
     }
     let normalized = parts.iter().collect::<PathBuf>();
-    let normalized = normalized.to_string_lossy().replace('\\', "/");
-    crate::filesystem::paths::validate_manifest_relative_path(&normalized, false)?;
-    Ok(normalized)
+    crate::filesystem::paths::manifest_path_from_native(&normalized)
 }
 
 pub(crate) fn scan_source_inventory(

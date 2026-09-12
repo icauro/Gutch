@@ -60,9 +60,19 @@ def freeze(name, version, executable, source=None):
     expected_path = destination.parents[1] / "expected.json"
     if expected_path.exists():
         assert json.loads(expected_path.read_text(encoding="utf-8")) == expected, "source inventory changed across major versions"
+    try:
+        engine_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY,
+                                               text=True, stderr=subprocess.DEVNULL).strip()
+    except subprocess.CalledProcessError:
+        engine_commit = None
+    engine_source = hashlib.sha256()
+    for path in sorted([REPOSITORY / "Cargo.toml", REPOSITORY / "Cargo.lock", *REPOSITORY.glob("src/**/*.rs")]):
+        engine_source.update(path.relative_to(REPOSITORY).as_posix().encode())
+        engine_source.update(path.read_bytes())
     definition["repositories"][version] = {
         "creator": {"crate_version": tomllib.loads((REPOSITORY / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"],
-                    "engine_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY, text=True).strip(),
+                    "engine_commit": engine_commit,
+                    "engine_source_sha256": engine_source.hexdigest(),
                     "binary_sha256": hashlib.sha256(executable.read_bytes()).hexdigest()},
         "snapshots": snapshots,
     }

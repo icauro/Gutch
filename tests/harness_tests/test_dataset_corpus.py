@@ -48,3 +48,35 @@ def test_freezing_an_existing_major_version_is_rejected_before_execution():
 def test_fuzzer_cannot_exceed_resource_limits(tmp_path, budget):
     with pytest.raises(ValueError, match="budget"):
         fuzzed(tmp_path, b"arbitrary input", max_bytes=budget)
+
+
+def test_random_names_and_attributes_change_with_seed_and_preserve_unicode(tmp_path):
+    import unicodedata
+    from tests.helpers.filesystem import inventory
+    first = fuzzed(tmp_path / "first", b"one", max_bytes=65536)
+    second = fuzzed(tmp_path / "second", b"two", max_bytes=65536)
+    assert first.expected.keys() != second.expected.keys()
+    assert first.expected == inventory(first.root)
+    assert any(entry.get("size") == 0 for entry in first.expected.values())
+    assert any(entry.get("read_only") for entry in first.expected.values())
+    assert any(unicodedata.normalize("NFC", name) != name for name in first.expected)
+    assert any(any(ord(c) > 0xffff for c in name) for name in first.expected)
+    assert sum(e.get("size", 0) for e in first.expected.values()) <= 65536
+
+
+def test_versions_include_metadata_only_and_type_changes(tmp_path):
+    first = fuzzed(tmp_path / "first", b"changes", version=1)
+    second = fuzzed(tmp_path / "second", b"changes", version=2)
+    assert first.expected["permission-change.txt"]["sha256"] == second.expected["permission-change.txt"]["sha256"]
+    assert first.expected["permission-change.txt"]["read_only"] != second.expected["permission-change.txt"]["read_only"]
+    assert first.expected["type-change"]["kind"] == "file"
+    assert second.expected["type-change"]["kind"] == "directory"
+
+
+def test_operation_reducer_preserves_failure_and_removes_irrelevant_actions():
+    from tests.helpers.minimize import reduce_sequence
+    original = ["capture", "repair", "delete", "rebuild", "repair"]
+    def fails(actions):
+        return "delete" in actions and "rebuild" in actions and actions.index("delete") < actions.index("rebuild")
+    assert reduce_sequence(original, fails) == ["delete", "rebuild"]
+    assert original == ["capture", "repair", "delete", "rebuild", "repair"]

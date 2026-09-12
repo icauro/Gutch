@@ -6,7 +6,7 @@ from pathlib import Path
 import random
 import shutil
 
-from tests.datasets.generate import generated
+from tests.datasets.generate import generated, GENERATOR_VERSION
 from tests.helpers.filesystem import assert_tree, inventory, repository_inventory, write_json
 
 
@@ -30,7 +30,7 @@ def copy_repository(source, destination):
 
 
 def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
-                  storage="bundled", compression="zstd", mutations=0):
+                  storage="bundled", compression="zstd", mutations=0, sequence=None):
     operations = []
     def record(operation, **details):
         operations.append({"operation": operation, **details})
@@ -64,7 +64,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
     trusted = expected is not None
     case.details = {"oracle": "independent-inventory" if trusted else "initial-reconstruction-consistency",
                     "seed": seed, "steps": steps, "storage": storage, "compression": compression,
-                    "parser_mutations": mutations}
+                    "parser_mutations": mutations, "generator_version": GENERATOR_VERSION}
     model = expected if trusted else {}
     record("open", oracle=case.details["oracle"], seed=seed)
 
@@ -151,6 +151,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         case.reconstruct(repo, snapshot, destination)
         assert_tree(model[snapshot]["entries"], destination, case.root / "repair-before.json")
         filename = next(name for name, entry in model[snapshot]["entries"].items() if entry["kind"] == "file")
+        (destination / filename).chmod(0o644)
         (destination / filename).write_bytes(b"damaged installation")
         assert not case.verify(repo, snapshot, destination, success=False)["verification_passed"]
         case.command("reconstructed", "plan", "--repo", repo, "--snapshot-id", snapshot, "--destination", destination)
@@ -167,18 +168,25 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
     check_all("rebuild")
     repair()
     generator = random.Random(seed)
+    deletion_generator = random.Random(seed ^ 0xDE1E7E)
     def delete_added():
         candidates = [snapshot for snapshot in added if snapshot in model and snapshot != second]
         if not candidates:
             capture()
             candidates = [snapshot for snapshot in added if snapshot in model and snapshot != second]
-        snapshot = generator.choice(candidates)
+        snapshot = deletion_generator.choice(candidates)
         record("delete", snapshot=snapshot)
         case.command("snapshot", "delete", "--repo", repo, "--snapshot-id", snapshot, "--yes")
         del model[snapshot]
-    for step in range(steps):
-        action = generator.choice((capture, rebuild, repair, rejected_mutation, delete_added))
-        action()
+    actions = {"capture": capture, "rebuild": rebuild, "repair": repair,
+               "reject": rejected_mutation, "delete": delete_added}
+    selected = []
+    for step in range(len(sequence) if sequence is not None else steps):
+        name = sequence[step] if sequence is not None else generator.choice(tuple(actions))
+        selected.append(name)
+        write_json(case.root / "sequence.json", selected)
+        record("sequence-action", name=name)
+        actions[name]()
         check_all(f"sequence-{step}")
     if mutations:
         exercise_malformed_inputs(case, repo, seed, mutations, record)

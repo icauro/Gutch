@@ -1636,7 +1636,7 @@ class Dataset:
         if path.exists():
             path.chmod(0o600)
         path.write_bytes(data)
-        path.chmod(0o444 if read_only else (0o755 if executable else 0o644))
+        path.chmod((0o555 if executable else 0o444) if read_only else (0o755 if executable else 0o644))
         self.expected[relative] = {"kind": "file", "size": len(data),
             "sha256": hashlib.sha256(data).hexdigest(), "read_only": read_only,
             "executable": executable and os.name != "nt"}
@@ -1700,6 +1700,33 @@ def generated(root: Path, seed: int, version: int = 1) -> Dataset:
     return fuzzed(root, str(seed).encode(), profile="version_changes", version=version, max_bytes=262144)
 
 
+GENERATOR_VERSION = 2
+
+# These are input alphabets, not normalization rules. Keep generated code points intact.
+NAME_ALPHABETS = (
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    "éàöñøßÆČŁ", "абвгдежзийклмнопрстуфхцчшщэюя", "ابتثجحخدذرزسشصضطظعغفقكلمنهوي",
+    "אבגדהוזחטיכלמנסעפצקרשת", "日本東京漢字語数据文件", "αβγδεζηθικλμνξοπρστυφχψω",
+    "हिन्दीभाषाफाइल", "한국어파일이름", "\U0001f680\U0001f600\U0001f9ea\U0001f30d",
+    " _-.,;!@#$%&()+={}[]'", "e\u0301a\u0308", "\u200b\u200d\u2067\u2069",
+)
+
+
+def random_filename(rng, index):
+    alphabet = rng.choice(NAME_ALPHABETS)
+    # Occasionally draw from all Unicode scalars, excluding filesystem-invalid and
+    # control/surrogate values. Explicit ranges keep seeds stable across Unicode versions.
+    if rng.randrange(4) == 0:
+        points = []
+        while len(points) < 8:
+            character = chr(rng.randrange(0x110000))
+            if ord(character) >= 160 and not 0xD800 <= ord(character) <= 0xDFFF and character not in '/\\<>:"|?*':
+                points.append(character)
+        alphabet += "".join(points)
+    body = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 24)))
+    return f"n{index}-{body}.dat"
+
+
 FUZZ_PROFILES = ("empty_and_tiny", "chunk_boundaries", "duplicates", "compressible",
                 "random_content", "unicode", "nested_paths", "attributes", "version_changes", "many_small_files")
 
@@ -1724,6 +1751,8 @@ def fuzzed(root: Path, input_bytes: bytes, *, profile="random_content", version=
     emit("empty.bin", b"")
     shared = rng.randbytes(min(65537, remaining // 4))
     emit("shared.bin", shared)
+    reserved = remaining // 3
+    remaining -= reserved
     if profile == "empty_and_tiny":
         for index in range(20):
             emit(f"tiny-{index}.bin", rng.randbytes(rng.randrange(17)))
@@ -1751,6 +1780,27 @@ def fuzzed(root: Path, input_bytes: bytes, *, profile="random_content", version=
             emit(f"group-{index % 5}/file-{index}.bin", rng.randbytes(rng.randrange(2049)))
     else:
         emit("random.bin", rng.randbytes(remaining // 2))
+    remaining += reserved
+    name_rng = random.Random(int.from_bytes(hashlib.sha256(input_bytes + b"names-v2").digest(), "big"))
+    # Guaranteed representative scripts plus random combinations in every case.
+    for index, alphabet in enumerate(NAME_ALPHABETS):
+        emit(f"names/n{index}-{alphabet}.txt" if index not in (10,) else "names/n10-punctuation !@#$%&()+={}[]'.txt",
+             name_rng.randbytes(name_rng.randrange(65)),
+             read_only=index % 4 == 0, executable=index % 4 == 1)
+    for index in range(name_rng.randint(12, 28)):
+        depth = name_rng.randint(0, 5)
+        parents = [f"d{level}-" + random_filename(name_rng, index) for level in range(depth)]
+        name = "/".join(["random", *parents, random_filename(name_rng, index)])
+        emit(name, name_rng.randbytes(name_rng.choice((0, 1, 31, 127, 1023, 4097))),
+             read_only=name_rng.randrange(4) == 0, executable=name_rng.randrange(4) == 0)
+    # Metadata-only changes, type replacements and case changes are explicit transitions.
+    emit("permission-change.txt", b"same bytes across versions", read_only=version % 2 == 0)
+    if version % 2:
+        emit("type-change", b"file becomes directory")
+    else:
+        emit("type-change/child", b"directory replaces file")
+    emit("Case-change.txt" if version % 2 else "case-change.txt", b"case-only rename")
+
     # Different versions exercise insertion, deletion, renaming, moves and stable tails.
     rng.seed(int.from_bytes(hashlib.sha256(input_bytes + str(version).encode()).digest(), "big"))
     offset = rng.randrange(len(shared)) if shared else 0
@@ -1784,6 +1834,8 @@ def prepare_case_source(name):
             versions=settings["selected_versions"], platforms=settings["selected_platforms"],
             cache_dir=target.parent / "archives")
     elif settings["kind"] == "generated":
+        if settings["generator_version"] != GENERATOR_VERSION:
+            raise ValueError("corpus requires a different generator version")
         if not target.exists():
             for version in range(1, settings["versions"] + 1):
                 fuzzed(target / f"v{version}", bytes.fromhex(settings["input_hex"]),

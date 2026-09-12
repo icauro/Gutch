@@ -76,6 +76,9 @@ pub(crate) fn write_chunk_hash(writer: &mut impl Write, value: ChunkHash) -> Res
 
 pub(crate) fn write_len_prefixed_string(writer: &mut impl Write, value: &str) -> Result<()> {
     let bytes = value.as_bytes();
+    if bytes.len() > crate::filesystem::paths::MAX_MANIFEST_PATH_BYTES {
+        return Err(Error::manifest("binary string exceeds 128 KiB limit"));
+    }
     let length = u32::try_from(bytes.len())
         .map_err(|_| Error::manifest("string too large for binary manifest"))?;
     write_u32(writer, length)?;
@@ -85,8 +88,28 @@ pub(crate) fn write_len_prefixed_string(writer: &mut impl Write, value: &str) ->
 
 pub(crate) fn read_len_prefixed_string(reader: &mut BinaryReader<impl Read>) -> Result<String> {
     let length = read_u32(reader)? as usize;
+    if length > crate::filesystem::paths::MAX_MANIFEST_PATH_BYTES {
+        return Err(Error::manifest("binary string exceeds 128 KiB limit"));
+    }
     reader.require_records(length as u64, 1)?;
     let mut bytes = vec![0u8; length];
     reader.read_exact(&mut bytes)?;
     String::from_utf8(bytes).map_err(|err| Error::manifest(format!("invalid UTF-8: {}", err)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn oversized_string_is_rejected_before_reading_payload() {
+        let prefix = ((crate::filesystem::paths::MAX_MANIFEST_PATH_BYTES + 1) as u32).to_le_bytes();
+        let mut reader = BinaryReader {
+            inner: prefix.as_slice(),
+            remaining: u64::MAX,
+        };
+        let error = read_len_prefixed_string(&mut reader)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("128 KiB"), "{error}");
+    }
 }

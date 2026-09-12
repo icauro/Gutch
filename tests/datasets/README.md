@@ -41,8 +41,8 @@ Normal regression tests do not download Blender. Select its case explicitly.
 bytes for a future fuzzer harness, expands them deterministically and caps output
 at a requested 128 bytes to 4 MiB per version. The saved cases use a 1 MiB per-version
 cap. Paths, file counts and version numbers are bounded as well. The default seeded
-repository test uses this same generation function. Coverage-guided execution and
-automatic minimization are not implemented. `prepare_blender.py` only prepares real
+repository test uses this same generation function. Rust parser and bundle round-trip targets use Bolero for native fuzzing and shrinking.
+`python gutch.py minimize CASE_DIRECTORY` reduces a failing additional lifecycle sequence. `prepare_blender.py` only prepares real
 source data; it does not generate or overwrite repositories.
 
 `dataset prepare` writes disposable sources under `tests/.artifacts/datasets/<case>/source/`.
@@ -70,3 +70,24 @@ folders and add new ones; never rebuild fixtures automatically to fix a failing 
 Custom larger products remain available through `python gutch.py dataset --help`,
 including size/count/path/metadata ranges, version mutations and optional BLAKE3
 manifests (the latter require external `b3sum`). These write disposable outputs.
+
+
+Generator version 2 keeps the original code points in names. Every case combines
+representative scripts, combining marks, emoji and invisible characters with seeded
+random names drawn from Unicode scalar values. Portable generated names exclude
+OS-reserved characters and use unique prefixes to avoid incidental aliases.
+Invalid names and intentional collisions are tested separately. Source versions
+also exercise read-only/executable flags, permission-only changes, case-only
+renames and file/directory replacement. The ten static cases were regenerated on
+Linux so frozen metadata includes executable bits; Windows validation ignores
+only the unsupported executable bit.
+
+Without `--seed`, each core test run selects and records a fresh seed. Use `--seed`
+for exact regeneration. Changing generator versions changes the generated tree;
+replay therefore also records the generator version. Sources for ordinary runs
+remain under that run's disposable payload directory.
+
+On Windows, enable Git long paths (`git config core.longpaths true`) before
+checking out the corpus. Name generation uses explicit scalar ranges rather than
+version-dependent Unicode categories, so Python Unicode-table updates do not
+change the saved seeds.

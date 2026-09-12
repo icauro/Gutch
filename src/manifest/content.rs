@@ -87,7 +87,19 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             }
         }
     }
+    let non_directories: std::collections::HashSet<_> = entries
+        .iter()
+        .filter(|entry| !matches!(entry, SnapshotEntry::Directory(_)))
+        .map(SnapshotEntry::path)
+        .collect();
     for entry in entries {
+        for (offset, _) in entry.path().match_indices('/') {
+            if non_directories.contains(&entry.path()[..offset]) {
+                return Err(crate::Error::manifest(
+                    "snapshot path has a non-directory ancestor",
+                ));
+            }
+        }
         if let SnapshotEntry::Symlink(link) = entry {
             crate::filesystem::paths::validate_manifest_relative_path(&link.target_path, false)?;
             if !paths.contains(link.target_path.as_str()) {

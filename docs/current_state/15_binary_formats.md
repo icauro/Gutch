@@ -9,7 +9,8 @@ Verified: 2026-09-11
 These are serialized layouts, without Rust alignment padding. Integers are
 unsigned little-endian. `Hash32` is binary BLAKE3; `Hex64` is its lowercase
 ASCII encoding. `String` means `{length: u32, utf8: byte[length]}`. Lengths
-count bytes. Every top-level binary format uses version **1**, a 16-byte magic,
+count bytes. Strings are additionally limited to 131,072 bytes before allocation;
+manifest paths have at most 256 components. Every top-level binary format uses version **1**, a 16-byte magic,
 and exact zero padding. Older formats are rejected, even if they also used a
 version numbered 1. JSON documents retain `document_version: "1.0.0"`.
 

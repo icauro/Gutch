@@ -18,4 +18,5 @@ def run(case):
     run_lifecycle(case, source=source, expected=expected,
                   seed=options.get("seed", 123), steps=options.get("steps", 4),
                   storage=options.get("storage", "bundled"), compression=options.get("compression", "zstd"),
-                  mutations=options.get("mutations", 0))
+                  mutations=options.get("mutations", 0),
+                  sequence=options["sequence"].split(",") if options.get("sequence") else ([] if "sequence" in options else None))

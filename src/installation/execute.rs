@@ -70,6 +70,11 @@ pub(crate) fn apply_reconstruct_pipeline(
                     &request.snapshot_manifest.snapshot_id,
                 )
             });
+        crate::filesystem::paths::validate_destination_paths(request.destination_dir,
+            request.snapshot_manifest.entries.iter().map(|entry| entry.path()))?;
+        // tempfile appends a six-character random suffix to the operation prefix.
+        crate::filesystem::paths::validate_destination_paths(&staging_dir.join(".gutch-operation-XXXXXX"),
+            request.snapshot_manifest.entries.iter().map(|entry| entry.path()))?;
         super::apply::create_snapshot_staging(
             request.destination_dir,
             &staging_dir,

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import time
 
 from tools.artifacts import remove_owned
 
@@ -15,7 +16,14 @@ def write_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    for attempt in range(6):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 5:
+                raise
+            time.sleep(0.01 * 2 ** attempt)
 
 
 def inventory(root: Path) -> dict:

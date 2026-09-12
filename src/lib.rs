@@ -31,3 +31,7 @@ pub(crate) use error::Result;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "artifact/fuzz_tests.rs"]
+mod engine_fuzz;

@@ -154,3 +154,37 @@ is loaded or inherited as fixture ownership.
 All paths and commands on this page are relative to the Gutch root. Consumers
 can invoke this script and pass explicit artifact and JSONL event paths.
 Benchmark preparation and scheduling remain under their own component folders.
+
+
+## Fresh generation, fuzzing and reduction
+
+The core lifecycle selects a fresh recorded seed unless `--seed` is provided.
+Generator version 2 varies Unicode paths, data and supported attributes while
+retaining deterministic regeneration. `--sequence capture,rebuild,repair` selects
+explicit additional operations. Each failure retains `sequence.json`, the seed,
+generator version, independent inventories and command evidence.
+
+`python gutch.py minimize CASE_DIRECTORY` attempts to reproduce the same failure
+and delete unnecessary additional operations. It keeps the original run, has a
+120-second/32-attempt budget and writes a replayable result. It does not reduce
+the mandatory lifecycle or claim a globally minimal dataset.
+
+Native targets live in `src/artifact/fuzz_tests.rs`. Ordinary Rust tests run sampled
+inputs; `cargo bolero test engine_fuzz::fuzz_binary_decoders -T 30s -l 65536` and
+`cargo bolero test engine_fuzz::fuzz_bundle_roundtrip -T 30s -l 65536` run instrumented fuzzing
+with cargo-bolero and a compatible Rust toolchain. Inputs are capped at 64 KiB;
+malformed decompression output is capped at 65,537 bytes. Corpus/crash artifacts
+are under `tests/.artifacts/fuzz/`. Bolero shrinks failing native inputs.
+
+The frozen corpus contains ten generated cases plus Blender. All generated cases
+are below 16 MiB including source, metadata and repository. Normal tests never
+regenerate committed repositories. Windows validates every supported attribute;
+Linux also validates executable bits.
+
+
+Use `python gutch.py fuzz --seconds 30 --rustc-bootstrap` on Linux after installing
+`cargo-bolero` (`cargo install cargo-bolero --locked --no-default-features`).
+This runs both native targets and seeds the decoder target with committed
+blueprints and indexes, keeping logs, corpus and crashes under `tests/.artifacts/fuzz`.
+`--rustc-bootstrap` enables the instrumentation features needed on the installed
+stable compiler; omit it when using a supported nightly toolchain.

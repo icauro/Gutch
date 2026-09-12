@@ -27,7 +27,7 @@ def replay(directory):
     lifecycle = record["case"] == "repository/lifecycle" or bool(record.get("options", {}).get("repo"))
     arguments = ["--case", "repository/lifecycle" if lifecycle else record["case"], "--keep-artifacts"]
     if lifecycle:
-        for name in ("repo", "expected", "seed", "steps", "storage", "compression", "mutations", "timeout"):
+        for name in ("repo", "expected", "seed", "steps", "storage", "compression", "mutations", "timeout", "sequence"):
             if name in record.get("options", {}):
                 arguments.extend(["--" + name, str(record["options"][name])])
     return run_module("tests.run", arguments)
@@ -85,13 +85,15 @@ def main(arguments=None):
     parser = argparse.ArgumentParser(description="Develop Gutch: prepare, test, benchmark and reproduce failures.")
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("setup", help="Prepare the locked Python environment; requires Python 3.12+, uv and Rust")
+    commands.add_parser("fuzz", add_help=False, help="Run bounded native parser and round-trip fuzzing")
     commands.add_parser("test", add_help=False, help="Run tooling, Rust and local scenarios by default; --help lists suites")
     commands.add_parser("dataset", add_help=False, help="Generate datasets, list/prepare corpus sources, or freeze a repository")
     commands.add_parser("benchmark", add_help=False, help="Run benchmarks; use 'list' to discover workloads")
     commands.add_parser("build-image", help="Build the standalone Linux image; requires Docker").add_argument("--tag", default="gutch-builder")
+    commands.add_parser("minimize", help="Reduce a failed lifecycle operation sequence").add_argument("directory", type=Path)
     commands.add_parser("replay", help="Rerun a case from a saved evidence directory").add_argument("directory", type=Path)
     commands.add_parser("clean", help="Remove retained successful test payloads, preserving reports and failures")
-    routes = {"test": "tests.run", "dataset": "tests.datasets.generate", "benchmark": "tests.benchmarks.comparison"}
+    routes = {"fuzz": "tests.helpers.fuzz", "test": "tests.run", "dataset": "tests.datasets.generate", "benchmark": "tests.benchmarks.comparison"}
     if arguments and arguments[0] in routes:
         forwarded = arguments[1:]
         if arguments[0] == "dataset" and forwarded[:1] == ["freeze"]:
@@ -110,6 +112,9 @@ def main(arguments=None):
     try:
         if args.command == "setup":
             return setup()
+        if args.command == "minimize":
+            from tests.helpers.minimize import minimize
+            return minimize(args.directory)
         if args.command == "replay":
             return replay(args.directory)
         if args.command == "clean":
