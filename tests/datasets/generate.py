@@ -1429,9 +1429,9 @@ def _write_source_config(
                 {
                     "path": snapshot_dir.name,
                     "tags": [
-                        f"version::{version_label}",
-                        f"os::{platform}",
-                        "arch::x86_64" if architecture == "x86" else f"arch::{architecture}",
+                        f"version={version_label}",
+                        f"os={platform}",
+                        "arch=x86_64" if architecture == "x86" else f"arch={architecture}",
                     ],
                 }
             )

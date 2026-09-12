@@ -50,7 +50,7 @@ def freeze(name, version, executable, source=None):
         # This inventory is derived from original source bytes, before Gutch runs.
         expected[name_part] = {"entries": inventory(tree)}
         captured = case.capture(repo, tree, "--compression-algorithm", "zstd",
-                                "--tag", f"version::{index}.0.0")
+                                "--tag", f"version={index}.0.0")
         snapshot = captured["snapshot_id"]
         snapshots[snapshot] = name_part
         restored = case.payload / "restored" / name_part

@@ -29,10 +29,10 @@ use crate::repo::status::SourceSnapshotOperationDisposition;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
     let mut tags = manifest::SnapshotTagSet::default();
-    tags.upsert_exclusive("version", version);
-    tags.upsert_exclusive("os", os);
-    tags.upsert_exclusive("arch", arch);
-    tags.upsert_exclusive("tier", tier);
+    tags.insert("version", version).unwrap();
+    tags.insert("os", os).unwrap();
+    tags.insert("arch", arch).unwrap();
+    tags.insert("tier", tier).unwrap();
     tags
 }
 
@@ -109,14 +109,14 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
             document_version: manifest::PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             runtime: manifest::SnapshotRuntimeMetadata::HostVariants(
                 manifest::SnapshotHostVariantRuntimeMetadata {
-                    host_variants: [("windows-x64", "os::windows"), ("linux-x64", "os::linux")]
+                    host_variants: [("windows-x64", "os=windows"), ("linux-x64", "os=linux")]
                         .into_iter()
                         .map(
                             |(variant_id, os_requirement)| manifest::SnapshotHostVariant {
                                 variant_id: variant_id.to_string(),
                                 host_tag_requirements: vec![
                                     os_requirement.to_string(),
-                                    "arch::x86_64".to_string(),
+                                    "arch=x86_64".to_string(),
                                 ],
                                 launch_actions: vec![manifest::SnapshotLaunchAction {
                                     action_name: "Play".to_string(),

@@ -58,6 +58,7 @@ pub struct RepoSnapshotStatus {
     #[serde(default)]
     pub missing_artifact_count: usize,
     pub source_modified_at: String,
+    #[serde(rename = "tags")]
     pub snapshot_tags: manifest::SnapshotTagSet,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_metadata: Option<serde_json::Value>,
@@ -81,6 +82,7 @@ pub struct SourceSnapshotOperationCandidate {
     pub version_id: String,
     pub os: String,
     pub arch: String,
+    #[serde(rename = "tags")]
     pub snapshot_tags: manifest::SnapshotTagSet,
     #[serde(default)]
     pub disposition: SourceSnapshotOperationDisposition,

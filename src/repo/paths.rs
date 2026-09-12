@@ -95,6 +95,9 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
     let repo_manifest_json = crate::filesystem::read_to_string(&paths.repo_metadata_path)?;
     let mut repo_manifest: GutchRepoManifest =
         crate::filesystem::from_json_str(&repo_manifest_json)?;
+    if let Some(constraints) = &repo_manifest.constraints {
+        constraints.validate_definition()?;
+    }
     apply_local_repo_config(&paths, &mut repo_manifest)?;
     Ok((paths, repo_manifest))
 }

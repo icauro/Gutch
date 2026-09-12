@@ -357,9 +357,9 @@ mod tests {
     fn tag_values_are_summarized_without_provider_types() {
         assert_eq!(
             summarize_snapshot_tags_from_values(&[
-                "version::1.2.3".into(),
-                "os::linux".into(),
-                "-loader-steam".into()
+                "version=1.2.3".into(),
+                "os=linux".into(),
+                "loader=steam".into()
             ]),
             ("1.2.3".into(), "linux".into(), "".into())
         );

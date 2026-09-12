@@ -161,7 +161,7 @@ impl SnapshotProductMetadata {
                     let target_os = variant
                         .host_tag_requirements
                         .iter()
-                        .find_map(|requirement| requirement.strip_prefix("os::"));
+                        .find_map(|requirement| requirement.strip_prefix("os="));
                     validate_snapshot_launch_actions_for_snapshot(
                         &variant.launch_actions,
                         snapshot,
@@ -272,8 +272,8 @@ pub(crate) fn current_host_tags() -> SnapshotTagSet {
         "aarch64" => "arm64",
         _ => "unknown",
     };
-    tags.upsert_exclusive("os", operating_system);
-    tags.upsert_exclusive("arch", architecture);
+    tags.insert("os", operating_system).unwrap();
+    tags.insert("arch", architecture).unwrap();
     tags
 }
 
@@ -286,11 +286,7 @@ pub(crate) struct SnapshotMetadata {
     pub snapshot_id: String,
     #[serde(rename = "captured_at")]
     pub captured_at: String,
-    #[serde(
-        default,
-        serialize_with = "serialize_snapshot_tags_as_compact_strings",
-        deserialize_with = "deserialize_snapshot_tags_from_compact_strings"
-    )]
+    #[serde(default, rename = "tags")]
     pub snapshot_tags: SnapshotTagSet,
 }
 
@@ -392,26 +388,6 @@ impl SnapshotManifest {
     pub fn set_files(&mut self, files: Vec<FileManifest>) {
         self.entries = files.into_iter().map(SnapshotEntry::File).collect();
     }
-}
-
-pub(crate) fn serialize_snapshot_tags_as_compact_strings<S>(
-    snapshot_tags: &SnapshotTagSet,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    snapshot_tags.to_canonical_strings().serialize(serializer)
-}
-
-pub(crate) fn deserialize_snapshot_tags_from_compact_strings<'de, D>(
-    deserializer: D,
-) -> std::result::Result<SnapshotTagSet, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let values = Vec::<String>::deserialize(deserializer)?;
-    SnapshotTagSet::from_compact_strings(&values).map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]

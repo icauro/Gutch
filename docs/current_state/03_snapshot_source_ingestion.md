@@ -57,17 +57,17 @@ snapshot trees and is always ignored.
 
 ## Identity Resolution
 
-Tag values use `name:value` for scoped tags and `name::value` for exclusive
-tags. Tag names are lower-snake-case and each name has one kind. Values are
+Snapshot tags use `key=value`. Keys are ASCII lower-snake-case; each key has
+one value. The remainder after the first equals sign is preserved. Values are
 resolved in this order:
 
-1. explicit CLI `--tag key::value` values;
+1. explicit CLI `--tag key=value` values;
 2. tags on the matching explicit config entry;
 3. no inferred or default values.
 
 Later sources fill only unresolved tags; higher-precedence values win. An empty
-result is valid for local capture. The backend rejects a remote snapshot that
-does not contain a non-empty `version` tag.
+result is valid only when repository constraints allow it. A host can require versions, matching key sets, or dates through repository
+constraints.
 
 ## Path and Entry Rules
 

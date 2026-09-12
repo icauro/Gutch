@@ -165,6 +165,9 @@ pub(crate) enum RepoCommands {
         json_out: Option<PathBuf>,
     },
     Init {
+        /// JSON file containing the complete repository constraints object.
+        #[arg(long, value_parser = parse_cli_path, conflicts_with = "targets")]
+        constraints: Option<PathBuf>,
         #[arg(long = "filesystem", value_enum, value_delimiter = ',')]
         targets: Vec<crate::manifest::constraints::FilesystemTarget>,
         #[arg(long = "repo", value_parser = parse_cli_path)]
@@ -236,10 +239,14 @@ pub(crate) enum ConstraintCommands {
             long = "filesystem",
             value_enum,
             value_delimiter = ',',
-            required = true
+            required_unless_present = "constraints"
         )]
         targets: Vec<crate::manifest::constraints::FilesystemTarget>,
+        /// JSON file containing the complete replacement constraints object.
+        #[arg(long, value_parser = parse_cli_path, conflicts_with = "targets")]
+        constraints: Option<PathBuf>,
     },
+
     Clear {
         #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -321,10 +328,17 @@ pub(crate) enum SnapshotCommands {
     Retag {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: String,
-        #[arg(long = "tag")]
+        #[arg(
+            long = "snapshot",
+            required_unless_present = "tags_file",
+            conflicts_with = "tags_file"
+        )]
+        snapshot_id: Option<String>,
+        #[arg(long = "tag", conflicts_with = "tags_file")]
         tags: Vec<String>,
+        /// JSON object mapping snapshot IDs to complete {"key_value": {...}} tag sets.
+        #[arg(long, value_parser = parse_cli_path)]
+        tags_file: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
     },

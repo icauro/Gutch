@@ -43,6 +43,7 @@ class Scenario:
 
 
 SCENARIOS = [
+    Scenario("repository.tag_constraints_preserve_state", "local"),
     Scenario("repository.snapshot_diff_reports_tree_changes", "local"),
     Scenario("repository.command_contract", "local"),
     Scenario("repository.filename_constraints_reject_without_changes", "local"),

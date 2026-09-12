@@ -3,13 +3,13 @@ use super::*;
 #[test]
 fn test_snapshot_manifest_new() {
     let mut tags = SnapshotTagSet::default();
-    tags.upsert_exclusive("version", "1.0.0");
-    tags.upsert_exclusive("os", "windows");
-    tags.upsert_exclusive("arch", "x86_64");
-    tags.upsert_exclusive("tier", "base");
+    tags.insert("version", "1.0.0").unwrap();
+    tags.insert("os", "windows").unwrap();
+    tags.insert("arch", "x86_64").unwrap();
+    tags.insert("tier", "base").unwrap();
     let m = SnapshotManifest::new("abc123def".into(), tags.clone());
     assert_eq!(m.snapshot_id, "abc123def");
-    assert_eq!(m.snapshot_tags.get_exclusive("os"), Some("windows"));
+    assert_eq!(m.snapshot_tags.get("os"), Some("windows"));
     assert_eq!(m.metadata_version, PUBLIC_METADATA_FORMAT_VERSION);
     assert!(!m.captured_at.is_empty());
 }
@@ -17,10 +17,10 @@ fn test_snapshot_manifest_new() {
 #[test]
 fn test_manifest_serialization_roundtrip() {
     let mut tags = SnapshotTagSet::default();
-    tags.upsert_exclusive("version", "1.0.0");
-    tags.upsert_exclusive("os", "windows");
-    tags.upsert_exclusive("arch", "x86_64");
-    tags.upsert_exclusive("tier", "base");
+    tags.insert("version", "1.0.0").unwrap();
+    tags.insert("os", "windows").unwrap();
+    tags.insert("arch", "x86_64").unwrap();
+    tags.insert("tier", "base").unwrap();
     let mut m = SnapshotManifest::new("abc123def".into(), tags.clone());
     m.launch = Some(launch::ResolvedLaunchConfiguration {
         primary: None,
@@ -33,8 +33,8 @@ fn test_manifest_serialization_roundtrip() {
     });
     m.sync_product_metadata_from_launch();
     let json = serde_json::to_string_pretty(&m.metadata()).unwrap();
-    assert!(json.contains("\"snapshot_tags\": ["));
-    assert!(json.contains("\"arch::x86_64\""));
+    assert!(json.contains("\"tags\": {"));
+    assert!(json.contains("\"arch\": \"x86_64\""));
     assert!(!json.contains("\"executable_path\": \"Game.exe\""));
     assert!(!json.contains("\"exclusive\""));
     assert!(!json.contains("\"files\""));
@@ -67,8 +67,8 @@ fn snapshot_metadata_does_not_store_source_or_blueprint_details() {
 fn host_variant_runtime_uses_launcher_host_tags() {
     let host_tags = current_host_tags();
     let requirements = vec![
-        format!("os::{}", host_tags.get_exclusive("os").unwrap()),
-        format!("arch::{}", host_tags.get_exclusive("arch").unwrap()),
+        format!("os={}", host_tags.get("os").unwrap()),
+        format!("arch={}", host_tags.get("arch").unwrap()),
     ];
     let metadata = SnapshotProductMetadata {
         document_version: PUBLIC_METADATA_FORMAT_VERSION.into(),

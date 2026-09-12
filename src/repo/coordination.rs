@@ -141,6 +141,12 @@ fn with_repository_transaction<T>(
     DEFERRED_ARTIFACT_DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
     match work().and_then(|value| {
         control.checkpoint()?;
+        if root.join("repo_metadata.json").exists() {
+            let (_, repository) = super::paths::load_gutch_repo_manifest(&root)?;
+            if let Some(constraints) = repository.constraints {
+                super::updates::validate_repository_tag_constraints(&root, &constraints)?;
+            }
+        }
         Ok(value)
     }) {
         Ok(value) => {
@@ -302,7 +308,8 @@ mod tests {
     #[test]
     fn interrupted_publication_is_rejected_by_readers_and_recovered_by_writer() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("repo_metadata.json"), b"committed").unwrap();
+        crate::api::initialize_repo(root.path(), Default::default()).unwrap();
+        let committed = std::fs::read(root.path().join("repo_metadata.json")).unwrap();
         write(root.path(), || Ok(())).unwrap();
         std::fs::write(root.path().join(".gutch-transactions/pending"), b"1").unwrap();
         std::fs::write(root.path().join("repo_metadata.json"), b"partial").unwrap();
@@ -310,7 +317,7 @@ mod tests {
         write(root.path(), || {
             assert_eq!(
                 std::fs::read(root.path().join("repo_metadata.json"))?,
-                b"committed"
+                committed
             );
             Ok(())
         })

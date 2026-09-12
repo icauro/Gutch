@@ -1,0 +1,172 @@
+{
+  "assignments": [
+    {
+      "input": [
+        " Label = 日本語, café = a:b\nsecond line "
+      ],
+      "expected": {
+        "label": "日本語, café = a:b\nsecond line"
+      }
+    },
+    {
+      "input": [
+        "LABEL = Привет 🌍"
+      ],
+      "expected": {
+        "label": "Привет 🌍"
+      }
+    },
+    {
+      "input": [
+        "label=﻿value﻿"
+      ],
+      "expected": {
+        "label": "﻿value﻿"
+      }
+    },
+    {
+      "input": [
+        "label=x",
+        "LABEL=x"
+      ],
+      "expected": {
+        "label": "x"
+      }
+    },
+    {
+      "input": [],
+      "expected": {}
+    },
+    {
+      "input": [
+        "label=x",
+        "label=y"
+      ],
+      "expected": null
+    },
+    {
+      "input": [
+        "label:one"
+      ],
+      "expected": null
+    },
+    {
+      "input": [
+        "label::one"
+      ],
+      "expected": null
+    },
+    {
+      "input": [
+        "label+=one"
+      ],
+      "expected": null
+    },
+    {
+      "input": [
+        "label= "
+      ],
+      "expected": null
+    },
+    {
+      "input": [
+        "=value"
+      ],
+      "expected": null
+    },
+    {
+      "input": [
+        "label=bad-value"
+      ],
+      "expected": null
+    },
+    {
+      "input": [
+        "Key=value"
+      ],
+      "expected": null
+    }
+  ],
+  "formats": [
+    {
+      "format": "u32.u32.u32.u32",
+      "value": "0.0.0.0",
+      "valid": true
+    },
+    {
+      "format": "u32.u32.u32.u32",
+      "value": "4294967295.2.3.4",
+      "valid": true
+    },
+    {
+      "format": "u32.u32.u32.u32",
+      "value": "4294967296.2.3.4",
+      "valid": false
+    },
+    {
+      "format": "u32.u32.u32.u32",
+      "value": "01.2.3.4",
+      "valid": false
+    },
+    {
+      "format": "u32.u32.u32.u32",
+      "value": "1.2.3",
+      "valid": false
+    },
+    {
+      "format": "u32.u32.u32.u32",
+      "value": "v1.2.3.4",
+      "valid": false
+    },
+    {
+      "format": "u32.u32.u32.u32",
+      "value": "+1.2.3.4",
+      "valid": false
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "0001_01_01",
+      "valid": true
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "9999_12_31",
+      "valid": true
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "2000_02_29",
+      "valid": true
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "1900_02_29",
+      "valid": false
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "2024_02_29",
+      "valid": true
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "2025_02_29",
+      "valid": false
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "0000_01_01",
+      "valid": false
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "2026_04_31",
+      "valid": false
+    },
+    {
+      "format": "yyyy_mm_dd",
+      "value": "2026_1_01",
+      "valid": false
+    }
+  ]
+}

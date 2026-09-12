@@ -646,6 +646,7 @@ mod constraint_tests {
             root.path(),
             crate::api::RepositoryConstraints {
                 targets: vec![crate::api::FilesystemTarget::WindowsNtfs],
+                ..Default::default()
             },
         )
         .unwrap();

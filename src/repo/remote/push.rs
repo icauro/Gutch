@@ -81,18 +81,7 @@ fn remote_snapshot_change(snapshot: &RemoteSnapshot) -> RepoPushSnapshotChange {
 }
 
 pub(super) fn summarize_snapshot_tags_from_values(tags: &[String]) -> (String, String, String) {
-    let mut tag_set = SnapshotTagSet::default();
-    for tag in tags {
-        if let Some((key, value)) = tag.split_once("::") {
-            tag_set.exclusive.insert(key.to_string(), value.to_string());
-        } else if let Some((key, value)) = tag.split_once(':') {
-            tag_set
-                .scoped
-                .entry(key.to_string())
-                .or_default()
-                .insert(value.to_string());
-        }
-    }
+    let tag_set = SnapshotTagSet::from_compact_strings(tags).unwrap_or_default();
     let summary = summarize_snapshot_tags(&tag_set);
     (summary.version_id, summary.os, summary.arch)
 }

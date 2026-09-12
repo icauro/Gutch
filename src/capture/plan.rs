@@ -52,7 +52,11 @@ pub(crate) fn plan_snapshot_capture_with_source_modified_at(
     explicit_tags: &SnapshotTagSet,
     source_modified_at: String,
 ) -> Result<SnapshotCapturePlan> {
-    let _ = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+    let (_, repository) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+    repository
+        .constraints
+        .unwrap_or_default()
+        .validate_snapshot_tags(explicit_tags, &source_dir.display().to_string())?;
 
     let candidate = build_source_snapshot_ops_candidate_with_modified_at(
         source_dir,

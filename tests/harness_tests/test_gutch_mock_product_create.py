@@ -277,7 +277,7 @@ class GutchMockProductCreateTests(unittest.TestCase):
             )
             self.assertEqual(
                 source_config["explicit_ingestion_rules"]["snapshots"][0]["tags"],
-                ["version::5.0.0", "os::windows", "arch::x86_64"],
+                ["version=5.0.0", "os=windows", "arch=x86_64"],
             )
 
     def test_blender_archive_rejects_traversal(self) -> None:

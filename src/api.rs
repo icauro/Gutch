@@ -44,7 +44,6 @@ pub use crate::manifest::SnapshotLaunchAction;
 pub use crate::manifest::SnapshotManifest;
 pub use crate::manifest::SnapshotProductMetadata;
 pub use crate::manifest::SnapshotRuntimeMetadata;
-pub use crate::manifest::SnapshotTagKind;
 pub use crate::manifest::SnapshotTagSet;
 pub use crate::manifest::StructuredVersion;
 pub use crate::manifest::SymlinkManifest;
@@ -218,3 +217,9 @@ pub fn load_snapshot_manifest(
 }
 
 pub use crate::snapshot::source_config::initialize_source_config;
+
+pub use crate::manifest::constraints::{
+    SnapshotTagConstraints, SnapshotTagRule, SnapshotTagValueFormat,
+};
+
+pub use crate::repo::snapshots::{plan_snapshot_tag_updates, retag_snapshots};

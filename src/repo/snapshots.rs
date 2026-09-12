@@ -81,19 +81,57 @@ pub fn retag_snapshot_by_id(
     snapshot_id: &str,
     new_tags: SnapshotTagSet,
 ) -> Result<RetagSnapshotResult> {
-    let new_tags = SnapshotTagSet::from_compact_strings(&new_tags.to_canonical_strings())?;
-    let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
-        let (repo_paths, _) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
-        let mut manifest =
-            crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, snapshot_id)?;
-        let previous_tags = manifest.snapshot_tags.clone();
-        manifest.snapshot_tags = new_tags.clone();
-        crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&repo_paths, &manifest)?;
-        Ok(RetagSnapshotResult {
-            snapshot_id: snapshot_id.to_string(),
-            previous_tags,
-            new_tags,
-        })
+    let replacements =
+        std::collections::BTreeMap::from([(snapshot_id.to_owned(), new_tags.normalized()?)]);
+    Ok(retag_snapshots(repo_root, replacements)?.remove(0))
+}
+
+/// Preview complete replacement tag sets for selected snapshots. Untouched
+/// snapshots also participate in parity validation.
+pub fn plan_snapshot_tag_updates(
+    repo_root: &Path,
+    replacements: &std::collections::BTreeMap<String, SnapshotTagSet>,
+) -> Result<Vec<RetagSnapshotResult>> {
+    crate::repo::coordination::read(repo_root, || {
+        let (paths, repository) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+        let mut results = Vec::new();
+        let mut normalized = std::collections::BTreeMap::new();
+        for (id, tags) in replacements {
+            let manifest = crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, id)?;
+            let tags = tags.normalized()?;
+            normalized.insert(id.clone(), tags.clone());
+            results.push(RetagSnapshotResult {
+                snapshot_id: id.clone(),
+                previous_tags: manifest.snapshot_tags,
+                new_tags: tags,
+            });
+        }
+        super::updates::validate_proposed_snapshot_tags(
+            repo_root,
+            &repository.constraints.unwrap_or_default(),
+            &normalized,
+        )?;
+        Ok(results)
+    })
+}
+
+/// Replaces multiple snapshot tag sets in one recoverable repository transaction.
+/// A failing rule or write restores every snapshot's previous metadata.
+pub fn retag_snapshots(
+    repo_root: &Path,
+    replacements: std::collections::BTreeMap<String, SnapshotTagSet>,
+) -> Result<Vec<RetagSnapshotResult>> {
+    crate::repo::coordination::write(repo_root, || {
+        let changes = plan_snapshot_tag_updates(repo_root, &replacements)?;
+        let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+        for change in &changes {
+            let mut manifest = crate::repo::snapshot_manifests::load_snapshot_manifest(
+                &paths,
+                &change.snapshot_id,
+            )?;
+            manifest.snapshot_tags = change.new_tags.clone();
+            crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, &manifest)?;
+        }
+        Ok(changes)
     })
 }

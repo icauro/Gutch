@@ -418,6 +418,8 @@ fn prepare_snapshot_fetch(
     )?;
 
     let incoming_constraints = repo_manifest.constraints.clone().unwrap_or_default();
+    incoming_constraints
+        .validate_snapshot_tags(&snapshot_manifest.snapshot_tags, &request.snapshot_id)?;
     crate::filesystem::constraints::validate_paths(
         &incoming_constraints,
         snapshot_manifest.entries.iter().map(|entry| entry.path()),

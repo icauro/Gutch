@@ -271,7 +271,7 @@ def _write_blender_source_config(product_dir: Path, target_dirs: tuple[Path, ...
         snapshots.append(
             {
                 "path": target_dir.name,
-                "tags": [f"{key}::{value}" for key, value in tags.items()],
+                "tags": [f"{key}={value}" for key, value in tags.items()],
             }
         )
     _write_json(

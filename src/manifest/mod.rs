@@ -46,7 +46,6 @@ pub use snapshot::SnapshotManifest;
 pub use snapshot::SnapshotProductMetadata;
 pub use snapshot::SnapshotRuntimeMetadata;
 pub(crate) use snapshot::current_host_tags;
-pub use tags::SnapshotTagKind;
 pub use tags::SnapshotTagSet;
 pub use tags::StructuredVersion;
 

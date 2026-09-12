@@ -95,17 +95,28 @@ representation comparison.
 
 ## Snapshot Tags
 
-Snapshot tags use `name:value` for scoped values and `name::value` for
-exclusive values. Tag names use lower-snake-case (`^[a-z][a-z0-9_]*$`), and a
-name can belong to only one kind. Gutch accepts explicitly supplied tags and
-validates only their structural grammar. Tags are optional for local snapshots
-and are completely free-form within that grammar. Gutch does not own a
-repository tag schema, defaults, templates, or inference handlers.
+Snapshot metadata stores `"tags":{"key_value":{"version":"1.2.3.0"}}`.
+The named collection remains present when empty. Compact input uses `key=value`;
+only the first equals sign is a separator. Generic values preserve Unicode,
+case, internal whitespace, commas and additional separators. Keys use ASCII
+lower snake case; surrounding Unicode whitespace is trimmed. Empty values and
+hyphens are rejected. Identical repeated assignments collapse; conflicts fail.
+The former scoped collection and `::` syntax are rejected.
 
-The `version` tag has one platform-specific rule: the backend requires a
-non-empty `version` tag before a snapshot can be stored remotely. Local
-tagless snapshots remain valid, but they cannot be pushed or delivered until a
-version tag is explicitly assigned.
+Repository `constraints` optionally contains `snapshot_tags.key_value` rules
+and the separate `require_matching_tag_keys_across_snapshots` boolean. Each key
+rule has optional `required` (false by default) and `format`. Supported formats
+are `u32.u32.u32.u32` (four canonical decimal components, no leading zeroes)
+and `yyyy_mm_dd` (real Gregorian dates, years 0001–9999). Unlisted keys are allowed.
+Parity compares key sets within the repository; values may differ. Empty repos
+have no remembered key set. Existing filesystem `targets` remain independent.
+
+Standalone Gutch initializes without constraints. Hosts supply their own rules.
+Capture, imports, tag changes and constraint updates validate before publication;
+failed changes preserve the prior repository. `snapshot retag --tags-file PATH`
+accepts a JSON object mapping snapshot IDs to complete `tags` sets and applies
+all replacements atomically. `--dry-run` previews without writing. This permits
+adding or removing a key across all snapshots when parity is enabled.
 
 ## Synchronization Ownership
 
@@ -128,8 +139,7 @@ and never blocks capture or synchronization.
 
 - JSON metadata cannot override binary blueprint filesystem facts.
 - Local repo linkage cannot assert product ownership.
-- Malformed tags or corrupt binary formats fail validation. Missing `version`
-  is allowed locally and is rejected only by the backend remote-snapshot
-  contract.
+- Malformed tags, corrupt binary formats and configured constraint violations
+  fail validation. Missing `version` is allowed only when no rule requires it.
 - Optional runtime metadata is synchronized independently and is removed
   remotely when the local optional file is removed and the change is pushed.

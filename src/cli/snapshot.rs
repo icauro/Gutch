@@ -32,18 +32,9 @@ fn capture_stats_from_engine_result(
         manifest_path: result.manifest_path.display().to_string(),
         product_id: repo_name.to_string(),
         remote_repo_id: repo_name.to_string(),
-        version_id: explicit_tags
-            .get_exclusive("version")
-            .unwrap_or_default()
-            .to_string(),
-        os: explicit_tags
-            .get_exclusive("os")
-            .unwrap_or_default()
-            .to_string(),
-        arch: explicit_tags
-            .get_exclusive("arch")
-            .unwrap_or_default()
-            .to_string(),
+        version_id: explicit_tags.get("version").unwrap_or_default().to_string(),
+        os: explicit_tags.get("os").unwrap_or_default().to_string(),
+        arch: explicit_tags.get("arch").unwrap_or_default().to_string(),
         storage_mode: storage_mode_cli,
         file_count: result.file_count,
         total_logical_size: result.total_logical_size,
@@ -299,36 +290,45 @@ pub(crate) fn run(
             repo,
             snapshot_id,
             tags,
+            tags_file,
             yes,
         } => {
-            let new_tags = parse_cli_tags(&tags)?;
+            let single_snapshot = snapshot_id.is_some();
+            let replacements = if let Some(path) = tags_file {
+                serde_json::from_str(&crate::filesystem::read_to_string(&path)?)?
+            } else {
+                std::collections::BTreeMap::from([(
+                    snapshot_id.ok_or_else(|| {
+                        crate::api::Error::manifest("select a snapshot or tags file")
+                    })?,
+                    parse_cli_tags(&tags)?,
+                )])
+            };
+            if replacements.is_empty() {
+                return Err(crate::api::Error::manifest("select at least one snapshot"));
+            }
+            let preview = crate::api::plan_snapshot_tag_updates(&repo, &replacements)?;
+            for change in &preview {
+                crate::cli::output::line(format_args!(
+                    "{}: {} -> {}",
+                    change.snapshot_id,
+                    change.previous_tags.to_canonical_strings().join(" "),
+                    change.new_tags.to_canonical_strings().join(" ")
+                ));
+            }
             if crate::cli::output::dry_run() {
-                let (paths, _) = crate::api::load_gutch_repo_manifest(&repo)?;
-                let current = crate::api::load_snapshot_manifest(&paths, &snapshot_id)?;
-                crate::cli::output::record(
-                    &serde_json::json!({"snapshot": snapshot_id, "previous_tags": current.snapshot_tags, "new_tags": new_tags}),
-                )?;
-                crate::cli::output::line(format_args!("Would retag snapshot {}", snapshot_id));
+                crate::cli::output::record(&preview)?;
                 return Ok(());
             }
-            if !yes {
-                crate::cli::output::line(format_args!("retag snapshot '{snapshot_id}':"));
-                crate::cli::output::line(format_args!(
-                    "  tags: {}",
-                    new_tags.to_canonical_strings().join(" ")
-                ));
-                if !prompt_yes_no("Proceed?", false)? {
-                    return Err(crate::api::Error::manifest("snapshot retag cancelled"));
-                }
+            if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
+                return Err(crate::api::Error::manifest("snapshot retag cancelled"));
             }
-            let result = crate::api::retag_snapshot_by_id(&repo, &snapshot_id, new_tags)?;
-            crate::cli::output::record(&result)?;
-            crate::cli::output::line(format_args!(
-                "retagged snapshot '{}': previous tags '{}', new tags '{}'",
-                result.snapshot_id,
-                result.previous_tags.to_canonical_strings().join(" "),
-                result.new_tags.to_canonical_strings().join(" ")
-            ));
+            let results = crate::api::retag_snapshots(&repo, replacements)?;
+            if single_snapshot {
+                crate::cli::output::record(&results[0])?;
+            } else {
+                crate::cli::output::record(&results)?;
+            }
         }
 
         SnapshotCommands::Reconstruct {

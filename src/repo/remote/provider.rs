@@ -190,6 +190,20 @@ pub struct RemoteTagReferencesResult {
 /// The context owns backend configuration and authentication. Gutch only receives the
 /// provider-neutral operations needed to synchronize repos and evaluate tags.
 pub trait RemoteRepositoryCommandProvider {
+    /// Let the host enforce its publication policy before CLI synchronization.
+    fn prepare_repository_push(&self, _repo: &std::path::Path) -> Result<()> {
+        Ok(())
+    }
+
+    /// Apply host requirements when a local repository is linked.
+    fn configure_repository_binding(
+        &self,
+        _repo: &std::path::Path,
+        _remote_repo_id: &str,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn repository_provider(&self) -> &dyn RemoteRepositoryProvider;
 
     fn list_remote_repositories(&self) -> Result<Vec<RemoteRepositorySummary>>;

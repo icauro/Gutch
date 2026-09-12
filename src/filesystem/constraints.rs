@@ -246,6 +246,7 @@ mod tests {
         validate_paths(
             &RepositoryConstraints {
                 targets: vec![target],
+                ..Default::default()
             },
             paths.iter().copied(),
             "capture",
@@ -289,6 +290,7 @@ mod tests {
     fn empty_policy_keeps_safety_and_unknown_targets_fail_closed() {
         let a = RepositoryConstraints {
             targets: vec![FilesystemTarget::LinuxExt4, FilesystemTarget::WindowsNtfs],
+            ..Default::default()
         };
         let b = RepositoryConstraints {
             targets: vec![
@@ -296,6 +298,7 @@ mod tests {
                 FilesystemTarget::LinuxExt4,
                 FilesystemTarget::LinuxExt4,
             ],
+            ..Default::default()
         };
         assert_eq!(a, b);
 

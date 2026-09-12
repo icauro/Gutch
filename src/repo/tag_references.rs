@@ -41,12 +41,12 @@ mod tests {
         let statuses = advisory_tag_references(&[
             TagReference {
                 tag_name: "tier".to_string(),
-                tag_kind: "exclusive".to_string(),
+                tag_kind: "key_value".to_string(),
                 referenced_values: vec!["supporter".to_string()],
             },
             TagReference {
                 tag_name: "os".to_string(),
-                tag_kind: "exclusive".to_string(),
+                tag_kind: "key_value".to_string(),
                 referenced_values: vec![],
             },
         ]);

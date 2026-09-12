@@ -139,6 +139,7 @@ pub(crate) fn serialize_snapshot_product_metadata_for_remote(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<Option<Vec<u8>>> {
     let mut metadata = snapshot_manifest.clone();
+    metadata.snapshot_tags = metadata.snapshot_tags.normalized()?;
     metadata.sync_product_metadata_from_launch();
     let Some(product_metadata) = metadata.product_metadata.as_ref() else {
         return Ok(None);
@@ -245,11 +246,17 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     paths: &GutchRepoPaths,
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<(PathBuf, u64)> {
+    snapshot_manifest.snapshot_tags.normalized()?;
     crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
     if paths.repo_metadata_path.exists() {
         let (_, repository) = crate::repo::paths::load_gutch_repo_manifest(&paths.repo_root)?;
+        let constraints = repository.constraints.unwrap_or_default();
+        constraints.validate_snapshot_tags(
+            &snapshot_manifest.snapshot_tags,
+            &snapshot_manifest.snapshot_id,
+        )?;
         crate::filesystem::constraints::validate_paths(
-            &repository.constraints.unwrap_or_default(),
+            &constraints,
             snapshot_manifest.entries.iter().map(|entry| entry.path()),
             "publish snapshot",
             Some(&snapshot_manifest.snapshot_id),
@@ -270,6 +277,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     // snapshot_product_metadata.json owns runtime data, while
     // snapshot_blueprint.gtcbin owns file and chunk records.
     let mut metadata = snapshot_manifest.clone();
+    metadata.snapshot_tags = metadata.snapshot_tags.normalized()?;
     metadata.sync_product_metadata_from_launch();
     let product_metadata = metadata.product_metadata.clone();
     let metadata_json = serde_json::to_vec_pretty(&metadata.metadata())?;

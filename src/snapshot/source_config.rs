@@ -380,7 +380,7 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         write_config(
             temp.path(),
-            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"snapshots":[{"path":"./versions/4.6-stable/linux-x86_64","tags":["version::4.6_stable","os::linux","arch::x86_64"]}]}}"#,
+            r#"{"ingestion_mode":"explicit","explicit_ingestion_rules":{"snapshots":[{"path":"./versions/4.6-stable/linux-x86_64","tags":["version=4.6_stable","os=linux","arch=x86_64"]}]}}"#,
         );
         let config = SourceConfig::load(temp.path()).unwrap().unwrap();
 
@@ -392,8 +392,8 @@ mod tests {
             PathBuf::from("versions/4.6-stable/linux-x86_64")
         );
         let tags = snapshots[0].config_tags.as_ref().unwrap();
-        assert_eq!(tags.get_exclusive("version").unwrap(), "4.6_stable");
-        assert_eq!(tags.get_exclusive("os").unwrap(), "linux");
+        assert_eq!(tags.get("version").unwrap(), "4.6_stable");
+        assert_eq!(tags.get("os").unwrap(), "linux");
     }
 
     #[test]

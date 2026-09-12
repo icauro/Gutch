@@ -31,8 +31,5 @@ pub(crate) fn exclusive_tag_or_empty(
     snapshot_tags: &manifest::SnapshotTagSet,
     prefix: &str,
 ) -> String {
-    snapshot_tags
-        .get_exclusive(prefix)
-        .unwrap_or_default()
-        .to_string()
+    snapshot_tags.get(prefix).unwrap_or_default().to_string()
 }

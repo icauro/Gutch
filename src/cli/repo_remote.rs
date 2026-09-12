@@ -46,6 +46,7 @@ pub(crate) fn push(
         return Ok(());
     }
 
+    provider.prepare_repository_push(&repo)?;
     let progress = Arc::new(CliProgressSink);
     let stats = crate::api::push_repo(
         repo,
@@ -154,6 +155,7 @@ pub(crate) fn create(
     let provider = require_provider(remote_provider)?;
     crate::api::create_remote_repo(&repo, &scope_id, provider)?;
     let (_, manifest) = crate::api::load_gutch_repo_manifest(&repo)?;
+    provider.configure_repository_binding(&repo, &manifest.remote_repo_id)?;
     crate::cli::output::line(format_args!(
         "linked repo '{}' to remote repo {} (scope {})",
         repo.display(),
@@ -163,7 +165,14 @@ pub(crate) fn create(
     Ok(())
 }
 
-pub(crate) fn bind(repo: PathBuf, remote_repo_id: String) -> crate::Result<()> {
+pub(crate) fn bind(
+    repo: PathBuf,
+    remote_repo_id: String,
+    provider: Option<&dyn RemoteRepositoryCommandProvider>,
+) -> crate::Result<()> {
+    if let Some(provider) = provider {
+        provider.configure_repository_binding(&repo, &remote_repo_id)?;
+    }
     crate::api::bind_remote_repo(&repo, &remote_repo_id)?;
     crate::cli::output::line(format_args!(
         "bound repo '{}' to remote repo {}",

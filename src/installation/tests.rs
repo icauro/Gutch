@@ -121,8 +121,8 @@ fn resolved_snapshot_state_uses_product_runtime() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
     let mut tags = SnapshotTagSet::default();
-    tags.upsert_exclusive("os", "windows");
-    tags.upsert_exclusive("arch", "x86_64");
+    tags.insert("os", "windows").unwrap();
+    tags.insert("arch", "x86_64").unwrap();
     let mut snapshot = SnapshotManifest::new("snapshot".into(), tags);
     snapshot.push_file(FileManifest {
         path: "Game.exe".into(),

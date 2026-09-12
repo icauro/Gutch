@@ -26,10 +26,10 @@ use std::time::Instant;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> SnapshotTagSet {
     let mut tags = SnapshotTagSet::default();
-    tags.upsert_exclusive("version", version);
-    tags.upsert_exclusive("os", os);
-    tags.upsert_exclusive("arch", arch);
-    tags.upsert_exclusive("tier", tier);
+    tags.insert("version", version).unwrap();
+    tags.insert("os", os).unwrap();
+    tags.insert("arch", arch).unwrap();
+    tags.insert("tier", tier).unwrap();
     tags
 }
 

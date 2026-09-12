@@ -361,8 +361,8 @@ mod tests {
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
         let tags = manifest::SnapshotTagSet::from_compact_strings(&[
-            "version::1.0.0".to_string(),
-            "os::windows".to_string(),
+            "version=1.0.0".to_string(),
+            "os=windows".to_string(),
         ])
         .unwrap();
         let candidate = |folder: &str| crate::repo::status::SourceSnapshotOperationCandidate {
@@ -400,7 +400,7 @@ mod tests {
             os: String::from("windows"),
             arch: String::new(),
             snapshot_tags: manifest::SnapshotTagSet::from_compact_strings(&[
-                "version::1.0.0".to_string()
+                "version=1.0.0".to_string()
             ])
             .unwrap(),
             disposition: crate::repo::status::SourceSnapshotOperationDisposition::Unchanged,

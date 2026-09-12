@@ -19,9 +19,9 @@ def run(case):
     case.command("snapshot", "capture", "--discover-from", source, "--repo", repo, "--yes")
     snapshots = list((repo / "snapshots").glob("*/snapshot_metadata.json"))
     assert len(snapshots) == 1
-    tags = json.loads(snapshots[0].read_text())["snapshot_tags"]
+    tags = json.loads(snapshots[0].read_text())["tags"]["key_value"]
     # Auto discovery without configured tag rules does not infer tags from names.
-    assert tags == []
+    assert tags == {}
     destination = case.payload / "installed"
     case.reconstruct(repo, snapshots[0].parent.name, destination)
     case.compare(data, destination)

@@ -1,360 +1,173 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 
-use serde::Deserialize;
-use serde::Serialize;
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
-pub struct SnapshotTagSet {
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub scoped: BTreeMap<String, BTreeSet<String>>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub exclusive: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Deserialize)]
+/// A snapshot has one value per key. The named collection is always serialized,
+/// including for tagless snapshots, so the wire shape stays explicit.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct SnapshotTagSetFields {
-    #[serde(default)]
-    scoped: BTreeMap<String, BTreeSet<String>>,
-    #[serde(default)]
-    exclusive: BTreeMap<String, String>,
+pub struct SnapshotTagSet {
+    #[serde(default, deserialize_with = "deserialize_key_value_tags")]
+    pub key_value: BTreeMap<String, String>,
 }
 
-impl<'de> Deserialize<'de> for SnapshotTagSet {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
+fn deserialize_key_value_tags<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct TagMapVisitor;
+    impl<'de> serde::de::Visitor<'de> for TagMapVisitor {
+        type Value = BTreeMap<String, String>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an object mapping tag keys to string values")
+        }
+        fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+        where
+            M: serde::de::MapAccess<'de>,
+        {
+            let mut tags = SnapshotTagSet::default();
+            while let Some((key, value)) = map.next_entry::<String, String>()? {
+                tags.insert(&key, &value)
+                    .map_err(serde::de::Error::custom)?;
+            }
+            Ok(tags.key_value)
+        }
+    }
+    // Validate during traversal: collecting into a map first would silently
+    // discard conflicting duplicate JSON keys before we could reject them.
+    deserializer.deserialize_map(TagMapVisitor)
+}
+
+pub(crate) fn normalize_snapshot_tag_key(raw: &str) -> crate::Result<String> {
+    let key = raw.trim().to_ascii_lowercase();
+    let mut characters = key.bytes();
+    if !characters.next().is_some_and(|c| c.is_ascii_lowercase())
+        || !characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
     {
-        let fields = SnapshotTagSetFields::deserialize(deserializer)?;
-        let mut normalized = Self::default();
-
-        for (raw_name, values) in fields.scoped {
-            let name = normalize_snapshot_tag_name(&raw_name).map_err(serde::de::Error::custom)?;
-            if fields.exclusive.contains_key(&raw_name) || normalized.exclusive.contains_key(&name)
-            {
-                return Err(serde::de::Error::custom(format!(
-                    "snapshot tag prefix '{name}' cannot be used as both scoped and exclusive"
-                )));
-            }
-            for raw_value in values {
-                let value = raw_value.trim();
-                validate_snapshot_tag_value(value).map_err(serde::de::Error::custom)?;
-                if value.is_empty() {
-                    return Err(serde::de::Error::custom(format!(
-                        "snapshot scoped tag '{name}' cannot have an empty value"
-                    )));
-                }
-                normalized.insert_scoped(name.clone(), value.to_string());
-            }
-        }
-
-        for (raw_name, raw_value) in fields.exclusive {
-            let name = normalize_snapshot_tag_name(&raw_name).map_err(serde::de::Error::custom)?;
-            let value = raw_value.trim();
-            validate_snapshot_tag_value(value).map_err(serde::de::Error::custom)?;
-            if value.is_empty() {
-                return Err(serde::de::Error::custom(format!(
-                    "snapshot exclusive tag '{name}' cannot have an empty value"
-                )));
-            }
-            if normalized.scoped.contains_key(&name) {
-                return Err(serde::de::Error::custom(format!(
-                    "snapshot tag prefix '{name}' cannot be used as both scoped and exclusive"
-                )));
-            }
-            if let Some(existing) = normalized.exclusive.get(&name)
-                && existing != value
-            {
-                return Err(serde::de::Error::custom(format!(
-                    "conflicting exclusive snapshot tag prefix '{name}'"
-                )));
-            }
-            normalized.upsert_exclusive(name, value.to_string());
-        }
-
-        Ok(normalized)
-    }
-}
-
-fn validate_snapshot_tag_value(value: &str) -> crate::Result<()> {
-    if value.contains('-') {
-        return Err(crate::Error::manifest(
-            "snapshot tag values cannot contain hyphens".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn normalize_snapshot_tag_name(raw_name: &str) -> crate::Result<String> {
-    let name = raw_name.trim().to_ascii_lowercase();
-    if !is_valid_snapshot_tag_name(&name) {
         return Err(crate::Error::manifest(format!(
-            "snapshot tag prefix '{}' must use lower-snake-case",
-            raw_name.trim()
+            "tag key '{raw}' must use lower snake case"
         )));
     }
-    Ok(name)
+    Ok(key)
 }
 
 impl SnapshotTagSet {
     pub fn is_empty(&self) -> bool {
-        self.scoped.is_empty() && self.exclusive.is_empty()
+        self.key_value.is_empty()
+    }
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.key_value.get(key).map(String::as_str)
+    }
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.key_value.contains_key(key)
     }
 
-    pub fn insert_scoped(&mut self, prefix: impl Into<String>, value: impl Into<String>) {
-        let prefix = prefix.into();
-        let value = value.into();
-        if prefix.is_empty() || value.is_empty() {
-            return;
+    /// Adds an assignment, rejecting conflicting duplicates instead of choosing
+    /// an arbitrary value. Explicit edits replace the selected snapshot's set.
+    pub fn insert(&mut self, key: &str, value: &str) -> crate::Result<()> {
+        let key = normalize_snapshot_tag_key(key)?;
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(crate::Error::manifest(format!(
+                "tag '{key}' cannot have an empty value"
+            )));
         }
-        self.scoped.entry(prefix).or_default().insert(value);
-    }
-
-    pub fn insert_exclusive_if_missing(
-        &mut self,
-        prefix: impl Into<String>,
-        value: impl Into<String>,
-    ) {
-        let prefix = prefix.into();
-        let value = value.into();
-        if prefix.is_empty() || value.is_empty() {
-            return;
+        if value.contains('-') {
+            return Err(crate::Error::manifest("tag values cannot contain hyphens"));
         }
-        self.exclusive.entry(prefix).or_insert(value);
-    }
-
-    pub fn upsert_exclusive(&mut self, prefix: impl Into<String>, value: impl Into<String>) {
-        let prefix = prefix.into();
-        let value = value.into();
-        if prefix.is_empty() || value.is_empty() {
-            return;
+        if self.get(&key).is_some_and(|existing| existing != value) {
+            return Err(crate::Error::manifest(format!(
+                "conflicting values for tag key '{key}'"
+            )));
         }
-        self.exclusive.insert(prefix, value);
+        self.key_value.insert(key, value.to_owned());
+        Ok(())
     }
 
-    pub fn has_exclusive(&self, prefix: &str) -> bool {
-        self.exclusive.contains_key(prefix)
-    }
-
-    pub fn get_exclusive(&self, prefix: &str) -> Option<&str> {
-        self.exclusive.get(prefix).map(String::as_str)
-    }
-
+    /// Explicit input overrides source-configuration defaults by key.
     pub fn extend_missing_from(&mut self, other: &Self) {
-        for (prefix, values) in &other.scoped {
-            self.scoped
-                .entry(prefix.clone())
-                .or_default()
-                .extend(values.iter().cloned());
-        }
-        for (prefix, value) in &other.exclusive {
-            self.exclusive
-                .entry(prefix.clone())
+        for (key, value) in &other.key_value {
+            self.key_value
+                .entry(key.clone())
                 .or_insert_with(|| value.clone());
         }
     }
 
+    pub fn normalized(&self) -> crate::Result<Self> {
+        let mut normalized = Self::default();
+        for (key, value) in &self.key_value {
+            normalized.insert(key, value)?;
+        }
+        Ok(normalized)
+    }
+
     pub fn to_canonical_strings(&self) -> Vec<String> {
-        let mut rendered = Vec::new();
-        for (prefix, values) in &self.scoped {
-            for value in values {
-                rendered.push(format!("{}:{}", prefix, value));
-            }
-        }
-        for (prefix, value) in &self.exclusive {
-            rendered.push(format!("{}::{}", prefix, value));
-        }
-        rendered.sort();
-        rendered
+        self.key_value
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect()
     }
 
-    pub fn update_family_key(&self) -> Vec<String> {
-        let is_release_varying = |name: &str| matches!(name, "version" | "released_at");
-        let mut rendered = Vec::new();
-        for (prefix, values) in &self.scoped {
-            if is_release_varying(prefix) {
-                continue;
-            }
-            rendered.extend(values.iter().map(|value| format!("{prefix}:{value}")));
+    pub fn from_compact_strings(values: &[String]) -> crate::Result<Self> {
+        let mut tags = Self::default();
+        for raw in values {
+            let (key, value) = raw.split_once('=').ok_or_else(|| {
+                crate::Error::manifest(format!("invalid snapshot tag '{raw}'; use key=value"))
+            })?;
+            tags.insert(key, value)?;
         }
-        for (prefix, value) in &self.exclusive {
-            if !is_release_varying(prefix) {
-                rendered.push(format!("{prefix}::{value}"));
-            }
-        }
-        rendered.sort();
-        rendered
+        Ok(tags)
     }
-
-    pub fn from_compact_strings(tag_values: &[String]) -> crate::Result<Self> {
-        let mut parsed_tags = Self::default();
-        for tag_value in tag_values {
-            parsed_tags.apply_compact_string(tag_value, true)?;
-        }
-        Ok(parsed_tags)
-    }
-
-    pub fn apply_compact_string(
-        &mut self,
-        raw_tag: &str,
-        strict_exclusive: bool,
-    ) -> crate::Result<()> {
-        let trimmed = raw_tag.trim();
-        if trimmed.is_empty() {
-            return Err(crate::Error::manifest(
-                "invalid empty tag value".to_string(),
-            ));
-        }
-
-        if let Some((raw_prefix, value)) = trimmed.split_once("::") {
-            let prefix = raw_prefix.trim().to_ascii_lowercase();
-            validate_snapshot_tag_value(value)?;
-            if prefix.is_empty() || value.is_empty() || value.contains("::") {
-                return Err(crate::Error::manifest(format!(
-                    "invalid tag '{}'. Use scoped:value or exclusive::value",
-                    raw_tag
-                )));
-            }
-            if !is_valid_snapshot_tag_name(&prefix) {
-                return Err(crate::Error::manifest(format!(
-                    "invalid tag prefix '{}'. Prefixes must use lower-snake-case",
-                    raw_prefix.trim()
-                )));
-            }
-            if self.scoped.contains_key(&prefix) {
-                return Err(crate::Error::manifest(format!(
-                    "tag prefix '{}' cannot be used as both scoped and exclusive",
-                    prefix
-                )));
-            }
-            if strict_exclusive
-                && let Some(existing_value) = self.exclusive.get(&prefix)
-                && existing_value != value
-            {
-                return Err(crate::Error::manifest(format!(
-                    "conflicting exclusive tag '{}'. Prefix '{}' already has value '{}'",
-                    raw_tag, prefix, existing_value
-                )));
-            }
-            self.upsert_exclusive(prefix, value.to_string());
-            return Ok(());
-        }
-
-        if trimmed.contains(':') {
-            let Some((raw_prefix, value)) = trimmed.split_once(':') else {
-                return Err(crate::Error::manifest(format!(
-                    "invalid tag '{}'. Use scoped:value or exclusive::value",
-                    raw_tag
-                )));
-            };
-            let prefix = raw_prefix.trim().to_ascii_lowercase();
-            validate_snapshot_tag_value(value)?;
-            if prefix.is_empty() || value.is_empty() || value.contains(':') {
-                return Err(crate::Error::manifest(format!(
-                    "invalid tag '{}'. Use scoped:value or exclusive::value",
-                    raw_tag
-                )));
-            }
-            if !is_valid_snapshot_tag_name(&prefix) {
-                return Err(crate::Error::manifest(format!(
-                    "invalid tag prefix '{}'. Prefixes must use lower-snake-case",
-                    raw_prefix.trim()
-                )));
-            }
-            if self.exclusive.contains_key(&prefix) {
-                return Err(crate::Error::manifest(format!(
-                    "tag prefix '{}' cannot be used as both scoped and exclusive",
-                    prefix
-                )));
-            }
-            self.insert_scoped(prefix, value.to_string());
-            return Ok(());
-        }
-
-        Err(crate::Error::manifest(format!(
-            "invalid tag '{}'. Use scoped:value or exclusive::value",
-            raw_tag
-        )))
-    }
-}
-
-fn is_valid_snapshot_tag_name(name: &str) -> bool {
-    let mut characters = name.chars();
-    characters
-        .next()
-        .is_some_and(|character| character.is_ascii_lowercase())
-        && characters.all(|character| {
-            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
-        })
 }
 
 #[cfg(test)]
-mod update_family_tests {
+mod tests {
     use super::*;
 
     #[test]
-    fn update_family_excludes_version_and_date_handlers_but_keeps_unknown_tags() {
-        let tags = SnapshotTagSet::from_compact_strings(&[
-            "version::1.2.0".into(),
-            "released_at::2026_07_18".into(),
-            "os::windows".into(),
-            "tier::supporter".into(),
-        ])
-        .unwrap();
-
+    fn text_and_json_preserve_unicode_and_separators() {
+        let text = SnapshotTagSet::from_compact_strings(&[" Label = 日本語:one=two,three ".into()])
+            .unwrap();
+        let json: SnapshotTagSet =
+            serde_json::from_str(r#"{"key_value":{"Label":" 日本語:one=two,three "}}"#).unwrap();
+        assert_eq!(text, json);
+        assert_eq!(text.get("label"), Some("日本語:one=two,three"));
         assert_eq!(
-            tags.update_family_key(),
-            vec!["os::windows", "tier::supporter"]
-        );
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum SnapshotTagKind {
-    Scoped,
-    Exclusive,
-}
-
-#[cfg(test)]
-mod deserialization_tests {
-    use super::SnapshotTagSet;
-
-    #[test]
-    fn structured_tags_normalize_names_and_values() {
-        let tags: SnapshotTagSet = serde_json::from_str(
-            r#"{"scoped":{"Labels":["alpha", " beta "]},"exclusive":{"VERSION":" 1.2.3 "}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            tags.scoped["labels"]
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-            vec!["alpha", "beta"]
-        );
-        assert_eq!(
-            tags.exclusive.get("version").map(String::as_str),
-            Some("1.2.3")
+            serde_json::to_string(&SnapshotTagSet::default()).unwrap(),
+            r#"{"key_value":{}}"#
         );
     }
 
     #[test]
-    fn structured_tags_reject_unknown_fields_and_mixed_prefixes() {
+    fn rejects_conflicts_and_old_shapes_without_silent_data_loss() {
+        for input in [
+            "key:value",
+            "key::value",
+            "key+=value",
+            "key=",
+            "1key=value",
+            "key=early-access",
+        ] {
+            assert!(
+                SnapshotTagSet::from_compact_strings(&[input.into()]).is_err(),
+                "{input}"
+            );
+        }
+        for input in [
+            r#"{"scoped":{}}"#,
+            r#"{"exclusive":{}}"#,
+            r#"{"key_value":{"a":"one","a":"two"}}"#,
+            r#"{"key_value":{"A":"one","a":"two"}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SnapshotTagSet>(input).is_err(),
+                "{input}"
+            );
+        }
         assert!(
-            serde_json::from_str::<SnapshotTagSet>(r#"{"scoped":{},"exclusive":{},"unknown":{}}"#,)
-                .is_err()
+            SnapshotTagSet::from_compact_strings(&["key=one".into(), "key=one".into()]).is_ok()
         );
         assert!(
-            serde_json::from_str::<SnapshotTagSet>(
-                r#"{"scoped":{"tier":["supporter"]},"exclusive":{"TIER":"creator"}}"#,
-            )
-            .is_err()
-        );
-        assert!(
-            serde_json::from_str::<SnapshotTagSet>(r#"{"scoped":{"version":["1.2.3"]}}"#,).is_ok()
+            SnapshotTagSet::from_compact_strings(&["key=one".into(), "key=two".into()]).is_err()
         );
     }
 }
@@ -417,20 +230,33 @@ impl StructuredVersion {
 }
 
 #[cfg(test)]
-mod tag_value_grammar_tests {
+mod conformance_tests {
     use super::*;
-
     #[test]
-    fn hyphens_are_rejected_by_cli_and_json_for_both_tag_kinds() {
-        for tag in ["released_at::2026-07-18", "channel:early-access"] {
-            assert!(SnapshotTagSet::from_compact_strings(&[tag.into()]).is_err());
+    fn shared_tag_contract() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/datasets/tag_contract.json")).unwrap();
+        for case in cases["assignments"].as_array().unwrap() {
+            let input: Vec<String> = serde_json::from_value(case["input"].clone()).unwrap();
+            let result = SnapshotTagSet::from_compact_strings(&input);
+            if case["expected"].is_null() {
+                assert!(result.is_err(), "{case}");
+            } else {
+                assert_eq!(
+                    serde_json::to_value(result.unwrap().key_value).unwrap(),
+                    case["expected"],
+                    "{case}"
+                );
+            }
         }
-        for json in [
-            r#"{"exclusive":{"released_at":"2026-07-18"}}"#,
-            r#"{"scoped":{"channel":["early-access"]}}"#,
-        ] {
-            assert!(serde_json::from_str::<SnapshotTagSet>(json).is_err());
+        for case in cases["formats"].as_array().unwrap() {
+            let format: crate::manifest::constraints::SnapshotTagValueFormat =
+                serde_json::from_value(case["format"].clone()).unwrap();
+            assert_eq!(
+                format.accepts(case["value"].as_str().unwrap()),
+                case["valid"].as_bool().unwrap(),
+                "{case}"
+            );
         }
-        assert!(SnapshotTagSet::from_compact_strings(&["released_at::2026_07_18".into()]).is_ok());
     }
 }

@@ -37,7 +37,7 @@ def run(case):
     snapshot = case.capture(repo, source, "--chunk-preset", "512B")["snapshot_id"]
     captured = repository_inventory(repo)
     case.stats("snapshot", "delete", "--repo", repo, "--snapshot", snapshot, "--dry-run", "--yes")
-    case.stats("snapshot", "retag", "--repo", repo, "--snapshot", snapshot, "--tag", "version::2.0.0", "--dry-run", "--yes")
+    case.stats("snapshot", "retag", "--repo", repo, "--snapshot", snapshot, "--tag", "version=2.0.0", "--dry-run", "--yes")
     case.stats("repo", "rebuild-index", "--repo", repo, "--publish", "--dry-run")
     assert repository_inventory(repo) == captured
     destination = case.payload / "installed"

@@ -1,33 +1,23 @@
 use super::*;
 
 #[test]
-fn test_parse_cli_tags_supports_scoped_and_exclusive_kinds() {
-    let parsed = parse_cli_tags(&["loader:fabric".to_string(), "os::windows".to_string()]).unwrap();
-
-    assert!(
-        parsed
-            .scoped
-            .get("loader")
-            .is_some_and(|values| values.contains("fabric"))
-    );
-    assert_eq!(parsed.get_exclusive("os"), Some("windows"));
+fn cli_tags_use_one_value_per_key() {
+    let parsed = parse_cli_tags(&["loader=fabric".to_string(), "os=windows".to_string()]).unwrap();
+    assert_eq!(parsed.get("loader"), Some("fabric"));
+    assert_eq!(parsed.get("os"), Some("windows"));
 }
 
 #[test]
 fn test_parse_cli_tags_rejects_bare_values() {
     let error = parse_cli_tags(&["alpha".to_string()]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("scoped:value or exclusive::value")
-    );
+    assert!(error.to_string().contains("key=value"));
 }
 
 #[test]
 fn test_resolve_tags_uses_only_explicit_tags() {
     let mut explicit = SnapshotTagSet::default();
-    explicit.upsert_exclusive("release_channel", "nightly");
-    explicit.insert_scoped("loader", "fabric");
+    explicit.insert("release_channel", "nightly").unwrap();
+    explicit.insert("loader", "fabric").unwrap();
 
     let resolved = resolve_snapshot_tags(
         std::path::Path::new("game-v1.0.0-win-x64"),
@@ -54,7 +44,9 @@ fn test_resolve_tags_allows_tagless_snapshots() {
 #[test]
 fn direct_capture_and_retag_reject_hyphenated_tag_values() {
     let mut explicit = SnapshotTagSet::default();
-    explicit.upsert_exclusive("released_at", "2026-09-07");
+    explicit
+        .key_value
+        .insert("released_at".into(), "2026-09-07".into());
     assert!(resolve_snapshot_tags(Path::new("unused"), &explicit, "test").is_err());
     let error =
         crate::api::retag_snapshot_by_id(Path::new("unused"), "unused", explicit).unwrap_err();

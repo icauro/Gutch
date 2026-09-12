@@ -41,7 +41,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     let captured = capture_snapshot(SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source.clone(),
-        explicit_tags: SnapshotTagSet::from_compact_strings(&["version::1.0.0".to_string()])
+        explicit_tags: SnapshotTagSet::from_compact_strings(&["version=1.0.0".to_string()])
             .unwrap(),
         chunk_profile: Default::default(),
         bundle_profile: Default::default(),
@@ -72,7 +72,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         "--jobs",
         "1",
         "--tag",
-        "version::1.0.0",
+        "version=1.0.0",
         "--compression-algorithm",
         "lz4",
         "--storage-mode",
@@ -95,10 +95,10 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     let cli_metadata: serde_json::Value =
         serde_json::from_slice(&std::fs::read(metadata_path(&cli_repo)).unwrap()).unwrap();
     assert_eq!(
-        api_metadata["snapshot_tags"],
-        serde_json::json!(["version::1.0.0"])
+        api_metadata["tags"],
+        serde_json::json!({"key_value": {"version": "1.0.0"}})
     );
-    assert_eq!(api_metadata["snapshot_tags"], cli_metadata["snapshot_tags"]);
+    assert_eq!(api_metadata["tags"], cli_metadata["tags"]);
     std::fs::remove_dir_all(&source).unwrap();
     for (repository, label) in [(repo, "api-output"), (cli_repo, "cli-output")] {
         let destination = root.path().join(label);

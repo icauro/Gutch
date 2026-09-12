@@ -103,6 +103,7 @@ pub struct SnapshotCapturePlan {
     pub version_id: String,
     pub os: String,
     pub arch: String,
+    #[serde(rename = "tags")]
     pub snapshot_tags: SnapshotTagSet,
 }
 
@@ -276,6 +277,10 @@ fn execute_repo_snapshot_capture(
         request.source_dir.as_path(),
         &request.explicit_tags,
         &format!("snapshot capture input '{}'", request.source_dir.display()),
+    )?;
+    constraints.validate_snapshot_tags(
+        &resolved_tags.snapshot_tags,
+        &request.source_dir.display().to_string(),
     )?;
     drop(_identity_span);
 
@@ -464,17 +469,17 @@ fn execute_repo_snapshot_capture(
                 manifest_path: existing_manifest_path,
                 version_id: resolved_tags
                     .snapshot_tags
-                    .get_exclusive("version")
+                    .get("version")
                     .unwrap_or_default()
                     .to_string(),
                 os: resolved_tags
                     .snapshot_tags
-                    .get_exclusive("os")
+                    .get("os")
                     .unwrap_or_default()
                     .to_string(),
                 arch: resolved_tags
                     .snapshot_tags
-                    .get_exclusive("arch")
+                    .get("arch")
                     .unwrap_or_default()
                     .to_string(),
                 file_count: existing_manifest.file_count(),
@@ -635,17 +640,17 @@ fn execute_repo_snapshot_capture(
         manifest_path,
         version_id: resolved_tags
             .snapshot_tags
-            .get_exclusive("version")
+            .get("version")
             .unwrap_or_default()
             .to_string(),
         os: resolved_tags
             .snapshot_tags
-            .get_exclusive("os")
+            .get("os")
             .unwrap_or_default()
             .to_string(),
         arch: resolved_tags
             .snapshot_tags
-            .get_exclusive("arch")
+            .get("arch")
             .unwrap_or_default()
             .to_string(),
         file_count: result.snapshot_manifest.file_count(),
@@ -921,8 +926,8 @@ mod tests {
 
     fn test_tags() -> manifest::SnapshotTagSet {
         manifest::SnapshotTagSet::from_compact_strings(&[
-            "version::1.0.0".to_string(),
-            "os::windows".to_string(),
+            "version=1.0.0".to_string(),
+            "os=windows".to_string(),
         ])
         .unwrap()
     }
@@ -1106,8 +1111,8 @@ mod tests {
             crate::progress::GutchOperationControl::default(),
         );
         let other_tags = manifest::SnapshotTagSet::from_compact_strings(&[
-            "version::2.0.0".to_string(),
-            "os::windows".to_string(),
+            "version=2.0.0".to_string(),
+            "os=windows".to_string(),
         ])
         .unwrap();
         let conflict = capture_snapshot(SnapshotCaptureRequest {
@@ -1160,8 +1165,8 @@ mod tests {
             crate::progress::GutchOperationControl::default(),
         );
         let new_tags = manifest::SnapshotTagSet::from_compact_strings(&[
-            "version::2.0.0".to_string(),
-            "os::windows".to_string(),
+            "version=2.0.0".to_string(),
+            "os=windows".to_string(),
         ])
         .unwrap();
         let retagged =

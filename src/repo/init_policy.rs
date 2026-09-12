@@ -48,9 +48,10 @@ pub struct RepoInitAssessment {
     pub linked: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RepoInitOptions {
     pub force: bool,
+    pub constraints: crate::manifest::constraints::RepositoryConstraints,
 }
 
 pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
@@ -149,6 +150,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
 }
 
 pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()> {
+    options.constraints.validate_definition()?;
     let assessment = assess_repo_init_path(repo_root)?;
 
     if assessment.path_kind == RepoInitPathKind::NotADirectory {
@@ -182,7 +184,9 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()>
             .filter(|name| !name.is_empty())
             .unwrap_or("base");
         let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
-        let repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
+        let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
+        repo_manifest.constraints =
+            (!options.constraints.is_empty()).then_some(options.constraints);
         write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
 
         Ok(())
@@ -257,10 +261,10 @@ mod tests {
 
     fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
         let mut tags = manifest::SnapshotTagSet::default();
-        tags.upsert_exclusive("version", version);
-        tags.upsert_exclusive("os", os);
-        tags.upsert_exclusive("arch", arch);
-        tags.upsert_exclusive("tier", tier);
+        tags.insert("version", version).unwrap();
+        tags.insert("os", os).unwrap();
+        tags.insert("arch", arch).unwrap();
+        tags.insert("tier", tier).unwrap();
         tags
     }
 
@@ -287,7 +291,14 @@ mod tests {
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let err = initialize_repo(&repo_root, RepoInitOptions { force: false }).unwrap_err();
+        let err = initialize_repo(
+            &repo_root,
+            RepoInitOptions {
+                force: false,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains(REPO_INIT_NEEDS_CONFIRMATION));
     }
 
@@ -321,7 +332,14 @@ mod tests {
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
         std::fs::write(bundle_path, b"bundle").unwrap();
 
-        initialize_repo(&repo_root, RepoInitOptions { force: true }).unwrap();
+        initialize_repo(
+            &repo_root,
+            RepoInitOptions {
+                force: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let status = read_repo_status(&repo_root).unwrap();
         assert!(status.is_repo);
@@ -336,7 +354,14 @@ mod tests {
         std::fs::create_dir_all(&repo_root).unwrap();
         std::fs::write(repo_root.join("notes.txt"), b"keep me").unwrap();
 
-        initialize_repo(&repo_root, RepoInitOptions { force: true }).unwrap();
+        initialize_repo(
+            &repo_root,
+            RepoInitOptions {
+                force: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         assert!(repo_root.join("notes.txt").exists());
         assert!(repo_root.join("snapshots").is_dir());

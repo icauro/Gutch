@@ -19,6 +19,8 @@ pub(crate) fn validate_existing_constraints(
     constraints: &RepositoryConstraints,
     operation: &str,
 ) -> Result<()> {
+    constraints.validate_definition()?;
+    validate_repository_tag_constraints(repo_root, constraints)?;
     let (paths, _) = load_gutch_repo_manifest(repo_root)?;
     for entry in walkdir::WalkDir::new(&paths.snapshots_root).sort_by_file_name() {
         let entry = entry?;
@@ -85,7 +87,7 @@ pub fn update_repository_constraints(
         constraints.targets.dedup();
         validate_existing_constraints(repo_root, &constraints, "change constraints")?;
         let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
-        manifest.constraints = if constraints.targets.is_empty() {
+        manifest.constraints = if constraints.is_empty() {
             None
         } else {
             Some(constraints)
@@ -102,4 +104,77 @@ pub fn rename_repo(repo_root: &Path, name: &str) -> Result<()> {
         repo_manifest.name = name;
         write_gutch_repo_manifest(&repo_paths, &repo_manifest)
     })
+}
+
+/// Reads metadata only. Called before the outer transaction commits, so bulk
+/// edits are checked as one final state and readers cannot see partial parity.
+pub(crate) fn validate_repository_tag_constraints(
+    repo_root: &Path,
+    constraints: &RepositoryConstraints,
+) -> Result<()> {
+    validate_proposed_snapshot_tags(repo_root, constraints, &Default::default())
+}
+
+pub(crate) fn validate_proposed_snapshot_tags(
+    repo_root: &Path,
+    constraints: &RepositoryConstraints,
+    replacements: &std::collections::BTreeMap<String, crate::manifest::SnapshotTagSet>,
+) -> Result<()> {
+    constraints.validate_definition()?;
+    if constraints.snapshot_tags.key_value.is_empty()
+        && !constraints.require_matching_tag_keys_across_snapshots
+    {
+        return Ok(());
+    }
+    let paths = super::paths::GutchRepoPaths::from_repo_root(repo_root);
+    if !paths.snapshots_root.exists() {
+        return Ok(());
+    }
+    let mut expected_keys: Option<(String, std::collections::BTreeSet<String>)> = None;
+    let mut violations = Vec::new();
+    for entry in walkdir::WalkDir::new(&paths.snapshots_root)
+        .min_depth(2)
+        .max_depth(2)
+        .sort_by_file_name()
+    {
+        let entry = entry?;
+        if !entry.file_type().is_file()
+            || entry.file_name() != super::snapshot_manifests::SNAPSHOT_METADATA_FILE
+        {
+            continue;
+        }
+        let id = entry
+            .path()
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|p| p.to_str())
+            .ok_or_else(|| crate::Error::manifest("invalid snapshot directory"))?;
+        let json = crate::filesystem::read_to_string(entry.path())?;
+        let snapshot = super::snapshot_manifests::load_snapshot_metadata_from_json_text(id, &json)?;
+        let tags = replacements.get(id).unwrap_or(&snapshot.snapshot_tags);
+        if let Err(error) = constraints.validate_snapshot_tags(tags, id) {
+            violations.push(error.to_string());
+        }
+        if constraints.require_matching_tag_keys_across_snapshots {
+            let keys = tags
+                .key_value
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            if let Some((first_id, expected)) = &expected_keys {
+                if &keys != expected {
+                    let missing: Vec<_> = expected.difference(&keys).cloned().collect();
+                    let extra: Vec<_> = keys.difference(expected).cloned().collect();
+                    violations.push(format!("snapshot '{id}' must match tag keys of '{first_id}': missing {missing:?}, extra {extra:?}; edit affected snapshots together"));
+                }
+            } else {
+                expected_keys = Some((id.to_owned(), keys));
+            }
+        }
+    }
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(crate::Error::manifest(violations.join("\n")))
+    }
 }

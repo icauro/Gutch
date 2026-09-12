@@ -11,9 +11,14 @@ pub(crate) fn run(
         RepoCommands::Constraints { command } => {
             let (repo, replacement) = match command {
                 crate::cli::ConstraintCommands::Show { repo } => (repo, None),
-                crate::cli::ConstraintCommands::Set { repo, targets } => {
-                    (repo, Some(crate::api::RepositoryConstraints { targets }))
-                }
+                crate::cli::ConstraintCommands::Set {
+                    repo,
+                    targets,
+                    constraints,
+                } => (
+                    repo,
+                    Some(read_constraint_input(constraints.as_deref(), targets)?),
+                ),
                 crate::cli::ConstraintCommands::Clear { repo } => {
                     (repo, Some(crate::api::RepositoryConstraints::default()))
                 }
@@ -64,14 +69,10 @@ pub(crate) fn run(
             path,
             force,
             targets,
+            constraints,
         } => {
-            crate::cli::repo::init_repo(&path, force)?;
-            if !targets.is_empty() && !crate::cli::output::dry_run() {
-                crate::api::update_repository_constraints(
-                    &path,
-                    crate::api::RepositoryConstraints { targets },
-                )?;
-            }
+            let constraints = read_constraint_input(constraints.as_deref(), targets)?;
+            crate::cli::repo::init_repo(&path, force, constraints)?;
         }
 
         RepoCommands::Push { repo, yes } => {
@@ -104,7 +105,7 @@ pub(crate) fn run(
             crate::cli::RemoteCommands::Bind {
                 repo,
                 remote_repo_id,
-            } => crate::cli::repo_remote::bind(repo, remote_repo_id)?,
+            } => crate::cli::repo_remote::bind(repo, remote_repo_id, remote_provider)?,
             crate::cli::RemoteCommands::Unbind {
                 repo,
                 delete_remote,
@@ -234,7 +235,12 @@ pub(crate) fn run(
 use crate::cli::command_support::prompt_yes_no;
 use std::path::Path;
 
-pub(crate) fn init_repo(path: &Path, force: bool) -> crate::api::Result<()> {
+pub(crate) fn init_repo(
+    path: &Path,
+    force: bool,
+    constraints: crate::api::RepositoryConstraints,
+) -> crate::api::Result<()> {
+    constraints.validate_definition()?;
     let assessment = crate::api::assess_repo_init_path(path)?;
     if crate::cli::output::dry_run() {
         crate::cli::output::record(&assessment)?;
@@ -264,6 +270,7 @@ pub(crate) fn init_repo(path: &Path, force: bool) -> crate::api::Result<()> {
         path,
         crate::api::RepoInitOptions {
             force: proceed_force,
+            constraints,
         },
     )?;
 
@@ -310,4 +317,20 @@ fn confirm_repo_init_stdio(
         "Delete existing Gutch repo files and create a new repo?",
         false,
     )
+}
+
+fn read_constraint_input(
+    path: Option<&Path>,
+    targets: Vec<crate::api::FilesystemTarget>,
+) -> crate::api::Result<crate::api::RepositoryConstraints> {
+    let constraints = if let Some(path) = path {
+        serde_json::from_str(&crate::filesystem::read_to_string(path)?)?
+    } else {
+        crate::api::RepositoryConstraints {
+            targets,
+            ..Default::default()
+        }
+    };
+    constraints.validate_definition()?;
+    Ok(constraints)
 }
