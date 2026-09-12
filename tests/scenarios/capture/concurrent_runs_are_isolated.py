@@ -3,8 +3,8 @@
 Expected: both round trips succeed and repositories and configuration remain isolated.
 """
 from concurrent.futures import ThreadPoolExecutor
-from tests.support.cli import Case
-from tests.support.roundtrip import capture_roundtrip
+from tests.helpers.cli import Case
+from tests.helpers.roundtrip import capture_roundtrip
 
 
 def run(case):

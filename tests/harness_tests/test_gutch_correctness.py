@@ -7,9 +7,9 @@ import tempfile
 import unittest
 
 from tests import run
-from tests.support.cli import execute
+from tests.helpers.cli import execute
 from tests.datasets.trees import basic
-from tests.support.filesystem import assert_tree, remove_owned
+from tests.helpers.filesystem import assert_tree, remove_owned
 
 
 class GutchCorrectnessTests(unittest.TestCase):
@@ -69,11 +69,11 @@ class GutchCorrectnessTests(unittest.TestCase):
             self.assertIsNotNone(evidence["exit_code"])
 
     def test_commands_receive_eof_even_when_runner_stdin_is_open(self):
-        from tests.support.process import stop_process
+        from tests.helpers.process import stop_process
         script = """
 import sys
 from pathlib import Path
-from tests.support.cli import execute
+from tests.helpers.cli import execute
 execute([sys.executable, '-c', 'import sys; assert sys.stdin.read() == ""'],
         Path.cwd(), {}, Path(sys.argv[1]), timeout=2)
 """
@@ -88,9 +88,9 @@ execute([sys.executable, '-c', 'import sys; assert sys.stdin.read() == ""'],
                 process.stdin.close()
 
     def test_scenario_process_cleans_success_and_retains_failures(self):
-        from tests.support.cli import Case
-        from tests.support.scenario_process import run_scenario
-        module = "tests.tooling.gutch_scenario_fixture"
+        from tests.helpers.cli import Case
+        from tests.helpers.scenario_process import run_scenario
+        module = "tests.harness_tests.gutch_scenario_fixture"
         with tempfile.TemporaryDirectory() as directory:
             for behavior, status in (("success", "passed"), ("fail", "failed"), ("skip", "skipped")):
                 case = Case(Path(directory) / behavior, Path(sys.executable))
@@ -105,9 +105,9 @@ execute([sys.executable, '-c', 'import sys; assert sys.stdin.read() == ""'],
     def test_ten_second_deadline_kills_worker_and_cli_child_then_next_scenario_runs(self):
         import time
         import psutil
-        from tests.support.cli import Case
-        from tests.support.scenario_process import run_scenario
-        module = "tests.tooling.gutch_scenario_fixture"
+        from tests.helpers.cli import Case
+        from tests.helpers.scenario_process import run_scenario
+        module = "tests.harness_tests.gutch_scenario_fixture"
         with tempfile.TemporaryDirectory() as directory:
             case = Case(Path(directory) / "blocked", Path(sys.executable))
             started = time.monotonic()

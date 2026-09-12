@@ -4,7 +4,7 @@ Then recapture with only permissions or the link target changed and reconstruct 
 Expected: Links keep their intended targets and all entries match; unsupported hosts explicitly
 skip.
 """
-from tests.support.roundtrip import metadata_roundtrip
+from tests.helpers.roundtrip import metadata_roundtrip
 
 
 def run(case):

@@ -36,7 +36,7 @@ def test_specialized_benchmarks_share_the_developer_entrypoint(monkeypatch, argu
 
 
 def test_replay_validates_case_and_reports_source_changes(tmp_path, monkeypatch, capsys):
-    from tests.support import reproduction
+    from tests.helpers import reproduction
     monkeypatch.setattr(reproduction, "source_revision", lambda: "current")
     case = SCENARIOS[0].name
     record = {"schema_version": 1, "case": case, "revision": "original"}
@@ -82,7 +82,7 @@ def test_clean_rejects_a_case_outside_its_run(tmp_path, monkeypatch):
 
 def test_source_revision_changes_when_test_or_engine_bytes_change(tmp_path, monkeypatch):
     from tools import build_image
-    from tests.support.reproduction import source_revision
+    from tests.helpers.reproduction import source_revision
     source = tmp_path / "code.rs"
     source.write_text("first")
     monkeypatch.setattr(build_image, "source_files", lambda: [(source, Path("src/code.rs"))])

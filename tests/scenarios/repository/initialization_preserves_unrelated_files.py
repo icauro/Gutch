@@ -3,7 +3,7 @@
 Expected: Unsafe initialization fails, forced initialization preserves unrelated files, and
 reinitialization is inert.
 """
-from tests.support.filesystem import repository_inventory as inventory
+from tests.helpers.filesystem import repository_inventory as inventory
 
 
 def run(case):

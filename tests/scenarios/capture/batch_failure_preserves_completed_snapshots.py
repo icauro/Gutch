@@ -4,7 +4,7 @@ Expected: The second capture fails; the first snapshot keeps its tags and recons
 """
 import json
 from tests.datasets.trees import basic
-from tests.support.filesystem import write_json
+from tests.helpers.filesystem import write_json
 
 
 def run(case):

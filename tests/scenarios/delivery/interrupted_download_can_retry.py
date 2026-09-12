@@ -2,12 +2,12 @@
 
 Expected: The old installation survives interruption and the retry reconstructs exact content.
 """
-from tests.support.process import stop_process
-from tests.support.cli import start_process
-from tests.support.cli import REPOSITORY
-from tests.support.delivery import DeliveryServer, fetch_arguments
-from tests.support.filesystem import inventory
-from tests.support.delivery_workflow import published
+from tests.helpers.process import stop_process
+from tests.helpers.cli import start_process
+from tests.helpers.cli import REPOSITORY
+from tests.helpers.delivery import DeliveryServer, fetch_arguments
+from tests.helpers.filesystem import inventory
+from tests.helpers.delivery_workflow import published
 
 
 def run(case):

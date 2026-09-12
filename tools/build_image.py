@@ -11,8 +11,8 @@ SOURCE_PATHS = (
     "Cargo.toml", "Cargo.lock", "pyproject.toml", "uv.lock", ".cargo", "gutch.py",
     "src", "gutch-cli/Cargo.toml", "gutch-cli/src", "tools",
     "tests/public_api.rs", "tests/installation_plan.rs", "tests/__init__.py",
-    "tests/run.py", "tests/repository_suite.py", "tests/support", "tests/scenarios", "tests/fixtures",
-    "tests/datasets", "tests/tooling", "tests/benchmarks",
+    "tests/run.py", "tests/repository_suite.py", "tests/helpers", "tests/scenarios", "tests/fixtures",
+    "tests/datasets", "tests/harness_tests", "tests/benchmarks",
 )
 EXCLUDED_PARTS = {"__pycache__", ".artifacts", ".builds", "bin", ".pytest_cache"}
 

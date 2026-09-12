@@ -3,8 +3,8 @@
 Expected: Both installations match, repair succeeds, and the warm fetch sends no extra artifact
 requests.
 """
-from tests.support.delivery import DeliveryServer, fetch_arguments
-from tests.support.delivery_workflow import published, exercise_delivery
+from tests.helpers.delivery import DeliveryServer, fetch_arguments
+from tests.helpers.delivery_workflow import published, exercise_delivery
 
 
 def run(case):

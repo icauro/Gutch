@@ -22,11 +22,11 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(REPOSITORY))
     __package__ = "tests"
 
-from .support.events import RunEventWriter
-from .support.cli import Case, execute
-from .support.filesystem import write_json
-from .support.scenario_process import run_scenario
-from .support.reproduction import source_revision
+from .helpers.events import RunEventWriter
+from .helpers.cli import Case, execute
+from .helpers.filesystem import write_json
+from .helpers.scenario_process import run_scenario
+from .helpers.reproduction import source_revision
 from tools.artifacts import compact_success, prune_successful_runs
 @dataclass(frozen=True)
 class Scenario:
@@ -133,7 +133,7 @@ def main(arguments=None):
         target = REPOSITORY / ".builds/compiler-cache/cargo"
         environment = {"CARGO_TARGET_DIR": str(target)}
         if args.suite in {"check", "fast", "all"} and not args.case:
-            execute([sys.executable, "-m", "pytest", "tests/tooling", "-q", "--basetemp", root / "tooling-temp",
+            execute([sys.executable, "-m", "pytest", "tests/harness_tests", "-q", "--basetemp", root / "tooling-temp",
                      "-o", f"cache_dir={root / 'tooling-cache'}"],
                     REPOSITORY, environment, root / "tooling-tests.log", timeout=120)
             manifest["rust_tests"] = "running"

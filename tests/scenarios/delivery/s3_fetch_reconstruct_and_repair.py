@@ -5,9 +5,9 @@ Expected: Delivery and repair match the source; remote corruption preserves the 
 and retry succeeds after the artifact is restored.
 """
 import json
-from tests.support.delivery import publish_to_s3, s3_client, fetch_arguments
-from tests.support.filesystem import inventory
-from tests.support.delivery_workflow import published, exercise_delivery
+from tests.helpers.delivery import publish_to_s3, s3_client, fetch_arguments
+from tests.helpers.filesystem import inventory
+from tests.helpers.delivery_workflow import published, exercise_delivery
 
 
 def run(case):

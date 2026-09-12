@@ -44,8 +44,8 @@ not a recorded operating-system schedule.
 | Frozen repositories and independent expectations | `tests/fixtures/repositories/` |
 | Deterministic dataset generator and recipes | `tests/datasets/` |
 | Performance comparisons and storage measurements | `tests/benchmarks/` |
-| Tests of Python tools | `tests/tooling/` |
-| Process control and independent test assertions | `tests/support/` |
+| Tests of Python tools | `tests/harness_tests/` |
+| Process control and independent test assertions | `tests/helpers/` |
 | Developer commands, Docker image and service lifecycle | `tools/` |
 
 Generated files belong under `tests/.artifacts/`; compiler outputs belong under

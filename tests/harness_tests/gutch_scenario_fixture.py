@@ -4,7 +4,7 @@ import sys
 import time
 import unittest
 
-from tests.support.cli import start_process
+from tests.helpers.cli import start_process
 
 
 def run(case):

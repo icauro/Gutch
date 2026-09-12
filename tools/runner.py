@@ -15,7 +15,7 @@ def run_module(module, arguments):
 
 def replay(directory):
     from tests.run import SCENARIOS
-    from tests.support.reproduction import source_revision
+    from tests.helpers.reproduction import source_revision
     path = directory.resolve() / "replay.json"
     record = json.loads(path.read_text(encoding="utf-8"))
     if record.get("schema_version") != 1 or record.get("case") not in {s.name for s in SCENARIOS}:

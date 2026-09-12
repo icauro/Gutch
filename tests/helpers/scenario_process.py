@@ -25,7 +25,7 @@ def kill_process_tree(process):
 
 
 def run_worker(mode, module, case, environment, timeout):
-    process = start_process([sys.executable, "-m", "tests.support.scenario_process", mode, module,
+    process = start_process([sys.executable, "-m", "tests.helpers.scenario_process", mode, module,
                              str(case.root), str(case.executable)], REPOSITORY,
                             {**environment, "GUTCH_SCENARIO_WORKER": "1"},
                             log_path=case.root / f"{mode}.log")

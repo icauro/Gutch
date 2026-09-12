@@ -7,7 +7,7 @@ import random
 import shutil
 
 from tests.datasets.trees import generated
-from tests.support.filesystem import assert_tree, inventory, repository_inventory, write_json
+from tests.helpers.filesystem import assert_tree, inventory, repository_inventory, write_json
 
 
 def copy_repository(source, destination):

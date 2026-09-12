@@ -5,7 +5,7 @@ Expected: Every reconstruction fails without modifying the run-owned filesystem.
 """
 import struct
 from tests.datasets.trees import basic
-from tests.support.filesystem import inventory
+from tests.helpers.filesystem import inventory
 
 
 def run(case):

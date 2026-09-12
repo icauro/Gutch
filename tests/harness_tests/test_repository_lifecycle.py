@@ -9,7 +9,7 @@ import pytest
 
 from tests.datasets.trees import generated
 from tests.repository_suite import copy_repository
-from tests.support.filesystem import inventory
+from tests.helpers.filesystem import inventory
 from tools.artifacts import compact_success, prune_successful_runs
 
 
@@ -29,7 +29,7 @@ def test_dataset_modules_do_not_import_consumers():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = [node.module or ""] if isinstance(node, ast.ImportFrom) else (
                 [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
-            assert not any(name.startswith(("tests.support", "tests.benchmarks", "tests.scenarios", "tools.")) for name in names), path
+            assert not any(name.startswith(("tests.helpers", "tests.benchmarks", "tests.scenarios", "tools.")) for name in names), path
 
 
 def test_copy_repository_leaves_original_unchanged_and_rejects_nested_output(tmp_path):
@@ -106,7 +106,7 @@ def test_clean_migrates_old_success_without_dangling_evidence_links(tmp_path, mo
     assert json.loads((run / "run.json").read_text())["cleanup_complete"]
 
 
-@pytest.mark.parametrize("module", ["tests.support.filesystem", "tests.benchmarks.support.filesystem"])
+@pytest.mark.parametrize("module", ["tests.helpers.filesystem", "tests.benchmarks.support.filesystem"])
 def test_unreadable_directories_cannot_pass_inventory_validation(tmp_path, monkeypatch, module):
     import importlib
     import os

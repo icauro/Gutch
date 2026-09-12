@@ -5,7 +5,7 @@ Expected: Broken indexes prevent mutation; the surviving snapshot remains usable
 deletion removes bundles.
 """
 from tests.datasets.trees import basic
-from tests.support.filesystem import repository_inventory as inventory
+from tests.helpers.filesystem import repository_inventory as inventory
 
 
 def run(case):

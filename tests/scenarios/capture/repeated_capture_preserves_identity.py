@@ -2,7 +2,7 @@
 
 Expected: Identity stays stable, no new bundles are generated, and every entry matches.
 """
-from tests.support.roundtrip import capture_roundtrip
+from tests.helpers.roundtrip import capture_roundtrip
 
 
 def run(case):

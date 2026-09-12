@@ -37,7 +37,7 @@ provider-policy tests and cancellation contracts that need engine hooks.
 Each Python scenario has one descriptively named file under `tests/scenarios/`
 and one `run(case)` entrypoint. Its opening docstring explains the operations
 and expected outcome. Each `--case` identifier is its path relative to
-`tests/scenarios/`, without `.py`; reusable operations belong in `tests/support/`.
+`tests/scenarios/`, without `.py`; reusable operations belong in `tests/helpers/`.
 
 Python scenarios cover capture identity and deduplication, compression/storage
 modes, explicit and automatic source discovery, version updates and source

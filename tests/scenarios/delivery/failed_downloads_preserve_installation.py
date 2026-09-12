@@ -3,9 +3,9 @@ failure.
 
 Expected: Failed downloads preserve the prior installation and retries produce exact output.
 """
-from tests.support.delivery import DeliveryServer, fetch_arguments
-from tests.support.filesystem import inventory
-from tests.support.delivery_workflow import published
+from tests.helpers.delivery import DeliveryServer, fetch_arguments
+from tests.helpers.filesystem import inventory
+from tests.helpers.delivery_workflow import published
 
 
 def run(case):

@@ -3,6 +3,9 @@
 From the Gutch root, run `python gutch.py test`. It runs tooling tests, Rust tests
 and every local CLI scenario. First-time compilation can take several minutes.
 
+`helpers/` holds reusable CLI, process and assertion helpers. `harness_tests/`
+contains runnable tests of the runners, datasets, cleanup and benchmark tooling.
+
 ```sh
 python gutch.py test --list
 python gutch.py test --suite repository

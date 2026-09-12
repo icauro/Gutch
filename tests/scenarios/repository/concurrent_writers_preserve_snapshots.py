@@ -3,9 +3,9 @@
 Expected: Both committed snapshots remain reconstructible with their exact original contents.
 """
 import json
-from tests.support.cli import start_process, REPOSITORY
+from tests.helpers.cli import start_process, REPOSITORY
 from tests.datasets.trees import basic
-from tests.support.process import stop_process
+from tests.helpers.process import stop_process
 
 
 def run(case):
