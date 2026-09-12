@@ -33,7 +33,7 @@ def test_every_case_has_a_frozen_major_version_and_complete_inventory():
     generated = [name for name in case_names() if load_case(name)["source"]["kind"] == "generated"]
     assert len(generated) == 10
     for name in case_names():
-        repo, expected = repository_input(name, "v2")
+        repo, expected = repository_input(name, "v1")
         assert (repo / "repo_metadata.json").is_file()
         assert {path.name for path in (repo / "snapshots").iterdir() if path.is_dir()} == expected.keys()
     assert not (CORPUS_ROOT / "blender/source").exists()
@@ -41,7 +41,7 @@ def test_every_case_has_a_frozen_major_version_and_complete_inventory():
 
 def test_freezing_an_existing_major_version_is_rejected_before_execution():
     with pytest.raises(ValueError, match="already exists"):
-        freeze("blender", "v2", Path("missing-executable"))
+        freeze("blender", "v1", Path("missing-executable"))
 
 
 @pytest.mark.parametrize("budget", [0, 127, 4 * 1024 * 1024 + 1])

@@ -81,7 +81,7 @@ they are independent of Gutch's manifests and verification implementation.
 `tests/datasets/corpus/` contains ten generated cases (each at most 16 MiB),
 and full Blender Windows 5.2.0/5.2.1 inputs stored
 as a frozen repository. Each case has `case.json`, independent `expected.json`,
-and `repository/format-v2/`. Generated source bytes are committed; Blender sources and
+and `repository/format-v1/`. Generated source bytes are committed; Blender sources and
 archives are prepared only under test artifacts. Exact creator metadata and
 snapshot-to-source mappings live in the case definition. New binary format generations get new folders; existing repositories are never automatically rebuilt.
 

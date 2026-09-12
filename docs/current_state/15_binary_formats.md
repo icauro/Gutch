@@ -7,7 +7,8 @@ Scope: Artifact, chunk-map, and snapshot-blueprint bytes
 Verified: 2026-09-12
 
 Integers are unsigned little-endian without Rust padding. `Hash32` is a binary
-BLAKE3 digest. All binary formats use version **2** and reject earlier versions.
+BLAKE3 digest. All binary formats use version **1**. This prerelease layout is a clean replacement;
+no compatibility reader exists for superseded layouts.
 JSON document versions remain `1.0.0`. Snapshot IDs describe installation content
 and properties; their canonical identity algorithm is independent of these bytes.
 
@@ -31,7 +32,7 @@ Blueprints and maps use this envelope; bundles and loose chunks use fixed header
 
 ```text
 magic[16]
-version:u16 = 2; reserved:u16 = 0; group_count:u32 = G
+version:u16 = 1; reserved:u16 = 0; group_count:u32 = G
 for each group, in ascending ID order:
   id:u16; flags:u8 = 1; codec:u8     # required; raw=0, Zstd=1
   encoded_length:u32; decoded_length:u32
@@ -135,7 +136,7 @@ size estimates remain accounting values, not integrity evidence.
 
 ```text
 magic[16] = "GUTCH_BUNDLE" + zero[4]
-version:u16 = 2; codec:u8; reserved:u8 = 0; chunk_count:u32 = N
+version:u16 = 1; codec:u8; reserved:u8 = 0; chunk_count:u32 = N
 payload:byte[C]                    # one encoded concatenated stream
 footer:
   chunk_count:u32 = N
@@ -161,7 +162,7 @@ are no independent chunk frames or partial compressed payload reads.
 
 ```text
 magic[16] = "GUTCH_CHUNK" + zero[5]
-version:u16 = 2; codec:u8; reserved:u8 = 0
+version:u16 = 1; codec:u8; reserved:u8 = 0
 raw_size:u32; raw_hash:Hash32
 payload:byte[C]
 ```

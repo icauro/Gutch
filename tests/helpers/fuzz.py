@@ -23,7 +23,7 @@ def main():
         corpus = root / "corpus"
         corpus.mkdir(parents=True, exist_ok=True)
         if target == "binary_decoders":
-            for path in CORPUS_ROOT.glob("*/repository/format-v2/**/*.gtcbin"):
+            for path in CORPUS_ROOT.glob("*/repository/format-v1/**/*.gtcbin"):
                 if path.stat().st_size <= 65536:
                     data = path.read_bytes()
                     (corpus / hashlib.sha256(data).hexdigest()).write_bytes(data)

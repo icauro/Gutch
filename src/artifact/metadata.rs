@@ -6,7 +6,7 @@ use crate::artifact::binary_io::*;
 use crate::{Error, Result};
 
 pub(crate) const MAX_METADATA_BYTES: usize = 256 * 1024 * 1024;
-const VERSION: u16 = 2;
+const VERSION: u16 = 1;
 const DESCRIPTOR_BYTES: usize = 44;
 
 pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {

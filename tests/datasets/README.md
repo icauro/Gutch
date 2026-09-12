@@ -5,9 +5,9 @@ Run from the Gutch root:
 ```sh
 python gutch.py dataset list
 python gutch.py dataset prepare 02_chunk_boundaries
-python gutch.py test --dataset 02_chunk_boundaries --repository-version v2
+python gutch.py test --dataset 02_chunk_boundaries --repository-version v1
 python gutch.py dataset prepare blender
-python gutch.py test --dataset blender --repository-version v2 --steps 0 --timeout 1800
+python gutch.py test --dataset blender --repository-version v1 --steps 0 --timeout 1800
 python gutch.py benchmark --dataset 02_chunk_boundaries
 ```
 
@@ -18,7 +18,7 @@ case.json                 # Purpose, generator inputs or pinned downloads, creat
 expected.json             # Independent source inventories, indexed by source version
 source/v1/                # Committed generated input bytes
 source/v2/
-repository/format-v2/      # Committed frozen Gutch repository
+repository/format-v1/      # Committed frozen Gutch repository
 ```
 
 There are ten fuzz-generated cases. Each case's complete committed contents must
@@ -55,15 +55,15 @@ expected inventory describe those properties, and tests verify them in reconstru
 To create a new frozen major-version repository intentionally:
 
 ```sh
-python gutch.py dataset freeze CASE --repository-version v2 --gutch-exe PATH_TO_GUTCH_CLI
+python gutch.py dataset freeze CASE --repository-version v1 --gutch-exe PATH_TO_GUTCH_CLI
 ```
 
 Freezing derives expectations from source files before invoking Gutch, reconstructs
 and compares every captured snapshot, checks the size cap, then records the exact
 crate version, engine commit and binary hash. It refuses to overwrite an existing
 major version. A new version must retain the same independent source inventory.
-`repository/format-v2/` holds binary repository format 2.
-The CLI selector remains `--repository-version v2`; source `v1` and `v2`
+`repository/format-v1/` holds binary repository format 1.
+The CLI selector remains `--repository-version v1`; source `v1` and `v2`
 identify product snapshots, and `generator_version` identifies the generator algorithm.
 For each frozen repository, creator metadata records the
 actual crate version (currently 0.2.0). No Cargo version is inferred from the folder.

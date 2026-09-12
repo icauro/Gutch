@@ -4,7 +4,7 @@ from blake3 import blake3
 
 
 def envelope(magic, groups):
-    directory = bytearray(magic + struct.pack("<HHI", 2, 0, len(groups)))
+    directory = bytearray(magic + struct.pack("<HHI", 1, 0, len(groups)))
     for index, group in enumerate(groups, 1):
         directory += struct.pack("<HBBII", index, 1, 0, len(group), len(group))
         directory += blake3(group).digest()

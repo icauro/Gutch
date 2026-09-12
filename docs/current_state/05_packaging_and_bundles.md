@@ -55,7 +55,7 @@ chunk, chunk-map, and snapshot-blueprint definitions and size formulas.
 
 Bundle objects have extensionless content-addressed names under
 `bundles/<first-two-hash-characters>/`. Their bytes contain the chunk table
-and payload framing with 16-byte GUTCH magic values and binary version 2.
+and payload framing with 16-byte GUTCH magic values and binary version 1.
 Bundled and loose artifacts record their codec and raw chunk sizes. The repo-wide
 `chunk_map.gtcbin` begins with zero-padded `GUTCH_INDEX` and maps typed chunk
 identity to the selected artifact and ordinal. See the layouts above for bounds.

@@ -14,7 +14,7 @@ from tests.helpers.cli import Case, REPOSITORY
 from tests.helpers.filesystem import assert_tree, inventory, repository_inventory, write_json
 
 
-def repository_input(name, version="v2"):
+def repository_input(name, version="v1"):
     definition = load_case(name)
     if version not in definition["repositories"] or not re.fullmatch(r"v[1-9][0-9]*", version):
         raise ValueError(f"no frozen {version} repository for {name}")
@@ -110,7 +110,7 @@ def freeze(name, version, executable, source=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("name")
-    parser.add_argument("--repository-version", default="v2")
+    parser.add_argument("--repository-version", default="v1")
     parser.add_argument("--gutch-exe", type=Path, required=True)
     parser.add_argument("--source", type=Path)
     args = parser.parse_args()

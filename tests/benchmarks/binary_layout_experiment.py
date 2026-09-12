@@ -38,7 +38,7 @@ def main():
     summary = {"peak_process_rss_bytes": peak, "sampling_interval_ms": 10, "repetitions": args.repetitions, "scope": "release test process; warm corpus reads; RSS includes test harness and all materialized comparison values; compilation excluded"}
     (output / "memory.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     io_results = []
-    for path in sorted((ROOT / "tests/datasets/corpus").glob("*/repository/format-v2/**/*.gtcbin")):
+    for path in sorted((ROOT / "tests/datasets/corpus").glob("*/repository/format-v1/**/*.gtcbin")):
         def read_sample(discard=False):
             with path.open("rb") as stream:
                 if discard:

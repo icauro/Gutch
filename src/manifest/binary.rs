@@ -131,14 +131,14 @@ mod snapshot_blueprint_tests {
     }
 
     #[test]
-    fn version_two_blueprint_round_trips_all_entry_kinds() {
+    fn version_one_blueprint_round_trips_all_entry_kinds() {
         let path = crate::test_util::temp_path("gutch_entry_blueprint_roundtrip");
         let blueprint = SnapshotBlueprint {
             entries: all_entries(),
         };
         write_snapshot_blueprint_binary(&path, &blueprint).unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 2);
+        assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 1);
         let loaded = read_snapshot_blueprint_binary(&path).unwrap();
         assert_eq!(loaded.len(), 3);
         assert!(matches!(loaded[1], manifest::SnapshotEntry::Directory(_)));

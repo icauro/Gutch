@@ -6,7 +6,7 @@ use crate::Error;
 use crate::Result;
 use crate::manifest::CompressionKind;
 
-pub(crate) const VERSION: u16 = 2;
+pub(crate) const VERSION: u16 = 1;
 pub(crate) const BUNDLE_MAGIC: &[u8; 16] = b"GUTCH_BUNDLE\0\0\0\0";
 pub(crate) const BUNDLE_FOOTER_MAGIC: &[u8; 16] = b"GUTCH_BUNDLE_END";
 pub(crate) const LOOSE_CHUNK_MAGIC: &[u8; 16] = b"GUTCH_CHUNK\0\0\0\0\0";
@@ -61,7 +61,7 @@ mod tests {
     fn narrowing_and_envelope_parameters_reject_unsupported_values() {
         assert_eq!(size_u32(u64::from(u32::MAX)).unwrap(), u32::MAX);
         assert!(size_u32(u64::from(u32::MAX) + 1).is_err());
-        assert!(read_version(&mut &3u16.to_le_bytes()[..]).is_err());
+        assert!(read_version(&mut &2u16.to_le_bytes()[..]).is_err());
         assert!(read_codec(&mut &[3, 0][..]).is_err());
         assert!(read_codec(&mut &[1, 1][..]).is_err());
     }
