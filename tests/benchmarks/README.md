@@ -255,3 +255,16 @@ Local comparisons and S3 cycle/reconstruction commands accept `--dataset` instea
 of `--product`. Sources are validated against the committed case inventory;
 benchmarks build their own repositories and leave the frozen major-version
 repositories unchanged. Blender downloads require the explicit preparation command.
+
+## Binary layout experiment
+
+Run `python tests/benchmarks/binary_layout_experiment.py --repetitions 7` from
+this project root using Python 3.14 (standard-library `compression.zstd`). This
+standalone experiment compares metadata representations using the frozen corpus
+and synthetic edge cases, checking complete encoding round trips. It reads the
+frozen repositories without modifying them and requires no services or builds.
+
+Results, input hashes, script identity and warm Python timings are written to
+`tests/.artifacts/binary-layouts/results.json`. Timings are prototype measurements,
+not native Gutch performance claims. The script handles trusted experiment inputs;
+it is not a production decoder or a substitute for malformed-input fuzzing.
