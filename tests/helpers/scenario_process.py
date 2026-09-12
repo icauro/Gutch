@@ -30,7 +30,16 @@ def run_worker(mode, module, case, environment, timeout):
                             {**environment, "GUTCH_SCENARIO_WORKER": "1"},
                             log_path=case.root / f"{mode}.log")
     try:
-        return process.wait(timeout=timeout)
+        started = time.monotonic()
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(process.args, timeout)
+            try:
+                return process.wait(timeout=min(5, remaining))
+            except subprocess.TimeoutExpired:
+                elapsed = time.monotonic() - started
+                print(f"[running] {module} ({mode}): {elapsed:.1f}s elapsed, timeout in {max(0, timeout - elapsed):.1f}s; log: {case.root / (mode + '.log')}", flush=True)
     except BaseException:
         kill_process_tree(process)
         raise

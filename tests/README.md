@@ -85,3 +85,9 @@ are needed for these input strategies.
 
 See [the correctness contract](../docs/current_state/13_correctness_testing.md)
 for supported assertions, fixture policy and evidence details.
+
+Progress announces each selected scenario before execution. Commands and scenario
+workers report elapsed time and remaining timeout every five seconds while
+waiting; completion output records the scenario duration. Log paths identify
+where to inspect a quiet command. These heartbeats indicate waiting, not a
+measured percentage of work completed.

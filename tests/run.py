@@ -164,6 +164,7 @@ def main(arguments=None):
                 "GUTCH_TEST_S3_ACCESS_KEY": "gutch-test-access",
                 "GUTCH_TEST_S3_SECRET_KEY": "gutch-test-secret", "GUTCH_TEST_S3_PROJECT": services.project}
         for index, scenario in enumerate(scenarios, 1):
+            print(f"[{index}/{len(scenarios)}] Starting {scenario.name}", flush=True)
             case = Case(root / "cases" / scenario.name, executable)
             options = {"seed": args.seed if args.seed is not None else int.from_bytes(os.urandom(8), "big"), "steps": args.steps,
                        "storage": args.storage, "compression": args.compression, "mutations": args.mutations,

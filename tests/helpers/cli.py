@@ -32,7 +32,17 @@ def execute(command, directory: Path, environment: dict, log: Path, *, timeout=1
     started = time.monotonic()
     process = start_process(command, directory, environment, log_path=log)
     try:
-        code = process.wait(timeout=timeout)
+        print(f"[start] {log.stem}; log: {log}", flush=True)
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                code = process.wait(timeout=min(5, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                elapsed = time.monotonic() - started
+                print(f"[running] {log.stem}: {elapsed:.1f}s elapsed, timeout in {max(0, timeout - elapsed):.1f}s", flush=True)
     except BaseException:
         stop_process(process)
         raise
