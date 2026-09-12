@@ -115,13 +115,13 @@ pub struct SnapshotVerifyFromRepoResult {
 /// adapter requires explicit confirmation before applying a plan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReconstructedCorruptionPlan {
-    pub operations: Vec<ReconstructedCorruptionOperation>,
+pub struct InstallationCorruptionPlan {
+    pub operations: Vec<InstallationCorruptionOperation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ReconstructedCorruptionOperation {
+pub enum InstallationCorruptionOperation {
     FlipByte {
         path: String,
         offset: u64,
@@ -146,14 +146,14 @@ fn default_corruption_mask() -> u8 {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReconstructedCorruptionRequest {
+pub struct InstallationCorruptionRequest {
     pub destination_dir: PathBuf,
-    pub plan: ReconstructedCorruptionPlan,
+    pub plan: InstallationCorruptionPlan,
     pub control: GutchOperationControl,
 }
 
 #[derive(Debug, Clone)]
-pub struct ReconstructedCorruptionResult {
+pub struct InstallationCorruptionResult {
     pub destination_dir: PathBuf,
     pub applied_operation_count: usize,
 }

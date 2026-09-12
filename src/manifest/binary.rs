@@ -8,7 +8,7 @@ pub(crate) fn write_snapshot_blueprint_binary(
     path: &Path,
     blueprint: &SnapshotBlueprint,
 ) -> Result<()> {
-    let groups = super::columnar::encode(&blueprint.entries)?;
+    let groups = super::blueprint_columns::encode(&blueprint.entries)?;
     let bytes = metadata::encode(SNAPSHOT_BLUEPRINT_MAGIC, &groups)?;
     crate::filesystem::write_atomic_with(path, |file| {
         file.write_all(&bytes)?;
@@ -19,13 +19,13 @@ pub(crate) fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest
     read_snapshot_blueprint_bytes(&metadata::read_file(path)?)
 }
 pub(crate) fn read_snapshot_blueprint_bytes(bytes: &[u8]) -> Result<Vec<manifest::SnapshotEntry>> {
-    super::columnar::decode(&metadata::decode(bytes, SNAPSHOT_BLUEPRINT_MAGIC, 3)?)
+    super::blueprint_columns::decode(&metadata::decode(bytes, SNAPSHOT_BLUEPRINT_MAGIC, 3)?)
 }
 
 #[cfg(test)]
 mod snapshot_blueprint_tests {
     use super::*;
-    use crate::repo::index::codec::*;
+    use crate::repo::index::binary_codec::*;
 
     #[test]
     fn rejects_impossible_column_counts_before_allocation() {

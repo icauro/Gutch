@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
-use super::index::codec as binary;
+use super::index::binary_codec as binary;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::manifest;
@@ -351,7 +351,7 @@ pub(crate) fn write_chunk_index(
     binary::write_chunk_index_binary(&paths.chunk_map_path, index)
 }
 
-pub(crate) mod codec;
+pub(crate) mod binary_codec;
 mod entries;
 mod records;
 pub use entries::ChunkIndexEntries;

@@ -1,10 +1,10 @@
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::SnapshotCommands;
-use crate::cli::common::SnapshotCaptureManyStats;
-use crate::cli::common::SnapshotCaptureStats;
-use crate::cli::common::load_snapshot_manifest_from_repo;
-use crate::cli::common::prompt_yes_no;
-use crate::cli::common::write_report;
+use crate::cli::command_support::SnapshotCaptureManyStats;
+use crate::cli::command_support::SnapshotCaptureStats;
+use crate::cli::command_support::load_snapshot_manifest_from_repo;
+use crate::cli::command_support::prompt_yes_no;
+use crate::cli::command_support::write_report;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::build_timings_summary;
 use crate::cli::reporting::ensure_parent_directory;
@@ -79,9 +79,17 @@ pub(crate) fn run(
     profile: &crate::cli::Profile,
 ) -> crate::api::Result<()> {
     match command {
-        SnapshotCommands::Diff { repo, from, to, json } => {
+        SnapshotCommands::Diff {
+            repo,
+            from,
+            to,
+            json,
+        } => {
             let result = crate::api::diff_repo_snapshots(
-                &repo, &from, &to, &crate::cli::control_with_profile(profile),
+                &repo,
+                &from,
+                &to,
+                &crate::cli::control_with_profile(profile),
             )?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
@@ -95,7 +103,11 @@ pub(crate) fn run(
                     };
                     println!("{label:<8} {:>+12} B  {:?}", entry.delta_bytes, entry.path);
                 }
-                println!("{} changes; total {:+} B", result.changes.len(), result.delta_bytes);
+                println!(
+                    "{} changes; total {:+} B",
+                    result.changes.len(),
+                    result.delta_bytes
+                );
             }
         }
         SnapshotCommands::Capture {
@@ -141,21 +153,18 @@ pub(crate) fn run(
                 }
             }
             let results = crate::api::capture_repo_snapshots(requests)?;
-            let snapshot_stats = results
-                .iter()
-                .zip(&sources)
-                .map(|(result, source)| {
-                    println!("{}", result.outcome.message());
-                    capture_stats_from_engine_result(
-                        &repo.display().to_string(),
-                        &source.path.display().to_string(),
-                        &repo_manifest.name,
-                        &source.tags,
-                        build_profile.storage_mode.cli_name().to_string(),
-                        result,
-                    )
-                })
-                .collect::<Vec<_>>();
+            let mut snapshot_stats = Vec::with_capacity(results.len());
+            for (result, source) in results.iter().zip(&sources) {
+                println!("{}", result.outcome.message());
+                snapshot_stats.push(capture_stats_from_engine_result(
+                    &repo.display().to_string(),
+                    &source.path.display().to_string(),
+                    &repo_manifest.name,
+                    &source.tags,
+                    build_profile.storage_mode.cli_name().to_string(),
+                    result,
+                ));
+            }
             if single_report && snapshot_stats.len() == 1 {
                 let stats = SnapshotCaptureStats {
                     outputs: optional_output_paths(&stats_json_out),
@@ -245,7 +254,7 @@ pub(crate) fn run(
             if !yes {
                 let manifest_path = crate::api::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
                 eprintln!(
-                    "WARNING: this will remove '{}' and related snapshot artifacts, and may orphan bundles. Use --yes to confirm.",
+                    "WARNING: this will remove '{}' and related snapshot artifacts, and may orphan artifacts. Use --yes to confirm.",
                     manifest_path.display()
                 );
                 return Err(crate::api::Error::manifest("deletion requires --yes flag"));
@@ -257,7 +266,7 @@ pub(crate) fn run(
                 crate::api::delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
 
             println!(
-                "deleted snapshot '{}': removed manifest, {} orphaned bundles cleaned up",
+                "deleted snapshot '{}': removed manifest, {} orphaned artifacts cleaned up",
                 snapshot_id, orphan_count
             );
         }
@@ -322,7 +331,7 @@ pub(crate) fn run(
             chunk_index_url,
             bundle_downloads_endpoint,
             session_id,
-            bundles,
+            artifacts,
             artifact_url_manifest,
             runtime,
             transfer,
@@ -339,7 +348,7 @@ pub(crate) fn run(
                     chunk_index_url,
                     bundle_downloads_endpoint,
                     session_id,
-                    bundles,
+                    artifacts,
                     artifact_url_manifest,
                     transfer_policy: transfer.policy(),
                 },
@@ -363,7 +372,7 @@ pub(crate) fn run(
             chunk_index_url,
             bundle_downloads_endpoint,
             session_id,
-            bundles,
+            artifacts,
             artifact_url_manifest,
             transfer,
         } => crate::cli::installation::fetch(
@@ -377,7 +386,7 @@ pub(crate) fn run(
                 chunk_index_url,
                 bundle_downloads_endpoint,
                 session_id,
-                bundles,
+                artifacts,
                 artifact_url_manifest,
                 transfer_policy: transfer.policy(),
             },
@@ -407,7 +416,7 @@ pub(crate) fn run(
                 "  encoded artifacts: {:.2} MiB",
                 est.encoded_artifact_bytes as f64 / (1024.0 * 1024.0)
             );
-            println!("  bundles: {}", est.bundle_count);
+            println!("  artifacts: {}", est.bundle_count);
         }
     }
 

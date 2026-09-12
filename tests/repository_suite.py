@@ -154,7 +154,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         (destination / filename).chmod(0o644)
         (destination / filename).write_bytes(b"damaged installation")
         assert not case.verify(repo, snapshot, destination, success=False)["verification_passed"]
-        case.command("reconstructed", "plan", "--repo", repo, "--snapshot-id", snapshot, "--destination", destination)
+        case.command("installation", "plan", "--repo", repo, "--snapshot-id", snapshot, "--destination", destination)
         case.repair(repo, snapshot, destination)
         assert_tree(model[snapshot]["entries"], destination, case.root / "repair-after.json")
 

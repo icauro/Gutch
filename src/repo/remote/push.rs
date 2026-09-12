@@ -1,12 +1,12 @@
 use super::*;
-pub fn plan_sync_up_with_provider<P: RemoteRepositoryReader + ?Sized>(
+pub fn plan_push_with_provider<P: RemoteRepositoryReader + ?Sized>(
     repo_root: &Path,
     provider: &P,
-) -> Result<RepoSyncPlan> {
+) -> Result<RepoPushPlan> {
     let bound_remote_repo_id = linked_remote_repo_id(repo_root)?;
     let repository = provider.resolve_repository(None, Some(&bound_remote_repo_id))?;
     let snapshots = provider.list_snapshots(&repository)?;
-    plan_sync_up(repo_root, &repository, &snapshots)
+    plan_push(repo_root, &repository, &snapshots)
 }
 
 fn collect_local_sync_snapshots(
@@ -55,8 +55,8 @@ fn sync_snapshot_change(
     tags: Vec<String>,
     artifact_state: Option<String>,
     update_reason: Option<String>,
-) -> RepoSyncSnapshotChange {
-    RepoSyncSnapshotChange {
+) -> RepoPushSnapshotChange {
+    RepoPushSnapshotChange {
         snapshot_id: snapshot_id.to_string(),
         version,
         os,
@@ -67,7 +67,7 @@ fn sync_snapshot_change(
     }
 }
 
-fn remote_snapshot_change(snapshot: &RemoteSnapshot) -> RepoSyncSnapshotChange {
+fn remote_snapshot_change(snapshot: &RemoteSnapshot) -> RepoPushSnapshotChange {
     let summary = summarize_snapshot_tags_from_values(&snapshot.tags);
     sync_snapshot_change(
         &snapshot.snapshot_id,
@@ -97,11 +97,11 @@ pub(super) fn summarize_snapshot_tags_from_values(tags: &[String]) -> (String, S
     (summary.version_id, summary.os, summary.arch)
 }
 
-pub(crate) fn plan_sync_up(
+pub(crate) fn plan_push(
     repo_root: &Path,
     repository: &RemoteRepository,
     remote_snapshots: &[RemoteSnapshot],
-) -> Result<RepoSyncPlan> {
+) -> Result<RepoPushPlan> {
     let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo_root)?;
     let repo_manifest_changed = hashes_differ(
         &local_repo_metadata_hash_b3(&repo_paths)?,
@@ -197,7 +197,7 @@ pub(crate) fn plan_sync_up(
     to_update.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
     unchanged.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
     to_remove.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
-    Ok(RepoSyncPlan {
+    Ok(RepoPushPlan {
         repo_root: repo_paths.repo_root.display().to_string(),
         remote_repo_id: repository.id.clone(),
         repo_manifest_changed,
@@ -216,7 +216,7 @@ struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter + ?Sized> {
     repository: &'a RemoteRepository,
     repo_paths: &'a GutchRepoPaths,
     control: &'a GutchOperationControl,
-    stats: &'a mut RepoSyncUpStats,
+    stats: &'a mut RepoPushStats,
     progress: &'a RemoteProgress,
     step: &'a mut usize,
     total_steps: usize,
@@ -296,11 +296,11 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     Ok(())
 }
 
-pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
+pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
     repo: PathBuf,
     provider: &P,
     control: GutchOperationControl,
-) -> Result<RepoSyncUpStats> {
+) -> Result<RepoPushStats> {
     let operation_root = (&repo).to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
@@ -316,7 +316,7 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
             false,
         );
         let remote_snapshots = provider.list_snapshots(&repository)?;
-        let plan = plan_sync_up(&repo, &repository, &remote_snapshots)?;
+        let plan = plan_push(&repo, &repository, &remote_snapshots)?;
         control.checkpoint()?;
         let (status, repo_paths, _) = collect_local_sync_snapshots(&repo)?;
         let bundle_paths = local_bundle_paths(&repo_paths.bundles_root)?;
@@ -337,7 +337,7 @@ pub fn sync_up_repo<P: RemoteRepositoryProvider + ?Sized>(
             + bundle_paths.len()
             + 1;
         let mut step = 0usize;
-        let mut stats = RepoSyncUpStats {
+        let mut stats = RepoPushStats {
             command: "repo push",
             repo_root: repo_paths.repo_root.display().to_string(),
             remote_repo_id: repository.id.clone(),

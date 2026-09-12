@@ -75,7 +75,7 @@ particular host deployment provides.
 
 ## Evidence
 
-- Surface and scope: [API](../../src/api.rs), [CLI](../../src/cli/args.rs),
+- Surface and scope: [API](../../src/api.rs), [CLI](../../src/cli/arguments.rs),
   [ownership](../../AGENTS.md).
 - Persistence and recovery: [capture](../../src/capture/execute.rs),
   [remote operations](../../src/repo/remote/mod.rs), [bundles](../../src/artifact/bundle.rs),

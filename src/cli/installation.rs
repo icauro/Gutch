@@ -1,8 +1,8 @@
-use crate::cli::common::ReconstructedCorruptStats;
-use crate::cli::common::ReconstructedRepairStats;
-use crate::cli::common::SnapshotFetchReconstructStats;
-use crate::cli::common::parse_bundle_downloads;
-use crate::cli::common::write_report;
+use crate::cli::command_support::InstallationCorruptStats;
+use crate::cli::command_support::InstallationRepairStats;
+use crate::cli::command_support::SnapshotFetchReconstructStats;
+use crate::cli::command_support::parse_artifact_downloads;
+use crate::cli::command_support::write_report;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::print_transfer_timings;
 use crate::cli::verbose_output_enabled;
@@ -22,7 +22,7 @@ pub(crate) struct FetchCommand {
     pub(crate) chunk_index_url: Option<String>,
     pub(crate) bundle_downloads_endpoint: Option<String>,
     pub(crate) session_id: Option<String>,
-    pub(crate) bundles: Vec<String>,
+    pub(crate) artifacts: Vec<String>,
     pub(crate) artifact_url_manifest: Option<std::path::PathBuf>,
     pub(crate) transfer_policy: crate::api::TransferConcurrencyPolicy,
 }
@@ -42,11 +42,11 @@ impl FetchCommand {
             chunk_index_url,
             bundle_downloads_endpoint,
             session_id,
-            bundles,
+            artifacts,
             artifact_url_manifest,
             transfer_policy,
         } = self;
-        let bundle_url_provider = bundle_downloads_endpoint
+        let artifact_url_provider = bundle_downloads_endpoint
             .map(|endpoint| {
                 let client = reqwest::blocking::Client::builder()
                     .user_agent("Gutch CLI")
@@ -59,9 +59,9 @@ impl FetchCommand {
                         ))
                     })?;
                 let session_id = session_id.clone();
-                Ok::<Arc<dyn crate::api::BundleUrlProvider>, crate::api::Error>(Arc::new(
+                Ok::<Arc<dyn crate::api::ArtifactUrlProvider>, crate::api::Error>(Arc::new(
                     move |bundle_ids: &[String], control: &crate::api::GutchOperationControl| {
-                        resolve_bundle_urls(
+                        resolve_artifact_urls(
                             &client,
                             &endpoint,
                             session_id.as_deref(),
@@ -72,7 +72,7 @@ impl FetchCommand {
                 ))
             })
             .transpose()?;
-        let mut direct_downloads = parse_bundle_downloads(&bundles)?;
+        let mut direct_downloads = parse_artifact_downloads(&artifacts)?;
         if let Some(manifest_path) = artifact_url_manifest {
             direct_downloads.extend(parse_artifact_url_manifest(&manifest_path)?);
         }
@@ -84,8 +84,8 @@ impl FetchCommand {
             product_metadata_url,
             blueprint_url,
             chunk_index_url,
-            bundles: direct_downloads,
-            bundle_url_provider,
+            artifacts: direct_downloads,
+            artifact_url_provider,
             control,
             transfer_policy,
         })
@@ -114,7 +114,7 @@ pub(crate) fn fetch(
             result.skipped_existing_bundle_count
         );
         println!(
-            "artifacts: required={}, downloaded={}, existing={}",
+            "bundles: required={}, downloaded={}, existing={}",
             result.required_artifact_count,
             result.downloaded_artifact_count,
             result.skipped_existing_artifact_count
@@ -219,7 +219,7 @@ pub(crate) fn fetch_and_reconstruct(
             stats.snapshot_id, stats.destination_dir
         );
         println!(
-            "artifacts: required={}, downloaded={}, existing={}",
+            "bundles: required={}, downloaded={}, existing={}",
             stats.required_artifact_count,
             stats.downloaded_artifact_count,
             stats.skipped_existing_artifact_count
@@ -239,17 +239,17 @@ pub(crate) struct ReconstructCommand {
     pub(crate) staging_dir: Option<std::path::PathBuf>,
     pub(crate) source_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<std::path::PathBuf>,
-    pub(crate) runtime: crate::cli::args::RuntimeArgs,
+    pub(crate) runtime: crate::cli::arguments::RuntimeArgs,
     pub(crate) stats_json_out: Option<std::path::PathBuf>,
 }
 
-fn resolve_bundle_urls(
+fn resolve_artifact_urls(
     client: &reqwest::blocking::Client,
     endpoint: &str,
     session_id: Option<&str>,
     bundle_ids: &[String],
     control: &crate::api::GutchOperationControl,
-) -> crate::api::Result<Vec<crate::api::BundleDownload>> {
+) -> crate::api::Result<Vec<crate::api::ArtifactDownload>> {
     control.checkpoint()?;
     let separator = if endpoint.contains('?') { "&" } else { "?" };
     let request_url = format!(
@@ -272,18 +272,32 @@ fn resolve_bundle_urls(
     let bytes = crate::api::read_bounded_response(response, MAX_BUNDLE_URL_RESPONSE_BYTES, || {
         control.checkpoint()
     })?;
+    // This endpoint uses bundle terminology; adapt its wire contract here.
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
+    struct BundleUrlResponse {
+        bundle_id: String,
+        #[serde(alias = "downloadUrl")]
+        url: String,
+    }
+    #[derive(Deserialize)]
     struct BundleUrlsResponse {
         #[serde(default)]
-        bundles: Vec<crate::api::BundleDownload>,
+        bundles: Vec<BundleUrlResponse>,
     }
-    Ok(serde_json::from_slice::<BundleUrlsResponse>(&bytes)?.bundles)
+    Ok(serde_json::from_slice::<BundleUrlsResponse>(&bytes)?
+        .bundles
+        .into_iter()
+        .map(|bundle| crate::api::ArtifactDownload {
+            artifact_id: bundle.bundle_id,
+            url: bundle.url,
+        })
+        .collect())
 }
 
 fn parse_artifact_url_manifest(
     path: &std::path::Path,
-) -> crate::api::Result<Vec<crate::api::BundleDownload>> {
+) -> crate::api::Result<Vec<crate::api::ArtifactDownload>> {
     let bytes = std::fs::read(path)?;
     let urls = serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&bytes)
         .map_err(|error| {
@@ -293,14 +307,14 @@ fn parse_artifact_url_manifest(
             ))
         })?;
     urls.into_iter()
-        .map(|(bundle_id, url)| {
-            if bundle_id.trim().is_empty() || url.trim().is_empty() {
+        .map(|(artifact_id, url)| {
+            if artifact_id.trim().is_empty() || url.trim().is_empty() {
                 return Err(crate::api::Error::manifest(format!(
                     "artifact URL manifest '{}' contains an empty artifact ID or URL",
                     path.display()
                 )));
             }
-            Ok(crate::api::BundleDownload { bundle_id, url })
+            Ok(crate::api::ArtifactDownload { artifact_id, url })
         })
         .collect()
 }
@@ -310,7 +324,7 @@ pub(crate) fn verify(
     snapshot_id: String,
     destination: std::path::PathBuf,
     strict: bool,
-    runtime: crate::cli::args::RuntimeArgs,
+    runtime: crate::cli::arguments::RuntimeArgs,
     stats_json_out: Option<std::path::PathBuf>,
     profile: &crate::cli::Profile,
 ) -> crate::api::Result<()> {
@@ -335,7 +349,7 @@ pub(crate) struct RepairCommand {
     pub(crate) destination: std::path::PathBuf,
     pub(crate) staging_dir: Option<std::path::PathBuf>,
     pub(crate) remove_added_files: bool,
-    pub(crate) runtime: crate::cli::args::RuntimeArgs,
+    pub(crate) runtime: crate::cli::arguments::RuntimeArgs,
     pub(crate) stats_json_out: Option<std::path::PathBuf>,
     pub(crate) yes: bool,
 }
@@ -346,7 +360,7 @@ pub(crate) fn repair(
 ) -> crate::api::Result<()> {
     if !command.yes {
         return Err(crate::api::Error::manifest(
-            "reconstructed repair requires --yes flag",
+            "installation repair requires --yes flag",
         ));
     }
     let started_at = crate::profile::ProfileInstant::start(profile.as_deref());
@@ -362,8 +376,8 @@ pub(crate) fn repair(
                 .with_progress(CliProgressSink::new()),
         })?;
     let result = execution.repair_result;
-    let stats = ReconstructedRepairStats {
-        command: "reconstructed repair",
+    let stats = InstallationRepairStats {
+        command: "installation repair",
         repo_root: execution.repo_root.display().to_string(),
         snapshot_id: result.snapshot_id.clone(),
         destination_dir: result.destination_dir.display().to_string(),
@@ -412,7 +426,7 @@ pub(crate) fn corrupt(
 ) -> crate::api::Result<()> {
     if !command.yes {
         return Err(crate::api::Error::manifest(
-            "reconstructed corrupt requires --yes flag",
+            "installation corrupt requires --yes flag",
         ));
     }
     let plan_bytes = std::fs::read(&command.plan).map_err(|error| {
@@ -421,7 +435,7 @@ pub(crate) fn corrupt(
             command.plan.display()
         ))
     })?;
-    let plan: crate::api::ReconstructedCorruptionPlan = serde_json::from_slice(&plan_bytes)
+    let plan: crate::api::InstallationCorruptionPlan = serde_json::from_slice(&plan_bytes)
         .map_err(|error| {
             crate::api::Error::manifest(format!(
                 "invalid corruption plan '{}': {error}",
@@ -429,15 +443,13 @@ pub(crate) fn corrupt(
             ))
         })?;
     let started_at = crate::profile::ProfileInstant::start(profile.as_deref());
-    let result =
-        crate::api::corrupt_reconstructed_snapshot(crate::api::ReconstructedCorruptionRequest {
-            destination_dir: command.destination.clone(),
-            plan,
-            control: crate::cli::control_with_profile(profile)
-                .with_progress(CliProgressSink::new()),
-        })?;
-    let stats = ReconstructedCorruptStats {
-        command: "reconstructed corrupt",
+    let result = crate::api::corrupt_installation(crate::api::InstallationCorruptionRequest {
+        destination_dir: command.destination.clone(),
+        plan,
+        control: crate::cli::control_with_profile(profile).with_progress(CliProgressSink::new()),
+    })?;
+    let stats = InstallationCorruptStats {
+        command: "installation corrupt",
         destination_dir: result.destination_dir.display().to_string(),
         plan_path: command.plan.display().to_string(),
         applied_operation_count: result.applied_operation_count,
@@ -458,12 +470,12 @@ pub(crate) fn corrupt(
     Ok(())
 }
 
-pub(crate) fn run_reconstructed(
-    command: crate::cli::ReconstructedCommands,
+pub(crate) fn run_installation(
+    command: crate::cli::InstallationCommands,
     profile: &crate::cli::Profile,
 ) -> crate::api::Result<()> {
     match command {
-        crate::cli::ReconstructedCommands::Plan {
+        crate::cli::InstallationCommands::Plan {
             repo,
             snapshot_id,
             destination,
@@ -522,7 +534,7 @@ pub(crate) fn run_reconstructed(
             Ok(())
         }
 
-        crate::cli::ReconstructedCommands::Verify {
+        crate::cli::InstallationCommands::Verify {
             repo,
             snapshot_id,
             destination,
@@ -538,7 +550,7 @@ pub(crate) fn run_reconstructed(
             stats_json_out,
             profile,
         ),
-        crate::cli::ReconstructedCommands::Repair {
+        crate::cli::InstallationCommands::Repair {
             repo,
             snapshot_id,
             destination,
@@ -560,7 +572,7 @@ pub(crate) fn run_reconstructed(
             },
             profile,
         ),
-        crate::cli::ReconstructedCommands::Corrupt {
+        crate::cli::InstallationCommands::Corrupt {
             destination,
             plan,
             stats_json_out,
@@ -579,8 +591,8 @@ pub(crate) fn run_reconstructed(
 
 use std::path::PathBuf;
 
-use crate::cli::common::SnapshotReconstructStats;
-use crate::cli::common::SnapshotVerifyStats;
+use crate::cli::command_support::SnapshotReconstructStats;
+use crate::cli::command_support::SnapshotVerifyStats;
 use crate::cli::reporting::optional_output_paths;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::ratio_pct;
@@ -614,7 +626,7 @@ pub(crate) fn reconstruct(
                 .with_progress(CliProgressSink::new()),
         },
     )?;
-    let tm = execution.snapshot_manifest;
+    let snapshot_manifest = execution.snapshot_manifest;
     let result = execution.reconstruct_result;
     let reused_source_chunk_percent = ratio_pct(
         result.reused_source_chunk_count as u64,
@@ -631,7 +643,7 @@ pub(crate) fn reconstruct(
             .source_destination_dir
             .as_ref()
             .map(|path| path.display().to_string()),
-        file_count: tm.file_count(),
+        file_count: snapshot_manifest.file_count(),
         required_chunk_count: result.required_chunk_count,
         required_bundle_count: result.required_bundle_count,
         required_artifact_count: result.required_artifact_count,
@@ -639,8 +651,8 @@ pub(crate) fn reconstruct(
         resolved_artifact_file_count: execution.resolved_artifact_file_count,
         reused_source_chunk_count: result.reused_source_chunk_count,
         reused_source_chunk_percent,
-        total_logical_size: tm.total_logical_size,
-        total_compressed_size_estimate: tm.total_compressed_size_estimate,
+        total_logical_size: snapshot_manifest.total_logical_size,
+        total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
         reconstruct_timings: reconstruct_timings_summary(&result.reconstruct_timings),
         verify_timings: verify_timings_summary(&result.verify_timings),
         outputs: optional_output_paths(&command.stats_json_out),
@@ -677,7 +689,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::api::Result<()> 
             control: crate::cli::control_with_profile(&command.profile).with_progress(progress),
         })?;
     let repo_root = execution.repo_root;
-    let tm = execution.snapshot_manifest;
+    let snapshot_manifest = execution.snapshot_manifest;
     let classification = execution.classification;
     let timings = execution.verify_timings;
     let missing_file_count = classification.missing_files.len();
@@ -685,12 +697,12 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::api::Result<()> 
     let extra_file_count = classification.extra_files.len();
     let errors = classification.into_messages();
     let stats = SnapshotVerifyStats {
-        command: "reconstructed verify",
+        command: "installation verify",
         repo_root: repo_root.display().to_string(),
-        snapshot_id: tm.snapshot_id.clone(),
+        snapshot_id: snapshot_manifest.snapshot_id.clone(),
         destination_dir: command.destination.display().to_string(),
         verify_mode: command.verify_mode.as_str().to_string(),
-        expected_file_count: tm.file_count(),
+        expected_file_count: snapshot_manifest.file_count(),
         missing_file_count,
         corrupt_file_count,
         extra_file_count,

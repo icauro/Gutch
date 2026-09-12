@@ -185,7 +185,7 @@ cleanup ordering and cancellation remain shared repository mechanisms.
 recover missing blueprints, paths or payload bytes.
 
 Sources: [envelope](../../src/artifact/metadata.rs),
-[blueprint columns](../../src/manifest/columnar.rs),
-[map codec](../../src/repo/index/codec.rs),
+[blueprint columns](../../src/manifest/blueprint_columns.rs),
+[map codec](../../src/repo/index/binary_codec.rs),
 [bundle codec](../../src/artifact/bundle.rs), [loose codec](../../src/artifact/loose.rs),
 [identity](../../src/snapshot/identity.rs), [recovery](../../src/repo/recovery.rs).

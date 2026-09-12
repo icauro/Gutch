@@ -1,5 +1,5 @@
 pub(crate) mod binary;
-pub(crate) mod columnar;
+pub(crate) mod blueprint_columns;
 mod content;
 pub(crate) use crate::repo::index::ChunkIndexEntries;
 pub(crate) mod constraints;

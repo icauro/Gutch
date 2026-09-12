@@ -2,7 +2,7 @@
 use crate::artifact::{binary_io::*, hash::ChunkHash};
 use crate::manifest::{
     self,
-    columnar::{decode, encode},
+    blueprint_columns::{decode, encode},
 };
 
 #[test]
@@ -30,10 +30,12 @@ fn native_corpus_layout_comparison() {
         if item.file_type().is_file() && item.file_name() == "chunk_map.gtcbin" {
             let bytes = std::fs::read(item.path()).unwrap();
             let index =
-                crate::repo::index::codec::load_chunk_index_binary_from_bytes(&bytes).unwrap();
+                crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&bytes)
+                    .unwrap();
             let decode_us = median_us(repetitions, || {
                 std::hint::black_box(
-                    crate::repo::index::codec::load_chunk_index_binary_from_bytes(&bytes).unwrap(),
+                    crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&bytes)
+                        .unwrap(),
                 );
             });
             let lookup_us = median_us(repetitions, || {

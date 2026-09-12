@@ -217,7 +217,7 @@ pub(crate) fn run(
     Ok(())
 }
 
-use crate::cli::common::prompt_yes_no;
+use crate::cli::command_support::prompt_yes_no;
 use std::path::Path;
 
 pub(crate) fn init_repo(path: &Path, force: bool) -> crate::api::Result<()> {

@@ -174,7 +174,7 @@ class GutchOperations:
             trace = lane.traces / f"corrupt-{safe_component(label)}-{index:03d}" / "trace.json"
             result = self.commands.run(
                 self.cli.command(
-                    "reconstructed",
+                    "installation",
                     "corrupt",
                     "--destination",
                     destination,
@@ -195,7 +195,7 @@ class GutchOperations:
             trace = lane.traces / f"repair-{safe_component(label)}-{index:03d}" / "trace.json"
             result = self.commands.run(
                 self.cli.command(
-                    "reconstructed",
+                    "installation",
                     "repair",
                     "--repo",
                     repo,

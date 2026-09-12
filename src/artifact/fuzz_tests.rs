@@ -16,7 +16,7 @@ fn fuzz_binary_decoders() {
             return;
         }
         let _ = crate::manifest::binary::read_snapshot_blueprint_bytes(bytes);
-        let _ = crate::repo::index::codec::load_chunk_index_binary_from_bytes(bytes);
+        let _ = crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(bytes);
         // Recompute framing so mutations reach the column parsers instead of
         // stopping at the envelope's integrity check on every generated input.
         let split = bytes.len() / 3;
@@ -25,12 +25,12 @@ fn fuzz_binary_decoders() {
             bytes[split..split * 2].to_vec(),
             bytes[split * 2..].to_vec(),
         ];
-        let _ = crate::manifest::columnar::decode(&groups);
+        let _ = crate::manifest::blueprint_columns::decode(&groups);
         if let Ok(encoded) = crate::artifact::metadata::encode(
             crate::artifact::format::CHUNK_INDEX_MAGIC,
             &groups[..2],
         ) {
-            let _ = crate::repo::index::codec::load_chunk_index_binary_from_bytes(&encoded);
+            let _ = crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&encoded);
         }
         let _ = bundle::read_bundle(bytes, &CompressionProfile::default());
         let _ = crate::artifact::loose::read_loose_header(&mut Cursor::new(bytes));
@@ -126,7 +126,7 @@ fn fuzz_blueprint_roundtrip() {
                 target_path: "目录/λ🙂".into(),
             }),
         ];
-        let groups = crate::manifest::columnar::encode(&entries).unwrap();
+        let groups = crate::manifest::blueprint_columns::encode(&entries).unwrap();
         let encoded = crate::artifact::metadata::encode(
             crate::artifact::format::SNAPSHOT_BLUEPRINT_MAGIC,
             &groups,
@@ -138,7 +138,7 @@ fn fuzz_blueprint_roundtrip() {
             crate::snapshot::identity::compute_snapshot_id_from_entries(&restored)
         );
         assert_eq!(
-            crate::manifest::columnar::encode(&restored).unwrap(),
+            crate::manifest::blueprint_columns::encode(&restored).unwrap(),
             groups
         );
         let mut mutated = groups;
@@ -146,7 +146,7 @@ fn fuzz_blueprint_roundtrip() {
         if !mutated[group].is_empty() {
             let offset = bytes.len() % mutated[group].len();
             mutated[group][offset] ^= 1;
-            let _ = crate::manifest::columnar::decode(&mutated);
+            let _ = crate::manifest::blueprint_columns::decode(&mutated);
         }
     });
 }

@@ -35,7 +35,7 @@ pub(crate) fn push(
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let repository_provider = provider.repository_provider();
-    let plan = crate::repo::remote::plan_sync_up_with_provider(&repo, repository_provider)?;
+    let plan = crate::repo::remote::plan_push_with_provider(&repo, repository_provider)?;
     print_sync_plan(&plan);
     if !yes && !crate::cli::prompt_yes_no("Proceed?", true)? {
         println!("push cancelled");
@@ -43,7 +43,7 @@ pub(crate) fn push(
     }
 
     let progress = Arc::new(CliProgressSink);
-    let stats = crate::repo::remote::sync_up_repo(
+    let stats = crate::repo::remote::push_repo(
         repo,
         repository_provider,
         crate::cli::control_with_profile(profile).with_progress(progress),
@@ -240,7 +240,7 @@ fn scope_label(entry: &RemoteRepositorySummary) -> &str {
     }
 }
 
-fn print_sync_plan(plan: &crate::repo::remote::RepoSyncPlan) {
+fn print_sync_plan(plan: &crate::repo::remote::RepoPushPlan) {
     println!("Sync plan");
     println!("repo: {}", plan.repo_root);
     println!(

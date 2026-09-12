@@ -9,7 +9,7 @@ use crate::repo::index::write_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download as transfer;
-use crate::transfer::types::BundleDownload;
+use crate::transfer::types::ArtifactDownload;
 use crate::transfer::types::SnapshotFetchRequest;
 use std::collections::HashSet;
 
@@ -45,18 +45,18 @@ fn write_repair_test_repo(root: &std::path::Path, manifest: &SnapshotManifest) {
 }
 
 #[test]
-fn bundle_download_deserializes_download_response() {
-    let bundle: BundleDownload = serde_json::from_str(
-        r#"{"bundleId":"abc123","downloadUrl":"https://example.com/bundle","expiresInSeconds":3600}"#,
+fn artifact_download_deserializes_artifact_response() {
+    let bundle: ArtifactDownload = serde_json::from_str(
+        r#"{"artifactId":"abc123","url":"https://example.com/bundle","expiresInSeconds":3600}"#,
     )
     .unwrap();
-    assert_eq!(bundle.bundle_id, "abc123");
+    assert_eq!(bundle.artifact_id, "abc123");
     assert_eq!(bundle.url, "https://example.com/bundle");
 }
 
 #[test]
-fn bundle_url_provider_rejects_unexpected_bundle_ids() {
-    let required_bundle_ids = HashSet::from(["bundle-a".to_string()]);
+fn artifact_url_provider_rejects_unexpected_artifact_ids() {
+    let required_artifact_ids = HashSet::from(["bundle-a".to_string()]);
     let request = SnapshotFetchRequest {
         repo_path: std::path::PathBuf::from("C:\\repo"),
         snapshot_id: "snapshot".to_string(),
@@ -65,11 +65,11 @@ fn bundle_url_provider_rejects_unexpected_bundle_ids() {
         product_metadata_url: None,
         blueprint_url: "https://example.com/blueprint".to_string(),
         chunk_index_url: None,
-        bundles: Vec::new(),
-        bundle_url_provider: Some(std::sync::Arc::new(
-            |_bundle_ids: &[String], _control: &crate::progress::GutchOperationControl| {
-                Ok(vec![BundleDownload {
-                    bundle_id: "bundle-b".to_string(),
+        artifacts: Vec::new(),
+        artifact_url_provider: Some(std::sync::Arc::new(
+            |_artifact_ids: &[String], _control: &crate::progress::GutchOperationControl| {
+                Ok(vec![ArtifactDownload {
+                    artifact_id: "bundle-b".to_string(),
                     url: "https://example.com/bundle-b".to_string(),
                 }])
             },
@@ -78,14 +78,14 @@ fn bundle_url_provider_rejects_unexpected_bundle_ids() {
         transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
-    let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
-        .expect_err("unexpected bundle IDs must fail resolution");
-    assert!(error.to_string().contains("unexpected bundle 'bundle-b'"));
+    let error = transfer::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
+        .expect_err("unexpected artifact IDs must fail resolution");
+    assert!(error.to_string().contains("unexpected artifact 'bundle-b'"));
 }
 
 #[test]
-fn direct_bundle_urls_reject_duplicate_bundle_ids() {
-    let required_bundle_ids = HashSet::from(["bundle-a".to_string()]);
+fn direct_bundle_urls_reject_duplicate_artifact_ids() {
+    let required_artifact_ids = HashSet::from(["bundle-a".to_string()]);
     let request = SnapshotFetchRequest {
         repo_path: std::path::PathBuf::from("C:\\repo"),
         snapshot_id: "snapshot".to_string(),
@@ -94,24 +94,24 @@ fn direct_bundle_urls_reject_duplicate_bundle_ids() {
         product_metadata_url: None,
         blueprint_url: "https://example.com/blueprint".to_string(),
         chunk_index_url: None,
-        bundles: vec![
-            BundleDownload {
-                bundle_id: "bundle-a".to_string(),
+        artifacts: vec![
+            ArtifactDownload {
+                artifact_id: "bundle-a".to_string(),
                 url: "https://example.com/a".to_string(),
             },
-            BundleDownload {
-                bundle_id: " bundle-a ".to_string(),
+            ArtifactDownload {
+                artifact_id: " bundle-a ".to_string(),
                 url: "https://example.com/a2".to_string(),
             },
         ],
-        bundle_url_provider: None,
+        artifact_url_provider: None,
         control: crate::progress::GutchOperationControl::default(),
         transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
-    let error = transfer::fetch_bundle_urls(&request, &required_bundle_ids, &HashSet::new())
+    let error = transfer::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
         .expect_err("duplicate bundle IDs must fail normalization");
-    assert!(error.to_string().contains("duplicate direct bundle URL"));
+    assert!(error.to_string().contains("duplicate direct artifact URL"));
 }
 
 #[test]

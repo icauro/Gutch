@@ -429,7 +429,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             )?;
             verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
             let mut chunk_index =
-                crate::repo::index::codec::load_chunk_index_binary_from_bytes(&bytes)?;
+                crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&bytes)?;
             for (hash, entry) in load_chunk_index(&repo_paths)?.entries {
                 let artifact =
                     crate::repo::artifacts::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);

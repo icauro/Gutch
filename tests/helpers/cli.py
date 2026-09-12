@@ -95,7 +95,7 @@ class Case:
                           "--destination", destination, "--jobs", "2", *options, success=success)
 
     def verify(self, repo, snapshot, destination, *, success=True):
-        return self.stats("reconstructed", "verify", "--repo", repo, "--snapshot-id", snapshot,
+        return self.stats("installation", "verify", "--repo", repo, "--snapshot-id", snapshot,
                           "--destination", destination, "--strict", success=success)
 
     def compare(self, dataset, destination, label="output"):
@@ -104,5 +104,5 @@ class Case:
         self.checks.append(label)
 
     def repair(self, repo, snapshot, destination, *options):
-        return self.stats("reconstructed", "repair", "--repo", repo, "--snapshot-id", snapshot,
+        return self.stats("installation", "repair", "--repo", repo, "--snapshot-id", snapshot,
                           "--destination", destination, "--yes", *options)

@@ -150,7 +150,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
                     executable = tmp_path / tool
                     executable.write_bytes(b'tool')
                     layout = RunLayout(tmp_path / 'run')
-                    output = layout.lane(tool).payload / 'reconstructed'
+                    output = layout.lane(tool).payload / 'installation'
 
                     class Commands:
 

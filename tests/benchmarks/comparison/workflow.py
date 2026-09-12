@@ -47,7 +47,7 @@ class LocalFixtureRunner:
     ) -> LaneResult:
         product = dataset.product
         repo = lane.payload / "repo"
-        output = lane.payload / "reconstructed"
+        output = lane.payload / "installation"
         remove_tree(repo)
         remove_tree(output)
         self.gutch.init_repo(repo, lane_spec.label)
@@ -128,7 +128,7 @@ class LocalFixtureRunner:
     ) -> LaneResult:
         product = dataset.product
         repo = lane.payload / "repo"
-        output = lane.payload / "reconstructed"
+        output = lane.payload / "installation"
         remove_tree(repo)
         remove_tree(output)
         self.gutch.init_repo(repo, lane_spec.label)
@@ -192,7 +192,7 @@ class LocalFixtureRunner:
     ) -> LaneResult:
         product = dataset.product
         repo = lane.payload / "repo"
-        output = lane.payload / "reconstructed"
+        output = lane.payload / "installation"
         remove_tree(repo)
         remove_tree(output)
         self.gutch.init_repo(repo, lane_spec.label)
@@ -273,7 +273,7 @@ class LocalFixtureRunner:
         recovery_enabled: bool,
     ) -> LaneResult:
         product = dataset.product
-        output = lane.payload / "reconstructed"
+        output = lane.payload / "installation"
         remove_tree(output)
         started = time.perf_counter()
         shutil.copytree(product, output, symlinks=True)

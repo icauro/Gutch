@@ -24,9 +24,9 @@ def run(case):
     assert result["missing_file_count"] >= 1
     assert result["corrupt_file_count"] >= 2
     assert result["extra_file_count"] == 1
-    case.command("reconstructed", "plan", "--repo", repo, "--snapshot-id", snapshot,
+    case.command("installation", "plan", "--repo", repo, "--snapshot-id", snapshot,
                  "--destination", destination)
-    preview = case.root / "commands" / f"{case.sequence:03d}-reconstructed.log"
+    preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
     events = [json.loads(line) for line in preview.read_text().splitlines() if line.startswith("{")]
     actions = {event["path"]: event["action"] for event in events if event["kind"] == "entry"}
     assert actions["data/shared.bin"] == "replace"
@@ -35,9 +35,9 @@ def run(case):
     assert actions["readonly.txt"] == "updateMetadata"
     assert events[-1]["kind"] == "summary"
     assert (destination / "data/shared.bin").read_bytes() == b"truncated"
-    case.command("reconstructed", "plan", "--repo", repo, "--snapshot-id", snapshot,
+    case.command("installation", "plan", "--repo", repo, "--snapshot-id", snapshot,
                  "--destination", destination, "--metadata-only")
-    metadata_preview = case.root / "commands" / f"{case.sequence:03d}-reconstructed.log"
+    metadata_preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
     metadata_events = [json.loads(line) for line in metadata_preview.read_text(encoding="utf-8").splitlines()
                        if line.startswith("{")]
     assert not metadata_events[-1]["summary"]["contentInspected"]

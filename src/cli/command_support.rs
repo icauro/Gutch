@@ -75,7 +75,7 @@ pub(crate) struct SnapshotVerifyStats {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ReconstructedRepairStats {
+pub(crate) struct InstallationRepairStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
     pub(crate) snapshot_id: String,
@@ -92,7 +92,7 @@ pub(crate) struct ReconstructedRepairStats {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ReconstructedCorruptStats {
+pub(crate) struct InstallationCorruptStats {
     pub(crate) command: &'static str,
     pub(crate) destination_dir: String,
     pub(crate) plan_path: String,
@@ -191,29 +191,29 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     Ok((repo_paths, repo_manifest, manifest_path, snapshot_manifest))
 }
 
-pub(crate) fn parse_bundle_downloads(
-    bundle_args: &[String],
-) -> crate::api::Result<Vec<crate::api::BundleDownload>> {
-    bundle_args
+pub(crate) fn parse_artifact_downloads(
+    artifact_args: &[String],
+) -> crate::api::Result<Vec<crate::api::ArtifactDownload>> {
+    artifact_args
         .iter()
-        .map(|bundle_arg| {
-            let Some((bundle_id, url)) = bundle_arg.split_once('=') else {
+        .map(|artifact_arg| {
+            let Some((artifact_id, url)) = artifact_arg.split_once('=') else {
                 return Err(crate::api::Error::manifest(format!(
-                    "invalid --bundle value '{}'; use <bundle-id>=<url>",
-                    bundle_arg
+                    "invalid --artifact value '{}'; use <artifact-id>=<url>",
+                    artifact_arg
                 )));
             };
-            let bundle_id = bundle_id.trim();
+            let artifact_id = artifact_id.trim();
             let url = url.trim();
-            if bundle_id.is_empty() || url.is_empty() {
+            if artifact_id.is_empty() || url.is_empty() {
                 return Err(crate::api::Error::manifest(format!(
-                    "invalid --bundle value '{}'; use <bundle-id>=<url>",
-                    bundle_arg
+                    "invalid --artifact value '{}'; use <artifact-id>=<url>",
+                    artifact_arg
                 )));
             }
 
-            Ok(crate::api::BundleDownload {
-                bundle_id: bundle_id.to_string(),
+            Ok(crate::api::ArtifactDownload {
+                artifact_id: artifact_id.to_string(),
                 url: url.to_string(),
             })
         })

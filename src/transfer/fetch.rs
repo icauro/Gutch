@@ -28,7 +28,7 @@ use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::download::TransferDownloadRequest;
 use crate::transfer::download::TransferPhaseCounters;
 use crate::transfer::download::build_download_client;
-use crate::transfer::download::fetch_bundle_urls;
+use crate::transfer::download::fetch_artifact_urls;
 use crate::transfer::download::snapshot_manifest_from_download;
 use crate::transfer::download::write_repo_manifest;
 use crate::transfer::types::SnapshotDownloadAndReconstructRequest;
@@ -53,12 +53,12 @@ struct ResolvedSnapshotSource {
 }
 
 pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchResult> {
-    fetch_snapshot_for_required_bundle_ids(request, None)
+    fetch_snapshot_for_artifact_ids(request, None)
 }
 
-pub fn fetch_snapshot_for_required_bundle_ids(
+pub fn fetch_snapshot_for_artifact_ids(
     request: &SnapshotFetchRequest,
-    required_bundle_ids_override: Option<&HashSet<String>>,
+    required_artifact_ids_override: Option<&HashSet<String>>,
 ) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
     let operation_root = (&request.repo_path).to_path_buf();
@@ -71,7 +71,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
         let transfer_progress = Arc::new(FetchTransferProgress::default());
         let prepared =
             prepare_snapshot_fetch(request, &download_client, &progress, &transfer_progress)?;
-        let required_artifacts = required_bundle_ids_override
+        let required_artifacts = required_artifact_ids_override
             .map(|ids| {
                 prepared
                     .required_artifacts
@@ -85,7 +85,7 @@ pub fn fetch_snapshot_for_required_bundle_ids(
             &prepared.pending_artifact_downloads,
             &required_artifacts,
         );
-        let downloaded_artifact_count = download_pending_bundle_files(
+        let downloaded_artifact_count = download_pending_artifacts(
             request,
             &download_client,
             &transfer_progress,
@@ -494,8 +494,9 @@ fn prepare_snapshot_fetch(
             detail: None,
         }
         .download_bounded(MAX_CHUNK_INDEX_BYTES)?;
-        let chunk_index =
-            crate::repo::index::codec::load_chunk_index_binary_from_bytes(&chunk_index_bytes)?;
+        let chunk_index = crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(
+            &chunk_index_bytes,
+        )?;
         chunk_index
     } else {
         crate::repo::index::load_chunk_index(&repo_paths)?
@@ -539,11 +540,12 @@ fn prepare_snapshot_fetch(
         .iter()
         .map(|artifact| artifact.id().to_string())
         .collect::<HashSet<_>>();
-    let bundle_urls = fetch_bundle_urls(request, &required_artifact_ids, &existing_artifact_ids)?;
+    let artifact_urls =
+        fetch_artifact_urls(request, &required_artifact_ids, &existing_artifact_ids)?;
     let pending_artifact_downloads = build_pending_artifact_downloads(
         &required_artifacts,
         &existing_artifacts,
-        &bundle_urls,
+        &artifact_urls,
         &repo_paths,
     )?;
 
@@ -562,7 +564,7 @@ fn prepare_snapshot_fetch(
 fn build_pending_artifact_downloads(
     required_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
     existing_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
-    bundle_urls: &HashMap<String, String>,
+    artifact_urls: &HashMap<String, String>,
     repo_paths: &crate::repo::paths::GutchRepoPaths,
 ) -> Result<Vec<PendingArtifactDownload>> {
     let missing_artifact_count = required_artifacts
@@ -578,7 +580,7 @@ fn build_pending_artifact_downloads(
         .into_iter()
         .enumerate()
         .map(|(ordinal, artifact)| {
-            let url = bundle_urls.get(artifact.id()).ok_or_else(|| {
+            let url = artifact_urls.get(artifact.id()).ok_or_else(|| {
                 Error::manifest(format!(
                     "missing download URL for required artifact '{}'",
                     artifact.id()
@@ -658,7 +660,7 @@ fn build_fetch_result(
     }
 }
 
-fn download_pending_bundle_files(
+fn download_pending_artifacts(
     request: &SnapshotFetchRequest,
     download_client: &reqwest::blocking::Client,
     transfer_progress: &Arc<FetchTransferProgress>,

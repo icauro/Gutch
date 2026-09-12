@@ -113,9 +113,9 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: SnapshotCommands,
     },
-    Reconstructed {
+    Installation {
         #[command(subcommand)]
-        command: ReconstructedCommands,
+        command: InstallationCommands,
     },
     Bundle {
         #[command(subcommand)]
@@ -379,8 +379,8 @@ pub(crate) enum SnapshotCommands {
         bundle_downloads_endpoint: Option<String>,
         #[arg(long = "session-id")]
         session_id: Option<String>,
-        #[arg(long = "bundle")]
-        bundles: Vec<String>,
+        #[arg(long = "artifact")]
+        artifacts: Vec<String>,
         #[arg(long = "artifact-url-manifest", value_parser = parse_absolute_path)]
         artifact_url_manifest: Option<PathBuf>,
         #[command(flatten)]
@@ -417,8 +417,8 @@ pub(crate) enum SnapshotCommands {
         bundle_downloads_endpoint: Option<String>,
         #[arg(long = "session-id")]
         session_id: Option<String>,
-        #[arg(long = "bundle")]
-        bundles: Vec<String>,
+        #[arg(long = "artifact")]
+        artifacts: Vec<String>,
         #[arg(long = "artifact-url-manifest", value_parser = parse_absolute_path)]
         artifact_url_manifest: Option<PathBuf>,
         #[command(flatten)]
@@ -427,7 +427,7 @@ pub(crate) enum SnapshotCommands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum ReconstructedCommands {
+pub(crate) enum InstallationCommands {
     /// Stream a read-only installation plan as JSON lines, followed by its summary.
     Plan {
         #[arg(long, value_parser = parse_absolute_path)]
@@ -498,7 +498,7 @@ pub(crate) enum ReconstructedCommands {
 mod tests {
     use super::Cli;
     use super::Commands;
-    use super::ReconstructedCommands;
+    use super::InstallationCommands;
     use super::RemoteCommands;
     use super::RepoCommands;
     use super::RepoTagsCommands;
@@ -641,6 +641,8 @@ mod tests {
             "https://objects.example/snapshot.json",
             "--blueprint-url",
             "https://objects.example/blueprint.gtcbin",
+            "--artifact",
+            "chunk-1=https://objects.example/chunk",
             "--transfer-policy",
             "adaptive",
             "--transfer-concurrency",
@@ -651,7 +653,12 @@ mod tests {
         .expect("fetch-reconstruct args should parse");
 
         let Commands::Snapshot {
-            command: SnapshotCommands::FetchReconstruct { transfer, .. },
+            command:
+                SnapshotCommands::FetchReconstruct {
+                    transfer,
+                    artifacts,
+                    ..
+                },
         } = cli.command
         else {
             panic!("expected fetch-reconstruct command");
@@ -659,10 +666,19 @@ mod tests {
         assert!(matches!(transfer.policy, TransferPolicyArg::Adaptive));
         assert_eq!(transfer.concurrency, 4);
         assert_eq!(transfer.maximum, 12);
+        assert_eq!(artifacts, ["chunk-1=https://objects.example/chunk"]);
     }
 
     #[test]
-    fn parses_reconstructed_destination_commands() {
+    fn rejects_retired_command_group() {
+        let error = Cli::try_parse_from(["gutch", "reconstructed", "--help"])
+            .err()
+            .expect("the retired command group must be rejected");
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn parses_installation_destination_commands() {
         let destination = if cfg!(windows) {
             r"D:\Installs\product"
         } else {
@@ -676,7 +692,7 @@ mod tests {
 
         let cli = Cli::try_parse_from([
             "gutch",
-            "reconstructed",
+            "installation",
             "verify",
             "--repo",
             repo,
@@ -685,17 +701,17 @@ mod tests {
             "--destination",
             destination,
         ])
-        .expect("reconstructed verify args should parse");
+        .expect("installation verify args should parse");
         assert!(matches!(
             cli.command,
-            Commands::Reconstructed {
-                command: ReconstructedCommands::Verify { strict: false, .. }
+            Commands::Installation {
+                command: InstallationCommands::Verify { strict: false, .. }
             }
         ));
 
         let cli = Cli::try_parse_from([
             "gutch",
-            "reconstructed",
+            "installation",
             "repair",
             "--repo",
             repo,
@@ -706,11 +722,11 @@ mod tests {
             "--remove-added-files",
             "--yes",
         ])
-        .expect("reconstructed repair args should parse");
+        .expect("installation repair args should parse");
         assert!(matches!(
             cli.command,
-            Commands::Reconstructed {
-                command: ReconstructedCommands::Repair {
+            Commands::Installation {
+                command: InstallationCommands::Repair {
                     remove_added_files: true,
                     yes: true,
                     ..
@@ -725,7 +741,7 @@ mod tests {
         };
         let cli = Cli::try_parse_from([
             "gutch",
-            "reconstructed",
+            "installation",
             "corrupt",
             "--destination",
             destination,
@@ -733,11 +749,11 @@ mod tests {
             plan,
             "--yes",
         ])
-        .expect("reconstructed corrupt args should parse");
+        .expect("installation corrupt args should parse");
         assert!(matches!(
             cli.command,
-            Commands::Reconstructed {
-                command: ReconstructedCommands::Corrupt { yes: true, .. }
+            Commands::Installation {
+                command: InstallationCommands::Corrupt { yes: true, .. }
             }
         ));
     }

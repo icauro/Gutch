@@ -27,7 +27,7 @@ use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
 use crate::progress::emit_progress;
-use crate::transfer::types::BundleDownload;
+use crate::transfer::types::ArtifactDownload;
 use crate::transfer::types::SnapshotFetchRequest;
 use crate::transfer::types::TransferConcurrencyPolicy;
 use crate::transfer::types::TransferStats;
@@ -784,80 +784,82 @@ impl<'a> TransferProgressReporter<'a> {
     }
 }
 
-pub(crate) fn normalize_bundle_downloads(
-    bundles: &[BundleDownload],
+pub(crate) fn normalize_artifact_downloads(
+    artifacts: &[ArtifactDownload],
 ) -> Result<HashMap<String, String>> {
-    let mut normalized = HashMap::with_capacity(bundles.len());
-    for bundle in bundles {
-        let bundle_id = non_empty_trimmed(&bundle.bundle_id, "bundle id")?;
-        let url = non_empty_trimmed(&bundle.url, "bundle URL")?;
+    let mut normalized = HashMap::with_capacity(artifacts.len());
+    for artifact in artifacts {
+        let artifact_id = non_empty_trimmed(&artifact.artifact_id, "artifact id")?;
+        let url = non_empty_trimmed(&artifact.url, "artifact URL")?;
         if normalized
-            .insert(bundle_id.to_string(), url.to_string())
+            .insert(artifact_id.to_string(), url.to_string())
             .is_some()
         {
             return Err(Error::manifest(format!(
-                "duplicate direct bundle URL for '{}'",
-                bundle_id
+                "duplicate direct artifact URL for '{}'",
+                artifact_id
             )));
         }
     }
     Ok(normalized)
 }
 
-pub(crate) fn fetch_bundle_urls(
+pub(crate) fn fetch_artifact_urls(
     request: &SnapshotFetchRequest,
-    required_bundle_ids: &std::collections::HashSet<String>,
-    existing_bundle_ids: &std::collections::HashSet<String>,
+    required_artifact_ids: &std::collections::HashSet<String>,
+    existing_artifact_ids: &std::collections::HashSet<String>,
 ) -> Result<HashMap<String, String>> {
-    let mut bundle_urls = normalize_bundle_downloads(&request.bundles)?;
-    let unresolved_bundle_ids = required_bundle_ids
+    let mut artifact_urls = normalize_artifact_downloads(&request.artifacts)?;
+    let unresolved_artifact_ids = required_artifact_ids
         .iter()
-        .filter(|bundle_id| {
-            !existing_bundle_ids.contains(*bundle_id)
-                && !bundle_urls.contains_key(bundle_id.as_str())
+        .filter(|artifact_id| {
+            !existing_artifact_ids.contains(*artifact_id)
+                && !artifact_urls.contains_key(artifact_id.as_str())
         })
         .cloned()
         .collect::<Vec<_>>();
-    if unresolved_bundle_ids.is_empty() {
-        return Ok(bundle_urls);
+    if unresolved_artifact_ids.is_empty() {
+        return Ok(artifact_urls);
     }
 
-    let provider = request.bundle_url_provider.as_ref().ok_or_else(|| {
-        Error::manifest("bundle URL provider is required when direct bundle URLs are not provided")
+    let provider = request.artifact_url_provider.as_ref().ok_or_else(|| {
+        Error::manifest(
+            "artifact URL provider is required when direct artifact URLs are not provided",
+        )
     })?;
-    let resolved_bundles =
-        provider.resolve_bundle_urls(&unresolved_bundle_ids, &request.control)?;
-    for bundle in resolved_bundles {
-        let bundle_id = non_empty_trimmed(&bundle.bundle_id, "bundle id")?;
-        let url = non_empty_trimmed(&bundle.url, "bundle URL")?;
-        if !unresolved_bundle_ids.iter().any(|id| id == bundle_id) {
+    let resolved_artifacts =
+        provider.resolve_artifact_urls(&unresolved_artifact_ids, &request.control)?;
+    for artifact in resolved_artifacts {
+        let artifact_id = non_empty_trimmed(&artifact.artifact_id, "artifact id")?;
+        let url = non_empty_trimmed(&artifact.url, "artifact URL")?;
+        if !unresolved_artifact_ids.iter().any(|id| id == artifact_id) {
             return Err(Error::manifest(format!(
-                "bundle URL provider returned unexpected bundle '{}'",
-                bundle_id
+                "artifact URL provider returned unexpected artifact '{}'",
+                artifact_id
             )));
         }
-        if bundle_urls
-            .insert(bundle_id.to_string(), url.to_string())
+        if artifact_urls
+            .insert(artifact_id.to_string(), url.to_string())
             .is_some()
         {
             return Err(Error::manifest(format!(
-                "bundle URL provider returned duplicate bundle '{}'",
-                bundle_id
+                "artifact URL provider returned duplicate artifact '{}'",
+                artifact_id
             )));
         }
     }
 
-    let missing = unresolved_bundle_ids
+    let missing = unresolved_artifact_ids
         .into_iter()
-        .filter(|bundle_id| !bundle_urls.contains_key(bundle_id))
+        .filter(|artifact_id| !artifact_urls.contains_key(artifact_id))
         .collect::<Vec<_>>();
     if !missing.is_empty() {
         return Err(Error::manifest(format!(
-            "missing bundle download URLs for: {}",
+            "missing artifact download URLs for: {}",
             missing.join(", ")
         )));
     }
-    Ok(bundle_urls)
+    Ok(artifact_urls)
 }
 
 pub(crate) fn write_repo_manifest(

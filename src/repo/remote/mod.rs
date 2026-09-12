@@ -56,14 +56,14 @@ pub use provider::RemoteSnapshotSources;
 pub use provider::RemoteTagReferencesResult;
 pub use provider::RepoPullPlan;
 pub use provider::RepoPullStats;
-pub use provider::RepoSyncPlan;
-pub use provider::RepoSyncSnapshotChange;
-pub use provider::RepoSyncUpStats;
+pub use provider::RepoPushPlan;
+pub use provider::RepoPushSnapshotChange;
+pub use provider::RepoPushStats;
 use pull::local_bundle_paths;
 pub use pull::plan_pull_with_provider;
 pub use pull::pull_repo;
-pub use push::plan_sync_up_with_provider;
-pub use push::sync_up_repo;
+pub use push::plan_push_with_provider;
+pub use push::push_repo;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ArtifactDecision {
     Identical,

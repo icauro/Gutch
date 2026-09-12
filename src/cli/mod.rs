@@ -1,7 +1,7 @@
-pub(crate) mod args;
+pub(crate) mod arguments;
 pub(crate) mod bundle;
-pub(crate) mod commands;
-pub(crate) mod common;
+pub(crate) mod command_support;
+pub(crate) mod dispatch;
 pub(crate) mod installation;
 pub(crate) mod path;
 pub(crate) mod progress;
@@ -14,18 +14,18 @@ pub(crate) mod tags;
 
 use std::sync::Arc;
 
-pub(crate) use args::BundleCommands;
-pub(crate) use args::Cli;
-pub(crate) use args::Commands;
-pub(crate) use args::PathCommands;
-pub(crate) use args::ReconstructedCommands;
-pub(crate) use args::RemoteCommands;
-pub(crate) use args::RepoCommands;
-pub(crate) use args::RepoNameCommands;
-pub(crate) use args::RepoTagsCommands;
-pub(crate) use args::SnapshotCommands;
-pub(crate) use args::SnapshotSourcesCommands;
-pub(crate) use common::prompt_yes_no;
+pub(crate) use arguments::BundleCommands;
+pub(crate) use arguments::Cli;
+pub(crate) use arguments::Commands;
+pub(crate) use arguments::InstallationCommands;
+pub(crate) use arguments::PathCommands;
+pub(crate) use arguments::RemoteCommands;
+pub(crate) use arguments::RepoCommands;
+pub(crate) use arguments::RepoNameCommands;
+pub(crate) use arguments::RepoTagsCommands;
+pub(crate) use arguments::SnapshotCommands;
+pub(crate) use arguments::SnapshotSourcesCommands;
+pub(crate) use command_support::prompt_yes_no;
 
 pub(crate) type Profile = Option<Arc<crate::profile::GutchProfiler>>;
 
@@ -136,7 +136,7 @@ where
         let _command_span = profiler
             .as_ref()
             .map(|profiler| profiler.span("cli.command"));
-        commands::run(cli, remote_provider, &profiler)
+        dispatch::run(cli, remote_provider, &profiler)
     };
     if let (Err(error), Some(path)) = (&command_result, error_json_out) {
         let details = match error {

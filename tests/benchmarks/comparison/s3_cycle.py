@@ -137,7 +137,7 @@ def run_s3_cycle(
         lane = layout.lane(lane_spec.label)
         repo = lane.payload / "published-repo"
         fetched_repo_root = lane.payload / "fetched-repo"
-        output = lane.payload / "reconstructed"
+        output = lane.payload / "installation"
         remove_tree(repo)
         remove_tree(fetched_repo_root)
         remove_tree(output)

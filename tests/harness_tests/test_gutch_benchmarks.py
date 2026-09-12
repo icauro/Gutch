@@ -984,9 +984,9 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
                     json.dumps({"verify_timings": {"total_seconds": 0.25}}),
                     encoding="utf-8",
                 )
-            elif rendered[1:3] == ("reconstructed", "corrupt"):
+            elif rendered[1:3] == ("installation", "corrupt"):
                 Path(rendered[rendered.index("--stats-json-out") + 1]).write_text("{}", encoding="utf-8")
-            elif rendered[1:3] == ("reconstructed", "repair"):
+            elif rendered[1:3] == ("installation", "repair"):
                 Path(rendered[rendered.index("--stats-json-out") + 1]).write_text("{}", encoding="utf-8")
             return CommandResult(rendered, 0.01, 0, "", "")
 
@@ -1007,8 +1007,8 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
         ("repo", "init"),
         ("snapshot", "capture"),
         ("snapshot", "reconstruct"),
-        ("reconstructed", "corrupt"),
-        ("reconstructed", "repair"),
+        ("installation", "corrupt"),
+        ("installation", "repair"),
     ]
     assert result.metadata["verify_invocations"] == 1
 

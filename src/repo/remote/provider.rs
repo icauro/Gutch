@@ -257,7 +257,7 @@ pub struct RepoPullPlan {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct RepoSyncSnapshotChange {
+pub struct RepoPushSnapshotChange {
     pub snapshot_id: String,
     pub version: String,
     pub os: String,
@@ -269,21 +269,21 @@ pub struct RepoSyncSnapshotChange {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct RepoSyncPlan {
+pub struct RepoPushPlan {
     pub repo_root: String,
     pub remote_repo_id: String,
     pub repo_manifest_changed: bool,
     pub chunk_index_changed: bool,
     pub snapshot_count: usize,
     pub remote_snapshot_count: usize,
-    pub to_add: Vec<RepoSyncSnapshotChange>,
-    pub to_remove: Vec<RepoSyncSnapshotChange>,
-    pub to_update: Vec<RepoSyncSnapshotChange>,
-    pub unchanged: Vec<RepoSyncSnapshotChange>,
+    pub to_add: Vec<RepoPushSnapshotChange>,
+    pub to_remove: Vec<RepoPushSnapshotChange>,
+    pub to_update: Vec<RepoPushSnapshotChange>,
+    pub unchanged: Vec<RepoPushSnapshotChange>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct RepoSyncUpStats {
+pub struct RepoPushStats {
     pub command: &'static str,
     pub repo_root: String,
     pub remote_repo_id: String,

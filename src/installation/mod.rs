@@ -13,13 +13,13 @@ pub(crate) mod types;
 
 pub use apply::reconstruct_snapshot_from_repo;
 pub use apply::verify_installed_snapshot;
-pub use corrupt::corrupt_reconstructed_snapshot;
+pub use corrupt::corrupt_installation;
 pub use repair::plan_repair_snapshot_from_repo;
 pub use repair::repair_snapshot_from_repo;
 pub use state::resolve_snapshot_state;
+pub use types::InstallationCorruptionPlan;
+pub use types::InstallationCorruptionRequest;
 pub use types::ReconstructTimings;
-pub use types::ReconstructedCorruptionPlan;
-pub use types::ReconstructedCorruptionRequest;
 pub use types::ResolvedSnapshotOperationState;
 pub use types::SnapshotReconstructFromRepoRequest;
 pub use types::SnapshotReconstructFromRepoResult;

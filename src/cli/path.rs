@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::api::compare_paths;
-use crate::cli::common::write_report;
+use crate::cli::command_support::write_report;
 use crate::cli::reporting::optional_output_paths;
 
 pub(crate) fn compare(

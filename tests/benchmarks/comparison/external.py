@@ -114,7 +114,7 @@ def run_external(
     lane_root = lane.root
     plakar_cache_directory = _plakar_cache_directory(lane_root)
     repo = lane.payload / "repo"
-    output = lane.payload / "reconstructed"
+    output = lane.payload / "installation"
     remove_tree(repo)
     remove_tree(output)
     repo.mkdir(parents=True, exist_ok=True)

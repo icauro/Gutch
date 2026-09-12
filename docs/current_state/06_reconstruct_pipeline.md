@@ -125,7 +125,7 @@ download/decode overlap.
 
 `download_and_reconstruct_snapshot` prepares the local metadata and
 reconstruction plan, resolves direct bundle URLs or asks the injected
-`BundleUrlProvider` for unresolved bundle URLs, and starts a scheduler for the
+`ArtifactUrlProvider` for unresolved artifact URLs, and starts a scheduler for the
 missing artifacts. The scheduler writes each bundle atomically and sends a
 ready event only after the final local path is complete. The reconstruction
 dispatcher consumes ready events while local and source jobs continue, allowing

@@ -65,30 +65,29 @@ pub struct TransferStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BundleDownload {
-    pub bundle_id: String,
-    #[serde(alias = "downloadUrl")]
+pub struct ArtifactDownload {
+    pub artifact_id: String,
     pub url: String,
 }
 
-pub trait BundleUrlProvider: Send + Sync {
-    fn resolve_bundle_urls(
+pub trait ArtifactUrlProvider: Send + Sync {
+    fn resolve_artifact_urls(
         &self,
-        bundle_ids: &[String],
+        artifact_ids: &[String],
         control: &GutchOperationControl,
-    ) -> crate::Result<Vec<BundleDownload>>;
+    ) -> crate::Result<Vec<ArtifactDownload>>;
 }
 
-impl<F> BundleUrlProvider for F
+impl<F> ArtifactUrlProvider for F
 where
-    F: Fn(&[String], &GutchOperationControl) -> crate::Result<Vec<BundleDownload>> + Send + Sync,
+    F: Fn(&[String], &GutchOperationControl) -> crate::Result<Vec<ArtifactDownload>> + Send + Sync,
 {
-    fn resolve_bundle_urls(
+    fn resolve_artifact_urls(
         &self,
-        bundle_ids: &[String],
+        artifact_ids: &[String],
         control: &GutchOperationControl,
-    ) -> crate::Result<Vec<BundleDownload>> {
-        self(bundle_ids, control)
+    ) -> crate::Result<Vec<ArtifactDownload>> {
+        self(artifact_ids, control)
     }
 }
 
@@ -101,8 +100,8 @@ pub struct SnapshotFetchRequest {
     pub product_metadata_url: Option<String>,
     pub blueprint_url: String,
     pub chunk_index_url: Option<String>,
-    pub bundles: Vec<BundleDownload>,
-    pub bundle_url_provider: Option<std::sync::Arc<dyn BundleUrlProvider>>,
+    pub artifacts: Vec<ArtifactDownload>,
+    pub artifact_url_provider: Option<std::sync::Arc<dyn ArtifactUrlProvider>>,
     pub transfer_policy: TransferConcurrencyPolicy,
     pub control: GutchOperationControl,
 }

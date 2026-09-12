@@ -17,9 +17,9 @@ owners.
 | Repo status and advisory tag references | Private Gutch repo engine, exposed through `gutch::api` | Render the returned status and references |
 | Verify Gutch repo artifacts | Private Gutch repo engine, exposed as `gutch::api::verify_gutch_repo_artifacts` | Supply the repo path, snapshot selection, and verification mode |
 | Fetch snapshot artifacts | Private `transfer/` engine, exposed as `gutch::api::fetch_snapshot` | Resolve authorized artifact sources and provide progress/cancellation |
-| Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installed_snapshot`; CLI `gutch reconstructed verify` | Supply the repo path, destination, mode, and runtime hints |
+| Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installed_snapshot`; CLI `gutch installation verify` | Supply the repo path, destination, mode, and runtime hints |
 | Reconstruct and promote an install | Private `installation/` engine, exposed as `gutch::api::reconstruct_snapshot_from_repo` | Select the destination/staging paths and commit app metadata only after success |
-| Repair a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::repair_snapshot_from_repo`; CLI `gutch reconstructed repair` | Choose repair policy and extra-file handling; present the result |
+| Repair a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::repair_snapshot_from_repo`; CLI `gutch installation repair` | Choose repair policy and extra-file handling; present the result |
 | Corrupt a reconstructed destination for tests/benchmarks | Private Gutch test/benchmark command operation; available through the CLI | Supply an explicit corruption plan and confirmation |
 | Remote repo pull/push/link/bind | Private Gutch repo engine, exposed through `gutch::api` | The host adapter supplies the provider contract and authorized context |
 | Install persistence and launch integration | Host application services and the GUI app layer | Own install records, job state, OS integration, and presentation |
@@ -33,3 +33,27 @@ Source navigation and import boundaries are maintained in the [module map](../..
 The shared installation entrypoint is `install_snapshot_from_repo`; reconstruction
 and repair are presets. `visit_installation_plan` streams change descriptions
 from the same classification and job-planning functions.
+
+## Public naming
+
+Local-to-remote synchronization uses `push_repo`, `plan_push_with_provider`,
+`RepoPushPlan`, `RepoPushSnapshotChange`, and `RepoPushStats`, matching `repo push`.
+The corresponding download direction remains `pull_repo` and `RepoPullPlan`.
+
+Artifact fetch inputs use `ArtifactDownload { artifact_id, url }`,
+`ArtifactUrlProvider::resolve_artifact_urls`, and `SnapshotFetchRequest.artifacts`
+and `.artifact_url_provider`. `fetch_snapshot_for_artifact_ids` can restrict the
+fetch to selected bundle or loose-chunk IDs. Serialized downloads use
+`artifactId` and `url`; CLI direct URLs use `--artifact ID=URL` or
+`--artifact-url-manifest FILE`. The bundle-download endpoint adapter retains
+its endpoint-specific `bundleId`/`downloadUrl` response mapping. Bundle counters
+and `RemoteBundleSource` remain bundle-specific.
+
+Destination operations use `installation plan|verify|repair|corrupt`.
+Corruption requests and results use `InstallationCorruption*` and
+`corrupt_installation`. `snapshot reconstruct` still creates an installation;
+repair and full reconstruction keep their distinct reports and policies.
+
+These are prerelease source/CLI renames with no old-name aliases. Binary
+identifiers and layouts remain v1. The API facade groups exports by capability;
+its metadata loaders still acquire reader protection.

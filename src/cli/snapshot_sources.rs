@@ -32,7 +32,7 @@ pub(crate) fn run(
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::cli::common::prompt_yes_no;
+use crate::cli::command_support::prompt_yes_no;
 use crate::cli::progress::CliProgressSink;
 
 #[derive(Debug, Clone, Copy)]
