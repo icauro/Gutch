@@ -308,7 +308,7 @@ pub(crate) fn inspect_installation_changes(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: Option<&crate::manifest::ChunkIndex>,
     destination_dir: &Path,
-    _remove_added_files: bool,
+    inspection: super::inspect::VerifyMode,
     runtime_hints: &RuntimeResourceHints,
     control: &crate::progress::GutchOperationControl,
     operation_pool: Option<&ThreadPool>,
@@ -317,19 +317,18 @@ pub(crate) fn inspect_installation_changes(
         VerifyRequest {
             snapshot_manifest,
             dir: destination_dir,
-            mode: crate::installation::inspect::VerifyMode::Fast,
+            mode: inspection,
             runtime_hints,
             control: control.clone(),
         },
         "installation.repair.verify",
         operation_pool,
     )?;
-    let updates = resolve_metadata_updates(
-        snapshot_manifest,
-        &mut classification,
-        destination_dir,
-        control,
-    )?;
+    let updates = if inspection == super::inspect::VerifyMode::MetadataOnly {
+        Vec::new()
+    } else {
+        resolve_metadata_updates(snapshot_manifest, &mut classification, destination_dir, control)?
+    };
     let mut changes = build_installation_changes(snapshot_manifest, chunk_index, classification)?;
     changes.corrupt_file_count += updates.len();
     changes.metadata_updates = updates;

@@ -51,6 +51,12 @@ snapshot deletion. HTTP and S3 delivery reject same-length corrupted artifacts,
 preserve the existing installation, and succeed after the artifact is restored.
 The promotion-failure check compares the entire prior installation.
 
+Snapshot comparison checks readable and JSON output, reverse and identical
+comparisons, empty files, same-size edits, properties and type changes. It also
+compares snapshots with payload artifacts and the index unavailable. Native
+tests cover symlink targets, packaging independence and wide signed byte deltas.
+Repair scenarios check shared preview actions and metadata-only inspection.
+
 A separate batch case confirms that a later tag conflict returns failure while
 an earlier completed snapshot remains reconstructable. The Rust capture contract
 compares API and CLI content, tags, snapshot identity, and persisted profiles.

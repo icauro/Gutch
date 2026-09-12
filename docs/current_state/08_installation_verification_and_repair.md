@@ -77,9 +77,12 @@ work even though healthy target entries remain in place.
 The default preview hashes content. `--metadata-only` skips content hashes and
 marks entries unverified; it cannot detect same-size content changes. Artifact
 availability means the file exists, not that its bytes have been scrubbed.
-Preview does not mutate the installation or authorize later execution: execution
-reinspects current inputs under repository and destination locks. These locks
-coordinate Gutch processes, not unrelated applications writing the directory.
+Preview and repair share installation inspection, metadata-change classification
+and affected-artifact planning. Execution consumes the inspection result built
+for that operation. A standalone preview is a separate read-only operation;
+a later execution builds its own plan under repository and destination locks.
+These locks coordinate Gutch processes, not unrelated applications writing the
+directory. No source monitoring is required.
 
 ## Verification Modes
 

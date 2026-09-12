@@ -276,6 +276,18 @@ pub(crate) enum SnapshotSourcesCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum SnapshotCommands {
+    /// Compare stored snapshot trees without reconstructing files.
+    Diff {
+        #[arg(long, value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        /// Emit one JSON object with path changes and signed logical byte deltas.
+        #[arg(long)]
+        json: bool,
+    },
     #[command(name = "capture")]
     Capture {
         #[arg(short, long = "source-dir", value_parser = parse_absolute_path)]

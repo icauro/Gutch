@@ -14,6 +14,22 @@ pub(crate) const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
 pub(crate) const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
 pub(crate) const SNAPSHOT_BLUEPRINT_FILE: &str = "snapshot_blueprint.gtcbin";
 
+/// Compare installed-tree content and supported properties without reading payload artifacts.
+pub fn diff_repo_snapshots(
+    repo_root: &std::path::Path,
+    from: &str,
+    to: &str,
+    control: &crate::progress::GutchOperationControl,
+) -> Result<crate::snapshot::diff::SnapshotDiff> {
+    crate::repo::coordination::read_with_control(repo_root, control, || {
+        let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+        let before = load_snapshot_manifest(&paths, from)?;
+        control.checkpoint()?;
+        let after = load_snapshot_manifest(&paths, to)?;
+        crate::snapshot::diff::compare_snapshot_entries(&before.entries, &after.entries, control)
+    })
+}
+
 pub(crate) fn validate_snapshot_id(snapshot_id: &str) -> Result<()> {
     if snapshot_id.len() == 64
         && snapshot_id

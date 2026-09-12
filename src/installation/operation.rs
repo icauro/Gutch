@@ -65,7 +65,7 @@ pub fn install_snapshot_from_repo(
                 &snapshot_manifest,
                 Some(&chunk_index),
                 &request.destination_dir,
-                extra_files == ExtraFilePolicy::Remove,
+                super::inspect::VerifyMode::Fast,
                 &request.runtime_hints,
                 &request.control,
                 None,

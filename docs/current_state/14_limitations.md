@@ -49,7 +49,7 @@ transactions, exhaustive power-loss testing, and resumable recovery are not prov
 
 | Limitation | Current reason and effect |
 |---|---|
-| No snapshot-tree diff or historical file search | Installation preview compares a target snapshot with a physical destination; tools also list snapshots, inspect bundles, and compare physical paths. Pull differences concern synchronization artifacts, not file history. |
+| No historical file search | Snapshot diff compares two stored trees; installation preview compares a target snapshot with a physical destination. Neither searches file history across all snapshots. Pull differences concern synchronization artifacts. |
 | No arbitrary selected-path export or filesystem mount | Public reconstruction produces a complete local tree. Repair selects damaged entries, not arbitrary export paths; no mounted random-read interface exists. |
 | No transfer bandwidth ceiling | Worker limits and adaptive backpressure control concurrency, not a bytes-per-second budget. |
 | Loose-chunk publishing is limited | Engine operations support loose chunks; production remote delivery currently publishes bundled artifacts. |

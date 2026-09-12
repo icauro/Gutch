@@ -80,31 +80,22 @@ pub fn visit_installation_plan(
         )?;
         let index = crate::repo::index::load_chunk_index(&paths)?;
         let verified = inspection == InstallationInspection::Content;
-        let (mut classification, _) = crate::installation::inspect::classify_directory(
-            crate::installation::inspect::VerifyRequest {
-                snapshot_manifest: &target,
-                dir: &request.destination_dir,
-                mode: if verified {
-                    crate::installation::inspect::VerifyMode::Fast
-                } else {
-                    crate::installation::inspect::VerifyMode::MetadataOnly
-                },
-                runtime_hints: &request.runtime_hints,
-                control: request.control.clone(),
+        let changes = super::plan::inspect_installation_changes(
+            &target,
+            Some(&index),
+            &request.destination_dir,
+            if verified {
+                super::inspect::VerifyMode::Fast
+            } else {
+                super::inspect::VerifyMode::MetadataOnly
             },
+            &request.runtime_hints,
+            &request.control,
+            None,
         )?;
-        let metadata_updates = if verified {
-            super::plan::resolve_metadata_updates(
-                &target,
-                &mut classification,
-                &request.destination_dir,
-                &request.control,
-            )?
-        } else {
-            Vec::new()
-        };
+        let classification = &changes.classification;
         let metadata_paths: HashSet<_> =
-            metadata_updates.iter().map(|entry| entry.path()).collect();
+            changes.metadata_updates.iter().map(|entry| entry.path()).collect();
         let missing: HashSet<_> = classification
             .missing_files
             .iter()
@@ -171,8 +162,6 @@ pub fn visit_installation_plan(
                 content_verified: false,
             })?;
         }
-        let changes =
-            super::plan::build_installation_changes(&target, Some(&index), classification)?;
         let execution_manifest = if selective {
             &changes.affected_manifest
         } else {

@@ -93,6 +93,8 @@ pub use crate::manifest::launch::ResolvedLaunchAction;
 pub use crate::manifest::launch::ResolvedLaunchConfiguration;
 pub use crate::path_compare::PathComparisonResult;
 pub use crate::path_compare::compare_paths;
+pub use crate::repo::snapshot_manifests::diff_repo_snapshots;
+pub use crate::snapshot::diff::{SnapshotChangeKind, SnapshotDiff, SnapshotEntryChange};
 pub use crate::progress::GutchCancellationHook;
 pub use crate::progress::GutchOperation;
 pub use crate::progress::GutchOperationControl;

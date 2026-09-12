@@ -79,6 +79,25 @@ pub(crate) fn run(
     profile: &crate::cli::Profile,
 ) -> crate::api::Result<()> {
     match command {
+        SnapshotCommands::Diff { repo, from, to, json } => {
+            let result = crate::api::diff_repo_snapshots(
+                &repo, &from, &to, &crate::cli::control_with_profile(profile),
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                for entry in &result.changes {
+                    let label = match entry.change {
+                        crate::api::SnapshotChangeKind::Added => "Added",
+                        crate::api::SnapshotChangeKind::Removed => "Removed",
+                        crate::api::SnapshotChangeKind::Modified => "Modified",
+                        crate::api::SnapshotChangeKind::Metadata => "Metadata",
+                    };
+                    println!("{label:<8} {:>+12} B  {:?}", entry.delta_bytes, entry.path);
+                }
+                println!("{} changes; total {:+} B", result.changes.len(), result.delta_bytes);
+            }
+        }
         SnapshotCommands::Capture {
             source_dirs,
             source_root,

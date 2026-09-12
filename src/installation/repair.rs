@@ -53,7 +53,7 @@ pub fn plan_repair_snapshot_from_repo(
             &snapshot_manifest,
             Some(&chunk_index),
             &request.destination_dir,
-            request.remove_added_files,
+            super::inspect::VerifyMode::Fast,
             &request.runtime_hints,
             &request.control,
             None,
