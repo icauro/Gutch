@@ -1,6 +1,0 @@
-.artifacts/
-__pycache__/
-.pytest-v2-tmp/
-config.yml
-comparison/bin/linux-x64/
-comparison/bin/gutch-cli.exe

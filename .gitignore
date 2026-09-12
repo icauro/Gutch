@@ -9,10 +9,3 @@
 /.pytest_cache/
 /tests/benchmarks/config.yml
 /tests/benchmarks/comparison/bin/
-/test_dataset/.artifacts/
-/test_dataset/source/
-
-/test_dataset/
-/test_benchmarks/
-/test_services/
-/tests/workflows/

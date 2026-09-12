@@ -10,7 +10,3 @@ tests/.artifacts/**
 **/target
 tests/benchmarks/config.yml
 tests/benchmarks/comparison/bin
-test_dataset/source
-test_dataset/test_dataset
-test_dataset/.artifacts
-test_dataset/repos

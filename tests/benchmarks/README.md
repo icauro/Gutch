@@ -112,6 +112,11 @@ set local artifact paths and any external S3 credentials used by standalone
 storage benchmarks. Docker benchmarks provision their own S3 service. The benchmark does not
 read the repository-root `config.yml`.
 
+`tests/benchmarks/config.yml` is the only default local benchmark configuration.
+Paths inside it are relative to that file unless absolute. Keep generated
+repositories and datasets under `tests/.artifacts/`; obsolete top-level tooling
+directories are not configuration or data locations.
+
 Storage actions are `prepare`, `download`, `delete`, and `abort-multipart`.
 The destructive actions require `--yes` in explicit mode. `delete` defaults to
 the scenario prefix; `abort-multipart` defaults to the whole bucket unless
