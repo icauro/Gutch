@@ -3,7 +3,7 @@
 Expected: Complete recovery reconstructs exact content; corruption or missing artifacts cannot publish.
 """
 import json
-from tests.datasets.trees import basic
+from tests.datasets.generate import basic
 
 
 def run(case):

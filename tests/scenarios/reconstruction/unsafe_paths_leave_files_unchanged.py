@@ -4,7 +4,7 @@ paths.
 Expected: Every reconstruction fails without modifying the run-owned filesystem.
 """
 import struct
-from tests.datasets.trees import basic
+from tests.datasets.generate import basic
 from tests.helpers.filesystem import inventory
 
 

@@ -76,7 +76,7 @@ def main() -> int:
     _extract_package(args.package.resolve(), code_root)
     sys.path.insert(0, str(code_root))
 
-    from tests.datasets.generator.product import prepare_blender_product
+    from tests.datasets.prepare_blender import prepare_blender_product
     from tests.benchmarks.benchmark_config import load_benchmark_config
     from tests.benchmarks.scheduling.environment import load_benchmark_environment
     from tests.benchmarks.support.commands import GutchCli
@@ -104,7 +104,7 @@ def main() -> int:
 
     dataset_root = Path("/tmp/gutch-benchmark/dataset") / CONTAINER_DATASET_DIRECTORY
     product = dataset_root / "Blender"
-    recipe_path = code_root / "tests/datasets/recipes" / "blender-official.json"
+    recipe_path = code_root / "tests/datasets/corpus/blender/case.json"
     if config.blender_platforms != ("linux-x64",):
         raise RuntimeError("container Gutch benchmark requires dataset.blender_platforms: [linux-x64]")
     prepare_blender_product(

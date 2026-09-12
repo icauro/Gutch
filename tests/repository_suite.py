@@ -6,7 +6,7 @@ from pathlib import Path
 import random
 import shutil
 
-from tests.datasets.trees import generated
+from tests.datasets.generate import generated
 from tests.helpers.filesystem import assert_tree, inventory, repository_inventory, write_json
 
 
@@ -50,7 +50,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         shutil.copytree(retained, repo)
         replay_path = case.root / "replay.json"
         if replay_path.is_file():
-            replay = json.loads(replay_path.read_text())
+            replay = json.loads(replay_path.read_text(encoding="utf-8"))
             replay.setdefault("options", {}).update(repo=str(retained), seed=seed, steps=steps,
                 storage=storage, compression=compression, mutations=mutations)
             if expected is not None:
@@ -71,14 +71,14 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
     def listed():
         path = case.root / "listed.json"
         case.command("snapshot", "list", "--repo", repo, "--json-out", path)
-        return {item["snapshotId"] for item in json.loads(path.read_text())}
+        return {item["snapshotId"] for item in json.loads(path.read_text(encoding="utf-8"))}
 
     def check_all(label):
         record("check", phase=label, snapshots=sorted(model))
         assert listed() == set(model), "snapshot list differs from the expected repository state"
         report = case.root / "verify.json"
         case.command("repo", "verify", "--repo", repo, "--strict", "--json-out", report)
-        assert json.loads(report.read_text())["ok"]
+        assert json.loads(report.read_text(encoding="utf-8"))["ok"]
         for snapshot, specification in model.items():
             destination = case.payload / "restored" / snapshot
             case.reconstruct(repo, snapshot, destination)
@@ -142,7 +142,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         (repo / "chunk_map.gtcbin").unlink()
         report = case.root / "rebuild.json"
         case.command("repo", "regenerate-chunk-map", "--repo", repo, "--publish", "--json-out", report)
-        assert json.loads(report.read_text())["published"]
+        assert json.loads(report.read_text(encoding="utf-8"))["published"]
 
     def repair():
         snapshot = second

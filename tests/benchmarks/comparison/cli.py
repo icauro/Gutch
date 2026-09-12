@@ -23,9 +23,24 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _add_product_arguments(parser):
+    from tests.datasets.generate import case_names
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--product", type=Path)
+    selection.add_argument("--dataset", choices=[name for name in case_names() if name != "legacy_reference"],
+                           help="Use a prepared corpus source without downloading or rebuilding repositories")
+
+
+def _selected_product(args):
+    if getattr(args, "dataset", None):
+        from tests.datasets.generate import prepared_source
+        return prepared_source(args.dataset)
+    return args.product.resolve()
+
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fixture", default="gutch_default_trace_with_corrupt_repair")
-    parser.add_argument("--product", type=Path, required=True)
+    _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
     parser.add_argument("--config", type=Path, help="Benchmark YAML config (default: tests/benchmarks/config.yml)")
@@ -62,7 +77,7 @@ def print_reconstruction_result(result: dict) -> None:
 
 
 def run_command(args: argparse.Namespace) -> int:
-    product = args.product.resolve()
+    product = _selected_product(args)
     if not product.is_dir():
         raise SystemExit(f"product directory does not exist: {product}")
     repo_root = _repo_root()
@@ -84,7 +99,7 @@ def run_command(args: argparse.Namespace) -> int:
 
 def add_reconstruction_storage_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fixture", default="gutch_reconstruction_storage_paths")
-    parser.add_argument("--product", type=Path, required=True)
+    _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
     parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths and S3 credentials")
@@ -100,7 +115,7 @@ def add_reconstruction_storage_arguments(parser: argparse.ArgumentParser) -> Non
 
 
 def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
-    product = args.product.resolve()
+    product = _selected_product(args)
     if not product.is_dir():
         raise SystemExit(f"product directory does not exist: {product}")
     repo_root = _repo_root()
@@ -178,7 +193,7 @@ def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings
 
 def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fixture", default="gutch_s3_cold_publication_cycle")
-    parser.add_argument("--product", type=Path, required=True)
+    _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
     parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths and S3 credentials")
@@ -196,7 +211,7 @@ def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run_s3_cycle_command(args: argparse.Namespace) -> int:
-    product = args.product.resolve()
+    product = _selected_product(args)
     if not product.is_dir():
         raise SystemExit(f"product directory does not exist: {product}")
     fixture_path = Path(__file__).resolve().parent / "fixtures" / f"{args.fixture}.yaml"

@@ -2,7 +2,7 @@
 
 Expected: Capture fails and the existing snapshot metadata stays byte-for-byte unchanged and its content still reconstructs.
 """
-from tests.datasets.trees import basic
+from tests.datasets.generate import basic
 
 
 def run(case):

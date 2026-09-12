@@ -66,18 +66,25 @@ Skipped cases remain visible in the report.
 
 ## Datasets and Assertions
 
-`tests/datasets/trees.py` generates small fixed and selectable-seed trees. Recipes include
+`tests/datasets/generate.py` generates small fixed and selectable-seed trees. Recipes include
 empty files/directories, duplicate content, changing versions, Unicode paths,
 permissions, sizes around chunk boundaries and an 8 MiB transfer dataset that
 spans multiple bundles. Expectations come from the input bytes using SHA-256;
 they are independent of Gutch's manifests and verification implementation.
 
-`tests/fixtures/repositories/reference-v2/` contains a small frozen repository with four
-snapshots. Its expected inventory was recorded from original source bytes.
-Tests copy the fixture into the run before reconstructing it. Normal test runs
-never regenerate expected output. Intentional format changes replace the
-fixture and its independently checked expectations together; this is not a
-historical compatibility matrix.
+`tests/datasets/corpus/` contains ten generated cases (each at most 16 MiB),
+a preserved historical fixture, and full Blender Windows 5.2.0/5.2.1 inputs stored
+as a frozen repository. Each case has `case.json`, independent `expected.json`,
+and `repository/v1/`. Generated source bytes are committed; Blender sources and
+archives are prepared only under test artifacts. Exact creator metadata and
+snapshot-to-source mappings live in the case definition. New compatibility
+major versions get new folders; existing repositories are never automatically rebuilt.
+
+The default frozen scenario runs the shared lifecycle over all small corpus
+repositories. `--dataset blender --steps 0 --timeout 1800` selects the full real-world
+case without requiring source downloads. `--repository-version` selects a frozen
+major folder. See [dataset corpus](../../tests/datasets/README.md) for preparation,
+byte-driven fuzz generation, size limits and the explicit freezing command.
 
 `tests/repository_suite.py` runs the same lifecycle for the frozen fixture,
 generated data and repositories selected with `--repo`: list, strict verification,

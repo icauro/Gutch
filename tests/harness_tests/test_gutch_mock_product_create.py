@@ -13,21 +13,18 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 
-from tests.datasets.generator.product import (
+from tests.datasets.generate import (
     DEFAULT_SEED,
     GenerationRanges,
     IntRange,
     METADATA_FILE_NAME,
     TEST_MANIFEST_FILE_NAME,
     _blake3_file_hex,
-    _extract_blender_archive_safely,
-    _load_blender_assets,
-    _select_blender_assets,
     _timestamp_base_seconds,
-    prepare_blender_product,
-    prepare_test_dataset,
     write_fixture,
 )
+
+from tests.datasets.prepare_blender import _extract_blender_archive_safely, _load_blender_assets, _select_blender_assets, prepare_blender_product
 
 
 def _ranges() -> GenerationRanges:
@@ -216,54 +213,8 @@ class GutchMockProductCreateTests(unittest.TestCase):
                     self.assertEqual(file_path.stat().st_size, file_entry["size_bytes"])
                     self.assertEqual(_blake3_file_hex(file_path), file_entry["blake3"])
 
-    def test_prepare_test_dataset_reads_recipes_and_writes_fixture(self) -> None:
-        recipe = {
-            "schema_version": 1,
-            "name": "prepared",
-            "seed": 123456,
-            "logical_size_bytes": 64 * 1024,
-            "versions": 1,
-            "file_count_range": [8, 8],
-            "changed_files_range": [1, 1],
-            "changed_bytes_per_file_range": [1, 8],
-            "target_variants": [
-                "windows-x86-public",
-                "windows-x86-supporter",
-            ],
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            recipes_root = root / "test_dataset_recipes"
-            test_dataset_root = root / "test_dataset"
-            recipes_root.mkdir()
-            (recipes_root / "fixture-schema.json").write_text("{}\n", encoding="utf-8")
-            (recipes_root / "prepared.json").write_text(
-                json.dumps(recipe),
-                encoding="utf-8",
-            )
-
-            with mock.patch("tests.datasets.generator.product._write_test_manifest"):
-                results = prepare_test_dataset(
-                    recipes_root=recipes_root,
-                    test_dataset_root=test_dataset_root,
-                )
-
-            self.assertEqual([result.fixture_dir.name for result in results], ["prepared"])
-            fixture_dir = test_dataset_root / "prepared"
-            self.assertEqual(
-                sorted(
-                    path.name
-                    for path in fixture_dir.iterdir()
-                    if path.is_dir() and path.name.startswith("1.0.0-")
-                ),
-                ["1.0.0-windows-x86-public", "1.0.0-windows-x86-supporter"],
-            )
-            metadata = json.loads((fixture_dir / METADATA_FILE_NAME).read_text(encoding="utf-8"))
-            self.assertEqual(metadata["seed"], recipe["seed"])
-            self.assertEqual(metadata["latest_version"], recipe["versions"])
-
     def test_blender_recipe_is_pinned_and_selects_requested_targets(self) -> None:
-        recipe_path = Path("tests/datasets/recipes/blender-official.json")
+        recipe_path = Path("tests/datasets/corpus/blender/case.json")
         base_url, assets = _load_blender_assets(recipe_path)
 
         self.assertEqual(base_url, "https://download.blender.org/release")

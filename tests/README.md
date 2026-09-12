@@ -10,6 +10,7 @@ contains runnable tests of the runners, datasets, cleanup and benchmark tooling.
 python gutch.py test --list
 python gutch.py test --suite repository
 python gutch.py test --seed 123 --steps 8
+python gutch.py test --dataset 02_chunk_boundaries --repository-version v1
 python gutch.py test --repo /path/to/repository --expected /path/to/expected.json
 python gutch.py test --seed 456 --storage loose_chunks --compression lz4 --mutations 20
 python gutch.py test --case repository/frozen_snapshots_match_inventories
@@ -50,8 +51,9 @@ sequence of capture, delete, rebuild, repair and rejected-mutation operations.
 
 `--repo` always copies the selected repository before mutation. Supply an idle
 repository outside the output directory; linked repository entries are rejected.
-`--expected` accepts the same snapshot-ID-to-entries JSON as the frozen fixture's
-`expected.json`, and must cover exactly the selected snapshots. Without it, the
+`--expected` accepts snapshot-ID-to-entries JSON covering exactly the selected
+snapshots. `--dataset` resolves a corpus case's source inventories through its
+major-version snapshot mappings. Without it, the
 suite records an initial reconstruction baseline and labels the report
 `initial-reconstruction-consistency`; this does not certify original content.
 Newly generated snapshots always use independent SHA-256 expected inventories.
@@ -65,7 +67,10 @@ uses current source and reports source changes. It does not reset source history
 `python gutch.py dataset --help` exposes the deterministic generator, seed,
 version and recipe options. Generated products default to `.artifacts/datasets/products/`
 inside this directory. Correctness scenarios create their own small inputs per run.
-They never consume mutable benchmark products.
+They never consume mutable benchmark products. The default frozen scenario covers
+the ten generated corpus cases and the preserved historical fixture. Blender is
+explicit: `python gutch.py test --dataset blender --steps 0 --timeout 1800`.
+See [dataset corpus](datasets/README.md) for preparation and freezing rules.
 
 `python gutch.py benchmark list` lists benchmark workloads. See the
 [benchmark guide](benchmarks/README.md) for configuration and Docker execution.

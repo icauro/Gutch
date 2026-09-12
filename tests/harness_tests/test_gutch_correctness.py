@@ -8,7 +8,7 @@ import unittest
 
 from tests import run
 from tests.helpers.cli import execute
-from tests.datasets.trees import basic
+from tests.datasets.generate import basic
 from tests.helpers.filesystem import assert_tree, remove_owned
 
 

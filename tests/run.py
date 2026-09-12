@@ -90,6 +90,9 @@ def main(arguments=None):
     parser.add_argument("--suite", choices=("check", "fast", "local", "s3", "all", "capture", "repository", "reconstruction", "delivery", "repair"), default="check", help="check: tooling, Rust and local scenarios; s3/all require Docker")
     parser.add_argument("--case", choices=[s.name for s in SCENARIOS], action="append")
     parser.add_argument("--repo", type=Path, help="Run the core lifecycle on an isolated copy of this repository")
+    from tests.datasets.generate import case_names
+    parser.add_argument("--dataset", choices=case_names(), help="Run the core lifecycle on a committed corpus case")
+    parser.add_argument("--repository-version", default="v1", help="Frozen Gutch major version (default: v1)")
     parser.add_argument("--expected", type=Path, help="Independent snapshot inventories for --repo (snapshot ID -> entries)")
     parser.add_argument("--seed", type=int, help="Run the core lifecycle with this deterministic dataset/sequence seed")
     parser.add_argument("--steps", type=int, default=4, help="Additional seeded lifecycle operations (default: 4)")
@@ -108,7 +111,9 @@ def main(arguments=None):
         parser.error("steps/mutations must be nonnegative and timeout must be positive")
     if args.expected and not args.repo:
         parser.error("--expected requires --repo")
-    if args.repo or args.seed is not None or args.mutations:
+    if args.dataset and (args.repo or args.expected):
+        parser.error("--dataset supplies its own repository and expected inventories")
+    if args.dataset or args.repo or args.seed is not None or args.mutations:
         if args.case and args.case != ["repository/lifecycle"]:
             parser.error("repository options select repository/lifecycle; remove other --case selections")
         args.case = ["repository/lifecycle"]
@@ -161,6 +166,8 @@ def main(arguments=None):
                 options["repo"] = str(args.repo.resolve())
             if args.expected:
                 options["expected"] = str(args.expected.resolve())
+            if args.dataset:
+                options.update(dataset=args.dataset, repository_version=args.repository_version)
             write_json(case.root / "options.json", options)
             write_json(case.root / "replay.json", {"schema_version": 1, "case": scenario.name,
                        "revision": revision, "platform": platform.platform(),

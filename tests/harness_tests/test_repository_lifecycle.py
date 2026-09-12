@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from tests.datasets.trees import generated
+from tests.datasets.generate import generated
 from tests.repository_suite import copy_repository
 from tests.helpers.filesystem import inventory
 from tools.artifacts import compact_success, prune_successful_runs

@@ -4,7 +4,7 @@ modes.
 Expected: Every profile gives the same installation ID and output despite different chunk layouts;
 healthy recapture retains its existing blueprint.
 """
-from tests.datasets.trees import boundaries
+from tests.datasets.generate import boundaries
 
 
 def run(case):

@@ -8,7 +8,7 @@ RUN python -c "import tomllib,subprocess; subprocess.check_call(['pip','install'
 WORKDIR /gutch
 COPY . .
 # Frozen repository files have Git mode 100644, including in Windows build contexts.
-RUN find tests/fixtures -type f -exec chmod 644 {} +
+RUN find tests/datasets/corpus -type f -exec chmod 644 {} +
 RUN cargo build --locked --release --manifest-path gutch-cli/Cargo.toml
 RUN groupadd --gid 1000 gutch && useradd --uid 1000 --gid 1000 --create-home gutch \
     && chown -R gutch:gutch /gutch /usr/local/cargo

@@ -12,6 +12,8 @@ from .artifacts import LaneLayout, safe_component
 from .recovery import build_corruption_plan
 
 def snapshot_version(name: str) -> str:
+    if re.fullmatch(r"v[1-9][0-9]*", name):
+        return f"{name[1:]}.0.0"
     match = re.search(r"(?<!\d)(\d+\.\d+\.\d+(?:\.\d+)?)(?!\d)", name)
     if match is None:
         raise ValueError(f"target {name!r} must contain a semantic version")
@@ -219,4 +221,3 @@ class GutchOperations:
             "corrupt_traces": corrupt_traces,
             "repair_traces": repair_traces,
         }
-

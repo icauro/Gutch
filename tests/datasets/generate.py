@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Generate every deterministic Gutch test dataset from the tracked recipes.
+# Shared deterministic and fuzz-driven dataset generation.
 from __future__ import annotations
 
 import argparse
@@ -11,12 +11,14 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import unicodedata
-import urllib.request
-import zipfile
-from dataclasses import asdict, dataclass
+import unittest
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    __package__ = "tests.datasets"
 
 
 METADATA_FILE_NAME = ".mock-product.json"
@@ -58,22 +60,11 @@ _TIMESTAMP_EPOCH_SECONDS = 1_700_000_000
 _TIMESTAMP_EPOCH_SPAN_SECONDS = 5 * 365 * 24 * 60 * 60
 
 
-TESTS_ROOT = Path(__file__).resolve().parents[2]
-TEST_DATASET_RECIPES_ROOT = TESTS_ROOT / "datasets/recipes"
+TESTS_ROOT = Path(__file__).resolve().parents[1]
+CORPUS_ROOT = TESTS_ROOT / "datasets/corpus"
 TEST_DATASET_ROOT = TESTS_ROOT / "datasets"
 TEST_DATASET_SOURCE_ROOT = TESTS_ROOT / ".artifacts/datasets/products"
 DEFAULT_TEST_DATASET_ROOT = TEST_DATASET_SOURCE_ROOT
-RECIPE_SCHEMA_FILE_NAME = "fixture-schema.json"
-BLENDER_RECIPE_FILE_NAME = "blender-official.json"
-BLENDER_PRODUCT_NAME = "Blender"
-BLENDER_MANIFEST_FILE_NAME = ".blender-test-manifest.json"
-BLENDER_SOURCE_CONFIG_FILE_NAME = ".gutch_source_config.json"
-BLENDER_DEFAULT_PLATFORMS = ("linux-x64", "windows-x64")
-BLENDER_SUPPORTED_PLATFORMS = ("linux-x64", "windows-x64")
-BLENDER_ARCHIVE_SUFFIXES = {"linux-x64": ".tar.xz", "windows-x64": ".zip"}
-BLENDER_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-
-
 @dataclass(frozen=True)
 class IntRange:
     minimum: int
@@ -258,344 +249,6 @@ class FixtureResult:
     created_version_labels: list[str]
     total_versions: int
     seed: int
-
-
-@dataclass(frozen=True)
-class BlenderAsset:
-    version: str
-    platform: str
-    archive_name: str
-    sha256: str
-
-    @property
-    def folder_name(self) -> str:
-        for suffix in (".tar.xz", ".zip"):
-            if self.archive_name.endswith(suffix):
-                return self.archive_name[: -len(suffix)]
-        raise ValueError(f"unsupported Blender archive name: {self.archive_name}")
-
-
-@dataclass(frozen=True)
-class BlenderPreparationResult:
-    product_dir: Path
-    target_dirs: tuple[Path, ...]
-
-
-def _blender_archive_parts(name: str) -> tuple[str, ...]:
-    normalized = name.replace("\\", "/")
-    if (
-        not normalized
-        or normalized.startswith("/")
-        or normalized.startswith("\\")
-        or re.match(r"^[A-Za-z]:", normalized)
-        or "\x00" in normalized
-    ):
-        raise RuntimeError(f"refusing unsafe archive entry: {name!r}")
-    parts = tuple(part for part in normalized.split("/") if part)
-    if not parts or any(part in {".", ".."} for part in parts):
-        raise RuntimeError(f"refusing unsafe archive entry: {name!r}")
-    return parts
-
-
-def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> None:
-    """Extract one official Blender archive into a new, contained directory."""
-    target_root = target_root.resolve()
-    target_root.mkdir(parents=True, exist_ok=True)
-    if archive_path.name.endswith(".zip"):
-        with zipfile.ZipFile(archive_path) as archive:
-            for info in archive.infolist():
-                parts = _blender_archive_parts(info.filename)
-                destination = target_root.joinpath(*parts)
-                if not destination.resolve().is_relative_to(target_root):
-                    raise RuntimeError(f"refusing archive entry escaping root: {info.filename!r}")
-                if info.is_dir():
-                    destination.mkdir(parents=True, exist_ok=True)
-                    continue
-                mode = (info.external_attr >> 16) & 0o170000
-                if mode == 0o120000:
-                    raise RuntimeError(f"refusing symlink archive entry: {info.filename!r}")
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(info) as source, destination.open("wb") as output:
-                    shutil.copyfileobj(source, output)
-                permissions = (info.external_attr >> 16) & 0o777
-                if permissions:
-                    destination.chmod(permissions)
-        return
-
-    if not archive_path.name.endswith(".tar.xz"):
-        raise ValueError(f"unsupported Blender archive: {archive_path.name}")
-    symlinks: list[tuple[Path, str, Path]] = []
-    symlink_targets: dict[Path, Path] = {}
-    with tarfile.open(archive_path, mode="r:xz") as archive:
-        for member in archive.getmembers():
-            parts = _blender_archive_parts(member.name)
-            destination = target_root.joinpath(*parts)
-            if not destination.resolve().is_relative_to(target_root):
-                raise RuntimeError(f"refusing archive entry escaping root: {member.name!r}")
-            if member.isdir():
-                destination.mkdir(parents=True, exist_ok=True)
-                continue
-            if member.issym():
-                link_name = member.linkname.replace("\\", "/")
-                if (
-                    not link_name
-                    or link_name.startswith("/")
-                    or re.match(r"^[A-Za-z]:", link_name)
-                    or "\x00" in link_name
-                ):
-                    raise RuntimeError(f"refusing unsafe archive symlink: {member.name!r}")
-                link_target = (destination.parent / link_name).resolve(strict=False)
-                if not link_target.is_relative_to(target_root):
-                    raise RuntimeError(f"refusing archive symlink escaping root: {member.name!r}")
-                symlinks.append((destination, link_name, link_target))
-                symlink_targets[destination] = link_target
-                continue
-            if not member.isfile():
-                raise RuntimeError(f"refusing non-file archive entry: {member.name!r}")
-            source = archive.extractfile(member)
-            if source is None:
-                raise RuntimeError(f"archive member is not readable: {member.name!r}")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with source, destination.open("wb") as output:
-                shutil.copyfileobj(source, output)
-            destination.chmod(member.mode & 0o777)
-    def resolve_materialized_target(path: Path) -> Path:
-        seen: set[Path] = set()
-        current = path
-        while current in symlink_targets:
-            if current in seen:
-                raise RuntimeError(f"cannot materialize cyclic Blender symlink: {current!s}")
-            seen.add(current)
-            current = symlink_targets[current]
-        return current
-
-    for destination, link_name, link_target in symlinks:
-        if os.path.lexists(destination):
-            raise RuntimeError(f"duplicate archive entry: {destination.name!r}")
-        try:
-            destination.symlink_to(link_name)
-        except (NotImplementedError, OSError):
-            materialized_target = resolve_materialized_target(link_target)
-            if not materialized_target.is_file():
-                raise RuntimeError(
-                    f"cannot materialize Blender symlink target: {link_name!r}"
-                )
-            shutil.copy2(materialized_target, destination)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _download_blender_asset(asset: BlenderAsset, destination: Path, base_url: str) -> None:
-    major, minor, _ = asset.version.split(".")
-    series_url = f"{base_url.rstrip('/')}/Blender{major}.{minor}/{asset.archive_name}"
-    temporary_path = destination.with_name(f".{destination.name}.{os.getpid()}.part")
-    temporary_path.unlink(missing_ok=True)
-    request = urllib.request.Request(
-        series_url,
-        headers={"User-Agent": "gutch-test-data/1"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response, temporary_path.open("wb") as output:
-            while chunk := response.read(1024 * 1024):
-                output.write(chunk)
-        if _sha256_file(temporary_path) != asset.sha256:
-            raise RuntimeError(
-                f"SHA-256 mismatch for {asset.archive_name}; expected {asset.sha256}"
-            )
-        temporary_path.replace(destination)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
-def _load_blender_assets(recipe_path: Path) -> tuple[str, list[BlenderAsset]]:
-    try:
-        recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise ValueError(f"invalid Blender recipe {recipe_path}: {error}") from error
-    if not isinstance(recipe, dict) or recipe.get("schema_version") != 1:
-        raise ValueError(f"unsupported Blender recipe schema: {recipe_path}")
-    base_url = recipe.get("base_url")
-    if not isinstance(base_url, str) or not base_url.strip():
-        raise ValueError(f"Blender recipe base_url must be a non-empty string: {recipe_path}")
-    versions = recipe.get("versions")
-    if not isinstance(versions, list) or not versions:
-        raise ValueError(f"Blender recipe must define versions: {recipe_path}")
-
-    assets: list[BlenderAsset] = []
-    for version_entry in versions:
-        if not isinstance(version_entry, dict):
-            raise ValueError(f"Blender recipe version entries must be objects: {recipe_path}")
-        version = version_entry.get("version")
-        raw_assets = version_entry.get("assets")
-        if not isinstance(version, str) or not BLENDER_VERSION_RE.fullmatch(version):
-            raise ValueError(f"invalid Blender version in recipe: {version!r}")
-        if not isinstance(raw_assets, list) or not raw_assets:
-            raise ValueError(f"Blender version {version} has no assets")
-        for raw_asset in raw_assets:
-            if not isinstance(raw_asset, dict):
-                raise ValueError(f"Blender asset entries must be objects: {recipe_path}")
-            platform = raw_asset.get("platform")
-            archive_name = raw_asset.get("archive")
-            sha256 = raw_asset.get("sha256")
-            expected_suffix = BLENDER_ARCHIVE_SUFFIXES.get(str(platform))
-            expected_name = f"blender-{version}-{platform}{expected_suffix or ''}"
-            if platform not in BLENDER_SUPPORTED_PLATFORMS:
-                raise ValueError(f"unsupported Blender platform in recipe: {platform!r}")
-            if archive_name != expected_name:
-                raise ValueError(
-                    f"Blender archive must be {expected_name!r}, got {archive_name!r}"
-                )
-            if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
-                raise ValueError(f"Blender asset {archive_name} must have a SHA-256 digest")
-            assets.append(BlenderAsset(version, platform, archive_name, sha256.lower()))
-    return base_url.rstrip("/"), assets
-
-
-def _select_blender_assets(
-    assets: list[BlenderAsset],
-    versions: list[str] | None,
-    platforms: list[str] | None,
-) -> list[BlenderAsset]:
-    available_versions = {asset.version for asset in assets}
-    selected_versions = versions or sorted(available_versions, key=lambda value: tuple(int(part) for part in value.split(".")))
-    unknown_versions = sorted(set(selected_versions) - available_versions)
-    if unknown_versions:
-        raise ValueError(f"Blender recipe has no pinned versions: {', '.join(unknown_versions)}")
-    selected_platforms = platforms or list(BLENDER_DEFAULT_PLATFORMS)
-    unknown_platforms = sorted(set(selected_platforms) - set(BLENDER_SUPPORTED_PLATFORMS))
-    if unknown_platforms:
-        raise ValueError(f"unsupported Blender platforms: {', '.join(unknown_platforms)}")
-    selected = [
-        asset
-        for asset in assets
-        if asset.version in selected_versions and asset.platform in selected_platforms
-    ]
-    missing = [
-        f"{version}/{platform}"
-        for version in selected_versions
-        for platform in selected_platforms
-        if not any(asset.version == version and asset.platform == platform for asset in selected)
-    ]
-    if missing:
-        raise ValueError(f"Blender recipe has no pinned assets: {', '.join(missing)}")
-    return selected
-
-
-def _blender_folder_tags(folder_name: str) -> dict[str, str] | None:
-    match = re.fullmatch(
-        r"blender-(\d+\.\d+\.\d+)-(linux-x64|windows-x64)",
-        folder_name,
-    )
-    if match is None:
-        return None
-    version, platform = match.groups()
-    operating_system = "linux" if platform == "linux-x64" else "windows"
-    return {"version": version, "os": operating_system, "arch": "x86_64"}
-
-
-def _write_blender_source_config(product_dir: Path, target_dirs: tuple[Path, ...]) -> None:
-    snapshots = []
-    for target_dir in target_dirs:
-        tags = _blender_folder_tags(target_dir.name)
-        if tags is None:
-            raise ValueError(f"invalid prepared Blender folder: {target_dir.name}")
-        snapshots.append(
-            {
-                "path": target_dir.name,
-                "tags": [f"{key}::{value}" for key, value in tags.items()],
-            }
-        )
-    _write_json(
-        product_dir / BLENDER_SOURCE_CONFIG_FILE_NAME,
-        {
-            "ingestion_mode": "explicit",
-            "auto_ingestion_rules": {"ignore_paths": []},
-            "explicit_ingestion_rules": {"snapshots": snapshots},
-        },
-    )
-
-
-def prepare_blender_product(
-    *,
-    recipe_path: Path,
-    product_dir: Path,
-    versions: list[str] | None = None,
-    platforms: list[str] | None = None,
-    cache_dir: Path | None = None,
-    force: bool = False,
-) -> BlenderPreparationResult:
-    base_url, recipe_assets = _load_blender_assets(recipe_path)
-    selected_assets = _select_blender_assets(recipe_assets, versions, platforms)
-    product_dir = product_dir.resolve()
-    cache_dir = (cache_dir or product_dir.parent / ".blender-archives").resolve()
-    manifest_path = product_dir / BLENDER_MANIFEST_FILE_NAME
-    expected_manifest = {
-        "schema_version": 1,
-        "recipe": recipe_path.name,
-        "assets": [
-            {
-                "version": asset.version,
-                "platform": asset.platform,
-                "archive": asset.archive_name,
-                "sha256": asset.sha256,
-            }
-            for asset in selected_assets
-        ],
-    }
-    if product_dir.exists() and not force:
-        if not manifest_path.is_file():
-            if any(product_dir.iterdir()):
-                raise RuntimeError(
-                    f"refusing to use non-empty Blender product without {BLENDER_MANIFEST_FILE_NAME}: {product_dir}"
-                )
-        else:
-            existing_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if existing_manifest != expected_manifest:
-                raise RuntimeError(
-                    f"prepared Blender selection differs at {product_dir}; use --force to recreate it"
-                )
-    if force and product_dir.exists():
-        _remove_tree(product_dir)
-    product_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    target_dirs: list[Path] = []
-    for asset in selected_assets:
-        archive_path = cache_dir / asset.archive_name
-        if not archive_path.is_file() or _sha256_file(archive_path) != asset.sha256:
-            print(f"Downloading Blender {asset.version} {asset.platform}: {asset.archive_name}")
-            _download_blender_asset(asset, archive_path, base_url)
-        target_dir = product_dir / asset.folder_name
-        if not target_dir.is_dir():
-            staging_dir = product_dir / f".{asset.folder_name}.{os.getpid()}.part"
-            _remove_tree(staging_dir)
-            try:
-                _extract_blender_archive_safely(archive_path, staging_dir)
-                extracted_dir = staging_dir / asset.folder_name
-                if not extracted_dir.is_dir():
-                    raise RuntimeError(
-                        f"Blender archive {asset.archive_name} did not contain {asset.folder_name}/"
-                    )
-                try:
-                    extracted_dir.replace(target_dir)
-                except PermissionError:
-                    # Windows security software can briefly hold a freshly
-                    # extracted directory open; copy it as a safe fallback.
-                    shutil.copytree(extracted_dir, target_dir, symlinks=True)
-            finally:
-                _remove_tree(staging_dir)
-        target_dirs.append(target_dir)
-
-    ordered_targets = tuple(sorted(target_dirs, key=lambda path: path.name))
-    _write_json(product_dir / BLENDER_MANIFEST_FILE_NAME, expected_manifest)
-    _write_blender_source_config(product_dir, ordered_targets)
-    return BlenderPreparationResult(product_dir, ordered_targets)
 
 
 def stable_hash(value: str) -> int:
@@ -1813,22 +1466,10 @@ def _add_range_arguments(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Prepare deterministic Gutch mock products and selected official Blender products"
+        description="Generate deterministic datasets; use list, prepare CASE or freeze CASE for the corpus"
     )
     parser.add_argument("--path", "--fixtures-root", dest="path", default="")
     parser.add_argument("--name")
-    parser.add_argument(
-        "--recipes-root",
-        type=Path,
-        default=TEST_DATASET_RECIPES_ROOT,
-        help="Directory containing JSON mock-product recipes",
-    )
-    parser.add_argument(
-        "--recipe",
-        action="append",
-        default=[],
-        help="Mock recipe filename or stem to prepare; repeat for multiple recipes",
-    )
     parser.add_argument(
         "--size-mib",
         "--size-mb",
@@ -1873,44 +1514,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--versions", type=int, default=0)
     parser.add_argument("--append-versions", type=int, default=0)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument(
-        "--blender",
-        action="store_true",
-        help="Also prepare the pinned official Blender assets",
-    )
-    parser.add_argument(
-        "--only-blender",
-        action="store_true",
-        help="Prepare only official Blender assets, without mock-product recipes",
-    )
-    parser.add_argument(
-        "--blender-recipe",
-        type=Path,
-        default=TEST_DATASET_RECIPES_ROOT / BLENDER_RECIPE_FILE_NAME,
-    )
-    parser.add_argument(
-        "--blender-version",
-        action="append",
-        default=None,
-        help="Select a pinned Blender version; repeat to select several",
-    )
-    parser.add_argument(
-        "--blender-platform",
-        action="append",
-        default=None,
-        choices=BLENDER_SUPPORTED_PLATFORMS,
-        help="Select an official Blender platform (default: linux-x64, windows-x64)",
-    )
-    parser.add_argument(
-        "--blender-root",
-        type=Path,
-        help="Full output directory for the prepared Blender product",
-    )
-    parser.add_argument(
-        "--blender-cache",
-        type=Path,
-        help="Directory for downloaded Blender archives",
-    )
     return parser.parse_args()
 
 
@@ -1969,215 +1572,32 @@ def _ranges_from_args(args: argparse.Namespace, default_size_mb: int) -> Generat
     )
 
 
-def _recipe_integer(recipe: dict[str, object], name: str) -> int:
-    value = recipe.get(name)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"recipe field {name!r} must be an integer")
-    return value
-
-
-def _recipe_range(recipe: dict[str, object], name: str) -> IntRange:
-    value = recipe.get(name)
-    if (
-        not isinstance(value, list)
-        or len(value) != 2
-        or any(isinstance(item, bool) or not isinstance(item, int) for item in value)
-    ):
-        raise ValueError(f"recipe field {name!r} must be a two-item integer range")
-    return IntRange(int(value[0]), int(value[1]))
-
-
-def _load_recipe(path: Path) -> dict[str, object]:
-    try:
-        recipe = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise ValueError(f"invalid JSON recipe {path}: {error}") from error
-    if not isinstance(recipe, dict):
-        raise ValueError(f"recipe must be a JSON object: {path}")
-    if _recipe_integer(recipe, "schema_version") != 1:
-        raise ValueError(f"unsupported recipe schema in {path}")
-    name = recipe.get("name")
-    if (
-        not isinstance(name, str)
-        or not name
-        or name in {".", ".."}
-        or "/" in name
-        or "\\" in name
-    ):
-        raise ValueError(f"recipe name must be a simple directory name: {path}")
-    logical_size_bytes = _recipe_integer(recipe, "logical_size_bytes")
-    versions = _recipe_integer(recipe, "versions")
-    seed = _recipe_integer(recipe, "seed")
-    if logical_size_bytes <= 0:
-        raise ValueError(f"recipe logical_size_bytes must be positive: {path}")
-    if versions <= 0:
-        raise ValueError(f"recipe versions must be positive: {path}")
-    target_variants = recipe.get("target_variants")
-    expected_variants = [
-        f"{platform}-{architecture}-{tier}"
-        for platform, architecture, tier in SNAPSHOT_VARIANTS
-    ]
-    if target_variants != expected_variants:
-        raise ValueError(
-            f"recipe target_variants must be {expected_variants}: {path}"
-        )
-    _recipe_range(recipe, "file_count_range")
-    _recipe_range(recipe, "changed_files_range")
-    _recipe_range(recipe, "changed_bytes_per_file_range")
-    return {
-        "name": name,
-        "logical_size_bytes": logical_size_bytes,
-        "versions": versions,
-        "seed": seed,
-        "file_count_range": recipe["file_count_range"],
-        "changed_files_range": recipe["changed_files_range"],
-        "changed_bytes_per_file_range": recipe["changed_bytes_per_file_range"],
-    }
-
-
-def _ranges_from_recipe(recipe: dict[str, object]) -> GenerationRanges:
-    logical_size_bytes = int(recipe["logical_size_bytes"])
-    default_size_mb = max(
-        1,
-        (logical_size_bytes + 1024 * 1024 - 1) // (1024 * 1024),
-    )
-    defaults = GenerationRanges.defaults_for_size_mb(default_size_mb)
-    return GenerationRanges(
-        product_size_bytes=IntRange(logical_size_bytes, logical_size_bytes),
-        file_count=_recipe_range(recipe, "file_count_range"),
-        path_depth=defaults.path_depth,
-        file_size_bytes=defaults.file_size_bytes,
-        changed_files=_recipe_range(recipe, "changed_files_range"),
-        patches_per_file=defaults.patches_per_file,
-        changed_bytes_per_file=_recipe_range(recipe, "changed_bytes_per_file_range"),
-        added_files=defaults.added_files,
-        removed_files=defaults.removed_files,
-        renamed_files=defaults.renamed_files,
-        moved_files=defaults.moved_files,
-        long_path_files=defaults.long_path_files,
-        relative_path_length=defaults.relative_path_length,
-        timestamp_age_seconds=defaults.timestamp_age_seconds,
-        readonly_files=defaults.readonly_files,
-        executable_files=defaults.executable_files,
-        unicode_files=defaults.unicode_files,
-        mixed_case_files=defaults.mixed_case_files,
-    )
-
-
-def prepare_test_dataset(
-    recipes_root: Path = TEST_DATASET_RECIPES_ROOT,
-    test_dataset_root: Path = TEST_DATASET_SOURCE_ROOT,
-    recipe_names: list[str] | None = None,
-) -> list[FixtureResult]:
-    recipe_paths = [
-        path
-        for path in recipes_root.glob("*.json")
-        if path.name not in {RECIPE_SCHEMA_FILE_NAME, BLENDER_RECIPE_FILE_NAME} and (
-            not recipe_names
-            or path.name in recipe_names
-            or path.stem in recipe_names
-        )
-    ]
-    recipe_paths.sort()
-    if not recipe_paths:
-        requested = f" for {', '.join(recipe_names)}" if recipe_names else ""
-        raise ValueError(f"no fixture recipes found in {recipes_root}{requested}")
-    if recipe_names:
-        available_paths = [
-            path
-            for path in recipes_root.glob("*.json")
-            if path.name not in {RECIPE_SCHEMA_FILE_NAME, BLENDER_RECIPE_FILE_NAME}
-        ]
-        available = {path.name for path in available_paths}
-        available.update(path.stem for path in available_paths)
-        missing = sorted(set(recipe_names) - available)
-        if missing:
-            raise ValueError(f"unknown fixture recipes: {', '.join(missing)}")
-    results = []
-    for recipe_path in recipe_paths:
-        recipe = _load_recipe(recipe_path)
-        result = write_fixture(
-            root=test_dataset_root,
-            name=str(recipe["name"]),
-            total_versions=int(recipe["versions"]),
-            append_versions=0,
-            force=True,
-            ranges=_ranges_from_recipe(recipe),
-            seed=int(recipe["seed"]),
-            emit_test_manifest=True,
-            public_source_only=False,
-        )
-        results.append(result)
-    return results
-
-
 def main() -> int:
     try:
+        if len(sys.argv) > 1 and sys.argv[1] in {"list", "prepare"}:
+            parser = argparse.ArgumentParser(description="List cases or prepare disposable source data")
+            parser.add_argument("action", choices=("list", "prepare"))
+            parser.add_argument("case", nargs="?", choices=case_names())
+            args = parser.parse_args()
+            if args.action == "list":
+                for name in case_names():
+                    definition = load_case(name)
+                    print(f"{name}: {definition['source']['kind']}; repositories: {', '.join(definition['repositories'])}")
+            else:
+                if not args.case:
+                    parser.error("prepare requires a case name")
+                print(prepare_case_source(args.case))
+            return 0
         args = _parse_args()
         fixtures_root = Path(args.path or DEFAULT_TEST_DATASET_ROOT).resolve()
-        custom_mock_requested = bool(
-            args.name
-            or args.size_mb
-            or args.versions
-            or args.append_versions
-            or any(
-                getattr(args, f"{field}_min") is not None
-                or getattr(args, f"{field}_max") is not None
-                for field in (
-                    "product_size_mb",
-                    "file_count",
-                    "path_depth",
-                    "file_size_bytes",
-                    "changed_files",
-                    "patches_per_file",
-                    "changed_bytes_per_file",
-                    "added_files",
-                    "removed_files",
-                    "renamed_files",
-                    "moved_files",
-                    "long_path_files",
-                    "relative_path_length",
-                    "timestamp_age_seconds",
-                    "readonly_files",
-                    "executable_files",
-                    "unicode_files",
-                    "mixed_case_files",
-                )
-            )
-        )
-        mock_results: list[FixtureResult] = []
-        if not args.only_blender:
-            if custom_mock_requested:
-                if args.append_versions < 0:
-                    raise ValueError("append-versions must be >= 0")
-                existing_metadata = (
-                    _load_fixture_metadata(fixtures_root / args.name)
-                    if args.name and (fixtures_root / args.name).exists()
-                    else None
-                )
-                if existing_metadata and not args.force and isinstance(existing_metadata.get("ranges"), dict):
-                    ranges = None
-                else:
-                    ranges = _ranges_from_args(args, max(1, args.size_mb or 50))
-                mock_results.append(
-                    write_fixture(
-                        root=fixtures_root,
-                        name=args.name or "mock-product",
-                        total_versions=args.versions or 2,
-                        append_versions=args.append_versions,
-                        force=args.force,
-                        ranges=ranges,
-                        seed=args.seed,
-                        emit_test_manifest=args.emit_test_manifest,
-                        public_source_only=args.public_source_only,
-                    )
-                )
-            else:
-                mock_results = prepare_test_dataset(
-                    recipes_root=args.recipes_root,
-                    test_dataset_root=fixtures_root,
-                    recipe_names=args.recipe or None,
-                )
+        if args.append_versions < 0:
+            raise ValueError("append-versions must be >= 0")
+        existing = _load_fixture_metadata(fixtures_root / args.name) if args.name else None
+        ranges = None if existing and not args.force else _ranges_from_args(args, max(1, args.size_mb or 4))
+        mock_results = [write_fixture(root=fixtures_root, name=args.name or "generated",
+            total_versions=args.versions or 2, append_versions=args.append_versions,
+            force=args.force, ranges=ranges, seed=args.seed,
+            emit_test_manifest=args.emit_test_manifest, public_source_only=args.public_source_only)]
         for result in mock_results:
             print(f"=== {result.fixture_dir.name} ===")
             print(f"    Path: {result.fixture_dir}")
@@ -2185,29 +1605,228 @@ def main() -> int:
             print(f"    Versions: {result.total_versions}")
             print(f"    Generated snapshot dirs: {len(result.captured_snapshot_dirs)}")
 
-        blender_requested = bool(
-            args.blender
-            or args.only_blender
-            or args.blender_version
-            or args.blender_platform
-            or args.blender_root
-        )
-        if blender_requested:
-            blender_result = prepare_blender_product(
-                recipe_path=args.blender_recipe,
-                product_dir=(args.blender_root or fixtures_root / BLENDER_PRODUCT_NAME),
-                versions=args.blender_version,
-                platforms=args.blender_platform,
-                cache_dir=args.blender_cache,
-                force=args.force,
-            )
-            print(f"=== {BLENDER_PRODUCT_NAME} official ===")
-            print(f"    Path: {blender_result.product_dir}")
-            print("    Targets: " + ", ".join(path.name for path in blender_result.target_dirs))
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
+
+
+@dataclass
+class Dataset:
+    root: Path
+    expected: dict = field(default_factory=dict)
+
+    def directory(self, relative: str, *, read_only=False) -> None:
+        path = self.root / relative
+        path.mkdir(parents=True, exist_ok=True)
+        for parent in [path, *path.parents]:
+            if parent == self.root:
+                break
+            self.expected.setdefault(parent.relative_to(self.root).as_posix(), {"kind": "directory", "read_only": False})
+        if read_only:
+            path.chmod(0o555)
+            self.expected[relative]["read_only"] = True
+
+    def file(self, relative: str, data: bytes, *, read_only=False, executable=False) -> None:
+        path = self.root / relative
+        if path.parent != self.root:
+            self.directory(path.parent.relative_to(self.root).as_posix())
+        else:
+            self.root.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            path.chmod(0o600)
+        path.write_bytes(data)
+        path.chmod(0o444 if read_only else (0o755 if executable else 0o644))
+        self.expected[relative] = {"kind": "file", "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(), "read_only": read_only,
+            "executable": executable and os.name != "nt"}
+
+    def link(self, relative: str, target: str) -> None:
+        try:
+            (self.root / relative).symlink_to(target)
+        except OSError as error:
+            raise unittest.SkipTest(f"symbolic links unavailable: {error}") from error
+        self.expected[relative] = {"kind": "link", "target": target}
+
+    def save_expectation(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"schema_version": 1, "entries": self.expected}, indent=2), encoding="utf-8")
+
+
+def basic(root: Path, version: int = 1) -> Dataset:
+    data = Dataset(root)
+    data.directory("empty directory")
+    data.file("empty.txt", b"")
+    data.file("data/shared.bin", random.Random(812).randbytes(256 * 1024))
+    data.file("data/duplicate.bin", random.Random(812).randbytes(256 * 1024))
+    data.file("Unicode cafÃ©/read me.txt", f"version {version}\n".encode())
+    data.file("old.txt" if version == 1 else "new.txt", b"renamed content")
+    if version >= 3:
+        data.file("added.bin", b"third version")
+    return data
+
+
+def metadata(root: Path, *, links=False) -> Dataset:
+    data = basic(root)
+    data.file("readonly.txt", b"preserve attributes", read_only=True)
+    data.file("launch.sh", b"#!/bin/sh\nexit 0\n", executable=True)
+    data.directory("readonly-directory", read_only=True)
+    data.file("/".join(["long-directory-name-" * 2] * 3) + "/MixedCase.txt", b"long nested path")
+    if links:
+        data.link("shared-link", "data/shared.bin")
+    return data
+
+
+def boundaries(root: Path) -> Dataset:
+    data = Dataset(root)
+    generator = random.Random(923)
+    for size in (0, 1, 32767, 32768, 32769, 131071, 131072, 131073, 524287, 524288, 524289):
+        data.file(f"size-{size}.bin", generator.randbytes(size))
+    data.file("repeated.bin", b"repeat" * 100_000)
+    return data
+
+
+def delivery(root: Path) -> Dataset:
+    data = Dataset(root)
+    generator = random.Random(145)
+    # Incompressible content plus the smallest bundle preset ensures multiple artifacts.
+    for index in range(8):
+        data.file(f"part-{index}.bin", generator.randbytes(1024 * 1024))
+    return data
+
+
+def generated(root: Path, seed: int, version: int = 1) -> Dataset:
+    """The default small lifecycle input uses the same fuzz-driven generator."""
+    return fuzzed(root, str(seed).encode(), profile="version_changes", version=version, max_bytes=262144)
+
+
+FUZZ_PROFILES = ("empty_and_tiny", "chunk_boundaries", "duplicates", "compressible",
+                "random_content", "unicode", "nested_paths", "attributes", "version_changes", "many_small_files")
+
+
+def fuzzed(root: Path, input_bytes: bytes, *, profile="random_content", version=1,
+           max_bytes=1024 * 1024) -> Dataset:
+    """Turn arbitrary fuzzer bytes into a bounded, reproducible source tree."""
+    if profile not in FUZZ_PROFILES or not 128 <= max_bytes <= 4 * 1024 * 1024 or not 1 <= version <= 100:
+        raise ValueError("invalid fuzz profile, byte budget (128..4 MiB), or version (1..100)")
+    if root.exists() and any(root.iterdir()):
+        raise ValueError("fuzz generation requires an empty destination")
+    rng = random.Random(int.from_bytes(hashlib.sha256(input_bytes).digest(), "big"))
+    data = Dataset(root)
+    remaining = max_bytes
+    def emit(name, content, **attributes):
+        nonlocal remaining
+        content = content[:remaining]
+        data.file(name, content, **attributes)
+        remaining -= len(content)
+    data.directory("empty")
+    emit("version.txt", f"{version}\n".encode())
+    emit("empty.bin", b"")
+    shared = rng.randbytes(min(65537, remaining // 4))
+    emit("shared.bin", shared)
+    if profile == "empty_and_tiny":
+        for index in range(20):
+            emit(f"tiny-{index}.bin", rng.randbytes(rng.randrange(17)))
+    elif profile == "chunk_boundaries":
+        for size in (1, 32767, 32768, 32769, 131071, 131072, 131073):
+            emit(f"boundary-{size}.bin", rng.randbytes(size))
+    elif profile == "duplicates":
+        for index in range(6):
+            emit(f"duplicate-{index}.bin", shared)
+    elif profile == "compressible":
+        emit("zeros.bin", bytes(remaining // 2))
+        emit("repeated.bin", b"repeat" * (remaining // 6))
+    elif profile == "unicode":
+        for name in ("café", "東京", "данные", "space and MixedCase"):
+            emit(f"{name}/content.txt", rng.randbytes(777))
+    elif profile == "nested_paths":
+        for depth in range(1, 6):
+            emit("/".join(["nested"] * depth) + "/MixedCase.bin", rng.randbytes(1025))
+    elif profile == "attributes":
+        emit("readonly.txt", b"preserve permissions", read_only=True)
+        emit("launch.sh", b"#!/bin/sh\nexit 0\n", executable=True)
+        data.directory("readonly-directory", read_only=True)
+    elif profile == "many_small_files":
+        for index in range(100):
+            emit(f"group-{index % 5}/file-{index}.bin", rng.randbytes(rng.randrange(2049)))
+    else:
+        emit("random.bin", rng.randbytes(remaining // 2))
+    # Different versions exercise insertion, deletion, renaming, moves and stable tails.
+    rng.seed(int.from_bytes(hashlib.sha256(input_bytes + str(version).encode()).digest(), "big"))
+    offset = rng.randrange(len(shared)) if shared else 0
+    emit("changing.bin", shared[:offset] + rng.randbytes(version * 13) + shared[offset + version:])
+    emit("old.txt" if version == 1 else "moved/new.txt", b"identical renamed content")
+    emit("removed.txt" if version == 1 else "added.txt", rng.randbytes(17))
+    return data
+
+
+def case_names():
+    return sorted(path.parent.name for path in CORPUS_ROOT.glob("*/case.json"))
+
+
+def load_case(name):
+    if name not in case_names():
+        raise ValueError(f"unknown dataset case: {name}")
+    definition = json.loads((CORPUS_ROOT / name / "case.json").read_text(encoding="utf-8"))
+    if definition.get("schema_version") != 1:
+        raise ValueError(f"unsupported dataset schema: {name}")
+    return definition
+
+
+def prepare_case_source(name):
+    """Prepare only disposable sources, never overwrite committed corpus files."""
+    definition = load_case(name)
+    settings = definition["source"]
+    target = TESTS_ROOT / ".artifacts/datasets" / name / "source"
+    if settings["kind"] == "blender":
+        from .prepare_blender import prepare_blender_product
+        prepare_blender_product(recipe_path=CORPUS_ROOT / name / "case.json", product_dir=target,
+            versions=settings["selected_versions"], platforms=settings["selected_platforms"],
+            cache_dir=target.parent / "archives")
+    elif settings["kind"] == "generated":
+        if not target.exists():
+            for version in range(1, settings["versions"] + 1):
+                fuzzed(target / f"v{version}", bytes.fromhex(settings["input_hex"]),
+                       profile=settings["profile"], version=version, max_bytes=settings["max_bytes_per_version"])
+    else:
+        raise ValueError(f"case {name} preserves a historical repository without regenerable source")
+    if (CORPUS_ROOT / name / "expected.json").exists():
+        validate_case_source(name, target)
+    return target
+
+
+def validate_case_source(name, target):
+    """Check prepared inputs against frozen source inventories, independent of Gutch."""
+    expected = json.loads((CORPUS_ROOT / name / "expected.json").read_text(encoding="utf-8"))
+    for version, specification in expected.items():
+        root = target / version
+        for relative, entry in specification["entries"].items():
+            path = root / relative
+            if entry["kind"] == "file":
+                if not path.is_file() or path.is_symlink():
+                    raise ValueError(f"missing source file: {path}")
+                with path.open("rb") as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                if digest != entry["sha256"]:
+                    raise ValueError(f"source differs from frozen inventory: {path}")
+            elif entry["kind"] == "directory" and not path.is_dir():
+                raise ValueError(f"missing source directory: {path}")
+        def fail(error):
+            raise error
+        actual = {str((Path(directory) / name).relative_to(root)).replace("\\", "/")
+                  for directory, directories, files in os.walk(root, onerror=fail)
+                  for name in directories + files}
+        if actual != specification["entries"].keys():
+            raise ValueError(f"source paths differ from frozen inventory: {root}")
+    return target
+
+
+def prepared_source(name):
+    load_case(name)
+    target = TESTS_ROOT / ".artifacts/datasets" / name / "source"
+    if not target.is_dir():
+        raise ValueError(f"missing prepared source; run: python gutch.py dataset prepare {name}")
+    return validate_case_source(name, target)
 
 
 if __name__ == "__main__":

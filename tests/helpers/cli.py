@@ -77,7 +77,7 @@ class Case:
     def stats(self, *arguments, success=True):
         path = self.root / "commands" / f"{self.sequence + 1:03d}-stats.json"
         self.command(*arguments, "--stats-json-out", path, success=success)
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def init(self, name="repo"):
         repo = self.payload / name

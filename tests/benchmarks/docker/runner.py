@@ -37,11 +37,11 @@ def _package_sources(destination: Path) -> None:
         for name in ("__init__.py", "artifacts.py"):
             package.write(REPOSITORY_ROOT / "tools" / name, "tools/" + name)
         package.write(REPOSITORY_ROOT / "tests/datasets/__init__.py", "tests/datasets/__init__.py")
-        package.write(REPOSITORY_ROOT / "tests/datasets/generator/__init__.py", "tests/datasets/generator/__init__.py")
-        dataset_script = REPOSITORY_ROOT / "tests/datasets/generator/product.py"
-        package.write(dataset_script, "tests/datasets/generator/product.py")
-        recipe = REPOSITORY_ROOT / "tests/datasets/recipes" / "blender-official.json"
-        package.write(recipe, "tests/datasets/recipes/blender-official.json")
+        package.write(REPOSITORY_ROOT / "tests/datasets/prepare_blender.py", "tests/datasets/prepare_blender.py")
+        dataset_script = REPOSITORY_ROOT / "tests/datasets/generate.py"
+        package.write(dataset_script, "tests/datasets/generate.py")
+        recipe = REPOSITORY_ROOT / "tests/datasets/corpus/blender/case.json"
+        package.write(recipe, "tests/datasets/corpus/blender/case.json")
 
 
 def _runtime_config(config: BenchmarkConfig, path: Path, container_workspace: str) -> None:

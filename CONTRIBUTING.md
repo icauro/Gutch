@@ -41,8 +41,8 @@ not a recorded operating-system schedule.
 | Public Rust API contracts | `tests/*.rs` |
 | CLI behavior and repository regressions | `tests/scenarios/<behavior>/` |
 | Shared repository guarantees across all dataset types | `tests/repository_suite.py` |
-| Frozen repositories and independent expectations | `tests/fixtures/repositories/` |
-| Deterministic dataset generator and recipes | `tests/datasets/` |
+| Frozen repositories and independent expectations | `tests/datasets/corpus/` |
+| Dataset generation and real-source preparation | `tests/datasets/` |
 | Performance comparisons and storage measurements | `tests/benchmarks/` |
 | Tests of Python tools | `tests/harness_tests/` |
 | Process control and independent test assertions | `tests/helpers/` |

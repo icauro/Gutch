@@ -30,6 +30,7 @@ def compact_component(value: str, maximum: int) -> str:
 
 
 def create_run_dir(root: Path, source_name: str, fixture_name: str) -> Path:
+    root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y.%m.%d")
     prefix = f"{stamp}-{compact_component(source_name, 16)}-{compact_component(fixture_name, 24)}"

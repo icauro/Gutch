@@ -86,14 +86,16 @@ def main(arguments=None):
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("setup", help="Prepare the locked Python environment; requires Python 3.12+, uv and Rust")
     commands.add_parser("test", add_help=False, help="Run tooling, Rust and local scenarios by default; --help lists suites")
-    commands.add_parser("dataset", add_help=False, help="Generate deterministic datasets; --help lists seeds and recipes")
+    commands.add_parser("dataset", add_help=False, help="Generate datasets, list/prepare corpus sources, or freeze a repository")
     commands.add_parser("benchmark", add_help=False, help="Run benchmarks; use 'list' to discover workloads")
     commands.add_parser("build-image", help="Build the standalone Linux image; requires Docker").add_argument("--tag", default="gutch-builder")
     commands.add_parser("replay", help="Rerun a case from a saved evidence directory").add_argument("directory", type=Path)
     commands.add_parser("clean", help="Remove retained successful test payloads, preserving reports and failures")
-    routes = {"test": "tests.run", "dataset": "tests.datasets.generator.product", "benchmark": "tests.benchmarks.comparison"}
+    routes = {"test": "tests.run", "dataset": "tests.datasets.generate", "benchmark": "tests.benchmarks.comparison"}
     if arguments and arguments[0] in routes:
         forwarded = arguments[1:]
+        if arguments[0] == "dataset" and forwarded[:1] == ["freeze"]:
+            return run_module("tests.helpers.corpus", forwarded[1:])
         if arguments[0] == "benchmark" and forwarded[:1] == ["storage"]:
             return run_module("tests.benchmarks.s3_throughput", forwarded[1:])
         if arguments[0] == "benchmark" and forwarded == ["interactive"]:

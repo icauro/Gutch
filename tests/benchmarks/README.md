@@ -247,3 +247,11 @@ use the separate performance fixture with both disabled for timing comparisons.
 Local S3 benchmarks require explicit storage settings in the benchmark config
 (`GUTCH_S3_*`) or command-line options. They do not assume an existing application
 storage service. Docker benchmark runs provision their own disposable storage.
+
+## Shared corpus inputs
+
+Use `python gutch.py dataset prepare CASE`, then `python gutch.py benchmark --dataset CASE`.
+Local comparisons and S3 cycle/reconstruction commands accept `--dataset` instead
+of `--product`. Sources are validated against the committed case inventory;
+benchmarks build their own repositories and leave the frozen major-version
+repositories unchanged. Blender downloads require the explicit preparation command.

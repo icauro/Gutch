@@ -9,3 +9,7 @@
 /.pytest_cache/
 /tests/benchmarks/config.yml
 /tests/benchmarks/comparison/bin/
+
+!/tests/datasets/corpus/*/source/
+!/tests/datasets/corpus/*/source/**
+/tests/datasets/corpus/blender/source/

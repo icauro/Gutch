@@ -99,16 +99,14 @@ authority for success or failure.
 
 ## Correctness and Benchmark Datasets
 
-[Correctness testing](13_correctness_testing.md) owns deterministic recipes and
-small frozen format fixtures under `tests/`. Each run creates its own
-mutable inputs and repositories. It does not use benchmark helpers or datasets.
-
-`tests/datasets/` prepares benchmark inputs from tracked recipes,
-including optional official Blender builds. These inputs are for workload
-measurements; correctness runs do not download Blender or regenerate them.
+[Correctness testing](13_correctness_testing.md) uses the shared immutable
+[dataset corpus](../../tests/datasets/README.md). Benchmarks can select the same
+case with `--dataset` after its source has been prepared. Both consumers own their
+working copies and result directories. Normal tests never download Blender.
 
 ```sh
-python tests/datasets/generator/product.py
+python gutch.py dataset prepare 02_chunk_boundaries
+python gutch.py benchmark --dataset 02_chunk_boundaries
 ```
 
 ## Benchmark Execution

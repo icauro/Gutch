@@ -4,7 +4,7 @@
 |---|---|
 | `runs/gutch/` | Correctness runs; start with `summary.md` and `run.json` |
 | `runs/benchmarks/` | Benchmark results, traces, timings, and retained evidence |
-| `datasets/products/` | Generated datasets; checked-in reference fixtures stay in `tests/fixtures/repositories/` |
+| `datasets/products/` | Generated datasets; committed corpus cases stay in `tests/datasets/corpus/` |
 | `cache/` | Disposable Python tooling caches |
 
 Successful correctness runs retain only `run.json` and `summary.md`; the newest

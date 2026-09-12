@@ -5,7 +5,7 @@ Expected: Verification classifies the damage; repair restores input and removes 
 requested.
 """
 import json
-from tests.datasets.trees import metadata
+from tests.datasets.generate import metadata
 
 
 def run(case):

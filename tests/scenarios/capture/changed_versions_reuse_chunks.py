@@ -2,7 +2,7 @@
 
 Expected: Snapshot IDs differ, chunks are reused, and both versions match their inputs.
 """
-from tests.datasets.trees import basic
+from tests.datasets.generate import basic
 
 
 def run(case):

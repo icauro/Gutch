@@ -2,12 +2,22 @@
 
 Expected: Paths, content hashes and supported attributes match the recorded source inventories.
 """
-import json
-from pathlib import Path
+import shutil
+from tests.datasets.generate import case_names, load_case
+from tests.helpers.cli import Case
+from tests.helpers.corpus import repository_input
 from tests.repository_suite import run_lifecycle
 
 
 def run(case):
-    fixture = Path(__file__).resolve().parents[2] / "fixtures/repositories/reference-v2"
-    expected = json.loads((fixture / "expected.json").read_text())
-    run_lifecycle(case, source=fixture, expected=expected, steps=0)
+    for name in case_names():
+        definition = load_case(name)
+        if definition["source"]["kind"] == "blender":
+            continue  # Explicit selection: large real-world corpus has a separate runtime budget.
+        assert definition["repositories"], f"missing frozen repository: {name}"
+        for version in definition["repositories"]:
+            child = Case(case.root / "corpus" / name / version, case.executable)
+            shutil.copy2(case.root / "replay.json", child.root / "replay.json")
+            source, expected = repository_input(name, version)
+            run_lifecycle(child, source=source, expected=expected, steps=0)
+            case.checks.append(f"{name}/{version}")

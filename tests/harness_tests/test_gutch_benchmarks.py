@@ -734,8 +734,9 @@ def test_container_package_contains_runner_inputs_without_external_binaries(tmp_
     with zipfile.ZipFile(package_path) as package:
         names = set(package.namelist())
 
-    assert "tests/datasets/generator/product.py" in names
-    assert "tests/datasets/recipes/blender-official.json" in names
+    assert "tests/datasets/generate.py" in names
+    assert "tests/datasets/prepare_blender.py" in names
+    assert "tests/datasets/corpus/blender/case.json" in names
     assert "tests/benchmarks/docker/entry.py" in names
     assert all("Cargo.toml" not in name and "/bin/" not in name for name in names)
 

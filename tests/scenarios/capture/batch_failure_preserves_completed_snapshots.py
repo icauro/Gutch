@@ -3,7 +3,7 @@
 Expected: The second capture fails; the first snapshot keeps its tags and reconstructs exactly.
 """
 import json
-from tests.datasets.trees import basic
+from tests.datasets.generate import basic
 from tests.helpers.filesystem import write_json
 
 

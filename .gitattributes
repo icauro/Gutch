@@ -1,0 +1,4 @@
+# Source fixtures and encoded repositories must preserve their exact bytes.
+/tests/datasets/corpus/** -text -diff
+/tests/datasets/corpus/*/case.json text eol=lf diff
+/tests/datasets/corpus/*/expected.json text eol=lf diff
