@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::Result;
 use crate::filesystem;
 use crate::manifest::{
-    binary,
+    blueprint_codec,
     snapshot::{SnapshotManifest, SnapshotMetadata, SnapshotProductMetadata},
 };
 
@@ -89,7 +89,7 @@ pub fn load_snapshot_manifest(
             blueprint_path.display()
         )));
     }
-    manifest.entries = binary::read_snapshot_blueprint_binary(&blueprint_path)?;
+    manifest.entries = blueprint_codec::read_snapshot_blueprint_binary(&blueprint_path)?;
     if crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries)
         != manifest.snapshot_id
     {
@@ -112,7 +112,7 @@ pub(crate) fn snapshot_manifest_from_parts(
     product_metadata: Option<SnapshotProductMetadata>,
     blueprint: &[u8],
 ) -> Result<SnapshotManifest> {
-    metadata.entries = binary::read_snapshot_blueprint_bytes(blueprint)?;
+    metadata.entries = blueprint_codec::read_snapshot_blueprint_bytes(blueprint)?;
     if crate::snapshot::identity::compute_snapshot_id_from_entries(&metadata.entries)
         != metadata.snapshot_id
     {
@@ -281,7 +281,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
             &serde_json::to_vec_pretty(product_metadata)?,
         )?;
     }
-    binary::write_snapshot_blueprint_binary(
+    blueprint_codec::write_snapshot_blueprint_binary(
         &staging_path.join(SNAPSHOT_BLUEPRINT_FILE),
         &snapshot_manifest.blueprint(),
     )?;
@@ -316,7 +316,7 @@ mod tests {
             Default::default(),
         );
         let path = root.path().join("blueprint");
-        binary::write_snapshot_blueprint_binary(&path, &manifest.blueprint()).unwrap();
+        blueprint_codec::write_snapshot_blueprint_binary(&path, &manifest.blueprint()).unwrap();
         let bytes = std::fs::read(path).unwrap();
         assert!(snapshot_manifest_from_parts(manifest.clone(), None, &bytes).is_ok());
         let mut incorrect = manifest;

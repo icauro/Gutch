@@ -54,9 +54,9 @@ One engine session has three modes, selected with `--profile`:
 | `summary` | Operation and major-phase inclusive elapsed times. |
 | `detailed` | Summary plus sampled worker jobs, diagnostic timings, and progress counters. |
 
-`--profile-out <absolute-directory>` is required for detailed, optional for
+`--profile-dir <absolute-directory>` is required for detailed, optional for
 summary, and rejected for off. It contains `summary.json` and, in detailed mode,
-Perfetto-compatible `trace.json`. `--stats-json-out` remains the operation result;
+Perfetto-compatible `trace.json`. `--output` remains the operation result;
 uncollected diagnostic timing/rate fields are null. Transfer wall rates remain
 available independently. The public API exposes `GutchProfileMode` and
 `GutchProfiler`, attached through `GutchOperationControl::with_profiler`.

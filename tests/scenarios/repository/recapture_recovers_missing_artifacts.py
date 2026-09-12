@@ -14,7 +14,7 @@ def run(case):
     for path in (repo / "bundles").rglob("*"):
         if path.is_file():
             path.unlink()
-    same = case.capture(repo, data.root, "--chunk-profile", "chunk_16KiB")["snapshot_id"]
+    same = case.capture(repo, data.root, "--chunk-preset", "16KiB")["snapshot_id"]
     assert first == same
     destination = case.payload / "identical"
     case.reconstruct(repo, same, destination)

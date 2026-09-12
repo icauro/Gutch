@@ -10,8 +10,8 @@ def run(case):
     repo = case.init()
     case.capture(repo, basic(case.payload / "source").root)
     report = case.root / "verification.json"
-    case.command("repo", "verify", "--repo", repo, "--strict", "--json-out", report)
+    case.command("repo", "verify", "--repo", repo, "--strict", "--json", "--output", report)
     assert json.loads(report.read_text())["ok"]
     next(path for path in (repo / "bundles").rglob("*") if path.is_file()).unlink()
-    case.command("repo", "verify", "--repo", repo, "--strict", "--json-out", report, success=False)
+    case.command("repo", "verify", "--repo", repo, "--strict", "--json", "--output", report, success=False)
     assert not json.loads(report.read_text())["ok"]

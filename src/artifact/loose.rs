@@ -148,3 +148,43 @@ pub(crate) fn read_loose_header(
         codec,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maximum_chunk_roundtrips_with_each_embedded_codec() {
+        let directory = tempfile::tempdir().unwrap();
+        let bytes = vec![97; format::MAX_RAW_CHUNK_SIZE as usize];
+        let hash = crate::artifact::hash::ChunkHash::from_bytes(*blake3::hash(&bytes).as_bytes());
+        for codec in [
+            crate::manifest::CompressionKind::None,
+            crate::manifest::CompressionKind::Zstd,
+            crate::manifest::CompressionKind::Lz4,
+        ] {
+            let path = directory.path().join(format!("{codec:?}"));
+            let profile = CompressionProfile::for_algorithm(codec, None);
+            write_loose_chunk(
+                &mut std::fs::File::create(&path).unwrap(),
+                hash,
+                &bytes,
+                &profile,
+            )
+            .unwrap();
+            // The stored codec remains authoritative after repository defaults change.
+            let decoded = read_loose_chunk(
+                &path,
+                &hash.to_hex(),
+                bytes.len() as u64,
+                &CompressionProfile::default(),
+            )
+            .unwrap();
+            assert_eq!(decoded, bytes);
+            let mut encoded = std::fs::read(&path).unwrap();
+            encoded[20..24]
+                .copy_from_slice(&((format::MAX_RAW_CHUNK_SIZE + 1) as u32).to_le_bytes());
+            assert!(read_loose_header(&mut &encoded[..]).is_err());
+        }
+    }
+}

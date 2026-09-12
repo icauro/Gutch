@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::check_gutch_repo;
+use super::read_repo_status;
 use crate::Error;
 use crate::Result;
 use crate::repo::paths::GutchRepoPaths;
@@ -93,7 +93,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     let paths = GutchRepoPaths::from_repo_root(repo_root);
 
     if paths.repo_metadata_path.exists() {
-        let status = check_gutch_repo(repo_root)?;
+        let status = read_repo_status(repo_root)?;
         if status.is_repo {
             return Ok(RepoInitAssessment {
                 path,
@@ -148,10 +148,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     })
 }
 
-pub fn initialize_gutch_repo_with_options(
-    repo_root: &Path,
-    options: RepoInitOptions,
-) -> Result<()> {
+pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()> {
     let assessment = assess_repo_init_path(repo_root)?;
 
     if assessment.path_kind == RepoInitPathKind::NotADirectory {
@@ -290,8 +287,7 @@ mod tests {
         let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let err = initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: false })
-            .unwrap_err();
+        let err = initialize_repo(&repo_root, RepoInitOptions { force: false }).unwrap_err();
         assert!(err.to_string().contains(REPO_INIT_NEEDS_CONFIRMATION));
     }
 
@@ -325,9 +321,9 @@ mod tests {
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
         std::fs::write(bundle_path, b"bundle").unwrap();
 
-        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true }).unwrap();
+        initialize_repo(&repo_root, RepoInitOptions { force: true }).unwrap();
 
-        let status = check_gutch_repo(&repo_root).unwrap();
+        let status = read_repo_status(&repo_root).unwrap();
         assert!(status.is_repo);
         assert_eq!(status.snapshots.len(), 0);
         assert_eq!(status.bundle_count, 0);
@@ -340,7 +336,7 @@ mod tests {
         std::fs::create_dir_all(&repo_root).unwrap();
         std::fs::write(repo_root.join("notes.txt"), b"keep me").unwrap();
 
-        initialize_gutch_repo_with_options(&repo_root, RepoInitOptions { force: true }).unwrap();
+        initialize_repo(&repo_root, RepoInitOptions { force: true }).unwrap();
 
         assert!(repo_root.join("notes.txt").exists());
         assert!(repo_root.join("snapshots").is_dir());

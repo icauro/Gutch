@@ -97,7 +97,7 @@ portable representation is not a native mode, ACL, ownership or timestamp record
 
 Representation 0 requires zero size and no chunks. Representation 1 derives its
 single chunk's hash and raw size from the nonempty file hash and size, which must
-fit the 4 MiB chunk bound. Representation 2 has a nonempty explicit sequence;
+fit the 16 MiB raw chunk bound. Representation 2 has a nonempty explicit sequence;
 chunk sizes must sum to file size. Its hashes and sizes are direct columns, not a
 mandatory deduplication dictionary. File sizes remain `u64` even though individual
 chunks, metadata counts and bounded metadata offsets use `u32`.
@@ -123,7 +123,7 @@ Decoded group bytes total `8 + 36A + 44N`. Bundled rows store a zero-based artif
 row and physical chunk ordinal. Loose rows use `artifact_row = 0xffffffff`, store
 the complete encoded file size in the next column, and use the chunk hash as
 artifact identity. Artifact sizes and chunk sizes must be nonzero; raw chunks are
-at most 4 MiB. References, duplicate bundle ordinals and aggregate raw bundle
+at most 16 MiB. References, duplicate bundle ordinals and aggregate raw bundle
 sizes are validated. No timestamp or per-artifact padding is serialized, so an
 equivalent mapping encodes identically regardless of regeneration time.
 
@@ -180,7 +180,7 @@ File sizes and aggregate content totals remain `u64`; narrowing is checked.
 
 Atomic metadata publication, repository locks, pending-generation recovery,
 cleanup ordering and cancellation remain shared repository mechanisms.
-`repo regenerate-chunk-map` verifies physical artifacts and snapshot completeness;
+`repo rebuild-index` verifies physical artifacts and snapshot completeness;
 `--publish` replaces the map only after successful validation. Regeneration cannot
 recover missing blueprints, paths or payload bytes.
 

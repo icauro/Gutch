@@ -212,11 +212,11 @@ def fetch_command(
         "fetch-reconstruct" if destination is not None else "fetch",
         "--repo",
         repo,
-        "--snapshot-id",
+        "--snapshot",
         snapshot_id,
         "--repo-metadata-url",
         urls["repo_metadata_url"],
-        "--metadata-url",
+        "--snapshot-metadata-url",
         urls["metadata_url"],
         "--blueprint-url",
         urls["blueprint_url"],
@@ -234,9 +234,9 @@ def fetch_command(
     if destination is not None:
         if stats_path is None:
             raise ValueError("fetch-reconstruct requires stats_path")
-        command.extend(["--destination", destination, *GutchCli.runtime_args(profile), "--stats-json-out", stats_path])
+        command.extend(["--destination", destination, *GutchCli.runtime_args(profile), "--json", "--output", stats_path])
     if trace_path is not None and cli.profile_mode != "off":
-        command.extend(["--profile", cli.profile_mode, "--profile-out", trace_path.parent])
+        command.extend(["--profile", cli.profile_mode, "--profile-dir", trace_path.parent])
     product_metadata = urls.get("product_metadata_url")
     if product_metadata:
         command.extend(["--product-metadata-url", product_metadata])

@@ -13,7 +13,7 @@ def run(case):
     config = source / ".gutch_source_config.json"
     config.write_text(json.dumps({"ingestion_mode": "explicit", "explicit_ingestion_rules": {
         "snapshots": [{"path": "nested/arbitrary-name", "tags": ["os::windows", "arch::x86_64"]}]}}))
-    case.command("snapshot", "capture", "--source-root", source, "--repo", repo, "--yes")
+    case.command("snapshot", "capture", "--discover-from", source, "--repo", repo, "--yes")
     snapshots = list((repo / "snapshots").glob("*/snapshot_metadata.json"))
     assert len(snapshots) == 1
     destination = case.payload / "installed"
@@ -25,5 +25,5 @@ def run(case):
     basic(source / "undeclared", 2)
     config.write_text(json.dumps({"ingestion_mode": "explicit", "explicit_ingestion_rules": {
         "snapshots": [{"path": "./nested/arbitrary-name", "tags": ["os::windows", "arch::x86_64"]}]}}))
-    case.command("snapshot", "capture", "--source-root", source, "--repo", repo, "--yes")
+    case.command("snapshot", "capture", "--discover-from", source, "--repo", repo, "--yes")
     assert len(list((repo / "snapshots").iterdir())) == 1

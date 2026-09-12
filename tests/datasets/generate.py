@@ -1468,7 +1468,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate deterministic datasets; use list, prepare CASE or freeze CASE for the corpus"
     )
-    parser.add_argument("--path", "--fixtures-root", dest="path", default="")
+    parser.add_argument("--repo", "--fixtures-root", dest="path", default="")
     parser.add_argument("--name")
     parser.add_argument(
         "--size-mib",

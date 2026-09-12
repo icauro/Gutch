@@ -18,7 +18,7 @@ def run(case):
     for staging in (destination, destination.parent, destination / "child", destination / ".." / "content"):
         before = inventory(destination.parent)
         for command in [("snapshot", "reconstruct"), ("installation", "repair")]:
-            case.command(*command, "--repo", repo, "--snapshot-id", snapshot,
+            case.command(*command, "--repo", repo, "--snapshot", snapshot,
                 "--destination", destination, "--staging-dir", staging,
                 *(["--yes"] if command[1] == "repair" else []), success=False)
             assert inventory(destination.parent) == before

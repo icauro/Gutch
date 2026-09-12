@@ -3,7 +3,7 @@ pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
     let (_paths, manifest) = load_gutch_repo_manifest(repo_root)?;
     if !manifest.is_linked() {
         return Err(Error::manifest(format!(
-            "repo '{}' is not linked. Use 'gutch repo link' first.",
+            "repo '{}' is not linked. Use 'gutch repo remote create' first.",
             repo_root.display()
         )));
     }
@@ -13,7 +13,7 @@ pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
     Ok(manifest.remote_repo_id)
 }
 
-pub fn bind_repo_remote(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
+pub fn bind_remote_repo(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
         let remote_repo_id = remote_repo_id.trim();
@@ -33,7 +33,7 @@ pub fn list_remote_repositories(
     provider.list_remote_repositories()
 }
 
-pub fn link_repo(
+pub fn create_remote_repo(
     repo_root: &Path,
     scope_id: &str,
     provider: &dyn RemoteRepositoryCommandProvider,
@@ -63,7 +63,7 @@ pub fn link_repo(
     })
 }
 
-pub fn unlink_repo(
+pub fn unbind_remote_repo(
     repo_root: &Path,
     delete_remote: bool,
     provider: Option<&dyn RemoteRepositoryCommandProvider>,
@@ -107,7 +107,7 @@ pub fn inspect_repo_tag_references(
     let remote_repo_id = repo_manifest.remote_repo_id.trim();
     if remote_repo_id.is_empty() {
         return Err(Error::manifest(format!(
-            "repo '{}' is not linked. Use 'gutch repo link' first.",
+            "repo '{}' is not linked. Use 'gutch repo remote create' first.",
             repo_paths.repo_root().display()
         )));
     }

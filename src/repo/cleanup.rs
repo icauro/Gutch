@@ -135,7 +135,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
                 GutchProgressEvent {
                     feedback: None,
                     operation: GutchOperation::SnapshotDelete,
-                    phase: GutchProgressPhase::ScanBundles,
+                    phase: GutchProgressPhase::ScanArtifacts,
                     message: format!("Scanning artifacts ({}/{})", i + 1, artifact_files.len()),
                     current: progress_current.min(SCAN_BUNDLES_END),
                     total: TOTAL,

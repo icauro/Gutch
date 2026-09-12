@@ -76,26 +76,26 @@ class Case:
 
     def stats(self, *arguments, success=True):
         path = self.root / "commands" / f"{self.sequence + 1:03d}-stats.json"
-        self.command(*arguments, "--stats-json-out", path, success=success)
+        self.command(*arguments, "--json", "--output", path, success=success)
         return json.loads(path.read_text(encoding="utf-8"))
 
     def init(self, name="repo"):
         repo = self.payload / name
-        self.command("repo", "init", "--path", repo)
+        self.command("repo", "init", "--repo", repo)
         return repo
 
     def capture(self, repo, source, *options):
-        stats = self.stats("snapshot", "capture", "--repo", repo, "--source-dir", source,
+        stats = self.stats("snapshot", "capture", "--repo", repo, "--source", source,
                            "--yes", "--jobs", "2", *options)
         assert re.fullmatch(r"[0-9a-f]{64}", stats["snapshot_id"])
         return stats
 
     def reconstruct(self, repo, snapshot, destination, *options, success=True):
-        return self.stats("snapshot", "reconstruct", "--repo", repo, "--snapshot-id", snapshot,
+        return self.stats("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                           "--destination", destination, "--jobs", "2", *options, success=success)
 
     def verify(self, repo, snapshot, destination, *, success=True):
-        return self.stats("installation", "verify", "--repo", repo, "--snapshot-id", snapshot,
+        return self.stats("installation", "verify", "--repo", repo, "--snapshot", snapshot,
                           "--destination", destination, "--strict", success=success)
 
     def compare(self, dataset, destination, label="output"):
@@ -104,5 +104,5 @@ class Case:
         self.checks.append(label)
 
     def repair(self, repo, snapshot, destination, *options):
-        return self.stats("installation", "repair", "--repo", repo, "--snapshot-id", snapshot,
+        return self.stats("installation", "repair", "--repo", repo, "--snapshot", snapshot,
                           "--destination", destination, "--yes", *options)

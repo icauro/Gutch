@@ -24,7 +24,7 @@ def run(case):
     assert result["missing_file_count"] >= 1
     assert result["corrupt_file_count"] >= 2
     assert result["extra_file_count"] == 1
-    case.command("installation", "plan", "--repo", repo, "--snapshot-id", snapshot,
+    case.command("installation", "plan", "--json-lines", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination)
     preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
     events = [json.loads(line) for line in preview.read_text().splitlines() if line.startswith("{")]
@@ -35,7 +35,7 @@ def run(case):
     assert actions["readonly.txt"] == "updateMetadata"
     assert events[-1]["kind"] == "summary"
     assert (destination / "data/shared.bin").read_bytes() == b"truncated"
-    case.command("installation", "plan", "--repo", repo, "--snapshot-id", snapshot,
+    case.command("installation", "plan", "--json-lines", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination, "--metadata-only")
     metadata_preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
     metadata_events = [json.loads(line) for line in metadata_preview.read_text(encoding="utf-8").splitlines()
@@ -47,5 +47,5 @@ def run(case):
     (destination / "extra.txt").unlink()
     case.compare(data, destination, "repaired-preserving-extra")
     (destination / "extra.txt").write_bytes(b"user content")
-    case.repair(repo, snapshot, destination, "--remove-added-files")
+    case.repair(repo, snapshot, destination, "--remove-extra-files")
     case.compare(data, destination, "repaired-removing-extra")

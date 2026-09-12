@@ -1,7 +1,7 @@
 use super::apply::{VerifiedSource, prepare_directory_promotion, resolve_verified_source};
 use super::types::{
-    SnapshotReconstructFromRepoRequest, SnapshotReconstructFromRepoResult,
-    SnapshotReconstructSource, SnapshotRepairResult,
+    InstallationReconstructResult, InstallationRequest, SnapshotReconstructSource,
+    SnapshotRepairResult,
 };
 use crate::Result;
 
@@ -19,12 +19,12 @@ pub enum ExtraFilePolicy {
 }
 #[derive(Debug, Clone)]
 pub struct InstallationResult {
-    pub reconstruction: SnapshotReconstructFromRepoResult,
+    pub reconstruction: InstallationReconstructResult,
     pub repair: Option<SnapshotRepairResult>,
 }
 
 pub fn install_snapshot_from_repo(
-    request: SnapshotReconstructFromRepoRequest,
+    request: InstallationRequest,
     publication: InstallationPublication,
     extra_files: ExtraFilePolicy,
 ) -> Result<InstallationResult> {
@@ -43,7 +43,7 @@ pub fn install_snapshot_from_repo(
             InstallationPublication::ReplaceDirectory => "installation.reconstruct",
             InstallationPublication::Selective => "installation.repair",
         });
-        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+        let (repo_paths, snapshot_manifest) = super::snapshot_inputs::load_repo_snapshot_manifest(
             &request.repo_path,
             &request.snapshot_id,
         )?;

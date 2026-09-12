@@ -70,14 +70,14 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
 
     def listed():
         path = case.root / "listed.json"
-        case.command("snapshot", "list", "--repo", repo, "--json-out", path)
+        case.command("snapshot", "list", "--repo", repo, "--json", "--output", path)
         return {item["snapshotId"] for item in json.loads(path.read_text(encoding="utf-8"))}
 
     def check_all(label):
         record("check", phase=label, snapshots=sorted(model))
         assert listed() == set(model), "snapshot list differs from the expected repository state"
         report = case.root / "verify.json"
-        case.command("repo", "verify", "--repo", repo, "--strict", "--json-out", report)
+        case.command("repo", "verify", "--repo", repo, "--strict", "--json", "--output", report)
         assert json.loads(report.read_text(encoding="utf-8"))["ok"]
         for snapshot, specification in model.items():
             destination = case.payload / "restored" / snapshot
@@ -129,7 +129,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         intact = path.read_bytes()
         path.write_bytes(b"invalid chunk map")
         before = repository_inventory(repo)
-        case.command("snapshot", "delete", "--repo", repo, "--snapshot-id", second, "--yes", success=False)
+        case.command("snapshot", "delete", "--repo", repo, "--snapshot", second, "--yes", success=False)
         after = repository_inventory(repo)
         differences = {name: {"before": before.get(name), "after": after.get(name)}
                        for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
@@ -141,7 +141,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         record("rebuild-index")
         (repo / "chunk_map.gtcbin").unlink()
         report = case.root / "rebuild.json"
-        case.command("repo", "regenerate-chunk-map", "--repo", repo, "--publish", "--json-out", report)
+        case.command("repo", "rebuild-index", "--repo", repo, "--publish", "--json", "--output", report)
         assert json.loads(report.read_text(encoding="utf-8"))["published"]
 
     def repair():
@@ -154,14 +154,14 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         (destination / filename).chmod(0o644)
         (destination / filename).write_bytes(b"damaged installation")
         assert not case.verify(repo, snapshot, destination, success=False)["verification_passed"]
-        case.command("installation", "plan", "--repo", repo, "--snapshot-id", snapshot, "--destination", destination)
+        case.command("installation", "plan", "--repo", repo, "--snapshot", snapshot, "--destination", destination)
         case.repair(repo, snapshot, destination)
         assert_tree(model[snapshot]["entries"], destination, case.root / "repair-after.json")
 
     rejected_mutation()
     check_all("rejected-mutation")
     record("delete", snapshot=first)
-    case.command("snapshot", "delete", "--repo", repo, "--snapshot-id", first, "--yes")
+    case.command("snapshot", "delete", "--repo", repo, "--snapshot", first, "--yes")
     del model[first]
     check_all("delete")
     rebuild()
@@ -176,7 +176,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
             candidates = [snapshot for snapshot in added if snapshot in model and snapshot != second]
         snapshot = deletion_generator.choice(candidates)
         record("delete", snapshot=snapshot)
-        case.command("snapshot", "delete", "--repo", repo, "--snapshot-id", snapshot, "--yes")
+        case.command("snapshot", "delete", "--repo", repo, "--snapshot", snapshot, "--yes")
         del model[snapshot]
     actions = {"capture": capture, "rebuild": rebuild, "repair": repair,
                "reject": rejected_mutation, "delete": delete_added}

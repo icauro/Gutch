@@ -23,12 +23,12 @@ def run(case):
         if invalid is not None:
             index.write_bytes(invalid)
         before = inventory(repo)
-        case.command("snapshot", "delete", "--repo", repo, "--snapshot-id", first, "--yes", success=False)
+        case.command("snapshot", "delete", "--repo", repo, "--snapshot", first, "--yes", success=False)
         assert inventory(repo) == before
     index.write_bytes(original)
-    case.command("snapshot", "delete", "--repo", repo, "--snapshot-id", first, "--yes")
+    case.command("snapshot", "delete", "--repo", repo, "--snapshot", first, "--yes")
     destination = case.payload / "survivor"
     case.reconstruct(repo, second, destination)
     case.compare(second_data, destination)
-    case.command("snapshot", "delete", "--repo", repo, "--snapshot-id", second, "--yes")
+    case.command("snapshot", "delete", "--repo", repo, "--snapshot", second, "--yes")
     assert not any(p.is_file() for p in (repo / "bundles").rglob("*"))

@@ -107,11 +107,11 @@ pub struct SnapshotCapturePlan {
 }
 
 #[derive(Debug, Clone)]
-pub struct RepoSnapshotCaptureRequest {
+pub struct SnapshotCaptureRequest {
     pub repo_root: PathBuf,
     pub source_dir: PathBuf,
     pub explicit_tags: SnapshotTagSet,
-    pub chunk_profile: crate::manifest::ArtifactSizingPreset,
+    pub chunk_profile: crate::manifest::ChunkSizingPreset,
     pub bundle_profile: crate::manifest::BundleSizingPreset,
     pub compression_algorithm: crate::manifest::CompressionKind,
     pub compression_level: Option<i32>,
@@ -121,7 +121,7 @@ pub struct RepoSnapshotCaptureRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct RepoSnapshotCaptureResult {
+pub struct SnapshotCaptureResult {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub outcome: SnapshotCaptureOutcome,
@@ -150,9 +150,12 @@ fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
     }
 }
 
-pub fn capture_repo_snapshot(
-    request: RepoSnapshotCaptureRequest,
-) -> Result<RepoSnapshotCaptureResult> {
+pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
+    crate::manifest::profiles::validate_packaging_sizes(
+        &crate::manifest::ChunkSizingProfile::for_preset(request.chunk_profile),
+        &crate::manifest::BundleSizingProfile::for_preset(request.bundle_profile),
+        request.storage_mode,
+    )?;
     request.control.checkpoint()?;
     let operation_root = (&request.repo_root).to_path_buf();
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
@@ -198,10 +201,10 @@ pub fn capture_repo_snapshot(
 }
 
 pub(crate) fn capture_repo_snapshot_with_existing_store_state(
-    request: RepoSnapshotCaptureRequest,
+    request: SnapshotCaptureRequest,
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
-) -> Result<RepoSnapshotCaptureResult> {
+) -> Result<SnapshotCaptureResult> {
     request.control.checkpoint()?;
     let operation_root = (&request.repo_root).to_path_buf();
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
@@ -216,10 +219,10 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
 }
 
 fn execute_repo_snapshot_capture(
-    request: RepoSnapshotCaptureRequest,
+    request: SnapshotCaptureRequest,
     store_state: &mut ExistingStoreState,
     build_pool: &rayon::ThreadPool,
-) -> Result<RepoSnapshotCaptureResult> {
+) -> Result<SnapshotCaptureResult> {
     request.control.checkpoint()?;
     let _prepare_span = request.control.profile_span("capture.prepare_source");
     let _repo_state_span = request
@@ -452,7 +455,7 @@ fn execute_repo_snapshot_capture(
             )?
             .len();
             crate::repo::index::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
-            return Ok(RepoSnapshotCaptureResult {
+            return Ok(SnapshotCaptureResult {
                 repo_root: repo_paths.repo_root,
                 snapshot_id: existing_manifest.snapshot_id.clone(),
                 outcome: SnapshotCaptureOutcome::Unchanged {
@@ -617,7 +620,7 @@ fn execute_repo_snapshot_capture(
         .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
         .count();
 
-    let capture_result = RepoSnapshotCaptureResult {
+    let capture_result = SnapshotCaptureResult {
         repo_root: repo_paths.repo_root,
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         outcome: if snapshot_already_existed {
@@ -660,7 +663,7 @@ fn execute_repo_snapshot_capture(
     Ok(capture_result)
 }
 
-impl RepoSnapshotCaptureResult {
+impl SnapshotCaptureResult {
     /// Emit a done event if a progress sink was provided.
     pub(crate) fn emit_done(&self, progress: &Option<Arc<dyn GutchProgressSink>>) {
         progress::emit_progress(
@@ -845,11 +848,11 @@ mod tests {
     use super::*;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
-    use crate::repo::check::build_source_snapshot_ops_candidate;
     use crate::repo::paths::GutchRepoPaths;
     use crate::repo::paths::ensure_gutch_repo_layout;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
     use crate::repo::snapshots::retag_snapshot_by_id;
+    use crate::repo::status::build_source_snapshot_ops_candidate;
     use crate::snapshot::identity::compute_snapshot_id_from_entries;
 
     #[test]
@@ -929,12 +932,12 @@ mod tests {
         source_dir: &std::path::Path,
         tags: &manifest::SnapshotTagSet,
         control: crate::progress::GutchOperationControl,
-    ) -> RepoSnapshotCaptureResult {
-        capture_repo_snapshot(RepoSnapshotCaptureRequest {
+    ) -> SnapshotCaptureResult {
+        capture_snapshot(SnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
             source_dir: source_dir.to_path_buf(),
             explicit_tags: tags.clone(),
-            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -961,18 +964,16 @@ mod tests {
 
     fn test_reconstruct_and_strict_verify(repo_root: &std::path::Path, snapshot_id: &str) {
         let destination = repo_root.join(format!("reconstructed-{snapshot_id}"));
-        crate::installation::reconstruct_snapshot_from_repo(
-            crate::installation::SnapshotReconstructFromRepoRequest {
-                repo_path: repo_root.to_path_buf(),
-                snapshot_id: snapshot_id.to_string(),
-                destination_dir: destination.clone(),
-                staging_dir: None,
-                source_snapshot_id: None,
-                source_dir: None,
-                runtime_hints: crate::runtime::RuntimeResourceHints::default(),
-                control: crate::progress::GutchOperationControl::default(),
-            },
-        )
+        crate::installation::reconstruct_snapshot(crate::installation::InstallationRequest {
+            repo_path: repo_root.to_path_buf(),
+            snapshot_id: snapshot_id.to_string(),
+            destination_dir: destination.clone(),
+            staging_dir: None,
+            source_snapshot_id: None,
+            source_dir: None,
+            runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+            control: crate::progress::GutchOperationControl::default(),
+        })
         .unwrap();
         assert!(destination.join("game.exe").is_file());
         let verification = crate::repo::verify::verify_gutch_repo_artifacts(
@@ -1038,11 +1039,11 @@ mod tests {
         );
         let cancelled = crate::progress::GutchOperationControl::default()
             .with_cancellation(std::sync::Arc::new(CancelledHook));
-        let failed = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+        let failed = capture_snapshot(SnapshotCaptureRequest {
             repo_root: repo_root.clone(),
             source_dir: source_b,
             explicit_tags: test_tags(),
-            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -1059,7 +1060,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(retained.snapshot_tags, test_tags());
-        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        let status = crate::repo::read_repo_status(&repo_root).unwrap();
         assert_eq!(status.snapshots.len(), 1);
         test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
     }
@@ -1089,7 +1090,7 @@ mod tests {
         assert_eq!(second.generated_bundle_count, 0);
         assert_eq!(second.generated_chunk_count, 0);
 
-        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        let status = crate::repo::read_repo_status(&repo_root).unwrap();
         assert_eq!(status.snapshots.len(), 1);
     }
 
@@ -1109,11 +1110,11 @@ mod tests {
             "os::windows".to_string(),
         ])
         .unwrap();
-        let conflict = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+        let conflict = capture_snapshot(SnapshotCaptureRequest {
             repo_root: repo_root.clone(),
             source_dir: source,
             explicit_tags: other_tags,
-            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -1199,11 +1200,11 @@ mod tests {
         crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&repo_paths, &stored)
             .unwrap();
 
-        let conflict = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+        let conflict = capture_snapshot(SnapshotCaptureRequest {
             repo_root: repo_root.clone(),
             source_dir: source,
             explicit_tags: test_tags(),
-            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -1256,7 +1257,7 @@ mod tests {
         );
         assert_ne!(first.snapshot_id, second.snapshot_id);
 
-        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        let status = crate::repo::read_repo_status(&repo_root).unwrap();
         assert_eq!(status.snapshots.len(), 2);
     }
 
@@ -1282,11 +1283,11 @@ mod tests {
         let read_only = std::fs::Permissions::from_mode(0o555);
         std::fs::set_permissions(&repo_paths.bundles_root, read_only.clone()).unwrap();
         std::fs::set_permissions(&repo_paths.chunks_root, read_only).unwrap();
-        let failed = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+        let failed = capture_snapshot(SnapshotCaptureRequest {
             repo_root: repo_root.clone(),
             source_dir: source_b,
             explicit_tags: test_tags(),
-            chunk_profile: manifest::ArtifactSizingPreset::Chunk128KiB,
+            chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -1301,7 +1302,7 @@ mod tests {
 
         // No partial snapshot became visible and the first snapshot still
         // verifies and reconstructs.
-        let status = crate::repo::check_gutch_repo(&repo_root).unwrap();
+        let status = crate::repo::read_repo_status(&repo_root).unwrap();
         assert_eq!(status.snapshots.len(), 1);
         assert_eq!(status.snapshots[0].snapshot_id, first.snapshot_id);
         test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);

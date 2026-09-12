@@ -17,9 +17,9 @@ owners.
 | Repo status and advisory tag references | Private Gutch repo engine, exposed through `gutch::api` | Render the returned status and references |
 | Verify Gutch repo artifacts | Private Gutch repo engine, exposed as `gutch::api::verify_gutch_repo_artifacts` | Supply the repo path, snapshot selection, and verification mode |
 | Fetch snapshot artifacts | Private `transfer/` engine, exposed as `gutch::api::fetch_snapshot` | Resolve authorized artifact sources and provide progress/cancellation |
-| Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installed_snapshot`; CLI `gutch installation verify` | Supply the repo path, destination, mode, and runtime hints |
-| Reconstruct and promote an install | Private `installation/` engine, exposed as `gutch::api::reconstruct_snapshot_from_repo` | Select the destination/staging paths and commit app metadata only after success |
-| Repair a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::repair_snapshot_from_repo`; CLI `gutch installation repair` | Choose repair policy and extra-file handling; present the result |
+| Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installation`; CLI `gutch installation verify` | Supply the repo path, destination, mode, and runtime hints |
+| Reconstruct and promote an install | Private `installation/` engine, exposed as `gutch::api::reconstruct_snapshot` | Select the destination/staging paths and commit app metadata only after success |
+| Repair a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::repair_installation`; CLI `gutch installation repair` | Choose repair policy and extra-file handling; present the result |
 | Corrupt a reconstructed destination for tests/benchmarks | Private Gutch test/benchmark command operation; available through the CLI | Supply an explicit corruption plan and confirmation |
 | Remote repo pull/push/link/bind | Private Gutch repo engine, exposed through `gutch::api` | The host adapter supplies the provider contract and authorized context |
 | Install persistence and launch integration | Host application services and the GUI app layer | Own install records, job state, OS integration, and presentation |

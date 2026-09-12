@@ -1,16 +1,14 @@
 use crate::Result;
 
-use super::types::SnapshotRepairFromRepoRequest;
-use super::types::SnapshotRepairFromRepoResult;
-use super::types::SnapshotRepairPlanFromRepoRequest;
-use super::types::SnapshotRepairPlanFromRepoResult;
+use super::types::InstallationRepairPlanRequest;
+use super::types::InstallationRepairPlanResult;
+use super::types::InstallationRepairRequest;
+use super::types::InstallationRepairResult;
 
 use super::plan::inspect_installation_changes;
-pub fn repair_snapshot_from_repo(
-    request: SnapshotRepairFromRepoRequest,
-) -> Result<SnapshotRepairFromRepoResult> {
-    let result = super::operation::install_snapshot_from_repo(
-        super::types::SnapshotReconstructFromRepoRequest {
+pub fn repair_installation(request: InstallationRepairRequest) -> Result<InstallationRepairResult> {
+    let result = super::install::install_snapshot_from_repo(
+        super::types::InstallationRequest {
             repo_path: request.repo_path,
             snapshot_id: request.snapshot_id,
             destination_dir: request.destination_dir,
@@ -20,14 +18,14 @@ pub fn repair_snapshot_from_repo(
             runtime_hints: request.runtime_hints,
             control: request.control,
         },
-        super::operation::InstallationPublication::Selective,
+        super::install::InstallationPublication::Selective,
         if request.remove_added_files {
-            super::operation::ExtraFilePolicy::Remove
+            super::install::ExtraFilePolicy::Remove
         } else {
-            super::operation::ExtraFilePolicy::Preserve
+            super::install::ExtraFilePolicy::Preserve
         },
     )?;
-    Ok(SnapshotRepairFromRepoResult {
+    Ok(InstallationRepairResult {
         repo_root: result.reconstruction.repo_root,
         snapshot_manifest: result.reconstruction.snapshot_manifest,
         resolved_bundle_file_count: result.reconstruction.resolved_bundle_file_count,
@@ -37,14 +35,14 @@ pub fn repair_snapshot_from_repo(
     })
 }
 
-pub fn plan_repair_snapshot_from_repo(
-    request: SnapshotRepairPlanFromRepoRequest,
-) -> Result<SnapshotRepairPlanFromRepoResult> {
+pub fn plan_installation_repair(
+    request: InstallationRepairPlanRequest,
+) -> Result<InstallationRepairPlanResult> {
     request.control.checkpoint()?;
     let operation_root = (&request.repo_path).to_path_buf();
     crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
-        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+        let (repo_paths, snapshot_manifest) = super::snapshot_inputs::load_repo_snapshot_manifest(
             &request.repo_path,
             &request.snapshot_id,
         )?;
@@ -59,7 +57,7 @@ pub fn plan_repair_snapshot_from_repo(
             None,
         )?;
 
-        Ok(SnapshotRepairPlanFromRepoResult {
+        Ok(InstallationRepairPlanResult {
             repo_root: repo_paths.repo_root,
             snapshot_manifest,
             missing_file_count: repair_plan.missing_file_count,

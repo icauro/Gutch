@@ -7,7 +7,7 @@ from .filesystem import repository_inventory as inventory
 def published(case):
     data = delivery(case.payload / "source")
     repo = case.init("published")
-    captured = case.capture(repo, data.root, "--bundle-profile", "bundle_4MiB")
+    captured = case.capture(repo, data.root, "--bundle-preset", "4MiB")
     artifacts = [p for p in (repo / "bundles").rglob("*") if p.is_file()]
     assert len(artifacts) > 1, "delivery scenario must exercise multiple artifacts"
     return data, repo, captured["snapshot_id"]

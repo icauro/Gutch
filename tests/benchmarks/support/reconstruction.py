@@ -56,7 +56,7 @@ def run_reconstruction_storage(
         full_repo = lane.payload / "fetch-reconstruct-repo"
         full_destination = lane.payload / "fetch-reconstructed"
         commands.run(
-            cli.command("repo", "init", "--path", repo),
+            cli.command("repo", "init", "--repo", repo),
             description="reconstruction-storage repository init",
         )
         capture_stats = lane.stats / "capture.json"

@@ -44,6 +44,38 @@ pub(crate) fn validate_existing_constraints(
     Ok(())
 }
 
+pub fn plan_repository_constraints(
+    repo_root: &Path,
+    mut constraints: RepositoryConstraints,
+) -> Result<RepositoryConstraints> {
+    crate::repo::coordination::read(repo_root, || {
+        constraints.targets.sort();
+        constraints.targets.dedup();
+        validate_existing_constraints(repo_root, &constraints, "change constraints")?;
+        Ok(constraints)
+    })
+}
+
+pub fn plan_repo_rename(repo_root: &Path, name: &str) -> Result<String> {
+    crate::repo::coordination::read(repo_root, || {
+        load_gutch_repo_manifest(repo_root)?;
+        validated_repo_name(name)
+    })
+}
+
+fn validated_repo_name(name: &str) -> Result<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(crate::Error::manifest("repo name cannot be empty"));
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(crate::Error::manifest(
+            "repo name cannot contain path separators",
+        ));
+    }
+    Ok(trimmed.to_owned())
+}
+
 pub fn update_repository_constraints(
     repo_root: &Path,
     mut constraints: RepositoryConstraints,
@@ -62,21 +94,12 @@ pub fn update_repository_constraints(
     })
 }
 
-pub fn update_gutch_repo_name(repo_root: &Path, name: &str) -> Result<()> {
+pub fn rename_repo(repo_root: &Path, name: &str) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            return Err(crate::Error::manifest("repo name cannot be empty"));
-        }
-        if trimmed.contains('/') || trimmed.contains('\\') {
-            return Err(crate::Error::manifest(
-                "repo name cannot contain path separators",
-            ));
-        }
-
+        let name = validated_repo_name(name)?;
         let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-        repo_manifest.name = trimmed.to_string();
+        repo_manifest.name = name;
         write_gutch_repo_manifest(&repo_paths, &repo_manifest)
     })
 }

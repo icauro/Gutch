@@ -103,6 +103,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn exhausted_memory_admission_remains_cancellable() {
+        #[derive(Debug)]
+        struct Cancellation(std::sync::atomic::AtomicBool);
+        impl crate::progress::GutchCancellationHook for Cancellation {
+            fn is_cancelled(&self) -> bool {
+                self.0.load(std::sync::atomic::Ordering::Acquire)
+            }
+        }
+        let budget = MemoryBudget::new();
+        let control = crate::progress::GutchOperationControl::default();
+        let permit = budget
+            .acquire(OPERATION_MEMORY_BUDGET_BYTES, &control)
+            .unwrap();
+        let cancellation =
+            std::sync::Arc::new(Cancellation(std::sync::atomic::AtomicBool::new(false)));
+        let waiting_control = control.clone().with_cancellation(cancellation.clone());
+        std::thread::scope(|scope| {
+            let waiter =
+                scope.spawn(|| budget.acquire(16 * 1024 * 1024, &waiting_control).is_err());
+            cancellation
+                .0
+                .store(true, std::sync::atomic::Ordering::Release);
+            assert!(waiter.join().unwrap());
+        });
+        drop(permit);
+        assert!(
+            budget
+                .acquire(OPERATION_MEMORY_BUDGET_BYTES, &control)
+                .is_ok()
+        );
+        assert!(
+            budget
+                .acquire(OPERATION_MEMORY_BUDGET_BYTES + 1, &control)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn default_jobs_use_physical_parallelism() {
         let logical_workers = std::thread::available_parallelism()
             .map(|value| value.get())

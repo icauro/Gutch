@@ -10,18 +10,18 @@ def run(case):
     for storage in ("bundled", "loose_chunks"):
         repo = case.init(storage)
         data = basic(case.payload / (storage + "-source"))
-        captured = case.capture(repo, data.root, "--storage-mode", storage)
+        captured = case.capture(repo, data.root, "--storage-mode", storage.replace("_", "-"))
         index = repo / "chunk_map.gtcbin"
         original = index.read_bytes()
         index.unlink()
         report = case.root / (storage + "-recovery.json")
-        case.command("repo", "regenerate-chunk-map", "--repo", repo, "--json-out", report)
+        case.command("repo", "rebuild-index", "--repo", repo, "--json", "--output", report)
         assert json.loads(report.read_text())["complete"]
         assert not index.exists()
         for damaged in (None, b"malformed index"):
             if damaged is not None:
                 index.write_bytes(damaged)
-            case.command("repo", "regenerate-chunk-map", "--repo", repo, "--publish", "--json-out", report)
+            case.command("repo", "rebuild-index", "--repo", repo, "--publish", "--json", "--output", report)
             assert json.loads(report.read_text())["published"]
             destination = case.payload / (storage + ("-missing" if damaged is None else "-corrupt"))
             case.reconstruct(repo, captured["snapshot_id"], destination)
@@ -31,12 +31,12 @@ def run(case):
         artifact = next(path for path in directory.rglob("*") if path.is_file())
         intact = artifact.read_bytes()
         artifact.write_bytes(b"corrupt artifact")
-        case.command("repo", "regenerate-chunk-map", "--repo", repo, "--publish", "--json-out", report, success=False)
+        case.command("repo", "rebuild-index", "--repo", repo, "--publish", "--json", "--output", report, success=False)
         assert json.loads(report.read_text())["corruptArtifacts"]
         assert index.read_bytes() == good
         artifact.write_bytes(intact)
         artifact.unlink()
-        case.command("repo", "regenerate-chunk-map", "--repo", repo, "--publish", "--json-out", report, success=False)
+        case.command("repo", "rebuild-index", "--repo", repo, "--publish", "--json", "--output", report, success=False)
         result = json.loads(report.read_text())
         assert not result["complete"] and not result["published"]
         assert result["missingChunks"] and result["affectedSnapshots"]

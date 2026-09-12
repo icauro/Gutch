@@ -112,7 +112,7 @@ properties against the blueprint.
 
 ## Timing and progress evidence
 
-Public verification entry points use the `reconstructed.verify` marker
+Public verification entry points use the `installation.verify` marker
 namespace. Trace spans distinguish path preparation, inventory/extra scanning,
 file scheduling, and each file's metadata, read, hash, and chunk-hash work.
 `VerifyTimings` separates runtime planning, preparation, stat, file reads and

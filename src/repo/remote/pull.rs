@@ -522,7 +522,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
 
         step += 1;
         progress.emit(
-            GutchProgressPhase::Bundle,
+            GutchProgressPhase::Artifact,
             "Resolving bundles",
             step,
             total_steps,
@@ -573,7 +573,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 ))
             })?;
             progress.emit(
-                GutchProgressPhase::Bundle,
+                GutchProgressPhase::Artifact,
                 format!(
                     "Downloading bundles ({}/{})",
                     bundle_downloaded + 1,
@@ -659,7 +659,7 @@ mod constraint_tests {
         let mut manifest = crate::manifest::SnapshotManifest::new(id.clone(), Default::default());
         manifest.entries = entries;
         let blueprint_path = root.path().join("incoming.gtcbin");
-        crate::manifest::binary::write_snapshot_blueprint_binary(
+        crate::manifest::blueprint_codec::write_snapshot_blueprint_binary(
             &blueprint_path,
             &manifest.blueprint(),
         )

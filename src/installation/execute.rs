@@ -14,8 +14,8 @@ use std::time::Duration;
 use rayon::ThreadPool;
 
 use super::apply::build_snapshot_reconstruct_result;
+use super::types::InstallationReconstructResult;
 use super::types::ReconstructTimings;
-use super::types::SnapshotReconstructFromRepoResult;
 use crate::Error;
 use crate::Result;
 use crate::progress::GutchOperation;
@@ -38,7 +38,7 @@ pub(crate) fn apply_reconstruct_pipeline(
     request: ReconstructPipelineApplyRequest<'_>,
     pipeline_plan: ReconstructPipelinePlan,
 ) -> Result<(
-    SnapshotReconstructFromRepoResult,
+    InstallationReconstructResult,
     Option<super::types::SnapshotRepairResult>,
 )> {
     let _output_stage = request.control.output_stage();
@@ -96,7 +96,7 @@ pub(crate) fn apply_reconstruct_pipeline(
     };
     let staging_dir = staging.path().to_path_buf();
 
-    let main_result = (|| -> Result<(SnapshotReconstructFromRepoResult, Option<super::types::SnapshotRepairResult>)> {
+    let main_result = (|| -> Result<(InstallationReconstructResult, Option<super::types::SnapshotRepairResult>)> {
         let output_paths = {
             let _prepare_span = request
                 .control
@@ -159,7 +159,7 @@ pub(crate) fn apply_reconstruct_pipeline(
             }
         };
         reconstruct_timings.total = operation_started_at.elapsed();
-        Ok((SnapshotReconstructFromRepoResult {
+        Ok((InstallationReconstructResult {
             repo_root: request.repo_root.to_path_buf(),
             snapshot_manifest: request.snapshot_manifest.clone(),
             reconstruct_result: build_snapshot_reconstruct_result(

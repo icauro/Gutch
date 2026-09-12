@@ -5,12 +5,12 @@ use std::path::PathBuf;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::runtime::RuntimeResourceHints;
 
-use super::types::SnapshotReconstructFromRepoRequest;
-use super::types::SnapshotReconstructFromRepoResult;
+use super::types::InstallationReconstructResult;
+use super::types::InstallationRequest;
+use super::types::InstallationVerifyRequest;
+use super::types::InstallationVerifyResult;
 use super::types::SnapshotReconstructResult;
 use super::types::SnapshotReconstructSource;
-use super::types::SnapshotVerifyFromRepoRequest;
-use super::types::SnapshotVerifyFromRepoResult;
 use crate::Error;
 use crate::Result;
 use crate::installation::inspect::VerifyRequest;
@@ -131,14 +131,12 @@ pub(crate) fn create_snapshot_staging(
     })
 }
 
-pub fn verify_installed_snapshot(
-    request: SnapshotVerifyFromRepoRequest,
-) -> Result<SnapshotVerifyFromRepoResult> {
+pub fn verify_installation(request: InstallationVerifyRequest) -> Result<InstallationVerifyResult> {
     request.control.checkpoint()?;
     let root = request.repo_path.clone();
     crate::repo::coordination::read_with_control(&root, &request.control.clone(), || {
         request.control.checkpoint()?;
-        let (repo_paths, snapshot_manifest) = super::snapshot_repo::load_repo_snapshot_manifest(
+        let (repo_paths, snapshot_manifest) = super::snapshot_inputs::load_repo_snapshot_manifest(
             &request.repo_path,
             &request.snapshot_id,
         )?;
@@ -150,7 +148,7 @@ pub fn verify_installed_snapshot(
             control: request.control,
         })?;
 
-        Ok(SnapshotVerifyFromRepoResult {
+        Ok(InstallationVerifyResult {
             repo_root: repo_paths.repo_root,
             snapshot_manifest,
             classification,
@@ -159,13 +157,11 @@ pub fn verify_installed_snapshot(
     })
 }
 
-pub fn reconstruct_snapshot_from_repo(
-    request: SnapshotReconstructFromRepoRequest,
-) -> Result<SnapshotReconstructFromRepoResult> {
-    super::operation::install_snapshot_from_repo(
+pub fn reconstruct_snapshot(request: InstallationRequest) -> Result<InstallationReconstructResult> {
+    super::install::install_snapshot_from_repo(
         request,
-        super::operation::InstallationPublication::ReplaceDirectory,
-        super::operation::ExtraFilePolicy::Remove,
+        super::install::InstallationPublication::ReplaceDirectory,
+        super::install::ExtraFilePolicy::Remove,
     )
     .map(|result| result.reconstruction)
 }

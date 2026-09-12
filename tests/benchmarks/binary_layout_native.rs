@@ -55,7 +55,8 @@ fn native_corpus_layout_comparison() {
             continue;
         }
         let original = std::fs::read(item.path()).unwrap();
-        let entries = crate::manifest::binary::read_snapshot_blueprint_bytes(&original).unwrap();
+        let entries =
+            crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes(&original).unwrap();
         let columns = encode(&entries).unwrap();
         let magic = crate::artifact::format::SNAPSHOT_BLUEPRINT_MAGIC;
         let grouped = crate::artifact::metadata::encode(magic, &columns).unwrap();

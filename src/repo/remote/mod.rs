@@ -18,7 +18,7 @@ use crate::progress::GutchOperationControl;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
-use crate::repo::RepoCheckStatus;
+use crate::repo::RepoStatus;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::GutchRepoPaths;
@@ -35,13 +35,13 @@ mod link;
 mod provider;
 mod pull;
 mod push;
-pub use link::bind_repo_remote;
+pub use link::bind_remote_repo;
 use link::bound_remote_repo_id;
+pub use link::create_remote_repo;
 pub use link::inspect_repo_tag_references;
-pub use link::link_repo;
 pub(crate) use link::linked_remote_repo_id;
 pub use link::list_remote_repositories;
-pub use link::unlink_repo;
+pub use link::unbind_remote_repo;
 pub use provider::PullConflictPolicy;
 pub use provider::RemoteArtifactSource;
 pub use provider::RemoteBundleSource;
@@ -480,8 +480,8 @@ mod tests {
             let repo = root.path().join(name);
             let paths = GutchRepoPaths::from_repo_root(&repo);
             crate::repo::paths::ensure_gutch_repo_layout(&paths, name).unwrap();
-            let captured = crate::capture::execute::capture_repo_snapshot(
-                crate::capture::execute::RepoSnapshotCaptureRequest {
+            let captured = crate::capture::execute::capture_snapshot(
+                crate::capture::execute::SnapshotCaptureRequest {
                     repo_root: repo.clone(),
                     source_dir: source.clone(),
                     explicit_tags: Default::default(),
@@ -497,10 +497,9 @@ mod tests {
             .unwrap();
             (repo, paths, captured.snapshot_id)
         };
-        let (local, paths, id) =
-            capture("local", crate::manifest::ArtifactSizingPreset::Chunk16KiB);
+        let (local, paths, id) = capture("local", crate::manifest::ChunkSizingPreset::Chunk16KiB);
         let (_, remote_paths, remote_id) =
-            capture("remote", crate::manifest::ArtifactSizingPreset::Chunk1MiB);
+            capture("remote", crate::manifest::ChunkSizingPreset::Chunk1MiB);
         assert_eq!(id, remote_id);
         let remote = RemoteRepository {
             id: "remote".into(),
@@ -654,7 +653,7 @@ mod tests {
         )
         .expect("repo layout");
 
-        bind_repo_remote(directory.path(), "provider-specific-id").expect("bind repo");
+        bind_remote_repo(directory.path(), "provider-specific-id").expect("bind repo");
         assert_eq!(
             linked_remote_repo_id(directory.path()).expect("linked id"),
             "provider-specific-id"
@@ -664,7 +663,7 @@ mod tests {
     #[test]
     fn binding_rejects_an_empty_remote_repo_id() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let error = bind_repo_remote(directory.path(), " ").expect_err("empty id must fail");
+        let error = bind_remote_repo(directory.path(), " ").expect_err("empty id must fail");
         assert!(error.to_string().contains("remote repo ID is required"));
     }
 

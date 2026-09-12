@@ -86,7 +86,7 @@ def run_command(args: argparse.Namespace) -> int:
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fixture", default="s3_object_storage_8mib")
     parser.add_argument("--action", choices=("prepare", "download", "delete", "abort-multipart"), required=True)
-    parser.add_argument("--target")
+    parser.add_argument("--filesystem")
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--prefix")

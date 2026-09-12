@@ -6,10 +6,7 @@ fn test_gutch_repo_manifest_new() {
     assert_eq!(repo.format, CONTENT_REPO_FORMAT);
     assert_eq!(repo.format_version, PUBLIC_METADATA_FORMAT_VERSION);
     assert_eq!(repo.name, "base");
-    assert_eq!(
-        repo.artifact_profile.chunk,
-        ArtifactSizingPreset::Chunk128KiB
-    );
+    assert_eq!(repo.artifact_profile.chunk, ChunkSizingPreset::Chunk128KiB);
     assert_eq!(repo.artifact_profile.compression, CompressionKind::Zstd);
     assert_eq!(repo.artifact_profile.compression_level, Some(3));
     assert_eq!(repo.artifact_profile.bundle, BundleSizingPreset::Bundle8MiB);
@@ -19,7 +16,7 @@ fn test_gutch_repo_manifest_new() {
 #[test]
 fn artifact_profile_expands_presets_for_the_engine() {
     let profile = ArtifactProfile::for_presets(
-        ArtifactSizingPreset::Chunk1MiB,
+        ChunkSizingPreset::Chunk1MiB,
         CompressionKind::Zstd,
         Some(5),
         BundleSizingPreset::Bundle64MiB,
@@ -28,7 +25,7 @@ fn artifact_profile_expands_presets_for_the_engine() {
 
     assert_eq!(
         ChunkSizingProfile::for_preset(profile.chunk).preset,
-        ArtifactSizingPreset::Chunk1MiB
+        ChunkSizingPreset::Chunk1MiB
     );
     assert_eq!(profile.compression_profile().level, Some(5));
     assert_eq!(
@@ -67,4 +64,19 @@ fn repo_manifest_does_not_serialize_remote_binding_ids() {
     assert!(json.get("product_id").is_none());
     assert!(json.get("product_metadata").is_none());
     assert!(json.get("remote_repo_id").is_none());
+}
+
+#[test]
+fn persisted_packaging_rejects_invalid_pairs_and_unknown_presets() {
+    let original = serde_json::to_value(GutchRepoManifest::new("base".into())).unwrap();
+    let mut invalid = original.clone();
+    invalid["content_packaging_profile"]["chunk_size_profile"] = "chunk_4MiB".into();
+    assert!(serde_json::from_value::<GutchRepoManifest>(invalid.clone()).is_err());
+    invalid["content_packaging_profile"]["bundle_size_profile"] = "bundle_16MiB".into();
+    assert!(serde_json::from_value::<GutchRepoManifest>(invalid.clone()).is_ok());
+    invalid["content_packaging_profile"]["chunk_size_profile"] = "chunk_3MiB".into();
+    assert!(serde_json::from_value::<GutchRepoManifest>(invalid).is_err());
+    let mut invalid_compression = original;
+    invalid_compression["content_packaging_profile"]["compression_level"] = 100.into();
+    assert!(serde_json::from_value::<GutchRepoManifest>(invalid_compression).is_err());
 }

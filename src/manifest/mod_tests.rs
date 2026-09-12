@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn test_chunking_profile_defaults() {
     let p = ChunkSizingProfile::default();
-    assert_eq!(p.preset, ArtifactSizingPreset::Chunk128KiB);
+    assert_eq!(p.preset, ChunkSizingPreset::Chunk128KiB);
     assert_eq!(p.min_chunk_bytes, 32 * 1024);
     assert_eq!(p.avg_chunk_bytes, 128 * 1024);
     assert_eq!(p.max_chunk_bytes, 512 * 1024);
@@ -15,8 +15,8 @@ fn test_chunking_profile_defaults() {
 
 #[test]
 fn test_small_chunk_profile_uses_sub_kib_range() {
-    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk1KiB);
-    assert_eq!(p.preset, ArtifactSizingPreset::Chunk1KiB);
+    let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1KiB);
+    assert_eq!(p.preset, ChunkSizingPreset::Chunk1KiB);
     assert_eq!(p.min_chunk_size_bytes(), 256);
     assert_eq!(p.avg_chunk_size_bytes(), 1024);
     assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
@@ -24,8 +24,8 @@ fn test_small_chunk_profile_uses_sub_kib_range() {
 
 #[test]
 fn test_chunk_profile_4kib_uses_expected_range() {
-    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk4KiB);
-    assert_eq!(p.preset, ArtifactSizingPreset::Chunk4KiB);
+    let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk4KiB);
+    assert_eq!(p.preset, ChunkSizingPreset::Chunk4KiB);
     assert_eq!(p.min_chunk_size_bytes(), 1024);
     assert_eq!(p.avg_chunk_size_bytes(), 4 * 1024);
     assert_eq!(p.max_chunk_size_bytes(), 16 * 1024);
@@ -33,8 +33,8 @@ fn test_chunk_profile_4kib_uses_expected_range() {
 
 #[test]
 fn test_chunk_profile_512kib_uses_expected_range() {
-    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk512KiB);
-    assert_eq!(p.preset, ArtifactSizingPreset::Chunk512KiB);
+    let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk512KiB);
+    assert_eq!(p.preset, ChunkSizingPreset::Chunk512KiB);
     assert_eq!(p.min_chunk_size_bytes(), 128 * 1024);
     assert_eq!(p.avg_chunk_size_bytes(), 512 * 1024);
     assert_eq!(p.max_chunk_size_bytes(), 2 * 1024 * 1024);
@@ -42,8 +42,8 @@ fn test_chunk_profile_512kib_uses_expected_range() {
 
 #[test]
 fn test_chunk_profile_1mib_uses_expected_range() {
-    let p = ChunkSizingProfile::for_preset(ArtifactSizingPreset::Chunk1MiB);
-    assert_eq!(p.preset, ArtifactSizingPreset::Chunk1MiB);
+    let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1MiB);
+    assert_eq!(p.preset, ChunkSizingPreset::Chunk1MiB);
     assert_eq!(p.min_chunk_size_bytes(), 256 * 1024);
     assert_eq!(p.avg_chunk_size_bytes(), 1024 * 1024);
     assert_eq!(p.max_chunk_size_bytes(), 4 * 1024 * 1024);

@@ -160,7 +160,7 @@ def run_external(
             "KOPIA_CHECK_FOR_UPDATES": "false",
         }
         execute(
-            [executable, "repository", "create", "filesystem", "--path", repo, "--no-persist-credentials", "--no-progress"],
+            [executable, "repository", "create", "filesystem", "--repo", repo, "--no-persist-credentials", "--no-progress"],
             description=f"{lane_spec.label} init",
             env=env,
         )
@@ -257,7 +257,7 @@ def run_external(
         output.mkdir(parents=True, exist_ok=True)
         if bulk and kind == "restic":
             execute(
-                [executable, "restore", "latest", "--verify", "--repo", repo, "--target", output],
+                [executable, "restore", "latest", "--verify", "--repo", repo, "--filesystem", output],
                 description=f"{lane_spec.label} restore",
                 env=env,
             )
@@ -284,7 +284,7 @@ def run_external(
             for source in reversed(sources):
                 if kind == "restic":
                     execute(
-                        [executable, "restore", identifiers[source.name], "--verify", "--repo", repo, "--target", output, "--include", source.name],
+                        [executable, "restore", identifiers[source.name], "--verify", "--repo", repo, "--filesystem", output, "--include", source.name],
                         description=f"{lane_spec.label} restore {source.name}",
                         env=env,
                     )

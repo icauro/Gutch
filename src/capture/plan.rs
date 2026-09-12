@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::manifest::SnapshotTagSet;
 use crate::repo::Result;
 use crate::repo::SourceSnapshotOperationCandidate;
-use crate::repo::check::build_source_snapshot_ops_candidate_with_modified_at;
+use crate::repo::status::build_source_snapshot_ops_candidate_with_modified_at;
 
 use super::execute::*;
 impl SnapshotCapturePlan {

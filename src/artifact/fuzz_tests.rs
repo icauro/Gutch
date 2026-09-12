@@ -15,7 +15,7 @@ fn fuzz_binary_decoders() {
         if bytes.len() > 65536 {
             return;
         }
-        let _ = crate::manifest::binary::read_snapshot_blueprint_bytes(bytes);
+        let _ = crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes(bytes);
         let _ = crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(bytes);
         // Recompute framing so mutations reach the column parsers instead of
         // stopping at the envelope's integrity check on every generated input.
@@ -132,7 +132,8 @@ fn fuzz_blueprint_roundtrip() {
             &groups,
         )
         .unwrap();
-        let restored = crate::manifest::binary::read_snapshot_blueprint_bytes(&encoded).unwrap();
+        let restored =
+            crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes(&encoded).unwrap();
         assert_eq!(
             crate::snapshot::identity::compute_snapshot_id_from_entries(&entries),
             crate::snapshot::identity::compute_snapshot_id_from_entries(&restored)

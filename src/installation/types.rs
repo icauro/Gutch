@@ -70,7 +70,7 @@ pub struct SnapshotReconstructResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotReconstructFromRepoRequest {
+pub struct InstallationRequest {
     pub repo_path: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
@@ -82,7 +82,7 @@ pub struct SnapshotReconstructFromRepoRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotReconstructFromRepoResult {
+pub struct InstallationReconstructResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
     pub reconstruct_result: SnapshotReconstructResult,
@@ -92,7 +92,7 @@ pub struct SnapshotReconstructFromRepoResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotVerifyFromRepoRequest {
+pub struct InstallationVerifyRequest {
     pub repo_path: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
@@ -102,7 +102,7 @@ pub struct SnapshotVerifyFromRepoRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotVerifyFromRepoResult {
+pub struct InstallationVerifyResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
     pub classification: RepairClassification,
@@ -171,7 +171,7 @@ pub struct SnapshotRepairResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotRepairFromRepoRequest {
+pub struct InstallationRepairRequest {
     pub repo_path: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
@@ -182,7 +182,7 @@ pub struct SnapshotRepairFromRepoRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotRepairPlanFromRepoRequest {
+pub struct InstallationRepairPlanRequest {
     pub repo_path: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
@@ -192,7 +192,7 @@ pub struct SnapshotRepairPlanFromRepoRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotRepairPlanFromRepoResult {
+pub struct InstallationRepairPlanResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
     pub missing_file_count: usize,
@@ -203,7 +203,7 @@ pub struct SnapshotRepairPlanFromRepoResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotRepairFromRepoResult {
+pub struct InstallationRepairResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
     pub repair_result: SnapshotRepairResult,

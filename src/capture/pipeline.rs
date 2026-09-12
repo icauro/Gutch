@@ -363,7 +363,7 @@ fn build_bundled_chunks(
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(
         control,
-        crate::progress::GutchProgressPhase::Build,
+        crate::progress::GutchProgressPhase::Capture,
         "Building bundles",
     );
     progress.start(planned_bundle_groups.groups.len());
@@ -414,7 +414,7 @@ fn build_loose_chunks(
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(
         control,
-        crate::progress::GutchProgressPhase::Build,
+        crate::progress::GutchProgressPhase::Capture,
         "Building bundles",
     );
     progress.start(chunks_to_compress.len());
@@ -605,6 +605,11 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     build_pool: &ThreadPool,
     inventory: &SourceInventory,
 ) -> Result<(BuildResult, BuildTimings)> {
+    crate::manifest::profiles::validate_packaging_sizes(
+        &config.chunk_profile,
+        &config.bundle_profile,
+        config.storage_mode,
+    )?;
     compress::validate_profile(&config.compression_profile)?;
     config.control.checkpoint()?;
     let _operation_span = config.control.profile_span("capture.build_snapshot");

@@ -12,7 +12,7 @@ def run(case):
     for version in (1, 2, 3):
         data = basic(case.payload / f"v{version}", version)
         captured = case.capture(repo, data.root)
-        options = [] if previous is None else ["--source-snapshot-id", previous, "--source-dir", destination]
+        options = [] if previous is None else ["--reuse-snapshot", previous, "--reuse-from", destination]
         result = case.reconstruct(repo, captured["snapshot_id"], destination, *options)
         case.compare(data, destination, f"version-{version}")
         if previous:

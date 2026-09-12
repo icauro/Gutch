@@ -5,10 +5,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::artifact::hash::ChunkHash;
-use crate::manifest::ArtifactSizingPreset;
 use crate::manifest::ArtifactStorageMode;
 use crate::manifest::BundleSizingPreset;
 use crate::manifest::BundleSizingProfile;
+use crate::manifest::ChunkSizingPreset;
 use crate::manifest::ChunkSizingProfile;
 use crate::manifest::CompressionKind;
 use crate::manifest::CompressionProfile;
@@ -71,7 +71,7 @@ impl<'a> BuildConfig<'a> {
         self
     }
 
-    pub fn with_chunk_profile(mut self, preset: ArtifactSizingPreset) -> Self {
+    pub fn with_chunk_profile(mut self, preset: ChunkSizingPreset) -> Self {
         self.chunk_profile = ChunkSizingProfile::for_preset(preset);
         self
     }

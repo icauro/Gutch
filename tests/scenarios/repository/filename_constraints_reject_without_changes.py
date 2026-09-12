@@ -21,7 +21,7 @@ def run(case):
     snapshot = case.capture(repo, source)["snapshot_id"]
     error_path = case.root / "constraint-error.json"
     before = repository_inventory(repo)
-    case.command("repo", "constraints", "--repo", repo, "--target", target,
+    case.command("repo", "constraints", "set", "--repo", repo, "--filesystem", target,
                  "--error-json-out", error_path, success=False)
     assert repository_inventory(repo) == before
     failure = json.loads(error_path.read_text(encoding="utf-8"))
@@ -31,9 +31,9 @@ def run(case):
     assert failure["details"]["violations"][0]["target"] == target
 
     constrained = case.init("constrained")
-    case.command("repo", "constraints", "--repo", constrained, "--target", target)
+    case.command("repo", "constraints", "set", "--repo", constrained, "--filesystem", target)
     before = repository_inventory(constrained)
-    case.command("snapshot", "capture", "--repo", constrained, "--source-dir", source,
+    case.command("snapshot", "capture", "--repo", constrained, "--source", source,
                  "--yes", "--error-json-out", error_path, success=False)
     assert repository_inventory(constrained) == before
     assert json.loads(error_path.read_text(encoding="utf-8"))["details"]["operation"] == "capture"
@@ -55,10 +55,10 @@ def run(case):
     destination.mkdir()
     (destination / "keep.txt").write_text("keep", encoding="utf-8")
     before = inventory(destination)
-    case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot-id", snapshot,
+    case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination, success=False)
     assert inventory(destination) == before
-    case.command("repo", "constraints", "--repo", repo, "--clear")
+    case.command("repo", "constraints", "clear", "--repo", repo)
     case.command("repo", "verify", "--repo", repo)
     assert "constraints" not in json.loads(metadata_path.read_text(encoding="utf-8"))
 

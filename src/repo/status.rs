@@ -7,7 +7,7 @@ use serde::Serialize;
 use super::inventory::list_repo_snapshot_ids;
 use super::inventory::scan_artifact_inventory;
 use super::inventory::scan_bundle_inventory;
-use super::snapshot_descriptor::summarize_snapshot_tags;
+use super::snapshot_tag_summary::summarize_snapshot_tags;
 use crate::Error;
 use crate::Result;
 use crate::manifest;
@@ -21,7 +21,7 @@ use crate::snapshot::identity::source_modified_at_from_directory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoCheckStatus {
+pub struct RepoStatus {
     pub exists: bool,
     pub is_repo: bool,
     pub repo_path: String,
@@ -29,7 +29,7 @@ pub struct RepoCheckStatus {
     pub remote_repo_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_manifest: Option<serde_json::Value>,
-    pub snapshots: Vec<RepoCheckSnapshotStatus>,
+    pub snapshots: Vec<RepoSnapshotStatus>,
     #[serde(default)]
     pub bundle_count: usize,
     #[serde(default)]
@@ -43,7 +43,7 @@ pub struct RepoCheckStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoCheckSnapshotStatus {
+pub struct RepoSnapshotStatus {
     pub snapshot_id: String,
     pub version_id: String,
     pub os: String,
@@ -97,14 +97,14 @@ pub enum SourceSnapshotOperationDisposition {
     Invalid,
 }
 
-pub fn check_gutch_repo(repo_root: &Path) -> Result<RepoCheckStatus> {
+pub fn read_repo_status(repo_root: &Path) -> Result<RepoStatus> {
     if !repo_root.is_dir() {
         return check_gutch_repo_unlocked(repo_root);
     }
     crate::repo::coordination::read(repo_root, || check_gutch_repo_unlocked(repo_root))
 }
 
-fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoCheckStatus> {
+fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     let repo_path = repo_root.to_path_buf();
     let repo_path_display = repo_path.display().to_string();
     if !repo_path.exists() {
@@ -144,7 +144,7 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoCheckStatus> {
         &available_artifacts,
     )?;
 
-    Ok(RepoCheckStatus {
+    Ok(RepoStatus {
         exists: true,
         is_repo: true,
         repo_path: repo_path_display,
@@ -214,12 +214,8 @@ pub fn discover_source_snapshot_operations(
     Ok(candidates)
 }
 
-fn empty_repo_check_status(
-    repo_path: String,
-    exists: bool,
-    error: Option<String>,
-) -> RepoCheckStatus {
-    RepoCheckStatus {
+fn empty_repo_check_status(repo_path: String, exists: bool, error: Option<String>) -> RepoStatus {
+    RepoStatus {
         exists,
         is_repo: false,
         repo_path,
@@ -239,7 +235,7 @@ fn check_snapshot_manifests(
     repo_paths: &GutchRepoPaths,
     snapshots_root: &Path,
     available_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
-) -> Result<Vec<RepoCheckSnapshotStatus>> {
+) -> Result<Vec<RepoSnapshotStatus>> {
     if !snapshots_root.exists() {
         return Ok(Vec::new());
     }
@@ -283,7 +279,7 @@ fn check_snapshot_manifests(
             };
 
         let summary = summarize_snapshot_tags(&manifest.snapshot_tags);
-        snapshots.push(RepoCheckSnapshotStatus {
+        snapshots.push(RepoSnapshotStatus {
             snapshot_id: manifest.snapshot_id.clone(),
             version_id: summary.version_id,
             os: summary.os,

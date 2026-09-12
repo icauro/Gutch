@@ -17,7 +17,7 @@ def run(case):
             {"path": "first", "tags": ["version::1.0.0"]},
             {"path": "second", "tags": ["version::2.0.0"]},
         ]}})
-    case.command("snapshot", "capture", "--source-root", sources, "--repo", repo, "--yes", success=False)
+    case.command("snapshot", "capture", "--discover-from", sources, "--repo", repo, "--yes", success=False)
     snapshots = list((repo / "snapshots").glob("*/snapshot_metadata.json"))
     assert len(snapshots) == 1
     assert json.loads(snapshots[0].read_text())["snapshot_tags"] == ["version::1.0.0"]

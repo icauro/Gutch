@@ -14,7 +14,7 @@ pub enum ArtifactStorageMode {
     #[default]
     Bundled,
     #[serde(rename = "loose_chunks")]
-    #[value(name = "loose_chunks")]
+    #[value(name = "loose-chunks")]
     LooseChunks,
 }
 
@@ -51,63 +51,78 @@ impl ArtifactStorageMode {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
-pub enum ArtifactSizingPreset {
+pub enum ChunkSizingPreset {
+    #[serde(rename = "chunk_512B")]
+    #[value(name = "512B")]
+    Chunk512B,
     #[serde(rename = "chunk_1KiB")]
-    #[value(name = "chunk_1KiB")]
+    #[value(name = "1KiB")]
     Chunk1KiB,
+    #[serde(rename = "chunk_2KiB")]
+    #[value(name = "2KiB")]
+    Chunk2KiB,
     #[serde(rename = "chunk_4KiB")]
-    #[value(name = "chunk_4KiB")]
+    #[value(name = "4KiB")]
     Chunk4KiB,
+    #[serde(rename = "chunk_8KiB")]
+    #[value(name = "8KiB")]
+    Chunk8KiB,
     #[serde(rename = "chunk_16KiB")]
-    #[value(name = "chunk_16KiB")]
+    #[value(name = "16KiB")]
     Chunk16KiB,
     #[serde(rename = "chunk_32KiB")]
-    #[value(name = "chunk_32KiB")]
+    #[value(name = "32KiB")]
     Chunk32KiB,
     #[serde(rename = "chunk_64KiB")]
-    #[value(name = "chunk_64KiB")]
+    #[value(name = "64KiB")]
     Chunk64KiB,
     #[serde(rename = "chunk_128KiB")]
-    #[value(name = "chunk_128KiB")]
+    #[value(name = "128KiB")]
     #[default]
     Chunk128KiB,
     #[serde(rename = "chunk_256KiB")]
-    #[value(name = "chunk_256KiB")]
+    #[value(name = "256KiB")]
     Chunk256KiB,
     #[serde(rename = "chunk_512KiB")]
-    #[value(name = "chunk_512KiB")]
+    #[value(name = "512KiB")]
     Chunk512KiB,
     #[serde(rename = "chunk_1MiB")]
-    #[value(name = "chunk_1MiB")]
+    #[value(name = "1MiB")]
     Chunk1MiB,
+    #[serde(rename = "chunk_2MiB")]
+    #[value(name = "2MiB")]
+    Chunk2MiB,
+    #[serde(rename = "chunk_4MiB")]
+    #[value(name = "4MiB")]
+    Chunk4MiB,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum BundleSizingPreset {
     #[serde(rename = "bundle_4MiB")]
-    #[value(name = "bundle_4MiB")]
+    #[value(name = "4MiB")]
     Bundle4MiB,
     #[serde(rename = "bundle_8MiB")]
-    #[value(name = "bundle_8MiB")]
+    #[value(name = "8MiB")]
     #[default]
     Bundle8MiB,
     #[serde(rename = "bundle_16MiB")]
-    #[value(name = "bundle_16MiB")]
+    #[value(name = "16MiB")]
     Bundle16MiB,
     #[serde(rename = "bundle_32MiB")]
-    #[value(name = "bundle_32MiB")]
+    #[value(name = "32MiB")]
     Bundle32MiB,
     #[serde(rename = "bundle_64MiB")]
-    #[value(name = "bundle_64MiB")]
+    #[value(name = "64MiB")]
     Bundle64MiB,
     #[serde(rename = "bundle_128MiB")]
-    #[value(name = "bundle_128MiB")]
+    #[value(name = "128MiB")]
     Bundle128MiB,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ChunkSizingProfile {
-    pub preset: ArtifactSizingPreset,
+    pub preset: ChunkSizingPreset,
     pub chunker: SmolStr,
     pub min_chunk_bytes: u32,
     pub avg_chunk_bytes: u32,
@@ -119,22 +134,27 @@ pub(crate) struct ChunkSizingProfile {
 
 impl Default for ChunkSizingProfile {
     fn default() -> Self {
-        Self::for_preset(ArtifactSizingPreset::Chunk128KiB)
+        Self::for_preset(ChunkSizingPreset::Chunk128KiB)
     }
 }
 
 impl ChunkSizingProfile {
-    pub fn for_preset(preset: ArtifactSizingPreset) -> Self {
+    pub fn for_preset(preset: ChunkSizingPreset) -> Self {
         let (min_chunk_bytes, avg_chunk_bytes, max_chunk_bytes) = match preset {
-            ArtifactSizingPreset::Chunk1KiB => (256, 1024, 4 * 1024),
-            ArtifactSizingPreset::Chunk4KiB => (1024, 4 * 1024, 16 * 1024),
-            ArtifactSizingPreset::Chunk16KiB => (4 * 1024, 16 * 1024, 64 * 1024),
-            ArtifactSizingPreset::Chunk32KiB => (8 * 1024, 32 * 1024, 128 * 1024),
-            ArtifactSizingPreset::Chunk64KiB => (16 * 1024, 64 * 1024, 256 * 1024),
-            ArtifactSizingPreset::Chunk128KiB => (32 * 1024, 128 * 1024, 512 * 1024),
-            ArtifactSizingPreset::Chunk256KiB => (64 * 1024, 256 * 1024, 1024 * 1024),
-            ArtifactSizingPreset::Chunk512KiB => (128 * 1024, 512 * 1024, 2 * 1024 * 1024),
-            ArtifactSizingPreset::Chunk1MiB => (256 * 1024, 1024 * 1024, 4 * 1024 * 1024),
+            ChunkSizingPreset::Chunk512B => (128, 512, 2048),
+            ChunkSizingPreset::Chunk2KiB => (512, 2048, 8192),
+            ChunkSizingPreset::Chunk8KiB => (2048, 8192, 32768),
+            ChunkSizingPreset::Chunk2MiB => (512 * 1024, 2 * 1024 * 1024, 8 * 1024 * 1024),
+            ChunkSizingPreset::Chunk4MiB => (1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024),
+            ChunkSizingPreset::Chunk1KiB => (256, 1024, 4 * 1024),
+            ChunkSizingPreset::Chunk4KiB => (1024, 4 * 1024, 16 * 1024),
+            ChunkSizingPreset::Chunk16KiB => (4 * 1024, 16 * 1024, 64 * 1024),
+            ChunkSizingPreset::Chunk32KiB => (8 * 1024, 32 * 1024, 128 * 1024),
+            ChunkSizingPreset::Chunk64KiB => (16 * 1024, 64 * 1024, 256 * 1024),
+            ChunkSizingPreset::Chunk128KiB => (32 * 1024, 128 * 1024, 512 * 1024),
+            ChunkSizingPreset::Chunk256KiB => (64 * 1024, 256 * 1024, 1024 * 1024),
+            ChunkSizingPreset::Chunk512KiB => (128 * 1024, 512 * 1024, 2 * 1024 * 1024),
+            ChunkSizingPreset::Chunk1MiB => (256 * 1024, 1024 * 1024, 4 * 1024 * 1024),
         };
 
         ChunkSizingProfile {
@@ -222,5 +242,101 @@ impl CompressionProfile {
 impl Default for CompressionProfile {
     fn default() -> Self {
         Self::for_algorithm(CompressionKind::Zstd, Some(3))
+    }
+}
+
+/// Reject combinations that cannot accommodate a maximum-size raw chunk with
+/// codec/framing overhead. The packing stage still enforces the encoded cap.
+pub(crate) fn validate_packaging_sizes(
+    chunk: &ChunkSizingProfile,
+    bundle: &BundleSizingProfile,
+    storage: ArtifactStorageMode,
+) -> crate::Result<()> {
+    if storage == ArtifactStorageMode::Bundled
+        && u64::from(chunk.max_chunk_bytes) >= bundle.bundle_max_size_bytes()
+    {
+        return Err(crate::Error::manifest(
+            "bundle maximum must exceed the maximum raw chunk size; choose a larger bundle preset or loose-chunks storage",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod sizing_tests {
+    use super::*;
+    #[test]
+    fn expanded_presets_chunk_real_input_and_preserve_short_files() {
+        let mut state = 0x12345678u64;
+        let data = (0..20 * 1024 * 1024)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as u8
+            })
+            .collect::<Vec<_>>();
+        for preset in ChunkSizingPreset::value_variants() {
+            let profile = ChunkSizingProfile::for_preset(*preset);
+            let chunks = crate::artifact::chunk::chunk_bytes(&data, &profile);
+            assert_eq!(
+                chunks.iter().map(|chunk| chunk.size).sum::<u64>(),
+                data.len() as u64
+            );
+            let mut offset = 0;
+            for chunk in chunks {
+                assert_eq!(chunk.offset, offset);
+                assert!(chunk.size > 0 && chunk.size <= u64::from(profile.max_chunk_bytes));
+                assert_eq!(
+                    chunk.hash,
+                    blake3::hash(&data[offset as usize..(offset + chunk.size) as usize])
+                );
+                offset += chunk.size;
+            }
+            assert!(crate::artifact::chunk::chunk_bytes(&[], &profile).is_empty());
+            let short = crate::artifact::chunk::chunk_bytes(b"short", &profile);
+            assert_eq!(short.len(), 1);
+            assert_eq!(short[0].size, 5);
+        }
+    }
+
+    #[test]
+    fn chunk_presets_cover_every_power_of_two() {
+        let presets = ChunkSizingPreset::value_variants();
+        assert_eq!(presets.len(), 14);
+        let mut averages = presets
+            .iter()
+            .map(|preset| {
+                let profile = ChunkSizingProfile::for_preset(*preset);
+                assert_eq!(profile.min_chunk_bytes, profile.avg_chunk_bytes / 4);
+                assert_eq!(profile.max_chunk_bytes, profile.avg_chunk_bytes * 4);
+                let encoded = serde_json::to_string(preset).unwrap();
+                assert_eq!(*preset, serde_json::from_str(&encoded).unwrap());
+                profile.avg_chunk_bytes
+            })
+            .collect::<Vec<_>>();
+        averages.sort();
+        assert_eq!(
+            averages,
+            (9..=22).map(|power| 1u32 << power).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn oversized_chunks_require_a_larger_bundle_or_loose_storage() {
+        let chunk = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk4MiB);
+        for (preset, valid) in [
+            (BundleSizingPreset::Bundle4MiB, false),
+            (BundleSizingPreset::Bundle8MiB, false),
+            (BundleSizingPreset::Bundle16MiB, true),
+        ] {
+            let bundle = BundleSizingProfile::for_preset(preset);
+            assert_eq!(
+                validate_packaging_sizes(&chunk, &bundle, ArtifactStorageMode::Bundled).is_ok(),
+                valid
+            );
+            assert!(
+                validate_packaging_sizes(&chunk, &bundle, ArtifactStorageMode::LooseChunks).is_ok()
+            );
+        }
     }
 }

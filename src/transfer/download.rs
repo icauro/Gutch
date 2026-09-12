@@ -49,7 +49,7 @@ pub(crate) struct FetchTransferProgress {
     finished_at: Mutex<Option<Instant>>,
     transferred_bytes: AtomicU64,
     total_bytes: AtomicU64,
-    completed_bundle_count: AtomicUsize,
+    completed_artifact_count: AtomicUsize,
     active_download_count: AtomicUsize,
     peak_download_count: AtomicUsize,
     retry_count: AtomicUsize,
@@ -64,7 +64,7 @@ impl Default for FetchTransferProgress {
             finished_at: Mutex::new(None),
             transferred_bytes: AtomicU64::default(),
             total_bytes: AtomicU64::default(),
-            completed_bundle_count: AtomicUsize::default(),
+            completed_artifact_count: AtomicUsize::default(),
             active_download_count: AtomicUsize::default(),
             peak_download_count: AtomicUsize::default(),
             retry_count: AtomicUsize::default(),
@@ -85,14 +85,14 @@ impl FetchTransferProgress {
             + bytes
     }
 
-    pub(crate) fn mark_bundle_completed(&self) -> usize {
-        self.completed_bundle_count
+    pub(crate) fn mark_artifact_completed(&self) -> usize {
+        self.completed_artifact_count
             .fetch_add(1, AtomicOrdering::Relaxed)
             + 1
     }
 
-    pub(crate) fn completed_bundle_count(&self) -> usize {
-        self.completed_bundle_count.load(AtomicOrdering::Relaxed)
+    pub(crate) fn completed_artifact_count(&self) -> usize {
+        self.completed_artifact_count.load(AtomicOrdering::Relaxed)
     }
 
     pub(crate) fn transferred_bytes(&self) -> u64 {
@@ -544,7 +544,7 @@ fn artifact_download_worker(
         let _artifact_span = control.profile_span_with_args("fetch.artifact", || {
             artifact_transfer_trace_args(&artifact_download)
         });
-        let result = download_pending_bundle(
+        let result = download_pending_artifact(
             &download_client,
             &artifact_download,
             &control,
@@ -881,7 +881,7 @@ pub(crate) fn snapshot_manifest_from_download(
     )
 }
 
-pub(crate) fn download_pending_bundle(
+pub(crate) fn download_pending_artifact(
     download_client: &reqwest::blocking::Client,
     artifact_download: &PendingArtifactDownload,
     control: &GutchOperationControl,
@@ -908,10 +908,10 @@ pub(crate) fn download_pending_bundle(
                 url: &artifact_download.url,
                 control,
                 transfer_progress,
-                phase: GutchProgressPhase::Bundle,
+                phase: GutchProgressPhase::Artifact,
                 message: &message,
                 counters: TransferPhaseCounters {
-                    current: transfer_progress.completed_bundle_count(),
+                    current: transfer_progress.completed_artifact_count(),
                     total: artifact_download.missing_artifact_count.max(1),
                 },
                 detail: Some(artifact_download.artifact_id.as_str()),
@@ -936,7 +936,7 @@ pub(crate) fn download_pending_bundle(
     })();
     transfer_progress.download_finished();
     result?;
-    Ok(transfer_progress.mark_bundle_completed())
+    Ok(transfer_progress.mark_artifact_completed())
 }
 
 fn artifact_transfer_trace_args(

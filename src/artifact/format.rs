@@ -13,7 +13,7 @@ pub(crate) const LOOSE_CHUNK_MAGIC: &[u8; 16] = b"GUTCH_CHUNK\0\0\0\0\0";
 pub(crate) const CHUNK_INDEX_MAGIC: &[u8; 16] = b"GUTCH_INDEX\0\0\0\0\0";
 pub(crate) const SNAPSHOT_BLUEPRINT_MAGIC: &[u8; 16] = b"GUTCH_BLUEPRINT\0";
 pub(crate) const MAX_RAW_BUNDLE_SIZE: u64 = 256 * 1024 * 1024;
-pub(crate) const MAX_RAW_CHUNK_SIZE: u64 = 4 * 1024 * 1024;
+pub(crate) const MAX_RAW_CHUNK_SIZE: u64 = 16 * 1024 * 1024;
 
 pub(crate) fn size_u32(size: impl Into<u64>) -> Result<u32> {
     u32::try_from(size.into()).map_err(|_| Error::manifest("artifact size exceeds u32"))

@@ -7,7 +7,7 @@ use super::*;
 #[serde(deny_unknown_fields)]
 pub struct ArtifactProfile {
     #[serde(rename = "chunk_size_profile")]
-    pub chunk: ArtifactSizingPreset,
+    pub chunk: ChunkSizingPreset,
     #[serde(rename = "bundle_size_profile")]
     pub bundle: BundleSizingPreset,
     #[serde(rename = "compression_profile")]
@@ -20,7 +20,7 @@ pub struct ArtifactProfile {
 
 impl ArtifactProfile {
     pub fn for_presets(
-        chunk: ArtifactSizingPreset,
+        chunk: ChunkSizingPreset,
         compression: CompressionKind,
         compression_level: Option<i32>,
         bundle: BundleSizingPreset,
@@ -43,13 +43,28 @@ impl ArtifactProfile {
 impl Default for ArtifactProfile {
     fn default() -> Self {
         Self::for_presets(
-            ArtifactSizingPreset::default(),
+            ChunkSizingPreset::default(),
             CompressionKind::Zstd,
             Some(3),
             BundleSizingPreset::default(),
             ArtifactStorageMode::default(),
         )
     }
+}
+
+fn deserialize_artifact_profile<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<ArtifactProfile, D::Error> {
+    let profile = ArtifactProfile::deserialize(deserializer)?;
+    super::profiles::validate_packaging_sizes(
+        &ChunkSizingProfile::for_preset(profile.chunk),
+        &BundleSizingProfile::for_preset(profile.bundle),
+        profile.storage,
+    )
+    .map_err(serde::de::Error::custom)?;
+    crate::artifact::compression::validate_profile(&profile.compression_profile())
+        .map_err(serde::de::Error::custom)?;
+    Ok(profile)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +80,10 @@ pub struct GutchRepoManifest {
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constraints: Option<super::constraints::RepositoryConstraints>,
-    #[serde(rename = "content_packaging_profile")]
+    #[serde(
+        rename = "content_packaging_profile",
+        deserialize_with = "deserialize_artifact_profile"
+    )]
     pub artifact_profile: ArtifactProfile,
     #[serde(skip)]
     pub remote_repo_id: String,
@@ -86,7 +104,7 @@ impl GutchRepoManifest {
 
     pub fn set_artifact_profile(
         &mut self,
-        chunk: ArtifactSizingPreset,
+        chunk: ChunkSizingPreset,
         compression: CompressionKind,
         compression_level: Option<i32>,
         bundle: BundleSizingPreset,

@@ -11,6 +11,7 @@ from .models import FixtureSpec, GutchProfile, LaneSpec
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
 CHUNK_PROFILES = {
+    "chunk_512B", "chunk_2KiB", "chunk_8KiB", "chunk_2MiB", "chunk_4MiB",
     "chunk_1KiB",
     "chunk_4KiB",
     "chunk_16KiB",

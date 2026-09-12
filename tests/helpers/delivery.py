@@ -24,11 +24,11 @@ def fetch_arguments(case, repo, snapshot, published, url, *, destination=None):
                          for p in repository_files(published)
                          if p.relative_to(published).parts[0] in {"bundles", "chunks"}})
     arguments = ["snapshot", "fetch-reconstruct" if destination else "fetch", "--repo", repo,
-                 "--snapshot-id", snapshot, "--artifact-url-manifest", manifest,
+                 "--snapshot", snapshot, "--artifact-url-manifest", manifest,
                  "--transfer-concurrency", "2"]
     for flag, relative in [
         ("repo-metadata-url", "repo_metadata.json"), ("chunk-index-url", "chunk_map.gtcbin"),
-        ("metadata-url", f"snapshots/{snapshot}/snapshot_metadata.json"),
+        ("snapshot-metadata-url", f"snapshots/{snapshot}/snapshot_metadata.json"),
         ("blueprint-url", f"snapshots/{snapshot}/snapshot_blueprint.gtcbin"),
     ]:
         arguments += [f"--{flag}", url(relative)]

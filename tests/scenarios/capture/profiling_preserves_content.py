@@ -13,11 +13,11 @@ def run(case):
         repo=case.init('repo-'+mode)
         directory=case.root/('profile-'+mode)
         options=['--profile',mode]
-        if mode!='off':options+=['--profile-out',directory]
+        if mode!='off':options+=['--profile-dir',directory]
         capture=case.capture(repo,data.root,*options)
         assert capture['profiling_mode']==mode
         destination=case.payload/('out-'+mode)
-        if mode!='off':options=['--profile',mode,'--profile-out',case.root/('restore-'+mode)]
+        if mode!='off':options=['--profile',mode,'--profile-dir',case.root/('restore-'+mode)]
         stats=case.reconstruct(repo,capture['snapshot_id'],destination,*options)
         case.compare(data,destination,mode)
         if mode!='detailed':assert stats['verify_timings']['total_seconds'] is None
@@ -29,4 +29,4 @@ def run(case):
     logs='\n'.join(p.read_text(encoding='utf-8',errors='replace') for p in (case.root/'commands').glob('*.log'))
     assert 'Output write:' in logs
     case.command('repo','list','--profile','detailed',success=False)
-    case.command('repo','list','--profile','off','--profile-out',case.root/'invalid-profile',success=False)
+    case.command('repo','list','--profile','off','--profile-dir',case.root/'invalid-profile',success=False)

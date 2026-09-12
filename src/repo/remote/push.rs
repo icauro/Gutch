@@ -11,8 +11,8 @@ pub fn plan_push_with_provider<P: RemoteRepositoryReader + ?Sized>(
 
 fn collect_local_sync_snapshots(
     repo_root: &Path,
-) -> Result<(RepoCheckStatus, GutchRepoPaths, Vec<LocalSyncSnapshot>)> {
-    let status = crate::repo::check::check_gutch_repo(repo_root)?;
+) -> Result<(RepoStatus, GutchRepoPaths, Vec<LocalSyncSnapshot>)> {
+    let status = crate::repo::status::read_repo_status(repo_root)?;
     if !status.is_repo {
         return Err(Error::manifest(format!(
             "no gutch repo found at {}",
@@ -224,7 +224,7 @@ struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter + ?Sized> {
 
 fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context: &mut SnapshotUploadContext<'_, P>,
-    snapshot: &crate::repo::check::RepoCheckSnapshotStatus,
+    snapshot: &crate::repo::status::RepoSnapshotStatus,
     remote_snapshot: &RemoteSnapshot,
 ) -> Result<()> {
     context.control.checkpoint()?;
@@ -304,7 +304,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
     let operation_root = (&repo).to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
-        let progress = RemoteProgress::new(&control, GutchOperation::SyncUp);
+        let progress = RemoteProgress::new(&control, GutchOperation::Push);
         let bound_remote_repo_id = linked_remote_repo_id(&repo)?;
         let repository = provider.resolve_repository(None, Some(&bound_remote_repo_id))?;
         progress.emit(

@@ -12,24 +12,26 @@ class GutchCli:
 
     def command(self, *arguments: str | Path) -> list[str | Path]:
         command = [self.executable, *arguments]
-        if "--profile-out" in command:
+        if "--profile-dir" in command:
             if self.profile_mode == "off":
-                index = command.index("--profile-out")
+                index = command.index("--profile-dir")
                 del command[index:index + 2]
             command.extend(["--profile", self.profile_mode])
+        if "--output" in command and "--json" not in command:
+            command.append("--json")
         return command
 
     @staticmethod
     def profile_args(profile: GutchProfile) -> list[str]:
         arguments = [
-            "--chunk-profile",
-            profile.chunk_profile,
-            "--bundle-profile",
-            profile.bundle_profile,
+            "--chunk-preset",
+            profile.chunk_profile.removeprefix("chunk_"),
+            "--bundle-preset",
+            profile.bundle_profile.removeprefix("bundle_"),
             "--compression-algorithm",
             profile.compression_algorithm,
             "--storage-mode",
-            profile.storage_mode,
+            profile.storage_mode.replace("_", "-"),
         ]
         if profile.compression_level is not None:
             arguments.extend(["--compression-level", str(profile.compression_level)])

@@ -28,7 +28,7 @@ def run(case):
         case.reconstruct(cached, snapshot, destination)
         case.compare(data, destination, "corrupted-cache-recovered")
     alternative = case.init("alternative")
-    captured = case.capture(alternative, data.root, "--chunk-profile", "chunk_16KiB")
+    captured = case.capture(alternative, data.root, "--chunk-preset", "16KiB")
     assert captured["snapshot_id"] == snapshot
     cached = case.payload / "cache-repo"
     blueprint = cached / "snapshots" / snapshot / "snapshot_blueprint.gtcbin"

@@ -58,7 +58,7 @@ pub(crate) struct SnapshotCaptureManyStats {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct SnapshotVerifyStats {
+pub(crate) struct InstallationVerifyStats {
     pub(crate) command: &'static str,
     pub(crate) repo_root: String,
     pub(crate) snapshot_id: String,
@@ -223,14 +223,17 @@ pub(crate) fn parse_artifact_downloads(
 pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> crate::api::Result<bool> {
     loop {
         let suffix = if default_yes { "[Y/n]" } else { "[y/N]" };
-        print!("{} {}: ", prompt, suffix);
-        io::stdout()
+        eprint!("{} {}: ", prompt, suffix);
+        io::stderr()
             .flush()
             .map_err(|err| crate::api::Error::manifest(format!("io error: {}", err)))?;
         let mut line = String::new();
-        io::stdin()
+        let bytes_read = io::stdin()
             .read_line(&mut line)
             .map_err(|err| crate::api::Error::manifest(format!("io error: {}", err)))?;
+        if bytes_read == 0 {
+            return Err(crate::api::Error::manifest("confirmation requires input"));
+        }
         let trimmed = line.trim().to_ascii_lowercase();
         if trimmed.is_empty() {
             return Ok(default_yes);

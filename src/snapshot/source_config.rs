@@ -1,7 +1,7 @@
 //! Source-root ingestion config (`.gutch_source_config.json`).
 //!
-//! A source root is the directory passed as `--source-root` to
-//! `snapshot capture` or as the sources root to `repo sources sync` —
+//! A source root is the directory passed as `--discover-from` to
+//! `snapshot capture --discover-from` —
 //! the directory whose (possibly nested) subdirectories are snapshot sources.
 //!
 //! The config selects an ingestion mode:
@@ -471,4 +471,9 @@ mod tests {
         let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();
         assert_eq!(snapshots.len(), 1);
     }
+}
+
+/// Persist the default discovery configuration only if the root has none.
+pub fn initialize_source_config(source_root: &Path) -> Result<()> {
+    SourceConfig::load_or_create(source_root).map(|_| ())
 }

@@ -16,7 +16,7 @@ def run(case):
         for i, data in enumerate(datasets):
             stats = case.root / f"capture-{i}.json"
             process = start_process([str(case.executable), "snapshot", "capture", "--repo", str(repo),
-                "--source-dir", str(data.root), "--yes", "--jobs", "2", "--stats-json-out", str(stats)],
+                "--source", str(data.root), "--yes", "--jobs", "2", "--json", "--output", str(stats)],
                 REPOSITORY, case.environment, log_path=case.log("concurrent-capture"))
             processes.append((process, stats, data))
         for i, (process, stats, data) in enumerate(processes):

@@ -12,7 +12,7 @@ use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChunkMapRegenerationResult {
+pub struct IndexRebuildResult {
     pub complete: bool,
     pub published: bool,
     pub chunk_count: usize,
@@ -25,16 +25,16 @@ pub struct ChunkMapRegenerationResult {
 
 /// Discover and verify owned artifacts independently of the current chunk map.
 /// Publication is explicit and only allowed when every retained snapshot resolves.
-pub fn regenerate_chunk_map(
+pub fn rebuild_index(
     root: &Path,
     publish: bool,
     control: &GutchOperationControl,
-) -> Result<ChunkMapRegenerationResult> {
+) -> Result<IndexRebuildResult> {
     let work = || {
         let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(root)?;
         let profile = CompressionProfile::default();
         let mut entries: BTreeMap<String, ChunkIndexEntry> = BTreeMap::new();
-        let mut result = ChunkMapRegenerationResult {
+        let mut result = IndexRebuildResult {
             complete: false,
             published: false,
             chunk_count: 0,

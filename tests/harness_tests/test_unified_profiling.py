@@ -8,9 +8,9 @@ from tests.benchmarks.comparison.report import _read_trace_spans
 
 def test_cli_profile_modes_have_one_switch(tmp_path):
     for mode in ('off','summary','detailed'):
-        command=GutchCli(Path('gutch'),profile_mode=mode).command('snapshot','capture','--profile-out',tmp_path)
+        command=GutchCli(Path('gutch'),profile_mode=mode).command('snapshot','capture','--profile-dir',tmp_path)
         assert command[-2:]==['--profile',mode]
-        assert ('--profile-out' in command)==(mode!='off')
+        assert ('--profile-dir' in command)==(mode!='off')
 
 
 def test_complete_events_do_not_overlap_sequential_operations(tmp_path):

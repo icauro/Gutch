@@ -5,12 +5,17 @@ use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
 
-pub(crate) fn parse_absolute_path(value: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(value.trim());
+pub(crate) fn parse_cli_path(value: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(value);
+    if path.as_os_str().is_empty() {
+        return Err("path must not be empty".into());
+    }
     if path.is_absolute() {
         Ok(path)
     } else {
-        Err(String::from("path must be absolute"))
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -67,9 +72,9 @@ impl TransferArgs {
 
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct ArtifactBuildProfileArgs {
-    #[arg(short = 'C', long = "chunk-profile", value_enum, default_value_t = crate::manifest::ArtifactSizingPreset::Chunk128KiB)]
-    pub(crate) chunk_profile: crate::manifest::ArtifactSizingPreset,
-    #[arg(short = 'B', long = "bundle-profile", value_enum, default_value_t = crate::manifest::BundleSizingPreset::Bundle8MiB)]
+    #[arg(short = 'C', long = "chunk-preset", value_enum, default_value_t = crate::manifest::ChunkSizingPreset::Chunk128KiB)]
+    pub(crate) chunk_profile: crate::manifest::ChunkSizingPreset,
+    #[arg(short = 'B', long = "bundle-preset", value_enum, default_value_t = crate::manifest::BundleSizingPreset::Bundle8MiB)]
     pub(crate) bundle_profile: crate::manifest::BundleSizingPreset,
     #[arg(long = "compression-algorithm", value_enum, default_value_t = crate::manifest::CompressionKind::Zstd)]
     pub(crate) compression_algorithm: crate::manifest::CompressionKind,
@@ -87,7 +92,7 @@ pub(crate) struct ArtifactBuildProfileArgs {
 )]
 pub(crate) struct Cli {
     /// Write structured failure details, including every filename violation.
-    #[arg(long = "error-json-out", global = true, value_parser = parse_absolute_path)]
+    #[arg(long = "error-json-out", global = true, value_parser = parse_cli_path)]
     pub(crate) error_json_out: Option<PathBuf>,
     #[arg(long, short = 'v', global = true)]
     pub(crate) verbose: bool,
@@ -96,9 +101,21 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_enum, default_value_t = crate::profile::GutchProfileMode::Off)]
     pub(crate) profile: crate::profile::GutchProfileMode,
     /// Absolute report directory; required for detailed, optional for summary.
-    #[arg(long = "profile-out", global = true, value_parser = parse_absolute_path)]
+    #[arg(long = "profile-dir", global = true, value_parser = parse_cli_path)]
     pub(crate) profile_out: Option<PathBuf>,
 
+    /// Print a single structured result on stdout.
+    #[arg(long, global = true, conflicts_with = "json_lines")]
+    pub(crate) json: bool,
+    /// Stream structured events and a final summary.
+    #[arg(long, global = true)]
+    pub(crate) json_lines: bool,
+    /// Write the selected output format to a file.
+    #[arg(long, global = true, value_parser = parse_cli_path)]
+    pub(crate) output: Option<PathBuf>,
+    /// Preview the selected operation without applying changes.
+    #[arg(long, global = true)]
+    pub(crate) dry_run: bool,
     #[command(subcommand)]
     pub(crate) command: Commands,
 }
@@ -117,6 +134,10 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: InstallationCommands,
     },
+    Debug {
+        #[command(subcommand)]
+        command: DebugCommands,
+    },
     Bundle {
         #[command(subcommand)]
         command: BundleCommands,
@@ -129,47 +150,36 @@ pub(crate) enum Commands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoCommands {
-    /// Read or replace optional filename compatibility constraints.
+    /// Show or change filename compatibility constraints.
     Constraints {
-        #[arg(long, value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        /// Replace all targets. Repeat or separate values with commas.
-        #[arg(
-            long = "target",
-            value_enum,
-            value_delimiter = ',',
-            conflicts_with = "clear"
-        )]
-        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
-        /// Remove optional constraints.
-        #[arg(long)]
-        clear: bool,
+        #[command(subcommand)]
+        command: ConstraintCommands,
     },
     /// Verify artifacts and regenerate the chunk map; report only unless --publish is given.
-    RegenerateChunkMap {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+    RebuildIndex {
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long)]
         publish: bool,
-        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         json_out: Option<PathBuf>,
     },
     Init {
-        #[arg(long = "target", value_enum, value_delimiter = ',')]
+        #[arg(long = "filesystem", value_enum, value_delimiter = ',')]
         targets: Vec<crate::manifest::constraints::FilesystemTarget>,
-        #[arg(long = "path", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         path: PathBuf,
         #[arg(long = "force")]
         force: bool,
     },
     Push {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long = "yes")]
         yes: bool,
     },
     Pull {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long = "remote")]
         remote: Option<String>,
@@ -184,27 +194,11 @@ pub(crate) enum RepoCommands {
         #[command(subcommand)]
         command: RemoteCommands,
     },
-    Link {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+    Rename {
+        #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "scope-id")]
-        scope_id: String,
-    },
-    Bind {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "remote-repo-id")]
-        remote_repo_id: String,
-    },
-    Unlink {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "delete-remote")]
-        delete_remote: bool,
-    },
-    Name {
-        #[command(subcommand)]
-        command: RepoNameCommands,
+        #[arg(long)]
+        name: String,
     },
     Tags {
         #[command(subcommand)]
@@ -212,64 +206,75 @@ pub(crate) enum RepoCommands {
     },
     #[command(name = "status")]
     Status {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         json_out: Option<PathBuf>,
     },
     Verify {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: Option<String>,
         #[arg(long = "strict")]
         strict: bool,
-        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         json_out: Option<PathBuf>,
     },
-    #[command(name = "sources")]
-    Sources {
-        #[command(subcommand)]
-        command: SnapshotSourcesCommands,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum ConstraintCommands {
+    Show {
+        #[arg(long, value_parser = parse_cli_path)]
+        repo: PathBuf,
+    },
+    Set {
+        #[arg(long, value_parser = parse_cli_path)]
+        repo: PathBuf,
+        #[arg(
+            long = "filesystem",
+            value_enum,
+            value_delimiter = ',',
+            required = true
+        )]
+        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
+    },
+    Clear {
+        #[arg(long, value_parser = parse_cli_path)]
+        repo: PathBuf,
     },
 }
 
 #[derive(Subcommand)]
 pub(crate) enum RemoteCommands {
     List,
-}
-
-#[derive(Subcommand)]
-pub(crate) enum RepoNameCommands {
-    Set {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+    Create {
+        #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "name")]
-        name: String,
+        #[arg(long)]
+        scope_id: String,
+    },
+    Bind {
+        #[arg(long, value_parser = parse_cli_path)]
+        repo: PathBuf,
+        #[arg(long)]
+        remote_repo_id: String,
+    },
+    Unbind {
+        #[arg(long, value_parser = parse_cli_path)]
+        repo: PathBuf,
+        #[arg(long)]
+        delete_remote: bool,
     },
 }
 
 #[derive(Subcommand)]
 pub(crate) enum RepoTagsCommands {
     References {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "json-out", value_parser = parse_absolute_path)]
-        json_out: Option<PathBuf>,
-    },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum SnapshotSourcesCommands {
-    #[command(name = "capture")]
-    Capture {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: PathBuf,
-        #[arg(long = "source-root", value_parser = parse_absolute_path)]
-        source_root: PathBuf,
-        #[arg(long = "yes")]
-        yes: bool,
-        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         json_out: Option<PathBuf>,
     },
 }
@@ -278,23 +283,20 @@ pub(crate) enum SnapshotSourcesCommands {
 pub(crate) enum SnapshotCommands {
     /// Compare stored snapshot trees without reconstructing files.
     Diff {
-        #[arg(long, value_parser = parse_absolute_path)]
+        #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long)]
         from: String,
         #[arg(long)]
         to: String,
-        /// Emit one JSON object with path changes and signed logical byte deltas.
-        #[arg(long)]
-        json: bool,
     },
     #[command(name = "capture")]
     Capture {
-        #[arg(short, long = "source-dir", value_parser = parse_absolute_path)]
+        #[arg(short, long = "source", value_parser = parse_cli_path)]
         source_dirs: Vec<PathBuf>,
-        #[arg(long = "source-root", value_parser = parse_absolute_path)]
+        #[arg(long = "discover-from", value_parser = parse_cli_path)]
         source_root: Option<PathBuf>,
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long = "tag")]
         tags: Vec<String>,
@@ -302,24 +304,24 @@ pub(crate) enum SnapshotCommands {
         build_profile: ArtifactBuildProfileArgs,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
     },
     Delete {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
         #[arg(long = "yes")]
         yes: bool,
     },
     #[command(name = "retag")]
     Retag {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
         #[arg(long = "tag")]
         tags: Vec<String>,
@@ -327,45 +329,45 @@ pub(crate) enum SnapshotCommands {
         yes: bool,
     },
     List {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         json_out: Option<PathBuf>,
     },
     #[command(name = "reconstruct")]
     Reconstruct {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
-        #[arg(short, long, value_parser = parse_absolute_path)]
+        #[arg(short, long, value_parser = parse_cli_path)]
         destination: PathBuf,
-        #[arg(long = "staging-dir", value_parser = parse_absolute_path)]
+        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
         staging_dir: Option<PathBuf>,
-        #[arg(long = "source-snapshot-id")]
+        #[arg(long = "reuse-snapshot")]
         source_snapshot_id: Option<String>,
-        #[arg(long = "source-dir", value_parser = parse_absolute_path)]
+        #[arg(long = "reuse-from", value_parser = parse_cli_path)]
         source_dir: Option<PathBuf>,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         stats_json_out: Option<PathBuf>,
     },
     #[command(name = "fetch-reconstruct")]
     FetchReconstruct {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
-        #[arg(short, long, value_parser = parse_absolute_path)]
+        #[arg(short, long, value_parser = parse_cli_path)]
         destination: PathBuf,
-        #[arg(long = "staging-dir", value_parser = parse_absolute_path)]
+        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
         staging_dir: Option<PathBuf>,
-        #[arg(long = "source-snapshot-id")]
+        #[arg(long = "reuse-snapshot")]
         source_snapshot_id: Option<String>,
-        #[arg(long = "source-dir", value_parser = parse_absolute_path)]
+        #[arg(long = "reuse-from", value_parser = parse_cli_path)]
         source_dir: Option<PathBuf>,
-        #[arg(long = "metadata-url")]
+        #[arg(long = "snapshot-metadata-url")]
         metadata_url: String,
         #[arg(long = "product-metadata-url")]
         product_metadata_url: Option<String>,
@@ -379,31 +381,29 @@ pub(crate) enum SnapshotCommands {
         bundle_downloads_endpoint: Option<String>,
         #[arg(long = "session-id")]
         session_id: Option<String>,
-        #[arg(long = "artifact")]
+        #[arg(long = "artifact-url")]
         artifacts: Vec<String>,
-        #[arg(long = "artifact-url-manifest", value_parser = parse_absolute_path)]
+        #[arg(long = "artifact-url-manifest", value_parser = parse_cli_path)]
         artifact_url_manifest: Option<PathBuf>,
         #[command(flatten)]
         runtime: RuntimeArgs,
         #[command(flatten)]
         transfer: TransferArgs,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         stats_json_out: Option<PathBuf>,
     },
     Estimate {
-        #[arg(short, long = "source-dir", value_parser = parse_absolute_path)]
+        #[arg(short, long = "source", value_parser = parse_cli_path)]
         source_dir: PathBuf,
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
-        repo: Option<PathBuf>,
         #[arg(long = "tag")]
         tags: Vec<String>,
     },
     Fetch {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
-        #[arg(long = "metadata-url")]
+        #[arg(long = "snapshot-metadata-url")]
         metadata_url: String,
         #[arg(long = "product-metadata-url")]
         product_metadata_url: Option<String>,
@@ -417,9 +417,9 @@ pub(crate) enum SnapshotCommands {
         bundle_downloads_endpoint: Option<String>,
         #[arg(long = "session-id")]
         session_id: Option<String>,
-        #[arg(long = "artifact")]
+        #[arg(long = "artifact-url")]
         artifacts: Vec<String>,
-        #[arg(long = "artifact-url-manifest", value_parser = parse_absolute_path)]
+        #[arg(long = "artifact-url-manifest", value_parser = parse_cli_path)]
         artifact_url_manifest: Option<PathBuf>,
         #[command(flatten)]
         transfer: TransferArgs,
@@ -428,66 +428,72 @@ pub(crate) enum SnapshotCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum InstallationCommands {
-    /// Stream a read-only installation plan as JSON lines, followed by its summary.
+    /// Preview installation changes without modifying files.
     Plan {
-        #[arg(long, value_parser = parse_absolute_path)]
+        #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long)]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
-        #[arg(long, value_parser = parse_absolute_path)]
+        #[arg(long, value_parser = parse_cli_path)]
         destination: PathBuf,
-        #[arg(long, value_parser = ["selective", "replace-directory"], default_value = "selective")]
+        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
+        staging_dir: Option<PathBuf>,
+        #[arg(long = "mode", value_parser = ["selective", "replace-directory"], default_value = "selective")]
         publication: String,
-        #[arg(long)]
+        #[arg(long = "remove-extra-files")]
         remove_added_files: bool,
         #[arg(long)]
         metadata_only: bool,
-        #[arg(long)]
+        #[arg(long = "reuse-snapshot")]
         source_snapshot: Option<String>,
-        #[arg(long, value_parser = parse_absolute_path)]
+        #[arg(long = "reuse-from", value_parser = parse_cli_path)]
         source_dir: Option<PathBuf>,
         #[command(flatten)]
         runtime: RuntimeArgs,
     },
 
     Verify {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
-        #[arg(short, long, value_parser = parse_absolute_path)]
+        #[arg(short, long, value_parser = parse_cli_path)]
         destination: PathBuf,
         #[arg(long = "strict")]
         strict: bool,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         stats_json_out: Option<PathBuf>,
     },
     Repair {
-        #[arg(long = "repo", value_parser = parse_absolute_path)]
+        #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot-id")]
+        #[arg(long = "snapshot")]
         snapshot_id: String,
-        #[arg(short, long, value_parser = parse_absolute_path)]
+        #[arg(short, long, value_parser = parse_cli_path)]
         destination: PathBuf,
-        #[arg(long = "staging-dir", value_parser = parse_absolute_path)]
+        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
         staging_dir: Option<PathBuf>,
-        #[arg(long = "remove-added-files")]
+        #[arg(long = "remove-extra-files")]
         remove_added_files: bool,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
     },
-    Corrupt {
-        #[arg(short, long, value_parser = parse_absolute_path)]
+}
+
+#[derive(Subcommand)]
+pub(crate) enum DebugCommands {
+    CorruptInstallation {
+        #[arg(short, long, value_parser = parse_cli_path)]
         destination: PathBuf,
-        #[arg(long = "plan", value_parser = parse_absolute_path)]
+        #[arg(long = "plan", value_parser = parse_cli_path)]
         plan: PathBuf,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
@@ -544,7 +550,8 @@ mod tests {
         let cli = Cli::try_parse_from([
             "gutch",
             "repo",
-            "link",
+            "remote",
+            "create",
             "--repo",
             if cfg!(windows) {
                 r"D:\Repos\creator"
@@ -558,13 +565,14 @@ mod tests {
         assert!(matches!(
             cli.command,
             Commands::Repo {
-                command: RepoCommands::Link { scope_id, .. }
+                command: RepoCommands::Remote { command: RemoteCommands::Create { scope_id, .. } }
             } if scope_id == "creator-scope"
         ));
 
         let cli = Cli::try_parse_from([
             "gutch",
             "repo",
+            "remote",
             "bind",
             "--repo",
             if cfg!(windows) {
@@ -579,7 +587,7 @@ mod tests {
         assert!(matches!(
             cli.command,
             Commands::Repo {
-                command: RepoCommands::Bind { remote_repo_id, .. }
+                command: RepoCommands::Remote { command: RemoteCommands::Bind { remote_repo_id, .. } }
             } if remote_repo_id == "remote-repository"
         ));
 
@@ -629,7 +637,7 @@ mod tests {
             } else {
                 "/repos/fetched"
             },
-            "--snapshot-id",
+            "--snapshot",
             "snapshot-1",
             "--destination",
             if cfg!(windows) {
@@ -637,11 +645,11 @@ mod tests {
             } else {
                 "/installs/product"
             },
-            "--metadata-url",
+            "--snapshot-metadata-url",
             "https://objects.example/snapshot.json",
             "--blueprint-url",
             "https://objects.example/blueprint.gtcbin",
-            "--artifact",
+            "--artifact-url",
             "chunk-1=https://objects.example/chunk",
             "--transfer-policy",
             "adaptive",
@@ -696,7 +704,7 @@ mod tests {
             "verify",
             "--repo",
             repo,
-            "--snapshot-id",
+            "--snapshot",
             "snapshot-1",
             "--destination",
             destination,
@@ -715,11 +723,11 @@ mod tests {
             "repair",
             "--repo",
             repo,
-            "--snapshot-id",
+            "--snapshot",
             "snapshot-1",
             "--destination",
             destination,
-            "--remove-added-files",
+            "--remove-extra-files",
             "--yes",
         ])
         .expect("installation repair args should parse");
@@ -741,8 +749,8 @@ mod tests {
         };
         let cli = Cli::try_parse_from([
             "gutch",
-            "installation",
-            "corrupt",
+            "debug",
+            "corrupt-installation",
             "--destination",
             destination,
             "--plan",
@@ -752,8 +760,8 @@ mod tests {
         .expect("installation corrupt args should parse");
         assert!(matches!(
             cli.command,
-            Commands::Installation {
-                command: InstallationCommands::Corrupt { yes: true, .. }
+            Commands::Debug {
+                command: super::DebugCommands::CorruptInstallation { yes: true, .. }
             }
         ));
     }
@@ -762,9 +770,9 @@ mod tests {
 #[derive(Subcommand)]
 pub(crate) enum BundleCommands {
     Inspect {
-        #[arg(short, long, value_parser = parse_absolute_path)]
+        #[arg(short, long, value_parser = parse_cli_path)]
         bundle: PathBuf,
-        #[arg(short, long, value_parser = parse_absolute_path)]
+        #[arg(short, long, value_parser = parse_cli_path)]
         repo: PathBuf,
     },
 }
@@ -772,11 +780,11 @@ pub(crate) enum BundleCommands {
 #[derive(Subcommand)]
 pub(crate) enum PathCommands {
     Compare {
-        #[arg(long = "expected", value_parser = parse_absolute_path)]
+        #[arg(long = "expected", value_parser = parse_cli_path)]
         expected: PathBuf,
-        #[arg(long = "actual", value_parser = parse_absolute_path)]
+        #[arg(long = "actual", value_parser = parse_cli_path)]
         actual: PathBuf,
-        #[arg(long = "stats-json-out", value_parser = parse_absolute_path)]
+        #[arg(skip)]
         stats_json_out: Option<PathBuf>,
     },
 }
@@ -787,11 +795,16 @@ mod path_tests {
     use clap::Parser;
 
     #[test]
-    fn cli_rejects_relative_filesystem_paths() {
-        let error = Cli::try_parse_from(["gutch-cli", "repo", "status", "--repo", "relative/repo"])
-            .err()
-            .expect("relative repo path must be rejected");
-        assert!(error.to_string().contains("path must be absolute"));
+    fn cli_resolves_relative_filesystem_paths() {
+        let cli = Cli::try_parse_from(["gutch-cli", "repo", "status", "--repo", "relative/repo"])
+            .unwrap();
+        let super::Commands::Repo {
+            command: super::RepoCommands::Status { repo, .. },
+        } = cli.command
+        else {
+            panic!("expected status");
+        };
+        assert_eq!(repo, std::env::current_dir().unwrap().join("relative/repo"));
     }
 
     #[test]
@@ -806,7 +819,7 @@ mod path_tests {
     }
 
     #[test]
-    fn cli_accepts_absolute_trace_output_and_rejects_relative_output() {
+    fn cli_resolves_absolute_and_relative_profile_output() {
         let trace_path = if cfg!(windows) {
             r"D:\Artifacts\gutch.trace.json"
         } else {
@@ -817,7 +830,7 @@ mod path_tests {
             "repo",
             "remote",
             "list",
-            "--profile-out",
+            "--profile-dir",
             trace_path,
         ])
         .expect("absolute trace path");
@@ -826,16 +839,18 @@ mod path_tests {
             trace_path
         );
 
-        let error = Cli::try_parse_from([
+        let cli = Cli::try_parse_from([
             "gutch",
             "repo",
             "remote",
             "list",
-            "--profile-out",
+            "--profile-dir",
             "relative.trace.json",
         ])
-        .err()
-        .expect("relative trace path must be rejected");
-        assert!(error.to_string().contains("path must be absolute"));
+        .unwrap();
+        assert_eq!(
+            cli.profile_out.unwrap(),
+            std::env::current_dir().unwrap().join("relative.trace.json")
+        );
     }
 }

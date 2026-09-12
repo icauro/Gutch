@@ -31,8 +31,8 @@ use crate::transfer::download::build_download_client;
 use crate::transfer::download::fetch_artifact_urls;
 use crate::transfer::download::snapshot_manifest_from_download;
 use crate::transfer::download::write_repo_manifest;
-use crate::transfer::types::SnapshotDownloadAndReconstructRequest;
-use crate::transfer::types::SnapshotDownloadAndReconstructResult;
+use crate::transfer::types::SnapshotFetchAndReconstructRequest;
+use crate::transfer::types::SnapshotFetchAndReconstructResult;
 use crate::transfer::types::SnapshotFetchRequest;
 use crate::transfer::types::SnapshotFetchResult;
 
@@ -140,9 +140,9 @@ pub fn fetch_snapshot_for_artifact_ids(
     })
 }
 
-pub fn download_and_reconstruct_snapshot(
-    request: SnapshotDownloadAndReconstructRequest,
-) -> Result<SnapshotDownloadAndReconstructResult> {
+pub fn fetch_and_reconstruct_snapshot(
+    request: SnapshotFetchAndReconstructRequest,
+) -> Result<SnapshotFetchAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
     let operation_root = (&request.fetch_request.repo_path).to_path_buf();
     std::fs::create_dir_all(&operation_root)?;
@@ -257,7 +257,7 @@ pub fn download_and_reconstruct_snapshot(
                 transfer_stats,
             );
 
-            Ok(SnapshotDownloadAndReconstructResult {
+            Ok(SnapshotFetchAndReconstructResult {
                 fetch_result,
                 reconstruct_result,
             })
@@ -601,7 +601,7 @@ fn build_pending_artifact_downloads(
 }
 
 fn resolve_snapshot_source(
-    request: &SnapshotDownloadAndReconstructRequest,
+    request: &SnapshotFetchAndReconstructRequest,
     repo_paths: &crate::repo::paths::GutchRepoPaths,
 ) -> Result<ResolvedSnapshotSource> {
     let source_manifest = match request.source_snapshot_id.as_ref() {

@@ -10,11 +10,11 @@ use crate::progress::GutchOperation;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
-use crate::repo::check::RepoCheckStatus;
-use crate::repo::check::SourceSnapshotOperationCandidate;
-use crate::repo::check::check_gutch_repo;
-use crate::repo::check::discover_source_snapshot_operations;
 use crate::repo::index::scan_existing_store_state_with_pool;
+use crate::repo::status::RepoStatus;
+use crate::repo::status::SourceSnapshotOperationCandidate;
+use crate::repo::status::discover_source_snapshot_operations;
+use crate::repo::status::read_repo_status;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,7 +62,7 @@ pub fn plan_snapshot_sources_capture_with_context(
     repo_root: &Path,
     sources_path: Option<&Path>,
     candidates: Option<&[SourceSnapshotOperationCandidate]>,
-    repo_status: Option<&RepoCheckStatus>,
+    repo_status: Option<&RepoStatus>,
 ) -> Result<SnapshotSourcesCapturePlan> {
     let Some(sources_path) = normalized_sources_path(sources_path) else {
         return Ok(SnapshotSourcesCapturePlan::empty());
@@ -89,7 +89,7 @@ pub fn plan_snapshot_sources_capture_with_context(
     // IDs separately.
     // Validate the repo; stored snapshots no longer influence the plan.
     if repo_status.is_none() {
-        check_gutch_repo(repo_root)?;
+        read_repo_status(repo_root)?;
     }
 
     plan.candidate_count = candidates.len();
@@ -111,8 +111,9 @@ fn normalized_sources_path(sources_path: Option<&Path>) -> Option<std::path::Pat
 pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan) -> Vec<String> {
     let mut lines = Vec::new();
     for candidate in &plan.to_capture {
-        let tags =
-            crate::repo::snapshot_descriptor::format_snapshot_tag_summary(&candidate.snapshot_tags);
+        let tags = crate::repo::snapshot_tag_summary::format_snapshot_tag_summary(
+            &candidate.snapshot_tags,
+        );
         if candidate.error.is_some() {
             lines.push(format!(
                 "Capture new snapshot from {} (tags {}): previously reported {}",
@@ -239,11 +240,11 @@ fn capture_source_snapshot(
         control.clone()
     };
     crate::capture::execute::capture_repo_snapshot_with_existing_store_state(
-        crate::capture::execute::RepoSnapshotCaptureRequest {
+        crate::capture::execute::SnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
             source_dir: std::path::PathBuf::from(&candidate.path),
             explicit_tags: candidate.snapshot_tags.clone(),
-            chunk_profile: crate::manifest::ArtifactSizingPreset::Chunk128KiB,
+            chunk_profile: crate::manifest::ChunkSizingPreset::Chunk128KiB,
             bundle_profile: crate::manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: crate::manifest::CompressionKind::Zstd,
             compression_level: Some(3),
@@ -279,10 +280,10 @@ mod tests {
     use crate::artifact::hash::hash_hex;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
-    use crate::repo::check::discover_source_snapshot_operations;
     use crate::repo::paths::GutchRepoPaths;
     use crate::repo::paths::ensure_gutch_repo_layout;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+    use crate::repo::status::discover_source_snapshot_operations;
     use crate::snapshot::identity::format_system_time_utc;
     use std::time::Duration;
     use std::time::SystemTime;
@@ -351,7 +352,7 @@ mod tests {
 
     #[test]
     fn equal_tag_sources_plan_without_removals() {
-        use crate::repo::check::SourceSnapshotOperationDisposition;
+        use crate::repo::status::SourceSnapshotOperationDisposition;
 
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
@@ -364,7 +365,7 @@ mod tests {
             "os::windows".to_string(),
         ])
         .unwrap();
-        let candidate = |folder: &str| crate::repo::check::SourceSnapshotOperationCandidate {
+        let candidate = |folder: &str| crate::repo::status::SourceSnapshotOperationCandidate {
             path: source_root.join(folder).display().to_string(),
             folder_name: folder.to_string(),
             source_modified_at: String::new(),
@@ -391,7 +392,7 @@ mod tests {
     fn pre_scan_contracts_carry_no_snapshot_id() {
         use crate::capture::execute::SnapshotCapturePlan;
 
-        let candidate = crate::repo::check::SourceSnapshotOperationCandidate {
+        let candidate = crate::repo::status::SourceSnapshotOperationCandidate {
             path: "game-a".to_string(),
             folder_name: String::from("game-a"),
             source_modified_at: String::new(),
@@ -402,7 +403,7 @@ mod tests {
                 "version::1.0.0".to_string()
             ])
             .unwrap(),
-            disposition: crate::repo::check::SourceSnapshotOperationDisposition::Unchanged,
+            disposition: crate::repo::status::SourceSnapshotOperationDisposition::Unchanged,
             error: None,
         };
         let candidate_json = serde_json::to_value(&candidate).unwrap();

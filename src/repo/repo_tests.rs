@@ -1,5 +1,4 @@
 use super::*;
-use crate::repo::check::discover_source_snapshot_operations;
 use crate::repo::index::add_built_bundles_to_chunk_index;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::rebuild_chunk_index_from_bundles_with_pool;
@@ -17,6 +16,7 @@ use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshot
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+use crate::repo::status::discover_source_snapshot_operations;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -25,7 +25,7 @@ use crate::artifact::hash::hash_hex;
 use crate::manifest;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::repo::check::SourceSnapshotOperationDisposition;
+use crate::repo::status::SourceSnapshotOperationDisposition;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
     let mut tags = manifest::SnapshotTagSet::default();
@@ -134,7 +134,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
     )
     .unwrap();
 
-    let status = check_gutch_repo(temp.path()).unwrap();
+    let status = read_repo_status(temp.path()).unwrap();
     let hashes = status
         .snapshots
         .iter()
@@ -334,7 +334,7 @@ fn check_gutch_repo_reports_snapshots() {
     std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     std::fs::write(bundle_path, b"bundle-a").unwrap();
 
-    let status = check_gutch_repo(&repo_root).unwrap();
+    let status = read_repo_status(&repo_root).unwrap();
 
     assert!(status.exists);
     assert!(status.is_repo);
@@ -354,7 +354,7 @@ fn check_gutch_repo_treats_missing_artifact_roots_as_empty() {
     std::fs::remove_dir_all(&paths.bundles_root).unwrap();
     std::fs::remove_dir_all(&paths.chunks_root).unwrap();
 
-    let status = check_gutch_repo(temp.path()).unwrap();
+    let status = read_repo_status(temp.path()).unwrap();
 
     assert!(status.is_repo);
     assert_eq!(status.bundle_count, 0);
@@ -378,7 +378,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
     repo_manifest.set_artifact_profile(
-        manifest::ArtifactSizingPreset::Chunk128KiB,
+        manifest::ChunkSizingPreset::Chunk128KiB,
         manifest::CompressionKind::Zstd,
         Some(3),
         manifest::BundleSizingPreset::Bundle16MiB,
@@ -423,7 +423,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     };
     write_chunk_index(&paths, &index).unwrap();
 
-    let status = check_gutch_repo(temp.path()).unwrap();
+    let status = read_repo_status(temp.path()).unwrap();
     assert_eq!(status.artifact_count, 1);
     assert_eq!(status.snapshots[0].required_artifact_count, 1);
     assert_eq!(status.snapshots[0].missing_artifact_count, 0);
@@ -664,7 +664,7 @@ fn inspect_repo_shows_snapshot_tags() {
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
     crate::test_util::index_manifest(&paths, &manifest);
 
-    let status = check_gutch_repo(&root).unwrap();
+    let status = read_repo_status(&root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
     assert_eq!(status.snapshots[0].version_id, "2.0.0");

@@ -1,7 +1,7 @@
 use gutch::api::*;
 use std::fs;
 
-fn fixture() -> (tempfile::TempDir, SnapshotReconstructFromRepoRequest) {
+fn fixture() -> (tempfile::TempDir, InstallationRequest) {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source");
     fs::create_dir(&source).unwrap();
@@ -12,8 +12,8 @@ fn fixture() -> (tempfile::TempDir, SnapshotReconstructFromRepoRequest) {
     #[cfg(unix)]
     std::os::unix::fs::symlink("healthy", source.join("link")).unwrap();
     let repo = root.path().join("repo");
-    initialize_gutch_repo_with_options(&repo, RepoInitOptions::default()).unwrap();
-    let capture = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+    initialize_repo(&repo, RepoInitOptions::default()).unwrap();
+    let capture = capture_snapshot(SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source,
         explicit_tags: SnapshotTagSet::default(),
@@ -26,7 +26,7 @@ fn fixture() -> (tempfile::TempDir, SnapshotReconstructFromRepoRequest) {
         control: Default::default(),
     })
     .unwrap();
-    let request = SnapshotReconstructFromRepoRequest {
+    let request = InstallationRequest {
         repo_path: repo,
         snapshot_id: capture.snapshot_id,
         destination_dir: root.path().join("installed"),
@@ -36,7 +36,7 @@ fn fixture() -> (tempfile::TempDir, SnapshotReconstructFromRepoRequest) {
         runtime_hints: RuntimeResourceHints { jobs: Some(2) },
         control: Default::default(),
     };
-    reconstruct_snapshot_from_repo(request.clone()).unwrap();
+    reconstruct_snapshot(request.clone()).unwrap();
     (root, request)
 }
 
@@ -102,7 +102,7 @@ fn reconstruction_salvages_healthy_files_from_a_partially_damaged_source() {
     let (_root, mut request) = fixture();
     fs::write(request.destination_dir.join("damaged"), b"broken").unwrap();
     request.source_snapshot_id = Some(request.snapshot_id.clone());
-    let result = reconstruct_snapshot_from_repo(request.clone()).unwrap();
+    let result = reconstruct_snapshot(request.clone()).unwrap();
     assert!(result.reconstruct_result.reused_source_chunk_count > 0);
     assert_eq!(
         fs::read(request.destination_dir.join("damaged")).unwrap(),

@@ -1,8 +1,8 @@
 //! Source selection and batch capture shared by hosts and the CLI.
 use crate::Result;
-use crate::capture::execute::RepoSnapshotCaptureRequest;
-use crate::capture::execute::RepoSnapshotCaptureResult;
 use crate::capture::execute::SnapshotCapturePlan;
+use crate::capture::execute::SnapshotCaptureRequest;
+use crate::capture::execute::SnapshotCaptureResult;
 use crate::manifest::SnapshotTagSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -41,12 +41,17 @@ pub fn resolve_capture_sources(
         .collect()
 }
 
-pub fn plan_repo_snapshot_captures(
-    requests: &[RepoSnapshotCaptureRequest],
+pub fn plan_snapshot_captures(
+    requests: &[SnapshotCaptureRequest],
 ) -> Result<Vec<SnapshotCapturePlan>> {
     requests
         .iter()
         .map(|request| {
+            crate::manifest::profiles::validate_packaging_sizes(
+                &crate::manifest::ChunkSizingProfile::for_preset(request.chunk_profile),
+                &crate::manifest::BundleSizingProfile::for_preset(request.bundle_profile),
+                request.storage_mode,
+            )?;
             crate::capture::plan::plan_snapshot_capture_with_control(
                 &request.repo_root,
                 &request.source_dir,
@@ -58,13 +63,13 @@ pub fn plan_repo_snapshot_captures(
 }
 
 /// Validate every source first. Successful captures remain committed if a later capture fails.
-pub fn capture_repo_snapshots(
-    requests: Vec<RepoSnapshotCaptureRequest>,
-) -> Result<Vec<RepoSnapshotCaptureResult>> {
-    plan_repo_snapshot_captures(&requests)?;
+pub fn capture_snapshots(
+    requests: Vec<SnapshotCaptureRequest>,
+) -> Result<Vec<SnapshotCaptureResult>> {
+    plan_snapshot_captures(&requests)?;
     requests
         .into_iter()
-        .map(crate::capture::execute::capture_repo_snapshot)
+        .map(crate::capture::execute::capture_snapshot)
         .collect()
 }
 
@@ -80,7 +85,7 @@ fn collect_capture_sources(
                 source_root.display()
             )));
         }
-        let config = crate::snapshot::source_config::SourceConfig::load_or_create(&source_root)?;
+        let config = crate::snapshot::source_config::SourceConfig::load_or_default(&source_root)?;
         sources.extend(config.discover_snapshot_sources(&source_root)?);
     }
     for dir in explicit_dirs {

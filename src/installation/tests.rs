@@ -1,6 +1,6 @@
 use super::*;
 use crate::artifact::hash::hash_hex;
-use crate::installation::repair_snapshot_from_repo;
+use crate::installation::repair_installation;
 use crate::installation::resolve_snapshot_state;
 use crate::manifest;
 use crate::manifest::FileManifest;
@@ -173,7 +173,7 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
     let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_snapshot_from_repo(crate::installation::SnapshotRepairFromRepoRequest {
+    let result = repair_installation(crate::installation::InstallationRepairRequest {
         repo_path: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -203,7 +203,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
     let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_snapshot_from_repo(crate::installation::SnapshotRepairFromRepoRequest {
+    let result = repair_installation(crate::installation::InstallationRepairRequest {
         repo_path: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -295,8 +295,8 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     std::fs::write(destination_dir.join("game.exe"), b"bad!").unwrap();
     std::fs::write(destination_dir.join("data.bin"), b"data").unwrap();
 
-    let plan = crate::installation::repair::plan_repair_snapshot_from_repo(
-        crate::installation::SnapshotRepairPlanFromRepoRequest {
+    let plan = crate::installation::repair::plan_installation_repair(
+        crate::installation::InstallationRepairPlanRequest {
             repo_path: root.clone(),
             snapshot_id: manifest.snapshot_id.clone(),
             destination_dir: destination_dir.clone(),
@@ -328,7 +328,7 @@ fn repair_restores_manifest_file_attributes() {
     manifest.snapshot_id =
         crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
-    repair_snapshot_from_repo(crate::installation::SnapshotRepairFromRepoRequest {
+    repair_installation(crate::installation::InstallationRepairRequest {
         repo_path: root.path().to_path_buf(),
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),

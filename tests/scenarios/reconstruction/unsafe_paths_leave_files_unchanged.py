@@ -23,7 +23,7 @@ def run(case):
         blueprint.write_bytes(directory_blueprint(path))
         destination = case.payload / "installed"
         before = inventory(case.payload)
-        case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot-id", snapshot,
+        case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                      "--destination", destination, success=False)
         assert inventory(case.payload) == before
     blueprint.write_bytes(original)
@@ -34,6 +34,6 @@ def run(case):
             bad = data.root / name
             bad.write_bytes(b"must not be silently renamed")
             before = repository_inventory(repo)
-            case.command("snapshot", "capture", "--repo", repo, "--source-dir", data.root, success=False)
+            case.command("snapshot", "capture", "--repo", repo, "--source", data.root, success=False)
             assert repository_inventory(repo) == before
             bad.unlink()

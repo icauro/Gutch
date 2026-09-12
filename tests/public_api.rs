@@ -1,7 +1,7 @@
 //! Host-facing API contracts; broader CLI workflows live in Python.
 use gutch::api::{
-    Error, GutchCancellationHook, GutchOperationControl, RuntimeResourceHints,
-    SnapshotReconstructFromRepoRequest, reconstruct_snapshot_from_repo,
+    Error, GutchCancellationHook, GutchOperationControl, InstallationRequest, RuntimeResourceHints,
+    reconstruct_snapshot,
 };
 use std::sync::Arc;
 
@@ -37,8 +37,8 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     let source = root.path().join("source");
     std::fs::create_dir(&source).unwrap();
     std::fs::write(source.join("content"), b"content").unwrap();
-    initialize_gutch_repo_with_options(&repo, RepoInitOptions::default()).unwrap();
-    let captured = capture_repo_snapshot(RepoSnapshotCaptureRequest {
+    initialize_repo(&repo, RepoInitOptions::default()).unwrap();
+    let captured = capture_snapshot(SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source.clone(),
         explicit_tags: SnapshotTagSet::from_compact_strings(&["version::1.0.0".to_string()])
@@ -59,14 +59,14 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         ArtifactStorageMode::LooseChunks
     );
     let cli_repo = root.path().join("cli-repo");
-    initialize_gutch_repo_with_options(&cli_repo, RepoInitOptions::default()).unwrap();
+    initialize_repo(&cli_repo, RepoInitOptions::default()).unwrap();
     run_from_args([
         "gutch",
         "snapshot",
         "capture",
         "--repo",
         cli_repo.to_str().unwrap(),
-        "--source-dir",
+        "--source",
         source.to_str().unwrap(),
         "--yes",
         "--jobs",
@@ -76,7 +76,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         "--compression-algorithm",
         "lz4",
         "--storage-mode",
-        "loose_chunks",
+        "loose-chunks",
     ])
     .unwrap();
     let (_, cli_manifest) = load_gutch_repo_manifest(&cli_repo).unwrap();
@@ -102,7 +102,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     std::fs::remove_dir_all(&source).unwrap();
     for (repository, label) in [(repo, "api-output"), (cli_repo, "cli-output")] {
         let destination = root.path().join(label);
-        reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+        reconstruct_snapshot(InstallationRequest {
             repo_path: repository,
             snapshot_id: captured.snapshot_id.clone(),
             destination_dir: destination.clone(),
@@ -137,7 +137,7 @@ fn cancelled_reconstruction_preserves_destination_and_does_not_create_staging() 
     let staging = temporary.path().join("staging");
     std::fs::create_dir(&destination).unwrap();
     std::fs::write(destination.join("keep.txt"), b"prior installation").unwrap();
-    let result = reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+    let result = reconstruct_snapshot(InstallationRequest {
         repo_path: temporary.path().join("unused-repository"),
         snapshot_id: "a".repeat(64),
         destination_dir: destination.clone(),

@@ -6,35 +6,35 @@ mod io;
 pub(crate) mod jobs;
 pub(crate) mod plan;
 mod repair;
-mod snapshot_repo;
+mod snapshot_inputs;
 pub(crate) mod state;
 
 pub(crate) mod types;
 
-pub use apply::reconstruct_snapshot_from_repo;
-pub use apply::verify_installed_snapshot;
+pub use apply::reconstruct_snapshot;
+pub use apply::verify_installation;
 pub use corrupt::corrupt_installation;
-pub use repair::plan_repair_snapshot_from_repo;
-pub use repair::repair_snapshot_from_repo;
+pub use repair::plan_installation_repair;
+pub use repair::repair_installation;
 pub use state::resolve_snapshot_state;
 pub use types::InstallationCorruptionPlan;
 pub use types::InstallationCorruptionRequest;
+pub use types::InstallationReconstructResult;
+pub use types::InstallationRepairPlanRequest;
+pub use types::InstallationRepairPlanResult;
+pub use types::InstallationRepairRequest;
+pub use types::InstallationRepairResult;
+pub use types::InstallationRequest;
+pub use types::InstallationVerifyRequest;
+pub use types::InstallationVerifyResult;
 pub use types::ReconstructTimings;
 pub use types::ResolvedSnapshotOperationState;
-pub use types::SnapshotReconstructFromRepoRequest;
-pub use types::SnapshotReconstructFromRepoResult;
 pub use types::SnapshotReconstructResult;
-pub use types::SnapshotRepairFromRepoRequest;
-pub use types::SnapshotRepairFromRepoResult;
-pub use types::SnapshotRepairPlanFromRepoRequest;
-pub use types::SnapshotRepairPlanFromRepoResult;
 pub use types::SnapshotRepairResult;
-pub use types::SnapshotVerifyFromRepoRequest;
-pub use types::SnapshotVerifyFromRepoResult;
 
 pub(crate) mod publish;
 
-pub(crate) mod operation;
+pub(crate) mod install;
 
 pub(crate) mod preview;
 

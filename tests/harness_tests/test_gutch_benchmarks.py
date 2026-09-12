@@ -99,7 +99,7 @@ def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
             rendered = tuple(str(item) for item in command)
             self.calls.append(rendered)
             if rendered[1:4] == ("repository", "create", "filesystem"):
-                Path(rendered[rendered.index("--path") + 1]).mkdir(parents=True, exist_ok=True)
+                Path(rendered[rendered.index("--repo") + 1]).mkdir(parents=True, exist_ok=True)
             elif rendered[1:3] == ("snapshot", "restore"):
                 shutil.copytree(rendered[3], rendered[4])
             return CommandResult(rendered, 0.01, 0, "", "")
@@ -967,27 +967,27 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
             rendered = tuple(str(item) for item in command)
             self.calls.append(rendered)
             if rendered[1:3] == ("repo", "init"):
-                Path(rendered[rendered.index("--path") + 1]).mkdir(parents=True, exist_ok=True)
+                Path(rendered[rendered.index("--repo") + 1]).mkdir(parents=True, exist_ok=True)
             elif rendered[1:3] == ("snapshot", "capture"):
-                source_path = Path(rendered[rendered.index("--source-dir") + 1])
-                stats_path = Path(rendered[rendered.index("--stats-json-out") + 1])
+                source_path = Path(rendered[rendered.index("--source") + 1])
+                stats_path = Path(rendered[rendered.index("--output") + 1])
                 snapshot_id = "snapshot-1"
                 self.sources[snapshot_id] = source_path
                 stats_path.parent.mkdir(parents=True, exist_ok=True)
                 stats_path.write_text(json.dumps({"snapshot_id": snapshot_id}), encoding="utf-8")
             elif rendered[1:3] == ("snapshot", "reconstruct"):
-                snapshot_id = rendered[rendered.index("--snapshot-id") + 1]
+                snapshot_id = rendered[rendered.index("--snapshot") + 1]
                 destination = Path(rendered[rendered.index("--destination") + 1])
                 shutil.copytree(self.sources[snapshot_id], destination)
-                stats_path = Path(rendered[rendered.index("--stats-json-out") + 1])
+                stats_path = Path(rendered[rendered.index("--output") + 1])
                 stats_path.write_text(
                     json.dumps({"verify_timings": {"total_seconds": 0.25}}),
                     encoding="utf-8",
                 )
-            elif rendered[1:3] == ("installation", "corrupt"):
-                Path(rendered[rendered.index("--stats-json-out") + 1]).write_text("{}", encoding="utf-8")
+            elif rendered[1:3] == ("debug", "corrupt-installation"):
+                Path(rendered[rendered.index("--output") + 1]).write_text("{}", encoding="utf-8")
             elif rendered[1:3] == ("installation", "repair"):
-                Path(rendered[rendered.index("--stats-json-out") + 1]).write_text("{}", encoding="utf-8")
+                Path(rendered[rendered.index("--output") + 1]).write_text("{}", encoding="utf-8")
             return CommandResult(rendered, 0.01, 0, "", "")
 
     fake = FakeRunner()
@@ -1007,7 +1007,7 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
         ("repo", "init"),
         ("snapshot", "capture"),
         ("snapshot", "reconstruct"),
-        ("installation", "corrupt"),
+        ("debug", "corrupt-installation"),
         ("installation", "repair"),
     ]
     assert result.metadata["verify_invocations"] == 1
@@ -1028,21 +1028,21 @@ def test_gutch_reconstructs_latest_capture_first(tmp_path: Path) -> None:
         def run(self, command, *, description, cwd=None, env=None, expected_failure=False):
             rendered = tuple(str(item) for item in command)
             if rendered[1:3] == ("repo", "init"):
-                Path(rendered[rendered.index("--path") + 1]).mkdir(parents=True, exist_ok=True)
+                Path(rendered[rendered.index("--repo") + 1]).mkdir(parents=True, exist_ok=True)
             elif rendered[1:3] == ("snapshot", "capture"):
-                source = Path(rendered[rendered.index("--source-dir") + 1])
-                stats = Path(rendered[rendered.index("--stats-json-out") + 1])
+                source = Path(rendered[rendered.index("--source") + 1])
+                stats = Path(rendered[rendered.index("--output") + 1])
                 stats.write_text(
                     json.dumps({"snapshot_id": source.name}),
                     encoding="utf-8",
                 )
             elif rendered[1:3] == ("snapshot", "reconstruct"):
-                snapshot_id = rendered[rendered.index("--snapshot-id") + 1]
+                snapshot_id = rendered[rendered.index("--snapshot") + 1]
                 destination = Path(rendered[rendered.index("--destination") + 1])
                 self.reconstruct_order.append(snapshot_id)
                 destination.mkdir(parents=True, exist_ok=True)
                 (destination / "payload.bin").write_bytes(snapshot_id.encode("utf-8"))
-                stats = Path(rendered[rendered.index("--stats-json-out") + 1])
+                stats = Path(rendered[rendered.index("--output") + 1])
                 stats.write_text(
                     json.dumps({"verify_timings": {"total_seconds": 0.1}}),
                     encoding="utf-8",

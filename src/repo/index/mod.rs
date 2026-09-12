@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
-use super::index::binary_codec as binary;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::manifest;
@@ -47,7 +46,7 @@ fn empty_chunk_index() -> manifest::ChunkIndex {
 
 pub(crate) fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
     if paths.chunk_map_path.exists() {
-        return binary::load_chunk_index_binary(&paths.chunk_map_path);
+        return binary_codec::load_chunk_index_binary(&paths.chunk_map_path);
     }
     Ok(empty_chunk_index())
 }
@@ -348,7 +347,7 @@ pub(crate) fn write_chunk_index(
     paths: &GutchRepoPaths,
     index: &manifest::ChunkIndex,
 ) -> Result<()> {
-    binary::write_chunk_index_binary(&paths.chunk_map_path, index)
+    binary_codec::write_chunk_index_binary(&paths.chunk_map_path, index)
 }
 
 pub(crate) mod binary_codec;

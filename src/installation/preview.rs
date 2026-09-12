@@ -1,6 +1,6 @@
 //! Streamed installation change previews. Execution always reinspects its inputs.
-use super::operation::{ExtraFilePolicy, InstallationPublication};
-use super::types::SnapshotReconstructFromRepoRequest;
+use super::install::{ExtraFilePolicy, InstallationPublication};
+use super::types::InstallationRequest;
 use crate::{Error, Result};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
@@ -54,7 +54,7 @@ pub struct InstallationPlanSummary {
 /// Inspect without changing the installation. Target entries, extras, and artifacts are each delivered in path/ID order.
 /// This is a preview, not a persisted authorization to execute a stale plan.
 pub fn visit_installation_plan(
-    request: &SnapshotReconstructFromRepoRequest,
+    request: &InstallationRequest,
     publication: InstallationPublication,
     extra_files: ExtraFilePolicy,
     inspection: InstallationInspection,
@@ -74,7 +74,7 @@ pub fn visit_installation_plan(
             request.staging_dir.as_deref(),
             &request.repo_path,
         )?;
-        let (paths, target) = super::snapshot_repo::load_repo_snapshot_manifest(
+        let (paths, target) = super::snapshot_inputs::load_repo_snapshot_manifest(
             &request.repo_path,
             &request.snapshot_id,
         )?;
@@ -94,8 +94,11 @@ pub fn visit_installation_plan(
             None,
         )?;
         let classification = &changes.classification;
-        let metadata_paths: HashSet<_> =
-            changes.metadata_updates.iter().map(|entry| entry.path()).collect();
+        let metadata_paths: HashSet<_> = changes
+            .metadata_updates
+            .iter()
+            .map(|entry| entry.path())
+            .collect();
         let missing: HashSet<_> = classification
             .missing_files
             .iter()

@@ -28,10 +28,10 @@ pub(crate) fn compare(
     )?;
 
     if stats.compare_passed {
-        println!(
+        crate::cli::output::line(format_args!(
             "binary compare passed: {} matched, {} expected files",
             stats.matched_file_count, stats.expected_file_count
-        );
+        ));
     } else {
         eprintln!(
             "binary compare failed: mismatched={}, missing={}, extra={}",

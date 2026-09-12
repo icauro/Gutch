@@ -57,7 +57,7 @@ repair translate to these presets:
 | Preset | Publication | Extra entries |
 |---|---|---|
 | Reconstruction | Complete staged directory replacement | Removed with the previous tree |
-| Repair | Replace only missing/corrupt entries; update matching content's supported metadata in place | Preserved by default; remove with `--remove-added-files` |
+| Repair | Replace only missing/corrupt entries; update matching content's supported metadata in place | Preserved by default; remove with `--remove-extra-files` |
 
 Complete replacement with preserve-extras is rejected before installation writes.
 Call selective publication when preserving extras. Healthy files retain their

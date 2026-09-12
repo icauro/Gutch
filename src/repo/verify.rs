@@ -8,7 +8,7 @@ use crate::artifact::bundle;
 use crate::installation::inspect::VerifyMode;
 use crate::repo::artifacts::ArtifactRef;
 
-use super::check_gutch_repo;
+use super::read_repo_status;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::GutchRepoPaths;
@@ -17,17 +17,17 @@ use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoVerifyResult {
+pub struct RepoArtifactVerifyResult {
     pub ok: bool,
     pub mode: String,
     pub snapshot_count: usize,
     pub snapshots_ok: usize,
-    pub snapshots: Vec<SnapshotVerifyResult>,
+    pub snapshots: Vec<SnapshotArtifactVerifyResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotVerifyResult {
+pub struct SnapshotArtifactVerifyResult {
     pub snapshot_id: String,
     pub ok: bool,
     pub check_passed: bool,
@@ -48,10 +48,10 @@ pub fn verify_gutch_repo_artifacts(
     repo_root: &Path,
     snapshot_id: Option<&str>,
     mode: VerifyMode,
-) -> Result<RepoVerifyResult> {
+) -> Result<RepoArtifactVerifyResult> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::read(&operation_root, || {
-        let check = check_gutch_repo(repo_root)?;
+        let check = read_repo_status(repo_root)?;
         if !check.is_repo {
             return Err(Error::manifest(format!(
                 "no gutch repo found at {}",
@@ -100,7 +100,7 @@ pub fn verify_gutch_repo_artifacts(
         let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
         let ok = snapshots_ok == snapshots.len();
 
-        Ok(RepoVerifyResult {
+        Ok(RepoArtifactVerifyResult {
             ok,
             mode: mode.as_str().to_string(),
             snapshot_count: snapshots.len(),
@@ -116,7 +116,7 @@ pub(crate) fn verify_snapshot_artifacts(
     compression_profile: &crate::manifest::CompressionProfile,
     snapshot_id: &str,
     mode: VerifyMode,
-) -> Result<SnapshotVerifyResult> {
+) -> Result<SnapshotArtifactVerifyResult> {
     verify_snapshot_artifacts_cached(
         repo_paths,
         chunk_index,
@@ -134,7 +134,7 @@ fn verify_snapshot_artifacts_cached(
     snapshot_id: &str,
     mode: VerifyMode,
     verified: &mut std::collections::HashMap<ArtifactRef, std::result::Result<(), String>>,
-) -> Result<SnapshotVerifyResult> {
+) -> Result<SnapshotArtifactVerifyResult> {
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let required_artifacts =
         crate::repo::artifacts::required_artifacts(&snapshot_manifest, chunk_index)?;
@@ -193,7 +193,7 @@ fn verify_snapshot_artifacts_cached(
     let check_passed = missing_artifacts.is_empty();
     let ok = check_passed && corrupt_artifacts.is_empty();
 
-    Ok(SnapshotVerifyResult {
+    Ok(SnapshotArtifactVerifyResult {
         snapshot_id: snapshot_id.to_string(),
         ok,
         check_passed,

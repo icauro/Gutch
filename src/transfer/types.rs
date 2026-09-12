@@ -1,4 +1,4 @@
-use crate::installation::types::SnapshotReconstructFromRepoResult;
+use crate::installation::types::InstallationReconstructResult;
 use crate::progress::GutchOperationControl;
 use crate::runtime::RuntimeResourceHints;
 use serde::{Deserialize, Serialize};
@@ -121,7 +121,7 @@ pub struct SnapshotFetchResult {
 }
 
 #[derive(Clone)]
-pub struct SnapshotDownloadAndReconstructRequest {
+pub struct SnapshotFetchAndReconstructRequest {
     pub fetch_request: SnapshotFetchRequest,
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
@@ -131,7 +131,7 @@ pub struct SnapshotDownloadAndReconstructRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotDownloadAndReconstructResult {
+pub struct SnapshotFetchAndReconstructResult {
     pub fetch_result: SnapshotFetchResult,
-    pub reconstruct_result: SnapshotReconstructFromRepoResult,
+    pub reconstruct_result: InstallationReconstructResult,
 }

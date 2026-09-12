@@ -14,12 +14,12 @@ def run(case):
     for compression, storage, chunking in [("none", "bundled", "chunk_16KiB"), ("lz4", "bundled", "chunk_1MiB"), ("zstd", "loose_chunks", "chunk_128KiB")]:
         label = f"{compression}-{storage}"
         repo = case.init(label)
-        captured = case.capture(repo, data.root, "--compression-algorithm", compression, "--storage-mode", storage, "--chunk-profile", chunking)
+        captured = case.capture(repo, data.root, "--compression-algorithm", compression, "--storage-mode", storage.replace("_", "-"), "--chunk-preset", chunking.removeprefix("chunk_"))
         identities.add(captured["snapshot_id"])
         chunk_counts.add(captured["required_chunk_count"])
         blueprint = repo / "snapshots" / captured["snapshot_id"] / "snapshot_blueprint.gtcbin"
         before = blueprint.read_bytes()
-        again = case.capture(repo, data.root, "--chunk-profile", "chunk_32KiB", "--compression-algorithm", compression, "--storage-mode", storage)
+        again = case.capture(repo, data.root, "--chunk-preset", "32KiB", "--compression-algorithm", compression, "--storage-mode", storage.replace("_", "-"))
         assert again["snapshot_id"] == captured["snapshot_id"]
         assert again["generated_bundle_count"] == 0
         assert blueprint.read_bytes() == before

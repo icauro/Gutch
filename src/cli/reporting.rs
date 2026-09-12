@@ -24,11 +24,11 @@ fn duration_sum(values: &[std::time::Duration]) -> std::time::Duration {
 }
 
 fn print_section_title(title: &str) {
-    println!("== {} ==", title);
+    crate::cli::output::line(format_args!("== {} ==", title));
 }
 
 fn print_metric_line(label: &str, value: impl std::fmt::Display) {
-    println!("  {label:<22} {value}");
+    crate::cli::output::line(format_args!("  {label:<22} {value}"));
 }
 
 const TABLE_PHASE_WIDTH: usize = 24;
@@ -51,13 +51,13 @@ fn fit_table_cell(value: &str, width: usize) -> String {
 }
 
 fn print_table_border() {
-    println!(
+    crate::cli::output::line(format_args!(
         "  +{}+{}+{}+{}+",
         "-".repeat(TABLE_PHASE_WIDTH + 2),
         "-".repeat(TABLE_SECONDS_WIDTH + 2),
         "-".repeat(TABLE_BYTES_WIDTH + 2),
         "-".repeat(TABLE_THROUGHPUT_WIDTH + 2),
-    );
+    ));
 }
 
 fn print_table_header(seconds_label: &str) {
@@ -66,13 +66,13 @@ fn print_table_header(seconds_label: &str) {
     let seconds = fit_table_cell(seconds_label, TABLE_SECONDS_WIDTH);
     let bytes = fit_table_cell("bytes", TABLE_BYTES_WIDTH);
     let throughput = fit_table_cell("throughput", TABLE_THROUGHPUT_WIDTH);
-    println!(
+    crate::cli::output::line(format_args!(
         "  | {phase:<phase_width$} | {seconds:>seconds_width$} | {bytes:<bytes_width$} | {throughput:>throughput_width$} |",
         phase_width = TABLE_PHASE_WIDTH,
         seconds_width = TABLE_SECONDS_WIDTH,
         bytes_width = TABLE_BYTES_WIDTH,
         throughput_width = TABLE_THROUGHPUT_WIDTH,
-    );
+    ));
     print_table_border();
 }
 
@@ -95,13 +95,13 @@ fn print_table_row(
     let seconds = fit_table_cell(&seconds, TABLE_SECONDS_WIDTH);
     let bytes = fit_table_cell(&bytes, TABLE_BYTES_WIDTH);
     let throughput = fit_table_cell(&throughput, TABLE_THROUGHPUT_WIDTH);
-    println!(
+    crate::cli::output::line(format_args!(
         "  | {phase:<phase_width$} | {seconds:>seconds_width$} | {bytes:<bytes_width$} | {throughput:>throughput_width$} |",
         phase_width = TABLE_PHASE_WIDTH,
         seconds_width = TABLE_SECONDS_WIDTH,
         bytes_width = TABLE_BYTES_WIDTH,
         throughput_width = TABLE_THROUGHPUT_WIDTH,
-    );
+    ));
     print_table_border();
 }
 
@@ -127,20 +127,26 @@ pub(crate) fn print_profile_summary(profile: Option<&crate::profile::GutchProfil
             spans.iter().map(|span| span.total_seconds).sum::<f64>()
         ),
     );
-    println!("  +--------------------------------------+----------+------------+------------+");
-    println!(
+    crate::cli::output::line(format_args!(
+        "  +--------------------------------------+----------+------------+------------+"
+    ));
+    crate::cli::output::line(format_args!(
         "  | {:<36} | {:>8} | {:>10} | {:>10} |",
         "span", "count", "sum", "max"
-    );
-    println!("  +--------------------------------------+----------+------------+------------+");
+    ));
+    crate::cli::output::line(format_args!(
+        "  +--------------------------------------+----------+------------+------------+"
+    ));
     for span in spans.into_iter().take(24) {
         let name = fit_table_cell(&span.name, 36);
-        println!(
+        crate::cli::output::line(format_args!(
             "  | {:<36} | {:>8} | {:>9.3} s | {:>9.3} s |",
             name, span.count, span.total_seconds, span.maximum_seconds
-        );
+        ));
     }
-    println!("  +--------------------------------------+----------+------------+------------+");
+    crate::cli::output::line(format_args!(
+        "  +--------------------------------------+----------+------------+------------+"
+    ));
     print_metric_line(
         "sampled jobs",
         "job durations are samples; nested spans overlap",
@@ -627,11 +633,6 @@ pub(crate) fn write_stats_json_output<T: Serialize>(
     stats: &T,
     profile: Option<&crate::profile::GutchProfiler>,
 ) -> crate::api::Result<()> {
-    let Some(stats_json_out) = stats_json_out else {
-        return Ok(());
-    };
-
-    ensure_parent_directory(stats_json_out)?;
     let mut value = serde_json::to_value(stats)?;
     let mode = profile.map(|p| p.mode()).unwrap_or_default();
     if mode != crate::profile::GutchProfileMode::Detailed {
@@ -639,7 +640,11 @@ pub(crate) fn write_stats_json_output<T: Serialize>(
     }
     value["profiling_mode"] = serde_json::to_value(mode)?;
     let json = serde_json::to_string_pretty(&value)?;
-    std::fs::write(stats_json_out, json)?;
+    crate::cli::output::record(&value)?;
+    if let Some(stats_json_out) = stats_json_out {
+        ensure_parent_directory(stats_json_out)?;
+        std::fs::write(stats_json_out, json)?;
+    }
     Ok(())
 }
 

@@ -20,6 +20,21 @@ targets 128 KiB chunks, and the default bundle sizing preset targets 8 MiB
 bundles. Runtime and benchmark overrides still use the same profile and build
 pipeline.
 
+Chunk-average presets cover every power of two: `512B`, `1KiB`, `2KiB`,
+`4KiB`, `8KiB`, `16KiB`, `32KiB`, `64KiB`, `128KiB`, `256KiB`, `512KiB`,
+`1MiB`, `2MiB`, and `4MiB`. CLI selection uses `--chunk-preset 128KiB` and
+`--bundle-preset 8MiB`. Persisted names remain `chunk_128KiB` and `bundle_8MiB`;
+all binary formats remain v1.
+
+The chunker minimum is average / 4 and maximum is average * 4 (up to 16 MiB).
+Empty files and short final chunks remain valid. A bundle's encoded maximum is
+twice its target, including framing and table bytes. Bundled captures require
+the maximum raw chunk to be strictly smaller than that bound: a 4 MiB average
+needs at least a 16 MiB bundle target; a 2 MiB average needs at least 8 MiB.
+Invalid pairs fail before capture mutates the repository. Compression expansion
+still faces the encoded limit; an indivisible oversized encoded chunk fails
+rather than exceeding it. Loose storage ignores the bundle pairing constraint.
+
 The current compression adapters are:
 
 | Algorithm | Accepted explicit levels | Default level | Output |

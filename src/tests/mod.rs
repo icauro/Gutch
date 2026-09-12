@@ -1,10 +1,10 @@
 use crate::capture::pipeline::build_from_directory;
-use crate::installation::SnapshotReconstructFromRepoRequest;
+use crate::installation::InstallationRequest;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory;
-use crate::installation::reconstruct_snapshot_from_repo;
+use crate::installation::reconstruct_snapshot;
 use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
@@ -107,7 +107,7 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     .unwrap();
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
-    let result = reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+    let result = reconstruct_snapshot(InstallationRequest {
         repo_path: repo_dir,
         snapshot_id: v2.snapshot_manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -363,7 +363,7 @@ fn test_large_game_build_200mb() {
     let t2 = Instant::now();
     let out_dir = test_util::temp_path("gutch_test_200mb_reconstructed");
     let _ = std::fs::remove_dir_all(&out_dir);
-    reconstruct_snapshot_from_repo(SnapshotReconstructFromRepoRequest {
+    reconstruct_snapshot(InstallationRequest {
         repo_path: repo_root.clone(),
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         destination_dir: out_dir.clone(),

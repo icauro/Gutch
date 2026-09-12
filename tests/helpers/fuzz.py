@@ -10,7 +10,7 @@ from tests.helpers.cli import execute, REPOSITORY
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", choices=("binary_decoders", "bundle_roundtrip", "blueprint_roundtrip", "all"), default="all")
+    parser.add_argument("--filesystem", choices=("binary_decoders", "bundle_roundtrip", "blueprint_roundtrip", "all"), default="all")
     parser.add_argument("--seconds", type=int, default=30)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--rustc-bootstrap", action="store_true", help="Enable compiler instrumentation on the installed stable toolchain")

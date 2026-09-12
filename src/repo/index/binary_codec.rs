@@ -306,7 +306,11 @@ mod tests {
             (1, 100, u32::MAX - 1),
             (1, 116, 0),
             (1, 124, 0),
-            (1, 124, 4 * 1024 * 1024 + 1),
+            (
+                1,
+                124,
+                crate::artifact::format::MAX_RAW_CHUNK_SIZE as u32 + 1,
+            ),
         ] {
             let mut invalid = groups.clone();
             invalid[group][offset..offset + 4].copy_from_slice(&value.to_le_bytes());

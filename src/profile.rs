@@ -571,7 +571,7 @@ fn overview_marker(name: &str) -> bool {
     matches!(
         name,
         "cli.command"
-            | "repo.check"
+            | "repo.status"
             | "transfer.concurrency"
             | "operation.progress"
             | "transfer.fetch"
