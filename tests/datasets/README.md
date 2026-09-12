@@ -26,9 +26,7 @@ fit within 16 MiB, including source versions, repository and JSON metadata.
 They cover tiny and empty inputs, chunk boundaries, duplicates, compressibility,
 random content, Unicode, nesting, attributes, version changes and many small files.
 Generation settings and exact fuzzer input bytes live in `case.json`; there is no
-separate recipe directory. `legacy_reference` preserves the previous four-snapshot
-fixture and its original inventories, whose source files and exact creator commit
-were not retained. It is an additional historical case, not one of the ten generated cases.
+separate recipe directory.
 
 Blender uses the same schema, but only its repository and metadata are committed.
 Its full Windows 5.2.0 and 5.2.1 releases are frozen together (about 528 MiB encoded).

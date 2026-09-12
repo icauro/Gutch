@@ -27,7 +27,7 @@ def _add_product_arguments(parser):
     from tests.datasets.generate import case_names
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--product", type=Path)
-    selection.add_argument("--dataset", choices=[name for name in case_names() if name != "legacy_reference"],
+    selection.add_argument("--dataset", choices=case_names(),
                            help="Use a prepared corpus source without downloading or rebuilding repositories")
 
 
