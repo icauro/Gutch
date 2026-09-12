@@ -165,7 +165,9 @@ For stage-by-stage execution details, see [`04_scan_pipeline.md`](04_scan_pipeli
 
 Run `python tests/benchmarks/binary_layout_experiment.py --repetitions 7` from
 the Gutch root to compare production column-group codecs against a whole-group
-baseline. The driver builds release tests, measures warm encode/decode and map
+baseline. Its native measurement code lives in
+`tests/benchmarks/binary_layout_native.rs`, compiled only into Rust tests.
+The driver builds release tests, measures warm encode/decode and map
 lookups, samples process RSS, and records file-read timings. Linux also requests
 page-cache eviction for a separate I/O measurement; hardware caches are not
 controlled. Results live in `tests/.artifacts/binary-layouts/`. The comparison

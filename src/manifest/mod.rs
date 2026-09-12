@@ -53,3 +53,7 @@ pub use tags::StructuredVersion;
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/benchmarks/binary_layout_native.rs"]
+mod binary_layout_benchmark;

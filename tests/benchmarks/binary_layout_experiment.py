@@ -24,7 +24,7 @@ def main():
     output = ROOT / "tests/.artifacts/binary-layouts"
     output.mkdir(parents=True, exist_ok=True)
     with (output / "native.log").open("w", encoding="utf-8") as log:
-        process = subprocess.Popen([executable, "manifest::columnar::tests::native_corpus_layout_comparison", "--exact", "--nocapture"], cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT)
+        process = subprocess.Popen([executable, "manifest::binary_layout_benchmark::native_corpus_layout_comparison", "--exact", "--nocapture"], cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT)
         measured = psutil.Process(process.pid)
         peak = 0
         while process.poll() is None:
