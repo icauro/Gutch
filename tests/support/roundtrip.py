@@ -1,5 +1,5 @@
 """Capture and independently compare filesystem metadata."""
-from .datasets import basic, metadata
+from tests.datasets.trees import basic, metadata
 from .filesystem import remove_owned
 
 

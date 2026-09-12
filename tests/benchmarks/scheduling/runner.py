@@ -69,8 +69,8 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
             summary[case.label] = metrics
         layout.write_json(layout.root / 'summary.json', summary)
         if on_run_complete: on_run_complete(results)
-        layout.write_manifest('passed', current_case=None)
-        if fixture.delete_artifacts and not keep_artifacts: layout.remove_payloads()
+        layout.write_manifest('passed', current_case=None, cleanup_complete=False)
+        layout.finish(keep=keep_artifacts or not fixture.delete_artifacts)
     except BaseException as error:
         layout.write_manifest('cancelled' if isinstance(error, KeyboardInterrupt) else 'failed', error=str(error))
         raise

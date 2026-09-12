@@ -62,7 +62,8 @@ def test_clean_keeps_failed_payloads_and_successful_reports(tmp_path, monkeypatc
         payload = root / "cases/repository/example/payload"
         payload.mkdir(parents=True)
         (payload / "source.bin").write_bytes(b"evidence")
-        (root / "run.json").write_text(json.dumps({"status": status, "cases": [{"evidence": "cases/repository/example"}]}))
+        (root / "run.json").write_text(json.dumps({"status": status, "cases": [
+            {"name": "repository/example", "status": status, "evidence": "cases/repository/example"}]}))
     assert runner.clean() == 0
     for status in ("passed", "failed", "running"):
         root = tmp_path / "tests/.artifacts/runs/gutch" / status

@@ -4,7 +4,7 @@ Expected: The operation fails and installed content remains unchanged; unsupport
 explicitly skip.
 """
 import unittest
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 from tests.support.filesystem import inventory
 
 

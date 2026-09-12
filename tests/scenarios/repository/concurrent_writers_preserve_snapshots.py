@@ -4,7 +4,7 @@ Expected: Both committed snapshots remain reconstructible with their exact origi
 """
 import json
 from tests.support.cli import start_process, REPOSITORY
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 from tests.support.process import stop_process
 
 

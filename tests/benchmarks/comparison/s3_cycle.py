@@ -166,7 +166,11 @@ def run_s3_cycle(
             backup_seconds += elapsed
             captures.append((source.name, _snapshot_id(stats)))
             traces["capture"].append(str(trace_path))
-        prefix = f"{options.prefix_root}/{run_root.name}/{lane_spec.label}"
+        from uuid import uuid4
+        from ..support.s3 import delete_published_prefix
+        prefix = f"{options.prefix_root}/{run_root.name}/{lane_spec.label}/{uuid4().hex}"
+        layout.cleanup_actions.append(lambda prefix=prefix: delete_published_prefix(client, settings, prefix))
+        layout.write_json(lane.root / "publication.json", {"bucket": settings.bucket, "prefix": prefix})
         if on_step is not None:
             on_step(f"{lane_spec.label} publishing repository to S3")
         upload_started = time.perf_counter()
@@ -207,7 +211,9 @@ def run_s3_cycle(
                 name,
             )
             fetch_seconds += elapsed
-            verify_seconds += _verify_seconds(stats)
+            measured_verify_seconds = _verify_seconds(stats)
+            verify_seconds = (verify_seconds + measured_verify_seconds
+                              if verify_seconds is not None and measured_verify_seconds is not None else None)
             traces["fetch_reconstruct"].append(str(trace_path))
             fetch_records.append((name, snapshot_id, fetched_repo, destination))
             source = next(source for source, source_name in entries if source_name == name)

@@ -20,6 +20,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run python gutch.py test --suite fast
       - run: uv run python gutch.py test --suite local
+      - run: uv run python gutch.py test --seed 456 --steps 8 --storage loose_chunks --compression lz4 --mutations 12
       - if: runner.os == 'Linux'
         run: uv run python gutch.py test --suite s3
       - uses: actions/upload-artifact@v4

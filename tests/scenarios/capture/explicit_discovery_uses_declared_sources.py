@@ -3,7 +3,7 @@
 Expected: Only the declared source is captured, its tags match, and its output is exact.
 """
 import json
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 
 
 def run(case):

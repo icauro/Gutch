@@ -8,6 +8,8 @@ from pathlib import Path
 import shutil
 import stat
 
+from tools.artifacts import remove_owned
+
 
 def write_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -18,7 +20,9 @@ def write_json(path: Path, value) -> None:
 
 def inventory(root: Path) -> dict:
     entries = {}
-    for directory, directories, files in os.walk(root, followlinks=False):
+    def fail(error):
+        raise error
+    for directory, directories, files in os.walk(root, followlinks=False, onerror=fail):
         for name in sorted(directories + files):
             path = Path(directory) / name
             relative = path.relative_to(root).as_posix()
@@ -46,27 +50,6 @@ def assert_tree(expected: dict, actual: Path, evidence: Path) -> None:
     differences += [f"different: {p}" for p in sorted(expected.keys() & observed.keys()) if expected[p] != observed[p]]
     write_json(evidence, {"passed": actual.is_dir() and not differences, "differences": differences})
     assert actual.is_dir() and not differences, f"tree mismatch at {actual}: {differences[:10]}"
-
-
-def remove_owned(path: Path, owner: Path) -> None:
-    # Validate the resolved target before recursive deletion; never follow a root link.
-    owner = owner.resolve()
-    if path.is_symlink():
-        assert path.parent.resolve().is_relative_to(owner)
-        path.unlink()
-        return
-    target = path.resolve()
-    if target == owner or not target.is_relative_to(owner):
-        raise ValueError(f"cleanup target is not a child of its owner: {path}")
-    if not target.exists():
-        return
-    for directory, directories, files in os.walk(target, followlinks=False):
-        for name in directories + files:
-            child = Path(directory) / name
-            if not child.is_symlink():
-                child.chmod(child.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
-    target.chmod(target.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
-    shutil.rmtree(target)
 
 
 def repository_inventory(root: Path) -> dict:

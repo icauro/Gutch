@@ -59,6 +59,24 @@ class S3Client(Protocol):
     def generate_presigned_url(self, client_method: str, Params: dict[str, str], ExpiresIn: int) -> str: ...
 
 
+def delete_published_prefix(client: S3Client, settings: S3Settings, prefix: str) -> None:
+    """Remove a run's newly allocated UUID namespace, never a bucket or caller prefix."""
+    import re
+    if not re.fullmatch(r".+/[0-9a-f]{32}", prefix):
+        raise ValueError("cleanup requires a run-owned UUID prefix")
+    prefix = prefix.rstrip("/") + "/"
+    while True:
+        objects = client.list_objects_v2(Bucket=settings.bucket, Prefix=prefix, MaxKeys=1000).get("Contents", [])
+        if not objects:
+            return
+        keys = [item["Key"] for item in objects]
+        if not all(key.startswith(prefix) for key in keys):
+            raise ValueError("storage returned an object outside the owned prefix")
+        result = client.delete_objects(Bucket=settings.bucket, Delete={"Objects": [{"Key": key} for key in keys]})
+        if result.get("Errors"):
+            raise RuntimeError(f"S3 cleanup failed for prefix {prefix}: {result['Errors']}")
+
+
 def make_client(settings: S3Settings) -> S3Client:
     try:
         import boto3

@@ -1,5 +1,5 @@
 """Shared correctness operations for HTTP and S3 delivery scenarios."""
-from .datasets import delivery
+from tests.datasets.trees import delivery
 from .delivery import fetch_arguments
 from .filesystem import repository_inventory as inventory
 

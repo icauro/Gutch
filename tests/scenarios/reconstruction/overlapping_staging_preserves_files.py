@@ -4,7 +4,7 @@ parent.
 Expected: Overlap fails without mutation; disjoint staging works and preserves preexisting
 files.
 """
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 from tests.support.filesystem import inventory
 
 

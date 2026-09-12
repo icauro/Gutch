@@ -4,7 +4,7 @@ content, using different chunking settings for repair.
 Expected: Missing artifacts are rebuilt; identical content keeps its ID and both outputs
 reconstruct correctly.
 """
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 
 
 def run(case):

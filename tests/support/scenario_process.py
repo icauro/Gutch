@@ -36,10 +36,10 @@ def run_worker(mode, module, case, environment, timeout):
         raise
 
 
-def run_scenario(module, case, environment, *, keep_artifacts=False):
+def run_scenario(module, case, environment, *, keep_artifacts=False, timeout=SCENARIO_TIMEOUT_SECONDS):
     started = time.monotonic()
     try:
-        code = run_worker("scenario", module, case, environment, SCENARIO_TIMEOUT_SECONDS)
+        code = run_worker("scenario", module, case, environment, timeout)
         result_path = case.root / "worker-result.json"
         if code != 0 or not result_path.is_file():
             result = {"status": "failed", "reason": f"scenario process exited with {code}; see scenario.log"}
@@ -47,7 +47,7 @@ def run_scenario(module, case, environment, *, keep_artifacts=False):
             result = json.loads(result_path.read_text(encoding="utf-8"))
     except subprocess.TimeoutExpired:
         result = {"status": "failed", "timed_out": True,
-                  "reason": f"scenario exceeded {SCENARIO_TIMEOUT_SECONDS} seconds; see scenario.log and commands/"}
+                  "reason": f"scenario exceeded {timeout} seconds; see scenario.log and commands/"}
     result["seconds"] = round(time.monotonic() - started, 3)
     if result["status"] in {"passed", "skipped"}:
         cleanup_started = time.monotonic()
@@ -80,6 +80,7 @@ def main():
         result = {"status": "failed", "reason": str(error) or f"{type(error).__name__}: see failure.txt"}
         (case.root / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
     result["checks"] = case.checks
+    result["details"] = case.details
     write_json(case.root / "worker-result.json", result)
 
 

@@ -28,6 +28,8 @@ JSON in that directory. Numbered command logs show which operation failed.
 Run `python gutch.py replay <case-directory>` to rerun the same scenario in a
 fresh workspace. The command reports source changes since the original run.
 It does not overwrite the original failure or automatically check out old code.
+Repository lifecycle failures also retain the selected original input, independent
+expectations when provided, and the seed and operation sequence for generated data.
 Timing-dependent failures may need more than one replay; this is scenario replay,
 not a recorded operating-system schedule.
 
@@ -38,6 +40,7 @@ not a recorded operating-system schedule.
 | Engine implementation and unit tests | `src/` |
 | Public Rust API contracts | `tests/*.rs` |
 | CLI behavior and repository regressions | `tests/scenarios/<behavior>/` |
+| Shared repository guarantees across all dataset types | `tests/repository_suite.py` |
 | Frozen repositories and independent expectations | `tests/fixtures/repositories/` |
 | Deterministic dataset generator and recipes | `tests/datasets/` |
 | Performance comparisons and storage measurements | `tests/benchmarks/` |

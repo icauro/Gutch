@@ -99,7 +99,11 @@ class CommandRunner:
         step_wait_seconds: float = 0.0,
         on_step: Callable[[str], None] | None = None,
         memory_profile: bool = False,
+        timeout_seconds: float | None = None,
     ):
+        self.timeout_seconds = float(timeout_seconds if timeout_seconds is not None else os.environ.get("GUTCH_BENCHMARK_TIMEOUT_SECONDS", "900"))
+        if not 0 < self.timeout_seconds < float("inf"):
+            raise ValueError("benchmark command timeout must be finite and positive")
         self.memory_profile = memory_profile
         self.progress = progress
         self.stream = stream or sys.stderr
@@ -152,11 +156,16 @@ class CommandRunner:
                 if self.evidence_directory is not None else None}
         try:
             stdout, stderr, returncode = self._run_streamed(
-                rendered, cwd=cwd, env=process_env, **memory_options,
+                rendered, cwd=cwd, env=process_env, timeout_seconds=self.timeout_seconds, **memory_options,
                 on_output=on_output or (lambda line, is_stderr: None),
             )
-        except BaseException:
+        except BaseException as error:
             progress.finish(False)
+            if self.evidence_directory is not None:
+                self.evidence_directory.mkdir(parents=True, exist_ok=True)
+                (self.evidence_directory / "command-failure.json").write_text(json.dumps({
+                    "operation": description, "error": redact_output(str(error)),
+                    "timeout_seconds": self.timeout_seconds}), encoding="utf-8")
             raise
         result = CommandResult(
             command=tuple(_redact(item) for item in rendered),
@@ -198,6 +207,7 @@ class CommandRunner:
         on_output: Callable[[str, bool], None],
         memory: dict | None = None,
         memory_timeline: Path | None = None,
+        timeout_seconds: float = 900,
     ) -> tuple[str, str, int]:
         process = subprocess.Popen(
             rendered,
@@ -247,9 +257,16 @@ class CommandRunner:
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
         closed_streams = 0
+        deadline = time.monotonic() + timeout_seconds
         try:
             while closed_streams < len(threads):
-                is_stderr, line = events.get()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(tuple(_redact(item) for item in rendered), timeout_seconds)
+                try:
+                    is_stderr, line = events.get(timeout=remaining)
+                except queue.Empty:
+                    raise subprocess.TimeoutExpired(tuple(_redact(item) for item in rendered), timeout_seconds) from None
                 if line is None:
                     closed_streams += 1
                     continue
@@ -257,7 +274,7 @@ class CommandRunner:
                     raise line
                 (stderr_lines if is_stderr else stdout_lines).append(line)
                 on_output(line, is_stderr)
-            returncode = process.wait()
+            returncode = process.wait(timeout=max(0.001, deadline - time.monotonic()))
         except BaseException:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)

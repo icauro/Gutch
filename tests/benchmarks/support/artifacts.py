@@ -9,6 +9,9 @@ import re
 import time
 
 from .filesystem import remove_tree
+from tools.artifacts import compact_success, prune_successful_runs
+from tools.artifacts import remove_owned
+import tempfile
 
 
 def safe_component(value: str) -> str:
@@ -52,6 +55,7 @@ class LaneLayout:
 @dataclass
 class RunLayout:
     root: Path
+    cleanup_actions: list = field(default_factory=list, repr=False)
 
     def lane(self, label: str) -> LaneLayout:
         lane_root = self.root / "lanes" / compact_component(label, 32)
@@ -99,4 +103,19 @@ class RunLayout:
             return
         for lane in payload_root.iterdir():
             if lane.is_dir():
-                remove_tree(lane / "payload")
+                remove_owned(lane / "payload", self.root)
+                for name in ("restic-cache", "kopia-cache", "borg-cache"):
+                    remove_owned(lane / name, self.root)
+                from ..comparison.external import _plakar_cache_directory
+                remove_owned(_plakar_cache_directory(lane), Path(tempfile.gettempdir()))
+
+    def finish(self, *, keep=False):
+        if not keep:
+            for action in self.cleanup_actions:
+                action()
+            self.remove_payloads()
+        reports = ("run.json", "results.json", "summary.json", "summary.md", "trace.json")
+        compact_success(self.root, keep=keep, reports=reports)
+        self.write_manifest("passed", cleanup_complete=True, keep_artifacts=keep,
+                            detailed_evidence_retained=keep)
+        prune_successful_runs(self.root.parent)

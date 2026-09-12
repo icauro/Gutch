@@ -18,10 +18,21 @@ case order across samples. Warmup lanes execute once and are excluded from
 measured results. OS caches are uncontrolled; these are fresh-repository runs,
 not guaranteed cold-cache measurements.
 
-Each run retains `run.json`, incremental `results.json`, `summary.json`
-(sample count, median, minimum, maximum), command logs, raw stats, validation
-results, and available traces. Artifact links in serialized fixture results
-are relative to the run directory. Failed or cancelled runs retain payloads.
+During execution, each run records `run.json`, incremental `results.json`,
+`summary.json`, command logs, raw stats and validation results. Successful runs
+retain root summaries and the combined trace, then remove detailed lanes, temporary
+repositories and tool caches. Result paths describe the original measurements;
+`detailed_evidence_retained` in `run.json` states whether those files still exist.
+`--keep-artifacts` or an explicit recipe with `delete_artifacts: false` retains
+details. Failed and cancelled runs keep evidence. Automatic retention keeps the
+latest 20 finalized unpinned successful runs per artifact root.
+
+Successful S3 publication runs also delete their newly allocated UUID object
+prefixes unless artifacts are explicitly retained. Failed publication prefixes
+remain recorded for investigation; shared buckets and source datasets are never
+deleted. Every benchmark command has a 900-second default deadline, overridable
+with `GUTCH_BENCHMARK_TIMEOUT_SECONDS`. A timeout kills the process tree and records
+failure evidence. Unreadable source directories fail validation.
 Docker exports an evidence archive into a unique host run directory. Generated
 run and lane directory names are bounded and hash-suffixed when shortened;
 full fixture and case labels remain in result metadata. This limits Windows

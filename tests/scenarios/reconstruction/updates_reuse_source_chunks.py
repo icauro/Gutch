@@ -2,7 +2,7 @@
 
 Expected: Each tree matches its target version and updates reuse source chunks.
 """
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 
 
 def run(case):

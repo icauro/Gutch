@@ -24,31 +24,47 @@ def replay(directory):
     if record["revision"] != current:
         print(f"Source changed since this failure: {record['revision']} -> {current}", flush=True)
     print(f"Replaying {record['case']} in a new isolated run; original evidence is retained.", flush=True)
-    return run_module("tests.run", ["--case", record["case"], "--keep-artifacts"])
+    lifecycle = record["case"] == "repository/lifecycle" or bool(record.get("options", {}).get("repo"))
+    arguments = ["--case", "repository/lifecycle" if lifecycle else record["case"], "--keep-artifacts"]
+    if lifecycle:
+        for name in ("repo", "expected", "seed", "steps", "storage", "compression", "mutations", "timeout"):
+            if name in record.get("options", {}):
+                arguments.extend(["--" + name, str(record["options"][name])])
+    return run_module("tests.run", arguments)
 
 
 def clean():
-    # Only successful correctness payloads are eligible. Never remove failed runs,
-    # compiler caches, arbitrary datasets or resources owned by another process.
-    from tests.support.filesystem import remove_owned
+    from tools.artifacts import compact_success, prune_successful_runs
     runs = ROOT / "tests/.artifacts/runs/gutch"
     removed = 0
     for manifest in runs.glob("*/run.json"):
+        if manifest.parent.is_symlink() or manifest.parent.is_junction():
+            continue
         record = json.loads(manifest.read_text(encoding="utf-8"))
         if record.get("status") != "passed":
+            continue
+        if record.get("keep_artifacts") or record.get("cleanup_complete") is False:
             continue
         for case in record.get("cases", []):
             owner = manifest.parent.resolve()
             if not owner.is_relative_to(runs.resolve()) or owner == runs.resolve():
                 raise ValueError(f"Run escapes the artifact directory: {manifest}")
+            if "evidence" not in case:
+                continue
             case_root = (owner / case["evidence"]).resolve()
             if not case_root.is_relative_to(owner) or case_root == owner:
                 raise ValueError(f"Case evidence escapes its run: {manifest}")
-            payload = case_root / "payload"
-            if payload.exists():
-                remove_owned(payload, owner)
-                removed += 1
-    print(f"Removed {removed} successful case payloads. Reports and failure evidence retained.")
+        compact_success(manifest.parent)
+        record["cleanup_complete"] = True
+        for case in record.get("cases", []):
+            case.pop("evidence", None)
+        (manifest.parent / "summary.md").write_text("\n".join([
+            "# Gutch correctness", "", "Status: passed", "", *[
+                f"- {case['name']}: {case['status']}" for case in record.get("cases", [])]]) + "\n", encoding="utf-8")
+        manifest.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        removed += 1
+    pruned = prune_successful_runs(runs)
+    print(f"Compacted {removed} successful runs; removed {len(pruned)} old summaries. Failed and pinned runs retained.")
     return 0
 
 

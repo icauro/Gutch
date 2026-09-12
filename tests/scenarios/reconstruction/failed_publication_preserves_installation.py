@@ -6,7 +6,7 @@ platforms skip.
 """
 import os
 import unittest
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 from tests.support.filesystem import inventory
 
 

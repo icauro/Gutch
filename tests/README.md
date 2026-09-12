@@ -6,6 +6,9 @@ and every local CLI scenario. First-time compilation can take several minutes.
 ```sh
 python gutch.py test --list
 python gutch.py test --suite repository
+python gutch.py test --seed 123 --steps 8
+python gutch.py test --repo /path/to/repository --expected /path/to/expected.json
+python gutch.py test --seed 456 --storage loose_chunks --compression lz4 --mutations 20
 python gutch.py test --case repository/frozen_snapshots_match_inventories
 python gutch.py test --suite s3
 python gutch.py replay <case-evidence-directory>
@@ -25,11 +28,34 @@ local cases; run `--suite s3` or select the S3 case explicitly for Docker delive
 | `s3` | Disposable Docker S3 delivery scenario |
 | `all` | Tooling, Rust, local and S3 scenarios |
 
-Scenario setup, execution and assertions have a 10-second deadline; compilation
-and shared service setup happen outside that deadline. Failed cases retain logs,
-comparisons and payloads. Successful payloads are removed unless
-`--keep-artifacts` is supplied. `python gutch.py clean` removes retained successful
-payloads under the default run directory, preserving reports and all failed runs.
+Focused scenarios have a 10-second deadline. The core repository lifecycle has a
+60-second default deadline, adjustable with `--timeout`. Compilation and shared
+service setup happen outside those deadlines. Failed cases retain inputs, logs,
+comparisons and replay instructions. A successful run retains only `run.json`
+and `summary.md`; `--keep-artifacts` pins its detailed evidence instead. Automatic
+retention keeps the latest 20 unpinned successful summaries. Failed, running,
+unfinished and pinned runs are never pruned. `python gutch.py clean` also compacts
+older successful correctness runs, but leaves unrelated scratch files untouched.
+
+## One repository suite, many inputs
+
+`repository_suite.py` owns the shared lifecycle: open/list, strict verification,
+reconstruction, append, rejected mutation, deletion, index rebuild and repair.
+It verifies all surviving snapshots after each mutation. The frozen repository
+and seeded generated trees exercise the same checks. `--steps` adds a reproducible
+sequence of capture, delete, rebuild, repair and rejected-mutation operations.
+
+`--repo` always copies the selected repository before mutation. Supply an idle
+repository outside the output directory; linked repository entries are rejected.
+`--expected` accepts the same snapshot-ID-to-entries JSON as the frozen fixture's
+`expected.json`, and must cover exactly the selected snapshots. Without it, the
+suite records an initial reconstruction baseline and labels the report
+`initial-reconstruction-consistency`; this does not certify original content.
+Newly generated snapshots always use independent SHA-256 expected inventories.
+
+Failed selected-repository runs preserve a separate original input copy for
+replay. Generated runs record the seed, operation sequence and settings. Replay
+uses current source and reports source changes. It does not reset source history.
 
 ## Datasets and benchmarks
 
@@ -42,10 +68,12 @@ They never consume mutable benchmark products.
 [benchmark guide](benchmarks/README.md) for configuration and Docker execution.
 Correctness makes assertions; benchmarks measure performance after validation.
 
-The generator is deterministic, but it is not currently a coverage-guided fuzzer.
-There are no `generated` or `fuzz` suites yet. Stateful generated tests, failure
-minimization and binary-parser fuzzing remain separate planned work; no command
-claims to run those checks today.
+`--mutations` adds seeded truncation and bit-flip tests for chunk maps, blueprints
+and stored artifacts after the lifecycle. Each input is restored before the next
+iteration, and the exact triggering bytes survive a crash or timeout. Decoder
+errors are accepted; process crashes are failures. This is mutation testing, not
+coverage-guided fuzzing or automatic failure minimization. No extra suite folders
+are needed for these input strategies.
 
 See [the correctness contract](../docs/current_state/13_correctness_testing.md)
 for supported assertions, fixture policy and evidence details.

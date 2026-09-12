@@ -8,7 +8,7 @@ from pathlib import Path
 import random
 import unittest
 
-from .filesystem import write_json
+import json
 
 
 @dataclass
@@ -49,7 +49,8 @@ class Dataset:
         self.expected[relative] = {"kind": "link", "target": target}
 
     def save_expectation(self, path: Path) -> None:
-        write_json(path, {"schema_version": 1, "entries": self.expected})
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"schema_version": 1, "entries": self.expected}, indent=2), encoding="utf-8")
 
 
 def basic(root: Path, version: int = 1) -> Dataset:
@@ -58,7 +59,7 @@ def basic(root: Path, version: int = 1) -> Dataset:
     data.file("empty.txt", b"")
     data.file("data/shared.bin", random.Random(812).randbytes(256 * 1024))
     data.file("data/duplicate.bin", random.Random(812).randbytes(256 * 1024))
-    data.file("Unicode café/read me.txt", f"version {version}\n".encode())
+    data.file("Unicode cafÃ©/read me.txt", f"version {version}\n".encode())
     data.file("old.txt" if version == 1 else "new.txt", b"renamed content")
     if version >= 3:
         data.file("added.bin", b"third version")
@@ -91,4 +92,24 @@ def delivery(root: Path) -> Dataset:
     # Incompressible content plus the smallest bundle preset ensures multiple artifacts.
     for index in range(8):
         data.file(f"part-{index}.bin", generator.randbytes(1024 * 1024))
+    return data
+
+
+def generated(root: Path, seed: int, version: int = 1) -> Dataset:
+    """Small reproducible mixed-content trees; consumers own execution and cleanup."""
+    data = Dataset(root)
+    generator = random.Random(seed)
+    data.directory("empty")
+    data.file("version.txt", f"seed={seed}; version={version}\n".encode())
+    shared = generator.randbytes(65537)
+    data.file("shared.bin", shared)
+    data.file("duplicate.bin", shared)
+    data.file("empty.txt", b"")
+    data.file("repeated.bin", bytes([seed % 256]) * 32769)
+    # Inserts and deletions shift chunk boundaries; stable tails exercise reuse.
+    changing = random.Random(seed + version)
+    offset = changing.randrange(len(shared))
+    data.file("changing.bin", shared[:offset] + changing.randbytes(version * 17) + shared[offset + version:])
+    data.file(f"renamed-{version % 2}.txt", b"same bytes under a different path")
+    data.file("Unicode café/read me.txt", changing.randbytes(changing.choice((1, 32767, 32768, 32769))))
     return data

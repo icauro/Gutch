@@ -3,7 +3,7 @@
 Expected: Content matches; off retains feedback without diagnostic timings.
 """
 import json
-from tests.support.datasets import Dataset
+from tests.datasets.trees import Dataset
 
 
 def run(case):

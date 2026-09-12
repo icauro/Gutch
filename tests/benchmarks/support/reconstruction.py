@@ -1,6 +1,7 @@
 """S3 reconstruction workflow with verification owned by reconstruct commands."""
 
 import json
+from uuid import uuid4
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,10 @@ def run_reconstruction_storage(
 
         validate_output(product, local_destination, lane.stats / "validate-local-restored.json")
         client = make_client(settings)
-        prefix = f"gutch/reconstruction-benchmark/{run_root.name}"
+        prefix = f"gutch/reconstruction-benchmark/{run_root.name}/{uuid4().hex}"
+        from .s3 import delete_published_prefix
+        layout.cleanup_actions.append(lambda: delete_published_prefix(client, settings, prefix))
+        layout.write_manifest("running", published_prefix=prefix)
         upload = publish_repository(client, settings, repo, prefix, workers=upload_concurrency)
         manifest = lane.root / "artifact-urls.json"
         make_artifact_url_manifest(client, settings, repo, prefix, manifest)
@@ -212,9 +216,8 @@ def run_reconstruction_storage(
             combined_trace,
         )
         print(f"Wrote benchmark results: {run_root / 'results.json'}")
-        layout.write_manifest('passed')
-        if not keep_artifacts:
-            layout.remove_payloads()
+        layout.write_manifest('passed', cleanup_complete=False)
+        layout.finish(keep=keep_artifacts)
         if open_perfetto:
             trace_events = json.loads(combined_trace.read_text(encoding="utf-8")).get("traceEvents", [])
             if trace_events:

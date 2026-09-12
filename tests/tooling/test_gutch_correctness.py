@@ -8,7 +8,7 @@ import unittest
 
 from tests import run
 from tests.support.cli import execute
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 from tests.support.filesystem import assert_tree, remove_owned
 
 
@@ -23,10 +23,10 @@ class GutchCorrectnessTests(unittest.TestCase):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
                     self.assertNotIn("test_dataset", node.value, str(path))
                 if isinstance(node, ast.ImportFrom):
-                    self.assertNotIn("tests/benchmarks", node.module or "", str(path))
+                    self.assertNotIn("tests.benchmarks", node.module or "", str(path))
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        self.assertNotIn("tests/benchmarks", alias.name, str(path))
+                        self.assertNotIn("tests.benchmarks", alias.name, str(path))
 
     def test_fast_selection_needs_no_docker_and_case_selection_is_exact(self):
         fast = run.selected_scenarios("fast", None)

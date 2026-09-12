@@ -3,7 +3,7 @@
 Expected: intact verification succeeds; missing artifacts produce a failed report and exit status.
 """
 import json
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 
 
 def run(case):

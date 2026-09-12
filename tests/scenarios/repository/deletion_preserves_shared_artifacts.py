@@ -4,7 +4,7 @@ normally.
 Expected: Broken indexes prevent mutation; the surviving snapshot remains usable and final
 deletion removes bundles.
 """
-from tests.support.datasets import basic
+from tests.datasets.trees import basic
 from tests.support.filesystem import repository_inventory as inventory
 
 

@@ -34,6 +34,8 @@ def _package_sources(destination: Path) -> None:
                 continue
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
         package.write(REPOSITORY_ROOT / "tests/__init__.py", "tests/__init__.py")
+        for name in ("__init__.py", "artifacts.py"):
+            package.write(REPOSITORY_ROOT / "tools" / name, "tools/" + name)
         package.write(REPOSITORY_ROOT / "tests/datasets/__init__.py", "tests/datasets/__init__.py")
         package.write(REPOSITORY_ROOT / "tests/datasets/generator/__init__.py", "tests/datasets/generator/__init__.py")
         dataset_script = REPOSITORY_ROOT / "tests/datasets/generator/product.py"

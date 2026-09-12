@@ -68,7 +68,9 @@ def inventory(root: Path) -> dict[str, dict]:
     if not root.is_dir():
         raise FileNotFoundError(f"dataset directory does not exist: {root}")
     entries = {}
-    for directory, directories, files in os.walk(root, followlinks=False):
+    def fail(error):
+        raise error
+    for directory, directories, files in os.walk(root, followlinks=False, onerror=fail):
         for name in sorted(directories + files):
             path = Path(directory) / name
             relative = path.relative_to(root).as_posix()

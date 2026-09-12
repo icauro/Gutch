@@ -52,6 +52,7 @@ class Case:
     executable: Path
     sequence: int = 0
     checks: list[str] = field(default_factory=list)
+    details: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.payload.mkdir(parents=True, exist_ok=True)

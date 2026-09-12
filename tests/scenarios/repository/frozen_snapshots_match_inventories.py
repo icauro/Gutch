@@ -1,26 +1,13 @@
-"""Operations: Copy the frozen format fixture and reconstruct and verify all four snapshots.
+"""Operations: Run the shared append/delete/rebuild/repair lifecycle on the frozen repository.
 
 Expected: Paths, content hashes and supported attributes match the recorded source inventories.
 """
 import json
-import os
 from pathlib import Path
-import shutil
-from tests.support.filesystem import assert_tree
+from tests.repository_suite import run_lifecycle
 
 
 def run(case):
     fixture = Path(__file__).resolve().parents[2] / "fixtures/repositories/reference-v2"
     expected = json.loads((fixture / "expected.json").read_text())
-    repo = case.payload / "repo"
-    shutil.copytree(fixture, repo)
-    for snapshot, specification in expected.items():
-        entries = specification["entries"]
-        if os.name == "nt":
-            for entry in entries.values():
-                if entry["kind"] == "file":
-                    entry["executable"] = False
-        destination = case.payload / snapshot
-        case.reconstruct(repo, snapshot, destination)
-        assert_tree(entries, destination, case.root / f"{specification['label']}.json")
-        assert case.verify(repo, snapshot, destination)["verification_passed"]
+    run_lifecycle(case, source=fixture, expected=expected, steps=0)
