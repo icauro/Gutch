@@ -63,15 +63,15 @@ pub fn regenerate_chunk_map(
                             .enumerate()
                             .map(|(ordinal, chunk)| {
                                 (
-                                    chunk.chunk_hash.clone(),
-                                    ChunkIndexEntry {
-                                        bundle_id: shared_id.clone(),
-                                        raw_size: chunk.raw_size,
-                                        compressed_size: chunk.compressed_size,
-                                        storage_mode: ArtifactStorageMode::Bundled,
-                                        artifact_size: size,
-                                        chunk_ordinal: ordinal as u32,
-                                    },
+                                    chunk.chunk_hash.to_hex(),
+                                    ChunkIndexEntry::new(
+                                        size,
+                                        ordinal as u32,
+                                        shared_id.clone(),
+                                        chunk.raw_size,
+                                        chunk.compressed_size,
+                                        ArtifactStorageMode::Bundled,
+                                    ),
                                 )
                             })
                             .collect())
@@ -93,14 +93,14 @@ pub fn regenerate_chunk_map(
                         )?;
                         Ok(vec![(
                             hash.clone(),
-                            ChunkIndexEntry {
-                                bundle_id: hash.as_str().into(),
-                                raw_size: raw,
-                                compressed_size: size,
-                                storage_mode: ArtifactStorageMode::LooseChunks,
-                                artifact_size: size,
-                                chunk_ordinal: 0,
-                            },
+                            ChunkIndexEntry::new(
+                                size,
+                                0,
+                                hash.as_str().into(),
+                                raw,
+                                size,
+                                ArtifactStorageMode::LooseChunks,
+                            ),
                         )])
                     }
                 }
@@ -161,7 +161,7 @@ pub fn regenerate_chunk_map(
                 &paths,
                 &ChunkIndex {
                     format_version: "1".into(),
-                    updated_at: chrono::Utc::now().to_rfc3339(),
+
                     entries: entries
                         .into_iter()
                         .map(|(hash, entry)| {

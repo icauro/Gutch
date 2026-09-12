@@ -10,20 +10,20 @@ from tests.helpers.cli import execute, REPOSITORY
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", choices=("binary_decoders", "bundle_roundtrip", "all"), default="all")
+    parser.add_argument("--target", choices=("binary_decoders", "bundle_roundtrip", "blueprint_roundtrip", "all"), default="all")
     parser.add_argument("--seconds", type=int, default=30)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--rustc-bootstrap", action="store_true", help="Enable compiler instrumentation on the installed stable toolchain")
     args = parser.parse_args()
     if args.seconds < 1:
         parser.error("seconds must be positive")
-    targets = ("binary_decoders", "bundle_roundtrip") if args.target == "all" else (args.target,)
+    targets = ("binary_decoders", "bundle_roundtrip", "blueprint_roundtrip") if args.target == "all" else (args.target,)
     for target in targets:
         root = REPOSITORY / "tests/.artifacts/fuzz" / target
         corpus = root / "corpus"
         corpus.mkdir(parents=True, exist_ok=True)
         if target == "binary_decoders":
-            for path in CORPUS_ROOT.glob("*/repository/format-v1/**/*.gtcbin"):
+            for path in CORPUS_ROOT.glob("*/repository/format-v2/**/*.gtcbin"):
                 if path.stat().st_size <= 65536:
                     data = path.read_bytes()
                     (corpus / hashlib.sha256(data).hexdigest()).write_bytes(data)

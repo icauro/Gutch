@@ -2,181 +2,189 @@
 
 Status: Current
 
-Scope: Artifact, chunk-index, and snapshot-blueprint bytes
+Scope: Artifact, chunk-map, and snapshot-blueprint bytes
 
-Verified: 2026-09-11
+Verified: 2026-09-12
 
-These are serialized layouts, without Rust alignment padding. Integers are
-unsigned little-endian. `Hash32` is binary BLAKE3; `Hex64` is its lowercase
-ASCII encoding. `String` means `{length: u32, utf8: byte[length]}`. Lengths
-count bytes. Strings are additionally limited to 131,072 bytes before allocation;
-manifest paths have at most 256 components. Every top-level binary format uses version **1**, a 16-byte magic,
-and exact zero padding. Older formats are rejected, even if they also used a
-version numbered 1. JSON documents retain `document_version: "1.0.0"`.
+Integers are unsigned little-endian without Rust padding. `Hash32` is a binary
+BLAKE3 digest. All binary formats use version **2** and reject earlier versions.
+JSON document versions remain `1.0.0`. Snapshot IDs describe installation content
+and properties; their canonical identity algorithm is independent of these bytes.
 
 ## Files and roles
 
 | Repository path | Role |
 |---|---|
-| `snapshots/<id>/snapshot_blueprint.gtcbin` | Tree entries and ordered chunk references |
-| `chunk_map.gtcbin` | Sorted chunk hashes mapped to artifact locations |
-| `bundles/<prefix>/<id>` | One compressed stream and its physical chunk table |
+| `snapshots/<id>/snapshot_blueprint.gtcbin` | Canonical tree entries and chunk sequences |
+| `chunk_map.gtcbin` | Sorted chunk identities mapped to artifact locations |
+| `bundles/<prefix>/<id>` | One encoded stream and its physical chunk table |
 | `chunks/<prefix>/<hash>` | One self-describing loose chunk |
-| `repo_metadata.json` | Capture defaults; existing artifacts supply their own codec |
+| `repo_metadata.json` | Capture defaults; existing artifacts carry their codec |
 
-A blueprint describes logical file order; an index describes the selected
-location for each hash; a bundle table describes its physical contents. Keeping
-the latter allows inspection and index regeneration without the old index.
+A blueprint describes logical files; the map selects their storage locations.
+Bundles retain full physical chunk hashes and sizes so map regeneration does not
+require an existing map. Metadata does not share pages across snapshots.
+
+## Metadata envelope
+
+Blueprints and maps use this envelope; bundles and loose chunks use fixed headers.
+
+```text
+magic[16]
+version:u16 = 2; reserved:u16 = 0; group_count:u32 = G
+for each group, in ascending ID order:
+  id:u16; flags:u8 = 1; codec:u8     # required; raw=0, Zstd=1
+  encoded_length:u32; decoded_length:u32
+  encoded_digest:Hash32
+header_and_directory_digest:Hash32
+encoded_group_bytes[]              # consecutive, no gaps or offsets
+```
+
+Framing costs `56 + 44G` bytes. Writers use Zstd level 3 only when it shrinks a
+group; otherwise they store raw bytes. Readers verify the header/directory digest
+before interpreting descriptors and verify each encoded group before decoding.
+Decoded lengths must match exactly. Both complete encoded metadata and the sum of
+decoded group lengths are bounded to 256 MiB; the Zstd window is bounded as well.
+Readers reject unsupported versions, reserved bits, codecs, group counts, IDs,
+flags, truncation and trailing data.
+
+All current groups are required. These materializing APIs also refuse unknown
+optional groups: discarding an extension and later rewriting the object would
+lose data. Self-contained hashes detect corruption; they do not authenticate an
+attacker-supplied object. Remote callers supply the trusted whole-object digest.
+Current operations decode and validate all groups before using the result.
+
+## Snapshot blueprint
+
+Magic: `GUTCH_BLUEPRINT` followed by one zero byte. Three groups follow.
+
+```text
+1. Paths
+  directory_count:u32 = D; entry_count:u32 = E
+  parent_directory:u32[D+E]
+  leaf_offsets:u32[D+E+1]           # first=0; final=leaf byte count
+  leaf_utf8:byte[]
+2. Core
+  entry_kind:u8[E]                 # file=0, directory=1, symlink=2
+  entry_flags:u16[E]
+  file_size:u64[F]                 # file rows in entry order
+  nonempty_file_hash:Hash32[H]     # zero-size files have implicit BLAKE3(empty)
+  file_representation:u8[F]        # empty=0, implicit singleton=1, explicit=2
+  symlink_target_entry:u32[L]
+3. Explicit chunk sequences
+  chunk_offsets:u32[M+1]           # consecutive sequences; first=0
+  chunk_hash:Hash32[C]
+  chunk_raw_size:u32[C]
+```
+
+`F`, `H`, `L` and `M` are derived from kinds, sizes and representations. `C` is
+the last chunk offset. Offsets delimit adjacent spans; start/count pairs are not
+stored. Each parent reference is zero for the root or a one-based directory row.
+Directory rows contain shared path ancestors, sorted by full path with parents
+before children. Entry rows are sorted by exact full path. Readers reject cycles,
+forward directory references, duplicate/unsorted paths and invalid name spans.
+
+Names retain exact UTF-8 bytes without Unicode normalization or global interning.
+Reconstructed paths are limited to 128 KiB and 256 components. Expanded path bytes
+are bounded to 256 MiB; directory and entry rows together are limited to
+2,097,152. Writers and readers apply the same bounds on every platform. Symlink targets
+reference existing entry rows; contained symlink cycles are not newly prohibited.
+
+Flags use bit 0 for read-only and bit 1 for executable. Files permit both;
+directories permit bit 0; symlinks permit neither. Bits 2–15 must be zero. This
+portable representation is not a native mode, ACL, ownership or timestamp record.
+
+Representation 0 requires zero size and no chunks. Representation 1 derives its
+single chunk's hash and raw size from the nonempty file hash and size, which must
+fit the 4 MiB chunk bound. Representation 2 has a nonempty explicit sequence;
+chunk sizes must sum to file size. Its hashes and sizes are direct columns, not a
+mandatory deduplication dictionary. File sizes remain `u64` even though individual
+chunks, metadata counts and bounded metadata offsets use `u32`.
+
+## Chunk map
+
+Magic: `GUTCH_INDEX` followed by five zero bytes. Two groups follow.
+
+```text
+1. Artifacts
+  artifact_count:u32 = A
+  artifact_id:Hash32[A]            # sorted unique bundle identities
+  encoded_artifact_size:u32[A]
+2. Chunks
+  chunk_count:u32 = N
+  chunk_hash:Hash32[N]              # sorted unique binary keys
+  artifact_row:u32[N]
+  ordinal_or_encoded_size:u32[N]
+  raw_size:u32[N]
+```
+
+Decoded group bytes total `8 + 36A + 44N`. Bundled rows store a zero-based artifact
+row and physical chunk ordinal. Loose rows use `artifact_row = 0xffffffff`, store
+the complete encoded file size in the next column, and use the chunk hash as
+artifact identity. Artifact sizes and chunk sizes must be nonzero; raw chunks are
+at most 4 MiB. References, duplicate bundle ordinals and aggregate raw bundle
+sizes are validated. No timestamp or per-artifact padding is serialized, so an
+equivalent mapping encodes identically regardless of regeneration time.
+
+The runtime index retains sorted binary keys and binary search. Entries share
+immutable artifact identity, encoded size and storage-mode records. Incremental
+updates merge sorted rows and reuse matching artifact records. Per-chunk compressed
+size estimates remain accounting values, not integrity evidence.
 
 ## Bundle
 
 ```text
-Bundle {
-    magic: byte[16] = "GUTCH_BUNDLE" + zero[4]
-    version: u16 = 1
-    codec: u8                 // 0 none, 1 zstd, 2 lz4
-    reserved: u8 = 0
-    chunk_count: u32 = N
-    payload: byte[C]          // one encoded concatenated chunk stream
-    footer: {
-        chunk_count: u32 = N
-        chunks: { hash: Hash32, raw_size: u32 }[N]
-    }
-    footer_length: u32 = 4 + 36*N
-    footer_magic: byte[16] = "GUTCH_BUNDLE_END"
-    bundle_id: Hex64
-}
+magic[16] = "GUTCH_BUNDLE" + zero[4]
+version:u16 = 2; codec:u8; reserved:u8 = 0; chunk_count:u32 = N
+payload:byte[C]                    # one encoded concatenated stream
+footer:
+  chunk_count:u32 = N
+  chunk_hash:Hash32[N]
+  chunk_raw_size:u32[N]
+footer_length:u32 = 4 + 36*N
+footer_magic[16] = "GUTCH_BUNDLE_END"
+bundle_id:Hash32
 ```
 
-**Size: `C + 36N + 112` bytes.** Header: 24 bytes; each chunk table row:
-36 bytes; final locator plus ID: 84 bytes. From file size `S`, footer length
-starts at `S - 84`; the footer starts at `S - 84 - footer_length`.
-BLAKE3 covers every byte preceding the trailing ID. The filename must match
-that ID. Each chunk hash independently covers its raw bytes.
+Size: `C + 36N + 80` bytes. The footer locator starts at file size minus 52;
+the footer starts another `footer_length` bytes earlier. BLAKE3 covers every byte
+preceding the trailing binary ID, including framing and the raw columnar footer.
+The object's hexadecimal filename must identify the same digest.
 
-Raw offsets are prefix sums of chunk sizes. Compressed offsets are absent:
-chunks share one stream. Runtime compressed-size estimates are accounting
-values, never integrity evidence. Readers stream the complete payload and fan
-out needed chunks; strict scrubbing hashes encoded bytes and raw chunks in one
-payload pass. Empty bundles have `N = 0`; compressed empty frames can make
-`C > 0`. No independent chunk frames or partial compressed reads are provided.
+Raw offsets are prefix sums of sizes. The reader retains binary hashes without a
+second hexadecimal copy. The footer is uncompressed; high-entropy hashes do not
+justify another compression frame. Strict verification streams the payload and
+checks encoded identity and raw chunk hashes. Empty bundles are supported. There
+are no independent chunk frames or partial compressed payload reads.
 
 ## Loose chunk
 
 ```text
-LooseChunk {
-    magic: byte[16] = "GUTCH_CHUNK" + zero[5]
-    version: u16 = 1
-    codec: u8
-    reserved: u8 = 0
-    raw_size: u32
-    raw_hash: Hash32
-    payload: byte[C]
-}
+magic[16] = "GUTCH_CHUNK" + zero[5]
+version:u16 = 2; codec:u8; reserved:u8 = 0
+raw_size:u32; raw_hash:Hash32
+payload:byte[C]
 ```
 
-**Size: `56 + C` bytes.** For `none`, `C = raw_size`. The path hash, header
-hash, decoded size, and raw content hash must agree. Compression level is only
-an encoder setting; readers need the codec, not the original level or repo
-profile. Both artifact kinds support `none`, `zstd`, and `lz4`.
+Size: `56 + C` bytes. Artifact codecs are none=0, Zstd=1, LZ4=2. The loose header,
+requested hash/size and decoded content must agree. Encoder compression levels
+are not stored. Changing capture defaults does not change an existing artifact's
+codec. Loose chunks keep their compact fixed layout.
 
-## Chunk map
+## Publication and recovery
 
-```text
-ChunkIndex {
-    magic: byte[16] = "GUTCH_INDEX" + zero[5]
-    version: u16 = 1
-    flags: u16 = 0
-    chunk_count: u64 = N
-    artifact_count: u32 = A
-    updated_at: String
-    artifacts: {
-        id: Hash32
-        encoded_file_size: u32
-        kind: u8 = 0          // bundle
-        reserved: byte[3] = zero[3]
-    }[A]                      // 40 bytes per distinct bundle
-    chunks: {
-        hash: Hash32
-        artifact_row: u32
-        ordinal_or_size: u32
-        raw_size: u32
-    }[N]                      // 44 bytes, sorted by binary hash
-}
-```
+Raw bundles are at most 256 MiB. Capture also applies the chosen preset's maximum
+to complete encoded bundles and splits oversized groups at chunk boundaries.
+File sizes and aggregate content totals remain `u64`; narrowing is checked.
 
-**Size: `36 + timestamp_bytes + 40A + 44N`.** Bundled rows store the
-zero-based dictionary row and chunk ordinal. Loose rows use `artifact_row =
-0xffffffff`, put the complete encoded file size in `ordinal_or_size`, and use
-the chunk hash as artifact identity; they need no dictionary entry.
+Atomic metadata publication, repository locks, pending-generation recovery,
+cleanup ordering and cancellation remain shared repository mechanisms.
+`repo regenerate-chunk-map` verifies physical artifacts and snapshot completeness;
+`--publish` replaces the map only after successful validation. Regeneration cannot
+recover missing blueprints, paths or payload bytes.
 
-Readers reject duplicate/unsorted chunk hashes, duplicate dictionary IDs or
-bundle ordinals, invalid dictionary references, zero/oversized chunk sizes,
-nonzero reserved fields, truncated counts, and trailing bytes. The in-memory
-index is a sorted vector keyed by binary hashes. Long bundle IDs are shared
-across entries; incremental capture merges sorted updates in batches.
-
-At roughly 256 chunks per bundle, bundle dictionary overhead is about
-`40/256 = 0.156` bytes per indexed chunk. The bundle table plus index adds
-about 80 bytes per unique bundled chunk before fixed framing and blueprints:
-about 0.061% of a 128 KiB raw chunk. Filesystem allocation and compression
-ratios can dominate these metadata savings.
-
-## Snapshot blueprint
-
-```text
-Blueprint {
-    magic: byte[16] = "GUTCH_BLUEPRINT" + zero[1]
-    version: u16 = 1
-    reserved: u16 = 0
-    entry_count: u32
-    total_chunk_references: u64
-    entries: Entry[entry_count]
-}
-FileEntry {                   // kind 0
-    kind: u8 = 0
-    path: String
-    file_size: u64
-    executable: u8            // 0 or 1
-    read_only: u8             // 0 or 1
-    full_file_hash: Hash32
-    chunk_count: u32 = R
-    chunks: { hash: Hash32, raw_size: u32 }[R]
-}
-DirectoryEntry { kind: u8 = 1, path: String, read_only: u8 }
-SymlinkEntry   { kind: u8 = 2, path: String, target: String }
-```
-
-Header: 32 bytes. File: `51 + path_bytes + 36R`; directory:
-`6 + path_bytes`; symlink: `9 + path_bytes + target_bytes`. Chunk sizes must
-sum exactly to file size, including empty files. Paths and symlink targets
-also undergo installation safety validation. Installation identity retains its
-existing content/property encoding; changing packaging does not change it.
-
-## Bounds, publication, and recovery
-
-Chunks are nonempty and at most 4 MiB. Raw bundles are at most 256 MiB.
-Capture also enforces the chosen preset's maximum against the complete encoded
-bundle, splitting oversized groups at chunk boundaries. The default is
-32/128/512 KiB chunk minimum/average/maximum and 8 MiB preferred / 16 MiB
-maximum encoded bundles. `bundle_32MiB` means 32 MiB preferred / 64 MiB maximum.
-Sizes and bundle-local offsets use `u32`; file offsets, file sizes, and totals
-remain `u64`. Arithmetic is checked before narrowing.
-
-Mutations use an exclusive `.gutch-lock`; cooperating readers use shared locks.
-`.gutch-transactions/committed` names the saved metadata generation; `pending`
-marks interrupted publication. The next mutation restores that generation
-before proceeding. Readers reject pending publication explicitly. Immutable
-artifact cleanup follows metadata commit. These local process-crash protections
-do not provide remote transactions or a tested power-loss guarantee.
-
-`repo regenerate-chunk-map --repo <path>` verifies bundles and loose chunks and
-reports completeness without replacing the map. Add `--publish` to replace it
-under exclusive ownership. Every retained snapshot must resolve; corruption or
-missing content prevents publication. This cannot recover lost blueprints,
-original paths, or missing payload bytes.
-
-Sources: [formats](../../src/artifact/format.rs),
-[bundles](../../src/artifact/bundle.rs), [loose chunks](../../src/artifact/loose.rs),
-[blueprint codec](../../src/manifest/binary.rs), [chunk-map codec](../../src/repo/index/codec.rs),
-[coordination](../../src/repo/coordination.rs), [recovery](../../src/repo/recovery.rs).
+Sources: [envelope](../../src/artifact/metadata.rs),
+[blueprint columns](../../src/manifest/columnar.rs),
+[map codec](../../src/repo/index/codec.rs),
+[bundle codec](../../src/artifact/bundle.rs), [loose codec](../../src/artifact/loose.rs),
+[identity](../../src/snapshot/identity.rs), [recovery](../../src/repo/recovery.rs).

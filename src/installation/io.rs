@@ -90,10 +90,7 @@ fn reconstruct_artifact_job(
             for (index, entry) in reader.entries().iter().enumerate() {
                 if let Some(chunk) = job
                     .chunks
-                    .binary_search_by_key(
-                        &crate::artifact::hash::ChunkHash::parse_hex(&entry.chunk_hash)?,
-                        |chunk| chunk.chunk_hash,
-                    )
+                    .binary_search_by_key(&entry.chunk_hash, |chunk| chunk.chunk_hash)
                     .ok()
                     .map(|index| &job.chunks[index])
                 {

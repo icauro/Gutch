@@ -216,21 +216,21 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
         manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::None, None);
     let control = crate::progress::GutchOperationControl::default();
     let exact =
-        build_bounded_bundle_groups(planned.clone(), 248, &profile, &staging, &control).unwrap();
+        build_bounded_bundle_groups(planned.clone(), 216, &profile, &staging, &control).unwrap();
     assert_eq!(exact.len(), 1);
-    assert_eq!(exact[0].bundle_size, 248);
+    assert_eq!(exact[0].bundle_size, 216);
     drop(exact);
     let split =
-        build_bounded_bundle_groups(planned.clone(), 247, &profile, &staging, &control).unwrap();
+        build_bounded_bundle_groups(planned.clone(), 215, &profile, &staging, &control).unwrap();
     assert_eq!(split.len(), 2);
     assert!(
         split
             .iter()
-            .all(|bundle| bundle.bundle_size == 180 && bundle.bundle_entries.len() == 1)
+            .all(|bundle| bundle.bundle_size == 148 && bundle.bundle_entries.len() == 1)
     );
     drop(split);
     assert!(
-        build_bounded_bundle_groups(vec![planned[0].clone()], 179, &profile, &staging, &control)
+        build_bounded_bundle_groups(vec![planned[0].clone()], 147, &profile, &staging, &control)
             .is_err()
     );
     assert_eq!(std::fs::read_dir(staging).unwrap().count(), 0);

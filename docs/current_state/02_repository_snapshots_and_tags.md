@@ -47,7 +47,7 @@ product-metadata, or blueprint write from exposing a mixed snapshot state.
 contract version, capture metadata, and normalized tags. It does not duplicate
 filesystem entries, sizes, properties, links, hashes, or chunk references.
 
-`snapshot_blueprint.gtcbin` is the authoritative version-1 filesystem and
+`snapshot_blueprint.gtcbin` is the authoritative version-2 filesystem and
 chunk blueprint. It begins with 16-byte zero-padded `GUTCH_BLUEPRINT` and carries its binary format version.
 It records regular files, explicit directories including empty directories,
 safe snapshot-internal symbolic links, executable/read-only state, content

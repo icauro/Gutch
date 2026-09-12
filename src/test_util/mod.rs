@@ -150,7 +150,7 @@ pub(crate) fn chunk_entries(
     }
     let mut ordinals = std::collections::HashMap::new();
     for entry in entries.values_mut() {
-        entry.artifact_size = sizes[&entry.bundle_id];
+        std::sync::Arc::make_mut(&mut entry.artifact).artifact_size = sizes[&entry.bundle_id];
         let ordinal = ordinals.entry(entry.bundle_id.clone()).or_insert(0u32);
         entry.chunk_ordinal = *ordinal;
         *ordinal += 1;
@@ -189,14 +189,14 @@ pub fn index_manifest(
         .map(|chunk| {
             (
                 crate::artifact::hash::ChunkHash::parse_hex(&chunk.chunk_hash).unwrap(),
-                crate::manifest::ChunkIndexEntry {
-                    bundle_id: chunk.chunk_hash.as_str().into(),
-                    raw_size: chunk.raw_size,
-                    compressed_size: chunk.raw_size,
-                    artifact_size: chunk.raw_size,
-                    chunk_ordinal: 0,
-                    storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-                },
+                crate::manifest::ChunkIndexEntry::new(
+                    chunk.raw_size,
+                    0,
+                    chunk.chunk_hash.as_str().into(),
+                    chunk.raw_size,
+                    chunk.raw_size,
+                    crate::manifest::ArtifactStorageMode::Bundled,
+                ),
             )
         })
         .collect();
@@ -204,7 +204,6 @@ pub fn index_manifest(
         paths,
         &crate::manifest::ChunkIndex {
             format_version: "1".into(),
-            updated_at: String::new(),
             entries,
         },
     )

@@ -14,7 +14,7 @@ from tests.helpers.cli import Case, REPOSITORY
 from tests.helpers.filesystem import assert_tree, inventory, repository_inventory, write_json
 
 
-def repository_input(name, version="v1"):
+def repository_input(name, version="v2"):
     definition = load_case(name)
     if version not in definition["repositories"] or not re.fullmatch(r"v[1-9][0-9]*", version):
         raise ValueError(f"no frozen {version} repository for {name}")
@@ -63,6 +63,11 @@ def freeze(name, version, executable, source=None):
     try:
         engine_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY,
                                                text=True, stderr=subprocess.DEVNULL).strip()
+        dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all", "--",
+                                         "Cargo.toml", "Cargo.lock", "src", "gutch-cli", ".cargo"],
+                                        cwd=REPOSITORY, text=True, stderr=subprocess.DEVNULL).strip()
+        if dirty:
+            engine_commit = None  # The source digest identifies a working-tree build.
     except subprocess.CalledProcessError:
         engine_commit = None
     engine_source = hashlib.sha256()
@@ -105,7 +110,7 @@ def freeze(name, version, executable, source=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("name")
-    parser.add_argument("--repository-version", default="v1")
+    parser.add_argument("--repository-version", default="v2")
     parser.add_argument("--gutch-exe", type=Path, required=True)
     parser.add_argument("--source", type=Path)
     args = parser.parse_args()

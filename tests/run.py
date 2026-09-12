@@ -94,7 +94,7 @@ def main(arguments=None):
     parser.add_argument("--repo", type=Path, help="Run the core lifecycle on an isolated copy of this repository")
     from tests.datasets.generate import case_names, GENERATOR_VERSION
     parser.add_argument("--dataset", choices=case_names(), help="Run the core lifecycle on a committed corpus case")
-    parser.add_argument("--repository-version", default="v1", help="Frozen Gutch major version (default: v1)")
+    parser.add_argument("--repository-version", default="v2", help="Frozen binary format version (default: v2)")
     parser.add_argument("--expected", type=Path, help="Independent snapshot inventories for --repo (snapshot ID -> entries)")
     parser.add_argument("--seed", type=int, help="Run the core lifecycle with this deterministic dataset/sequence seed")
     parser.add_argument("--sequence", help="Replay explicit additional operations: capture,rebuild,repair,reject,delete")

@@ -24,7 +24,7 @@ use crate::artifact::format::BUNDLE_FOOTER_MAGIC as FOOTER_MAGIC;
 use crate::artifact::format::BUNDLE_MAGIC;
 const BUNDLE_HEADER_SIZE: u64 = 16 + 2 + 2 + 4;
 const BUNDLE_TRAILER_SIZE: u64 = 4 + 16;
-const BUNDLE_ID_SIZE: u64 = 64;
+const BUNDLE_ID_SIZE: u64 = 32;
 const BUNDLE_TABLE_ENTRY_SIZE: usize = 36;
 const STREAM_BUFFER_SIZE: usize = 1024 * 1024;
 
@@ -214,7 +214,7 @@ impl BundleBuilder {
                 ));
             }
             entries.push(BundleTableEntry {
-                chunk_hash: chunk.hash.to_hex(),
+                chunk_hash: chunk.hash,
                 raw_size: format::size_u32(chunk.raw_size)?,
                 compressed_size: 0,
                 raw_offset: format::size_u32(raw_offset)?,
@@ -287,7 +287,7 @@ impl BundleBuilder {
 
         let HashingWriter { file, hasher } = hashing;
         let bundle_id = hash::hash_hex(&hasher.finalize());
-        file.write_all(bundle_id.as_bytes())?;
+        file.write_all(hasher.finalize().as_bytes())?;
         let bundle_size = bytes_without_id
             .checked_add(BUNDLE_ID_SIZE)
             .ok_or_else(|| crate::error::Error::InvalidBundle("bundle size overflow".into()))?;
@@ -341,7 +341,6 @@ impl Write for HashingWriter<'_> {
 
 pub(crate) struct BundleReader<R: Read + Seek> {
     entries: Vec<BundleTableEntry>,
-    chunk_hashes: Vec<ChunkHash>,
     #[cfg(test)]
     chunk_index_by_hash: HashMap<ChunkHash, usize>,
     data_start: u64,
@@ -423,8 +422,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let table_length = footer_length_usize.checked_sub(4).ok_or_else(|| {
             crate::error::Error::InvalidBundle("bundle footer is missing its table".into())
         })?;
-        let (mut entries, chunk_hashes) =
-            read_bundle_table_entries(&mut footer_reader, chunk_count, table_length)?;
+        let mut entries = read_bundle_table_entries(&mut footer_reader, chunk_count, table_length)?;
         if footer_reader.position() != footer_length {
             return Err(crate::error::Error::InvalidBundle(
                 "bundle footer contains trailing bytes".into(),
@@ -434,15 +432,14 @@ impl<R: Read + Seek> BundleReader<R> {
         validate_bundle_entries(&entries, data_start, footer_start)?;
 
         #[cfg(test)]
-        let chunk_index_by_hash = chunk_hashes
+        let chunk_index_by_hash = entries
             .iter()
             .enumerate()
-            .map(|(index, chunk_hash)| (*chunk_hash, index))
+            .map(|(index, entry)| (entry.chunk_hash, index))
             .collect();
         reader.seek(SeekFrom::Start(data_start))?;
         Ok(Self {
             entries,
-            chunk_hashes,
             #[cfg(test)]
             chunk_index_by_hash,
             data_start,
@@ -587,8 +584,8 @@ impl<R: Read + Seek> BundleReader<R> {
             },
             &mut std::io::sink(),
         )?;
-        let trailer = read_exact_array::<64>(&mut self.reader)?;
-        if trailer != *hasher.finalize().to_hex().as_bytes() {
+        let trailer = read_exact_array::<32>(&mut self.reader)?;
+        if trailer != *hasher.finalize().as_bytes() {
             return Err(crate::Error::bundle("bundle content identity mismatch"));
         }
         // Keep the timing metric focused on decoder reads. The callback can
@@ -638,7 +635,7 @@ impl<R: Read + Seek> BundleReader<R> {
     pub(crate) fn verify_identity(&mut self, expected_id: &str) -> Result<()> {
         let expected = ChunkHash::parse_hex(expected_id)?;
         self.reader.seek(SeekFrom::End(-(BUNDLE_ID_SIZE as i64)))?;
-        if read_exact_array::<64>(&mut self.reader)?.as_slice() != expected.to_hex().as_bytes() {
+        if read_exact_array::<32>(&mut self.reader)?.as_slice() != expected.as_bytes() {
             return Err(crate::Error::bundle(
                 "bundle filename and trailing identity disagree",
             ));
@@ -648,7 +645,7 @@ impl<R: Read + Seek> BundleReader<R> {
     }
 
     pub(crate) fn verify(&mut self) -> Result<bool> {
-        let hashes = self.chunk_hashes.clone();
+        let hashes: Vec<_> = self.entries.iter().map(|entry| entry.chunk_hash).collect();
         let required = vec![true; hashes.len()];
         self.stream_bundle_chunks_with_profiler(None, &required, |index, bytes| {
             let actual = ChunkHash::from_blake3(hash::hash_chunk(bytes));
@@ -665,7 +662,7 @@ impl<R: Read + Seek> BundleReader<R> {
 }
 
 /// Verifies complete bundle identity for in-memory bytes: the BLAKE3 of all
-/// bytes before the trailing 64-byte hex ID must equal the expected ID, and
+/// bytes before the trailing 32-byte binary ID must equal the expected ID, and
 /// the trailing bytes must repeat it. Shared by local verification and
 /// remote download so both reject the same identity failures.
 pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Result<()> {
@@ -683,8 +680,7 @@ pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Res
             actual: actual_hash,
         });
     }
-    let expected_hex = expected_hash.to_hex();
-    if &bytes[bytes.len() - id_size..] != expected_hex.as_bytes() {
+    if &bytes[bytes.len() - id_size..] != expected_hash.as_bytes() {
         return Err(crate::error::Error::InvalidBundle(format!(
             "bundle '{bundle_id}' has an inconsistent trailing content hash"
         )));
@@ -726,7 +722,7 @@ pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
             actual: actual_hash,
         });
     }
-    if trailing != expected_hash.to_hex().as_bytes() {
+    if trailing != expected_hash.as_bytes() {
         return Err(crate::error::Error::InvalidBundle(format!(
             "bundle '{bundle_id}' has an inconsistent trailing content hash"
         )));
@@ -863,8 +859,10 @@ fn validate_bundle_entries(
 
 fn write_bundle_table_entries(writer: &mut impl Write, entries: &[BundleTableEntry]) -> Result<()> {
     for entry in entries {
-        writer.write_all(ChunkHash::parse_hex(&entry.chunk_hash)?.as_bytes())?;
-        writer.write_all(&format::size_u32(entry.raw_size)?.to_le_bytes())?;
+        writer.write_all(entry.chunk_hash.as_bytes())?;
+    }
+    for entry in entries {
+        writer.write_all(&entry.raw_size.to_le_bytes())?;
     }
     Ok(())
 }
@@ -873,7 +871,7 @@ fn read_bundle_table_entries(
     reader: &mut impl Read,
     chunk_count: usize,
     table_len: usize,
-) -> Result<(Vec<BundleTableEntry>, Vec<ChunkHash>)> {
+) -> Result<Vec<BundleTableEntry>> {
     let expected_table_len = chunk_count
         .checked_mul(BUNDLE_TABLE_ENTRY_SIZE)
         .ok_or_else(|| crate::error::Error::InvalidBundle("bundle table too large".into()))?;
@@ -885,15 +883,15 @@ fn read_bundle_table_entries(
     }
 
     let mut entries = Vec::with_capacity(chunk_count);
-    let mut chunk_hashes = Vec::with_capacity(chunk_count);
+    let chunk_hashes: Vec<_> = (0..chunk_count)
+        .map(|_| read_exact_array(reader).map(ChunkHash::from_bytes))
+        .collect::<Result<_>>()?;
     let mut raw_offset = 0u64;
-    for _ in 0..chunk_count {
-        let chunk_hash = ChunkHash::from_bytes(read_exact_array(reader)?);
+    for chunk_hash in chunk_hashes {
         let raw_size = u64::from(read_u32(reader)?);
         let compressed_size = 0;
-        chunk_hashes.push(chunk_hash);
         entries.push(BundleTableEntry {
-            chunk_hash: chunk_hash.to_hex(),
+            chunk_hash,
             raw_size: format::size_u32(raw_size)?,
             compressed_size,
             raw_offset: format::size_u32(raw_offset)?,
@@ -902,7 +900,7 @@ fn read_bundle_table_entries(
             .checked_add(raw_size)
             .ok_or_else(|| crate::Error::bundle("bundle raw offset overflow"))?;
     }
-    Ok((entries, chunk_hashes))
+    Ok(entries)
 }
 
 fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
@@ -930,7 +928,7 @@ mod tests;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BundleTableEntry {
-    pub chunk_hash: String,
+    pub chunk_hash: ChunkHash,
     pub raw_size: u32,
     pub compressed_size: u32,
     #[serde(default)]

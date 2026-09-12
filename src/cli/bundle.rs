@@ -9,7 +9,7 @@ pub(crate) fn inspect(bundle: PathBuf, repo: PathBuf) -> crate::api::Result<()> 
     for entry in &entries {
         println!(
             "  - {} raw={} compressed={} ratio={:.1}%",
-            &entry.chunk_hash[..16.min(entry.chunk_hash.len())],
+            &entry.chunk_hash.to_hex()[..16],
             entry.raw_size,
             entry.compressed_size,
             100.0 * entry.compressed_size as f64 / entry.raw_size as f64

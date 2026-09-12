@@ -1,0 +1,175 @@
+//! Bounded metadata groups. The directory authenticates framing against corruption;
+//! callers still need the externally trusted artifact digest for authenticity.
+use std::io::Read;
+
+use crate::artifact::binary_io::*;
+use crate::{Error, Result};
+
+pub(crate) const MAX_METADATA_BYTES: usize = 256 * 1024 * 1024;
+const VERSION: u16 = 2;
+const DESCRIPTOR_BYTES: usize = 44;
+
+pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
+    if groups.is_empty() || groups.len() > 16 {
+        return Err(Error::manifest("invalid metadata group count"));
+    }
+    let mut directory = magic.to_vec();
+    write_u16(&mut directory, VERSION)?;
+    write_u16(&mut directory, 0)?;
+    write_u32(&mut directory, groups.len() as u32)?;
+    let mut payloads = Vec::new();
+    let mut decoded_total = 0usize;
+    for (index, group) in groups.iter().enumerate() {
+        decoded_total = decoded_total
+            .checked_add(group.len())
+            .filter(|size| *size <= MAX_METADATA_BYTES)
+            .ok_or_else(|| Error::manifest("metadata exceeds decoded size limit"))?;
+        let compressed = zstd::stream::encode_all(group.as_slice(), 3)?;
+        let (codec, payload) = if compressed.len() < group.len() {
+            (1, compressed.as_slice())
+        } else {
+            (0, group.as_slice())
+        };
+        write_u16(&mut directory, (index + 1) as u16)?;
+        directory.extend_from_slice(&[1, codec]); // required group, codec
+        write_u32(&mut directory, payload.len() as u32)?;
+        write_u32(&mut directory, group.len() as u32)?;
+        directory.extend_from_slice(blake3::hash(payload).as_bytes());
+        payloads.extend_from_slice(payload);
+    }
+    let digest = blake3::hash(&directory);
+    directory.extend_from_slice(digest.as_bytes());
+    directory.extend_from_slice(&payloads);
+    if directory.len() > MAX_METADATA_BYTES {
+        return Err(Error::manifest("metadata exceeds encoded size limit"));
+    }
+    Ok(directory)
+}
+
+pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Result<Vec<Vec<u8>>> {
+    if bytes.len() > MAX_METADATA_BYTES || bytes.len() < 56 || &bytes[..16] != magic {
+        return Err(Error::manifest("invalid metadata envelope or size"));
+    }
+    let mut header = &bytes[16..24];
+    if read_u16(&mut header)? != VERSION || read_u16(&mut header)? != 0 {
+        return Err(Error::manifest("unsupported metadata version or features"));
+    }
+    let count = read_u32(&mut header)? as usize;
+    // Refuse unknown optional groups as well: this API materializes data that may
+    // be rewritten, so silently discarding an extension would be lossy.
+    if count != group_count || count > 16 {
+        return Err(Error::manifest(
+            "unsupported metadata groups; refusing lossy rewrite",
+        ));
+    }
+    let directory_end = 24 + count * DESCRIPTOR_BYTES;
+    if bytes.len() < directory_end + 32
+        || blake3::hash(&bytes[..directory_end]).as_bytes()
+            != &bytes[directory_end..directory_end + 32]
+    {
+        return Err(Error::manifest("metadata directory integrity mismatch"));
+    }
+    let mut descriptors = &bytes[24..directory_end];
+    let mut payload = &bytes[directory_end + 32..];
+    let mut groups = Vec::with_capacity(count);
+    let mut decoded_total = 0usize;
+    for index in 0..count {
+        if read_u16(&mut descriptors)? as usize != index + 1 || read_u8(&mut descriptors)? != 1 {
+            return Err(Error::manifest("unsupported metadata group or flags"));
+        }
+        let codec = read_u8(&mut descriptors)?;
+        let encoded_size = read_u32(&mut descriptors)? as usize;
+        let decoded_size = read_u32(&mut descriptors)? as usize;
+        let digest = read_exact_array::<32>(&mut descriptors)?;
+        decoded_total = decoded_total
+            .checked_add(decoded_size)
+            .filter(|size| *size <= MAX_METADATA_BYTES)
+            .ok_or_else(|| Error::manifest("metadata exceeds decoded size limit"))?;
+        if encoded_size > payload.len() {
+            return Err(Error::manifest("truncated metadata group"));
+        }
+        let (encoded, rest) = payload.split_at(encoded_size);
+        payload = rest;
+        if blake3::hash(encoded).as_bytes() != &digest {
+            return Err(Error::manifest("metadata group integrity mismatch"));
+        }
+        let decoded = match codec {
+            0 if encoded_size == decoded_size => encoded.to_vec(),
+            1 => {
+                let mut decoder = zstd::stream::read::Decoder::new(encoded)?;
+                decoder.window_log_max(28)?;
+                let mut output = Vec::new();
+                decoder
+                    .take(decoded_size as u64 + 1)
+                    .read_to_end(&mut output)?;
+                if output.len() != decoded_size {
+                    return Err(Error::manifest("metadata decoded length mismatch"));
+                }
+                output
+            }
+            _ => return Err(Error::manifest("invalid metadata codec or raw length")),
+        };
+        groups.push(decoded);
+    }
+    if !payload.is_empty() {
+        return Err(Error::manifest("trailing metadata bytes"));
+    }
+    Ok(groups)
+}
+
+pub(crate) fn read_file(path: &std::path::Path) -> Result<Vec<u8>> {
+    let file = std::fs::File::open(path)?;
+    if file.metadata()?.len() > MAX_METADATA_BYTES as u64 {
+        return Err(Error::manifest("metadata exceeds encoded size limit"));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_METADATA_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_METADATA_BYTES {
+        return Err(Error::manifest("metadata exceeds encoded size limit"));
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const MAGIC: &[u8; 16] = crate::artifact::format::SNAPSHOT_BLUEPRINT_MAGIC;
+
+    fn resign(bytes: &mut [u8], count: usize) {
+        let end = 24 + count * DESCRIPTOR_BYTES;
+        let digest = blake3::hash(&bytes[..end]);
+        bytes[end..end + 32].copy_from_slice(digest.as_bytes());
+    }
+
+    #[test]
+    fn framing_and_decoded_bounds_are_enforced_before_materialization() {
+        let groups = vec![vec![0; 4096], vec![1, 2, 3]];
+        let valid = encode(MAGIC, &groups).unwrap();
+        assert_eq!(decode(&valid, MAGIC, 2).unwrap(), groups);
+        for offset in 0..valid.len() {
+            let mut invalid = valid.clone();
+            invalid[offset] ^= 1;
+            assert!(decode(&invalid, MAGIC, 2).is_err(), "offset {offset}");
+        }
+        for offset in [24, 26, 27, 28, 32] {
+            let mut invalid = valid.clone();
+            invalid[offset] = 255;
+            resign(&mut invalid, 2);
+            assert!(decode(&invalid, MAGIC, 2).is_err(), "descriptor {offset}");
+        }
+        for declared in [1u32, (MAX_METADATA_BYTES + 1) as u32] {
+            let mut invalid = valid.clone();
+            invalid[32..36].copy_from_slice(&declared.to_le_bytes());
+            resign(&mut invalid, 2);
+            assert!(decode(&invalid, MAGIC, 2).is_err());
+        }
+        let mut unknown_optional = valid.clone();
+        unknown_optional[26] = 0;
+        resign(&mut unknown_optional, 2);
+        assert!(decode(&unknown_optional, MAGIC, 2).is_err());
+        let mut trailing = valid;
+        trailing.push(0);
+        assert!(decode(&trailing, MAGIC, 2).is_err());
+    }
+}

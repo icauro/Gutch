@@ -17,7 +17,23 @@ fn fuzz_binary_decoders() {
         }
         let _ = crate::manifest::binary::read_snapshot_blueprint_bytes(bytes);
         let _ = crate::repo::index::codec::load_chunk_index_binary_from_bytes(bytes);
+        // Recompute framing so mutations reach the column parsers instead of
+        // stopping at the envelope's integrity check on every generated input.
+        let split = bytes.len() / 3;
+        let groups = vec![
+            bytes[..split].to_vec(),
+            bytes[split..split * 2].to_vec(),
+            bytes[split * 2..].to_vec(),
+        ];
+        let _ = crate::manifest::columnar::decode(&groups);
+        if let Ok(encoded) = crate::artifact::metadata::encode(
+            crate::artifact::format::CHUNK_INDEX_MAGIC,
+            &groups[..2],
+        ) {
+            let _ = crate::repo::index::codec::load_chunk_index_binary_from_bytes(&encoded);
+        }
         let _ = bundle::read_bundle(bytes, &CompressionProfile::default());
+        let _ = crate::artifact::loose::read_loose_header(&mut Cursor::new(bytes));
         for kind in [
             CompressionKind::None,
             CompressionKind::Lz4,
@@ -66,5 +82,71 @@ fn fuzz_bundle_roundtrip() {
         let offset = bytes[0] as usize % damaged.len();
         damaged[offset] ^= 1;
         assert!(bundle::verify_bundle_identity_bytes(&id, &damaged).is_err());
+    });
+}
+
+#[test]
+fn fuzz_blueprint_roundtrip() {
+    bolero::check!(
+        name = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/.artifacts/fuzz/blueprint_roundtrip"
+        )
+    )
+    .for_each(|bytes: &[u8]| {
+        if bytes.len() > 4096 {
+            return;
+        }
+        use crate::manifest::{
+            ChunkRef, DirectoryManifest, FileManifest, SnapshotEntry, SymlinkManifest,
+        };
+        let properties = bytes.first().copied().unwrap_or(0);
+        let chunks = bytes
+            .chunks(1 + usize::from(properties))
+            .map(|chunk| ChunkRef {
+                chunk_hash: blake3::hash(chunk).to_hex().to_string(),
+                raw_size: chunk.len() as u32,
+            })
+            .collect();
+        let entries = vec![
+            SnapshotEntry::Directory(DirectoryManifest {
+                path: "目录".into(),
+                read_only: properties & 1 != 0,
+            }),
+            SnapshotEntry::File(FileManifest {
+                path: "目录/λ🙂".into(),
+                size: bytes.len() as u64,
+                executable: properties & 2 != 0,
+                read_only: properties & 4 != 0,
+                full_file_hash: blake3::hash(bytes).to_hex().to_string(),
+                chunks,
+            }),
+            SnapshotEntry::Symlink(SymlinkManifest {
+                path: "link".into(),
+                target_path: "目录/λ🙂".into(),
+            }),
+        ];
+        let groups = crate::manifest::columnar::encode(&entries).unwrap();
+        let encoded = crate::artifact::metadata::encode(
+            crate::artifact::format::SNAPSHOT_BLUEPRINT_MAGIC,
+            &groups,
+        )
+        .unwrap();
+        let restored = crate::manifest::binary::read_snapshot_blueprint_bytes(&encoded).unwrap();
+        assert_eq!(
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&entries),
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&restored)
+        );
+        assert_eq!(
+            crate::manifest::columnar::encode(&restored).unwrap(),
+            groups
+        );
+        let mut mutated = groups;
+        let group = usize::from(properties) % mutated.len();
+        if !mutated[group].is_empty() {
+            let offset = bytes.len() % mutated[group].len();
+            mutated[group][offset] ^= 1;
+            let _ = crate::manifest::columnar::decode(&mutated);
+        }
     });
 }

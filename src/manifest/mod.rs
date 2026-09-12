@@ -1,4 +1,5 @@
 pub(crate) mod binary;
+pub(crate) mod columnar;
 mod content;
 pub(crate) use crate::repo::index::ChunkIndexEntries;
 pub(crate) mod constraints;

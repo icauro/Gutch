@@ -3,8 +3,8 @@ paths.
 
 Expected: Every reconstruction fails without modifying the run-owned filesystem.
 """
-import struct
 import os
+from tests.helpers.binary_metadata import directory_blueprint
 from tests.datasets.generate import basic
 from tests.helpers.filesystem import inventory
 
@@ -20,9 +20,7 @@ def run(case):
     if os.name == "nt":
         paths += ["CON", "nul.txt", "name.", "name ", "stream:ads", "wild?card"]
     for path in paths:
-        encoded = path.encode()
-        # A single directory entry in the documented GUTCH_BLUEPRINT v1 framing.
-        blueprint.write_bytes(b"GUTCH_BLUEPRINT\0\x01\0\0\0" + struct.pack("<IQBI", 1, 0, 1, len(encoded)) + encoded + b"\0")
+        blueprint.write_bytes(directory_blueprint(path))
         destination = case.payload / "installed"
         before = inventory(case.payload)
         case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot-id", snapshot,

@@ -89,11 +89,11 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
         let mut snapshot =
             SnapshotManifest::new(label.to_string(), manifest::SnapshotTagSet::default());
         snapshot.push_file(manifest::FileManifest {
-            path: "game.exe".to_string(),
+            path: "game.exe".into(),
             size: 0,
             executable: true,
-            read_only: false,
-            full_file_hash: test_hash(label),
+            read_only: label == "snapshot-a",
+            full_file_hash: blake3::hash(b"").to_hex().to_string(),
             chunks: Vec::new(),
         });
         snapshot.snapshot_id =
@@ -263,29 +263,29 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
 
     let chunk_index = manifest::ChunkIndex {
         format_version: "1".into(),
-        updated_at: String::new(),
+
         entries: crate::test_util::chunk_entries(BTreeMap::from([
             (
                 test_hash("chunk-a"),
-                manifest::ChunkIndexEntry {
-                    artifact_size: 0,
-                    chunk_ordinal: 0,
-                    bundle_id: (test_hash("bundle-1")).into(),
-                    raw_size: 100,
-                    compressed_size: 50,
-                    storage_mode: manifest::ArtifactStorageMode::Bundled,
-                },
+                manifest::ChunkIndexEntry::new(
+                    0,
+                    0,
+                    (test_hash("bundle-1")).into(),
+                    100,
+                    50,
+                    manifest::ArtifactStorageMode::Bundled,
+                ),
             ),
             (
                 test_hash("chunk-b"),
-                manifest::ChunkIndexEntry {
-                    artifact_size: 0,
-                    chunk_ordinal: 0,
-                    bundle_id: (test_hash("bundle-1")).into(),
-                    raw_size: 100,
-                    compressed_size: 50,
-                    storage_mode: manifest::ArtifactStorageMode::Bundled,
-                },
+                manifest::ChunkIndexEntry::new(
+                    0,
+                    0,
+                    (test_hash("bundle-1")).into(),
+                    100,
+                    50,
+                    manifest::ArtifactStorageMode::Bundled,
+                ),
             ),
         ])),
     };
@@ -408,17 +408,17 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
     let index = manifest::ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
-        updated_at: String::new(),
+
         entries: crate::test_util::chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
-            manifest::ChunkIndexEntry {
-                artifact_size: 0,
-                chunk_ordinal: 0,
-                bundle_id: (chunk_hash).into(),
-                raw_size: raw_bytes.len() as u32,
-                compressed_size: compressed_bytes.len() as u32,
-                storage_mode: manifest::ArtifactStorageMode::LooseChunks,
-            },
+            manifest::ChunkIndexEntry::new(
+                0,
+                0,
+                (chunk_hash).into(),
+                raw_bytes.len() as u32,
+                compressed_bytes.len() as u32,
+                manifest::ArtifactStorageMode::LooseChunks,
+            ),
         )])),
     };
     write_chunk_index(&paths, &index).unwrap();
@@ -501,40 +501,40 @@ fn chunk_index_write_and_load_roundtrip() {
     let mut entries = BTreeMap::new();
     entries.insert(
         test_hash("chunk-a"),
-        manifest::ChunkIndexEntry {
-            artifact_size: 0,
-            chunk_ordinal: 0,
-            bundle_id: (test_hash("bundle-1")).into(),
-            raw_size: 100,
-            compressed_size: 40,
-            storage_mode: manifest::ArtifactStorageMode::Bundled,
-        },
+        manifest::ChunkIndexEntry::new(
+            0,
+            0,
+            (test_hash("bundle-1")).into(),
+            100,
+            40,
+            manifest::ArtifactStorageMode::Bundled,
+        ),
     );
     entries.insert(
         test_hash("chunk-b"),
-        manifest::ChunkIndexEntry {
-            artifact_size: 0,
-            chunk_ordinal: 0,
-            bundle_id: (test_hash("bundle-1")).into(),
-            raw_size: 100,
-            compressed_size: 40,
-            storage_mode: manifest::ArtifactStorageMode::Bundled,
-        },
+        manifest::ChunkIndexEntry::new(
+            0,
+            0,
+            (test_hash("bundle-1")).into(),
+            100,
+            40,
+            manifest::ArtifactStorageMode::Bundled,
+        ),
     );
     entries.insert(
         test_hash("chunk-c"),
-        manifest::ChunkIndexEntry {
-            artifact_size: 0,
-            chunk_ordinal: 0,
-            bundle_id: (test_hash("bundle-2")).into(),
-            raw_size: 100,
-            compressed_size: 40,
-            storage_mode: manifest::ArtifactStorageMode::Bundled,
-        },
+        manifest::ChunkIndexEntry::new(
+            0,
+            0,
+            (test_hash("bundle-2")).into(),
+            100,
+            40,
+            manifest::ArtifactStorageMode::Bundled,
+        ),
     );
     let index = manifest::ChunkIndex {
         format_version: "1".to_string(),
-        updated_at: "2026-05-14T00:00:00Z".to_string(),
+
         entries: crate::test_util::chunk_entries(entries),
     };
     write_chunk_index(&paths, &index).unwrap();
@@ -603,7 +603,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
 
     let mut incremental = manifest::ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
-        updated_at: String::new(),
+
         entries: crate::manifest::ChunkIndexEntries::new(),
     };
     add_built_bundles_to_chunk_index(

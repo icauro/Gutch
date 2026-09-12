@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 use rayon::prelude::*;
 
@@ -41,7 +40,7 @@ impl Default for ExistingStoreState {
 fn empty_chunk_index() -> manifest::ChunkIndex {
     manifest::ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
-        updated_at: String::new(),
+
         entries: manifest::ChunkIndexEntries::new(),
     }
 }
@@ -265,15 +264,15 @@ fn read_bundle_index_entries(
         .enumerate()
         .map(|(ordinal, chunk)| {
             (
-                chunk.chunk_hash.clone(),
-                manifest::ChunkIndexEntry {
+                chunk.chunk_hash.to_hex(),
+                manifest::ChunkIndexEntry::new(
                     artifact_size,
-                    chunk_ordinal: ordinal as u32,
-                    bundle_id: shared_bundle_id.clone(),
-                    raw_size: chunk.raw_size,
-                    compressed_size: chunk.compressed_size,
-                    storage_mode: ArtifactStorageMode::Bundled,
-                },
+                    ordinal as u32,
+                    shared_bundle_id.clone(),
+                    chunk.raw_size,
+                    chunk.compressed_size,
+                    ArtifactStorageMode::Bundled,
+                ),
             )
         })
         .collect())
@@ -291,7 +290,7 @@ fn build_chunk_index_from_bundle_entries(
 
     Ok(manifest::ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
-        updated_at: chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339(),
+
         entries: entries.into_iter().collect(),
     })
 }
@@ -306,20 +305,19 @@ pub(crate) fn add_built_bundles_to_chunk_index(
         let shared_bundle_id = smol_str::SmolStr::new(&bundle.bundle_id);
         for (ordinal, chunk) in bundle.entries.iter().enumerate() {
             updates.push((
-                ChunkHash::parse_hex(&chunk.chunk_hash)?,
-                manifest::ChunkIndexEntry {
-                    artifact_size: crate::artifact::format::size_u32(bundle.size)?,
-                    chunk_ordinal: ordinal as u32,
-                    bundle_id: shared_bundle_id.clone(),
-                    raw_size: chunk.raw_size,
-                    compressed_size: chunk.compressed_size,
-                    storage_mode: ArtifactStorageMode::Bundled,
-                },
+                chunk.chunk_hash,
+                manifest::ChunkIndexEntry::new(
+                    crate::artifact::format::size_u32(bundle.size)?,
+                    ordinal as u32,
+                    shared_bundle_id.clone(),
+                    chunk.raw_size,
+                    chunk.compressed_size,
+                    ArtifactStorageMode::Bundled,
+                ),
             ));
         }
     }
     chunk_index.entries.extend(updates);
-    chunk_index.updated_at = chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339();
     Ok(())
 }
 
@@ -332,18 +330,17 @@ pub(crate) fn add_built_loose_chunks_to_chunk_index(
         let chunk_hash = chunk.chunk_hash.to_string();
         updates.push((
             ChunkHash::parse_hex(&chunk_hash)?,
-            manifest::ChunkIndexEntry {
-                artifact_size: crate::artifact::format::size_u32(chunk.compressed_size)?,
-                chunk_ordinal: 0,
-                bundle_id: chunk_hash.into(),
-                raw_size: crate::artifact::format::size_u32(chunk.raw_size)?,
-                compressed_size: crate::artifact::format::size_u32(chunk.compressed_size)?,
-                storage_mode: ArtifactStorageMode::LooseChunks,
-            },
+            manifest::ChunkIndexEntry::new(
+                crate::artifact::format::size_u32(chunk.compressed_size)?,
+                0,
+                chunk_hash.into(),
+                crate::artifact::format::size_u32(chunk.raw_size)?,
+                crate::artifact::format::size_u32(chunk.compressed_size)?,
+                ArtifactStorageMode::LooseChunks,
+            ),
         ));
     }
     chunk_index.entries.extend(updates);
-    chunk_index.updated_at = chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339();
     Ok(())
 }
 

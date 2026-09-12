@@ -549,7 +549,7 @@ fn execute_repo_snapshot_capture(
         store_state.bundle_ids.insert(bundle.bundle_id.clone());
         for chunk in &bundle.entries {
             store_state.chunk_locations.insert(
-                chunk.chunk_hash.clone(),
+                chunk.chunk_hash.to_hex(),
                 crate::capture::types::ExistingChunkLocation {
                     bundle_id: bundle.bundle_id.clone(),
                     compressed_size: u64::from(chunk.compressed_size),

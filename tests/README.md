@@ -10,7 +10,7 @@ contains runnable tests of the runners, datasets, cleanup and benchmark tooling.
 python gutch.py test --list
 python gutch.py test --suite repository
 python gutch.py test --seed 123 --steps 8
-python gutch.py test --dataset 02_chunk_boundaries --repository-version v1
+python gutch.py test --dataset 02_chunk_boundaries --repository-version v2
 python gutch.py test --repo /path/to/repository --expected /path/to/expected.json
 python gutch.py test --seed 456 --storage loose_chunks --compression lz4 --mutations 20
 python gutch.py test --case repository/frozen_snapshots_match_inventories

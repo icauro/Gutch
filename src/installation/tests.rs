@@ -233,29 +233,29 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     let chunk_b = test_hash("chunk-b");
     let chunk_index = manifest::ChunkIndex {
         format_version: "1".to_string(),
-        updated_at: String::new(),
+
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([
             (
                 chunk_a.clone(),
-                manifest::ChunkIndexEntry {
-                    artifact_size: 0,
-                    chunk_ordinal: 0,
-                    bundle_id: test_hash("bundle-a").into(),
-                    raw_size: 4,
-                    compressed_size: 4,
-                    storage_mode: manifest::ArtifactStorageMode::Bundled,
-                },
+                manifest::ChunkIndexEntry::new(
+                    0,
+                    0,
+                    test_hash("bundle-a").into(),
+                    4,
+                    4,
+                    manifest::ArtifactStorageMode::Bundled,
+                ),
             ),
             (
                 chunk_b.clone(),
-                manifest::ChunkIndexEntry {
-                    artifact_size: 0,
-                    chunk_ordinal: 0,
-                    bundle_id: test_hash("bundle-b").into(),
-                    raw_size: 4,
-                    compressed_size: 4,
-                    storage_mode: manifest::ArtifactStorageMode::Bundled,
-                },
+                manifest::ChunkIndexEntry::new(
+                    0,
+                    0,
+                    test_hash("bundle-b").into(),
+                    4,
+                    4,
+                    manifest::ArtifactStorageMode::Bundled,
+                ),
             ),
         ])),
     };

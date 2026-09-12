@@ -378,7 +378,7 @@ mod tests {
         let payload = b"bundle payload";
         let bundle_hash = repo_file_hash(payload);
         let mut bundle_bytes = payload.to_vec();
-        bundle_bytes.extend_from_slice(bundle_hash.as_bytes());
+        bundle_bytes.extend_from_slice(blake3::hash(payload).as_bytes());
 
         assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_ok());
         bundle_bytes[0] ^= 1;
@@ -392,7 +392,7 @@ mod tests {
         let payload = b"bundle payload";
         let bundle_hash = repo_file_hash(payload);
         let mut bundle_bytes = payload.to_vec();
-        bundle_bytes.extend_from_slice(bundle_hash.as_bytes());
+        bundle_bytes.extend_from_slice(blake3::hash(payload).as_bytes());
 
         assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_ok());
         assert!(

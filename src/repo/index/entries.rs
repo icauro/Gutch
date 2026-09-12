@@ -6,6 +6,17 @@ use crate::artifact::hash::ChunkHash;
 pub struct ChunkIndexEntries(Vec<(ChunkHash, ChunkIndexEntry)>);
 
 impl ChunkIndexEntries {
+    pub(crate) fn share_artifacts(&mut self) {
+        let mut artifacts = std::collections::BTreeMap::new();
+        for (_, entry) in &mut self.0 {
+            let shared = artifacts
+                .entry(entry.bundle_id.clone())
+                .or_insert_with(|| entry.artifact.clone());
+            if **shared == *entry.artifact {
+                entry.artifact = shared.clone();
+            }
+        }
+    }
     pub fn new() -> Self {
         Self::default()
     }
@@ -57,6 +68,7 @@ impl ChunkIndexEntries {
         merged.extend(old);
         merged.extend(new);
         self.0 = merged;
+        self.share_artifacts();
     }
     pub fn iter(&self) -> impl Iterator<Item = (&ChunkHash, &ChunkIndexEntry)> {
         self.0.iter().map(|(hash, value)| (hash, value))
@@ -93,6 +105,8 @@ impl FromIterator<(ChunkHash, ChunkIndexEntry)> for ChunkIndexEntries {
         let mut rows: Vec<_> = iter.into_iter().collect();
         rows.sort_by_key(|row| row.0);
         rows.dedup_by_key(|row| row.0);
-        Self(rows)
+        let mut entries = Self(rows);
+        entries.share_artifacts();
+        entries
     }
 }

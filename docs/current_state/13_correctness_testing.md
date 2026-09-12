@@ -79,17 +79,16 @@ spans multiple bundles. Expectations come from the input bytes using SHA-256;
 they are independent of Gutch's manifests and verification implementation.
 
 `tests/datasets/corpus/` contains ten generated cases (each at most 16 MiB),
-a preserved historical fixture, and full Blender Windows 5.2.0/5.2.1 inputs stored
+and full Blender Windows 5.2.0/5.2.1 inputs stored
 as a frozen repository. Each case has `case.json`, independent `expected.json`,
-and `repository/format-v1/`. Generated source bytes are committed; Blender sources and
+and `repository/format-v2/`. Generated source bytes are committed; Blender sources and
 archives are prepared only under test artifacts. Exact creator metadata and
-snapshot-to-source mappings live in the case definition. New compatibility
-major versions get new folders; existing repositories are never automatically rebuilt.
+snapshot-to-source mappings live in the case definition. New binary format generations get new folders; existing repositories are never automatically rebuilt.
 
 The default frozen scenario runs the shared lifecycle over all small corpus
 repositories. `--dataset blender --steps 0 --timeout 1800` selects the full real-world
 case without requiring source downloads. `--repository-version` selects a frozen
-major folder. See [dataset corpus](../../tests/datasets/README.md) for preparation,
+binary-format folder. See [dataset corpus](../../tests/datasets/README.md) for preparation,
 byte-driven fuzz generation, size limits and the explicit freezing command.
 
 `tests/repository_suite.py` runs the same lifecycle for the frozen fixture,
@@ -202,3 +201,12 @@ capture, policy changes, verification, reconstruction and HTTP fetch, checks
 unchanged repository/destination data, clears the policy and verifies adoption of
 constraints by a new compatible cache. Native incoming-snapshot tests exercise
 the shared publication boundary. Frozen corpus files remain unchanged.
+
+Native fuzzing through `python gutch.py fuzz` covers binary decoders, bundle
+round trips and blueprint round trips. Decoder inputs also reach raw column
+parsers with recomputed framing, so integrity checks do not hide deeper parser
+branches. Blueprint properties cover Unicode paths, flags, empty/single/multiple
+chunks, contained links, canonical encoding and unchanged semantic identity.
+The independent Python wire fixtures construct valid integrity framing around
+unsafe paths. Mixed bundled/loose map tests check deterministic encoding and
+shared artifact records.
