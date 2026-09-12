@@ -150,7 +150,7 @@ pub(crate) enum Commands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoCommands {
-    /// Show or change filename compatibility constraints.
+    /// Show or change filename compatibility, tag rules and matching tag keys.
     Constraints {
         #[command(subcommand)]
         command: ConstraintCommands,
