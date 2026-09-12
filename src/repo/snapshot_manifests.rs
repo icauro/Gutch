@@ -230,6 +230,15 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<(PathBuf, u64)> {
     crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
+    if paths.repo_metadata_path.exists() {
+        let (_, repository) = crate::repo::paths::load_gutch_repo_manifest(&paths.repo_root)?;
+        crate::filesystem::constraints::validate_paths(
+            &repository.constraints.unwrap_or_default(),
+            snapshot_manifest.entries.iter().map(|entry| entry.path()),
+            "publish snapshot",
+            Some(&snapshot_manifest.snapshot_id),
+        )?;
+    }
     if let Some(product) = snapshot_manifest.product_metadata.as_ref() {
         product.validate_for_snapshot(snapshot_manifest)?;
     }

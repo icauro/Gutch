@@ -32,6 +32,31 @@ pub(crate) fn validate_destination_paths<'a>(
     root: &Path,
     paths: impl Iterator<Item = &'a str>,
 ) -> Result<()> {
+    validate_destination_paths_inner(root, paths).map_err(|error| match error {
+        Error::PathError { path, reason } => {
+            Error::PathValidation(super::constraints::PathValidationFailure {
+                operation: "installation".into(),
+                snapshot_id: None,
+                violations: vec![super::constraints::PathViolation {
+                    path: path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .into_owned(),
+                    conflicting_path: None,
+                    target: "actual-destination".into(),
+                    code: "destination_incompatible".into(),
+                    reason,
+                }],
+            })
+        }
+        error => error,
+    })
+}
+fn validate_destination_paths_inner<'a>(
+    root: &Path,
+    paths: impl Iterator<Item = &'a str>,
+) -> Result<()> {
     let absolute = std::path::absolute(root)?;
     // Probe the actual volume: Windows directories and macOS volumes may be case-sensitive.
     let parent = absolute
@@ -113,30 +138,8 @@ fn validate_destination_length(path: &Path) -> Result<()> {
             let name = part
                 .to_str()
                 .ok_or_else(|| fail("destination name is not valid Unicode"))?;
-            let stem = name
-                .split('.')
-                .next()
-                .unwrap_or("")
-                .trim_end()
-                .to_uppercase();
-            if name.ends_with([' ', '.'])
-                || name.chars().any(|c| c < ' ' || "<>:\"|?*".contains(c))
-                || matches!(
-                    stem.as_str(),
-                    "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
-                )
-                || ["COM", "LPT"].iter().any(|prefix| {
-                    stem.strip_prefix(prefix).is_some_and(|n| {
-                        matches!(
-                            n,
-                            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-                        )
-                    })
-                })
-            {
-                return Err(fail(
-                    "destination name is reserved or unsupported on Windows",
-                ));
+            if let Some(reason) = super::constraints::windows_name_reason(name) {
+                return Err(fail(reason));
             }
         }
     }

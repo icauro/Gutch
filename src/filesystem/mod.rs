@@ -1,4 +1,5 @@
 //! Atomic filesystem operations and path safety.
+pub(crate) mod constraints;
 pub(crate) mod paths;
 
 use std::io::Write;

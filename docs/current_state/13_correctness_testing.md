@@ -188,3 +188,11 @@ This runs both native targets and seeds the decoder target with committed
 blueprints and indexes, keeping logs, corpus and crashes under `tests/.artifacts/fuzz`.
 `--rustc-bootstrap` enables the instrumentation features needed on the installed
 stable compiler; omit it when using a supported nightly toolchain.
+
+Filename policy coverage includes Unicode encoding-unit limits, directory-prefix
+collisions, normalization, optional-policy safety and unknown-target rejection.
+`repository/filename_constraints_reject_without_changes` exercises rejected
+capture, policy changes, verification, reconstruction and HTTP fetch, checks
+unchanged repository/destination data, clears the policy and verifies adoption of
+constraints by a new compatible cache. Native incoming-snapshot tests exercise
+the shared publication boundary. Frozen corpus files remain unchanged.

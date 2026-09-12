@@ -50,6 +50,10 @@ pub fn install_snapshot_from_repo(
         let (_, repo_manifest) =
             crate::repo::paths::load_gutch_repo_manifest(&repo_paths.repo_root)?;
         let chunk_index = crate::repo::index::load_chunk_index(&repo_paths)?;
+        crate::filesystem::paths::validate_destination_paths(
+            &request.destination_dir,
+            snapshot_manifest.entries.iter().map(|entry| entry.path()),
+        )?;
         let _promotion_lock = prepare_directory_promotion(
             &request.destination_dir,
             request.staging_dir.as_deref(),

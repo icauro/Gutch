@@ -225,7 +225,7 @@ fn execute_repo_snapshot_capture(
     let _repo_state_span = request
         .control
         .profile_span("capture.prepare_source.load_repo_state");
-    let (repo_paths, _repo_manifest) =
+    let (repo_paths, repo_manifest) =
         crate::repo::paths::load_gutch_repo_manifest(&request.repo_root)?;
     drop(_repo_state_span);
 
@@ -246,6 +246,25 @@ fn execute_repo_snapshot_capture(
         build_pool,
     )?;
     drop(_source_inventory_span);
+    let constraints = repo_manifest.constraints.clone().unwrap_or_default();
+    let validate_inventory = |inventory: &SourceInventory| {
+        crate::filesystem::constraints::validate_paths(
+            &constraints,
+            inventory
+                .metadata_entries
+                .iter()
+                .map(|entry| entry.path())
+                .chain(
+                    inventory
+                        .files
+                        .iter()
+                        .map(|file| file.normalized_relative.as_str()),
+                ),
+            "capture",
+            None,
+        )
+    };
+    validate_inventory(&source_inventory)?;
 
     let _identity_span = request
         .control
@@ -347,6 +366,7 @@ fn execute_repo_snapshot_capture(
                 runtime_plan.worker_count,
                 build_pool,
             )?;
+            validate_inventory(&source_inventory)?;
             (result, timings) =
                 crate::capture::pipeline::build_with_config_timed_on_pool_with_inventory(
                     &prepared_input.dir,

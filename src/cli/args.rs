@@ -86,6 +86,9 @@ pub(crate) struct ArtifactBuildProfileArgs {
     about = "Generic Gutch artifact and repo engine"
 )]
 pub(crate) struct Cli {
+    /// Write structured failure details, including every filename violation.
+    #[arg(long = "error-json-out", global = true, value_parser = parse_absolute_path)]
+    pub(crate) error_json_out: Option<PathBuf>,
     #[arg(long, short = 'v', global = true)]
     pub(crate) verbose: bool,
 
@@ -126,6 +129,22 @@ pub(crate) enum Commands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoCommands {
+    /// Read or replace optional filename compatibility constraints.
+    Constraints {
+        #[arg(long, value_parser = parse_absolute_path)]
+        repo: PathBuf,
+        /// Replace all targets. Repeat or separate values with commas.
+        #[arg(
+            long = "target",
+            value_enum,
+            value_delimiter = ',',
+            conflicts_with = "clear"
+        )]
+        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
+        /// Remove optional constraints.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Verify artifacts and regenerate the chunk map; report only unless --publish is given.
     RegenerateChunkMap {
         #[arg(long = "repo", value_parser = parse_absolute_path)]
@@ -136,6 +155,8 @@ pub(crate) enum RepoCommands {
         json_out: Option<PathBuf>,
     },
     Init {
+        #[arg(long = "target", value_enum, value_delimiter = ',')]
+        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
         #[arg(long = "path", value_parser = parse_absolute_path)]
         path: PathBuf,
         #[arg(long = "force")]
@@ -739,10 +760,9 @@ mod path_tests {
 
     #[test]
     fn cli_rejects_relative_filesystem_paths() {
-        let error =
-            Cli::try_parse_from(["gutch-cli", "repo", "status", "--repo", "relative/repo"])
-                .err()
-                .expect("relative repo path must be rejected");
+        let error = Cli::try_parse_from(["gutch-cli", "repo", "status", "--repo", "relative/repo"])
+            .err()
+            .expect("relative repo path must be rejected");
         assert!(error.to_string().contains("path must be absolute"));
     }
 

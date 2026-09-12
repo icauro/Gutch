@@ -63,6 +63,8 @@ pub struct GutchRepoManifest {
     #[serde(default)]
     pub name: String,
     pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraints: Option<super::constraints::RepositoryConstraints>,
     #[serde(rename = "content_packaging_profile")]
     pub artifact_profile: ArtifactProfile,
     #[serde(skip)]
@@ -75,6 +77,7 @@ impl GutchRepoManifest {
             format: CONTENT_REPO_FORMAT.to_string(),
             format_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             name,
+            constraints: None,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),
             remote_repo_id: String::new(),

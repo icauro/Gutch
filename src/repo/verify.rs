@@ -81,6 +81,13 @@ pub fn verify_gutch_repo_artifacts(
         let mut snapshots = Vec::new();
         let mut verified = std::collections::HashMap::new();
         for snapshot in selected_snapshots {
+            let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
+            crate::filesystem::constraints::validate_paths(
+                &repo_manifest.constraints.clone().unwrap_or_default(),
+                manifest.entries.iter().map(|entry| entry.path()),
+                "verify",
+                Some(&snapshot.snapshot_id),
+            )?;
             snapshots.push(verify_snapshot_artifacts_cached(
                 &repo_paths,
                 &chunk_index,

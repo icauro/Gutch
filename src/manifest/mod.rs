@@ -1,6 +1,7 @@
 pub(crate) mod binary;
 mod content;
 pub(crate) use crate::repo::index::ChunkIndexEntries;
+pub(crate) mod constraints;
 pub(crate) mod external_dependency;
 pub(crate) mod gutch_repo;
 pub(crate) mod launch;

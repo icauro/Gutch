@@ -43,6 +43,7 @@ class Scenario:
 
 
 SCENARIOS = [
+    Scenario("repository.filename_constraints_reject_without_changes", "local"),
     Scenario("repository.lifecycle", "local"),
     Scenario("capture.profiling_preserves_content", "local"),
     Scenario("repository.concurrent_writers_preserve_snapshots", "local"),

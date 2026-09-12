@@ -164,6 +164,14 @@ pub fn download_and_reconstruct_snapshot(
                 &progress,
                 &transfer_progress,
             )?;
+            crate::filesystem::paths::validate_destination_paths(
+                &request.destination_dir,
+                prepared
+                    .snapshot_manifest
+                    .entries
+                    .iter()
+                    .map(|entry| entry.path()),
+            )?;
             let _promotion_lock = crate::installation::apply::prepare_directory_promotion(
                 &request.destination_dir,
                 request.staging_dir.as_deref(),
@@ -293,6 +301,7 @@ fn prepare_snapshot_fetch(
     );
 
     let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&request.repo_path);
+    let repository_existed = repo_paths.repo_metadata_path.exists();
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "download")?;
 
     let repo_manifest = if let Some(repo_metadata_url) = request.repo_metadata_url.as_deref() {
@@ -407,6 +416,26 @@ fn prepare_snapshot_fetch(
         product_metadata,
         &blueprint_bytes,
     )?;
+
+    let incoming_constraints = repo_manifest.constraints.clone().unwrap_or_default();
+    crate::filesystem::constraints::validate_paths(
+        &incoming_constraints,
+        snapshot_manifest.entries.iter().map(|entry| entry.path()),
+        "fetch",
+        Some(&request.snapshot_id),
+    )?;
+    if repository_existed {
+        let local_constraints =
+            crate::repo::paths::load_gutch_repo_manifest(&repo_paths.repo_root)?
+                .1
+                .constraints
+                .unwrap_or_default();
+        if local_constraints != incoming_constraints {
+            return Err(Error::manifest(
+                "incoming repository constraints differ; explicitly update local constraints before fetching",
+            ));
+        }
+    }
 
     // Equivalent installations can have different blueprints. Preserve a complete
     // cached representation instead of replacing it merely because packaging differs.

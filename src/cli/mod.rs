@@ -121,6 +121,7 @@ where
     };
     set_verbose_output_enabled(cli.verbose);
     let profile_out = cli.profile_out.clone();
+    let error_json_out = cli.error_json_out.clone();
     if (cli.profile == crate::profile::GutchProfileMode::Off && profile_out.is_some())
         || (cli.profile == crate::profile::GutchProfileMode::Detailed && profile_out.is_none())
     {
@@ -137,6 +138,19 @@ where
             .map(|profiler| profiler.span("cli.command"));
         commands::run(cli, remote_provider, &profiler)
     };
+    if let (Err(error), Some(path)) = (&command_result, error_json_out) {
+        let details = match error {
+            crate::Error::PathValidation(failure) => {
+                serde_json::json!({"code": "filename_constraints", "message": error.to_string(), "details": failure})
+            }
+            _ => serde_json::json!({"code": "operation_failed", "message": error.to_string()}),
+        };
+        if let Err(export_error) = reporting::ensure_parent_directory(&path)
+            .and_then(|_| crate::filesystem::write_json(&path, &details))
+        {
+            eprintln!("Error details could not be saved: {export_error}");
+        }
+    }
     let profile_result = match (profile_out.as_ref(), profiler.as_ref()) {
         (Some(path), Some(profiler)) => profiler.finish(path, command_result.is_ok()),
         _ => Ok(()),

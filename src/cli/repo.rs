@@ -8,6 +8,22 @@ pub(crate) fn run(
     profile: &crate::cli::Profile,
 ) -> crate::api::Result<()> {
     match command {
+        RepoCommands::Constraints {
+            repo,
+            targets,
+            clear,
+        } => {
+            if clear || !targets.is_empty() {
+                crate::api::update_repository_constraints(
+                    &repo,
+                    crate::api::RepositoryConstraints { targets },
+                )?;
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&crate::api::read_repository_constraints(&repo)?)?
+            );
+        }
         RepoCommands::RegenerateChunkMap {
             repo,
             publish,
@@ -30,8 +46,18 @@ pub(crate) fn run(
                 ));
             }
         }
-        RepoCommands::Init { path, force } => {
+        RepoCommands::Init {
+            path,
+            force,
+            targets,
+        } => {
             crate::cli::repo::init_repo(&path, force)?;
+            if !targets.is_empty() {
+                crate::api::update_repository_constraints(
+                    &path,
+                    crate::api::RepositoryConstraints { targets },
+                )?;
+            }
         }
 
         RepoCommands::Push { repo, yes } => {

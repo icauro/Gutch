@@ -196,3 +196,7 @@ pub use crate::profile::{
 };
 
 pub use crate::progress::{GutchLiveFeedback, GutchThroughput};
+
+pub use crate::filesystem::constraints::{PathValidationFailure, PathViolation};
+pub use crate::manifest::constraints::{FilesystemTarget, RepositoryConstraints};
+pub use crate::repo::updates::{read_repository_constraints, update_repository_constraints};

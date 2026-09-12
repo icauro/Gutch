@@ -333,6 +333,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         let repository =
             provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
         let repo_paths = GutchRepoPaths::from_repo_root(&repo);
+        let repository_existed = repo_paths.repo_metadata_path.exists();
         crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
         progress.emit(
             GutchProgressPhase::Planning,
@@ -389,6 +390,21 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
             let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
                 crate::filesystem::from_json_bytes(&bytes)?;
+            let local_constraints = load_gutch_repo_manifest(&repo)?
+                .1
+                .constraints
+                .unwrap_or_default();
+            let incoming_constraints = manifest.constraints.clone().unwrap_or_default();
+            if repository_existed && local_constraints != incoming_constraints {
+                return Err(Error::manifest(
+                    "remote repository constraints differ; explicitly update local constraints before pulling",
+                ));
+            }
+            crate::repo::updates::validate_existing_constraints(
+                &repo,
+                &incoming_constraints,
+                "pull",
+            )?;
             manifest.remote_repo_id = repository.id.clone();
             crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &manifest)?;
             stats.repo_manifest_downloaded = true;
@@ -616,4 +632,42 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         );
         Ok(stats)
     })
+}
+
+#[cfg(test)]
+mod constraint_tests {
+    use super::*;
+    #[test]
+    fn incoming_snapshot_is_rejected_before_metadata_is_written() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = GutchRepoPaths::from_repo_root(root.path());
+        crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
+        crate::repo::updates::update_repository_constraints(
+            root.path(),
+            crate::api::RepositoryConstraints {
+                targets: vec![crate::api::FilesystemTarget::WindowsNtfs],
+            },
+        )
+        .unwrap();
+        let entries = vec![crate::manifest::SnapshotEntry::Directory(
+            crate::manifest::DirectoryManifest {
+                path: "CON".into(),
+                read_only: false,
+            },
+        )];
+        let id = crate::snapshot::identity::compute_snapshot_id_from_entries(&entries);
+        let mut manifest = crate::manifest::SnapshotManifest::new(id.clone(), Default::default());
+        manifest.entries = entries;
+        let blueprint_path = root.path().join("incoming.gtcbin");
+        crate::manifest::binary::write_snapshot_blueprint_binary(
+            &blueprint_path,
+            &manifest.blueprint(),
+        )
+        .unwrap();
+        let bytes = std::fs::read(blueprint_path).unwrap();
+        let error =
+            write_remote_snapshot_artifacts(&paths, &id, &manifest, None, &bytes).unwrap_err();
+        assert!(matches!(error, Error::PathValidation(_)));
+        assert!(!paths.snapshots_root.join(id).exists());
+    }
 }

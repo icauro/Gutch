@@ -147,3 +147,47 @@ Potential aliasing paths are confirmed on that filesystem before rejection.
 Names are never truncated, renamed or normalized to make an installation fit.
 Read-only directories or changes to mount/case settings can still prevent the
 probe or subsequent writes; errors leave installed content unpromoted.
+
+## Optional repository filename constraints
+
+`repo_metadata.json` may contain `constraints: {"targets": [...]}`. Missing,
+null, or empty constraints impose no portability policy. UTF-8 representation,
+relative-path safety and engine format limits remain mandatory. No operation
+renames, normalizes or silently skips incompatible names.
+
+Targets are OS/filesystem naming profiles:
+
+| Target | Profile assumptions |
+|---|---|
+| `windows-ntfs`, `windows-exfat` | Windows reserved characters/device names, no trailing dots/spaces, 255 UTF-16 units per component, case-insensitive comparison |
+| `linux-ext4`, `linux-btrfs` | Case-sensitive names, 255 UTF-8 bytes per component |
+| `linux-ext4-casefold` | Linux byte budgets with canonical-normalization and conservative case collision detection |
+| `macos-apfs` | Canonical-normalization and conservative case collision detection |
+| `macos-apfs-case-sensitive`, `ios-apfs` | Case-sensitive names with canonical-normalization collision detection |
+| `android-ext4`, `android-f2fs` | Case-sensitive app-private storage, Linux byte budgets; shared/document-provider storage is outside these profiles |
+
+Apple profiles conservatively budget 255 UTF-8 bytes per component. Relative
+path budgets are 32766 UTF-16 units on Windows, 1023 bytes for Apple profiles,
+and 4095 bytes for Linux/Android profiles. These are supported Gutch profile
+budgets, not a complete description of every filesystem's theoretical limits.
+The final destination prefix and staging location are checked at installation.
+
+Collision checks include ancestor directory spellings, not only complete file
+paths. Profiles use Gutch's Unicode normalization/case rules; they do not emulate
+every volume's versioned Unicode tables. Actual destination validation is still
+required. Profiles describe filenames, not portable permissions, executable bits,
+symlink support, mobile storage access or application launch support.
+
+Capture validates the source inventory before encoding artifacts and again on a
+source-change retry. Setting constraints checks existing snapshots before saving.
+Snapshot publication, incoming fetch, repository verification, reconstruction and
+repair enforce the repository policy. Pull transactions roll back rejected metadata;
+remote constraints may not silently replace different existing local constraints.
+Explicitly update local constraints before synchronizing a different remote policy.
+New caches adopt validated remote constraints.
+
+Errors carry operation, optional snapshot ID, offending path, optional conflicting
+path, target, stable reason code and explanation. `actual-destination` identifies
+an installation filesystem failure rather than a repository target violation.
+Terminal output escapes names and shows at most ten violations; error JSON retains
+all violations. Existing destinations remain unchanged when preflight rejects a path.
