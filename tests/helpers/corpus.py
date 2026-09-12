@@ -21,7 +21,7 @@ def repository_input(name, version="v1"):
     root = CORPUS_ROOT / name
     record = definition["repositories"][version]
     expected = json.loads((root / "expected.json").read_text(encoding="utf-8"))
-    return root / "repository" / version, {
+    return root / "repository" / f"format-{version}", {
         snapshot: expected[source] for snapshot, source in record["snapshots"].items()}
 
 
@@ -29,7 +29,7 @@ def freeze(name, version, executable, source=None):
     if not re.fullmatch(r"v[1-9][0-9]*", version):
         raise ValueError("repository version must be v1, v2, ...")
     definition = load_case(name)
-    destination = CORPUS_ROOT / name / "repository" / version
+    destination = CORPUS_ROOT / name / "repository" / f"format-{version}"
     if destination.exists() or version in definition["repositories"]:
         raise ValueError(f"frozen repository already exists: {destination}")
     source = source.resolve() if source else prepare_case_source(name)
