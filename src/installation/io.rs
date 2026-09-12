@@ -152,7 +152,7 @@ fn reconstruct_artifact_job(
                     }
                     write_reconstruct_targets(
                         chunk,
-                        &job.targets[chunk.targets.clone()],
+                        &job.targets[chunk.target_range.clone()],
                         bytes,
                         output_handles,
                         &mut target_handles,
@@ -205,7 +205,7 @@ fn reconstruct_artifact_job(
             timings.chunk_verify_bytes = read_metrics.raw_bytes;
             write_reconstruct_targets(
                 chunk,
-                &job.targets[chunk.targets.clone()],
+                &job.targets[chunk.target_range.clone()],
                 &bytes,
                 output_handles,
                 &mut target_handles,
@@ -593,7 +593,7 @@ fn reconstruct_artifact_trace_args(
     let logical_bytes = job
         .chunks
         .iter()
-        .map(|chunk| u64::from(chunk.raw_size).saturating_mul(chunk.targets.len() as u64))
+        .map(|chunk| u64::from(chunk.raw_size).saturating_mul(chunk.target_range.len() as u64))
         .sum::<u64>();
     std::collections::BTreeMap::from([
         (

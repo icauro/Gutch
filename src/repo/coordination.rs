@@ -10,30 +10,30 @@ use crate::Error;
 use crate::Result;
 
 thread_local! {
-    static HELD: RefCell<HashMap<PathBuf, bool>> = RefCell::new(HashMap::new());
-    static DELETIONS: RefCell<HashMap<PathBuf, Vec<PathBuf>>> = RefCell::new(HashMap::new());
+    static HELD_REPOSITORY_LOCKS: RefCell<HashMap<PathBuf, bool>> = RefCell::new(HashMap::new());
+    static DEFERRED_ARTIFACT_DELETIONS: RefCell<HashMap<PathBuf, Vec<PathBuf>>> = RefCell::new(HashMap::new());
 }
-const METADATA: &[&str] = &[
+const REPOSITORY_METADATA_ENTRIES: &[&str] = &[
     "repo_metadata.json",
     "local_repo_config.json",
     "chunk_map.gtcbin",
     "snapshots",
 ];
 
-struct Guard {
+struct RepositoryLockGuard {
     root: PathBuf,
     _file: File,
 }
-impl Drop for Guard {
+impl Drop for RepositoryLockGuard {
     fn drop(&mut self) {
-        HELD.with(|held| {
+        HELD_REPOSITORY_LOCKS.with(|held| {
             held.borrow_mut().remove(&self.root);
         });
     }
 }
 
 pub(crate) fn read<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
-    protected(
+    with_repository_transaction(
         root,
         false,
         &crate::progress::GutchOperationControl::default(),
@@ -41,7 +41,7 @@ pub(crate) fn read<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T
     )
 }
 pub(crate) fn write<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
-    protected(
+    with_repository_transaction(
         root,
         true,
         &crate::progress::GutchOperationControl::default(),
@@ -54,24 +54,24 @@ pub(crate) fn read_with_control<T>(
     control: &crate::progress::GutchOperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
-    protected(root, false, control, work)
+    with_repository_transaction(root, false, control, work)
 }
 pub(crate) fn write_with_control<T>(
     root: &Path,
     control: &crate::progress::GutchOperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
-    protected(root, true, control, work)
+    with_repository_transaction(root, true, control, work)
 }
 
-fn protected<T>(
+fn with_repository_transaction<T>(
     root: &Path,
     write: bool,
     control: &crate::progress::GutchOperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     let root = std::fs::canonicalize(root)?;
-    if let Some(exclusive) = HELD.with(|held| held.borrow().get(&root).copied()) {
+    if let Some(exclusive) = HELD_REPOSITORY_LOCKS.with(|held| held.borrow().get(&root).copied()) {
         if write && !exclusive {
             return Err(Error::manifest("repository lock upgrade is not allowed"));
         }
@@ -112,10 +112,10 @@ fn protected<T>(
             Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
         }
     }
-    HELD.with(|held| {
+    HELD_REPOSITORY_LOCKS.with(|held| {
         held.borrow_mut().insert(root.clone(), write);
     });
-    let _guard = Guard {
+    let _guard = RepositoryLockGuard {
         root: root.clone(),
         _file: file,
     };
@@ -138,7 +138,7 @@ fn protected<T>(
     // whose metadata was created by initialization or explicit fixture setup.
     publish_generation(&root, &journal)?;
     crate::filesystem::write(&pending, b"1")?;
-    DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
+    DEFERRED_ARTIFACT_DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
     match work().and_then(|value| {
         control.checkpoint()?;
         Ok(value)
@@ -146,8 +146,8 @@ fn protected<T>(
         Ok(value) => {
             publish_generation(&root, &journal)?;
             std::fs::remove_file(&pending)?;
-            let paths =
-                DELETIONS.with(|paths| paths.borrow_mut().remove(&root).unwrap_or_default());
+            let paths = DEFERRED_ARTIFACT_DELETIONS
+                .with(|paths| paths.borrow_mut().remove(&root).unwrap_or_default());
             for path in paths {
                 if path.exists() {
                     std::fs::remove_file(path)?;
@@ -156,7 +156,7 @@ fn protected<T>(
             Ok(value)
         }
         Err(error) => {
-            DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
+            DEFERRED_ARTIFACT_DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
             restore_committed(&root, &journal)?;
             std::fs::remove_file(&pending)?;
             Err(error)
@@ -210,7 +210,7 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
     let generation = tempfile::Builder::new()
         .prefix("generation-")
         .tempdir_in(journal)?;
-    for name in METADATA {
+    for name in REPOSITORY_METADATA_ENTRIES {
         let source = root.join(name);
         if source.exists() {
             copy_entry(&source, &generation.path().join(name))?;
@@ -231,7 +231,7 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
 
 fn restore_committed(root: &Path, journal: &Path) -> Result<()> {
     let generation = committed_directory(journal)?;
-    for name in METADATA {
+    for name in REPOSITORY_METADATA_ENTRIES {
         let target = root.join(name);
         if target.exists() {
             let metadata = std::fs::symlink_metadata(&target)?;
@@ -254,7 +254,7 @@ fn restore_committed(root: &Path, journal: &Path) -> Result<()> {
 
 pub(crate) fn defer_artifact_deletion(path: &Path) -> Result<bool> {
     let path = std::fs::canonicalize(path)?;
-    let owner = HELD.with(|held| {
+    let owner = HELD_REPOSITORY_LOCKS.with(|held| {
         held.borrow()
             .iter()
             .find(|(root, exclusive)| {
@@ -265,7 +265,8 @@ pub(crate) fn defer_artifact_deletion(path: &Path) -> Result<bool> {
             .map(|(root, _)| root.clone())
     });
     if let Some(root) = owner {
-        DELETIONS.with(|paths| paths.borrow_mut().entry(root).or_default().push(path));
+        DEFERRED_ARTIFACT_DELETIONS
+            .with(|paths| paths.borrow_mut().entry(root).or_default().push(path));
         Ok(true)
     } else {
         Ok(false)

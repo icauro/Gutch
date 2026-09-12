@@ -274,13 +274,13 @@ impl<'a> TransferDownloadRequest<'a> {
 }
 
 #[derive(Clone)]
-pub(crate) struct PendingBundleDownload {
+pub(crate) struct PendingArtifactDownload {
     pub artifact: crate::repo::artifacts::ArtifactRef,
-    pub bundle_id: String,
+    pub artifact_id: String,
     pub url: String,
-    pub bundle_path: PathBuf,
+    pub artifact_path: PathBuf,
     pub ordinal: usize,
-    pub total_missing_bundle_count: usize,
+    pub missing_artifact_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -312,13 +312,13 @@ struct ArtifactDownloadQueueState {
 }
 
 struct QueuedArtifact {
-    pending: PendingBundleDownload,
+    pending: PendingArtifactDownload,
     priority: ArtifactPriority,
 }
 
 impl PartialEq for QueuedArtifact {
     fn eq(&self, other: &Self) -> bool {
-        self.pending.bundle_id == other.pending.bundle_id
+        self.pending.artifact_id == other.pending.artifact_id
     }
 }
 
@@ -328,7 +328,7 @@ impl Ord for QueuedArtifact {
     fn cmp(&self, other: &Self) -> Ordering {
         self.priority
             .compare(other.priority)
-            .then_with(|| self.pending.bundle_id.cmp(&other.pending.bundle_id))
+            .then_with(|| self.pending.artifact_id.cmp(&other.pending.artifact_id))
     }
 }
 
@@ -367,7 +367,7 @@ pub(crate) struct ArtifactDownloadScheduler {
 
 impl ArtifactDownloadScheduler {
     pub(crate) fn new(
-        pending: &[PendingBundleDownload],
+        pending: &[PendingArtifactDownload],
         priorities: HashMap<crate::repo::artifacts::ArtifactRef, ArtifactPriority>,
         policy: TransferConcurrencyPolicy,
         download_client: &reqwest::blocking::Client,
@@ -513,7 +513,7 @@ fn resolve_transfer_worker_limits(
     Ok((initial.min(pending_count), maximum.min(pending_count)))
 }
 
-fn next_artifact(shared: &ArtifactDownloadQueueShared) -> Option<PendingBundleDownload> {
+fn next_artifact(shared: &ArtifactDownloadQueueShared) -> Option<PendingArtifactDownload> {
     let mut state = shared.state.lock().ok()?;
     loop {
         if state.stopped || shared.cancelled.load(AtomicOrdering::Acquire) {
@@ -537,16 +537,16 @@ fn artifact_download_worker(
     transfer_progress: Arc<FetchTransferProgress>,
 ) {
     loop {
-        let Some(bundle_download) = next_artifact(&shared) else {
+        let Some(artifact_download) = next_artifact(&shared) else {
             let _ = event_tx.send(ArtifactDownloadEvent::WorkerDone);
             return;
         };
         let _artifact_span = control.profile_span_with_args("fetch.artifact", || {
-            artifact_transfer_trace_args(&bundle_download)
+            artifact_transfer_trace_args(&artifact_download)
         });
         let result = download_pending_bundle(
             &download_client,
-            &bundle_download,
+            &artifact_download,
             &control,
             &transfer_progress,
         );
@@ -561,7 +561,7 @@ fn artifact_download_worker(
         match result {
             Ok(_) => {
                 if event_tx
-                    .send(ArtifactDownloadEvent::Ready(bundle_download.artifact))
+                    .send(ArtifactDownloadEvent::Ready(artifact_download.artifact))
                     .is_err()
                 {
                     return;
@@ -881,40 +881,43 @@ pub(crate) fn snapshot_manifest_from_download(
 
 pub(crate) fn download_pending_bundle(
     download_client: &reqwest::blocking::Client,
-    bundle_download: &PendingBundleDownload,
+    artifact_download: &PendingArtifactDownload,
     control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<usize> {
     control.checkpoint()?;
     let _artifact_span = control.profile_span_with_args("fetch.artifact.transfer", || {
-        artifact_transfer_trace_args(bundle_download)
+        artifact_transfer_trace_args(artifact_download)
     });
-    if let Some(parent) = bundle_download.bundle_path.parent() {
+    if let Some(parent) = artifact_download.artifact_path.parent() {
         crate::filesystem::create_dir_all(parent)?;
     }
     transfer_progress.download_started();
     let result = (|| -> Result<()> {
         let message = format!(
             "Downloading artifacts ({}/{})",
-            bundle_download.ordinal + 1,
-            bundle_download.total_missing_bundle_count.max(1)
+            artifact_download.ordinal + 1,
+            artifact_download.missing_artifact_count.max(1)
         );
         for attempt in 1..=MAX_ARTIFACT_DOWNLOAD_ATTEMPTS {
             control.checkpoint()?;
             let attempt_result = TransferDownloadRequest {
                 client: download_client,
-                url: &bundle_download.url,
+                url: &artifact_download.url,
                 control,
                 transfer_progress,
                 phase: GutchProgressPhase::Bundle,
                 message: &message,
                 counters: TransferPhaseCounters {
                     current: transfer_progress.completed_bundle_count(),
-                    total: bundle_download.total_missing_bundle_count.max(1),
+                    total: artifact_download.missing_artifact_count.max(1),
                 },
-                detail: Some(bundle_download.bundle_id.as_str()),
+                detail: Some(artifact_download.artifact_id.as_str()),
             }
-            .download_to_path(&bundle_download.bundle_path, &bundle_download.artifact);
+            .download_to_path(
+                &artifact_download.artifact_path,
+                &artifact_download.artifact,
+            );
             match attempt_result {
                 Ok(()) => return Ok(()),
                 Err(error)
@@ -935,20 +938,20 @@ pub(crate) fn download_pending_bundle(
 }
 
 fn artifact_transfer_trace_args(
-    bundle_download: &PendingBundleDownload,
+    artifact_download: &PendingArtifactDownload,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     std::collections::BTreeMap::from([
         (
             "artifact_id".to_string(),
-            serde_json::json!(bundle_download.artifact.id()),
+            serde_json::json!(artifact_download.artifact.id()),
         ),
         (
             "ordinal".to_string(),
-            serde_json::json!(bundle_download.ordinal),
+            serde_json::json!(artifact_download.ordinal),
         ),
         (
             "total".to_string(),
-            serde_json::json!(bundle_download.total_missing_bundle_count),
+            serde_json::json!(artifact_download.missing_artifact_count),
         ),
     ])
 }

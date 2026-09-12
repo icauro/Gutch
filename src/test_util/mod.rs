@@ -36,7 +36,7 @@ impl Rng {
 }
 
 pub fn make_file(path: std::path::PathBuf, size: usize, seed: Seed) {
-    let mut rng = Rng::new(match &seed {
+    let mut random_generator = Rng::new(match &seed {
         Seed::Binary => 0xdead,
         Seed::Audio => 0xbeef,
         Seed::Texture => 0xcafe,
@@ -46,66 +46,72 @@ pub fn make_file(path: std::path::PathBuf, size: usize, seed: Seed) {
     });
 
     let pattern: Vec<u8> = match seed {
-        Seed::Binary => (0..65536).map(|_| rng.next_byte()).collect(),
+        Seed::Binary => (0..65536).map(|_| random_generator.next_byte()).collect(),
         Seed::Audio => {
-            let mut p = Vec::with_capacity(32768);
-            let mut freq = 0u8;
+            let mut pattern_bytes = Vec::with_capacity(32768);
+            let mut sample_value = 0u8;
             for _ in 0..32768 {
-                freq = freq.wrapping_add(rng.next_byte().wrapping_rem(7).wrapping_sub(3));
-                p.push(freq);
+                sample_value = sample_value
+                    .wrapping_add(random_generator.next_byte().wrapping_rem(7).wrapping_sub(3));
+                pattern_bytes.push(sample_value);
             }
-            p
+            pattern_bytes
         }
         Seed::Texture => {
-            let mut p = Vec::with_capacity(4096);
+            let mut pattern_bytes = Vec::with_capacity(4096);
             for _ in 0..1024 {
-                p.extend_from_slice(&[rng.next_byte(), rng.next_byte(), rng.next_byte(), 255u8]);
+                pattern_bytes.extend_from_slice(&[
+                    random_generator.next_byte(),
+                    random_generator.next_byte(),
+                    random_generator.next_byte(),
+                    255u8,
+                ]);
             }
-            p
+            pattern_bytes
         }
         Seed::Archive => {
-            let mut p = Vec::with_capacity(8192);
+            let mut pattern_bytes = Vec::with_capacity(8192);
             for _ in 0..2048 {
-                p.extend_from_slice(&rng.next_u32().to_le_bytes());
+                pattern_bytes.extend_from_slice(&random_generator.next_u32().to_le_bytes());
             }
-            p
+            pattern_bytes
         }
         Seed::Config => {
-            let s = generate_config_json(size);
-            std::fs::write(&path, s.as_bytes()).unwrap();
+            let generated_text = generate_config_json(size);
+            std::fs::write(&path, generated_text.as_bytes()).unwrap();
             return;
         }
         Seed::Text => {
-            let s = generate_text(size);
-            std::fs::write(&path, s.as_bytes()).unwrap();
+            let generated_text = generate_text(size);
+            std::fs::write(&path, generated_text.as_bytes()).unwrap();
             return;
         }
     };
 
-    let mut f = std::fs::File::create(&path).unwrap();
+    let mut output_file = std::fs::File::create(&path).unwrap();
     let mut written = 0usize;
     while written < size {
         let take = pattern.len().min(size - written);
-        f.write_all(&pattern[..take]).unwrap();
+        output_file.write_all(&pattern[..take]).unwrap();
         written += take;
     }
 }
 
 fn generate_config_json(size: usize) -> String {
-    let mut out = String::with_capacity(size + 64);
-    out.push_str("{\n");
-    let mut i = 0u32;
-    while out.len() + 64 < size {
-        out.push_str(&format!(
+    let mut output_text = String::with_capacity(size + 64);
+    output_text.push_str("{\n");
+    let mut setting_index = 0u32;
+    while output_text.len() + 64 < size {
+        output_text.push_str(&format!(
             "  \"key_{:06}\": \"value_{:06}_{:08}\",\n",
-            i,
-            i,
-            i.wrapping_mul(0x9e3779b9)
+            setting_index,
+            setting_index,
+            setting_index.wrapping_mul(0x9e3779b9)
         ));
-        i = i.wrapping_add(1);
+        setting_index = setting_index.wrapping_add(1);
     }
-    out.push_str("  \"_end\": true\n}\n");
-    out
+    output_text.push_str("  \"_end\": true\n}\n");
+    output_text
 }
 
 fn generate_text(size: usize) -> String {
@@ -114,13 +120,17 @@ fn generate_text(size: usize) -> String {
         "config", "capture", "release", "asset", "texture", "audio", "level", "player", "enemy",
         "weapon", "health", "score", "save", "load", "menu",
     ];
-    let mut out = String::with_capacity(size + 64);
-    let mut wi = 0u64;
-    while out.len() < size {
-        out.push_str(&format!("{} {}\n", words[wi as usize % words.len()], wi));
-        wi = wi.wrapping_add(1);
+    let mut output_text = String::with_capacity(size + 64);
+    let mut word_index = 0u64;
+    while output_text.len() < size {
+        output_text.push_str(&format!(
+            "{} {}\n",
+            words[word_index as usize % words.len()],
+            word_index
+        ));
+        word_index = word_index.wrapping_add(1);
     }
-    out
+    output_text
 }
 
 pub fn dir_size(dir: &std::path::Path) -> u64 {

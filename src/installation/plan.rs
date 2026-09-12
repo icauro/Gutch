@@ -7,15 +7,15 @@ use crate::Error;
 use crate::Result;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::transfer::download::ArtifactPriority;
-use crate::transfer::download::PendingBundleDownload;
+use crate::transfer::download::PendingArtifactDownload;
 
 use super::io::*;
 use super::jobs::*;
 pub(crate) fn build_artifact_priorities(
     pipeline_plan: &ReconstructPipelinePlan,
-    pending_bundle_downloads: &[PendingBundleDownload],
+    pending_artifact_downloads: &[PendingArtifactDownload],
 ) -> HashMap<crate::repo::artifacts::ArtifactRef, ArtifactPriority> {
-    pending_bundle_downloads
+    pending_artifact_downloads
         .iter()
         .map(|download| {
             let mut priority = ArtifactPriority::default();
@@ -196,7 +196,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                     chunk_hash: hash,
                     raw_size: chunk_ref.raw_size,
                     compressed_size: entry.compressed_size,
-                    targets: 0..0,
+                    target_range: 0..0,
                 });
                 position
             });
@@ -254,7 +254,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                         .remove(&(job_index, position))
                         .unwrap_or_default(),
                 );
-                chunk.targets = start..job.targets.len();
+                chunk.target_range = start..job.targets.len();
             }
             job.chunks.sort_by_key(|chunk| chunk.chunk_hash);
         }
@@ -327,7 +327,12 @@ pub(crate) fn inspect_installation_changes(
     let updates = if inspection == super::inspect::VerifyMode::MetadataOnly {
         Vec::new()
     } else {
-        resolve_metadata_updates(snapshot_manifest, &mut classification, destination_dir, control)?
+        resolve_metadata_updates(
+            snapshot_manifest,
+            &mut classification,
+            destination_dir,
+            control,
+        )?
     };
     let mut changes = build_installation_changes(snapshot_manifest, chunk_index, classification)?;
     changes.corrupt_file_count += updates.len();

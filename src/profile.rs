@@ -465,7 +465,13 @@ impl GutchProfiler {
         } else {
             Ok(())
         };
-        let report = serde_json::json!({"profile":self.summary(),"operation_succeeded":operation_succeeded,"export_succeeded":trace_result.is_ok(),"trace_export_seconds":started.elapsed().as_secs_f64(),"duration_semantics":"inclusive spans; sampled job durations are not exhaustive worker time"});
+        let report = serde_json::json!({
+            "profile": self.summary(),
+            "operation_succeeded": operation_succeeded,
+            "export_succeeded": trace_result.is_ok(),
+            "trace_export_seconds": started.elapsed().as_secs_f64(),
+            "duration_semantics": "inclusive spans; sampled job durations are not exhaustive worker time",
+        });
         let mut summary_output =
             BufWriter::new(std::fs::File::create(directory.join("summary.json"))?);
         serde_json::to_writer_pretty(&mut summary_output, &report)?;
@@ -475,18 +481,26 @@ impl GutchProfiler {
     pub(crate) fn write_trace(&self, path: &Path) -> crate::Result<()> {
         let mut output = BufWriter::new(std::fs::File::create(path)?);
         output.write_all(b"{\"displayTimeUnit\":\"ms\",\"traceEvents\":[")?;
-        serde_json::to_writer(
-            &mut output,
-            &serde_json::json!({"name":"process_name","cat":"__metadata","ph":"M","ts":0,"pid":1,"tid":0,"args":{"name":path.parent().and_then(Path::file_name).and_then(|p|p.to_str()).unwrap_or("gutch")}}),
-        )?;
+        let process_name = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .unwrap_or("gutch");
+        let process_metadata = serde_json::json!({
+            "name": "process_name", "cat": "__metadata", "ph": "M",
+            "ts": 0, "pid": 1, "tid": 0, "args": { "name": process_name },
+        });
+        serde_json::to_writer(&mut output, &process_metadata)?;
         if let Ok(recorders) = self.state.recorders.lock() {
             for recorder in recorders.iter() {
                 if let Ok(recorder) = recorder.lock() {
                     output.write_all(b",")?;
-                    serde_json::to_writer(
-                        &mut output,
-                        &serde_json::json!({"name":"thread_name","cat":"__metadata","ph":"M","ts":0,"pid":1,"tid":recorder.tid,"args":{"name":recorder.thread_name}}),
-                    )?;
+                    let thread_metadata = serde_json::json!({
+                        "name": "thread_name", "cat": "__metadata", "ph": "M",
+                        "ts": 0, "pid": 1, "tid": recorder.tid,
+                        "args": { "name": recorder.thread_name },
+                    });
+                    serde_json::to_writer(&mut output, &thread_metadata)?;
                     for event in &recorder.events {
                         if let Some(duration) = event.duration {
                             output.write_all(b",")?;

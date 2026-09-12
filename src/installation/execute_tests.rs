@@ -125,7 +125,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
             source_destination_dir: Some(source_root.clone()),
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &HashSet::new(),
-            pending_bundle_downloads: &[],
+            pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
@@ -341,7 +341,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
             source_destination_dir: Some(source_root.clone()),
             runtime_hints: &RuntimeResourceHints { jobs: Some(2) },
             existing_artifacts: &existing_artifacts,
-            pending_bundle_downloads: &[],
+            pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
@@ -427,7 +427,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
             source_destination_dir: None,
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &existing_artifacts,
-            pending_bundle_downloads: &[],
+            pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
@@ -599,7 +599,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             source_destination_dir: None,
             runtime_hints: &RuntimeResourceHints { jobs: Some(2) },
             existing_artifacts: &existing_artifacts,
-            pending_bundle_downloads: &[],
+            pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: None,
@@ -675,13 +675,13 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     };
     let plan =
         build_reconstruct_pipeline_plan(&snapshot, &index, &paths, &HashSet::new(), None).unwrap();
-    let pending = [PendingBundleDownload {
-        bundle_path: artifact.local_path(&paths).unwrap(),
+    let pending = [PendingArtifactDownload {
+        artifact_path: artifact.local_path(&paths).unwrap(),
         artifact,
-        bundle_id: chunk_hash,
+        artifact_id: chunk_hash,
         url,
         ordinal: 1,
-        total_missing_bundle_count: 1,
+        missing_artifact_count: 1,
     }];
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
@@ -694,7 +694,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
             source_destination_dir: None,
             runtime_hints: &RuntimeResourceHints { jobs: Some(1) },
             existing_artifacts: &HashSet::new(),
-            pending_bundle_downloads: &pending,
+            pending_artifact_downloads: &pending,
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
             download_client: Some(&reqwest::blocking::Client::new()),

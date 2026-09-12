@@ -5,6 +5,8 @@ use serde::Serialize;
 use crate::Error;
 use crate::Result;
 
+const OPERATION_MEMORY_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Shared per-operation admission for payload and codec working memory.
 pub(crate) struct MemoryBudget {
     available: std::sync::Mutex<u64>,
@@ -17,7 +19,7 @@ pub(crate) struct MemoryPermit<'a> {
 impl MemoryBudget {
     pub(crate) fn new() -> Self {
         Self {
-            available: std::sync::Mutex::new(512 * 1024 * 1024),
+            available: std::sync::Mutex::new(OPERATION_MEMORY_BUDGET_BYTES),
             changed: std::sync::Condvar::new(),
         }
     }
@@ -26,7 +28,7 @@ impl MemoryBudget {
         bytes: u64,
         control: &crate::progress::GutchOperationControl,
     ) -> Result<MemoryPermit<'_>> {
-        if bytes > 512 * 1024 * 1024 {
+        if bytes > OPERATION_MEMORY_BUDGET_BYTES {
             return Err(Error::manifest(
                 "artifact working memory exceeds operation budget",
             ));

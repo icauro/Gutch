@@ -43,6 +43,17 @@ pub(crate) fn list_repo_artifact_paths(
     paths: &GutchRepoPaths,
 ) -> Result<Vec<(crate::repo::artifacts::ArtifactRef, PathBuf)>> {
     let mut artifacts = Vec::new();
+    visit_repo_artifacts(paths, |artifact, entry| {
+        artifacts.push((artifact, entry.path().to_path_buf()));
+        Ok(())
+    })?;
+    Ok(artifacts)
+}
+
+fn visit_repo_artifacts(
+    paths: &GutchRepoPaths,
+    mut visit: impl FnMut(crate::repo::artifacts::ArtifactRef, walkdir::DirEntry) -> Result<()>,
+) -> Result<()> {
     if paths.bundles_root.exists() {
         for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
             let entry = entry?;
@@ -50,10 +61,10 @@ pub(crate) fn list_repo_artifact_paths(
                 continue;
             }
             if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
-                artifacts.push((
+                visit(
                     crate::repo::artifacts::ArtifactRef::Bundle { id: bundle_id },
-                    entry.path().to_path_buf(),
-                ));
+                    entry,
+                )?;
             }
         }
     }
@@ -67,16 +78,14 @@ pub(crate) fn list_repo_artifact_paths(
                 continue;
             };
             if crate::artifact::hash::ChunkHash::parse_hex(hash).is_ok() {
-                artifacts.push((
-                    crate::repo::artifacts::ArtifactRef::LooseChunk {
-                        hash: hash.to_string(),
-                    },
-                    entry.path().to_path_buf(),
-                ));
+                let artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
+                    hash: hash.to_string(),
+                };
+                visit(artifact, entry)?;
             }
         }
     }
-    Ok(artifacts)
+    Ok(())
 }
 
 pub(crate) fn scan_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usize, u64)> {
@@ -110,40 +119,12 @@ pub(crate) fn scan_artifact_inventory(
     let mut artifact_count = 0usize;
     let mut artifact_bytes = 0u64;
 
-    if paths.bundles_root.exists() {
-        for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
-            let entry = entry?;
-            if !entry.path().is_file() {
-                continue;
-            }
-            let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) else {
-                continue;
-            };
-            artifacts.insert(crate::repo::artifacts::ArtifactRef::Bundle { id: bundle_id });
-            artifact_count += 1;
-            artifact_bytes += entry.metadata()?.len();
-        }
-    }
-
-    if paths.chunks_root.exists() {
-        for entry in walkdir::WalkDir::new(&paths.chunks_root).sort_by_file_name() {
-            let entry = entry?;
-            if !entry.path().is_file() {
-                continue;
-            }
-            let Some(chunk_hash) = entry.file_name().to_str() else {
-                continue;
-            };
-            if crate::artifact::hash::ChunkHash::parse_hex(chunk_hash).is_err() {
-                continue;
-            }
-            artifacts.insert(crate::repo::artifacts::ArtifactRef::LooseChunk {
-                hash: chunk_hash.to_string(),
-            });
-            artifact_count += 1;
-            artifact_bytes += entry.metadata()?.len();
-        }
-    }
+    visit_repo_artifacts(paths, |artifact, entry| {
+        artifacts.insert(artifact);
+        artifact_count += 1;
+        artifact_bytes += entry.metadata()?.len();
+        Ok(())
+    })?;
 
     Ok((artifacts, artifact_count, artifact_bytes))
 }

@@ -144,7 +144,7 @@ pub fn install_snapshot_from_repo(
                 source_destination_dir,
                 runtime_hints: &request.runtime_hints,
                 existing_artifacts: &existing_artifacts,
-                pending_bundle_downloads: &[],
+                pending_artifact_downloads: &[],
                 transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
                 control: &request.control,
                 download_client: None,

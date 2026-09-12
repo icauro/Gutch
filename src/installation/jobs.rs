@@ -8,7 +8,7 @@ use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperationControl;
 use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::FetchTransferProgress;
-use crate::transfer::download::PendingBundleDownload;
+use crate::transfer::download::PendingArtifactDownload;
 
 pub(crate) struct ReconstructPipelinePlan {
     pub(crate) files: Vec<ReconstructPipelineFile>,
@@ -33,7 +33,7 @@ pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub source_destination_dir: Option<PathBuf>,
     pub runtime_hints: &'a RuntimeResourceHints,
     pub existing_artifacts: &'a HashSet<crate::repo::artifacts::ArtifactRef>,
-    pub pending_bundle_downloads: &'a [PendingBundleDownload],
+    pub pending_artifact_downloads: &'a [PendingArtifactDownload],
     pub transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     pub control: &'a GutchOperationControl,
     pub download_client: Option<&'a reqwest::blocking::Client>,
@@ -70,7 +70,7 @@ pub(crate) struct ReconstructArtifactChunk {
     pub(crate) chunk_hash: crate::artifact::hash::ChunkHash,
     pub(crate) raw_size: u32,
     pub(crate) compressed_size: u32,
-    pub(crate) targets: std::ops::Range<usize>,
+    pub(crate) target_range: std::ops::Range<usize>,
 }
 
 #[derive(Clone)]

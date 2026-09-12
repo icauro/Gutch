@@ -28,7 +28,7 @@ use crate::runtime::plan_runtime;
 use crate::transfer::download::ArtifactDownloadEvent;
 use crate::transfer::download::ArtifactDownloadScheduler;
 use crate::transfer::download::FetchTransferProgress;
-use crate::transfer::download::PendingBundleDownload;
+use crate::transfer::download::PendingArtifactDownload;
 
 use super::entries::*;
 use super::io::*;
@@ -70,11 +70,23 @@ pub(crate) fn apply_reconstruct_pipeline(
                     &request.snapshot_manifest.snapshot_id,
                 )
             });
-        crate::filesystem::paths::validate_destination_paths(request.destination_dir,
-            request.snapshot_manifest.entries.iter().map(|entry| entry.path()))?;
+        crate::filesystem::paths::validate_destination_paths(
+            request.destination_dir,
+            request
+                .snapshot_manifest
+                .entries
+                .iter()
+                .map(|entry| entry.path()),
+        )?;
         // tempfile appends a six-character random suffix to the operation prefix.
-        crate::filesystem::paths::validate_destination_paths(&staging_dir.join(".gutch-operation-XXXXXX"),
-            request.snapshot_manifest.entries.iter().map(|entry| entry.path()))?;
+        crate::filesystem::paths::validate_destination_paths(
+            &staging_dir.join(".gutch-operation-XXXXXX"),
+            request
+                .snapshot_manifest
+                .entries
+                .iter()
+                .map(|entry| entry.path()),
+        )?;
         super::apply::create_snapshot_staging(
             request.destination_dir,
             &staging_dir,
@@ -109,7 +121,7 @@ pub(crate) fn apply_reconstruct_pipeline(
                 compression_profile: &request.compression_profile,
                 runtime_hints: request.runtime_hints,
                 existing_artifacts: request.existing_artifacts,
-                pending_bundle_downloads: request.pending_bundle_downloads,
+                pending_artifact_downloads: request.pending_artifact_downloads,
                 transfer_policy: request.transfer_policy,
                 control: request.control,
                 download_client: request.download_client,
@@ -191,7 +203,7 @@ pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
     pub(crate) compression_profile: &'a crate::manifest::CompressionProfile,
     pub(crate) runtime_hints: &'a RuntimeResourceHints,
     pub(crate) existing_artifacts: &'a HashSet<crate::repo::artifacts::ArtifactRef>,
-    pub(crate) pending_bundle_downloads: &'a [PendingBundleDownload],
+    pub(crate) pending_artifact_downloads: &'a [PendingArtifactDownload],
     pub(crate) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     pub(crate) control: &'a GutchOperationControl,
     pub(crate) download_client: Option<&'a reqwest::blocking::Client>,
@@ -293,7 +305,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         compression_profile,
         runtime_hints,
         existing_artifacts,
-        pending_bundle_downloads,
+        pending_artifact_downloads,
         transfer_policy,
         control,
         download_client,
@@ -318,7 +330,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
 
     let artifact_priorities = {
         let _priorities_span = control.profile_span("installation.reconstruct.prepare.priorities");
-        build_artifact_priorities(&pipeline_plan, pending_bundle_downloads)
+        build_artifact_priorities(&pipeline_plan, pending_artifact_downloads)
     };
     let file_plans = Arc::new(pipeline_plan.files);
     let output_sizes = Arc::new(file_plans.iter().map(|file| file.size).collect::<Vec<_>>());
@@ -334,7 +346,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
         let _artifacts_span = control.profile_span("installation.reconstruct.prepare.artifacts");
-        let pending_artifacts = pending_bundle_downloads
+        let pending_artifacts = pending_artifact_downloads
             .iter()
             .map(|download| download.artifact.clone())
             .collect::<HashSet<_>>();
@@ -360,7 +372,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 )));
             }
         }
-        let artifact_scheduler = if pending_bundle_downloads.is_empty() {
+        let artifact_scheduler = if pending_artifact_downloads.is_empty() {
             None
         } else {
             let Some(download_client) = download_client else {
@@ -374,7 +386,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 ));
             };
             Some(ArtifactDownloadScheduler::new(
-                pending_bundle_downloads,
+                pending_artifact_downloads,
                 artifact_priorities,
                 transfer_policy,
                 download_client,
@@ -774,7 +786,7 @@ fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {
             .chunks
             .iter()
             .flat_map(|chunk| {
-                job.targets[chunk.targets.clone()]
+                job.targets[chunk.target_range.clone()]
                     .iter()
                     .map(|target| target.file_index)
             })

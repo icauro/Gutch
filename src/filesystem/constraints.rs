@@ -108,54 +108,60 @@ pub(crate) fn validate_paths<'a>(
     }
     let mut violations = Vec::new();
     for target in constraints.targets.iter().copied().collect::<BTreeSet<_>>() {
-        let windows = matches!(
+        let uses_windows_naming = matches!(
             target,
             FilesystemTarget::WindowsNtfs | FilesystemTarget::WindowsExfat
         );
-        let apple = matches!(
+        let uses_apple_naming = matches!(
             target,
             FilesystemTarget::MacosApfs
                 | FilesystemTarget::MacosApfsCaseSensitive
                 | FilesystemTarget::IosApfs
         );
-        let fold = windows
+        let fold_case_for_comparison = uses_windows_naming
             || matches!(
                 target,
                 FilesystemTarget::MacosApfs | FilesystemTarget::LinuxExt4Casefold
             );
-        let normalize = apple || matches!(target, FilesystemTarget::LinuxExt4Casefold);
-        let mut names = BTreeMap::<String, String>::new();
-        let mut seen_prefixes = BTreeSet::new();
+        let normalize_unicode_for_comparison =
+            uses_apple_naming || matches!(target, FilesystemTarget::LinuxExt4Casefold);
+        let mut original_paths_by_comparison_key = BTreeMap::<String, String>::new();
+        let mut validated_path_prefixes = BTreeSet::new();
         for path in &paths {
-            let mut add = |path: &str, other: Option<String>, code: &str, reason: &str| {
-                violations.push(PathViolation {
-                    path: path.into(),
-                    conflicting_path: other,
-                    target: target.as_str().into(),
-                    code: code.into(),
-                    reason: reason.into(),
-                });
-            };
-            let path_length = if windows {
+            let mut record_violation =
+                |path: &str, conflicting_path: Option<String>, code: &str, reason: &str| {
+                    violations.push(PathViolation {
+                        path: path.into(),
+                        conflicting_path: conflicting_path,
+                        target: target.as_str().into(),
+                        code: code.into(),
+                        reason: reason.into(),
+                    });
+                };
+            let path_length = if uses_windows_naming {
                 path.encode_utf16().count()
             } else {
                 path.len()
             };
-            let budget = if windows {
+            let path_length_limit = if uses_windows_naming {
                 32766
-            } else if apple {
+            } else if uses_apple_naming {
                 1023
             } else {
                 4095
             };
-            if path_length > budget {
-                add(
+            if path_length > path_length_limit {
+                record_violation(
                     path,
                     None,
                     "path_too_long",
                     &format!(
-                        "relative path exceeds {budget} {}",
-                        if windows { "UTF-16 units" } else { "bytes" }
+                        "relative path exceeds {path_length_limit} {}",
+                        if uses_windows_naming {
+                            "UTF-16 units"
+                        } else {
+                            "bytes"
+                        }
                     ),
                 );
             }
@@ -165,22 +171,22 @@ pub(crate) fn validate_paths<'a>(
                     prefix.push('/');
                 }
                 prefix.push_str(part);
-                if !seen_prefixes.insert(prefix.clone()) {
+                if !validated_path_prefixes.insert(prefix.clone()) {
                     continue;
                 }
-                let length = if windows {
+                let length = if uses_windows_naming {
                     part.encode_utf16().count()
                 } else {
                     part.len()
                 };
                 if length > 255 {
-                    add(
+                    record_violation(
                         &prefix,
                         None,
                         "name_too_long",
                         &format!(
                             "filename exceeds 255 {}",
-                            if windows {
+                            if uses_windows_naming {
                                 "UTF-16 units"
                             } else {
                                 "UTF-8 bytes (portable profile budget)"
@@ -188,34 +194,36 @@ pub(crate) fn validate_paths<'a>(
                         ),
                     );
                 }
-                if windows {
+                if uses_windows_naming {
                     if let Some(reason) = windows_name_reason(part) {
-                        add(&prefix, None, "unsupported_name", reason);
+                        record_violation(&prefix, None, "unsupported_name", reason);
                     }
                 }
-                let key = if normalize {
+                let comparison_key = if normalize_unicode_for_comparison {
                     prefix.nfd().collect::<String>()
                 } else {
                     prefix.clone()
                 };
                 // Conservative policy: full uppercase may reject more names than a
                 // particular volume's simple folding table. Never rewrite names.
-                let key = if fold {
-                    key.to_lowercase().to_uppercase()
+                let comparison_key = if fold_case_for_comparison {
+                    comparison_key.to_lowercase().to_uppercase()
                 } else {
-                    key
+                    comparison_key
                 };
-                if let Some(other) = names.get(&key) {
-                    if other != &prefix {
-                        add(
+                if let Some(conflicting_path) =
+                    original_paths_by_comparison_key.get(&comparison_key)
+                {
+                    if conflicting_path != &prefix {
+                        record_violation(
                             &prefix,
-                            Some(other.clone()),
+                            Some(conflicting_path.clone()),
                             "name_collision",
                             "distinct paths collide under the target's conservative naming rules",
                         );
                     }
                 } else {
-                    names.insert(key, prefix.clone());
+                    original_paths_by_comparison_key.insert(comparison_key, prefix.clone());
                 }
             }
         }

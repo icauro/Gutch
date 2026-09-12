@@ -8,9 +8,15 @@ use crate::{Error, Result};
 pub(crate) const MAX_METADATA_BYTES: usize = 256 * 1024 * 1024;
 const VERSION: u16 = 1;
 const DESCRIPTOR_BYTES: usize = 44;
+const FIXED_HEADER_BYTES: usize = 24;
+const DIGEST_BYTES: usize = 32;
+const MAX_GROUP_COUNT: usize = 16;
+const REQUIRED_GROUP_FLAG: u8 = 1;
+const RAW_CODEC: u8 = 0;
+const ZSTD_CODEC: u8 = 1;
 
 pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
-    if groups.is_empty() || groups.len() > 16 {
+    if groups.is_empty() || groups.len() > MAX_GROUP_COUNT {
         return Err(Error::manifest("invalid metadata group count"));
     }
     let mut directory = magic.to_vec();
@@ -26,12 +32,12 @@ pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
             .ok_or_else(|| Error::manifest("metadata exceeds decoded size limit"))?;
         let compressed = zstd::stream::encode_all(group.as_slice(), 3)?;
         let (codec, payload) = if compressed.len() < group.len() {
-            (1, compressed.as_slice())
+            (ZSTD_CODEC, compressed.as_slice())
         } else {
-            (0, group.as_slice())
+            (RAW_CODEC, group.as_slice())
         };
         write_u16(&mut directory, (index + 1) as u16)?;
-        directory.extend_from_slice(&[1, codec]); // required group, codec
+        directory.extend_from_slice(&[REQUIRED_GROUP_FLAG, codec]);
         write_u32(&mut directory, payload.len() as u32)?;
         write_u32(&mut directory, group.len() as u32)?;
         directory.extend_from_slice(blake3::hash(payload).as_bytes());
@@ -47,34 +53,40 @@ pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Result<Vec<Vec<u8>>> {
-    if bytes.len() > MAX_METADATA_BYTES || bytes.len() < 56 || &bytes[..16] != magic {
+    if bytes.len() > MAX_METADATA_BYTES
+        || bytes.len() < FIXED_HEADER_BYTES + DIGEST_BYTES
+        || &bytes[..16] != magic
+    {
         return Err(Error::manifest("invalid metadata envelope or size"));
     }
-    let mut header = &bytes[16..24];
+    let mut header = &bytes[16..FIXED_HEADER_BYTES];
     if read_u16(&mut header)? != VERSION || read_u16(&mut header)? != 0 {
         return Err(Error::manifest("unsupported metadata version or features"));
     }
     let count = read_u32(&mut header)? as usize;
     // Refuse unknown optional groups as well: this API materializes data that may
     // be rewritten, so silently discarding an extension would be lossy.
-    if count != group_count || count > 16 {
+    if count != group_count || count > MAX_GROUP_COUNT {
         return Err(Error::manifest(
             "unsupported metadata groups; refusing lossy rewrite",
         ));
     }
-    let directory_end = 24 + count * DESCRIPTOR_BYTES;
-    if bytes.len() < directory_end + 32
+    let directory_end = FIXED_HEADER_BYTES + count * DESCRIPTOR_BYTES;
+    if bytes.len() < directory_end + DIGEST_BYTES
         || blake3::hash(&bytes[..directory_end]).as_bytes()
-            != &bytes[directory_end..directory_end + 32]
+            != &bytes[directory_end..directory_end + DIGEST_BYTES]
     {
         return Err(Error::manifest("metadata directory integrity mismatch"));
     }
-    let mut descriptors = &bytes[24..directory_end];
-    let mut payload = &bytes[directory_end + 32..];
+    // Validate framing before trusting encoded lengths or allocating decoded groups.
+    let mut descriptors = &bytes[FIXED_HEADER_BYTES..directory_end];
+    let mut payload = &bytes[directory_end + DIGEST_BYTES..];
     let mut groups = Vec::with_capacity(count);
     let mut decoded_total = 0usize;
     for index in 0..count {
-        if read_u16(&mut descriptors)? as usize != index + 1 || read_u8(&mut descriptors)? != 1 {
+        if read_u16(&mut descriptors)? as usize != index + 1
+            || read_u8(&mut descriptors)? != REQUIRED_GROUP_FLAG
+        {
             return Err(Error::manifest("unsupported metadata group or flags"));
         }
         let codec = read_u8(&mut descriptors)?;
@@ -94,8 +106,8 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
             return Err(Error::manifest("metadata group integrity mismatch"));
         }
         let decoded = match codec {
-            0 if encoded_size == decoded_size => encoded.to_vec(),
-            1 => {
+            RAW_CODEC if encoded_size == decoded_size => encoded.to_vec(),
+            ZSTD_CODEC => {
                 let mut decoder = zstd::stream::read::Decoder::new(encoded)?;
                 decoder.window_log_max(28)?;
                 let mut output = Vec::new();

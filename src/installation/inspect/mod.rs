@@ -874,9 +874,9 @@ fn verify_manifest_file(
     worker_count: usize,
     marker_namespace: &'static str,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
-    let fm = prepared_file.manifest;
+    let file_manifest = prepared_file.manifest;
     let _file_span = control.profile_span_with_args(marker_name(marker_namespace, "file"), || {
-        crate::profile::file_trace_args(&fm.path, fm.size)
+        crate::profile::file_trace_args(&file_manifest.path, file_manifest.size)
     });
     control.checkpoint()?;
     let mut timings = VerifyTimings {
@@ -889,29 +889,29 @@ fn verify_manifest_file(
             return Ok((
                 vec![RepairIssue {
                     kind: RepairIssueKind::Missing,
-                    path: fm.path.clone(),
-                    detail: format!("missing file: {}", fm.path),
+                    path: file_manifest.path.clone(),
+                    detail: format!("missing file: {}", file_manifest.path),
                 }],
                 timings,
             ));
         }
         PreparedFileMetadata::ResolveDuringVerification => {
-            let t = ProfileInstant::detailed(control.profiler());
+            let metadata_read_started = ProfileInstant::detailed(control.profiler());
             let metadata = match std::fs::symlink_metadata(&prepared_file.path) {
                 Ok(metadata) => metadata,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     return Ok((
                         vec![RepairIssue {
                             kind: RepairIssueKind::Missing,
-                            path: fm.path.clone(),
-                            detail: format!("missing file: {}", fm.path),
+                            path: file_manifest.path.clone(),
+                            detail: format!("missing file: {}", file_manifest.path),
                         }],
                         timings,
                     ));
                 }
                 Err(error) => return Err(error.into()),
             };
-            timings.stat += t.elapsed();
+            timings.stat += metadata_read_started.elapsed();
             metadata
         }
     };
@@ -919,19 +919,19 @@ fn verify_manifest_file(
         return Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
-                detail: format!("entry type mismatch for file: {}", fm.path),
+                path: file_manifest.path.clone(),
+                detail: format!("entry type mismatch for file: {}", file_manifest.path),
             }],
             timings,
         ));
     }
 
-    if metadata.permissions().readonly() != fm.read_only {
+    if metadata.permissions().readonly() != file_manifest.read_only {
         return Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
-                detail: format!("read-only mismatch for file: {}", fm.path),
+                path: file_manifest.path.clone(),
+                detail: format!("read-only mismatch for file: {}", file_manifest.path),
             }],
             timings,
         ));
@@ -939,27 +939,27 @@ fn verify_manifest_file(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if (metadata.permissions().mode() & 0o111 != 0) != fm.executable {
+        if (metadata.permissions().mode() & 0o111 != 0) != file_manifest.executable {
             return Ok((
                 vec![RepairIssue {
                     kind: RepairIssueKind::Corrupt,
-                    path: fm.path.clone(),
-                    detail: format!("executable mismatch for file: {}", fm.path),
+                    path: file_manifest.path.clone(),
+                    detail: format!("executable mismatch for file: {}", file_manifest.path),
                 }],
                 timings,
             ));
         }
     }
 
-    if metadata.len() != fm.size {
+    if metadata.len() != file_manifest.size {
         return Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
+                path: file_manifest.path.clone(),
                 detail: format!(
                     "size mismatch for {}: expected {}, got {}",
-                    fm.path,
-                    fm.size,
+                    file_manifest.path,
+                    file_manifest.size,
                     metadata.len()
                 ),
             }],
@@ -973,7 +973,13 @@ fn verify_manifest_file(
     let verification = if verify_mode == VerifyMode::Fast {
         verify_file_fast(prepared_file, worker_count, &mut timings, control)
     } else {
-        verify_file_streaming(fm, &prepared_file.path, verify_mode, &mut timings, control)
+        verify_file_streaming(
+            file_manifest,
+            &prepared_file.path,
+            verify_mode,
+            &mut timings,
+            control,
+        )
     };
     match verification {
         Ok(issues) => Ok((issues, timings)),
@@ -981,10 +987,10 @@ fn verify_manifest_file(
         Err(crate::Error::HashMismatch { expected, actual }) => Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
+                path: file_manifest.path.clone(),
                 detail: format!(
                     "hash mismatch for {}: expected {}, got {}",
-                    fm.path, expected, actual
+                    file_manifest.path, expected, actual
                 ),
             }],
             timings,
@@ -992,8 +998,8 @@ fn verify_manifest_file(
         Err(e) => Ok((
             vec![RepairIssue {
                 kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
-                detail: format!("cannot read {}: {}", fm.path, e),
+                path: file_manifest.path.clone(),
+                detail: format!("cannot read {}: {}", file_manifest.path, e),
             }],
             timings,
         )),
@@ -1023,14 +1029,14 @@ fn verify_file_fast(
 }
 
 fn verify_file_streaming(
-    fm: &manifest::FileManifest,
+    file_manifest: &manifest::FileManifest,
     file_path: &Path,
     verify_mode: VerifyMode,
     timings: &mut VerifyTimings,
     control: &GutchOperationControl,
 ) -> Result<Vec<RepairIssue>> {
     let typed_file =
-        typed_file_manifest(fm).map_err(|err| std::io::Error::other(err.to_string()))?;
+        typed_file_manifest(file_manifest).map_err(|err| std::io::Error::other(err.to_string()))?;
     let file = std::fs::File::open(file_path)?;
     let mut reader = std::io::BufReader::new(file);
     let mut issues = Vec::new();
@@ -1045,13 +1051,13 @@ fn verify_file_streaming(
         let end = start + chunk_ref.raw_size;
         chunk_offset = end;
 
-        if end > fm.size {
+        if end > file_manifest.size {
             issues.push(RepairIssue {
                 kind: RepairIssueKind::Corrupt,
-                path: fm.path.clone(),
+                path: file_manifest.path.clone(),
                 detail: format!(
                     "chunk reference out of bounds in {}: offset {}, size {}",
-                    fm.path, start, chunk_ref.raw_size
+                    file_manifest.path, start, chunk_ref.raw_size
                 ),
             });
             break;
@@ -1059,29 +1065,29 @@ fn verify_file_streaming(
 
         chunk_buffer.resize(chunk_size, 0);
 
-        let t = ProfileInstant::detailed(control.profiler());
+        let chunk_read_started = ProfileInstant::detailed(control.profiler());
         reader.read_exact(&mut chunk_buffer)?;
-        timings.file_read += t.elapsed();
+        timings.file_read += chunk_read_started.elapsed();
         timings.file_read_bytes += chunk_ref.raw_size;
 
-        let t = ProfileInstant::detailed(control.profiler());
+        let file_hash_update_started = ProfileInstant::detailed(control.profiler());
         full_file_hasher.update(&chunk_buffer);
-        timings.file_hash += t.elapsed();
+        timings.file_hash += file_hash_update_started.elapsed();
         timings.file_hash_bytes += chunk_ref.raw_size;
 
         if verify_mode.checks_chunk_hashes() {
-            let t = ProfileInstant::detailed(control.profiler());
+            let chunk_hash_started = ProfileInstant::detailed(control.profiler());
             let chunk_hash_actual =
                 ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(&chunk_buffer));
-            timings.chunk_hash += t.elapsed();
+            timings.chunk_hash += chunk_hash_started.elapsed();
             timings.chunk_hash_bytes += chunk_ref.raw_size;
             if chunk_hash_actual != chunk_ref.hash {
                 issues.push(RepairIssue {
                     kind: RepairIssueKind::Corrupt,
-                    path: fm.path.clone(),
+                    path: file_manifest.path.clone(),
                     detail: format!(
                         "chunk hash mismatch in {} at offset {}: expected {}, got {}",
-                        fm.path,
+                        file_manifest.path,
                         start,
                         chunk_ref.hash_hex,
                         chunk_hash_actual.to_hex()
@@ -1091,28 +1097,28 @@ fn verify_file_streaming(
         }
     }
 
-    if chunk_offset != fm.size {
+    if chunk_offset != file_manifest.size {
         issues.push(RepairIssue {
             kind: RepairIssueKind::Corrupt,
-            path: fm.path.clone(),
+            path: file_manifest.path.clone(),
             detail: format!(
                 "chunk coverage mismatch for {}: expected {} bytes, got {}",
-                fm.path, fm.size, chunk_offset
+                file_manifest.path, file_manifest.size, chunk_offset
             ),
         });
     }
 
-    let t = ProfileInstant::detailed(control.profiler());
+    let file_hash_finalize_started = ProfileInstant::detailed(control.profiler());
     let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
-    timings.file_hash += t.elapsed();
+    timings.file_hash += file_hash_finalize_started.elapsed();
     if actual_hash != typed_file.full_file_hash {
         issues.push(RepairIssue {
             kind: RepairIssueKind::Corrupt,
-            path: fm.path.clone(),
+            path: file_manifest.path.clone(),
             detail: format!(
                 "hash mismatch for {}: expected {}, got {}",
-                fm.path,
-                fm.full_file_hash,
+                file_manifest.path,
+                file_manifest.full_file_hash,
                 actual_hash.to_hex()
             ),
         });

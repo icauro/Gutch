@@ -51,22 +51,25 @@ impl ChunkIndexEntries {
         }
     }
     pub fn extend(&mut self, updates: impl IntoIterator<Item = (ChunkHash, ChunkIndexEntry)>) {
+        // Later updates win for repeated hashes; merging retains sorted keys.
         let updates: std::collections::BTreeMap<_, _> = updates.into_iter().collect();
-        let mut old = std::mem::take(&mut self.0).into_iter().peekable();
-        let mut new = updates.into_iter().peekable();
-        let mut merged = Vec::with_capacity(old.len() + new.len());
-        while let (Some(left), Some(right)) = (old.peek(), new.peek()) {
-            match left.0.cmp(&right.0) {
-                std::cmp::Ordering::Less => merged.push(old.next().unwrap()),
+        let mut existing_entries = std::mem::take(&mut self.0).into_iter().peekable();
+        let mut replacement_entries = updates.into_iter().peekable();
+        let mut merged = Vec::with_capacity(existing_entries.len() + replacement_entries.len());
+        while let (Some(existing_entry), Some(replacement_entry)) =
+            (existing_entries.peek(), replacement_entries.peek())
+        {
+            match existing_entry.0.cmp(&replacement_entry.0) {
+                std::cmp::Ordering::Less => merged.push(existing_entries.next().unwrap()),
                 std::cmp::Ordering::Equal => {
-                    old.next();
-                    merged.push(new.next().unwrap());
+                    existing_entries.next();
+                    merged.push(replacement_entries.next().unwrap());
                 }
-                std::cmp::Ordering::Greater => merged.push(new.next().unwrap()),
+                std::cmp::Ordering::Greater => merged.push(replacement_entries.next().unwrap()),
             }
         }
-        merged.extend(old);
-        merged.extend(new);
+        merged.extend(existing_entries);
+        merged.extend(replacement_entries);
         self.0 = merged;
         self.share_artifacts();
     }

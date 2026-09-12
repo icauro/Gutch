@@ -21,22 +21,26 @@ pub struct GutchLiveFeedback {
     pub output_write: Option<GutchThroughput>,
 }
 #[derive(Debug, Default)]
-struct Rate {
+struct ThroughputHistory {
     start: Option<Instant>,
     end: Option<Instant>,
     samples: VecDeque<(Instant, u64)>,
 }
-impl Rate {
+impl ThroughputHistory {
     fn snapshot(&mut self, bytes: u64, now: Instant) -> Option<GutchThroughput> {
         let start = self.start?;
         let end = self.end.unwrap_or(now);
         if self.samples.back().is_none_or(|(at, _)| *at < end) {
             self.samples.push_back((end, bytes));
         }
-        while self.samples.len() > 10
-            || self.samples.len() > 2
-                && end.saturating_duration_since(self.samples[1].0) > Duration::from_secs(2)
-        {
+        loop {
+            let exceeds_sample_limit = self.samples.len() > 10;
+            // Retain two samples even after a pause so a recent rate can be computed.
+            let oldest_sample_outside_window = self.samples.len() > 2
+                && end.saturating_duration_since(self.samples[1].0) > Duration::from_secs(2);
+            if !exceeds_sample_limit && !oldest_sample_outside_window {
+                break;
+            }
             self.samples.pop_front();
         }
         let elapsed = end.saturating_duration_since(start).as_secs_f64();
@@ -52,29 +56,29 @@ impl Rate {
     }
 }
 #[derive(Debug, Default)]
-struct State {
+struct FeedbackState {
     event: Option<GutchProgressEvent>,
     revision: u64,
     stop: bool,
-    download: Rate,
-    output: Rate,
+    download: ThroughputHistory,
+    output: ThroughputHistory,
     profiler: Option<Arc<crate::profile::GutchProfiler>>,
 }
 #[derive(Debug, Default)]
-struct Shared {
-    state: Mutex<State>,
+struct SharedFeedbackState {
+    state: Mutex<FeedbackState>,
     changed: Condvar,
     downloaded: AtomicU64,
     written: AtomicU64,
 }
 #[derive(Debug)]
 pub(crate) struct LiveProgress {
-    shared: Arc<Shared>,
+    shared: Arc<SharedFeedbackState>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 impl LiveProgress {
     pub(crate) fn new(sink: Arc<dyn GutchProgressSink>) -> Arc<Self> {
-        let shared = Arc::new(Shared::default());
+        let shared = Arc::new(SharedFeedbackState::default());
         let thread_shared = shared.clone();
         let thread = std::thread::Builder::new()
             .name("gutch-progress".into())
@@ -325,7 +329,7 @@ mod tests {
     #[test]
     fn recent_rate_includes_stalls_and_average_freezes() {
         let start = Instant::now();
-        let mut rate = Rate {
+        let mut rate = ThroughputHistory {
             start: Some(start),
             ..Default::default()
         };

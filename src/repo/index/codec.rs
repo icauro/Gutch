@@ -10,121 +10,140 @@ use crate::manifest;
 use crate::artifact::format::CHUNK_INDEX_MAGIC as CHUNK_INDEX_BINARY_MAGIC;
 
 use crate::artifact::binary_io::*;
+
+const LOOSE_CHUNK_ARTIFACT_ROW: u32 = u32::MAX;
+
 pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkIndex> {
     load_chunk_index_binary_from_bytes(&crate::artifact::metadata::read_file(path)?)
 }
 
-fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<manifest::ChunkIndex> {
+fn decode_artifact_table(
+    bytes: &[u8],
+) -> Result<Vec<std::sync::Arc<super::records::IndexedArtifact>>> {
     let mut reader = BinaryReader {
-        inner: groups[0].as_slice(),
-        remaining: groups[0].len() as u64,
+        inner: bytes,
+        remaining: bytes.len() as u64,
     };
     let artifact_count = read_u32(&mut reader)?;
     reader.require_records(u64::from(artifact_count), 36)?;
-    let ids: Vec<_> = (0..artifact_count)
+    let artifact_ids: Vec<_> = (0..artifact_count)
         .map(|_| read_chunk_hash(&mut reader))
         .collect::<Result<_>>()?;
     let mut artifacts = Vec::with_capacity(artifact_count as usize);
-    let mut previous = None;
-    for id in ids {
-        let size = read_u32(&mut reader)?;
-        if size == 0 || previous.is_some_and(|value| id <= value) {
+    let mut previous_artifact_id = None;
+    for artifact_id in artifact_ids {
+        let artifact_size = read_u32(&mut reader)?;
+        if artifact_size == 0 || previous_artifact_id.is_some_and(|value| artifact_id <= value) {
             return Err(Error::manifest("invalid or unsorted index artifact"));
         }
-        previous = Some(id);
+        previous_artifact_id = Some(artifact_id);
         artifacts.push(std::sync::Arc::new(super::records::IndexedArtifact {
-            bundle_id: smol_str::SmolStr::new(id.to_hex()),
-            artifact_size: size,
+            bundle_id: smol_str::SmolStr::new(artifact_id.to_hex()),
+            artifact_size,
             storage_mode: manifest::ArtifactStorageMode::Bundled,
         }));
     }
     if reader.remaining != 0 {
         return Err(Error::manifest("trailing artifact column bytes"));
     }
+    Ok(artifacts)
+}
+
+fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<manifest::ChunkIndex> {
+    let artifacts = decode_artifact_table(&groups[0])?;
     let mut reader = BinaryReader {
         inner: groups[1].as_slice(),
         remaining: groups[1].len() as u64,
     };
-    let count = read_u32(&mut reader)?;
-    reader.require_records(u64::from(count), 44)?;
-    let hashes: Vec<_> = (0..count)
+    let chunk_count = read_u32(&mut reader)?;
+    reader.require_records(u64::from(chunk_count), 44)?;
+    let chunk_hashes: Vec<_> = (0..chunk_count)
         .map(|_| read_chunk_hash(&mut reader))
         .collect::<Result<_>>()?;
-    let artifact_rows: Vec<_> = (0..count)
+    let artifact_table_rows: Vec<_> = (0..chunk_count)
         .map(|_| read_u32(&mut reader))
         .collect::<Result<_>>()?;
-    let ordinals_or_sizes: Vec<_> = (0..count)
+    // Loose chunks have no artifact-table row: their identity is the chunk hash,
+    // and this column carries encoded size instead of a bundle ordinal.
+    let chunk_ordinals_or_artifact_sizes: Vec<_> = (0..chunk_count)
         .map(|_| read_u32(&mut reader))
         .collect::<Result<_>>()?;
-    let raw_sizes: Vec<_> = (0..count)
+    let chunk_raw_sizes: Vec<_> = (0..chunk_count)
         .map(|_| read_u32(&mut reader))
         .collect::<Result<_>>()?;
     let mut entries = manifest::ChunkIndexEntries::new();
-    let mut raw_totals = vec![0u64; artifacts.len()];
-    let mut ordinals = std::collections::HashSet::new();
-    let mut previous = None;
-    for row in 0..count as usize {
-        let hash = hashes[row];
-        if previous.is_some_and(|value| hash <= value) {
+    let mut bundle_raw_byte_totals = vec![0u64; artifacts.len()];
+    let mut seen_bundle_chunk_ordinals = std::collections::HashSet::new();
+    let mut previous_chunk_hash = None;
+    for row in 0..chunk_count as usize {
+        let chunk_hash = chunk_hashes[row];
+        if previous_chunk_hash.is_some_and(|value| chunk_hash <= value) {
             return Err(Error::manifest(
                 "chunk index keys must be unique and sorted",
             ));
         }
-        previous = Some(hash);
-        let artifact = artifact_rows[row];
-        let ordinal_or_size = ordinals_or_sizes[row];
-        let raw_size = u64::from(raw_sizes[row]);
+        previous_chunk_hash = Some(chunk_hash);
+        let artifact_table_row = artifact_table_rows[row];
+        let chunk_ordinal_or_artifact_size = chunk_ordinals_or_artifact_sizes[row];
+        let raw_size = u64::from(chunk_raw_sizes[row]);
         if raw_size == 0 || raw_size > crate::artifact::format::MAX_RAW_CHUNK_SIZE {
             return Err(Error::manifest("invalid index chunk size"));
         }
-        let (record, chunk_ordinal) = if artifact == u32::MAX {
-            if ordinal_or_size == 0 {
+        let (record, chunk_ordinal) = if artifact_table_row == LOOSE_CHUNK_ARTIFACT_ROW {
+            if chunk_ordinal_or_artifact_size == 0 {
                 return Err(Error::manifest("invalid loose artifact size"));
             }
             (
                 std::sync::Arc::new(super::records::IndexedArtifact {
-                    bundle_id: smol_str::SmolStr::new(hash.to_hex()),
-                    artifact_size: ordinal_or_size,
+                    bundle_id: smol_str::SmolStr::new(chunk_hash.to_hex()),
+                    artifact_size: chunk_ordinal_or_artifact_size,
                     storage_mode: manifest::ArtifactStorageMode::LooseChunks,
                 }),
                 0,
             )
         } else {
-            if !ordinals.insert((artifact, ordinal_or_size)) {
+            if !seen_bundle_chunk_ordinals
+                .insert((artifact_table_row, chunk_ordinal_or_artifact_size))
+            {
                 return Err(Error::manifest("duplicate chunk ordinal"));
             }
             let record = artifacts
-                .get(artifact as usize)
+                .get(artifact_table_row as usize)
                 .ok_or_else(|| Error::manifest("invalid artifact row"))?;
-            raw_totals[artifact as usize] = raw_totals[artifact as usize]
+            bundle_raw_byte_totals[artifact_table_row as usize] = bundle_raw_byte_totals
+                [artifact_table_row as usize]
                 .checked_add(raw_size)
-                .filter(|total| *total <= crate::artifact::format::MAX_RAW_BUNDLE_SIZE)
+                .filter(|bundle_raw_bytes| {
+                    *bundle_raw_bytes <= crate::artifact::format::MAX_RAW_BUNDLE_SIZE
+                })
                 .ok_or_else(|| Error::manifest("indexed bundle exceeds raw size limit"))?;
-            (record.clone(), ordinal_or_size)
+            (record.clone(), chunk_ordinal_or_artifact_size)
         };
         entries.insert(
-            hash,
+            chunk_hash,
             manifest::ChunkIndexEntry {
                 compressed_size: record.artifact_size,
                 artifact: record,
                 chunk_ordinal,
-                raw_size: raw_sizes[row],
+                raw_size: chunk_raw_sizes[row],
             },
         );
     }
     if reader.remaining != 0 {
         return Err(Error::manifest("chunk index contains trailing bytes"));
     }
-    let totals: BTreeMap<_, _> = artifacts
+    let raw_bytes_by_bundle_id: BTreeMap<_, _> = artifacts
         .iter()
-        .zip(raw_totals)
+        .zip(bundle_raw_byte_totals)
         .map(|(record, raw)| (record.bundle_id.as_str(), raw))
         .collect();
+    // Encoded bytes are shared by a bundle. Attribute an approximate share to
+    // each chunk for accounting; this value is not stored or used for integrity.
     for entry in entries.values_mut() {
         if entry.storage_mode == manifest::ArtifactStorageMode::Bundled {
-            let total = totals[entry.bundle_id.as_str()];
+            let bundle_raw_bytes = raw_bytes_by_bundle_id[entry.bundle_id.as_str()];
             entry.compressed_size = crate::artifact::format::size_u32(
-                u64::from(entry.artifact_size) * u64::from(entry.raw_size) / total,
+                u64::from(entry.artifact_size) * u64::from(entry.raw_size) / bundle_raw_bytes,
             )?;
         }
     }
@@ -169,7 +188,7 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex
     }
     let artifact_count =
         u32::try_from(artifacts.len()).map_err(|_| Error::manifest("too many index artifacts"))?;
-    if artifact_count == u32::MAX {
+    if artifact_count == LOOSE_CHUNK_ARTIFACT_ROW {
         return Err(Error::manifest("artifact index sentinel exhausted"));
     }
     let artifact_rows: BTreeMap<_, _> = artifacts
@@ -200,7 +219,7 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex
                 manifest::ArtifactStorageMode::Bundled => {
                     artifact_rows[&ChunkHash::parse_hex(&entry.bundle_id)?]
                 }
-                manifest::ArtifactStorageMode::LooseChunks => u32::MAX,
+                manifest::ArtifactStorageMode::LooseChunks => LOOSE_CHUNK_ARTIFACT_ROW,
             },
         )?;
     }
