@@ -155,9 +155,9 @@ fn with_repository_transaction<T>(
             let paths = DEFERRED_ARTIFACT_DELETIONS
                 .with(|paths| paths.borrow_mut().remove(&root).unwrap_or_default());
             for path in paths {
-                if path.exists() {
-                    std::fs::remove_file(path)?;
-                }
+                // Metadata is committed. Locked obsolete artifacts remain
+                // orphans for a later cleanup; they cannot undo this mutation.
+                let _ = std::fs::remove_file(path);
             }
             Ok(value)
         }
@@ -208,11 +208,9 @@ fn committed_directory(journal: &Path) -> Result<PathBuf> {
 }
 
 fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
-    let previous = if journal.join("committed").exists() {
-        Some(committed_directory(journal)?)
-    } else {
-        None
-    };
+    if journal.join("committed").exists() {
+        committed_directory(journal)?;
+    }
     let generation = tempfile::Builder::new()
         .prefix("generation-")
         .tempdir_in(journal)?;
@@ -228,9 +226,21 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::manifest("invalid generated directory name"))?;
     crate::filesystem::write(&journal.join("committed"), name.as_bytes())?;
-    let _committed_generation = generation.keep();
-    if let Some(previous) = previous {
-        std::fs::remove_dir_all(previous)?;
+    let committed_generation = generation.keep();
+    // The pointer is committed. Retry obsolete generations left by interrupted
+    // or blocked cleanup, without making publication depend on their removal.
+    if let Ok(entries) = std::fs::read_dir(journal) {
+        for entry in entries.flatten() {
+            if entry.path() != committed_generation
+                && entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("generation-")
+                && entry.file_type().is_ok_and(|kind| kind.is_dir())
+            {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
     }
     Ok(())
 }
@@ -282,6 +292,83 @@ pub(crate) fn defer_artifact_deletion(path: &Path) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn committed_mutation_survives_locked_obsolete_artifact() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        crate::api::initialize_repo(root.path(), Default::default()).unwrap();
+        let artifact = root.path().join("bundles/obsolete");
+        std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+        std::fs::write(&artifact, b"obsolete").unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(1 | 2)
+            .open(&artifact)
+            .unwrap();
+        let result = write(root.path(), || {
+            crate::filesystem::write(
+                &root.path().join("local_repo_config.json"),
+                br#"{"remote_repo_id":"test"}"#,
+            )?;
+            assert!(defer_artifact_deletion(&artifact)?);
+            Ok(())
+        });
+        drop(lock);
+        result.unwrap();
+        read(root.path(), || {
+            assert_eq!(
+                std::fs::read(root.path().join("local_repo_config.json"))?,
+                br#"{"remote_repo_id":"test"}"#
+            );
+            Ok(())
+        })
+        .unwrap();
+        assert!(artifact.exists());
+        write(root.path(), || {
+            assert!(defer_artifact_deletion(&artifact)?);
+            Ok(())
+        })
+        .unwrap();
+        assert!(!artifact.exists());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn locked_previous_generation_does_not_fail_metadata_publication() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        crate::api::initialize_repo(root.path(), Default::default()).unwrap();
+        write(root.path(), || Ok(())).unwrap();
+        let journal = root.path().join(".gutch-transactions");
+        let previous = committed_directory(&journal).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(1 | 2)
+            .open(previous.join("repo_metadata.json"))
+            .unwrap();
+        let result = write(root.path(), || {
+            crate::filesystem::write(
+                &root.path().join("local_repo_config.json"),
+                br#"{"remote_repo_id":"test"}"#,
+            )
+        });
+        drop(lock);
+        result.unwrap();
+        assert_ne!(committed_directory(&journal).unwrap(), previous);
+        assert!(previous.exists());
+        read(root.path(), || {
+            assert_eq!(
+                std::fs::read(root.path().join("local_repo_config.json"))?,
+                br#"{"remote_repo_id":"test"}"#
+            );
+            Ok(())
+        })
+        .unwrap();
+        write(root.path(), || Ok(())).unwrap();
+        assert!(!previous.exists());
+    }
 
     #[test]
     fn failed_mutation_restores_all_metadata_and_retains_artifacts() {

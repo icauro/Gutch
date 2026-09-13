@@ -278,7 +278,7 @@ fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
 
 fn prepare_snapshot_fetch(
     request: &SnapshotFetchRequest,
-    download_client: &reqwest::blocking::Client,
+    download_client: &crate::transfer::http::DownloadClient,
     progress: &Option<Arc<dyn GutchProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<PreparedSnapshotFetch> {
@@ -664,7 +664,7 @@ fn build_fetch_result(
 
 fn download_pending_artifacts(
     request: &SnapshotFetchRequest,
-    download_client: &reqwest::blocking::Client,
+    download_client: &crate::transfer::http::DownloadClient,
     transfer_progress: &Arc<FetchTransferProgress>,
     pending_artifact_downloads: &[PendingArtifactDownload],
 ) -> Result<usize> {

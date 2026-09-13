@@ -18,6 +18,9 @@ pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<Strin
         if !entry.file_type()?.is_dir() {
             continue;
         }
+        if crate::filesystem::directory::is_owned_promotion_backup(&entry.path()) {
+            continue;
+        }
         let id = entry
             .file_name()
             .to_str()
@@ -127,4 +130,28 @@ pub(crate) fn scan_artifact_inventory(
     })?;
 
     Ok((artifacts, artifact_count, artifact_bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_listing_excludes_only_owned_promotion_backups() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let snapshot_id = "a".repeat(64);
+        let snapshot = paths.snapshots_root.join(&snapshot_id);
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::write(snapshot.join("snapshot_metadata.json"), b"{}").unwrap();
+        let backup = paths
+            .snapshots_root
+            .join(format!(".gutch-backup-{}", "b".repeat(64)));
+        std::fs::create_dir(&backup).unwrap();
+        assert!(list_repo_snapshot_ids(&paths).is_err());
+        std::fs::write(backup.with_extension("owner"), b"GUTCH_PROMOTION_V1").unwrap();
+        assert_eq!(list_repo_snapshot_ids(&paths).unwrap(), vec![snapshot_id]);
+        std::fs::write(backup.with_extension("owner"), b"unowned").unwrap();
+        assert!(list_repo_snapshot_ids(&paths).is_err());
+    }
 }

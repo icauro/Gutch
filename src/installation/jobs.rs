@@ -36,7 +36,7 @@ pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub pending_artifact_downloads: &'a [PendingArtifactDownload],
     pub transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     pub control: &'a GutchOperationControl,
-    pub download_client: Option<&'a reqwest::blocking::Client>,
+    pub download_client: Option<&'a crate::transfer::http::DownloadClient>,
     pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
 }
 

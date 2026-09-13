@@ -22,25 +22,13 @@ pub(crate) fn validate_existing_constraints(
     constraints.validate_definition()?;
     validate_repository_tag_constraints(repo_root, constraints)?;
     let (paths, _) = load_gutch_repo_manifest(repo_root)?;
-    for entry in walkdir::WalkDir::new(&paths.snapshots_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.file_type().is_file()
-            || entry.file_name() != super::snapshot_manifests::SNAPSHOT_METADATA_FILE
-        {
-            continue;
-        }
-        let id = entry
-            .path()
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|p| p.to_str())
-            .ok_or_else(|| crate::Error::manifest("invalid snapshot directory"))?;
-        let manifest = super::snapshot_manifests::load_snapshot_manifest(&paths, id)?;
+    for id in super::inventory::list_repo_snapshot_ids(&paths)? {
+        let manifest = super::snapshot_manifests::load_snapshot_manifest(&paths, &id)?;
         crate::filesystem::constraints::validate_paths(
             constraints,
             manifest.entries.iter().map(|entry| entry.path()),
             operation,
-            Some(id),
+            Some(&id),
         )?;
     }
     Ok(())
@@ -132,27 +120,12 @@ pub(crate) fn validate_proposed_snapshot_tags(
     }
     let mut expected_keys: Option<(String, std::collections::BTreeSet<String>)> = None;
     let mut violations = Vec::new();
-    for entry in walkdir::WalkDir::new(&paths.snapshots_root)
-        .min_depth(2)
-        .max_depth(2)
-        .sort_by_file_name()
-    {
-        let entry = entry?;
-        if !entry.file_type().is_file()
-            || entry.file_name() != super::snapshot_manifests::SNAPSHOT_METADATA_FILE
-        {
-            continue;
-        }
-        let id = entry
-            .path()
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|p| p.to_str())
-            .ok_or_else(|| crate::Error::manifest("invalid snapshot directory"))?;
-        let json = crate::filesystem::read_to_string(entry.path())?;
-        let snapshot = super::snapshot_manifests::load_snapshot_metadata_from_json_text(id, &json)?;
-        let tags = replacements.get(id).unwrap_or(&snapshot.snapshot_tags);
-        if let Err(error) = constraints.validate_snapshot_tags(tags, id) {
+    for id in super::inventory::list_repo_snapshot_ids(&paths)? {
+        let path = super::snapshot_manifests::snapshot_metadata_path(&paths, &id)?;
+        let json = crate::filesystem::read_to_string(&path)?;
+        let snapshot = super::snapshot_manifests::load_snapshot_metadata_from_json_text(&id, &json)?;
+        let tags = replacements.get(&id).unwrap_or(&snapshot.snapshot_tags);
+        if let Err(error) = constraints.validate_snapshot_tags(tags, &id) {
             violations.push(error.to_string());
         }
         if constraints.require_matching_tag_keys_across_snapshots {

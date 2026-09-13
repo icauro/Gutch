@@ -193,7 +193,7 @@ pub(crate) struct TransferPhaseCounters {
 }
 
 pub(crate) struct TransferDownloadRequest<'a> {
-    pub(crate) client: &'a reqwest::blocking::Client,
+    pub(crate) client: &'a crate::transfer::http::DownloadClient,
     pub(crate) url: &'a str,
     pub(crate) control: &'a GutchOperationControl,
     pub(crate) transfer_progress: &'a Arc<FetchTransferProgress>,
@@ -370,7 +370,7 @@ impl ArtifactDownloadScheduler {
         pending: &[PendingArtifactDownload],
         priorities: HashMap<crate::repo::artifacts::ArtifactRef, ArtifactPriority>,
         policy: TransferConcurrencyPolicy,
-        download_client: &reqwest::blocking::Client,
+        download_client: &crate::transfer::http::DownloadClient,
         control: &GutchOperationControl,
         transfer_progress: Arc<FetchTransferProgress>,
     ) -> Result<Self> {
@@ -532,7 +532,7 @@ fn next_artifact(shared: &ArtifactDownloadQueueShared) -> Option<PendingArtifact
 fn artifact_download_worker(
     shared: Arc<ArtifactDownloadQueueShared>,
     event_tx: mpsc::Sender<ArtifactDownloadEvent>,
-    download_client: reqwest::blocking::Client,
+    download_client: crate::transfer::http::DownloadClient,
     control: GutchOperationControl,
     transfer_progress: Arc<FetchTransferProgress>,
 ) {
@@ -882,7 +882,7 @@ pub(crate) fn snapshot_manifest_from_download(
 }
 
 pub(crate) fn download_pending_artifact(
-    download_client: &reqwest::blocking::Client,
+    download_client: &crate::transfer::http::DownloadClient,
     artifact_download: &PendingArtifactDownload,
     control: &GutchOperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,

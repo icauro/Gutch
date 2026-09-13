@@ -61,6 +61,14 @@ publication fails reads explicitly and is restored by the next mutation.
 Installation promotion uses a destination lock and an owned, deterministic
 backup that a subsequent reconstruction or repair can restore.
 
+Once directory promotion or repository metadata publication commits, failure to
+remove obsolete content does not change the successful result. A retained owned
+directory backup is excluded from snapshot listings and its removal is retried
+before the next promotion. Old metadata generations are retried on the next
+publication; undeleted orphan artifacts remain eligible for repository cleanup.
+These leftovers can temporarily consume disk space. Ownership checks and
+recovery before a new mutation still fail if they cannot complete safely.
+
 Reconstruction and repair treat `--staging-dir` as a staging parent. They create
 a unique operation-owned child, preserve preexisting contents, and remove that
 child on completion or failure. Staging must not overlap the destination or a

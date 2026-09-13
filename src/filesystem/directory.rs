@@ -1,8 +1,19 @@
 //! Recoverable directory replacement shared by repository and installation publication.
-use super::{create_dir_all, read, remove_dir_all, write};
+use super::{create_dir_all, read, write};
 use crate::Error;
 use std::path::Path;
 pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> Result<(), Error> {
+    replace_directory_with_cleanup(staging_dir, destination_dir, |backup| {
+        std::fs::remove_dir_all(backup)
+    })
+}
+
+// Keep the cleanup boundary injectable to exercise failures after the rename commits.
+fn replace_directory_with_cleanup(
+    staging_dir: &Path,
+    destination_dir: &Path,
+    remove_backup: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> Result<(), Error> {
     let parent = destination_dir
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -31,8 +42,11 @@ pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> R
     }
 
     if let Some(backup) = backup_dir {
-        remove_dir_all(&backup)?;
-        std::fs::remove_file(backup.with_extension("owner"))?;
+        // Promotion has committed. Keep the owner marker if cleanup fails so
+        // the next promotion can retry without reporting this install as failed.
+        if remove_backup(&backup).is_ok() {
+            let _ = std::fs::remove_file(backup.with_extension("owner"));
+        }
     }
     Ok(())
 }
@@ -89,6 +103,22 @@ fn promotion_backup_path(destination: &Path) -> Result<std::path::PathBuf, Error
     Ok(parent.join(format!(".gutch-backup-{hash}")))
 }
 
+/// Only owned promotion backups may be excluded from repository inventories.
+pub(crate) fn is_owned_promotion_backup(path: &Path) -> bool {
+    let Some(hash) = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix(".gutch-backup-"))
+    else {
+        return false;
+    };
+    hash.len() == 64
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        && read(&path.with_extension("owner")).is_ok_and(|owner| owner == b"GUTCH_PROMOTION_V1")
+}
+
 /// A deterministic same-parent backup makes an interrupted promotion recoverable.
 /// Existing destination means promotion completed; absence means restore the backup.
 pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Error> {
@@ -111,4 +141,51 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
     }
     std::fs::remove_file(backup.with_extension("owner"))?;
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committed_replacement_survives_backup_cleanup_failure_and_retries_cleanup() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let snapshot_id = "a".repeat(64);
+        let destination = root.path().join("snapshots").join(&snapshot_id);
+        let staging = root.path().join("staging");
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::create_dir(&staging).unwrap();
+        let old = destination.join("old");
+        std::fs::write(&old, b"old installation").unwrap();
+        std::fs::write(staging.join("new"), b"new installation").unwrap();
+        std::fs::write(destination.join("snapshot_metadata.json"), b"{}").unwrap();
+        std::fs::write(staging.join("snapshot_metadata.json"), b"{}").unwrap();
+
+        let result = replace_directory_with_cleanup(&staging, &destination, |backup| {
+            let _lock = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(1 | 2)
+                .open(backup.join("old"))?;
+            let cleanup = std::fs::remove_dir_all(backup);
+            assert!(cleanup.is_err());
+            cleanup
+        });
+        let backup = promotion_backup_path(&destination).unwrap();
+        result.unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("new")).unwrap(),
+            b"new installation"
+        );
+        assert!(backup.exists());
+        assert!(backup.with_extension("owner").exists());
+        assert!(is_owned_promotion_backup(&backup));
+        recover_directory_promotion(&destination).unwrap();
+        assert!(!backup.exists());
+        assert!(!backup.with_extension("owner").exists());
+        assert_eq!(
+            std::fs::read(destination.join("new")).unwrap(),
+            b"new installation"
+        );
+    }
 }

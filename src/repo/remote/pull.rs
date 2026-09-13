@@ -113,21 +113,9 @@ pub(super) fn compute_pull_plan(
         .collect();
     let mut local_only_snapshots = Vec::new();
     if repo_paths.snapshots_root.exists() {
-        for entry in walkdir::WalkDir::new(&repo_paths.snapshots_root).sort_by_file_name() {
-            let entry = entry?;
-            if !entry.path().is_file()
-                || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_METADATA_FILE
-            {
-                continue;
-            }
-            if let Some(snapshot_id) = entry
-                .path()
-                .parent()
-                .and_then(|parent| parent.file_name())
-                .and_then(|value| value.to_str())
-                && !remote_snapshot_ids.contains(snapshot_id)
-            {
-                local_only_snapshots.push(snapshot_id.to_string());
+        for snapshot_id in crate::repo::inventory::list_repo_snapshot_ids(repo_paths)? {
+            if !remote_snapshot_ids.contains(snapshot_id.as_str()) {
+                local_only_snapshots.push(snapshot_id);
             }
         }
     }
@@ -159,7 +147,7 @@ pub(crate) fn plan_pull(
 
 fn source_bytes(
     source: &RemoteArtifactSource,
-    client: &reqwest::blocking::Client,
+    client: &crate::transfer::http::DownloadClient,
     maximum_bytes: u64,
     control: &GutchOperationControl,
 ) -> Result<Vec<u8>> {
@@ -227,27 +215,13 @@ pub(super) fn required_bundle_ids_by_snapshot(
     if !repo_paths.snapshots_root.exists() {
         return Ok(by_snapshot);
     }
-    for entry in walkdir::WalkDir::new(&repo_paths.snapshots_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file()
-            || entry.file_name() != crate::repo::snapshot_manifests::SNAPSHOT_METADATA_FILE
-        {
-            continue;
-        }
-        let Some(snapshot_id) = entry
-            .path()
-            .parent()
-            .and_then(|parent| parent.file_name())
-            .and_then(|value| value.to_str())
-        else {
-            continue;
-        };
-        let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
+    for snapshot_id in crate::repo::inventory::list_repo_snapshot_ids(repo_paths)? {
+        let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
         let mut ids: Vec<String> = required_bundle_ids(&manifest, &chunk_index)?
             .into_iter()
             .collect();
         ids.sort();
-        by_snapshot.push((snapshot_id.to_string(), ids));
+        by_snapshot.push((snapshot_id, ids));
     }
     Ok(by_snapshot)
 }

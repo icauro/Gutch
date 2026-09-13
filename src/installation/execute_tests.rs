@@ -697,7 +697,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
             pending_artifact_downloads: &pending,
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
             control: &crate::progress::GutchOperationControl::default(),
-            download_client: Some(&reqwest::blocking::Client::new()),
+            download_client: Some(&crate::transfer::http::build_download_client().unwrap()),
             transfer_progress: Some(&Arc::new(FetchTransferProgress::default())),
         },
         plan,
