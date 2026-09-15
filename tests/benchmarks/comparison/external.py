@@ -189,6 +189,7 @@ def run_external(
         )
 
     started = len(elapsed_commands)
+    snapshot_metrics = dataset.snapshot_metrics()
     identifiers: dict[str, str] = {}
     if bulk and kind == "restic":
         result = execute(
@@ -249,10 +250,13 @@ def run_external(
                     env=env,
                 )
                 identifiers[source.name] = archive
+            snapshot_metrics[source.name]["backup"] = elapsed_commands[-1]
     backup = sum(elapsed_commands[started:])
+    if bulk:
+        snapshot_metrics[product.name]["backup"] = backup
     repo_stats = scan_tree(repo)
 
-    def restore_output() -> float:
+    def restore_output(record_snapshots: bool = False) -> float:
         restore_started = len(elapsed_commands)
         output.mkdir(parents=True, exist_ok=True)
         if bulk and kind == "restic":
@@ -309,9 +313,14 @@ def run_external(
                         cwd=output,
                         env=env,
                     )
-        return sum(elapsed_commands[restore_started:])
+                if record_snapshots:
+                    snapshot_metrics[source.name]["restore"] = elapsed_commands[-1]
+        elapsed = sum(elapsed_commands[restore_started:])
+        if bulk and record_snapshots:
+            snapshot_metrics[product.name]["restore"] = elapsed
+        return elapsed
 
-    restore = restore_output()
+    restore = restore_output(record_snapshots=True)
     for source in sources:
         dataset.validate(source, output if bulk else output / source.name, lane.stats / f"validate-restored-{source.name}.json")
     corrupt_seconds = 0.0
@@ -371,6 +380,7 @@ def run_external(
         },
         {},
         {
+            "snapshot_metrics": snapshot_metrics,
             "tool_version": tool_version,
             "binary_sha256": file_sha256(executable) if executable.is_file() else None,
             "verify_invocations": 1 if bulk or kind != "kopia" else len(sources),

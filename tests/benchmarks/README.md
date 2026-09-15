@@ -64,8 +64,8 @@ performance ranking or equivalence of backup features.
 | Bulk capture and restore | Same whole-product inventory | All five tools capture the entire product root, including root files and hidden directories. Input counts, fingerprints, and validation use that same whole tree. Restic, Borg, and Plakar capture `.` from the product directory; Kopia and Gutch receive the product path. |
 | Restore time | Time until each configured restore command completes | Gutch includes embedded output verification; Restic restores use `--verify` to check restored contents. Other adapters have no equivalent output-reread switch established by their installed restore help. External repository checks run separately; they are not equivalent to verifying restored files. Embedded verification is already part of Gutch restore time and must not be added again. |
 | Recovery | Operational cost of the stated recovery strategy | Gutch repairs an existing damaged output incrementally. External tools restore the output from scratch; deleting the old output is outside that timer. This compares strategies, not equivalent repair implementations. Corruption targets output files, not stored repository data. |
-| Repository size and ratio | Logical repository-file bytes relative to matched input bytes | "Repo logical size" sums file lengths, not allocated disk space, and excludes caches outside the repository. All local repository lanes sample immediately after capture, before restore or recovery. This is total retained repository size, not incremental snapshot growth. |
-| Filesystem copy | A local copy baseline | The separate "Copy time" column measures one local copy. The baseline provides no versioned repository and has no capture or restore timing. |
+| Repository size and ratio | Logical repository-file bytes relative to matched input bytes | "Stored size (final)" sums file lengths, not allocated disk space, and excludes caches outside the repository. All local repository lanes sample immediately after capture, before restore or recovery. This is total retained repository size, not incremental snapshot growth. |
+| Filesystem copy | Same selected snapshots as individual lanes | Capture copies each snapshot into a separate stored directory; restore copies those directories into fresh output, newest first. Size is the retained copies, without compression or deduplication. Independent validation runs outside timing; copy has no embedded content verification. Recovery recopies from storage. |
 | S3 cycles | Comparing Gutch layouts under the same storage conditions | These exercise publication, fetching, and reconstruction; they do not establish a cross-tool network-performance comparison. |
 
 Timing comparison fixtures explicitly use `profile_mode: "off"`. Diagnostic
@@ -167,8 +167,13 @@ followed by the machine-readable results path. A fixture with `open_perfetto: tr
 combines the retained lane traces and opens that trace in the Perfetto UI after
 the run. The local trace server follows the same `127.0.0.1:9001` workflow as
 the original benchmark. The completed run also prints the compact ASCII
-comparison table and, when Gutch traces exist, the detailed Gutch profile
-table.
+per-snapshot comparison tables followed by a summary of total and average
+capture/restore times, throughput, and final stored size. Averages use measured
+snapshots within each lane/sample; throughput divides total input bytes by total
+operation time. Batch capture has no per-snapshot capture timing or average;
+whole-product lanes have one measurement for the product root. Repository file
+counts remain in JSON results. Verification and enabled recovery measurements
+appear separately. When Gutch traces exist, a detailed Gutch profile table follows.
 
 Fixture roots may set `lane_wait_seconds` and `step_wait_seconds` to control
 cooldown between measured lanes and between commands within a lane. Both
@@ -180,7 +185,7 @@ command as required: Restic init/backup, Kopia global policy, Borg create, or
 Plakar backup. Gutch lanes use their typed `profile` options instead.
 
 Fixtures may set `snapshot_limit` to use only the newest N target directories
-from a generated product for individual snapshot lanes. The Docker external
+from a generated product for individual snapshot lanes and filesystem copy. The Docker external
 comparison uses `snapshot_limit: 1` to keep its five-tool comparison practical.
 
 ## Source tree

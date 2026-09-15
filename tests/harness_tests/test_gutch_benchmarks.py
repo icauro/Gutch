@@ -99,7 +99,7 @@ def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
             rendered = tuple(str(item) for item in command)
             self.calls.append(rendered)
             if rendered[1:4] == ("repository", "create", "filesystem"):
-                Path(rendered[rendered.index("--repo") + 1]).mkdir(parents=True, exist_ok=True)
+                Path(rendered[rendered.index("--path") + 1]).mkdir(parents=True, exist_ok=True)
             elif rendered[1:3] == ("snapshot", "restore"):
                 shutil.copytree(rendered[3], rendered[4])
             return CommandResult(rendered, 0.01, 0, "", "")
@@ -110,13 +110,14 @@ def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
         tool="kopia",
         profile=FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
-    run_external(
+    result = run_external(
         ExternalTools(tmp_path, commands, kopia=executable),
         RunLayout(tmp_path / "run").lane("kopia"),
         product,
         lane_spec,
     )
 
+    assert result.metadata["snapshot_metrics"][source.name] == {"input_bytes": 7, "backup": 0.01, "restore": 0.01}
     init = commands.calls[0]
     assert "--no-use-keyring" not in init
     assert "--no-use-credential-manager" not in init
@@ -1061,6 +1062,9 @@ def test_gutch_reconstructs_latest_capture_first(tmp_path: Path) -> None:
         lane,
     )
 
+    assert list(result.metadata["snapshot_metrics"]) == list(source_names)
+    for values in result.metadata["snapshot_metrics"].values():
+        assert values["backup"] == values["restore"] == 0.01
     assert runner.reconstruct_order == [source_names[1], source_names[0]]
     assert result.metadata["verify_invocations"] == 2
 

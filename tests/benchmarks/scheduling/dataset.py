@@ -42,3 +42,13 @@ class DatasetSelection:
     def metadata(self):
         return {'snapshots': [path.name for path in self.sources], 'input_bytes': self.input_bytes,
                 'input_files': self.input_files, 'dataset_sha256': self.fingerprint}
+
+    def snapshot_metrics(self):
+        """Start measurement records from the frozen, selected inventories."""
+        return {
+            source.name: {
+                'input_bytes': sum(entry['bytes'] for entry in self.inventories[source.name].values()
+                                   if entry['kind'] == 'file'),
+            }
+            for source in self.sources
+        }

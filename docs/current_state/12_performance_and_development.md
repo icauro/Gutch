@@ -128,7 +128,10 @@ External-tool comparison fixtures select `profile_mode: "off"` to suppress
 Gutch diagnostic overhead. Bulk lanes capture and validate the same whole-product tree,
 including root files and hidden directories. Restic restores enable content
 verification. Local repository size means logical file bytes sampled after
-capture; filesystem copy has a separate timing metric. Compression, protection,
+capture. Filesystem capture copies the same selected snapshots into storage,
+then restore copies them to fresh output. Its retained size includes all copies.
+Reports show per-snapshot measurements, totals, per-snapshot averages, and
+throughput; verification and enabled recovery appear separately. Compression, protection,
 and recovery differences are documented in the [benchmark README](../../tests/benchmarks/README.md).
 
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed retains traces.

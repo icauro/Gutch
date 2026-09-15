@@ -174,3 +174,104 @@ class GutchBenchmarkContractTests(unittest.TestCase):
                         assert result.metrics['input_bytes'] == 12
                         assert result.metrics['input_files'] == 3
                         assert result.metadata['dataset_sha256'] == DatasetSelection.resolve(product, whole_product=True).fingerprint
+
+
+class SnapshotComparisonTests(unittest.TestCase):
+    def test_filesystem_uses_selected_snapshots_and_restores_from_storage(self):
+        import shutil
+        from tests.benchmarks.comparison.workflow import LocalFixtureRunner
+        from tests.benchmarks.support.commands import GutchCli
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            product = root / 'product'
+            for name in ('1.0.0', '2.0.0', '10.0.0', '.hidden'):
+                source = product / name
+                source.mkdir(parents=True)
+                (source / 'data').write_bytes(b'payload')
+            (product / 'root.txt').write_bytes(b'excluded')
+            layout = RunLayout(root / 'run')
+            runner = LocalFixtureRunner(GutchCli(Path('unused')), CommandRunner(), layout)
+            original_copy = shutil.copytree
+            copies = []
+
+            def copy(source, destination, **kwargs):
+                copies.append((Path(source), Path(destination)))
+                return original_copy(source, destination, **kwargs)
+
+            with patch('tests.benchmarks.comparison.workflow.shutil.copytree', side_effect=copy):
+                result = runner.run_lane(product, LaneSpec('copy', 'filesystem'), True, snapshot_limit=2)
+            lane = layout.lane('copy')
+            assert [source.name for source, _ in copies[:2]] == ['2.0.0', '10.0.0']
+            assert [source.name for source, _ in copies[2:4]] == ['10.0.0', '2.0.0']
+            assert all(source.parent == lane.payload / 'repo' for source, _ in copies[2:])
+            assert len(copies) == 6  # Capture, initial restore, then recovery.
+            assert result.metrics['repo_size'] == result.metrics['input_bytes'] == 14
+            assert result.metrics['repo_files'] == 2
+            assert result.metadata['dataset_sha256'] == DatasetSelection.resolve(product, 2).fingerprint
+            snapshots = result.metadata['snapshot_metrics']
+            assert sum(row['backup'] for row in snapshots.values()) == result.metrics['backup']
+            assert sum(row['restore'] for row in snapshots.values()) == result.metrics['restore']
+            for name in snapshots:
+                assert (lane.payload / 'installation' / name / 'data').read_bytes() == b'payload'
+
+    def test_filesystem_validates_initial_restore_before_recovery(self):
+        import shutil
+        from tests.benchmarks.comparison.workflow import LocalFixtureRunner
+        from tests.benchmarks.support.commands import GutchCli
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'product' / '1.0.0'
+            source.mkdir(parents=True)
+            (source / 'data').write_bytes(b'payload')
+            runner = LocalFixtureRunner(GutchCli(Path('unused')), CommandRunner(), RunLayout(root / 'run'))
+            original_copy = shutil.copytree
+
+            def broken_copy(source, destination, **kwargs):
+                original_copy(source, destination, **kwargs)
+                if Path(destination).parent.name == 'installation':
+                    (Path(destination) / 'data').write_bytes(b'bad')
+
+            with patch('tests.benchmarks.comparison.workflow.shutil.copytree', side_effect=broken_copy), patch(
+                'tests.benchmarks.comparison.workflow.build_corruption_plan'
+            ) as recovery:
+                with self.assertRaises(RuntimeError):
+                    runner.run_lane(source.parent, LaneSpec('copy', 'filesystem'), True)
+                recovery.assert_not_called()
+
+    def test_report_shows_snapshot_averages_and_weighted_throughput(self):
+        import io
+        from contextlib import redirect_stdout
+        from tests.benchmarks.comparison.report import print_comparison_table
+        result = LaneResult('filesystem-copy', 'filesystem-copy',
+            {'input_bytes': 8 * 1048576, 'backup': 4.0, 'restore': 10.0, 'repo_size': 8 * 1048576,
+             'corrupt': 0.0, 'full_restore_recovery': 0.0}, metadata={'snapshot_metrics': {
+                 '1.0.0': {'input_bytes': 1048576, 'backup': 1.0, 'restore': 4.0},
+                 '2.0.0': {'input_bytes': 7 * 1048576, 'backup': 3.0, 'restore': 6.0}}})
+        output = io.StringIO()
+        with redirect_stdout(output):
+            print_comparison_table(fixture_spec(Path('.')), Path('product'), [result])
+        report = output.getvalue()
+        for value in ['Snapshot: 1.0.0', 'Snapshot: 2.0.0', '100.0 %']:
+            assert value in report
+        rows = {line.split('|')[1].strip(): line for line in report.splitlines() if line.startswith('|')}
+        assert '2.00 s' in rows['Capture average']
+        assert '5.00 s' in rows['Reconstruct average']
+        assert '2.0 MiB/s' in rows['Capture speed']
+        assert '8.00 MiB' in rows['Stored size (final)']
+        for label in ['Snapshot capture min', 'Copy time', 'Repo files', 'Corrupt time', 'Full restore recovery']:
+            assert label not in report
+
+    def test_batch_report_does_not_invent_per_snapshot_capture_times(self):
+        import io
+        from contextlib import redirect_stdout
+        from tests.benchmarks.comparison.report import print_comparison_table
+        result = LaneResult('batch', 'gutch-batch', {'backup': 4.0}, metadata={'snapshot_metrics': {
+            '1.0.0': {'input_bytes': 0, 'restore': 0.5}}})
+        output = io.StringIO()
+        with redirect_stdout(output):
+            print_comparison_table(fixture_spec(Path('.')), Path('product'), [result])
+        rows = {line.split('|')[1].strip(): line.split('|')[2].strip()
+                for line in output.getvalue().splitlines() if line.startswith('|')}
+        assert rows['Capture time'] == '-'
+        assert rows['Capture average'] == '-'
+        assert rows['Capture total'] == '4.00 s'

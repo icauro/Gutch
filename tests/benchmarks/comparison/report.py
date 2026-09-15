@@ -64,40 +64,78 @@ def print_comparison_table(
     product: Path,
     results: list[LaneResult],
 ) -> None:
-    """Print the compact lane comparison table used by the legacy benchmark."""
-    source_mib = max((float(result.metrics.get("input_bytes", 0)) for result in results), default=0) / 1_048_576
+    """Show measured snapshots, then totals and optional verification/recovery."""
+    if not results:
+        return
+    headers = [result.label for result in results]
+    measurements = [result.metadata.get("snapshot_metrics", {}) for result in results]
+    snapshot_names = list(dict.fromkeys(name for values in measurements for name in values))
 
-    def bytes_value(result: LaneResult, *keys: str) -> str:
+    def seconds(value):
+        return "-" if value is None else f"{value:.2f} s"
+
+    def average(values, key):
+        samples = [metrics[key] for metrics in values.values() if metrics.get(key) is not None]
+        return seconds(sum(samples) / len(samples)) if samples else "-"
+
+    def bytes_value(result, *keys):
         value = _number(result, *keys)
         return "-" if value is None else _format_mib(int(value))
 
-    def ratio(result: LaneResult) -> str:
-        value = _number(result, "repo_size", "growth")
-        source_ratio = result.metrics.get("input_bytes", 0)
-        return "-" if value is None or source_ratio == 0 else f"{float(value) / source_ratio * 100:.1f} %"
+    def ratio(result):
+        size = _number(result, "repo_size", "growth")
+        source = result.metrics.get("input_bytes", 0)
+        return "-" if size is None or source == 0 else f"{size / source * 100:.1f} %"
+
+    print()
+    print(f"  Fixture Benchmark: {fixture.name} / {product.name}")
+    fingerprints = {result.metadata.get("dataset_sha256") for result in results}
+    if len(fingerprints - {None}) > 1:
+        print("  Note: lanes use different input inventories; compare matching workloads only.")
+    if any(result.kind == "filesystem-copy" for result in results):
+        print("  Filesystem capture/restore = source-to-storage / storage-to-output copies.")
+    if any(result.kind == "gutch-batch" for result in results):
+        print("  Batch capture is timed as one operation; individual capture times are unavailable.")
+    for name in snapshot_names:
+        print(f"\n  Snapshot: {name}")
+        rows = [
+            ("Input bytes", [_format_mib(values[name]["input_bytes"]) if name in values else "-" for values in measurements]),
+            ("Capture time", [seconds(values.get(name, {}).get("backup")) for values in measurements]),
+            ("Reconstruct time", [seconds(values.get(name, {}).get("restore")) for values in measurements]),
+            ("Comparison", [_comparison(result) if name in values else "-"
+                            for result, values in zip(results, measurements, strict=True)]),
+        ]
+        _table("Snapshot", headers, rows)
 
     rows = [
-        ("Input bytes", [bytes_value(result, "input_bytes") for result in results]),
-        ("Repo files", [str(int(result.metrics["repo_files"])) if "repo_files" in result.metrics else "-" for result in results]),
-        ("Copy time", [_seconds(result, "copy") for result in results]),
-        ("Capture time", [_seconds(result, "backup") for result in results]),
-        ("Snapshot capture min", [_seconds(result, "backup_min") for result in results]),
-        ("Snapshot capture max", [_seconds(result, "backup_max") for result in results]),
-        ("Reconstruct time", [_seconds(result, "restore", "fetch_reconstruct") for result in results]),
-        ("Embedded verify", [_seconds(result, "verify") for result in results]),
-        ("Corrupt time", [_seconds(result, "corrupt") for result in results]),
-        ("Incremental repair", [_seconds(result, "repair") for result in results]),
-        ("Repository check", [_seconds(result, "repository_check") for result in results]),
-        ("Full restore recovery", [_seconds(result, "full_restore_recovery") for result in results]),
-        ("Comparison", [_comparison(result) for result in results]),
-        ("Repo size ratio", [ratio(result) for result in results]),
-        ("Repo logical size", [bytes_value(result, "repo_size", "growth") for result in results]),
+        ("Total input bytes", [bytes_value(result, "input_bytes") for result in results]),
+        ("Capture total", [_seconds(result, "backup") for result in results]),
+        ("Capture average", [average(values, "backup") for values in measurements]),
+        ("Reconstruct total", [_seconds(result, "restore", "fetch_reconstruct") for result in results]),
+        ("Reconstruct average", [average(values, "restore") for values in measurements]),
         ("Capture speed", [_speed(float(result.metrics.get("input_bytes", 0)) / 1_048_576, result, "backup") for result in results]),
         ("Reconstruct speed", [_speed(float(result.metrics.get("input_bytes", 0)) / 1_048_576, result, "restore", "fetch_reconstruct") for result in results]),
+        ("Stored size (final)", [bytes_value(result, "repo_size", "growth") for result in results]),
+        ("Stored size ratio", [ratio(result) for result in results]),
+        ("Comparison", [_comparison(result) for result in results]),
     ]
-    print()
-    print(f"  Fixture Benchmark: {fixture.name} / {product.name} (up to {source_mib:.1f} MiB selected per lane)")
-    _table("Fixture Benchmark", [result.label for result in results], rows)
+    print("\n  Summary (averages per measured snapshot; speed = total bytes / total time)")
+    _table("Summary", headers, rows)
+
+    additional = []
+    for label, key in [("Embedded verify", "verify"), ("Repository check", "repository_check"),
+                       ("Corrupt time", "corrupt"), ("Incremental repair", "repair"),
+                       ("Full restore recovery", "full_restore_recovery")]:
+        values = [
+            _seconds(result, key) if key in {"verify", "repository_check"}
+            or result.metadata.get("corrupt_repair_after_reconstruct") else "-"
+            for result in results
+        ]
+        if any(value != "-" for value in values):
+            additional.append((label, values))
+    if additional:
+        print("\n  Verification and recovery (embedded verify is included in reconstruct time)")
+        _table("Verification and recovery", headers, additional)
 
 
 def _trace_paths(result: LaneResult) -> list[Path]:
