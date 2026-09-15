@@ -82,7 +82,7 @@ pub(crate) fn build_thread_pool(
 ) -> Result<ThreadPool> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(worker_count.max(1))
-        .thread_name(move |index| format!("{thread_name}-{index}"))
+        .thread_name(move |index| format!("{thread_name} #{}", index + 1))
         .build()
         .map_err(|err| Error::manifest(format!("failed to create thread pool: {err}")))
 }

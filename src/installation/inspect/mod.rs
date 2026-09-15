@@ -136,7 +136,7 @@ fn classify_inner(
     let owned_pool = if supplied_pool.is_none() {
         Some(build_thread_pool(
             runtime_plan.worker_count,
-            "gutch-verify",
+            "Verification worker",
         )?)
     } else {
         None

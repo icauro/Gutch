@@ -174,7 +174,9 @@ and current step, then prints each measured lane as soon as it completes,
 followed by the machine-readable results path. A fixture with `open_perfetto: true`
 combines the retained lane traces into `trace.json` and opens it in Perfetto.
 Main-thread phases provide the overview; worker tracks retain measured jobs and
-nested operations with separate thread identities for each command. Gaps remain
+nested operations with separate thread identities for each command. Pool threads
+use one-based names such as `Capture worker #1` and `Reconstruction worker #1`;
+Perfetto appends a separate numeric trace thread ID. Gaps remain
 unrecorded time, not inferred sleeping or CPU activity. Reconstruction jobs include
 `queue_wait_us`, measured from submission to worker entry. `runtime.memory.wait`
 measures budget contention; coordinator waits measure receiving worker results.

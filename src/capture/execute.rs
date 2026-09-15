@@ -172,7 +172,7 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
                     )])
                 });
         let build_pool =
-            crate::runtime::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+            crate::runtime::build_thread_pool(runtime_plan.worker_count, "Capture worker")?;
         drop(_pool_span);
 
         let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&request.repo_root);

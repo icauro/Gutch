@@ -187,7 +187,7 @@ pub(crate) fn apply_reconstruct_pipeline(
 pub(crate) fn build_reconstruct_pool(worker_count: usize) -> Result<ThreadPool> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(worker_count)
-        .thread_name(|index| format!("gutch-reconstruct-{index}"))
+        .thread_name(|index| format!("Reconstruction worker #{}", index + 1))
         .build()
         .map_err(|error| {
             Error::reconstruct(format!(

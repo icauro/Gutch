@@ -162,7 +162,7 @@ pub fn capture_snapshot_sources(
             )])
         });
         let build_pool =
-            crate::runtime::build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+            crate::runtime::build_thread_pool(runtime_plan.worker_count, "Capture worker")?;
         drop(_pool_span);
 
         let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(repo_root);

@@ -580,7 +580,7 @@ pub(crate) fn build_with_config_timed(
                 serde_json::json!(runtime_plan.worker_count),
             )])
         });
-    let build_pool = build_thread_pool(runtime_plan.worker_count, "gutch-capture")?;
+    let build_pool = build_thread_pool(runtime_plan.worker_count, "Capture worker")?;
     drop(_pool_span);
     build_with_config_timed_on_pool(dir, config, &build_pool)
 }
