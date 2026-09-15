@@ -247,3 +247,19 @@ fn optimistic_probe_cannot_exceed_raw_bundle_cap() {
         crate::artifact::format::MAX_RAW_BUNDLE_SIZE
     );
 }
+
+#[test]
+fn memory_admission_keeps_capture_results_in_input_order() {
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+    let control = crate::progress::GutchOperationControl::default();
+    let result = super::run_parallel_chunk_work(
+        (0..32).collect(), &pool, &control, 1, |_| 1,
+        |index, _| Ok(index),
+    ).unwrap();
+    assert_eq!(result, (0..32).collect::<Vec<_>>());
+    let result = super::run_parallel_chunk_work(
+        vec![0, 1], &pool, &control, 1, |_| 2,
+        |index, _| Ok(index),
+    );
+    assert!(result.is_err());
+}

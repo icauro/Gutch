@@ -333,6 +333,8 @@ fn run_parallel_chunk_work<T, U, F>(
     work_items: Vec<T>,
     pool: &ThreadPool,
     control: &crate::progress::GutchOperationControl,
+    memory_budget: u64,
+    working_bytes: impl Fn(&T) -> u64,
     work: F,
 ) -> Result<Vec<U>>
 where
@@ -341,16 +343,26 @@ where
     F: Fn(T, &crate::progress::GutchOperationControl) -> Result<U> + Send + Sync,
 {
     control.checkpoint()?;
-    let control_for_work = control.clone();
-    pool.install(|| {
-        work_items
-            .into_par_iter()
-            .map(|work_item| {
-                control_for_work.checkpoint()?;
-                work(work_item, &control_for_work)
-            })
-            .collect::<Result<Vec<_>>>()
-    })
+    control.profile_event_with_args("runtime.memory.budget", || {
+        BTreeMap::from([("budget_bytes".into(), serde_json::json!(memory_budget))])
+    });
+    let memory = std::sync::Arc::new(crate::runtime::MemoryBudget::new(memory_budget));
+    let results = (0..work_items.len()).map(|_| std::sync::Mutex::new(None)).collect::<Vec<_>>();
+    // in_place_scope keeps admission on the caller, not on a Rayon worker.
+    pool.in_place_scope(|scope| -> Result<()> {
+        for (item, slot) in work_items.into_iter().zip(&results) {
+            let permit = memory.acquire(working_bytes(&item), control)?;
+            let work = &work;
+            scope.spawn(move |_| {
+                let result = control.checkpoint().and_then(|_| work(item, control));
+                *slot.lock().expect("capture result slot") = Some(result);
+                drop(permit);
+            });
+        }
+        Ok(())
+    })?;
+    results.into_iter().map(|slot| slot.into_inner().expect("capture result slot")
+        .expect("joined capture worker")).collect()
 }
 
 fn build_bundled_chunks(
@@ -359,6 +371,7 @@ fn build_bundled_chunks(
     artifact_staging_root: &Path,
     pool: &ThreadPool,
     control: &crate::progress::GutchOperationControl,
+    memory_budget: u64,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(
@@ -371,7 +384,6 @@ fn build_bundled_chunks(
     let artifact_staging_root = artifact_staging_root.to_path_buf();
     let progress_for_work = progress.clone();
     let encoded_limit = planned_bundle_groups.encoded_limit;
-    let memory = crate::runtime::MemoryBudget::new();
     let work_items = planned_bundle_groups
         .groups
         .into_iter()
@@ -381,14 +393,9 @@ fn build_bundled_chunks(
         work_items,
         pool,
         control,
+        memory_budget,
+        |(_, bundle)| bundle.iter().map(|(_, payload)| payload.raw_size()).sum::<u64>() + 128 * 1024 * 1024,
         move |(_bundle_index, planned_bundle), control| {
-            let raw_size: u64 = planned_bundle
-                .iter()
-                .map(|(_, payload)| payload.raw_size())
-                .sum();
-
-            let _memory = memory.acquire(raw_size + 128 * 1024 * 1024, control)?;
-
             build_bounded_bundle_groups(
                 planned_bundle,
                 encoded_limit,
@@ -410,6 +417,7 @@ fn build_loose_chunks(
     compression_profile: &manifest::CompressionProfile,
     pool: &ThreadPool,
     control: &crate::progress::GutchOperationControl,
+    memory_budget: u64,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(
@@ -425,6 +433,8 @@ fn build_loose_chunks(
         chunks_to_compress,
         pool,
         control,
+        memory_budget,
+        |(_, payload)| payload.raw_size() + 128 * 1024 * 1024,
         move |(chunk_hash, payload), control| {
             build_loose_chunk(
                 chunk_hash,
@@ -780,6 +790,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
                         &artifact_staging_root,
                         build_pool,
                         &config.control,
+                        runtime_plan.memory_budget_bytes,
                     )?
                 };
 
@@ -815,6 +826,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
                         &compression_profile,
                         build_pool,
                         &config.control,
+                        runtime_plan.memory_budget_bytes,
                     )?
                 };
 

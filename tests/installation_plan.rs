@@ -22,7 +22,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         compression_algorithm: CompressionKind::None,
         compression_level: None,
         storage_mode: ArtifactStorageMode::LooseChunks,
-        runtime_hints: RuntimeResourceHints { jobs: Some(2) },
+        runtime_hints: RuntimeResourceHints { jobs: Some(2), ..Default::default() },
         control: Default::default(),
     })
     .unwrap();
@@ -33,7 +33,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         staging_dir: None,
         source_snapshot_id: None,
         source_dir: None,
-        runtime_hints: RuntimeResourceHints { jobs: Some(2) },
+        runtime_hints: RuntimeResourceHints { jobs: Some(2), ..Default::default() },
         control: Default::default(),
     };
     reconstruct_snapshot(request.clone()).unwrap();

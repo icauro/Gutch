@@ -490,7 +490,7 @@ mod tests {
                     compression_algorithm: crate::manifest::CompressionKind::Zstd,
                     compression_level: None,
                     storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-                    runtime_hints: crate::runtime::RuntimeResourceHints { jobs: Some(1) },
+                    runtime_hints: crate::runtime::RuntimeResourceHints { jobs: Some(1), ..Default::default() },
                     control: Default::default(),
                 },
             )

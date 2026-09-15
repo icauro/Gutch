@@ -72,8 +72,12 @@ validates the stored size and decoded raw hash, and writes that chunk to all of
 its target offsets. Both storage modes use the same job graph, staging rules,
 chunk verification, file dependency counters, and final file verification.
 
-Artifact work also passes a 512 MiB admission budget: bundle jobs reserve
-136 MiB for the bounded decoder window and chunk buffer. Source-copy work
+Artifact work uses the automatic/explicit working-memory budget policy described
+for [capture](04_scan_pipeline.md#parallelization-and-resource-limits). The
+coordinator admits jobs only when both a worker slot and their memory reservation
+are available. Waiting jobs stay queued; eligible verification and smaller jobs
+can proceed. Artifact jobs reserve 136 MiB for the bounded decoder window and
+chunk buffer. Source-copy work
 reserves only its I/O buffer. This limits admitted artifact work, not total
 process RSS, which also includes indexes, worker stacks, and other allocations.
 

@@ -48,7 +48,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         compression_algorithm: CompressionKind::Lz4,
         compression_level: None,
         storage_mode: ArtifactStorageMode::LooseChunks,
-        runtime_hints: RuntimeResourceHints { jobs: Some(1) },
+        runtime_hints: RuntimeResourceHints { jobs: Some(1), ..Default::default() },
         control: Default::default(),
     })
     .unwrap();
@@ -109,7 +109,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
             staging_dir: None,
             source_snapshot_id: None,
             source_dir: None,
-            runtime_hints: RuntimeResourceHints { jobs: Some(1) },
+            runtime_hints: RuntimeResourceHints { jobs: Some(1), ..Default::default() },
             control: Default::default(),
         })
         .unwrap();

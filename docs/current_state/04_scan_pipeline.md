@@ -82,9 +82,18 @@ The pool is reused across these units of work:
 Inventory enumeration, dedupe accounting, group assignment, and final manifest
 ordering provide deterministic boundaries between parallel work. The scan
 keeps the pending chunks needed for a file's hash phase in memory; the worker
-count limits concurrent file work. Bundle encoding additionally uses a shared
-512 MiB admission budget with raw-payload and codec reservations; callers do
-not configure that internal budget.
+count limits concurrent file work. Artifact encoding uses a shared working-memory admission budget. By default this
+is 25% of physical RAM, bounded by the detected Linux cgroup memory limit when
+present; failed RAM detection falls back to 512 MiB. Callers can override it with
+`RuntimeResourceHints.memory_budget_bytes` or CLI `--memory-budget-mib`.
+The resolved byte budget is included in `RuntimePlan` and the detailed trace's
+`runtime.memory.budget` event. The caller reserves memory before dispatching
+encoding jobs, so pool workers do not block on memory admission. Jobs reserve
+raw input bytes plus 128 MiB for codec work. Result collection preserves input
+order regardless of completion order. This budget does not cap process RSS or
+change chunking, bundle grouping, or codec settings. A job exceeding the entire
+budget fails with its required and configured byte counts; allocations are not
+retried by halving the budget.
 
 ## Chunk and bundle locality
 

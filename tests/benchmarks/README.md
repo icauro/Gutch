@@ -179,7 +179,12 @@ use one-based names such as `Capture worker #1` and `Reconstruction worker #1`;
 Perfetto appends a separate numeric trace thread ID. Gaps remain
 unrecorded time, not inferred sleeping or CPU activity. Reconstruction jobs include
 `queue_wait_us`, measured from submission to worker entry. `runtime.memory.wait`
-measures budget contention; coordinator waits measure receiving worker results.
+measures capture admission waits on the caller; coordinator waits measure
+receiving worker results. Reconstruction admits jobs before occupying workers.
+The automatic working-memory budget is 25% of host RAM, bounded by a detected
+Linux cgroup limit (512 MiB fallback if detection fails). CLI `--memory-budget-mib`
+overrides it; `runtime.memory.budget` records the selected bytes. Memory reservations
+remain estimates, not a hard process memory limit.
 `installation.worker.resolve_output_paths` measures startup path validation in
 batches of up to 64 files, with a `path_count` argument and manifest order preserved.
 A bundle-build span encloses input loading and encoding so its children can be

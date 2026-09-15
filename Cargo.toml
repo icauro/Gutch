@@ -49,6 +49,7 @@ smol_str = { version = "0.3.2", features = ["serde"] }
 urlencoding = "2.1.3"
 unicode-normalization = "0.1"
 tokio = { version = "1.52.1", features = ["rt-multi-thread", "time", "macros"] }
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 bolero = "0.13"

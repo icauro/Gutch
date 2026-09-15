@@ -23,11 +23,17 @@ pub(crate) fn parse_cli_path(value: &str) -> Result<PathBuf, String> {
 pub(crate) struct RuntimeArgs {
     #[arg(long = "jobs")]
     pub(crate) jobs: Option<usize>,
+    /// Shared working-memory budget in MiB (default: 25% of usable RAM).
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=u64::MAX / (1024 * 1024)))]
+    pub(crate) memory_budget_mib: Option<u64>,
 }
 
 impl RuntimeArgs {
     pub(crate) fn hints(self) -> crate::api::RuntimeResourceHints {
-        crate::api::RuntimeResourceHints { jobs: self.jobs }
+        crate::api::RuntimeResourceHints {
+            jobs: self.jobs,
+            memory_budget_bytes: self.memory_budget_mib.and_then(|mib| std::num::NonZeroU64::new(mib * 1024 * 1024)),
+        }
     }
 }
 
