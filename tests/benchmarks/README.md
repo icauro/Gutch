@@ -180,6 +180,8 @@ Perfetto appends a separate numeric trace thread ID. Gaps remain
 unrecorded time, not inferred sleeping or CPU activity. Reconstruction jobs include
 `queue_wait_us`, measured from submission to worker entry. `runtime.memory.wait`
 measures budget contention; coordinator waits measure receiving worker results.
+`installation.worker.resolve_output_paths` measures startup path validation in
+batches of up to 64 files, with a `path_count` argument and manifest order preserved.
 A bundle-build span encloses input loading and encoding so its children can be
 inspected by zooming. No global phases are projected onto worker tracks.
 Automatic opening uses a content-versioned local URL so changed traces do not

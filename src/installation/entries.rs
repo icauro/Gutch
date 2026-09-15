@@ -61,14 +61,21 @@ fn resolve_snapshot_file_paths(
             )])
         },
     );
-    let resolve = |file: &&crate::manifest::FileManifest| path_resolver.resolve(&file.path);
-    if let Some(reconstruct_pool) = reconstruct_pool {
-        reconstruct_pool.install(|| files.par_iter().map(resolve).collect::<Vec<_>>())
+    // Bound trace volume while keeping enough batches for workers to share the work.
+    // Indexed batch collection preserves manifest file order and error ordering.
+    let resolve_batch = |batch: &[&crate::manifest::FileManifest]| {
+        let _batch_span = control.profile_span_with_args(
+            "installation.worker.resolve_output_paths",
+            || BTreeMap::from([("path_count".into(), serde_json::json!(batch.len()))]),
+        );
+        batch.iter().map(|file| path_resolver.resolve(&file.path)).collect::<Vec<_>>()
+    };
+    let batches = if let Some(reconstruct_pool) = reconstruct_pool {
+        reconstruct_pool.install(|| files.par_chunks(64).map(resolve_batch).collect::<Vec<_>>())
     } else {
-        files.iter().map(resolve).collect::<Vec<_>>()
-    }
-    .into_iter()
-    .collect()
+        files.chunks(64).map(resolve_batch).collect::<Vec<_>>()
+    };
+    batches.into_iter().flatten().collect()
 }
 
 fn create_snapshot_directories(
