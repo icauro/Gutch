@@ -160,7 +160,7 @@ def run_external(
             "KOPIA_CHECK_FOR_UPDATES": "false",
         }
         execute(
-            [executable, "repository", "create", "filesystem", "--repo", repo, "--no-persist-credentials", "--no-progress"],
+            [executable, "repository", "create", "filesystem", "--path", repo, "--no-persist-credentials", "--no-progress"],
             description=f"{lane_spec.label} init",
             env=env,
         )
