@@ -1,5 +1,6 @@
 """Perfetto trace composition without workflow-specific knowledge."""
 
+from collections import Counter
 import hashlib
 import http.server
 import json
@@ -86,6 +87,7 @@ def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> 
     lane_process_ids: dict[str, int] = {}
     lane_thread_ids: dict[str, dict[object, int]] = {}
     lane_offsets: dict[str, int] = {}
+    named_tracks: set[tuple[int, int]] = set()
 
     for label, source in inputs:
         if not source.is_file():
@@ -118,15 +120,30 @@ def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> 
         thread_ids = lane_thread_ids[label]
         offset = lane_offsets[label]
         source_duration = 0
+        # Inputs are deliberately concatenated, so unique role names can reuse
+        # a row across commands. Ambiguous/unnamed threads stay source-local.
+        names = {
+            (event.get("pid", 0), event.get("tid", 0)): event.get("args", {}).get("name")
+            for event in local_events
+            if event.get("ph") == "M" and event.get("name") == "thread_name"
+        }
+        name_counts = Counter(names.values())
         for source_event in local_events:
             if source_event.get("cat") == "__metadata" and source_event.get("name") == "process_name":
                 continue
             event = dict(source_event)
-            source_thread_id = (str(source), event.get("tid", 0))
+            original_thread = (event.get("pid", 0), event.get("tid", 0))
+            name = names.get(original_thread)
+            source_thread_id = ("name", name) if name and name_counts[name] == 1 else (str(source), original_thread)
             if source_thread_id not in thread_ids:
                 thread_ids[source_thread_id] = len(thread_ids) + 1
             event["pid"] = process_id
             event["tid"] = thread_ids[source_thread_id]
+            if event.get("ph") == "M" and event.get("name") == "thread_name":
+                track = (process_id, event["tid"])
+                if track in named_tracks:
+                    continue
+                named_tracks.add(track)
             source_timestamp = event.get("ts", 0)
             if isinstance(source_timestamp, (int, float)):
                 source_duration = max(source_duration, int(source_timestamp + event.get("dur", 0)))

@@ -25,3 +25,39 @@ def test_complete_events_do_not_overlap_sequential_operations(tmp_path):
     assert events[1]['ts']>=events[0]['ts']+events[0]['dur']
     assert events[0]['tid'] != events[1]['tid']
     assert _read_trace_spans(paths[0][1])==[('capture',.0001,{})]
+
+
+def test_named_rows_reuse_across_commands_but_not_lanes(tmp_path):
+    paths = []
+    for index, tid in enumerate((4, 9)):
+        path = tmp_path / f"named-{index}.json"
+        path.write_text(json.dumps({"traceEvents": [
+            {"ph": "M", "name": "thread_name", "pid": 1, "tid": tid,
+             "args": {"name": "Capture worker #1"}},
+            {"ph": "X", "name": "work", "pid": 1, "tid": tid, "ts": 2, "dur": 8},
+        ]}))
+        paths.append(("lane", path))
+    output = tmp_path / "combined.json"
+    combine_labeled_traces(paths + [("other", paths[0][1])], output)
+    events = json.loads(output.read_text())["traceEvents"]
+    spans = [event for event in events if event["ph"] == "X"]
+    first, other, second = spans
+    assert first["pid"] == second["pid"] != other["pid"]
+    assert first["tid"] == second["tid"]
+    assert second["ts"] > first["ts"] + first["dur"]
+    assert all(event["dur"] == 8 for event in spans)
+
+
+def test_duplicate_thread_names_do_not_merge_concurrent_workers(tmp_path):
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps({"traceEvents": [
+        event for tid in (1, 2) for event in (
+            {"ph": "M", "name": "thread_name", "pid": 1, "tid": tid,
+             "args": {"name": "worker"}},
+            {"ph": "X", "name": "work", "pid": 1, "tid": tid, "ts": 0, "dur": 10},
+        )
+    ]}))
+    output = tmp_path / "combined.json"
+    combine_labeled_traces([("lane", source)], output)
+    spans = [event for event in json.loads(output.read_text())["traceEvents"] if event["ph"] == "X"]
+    assert spans[0]["tid"] != spans[1]["tid"]

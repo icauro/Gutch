@@ -1229,7 +1229,8 @@ def test_combined_trace_preserves_worker_activity_and_gaps(tmp_path: Path) -> No
     combine_labeled_traces([('lane', first), ('lane', second)], output)
     combined = json.loads(output.read_text())["traceEvents"]
     workers = [event for event in combined if event['name'] == 'thread_name']
-    assert len({event['tid'] for event in workers}) == 2
+    assert len(workers) == 1
+    assert len({event['tid'] for event in workers}) == 1
     spans = [event for event in combined if event['name'] == 'capture.scan.file']
     assert [(event['ts'], event['dur']) for event in spans] == [(20, 5), (40, 5), (121, 5), (141, 5)]
     assert sum(event.get('ph') == 'X' for event in combined) == 6
