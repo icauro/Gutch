@@ -139,7 +139,10 @@ and recovery differences are documented in the [benchmark README](../../tests/be
 
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed retains traces.
 Completed runs include raw evidence, a status manifest, samples, and summary
-statistics. Docker copies the evidence archive to a unique host directory
+statistics. The benchmark's default combined Perfetto trace shows continuous
+phase context for worker roles, with recorded and unrecorded wall-time coverage.
+It does not imply continuous execution or distinguish waiting from uninstrumented
+work. The separate `trace.detailed.json` retains individual job spans. Docker copies the evidence archive to a unique host directory
 before successful environment cleanup. OS caches remain uncontrolled.
 
 ## Memory evidence

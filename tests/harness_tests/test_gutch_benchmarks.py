@@ -1213,3 +1213,47 @@ def test_gutch_profile_table_includes_hash_details(tmp_path: Path, capsys) -> No
     assert "Gutch Perfetto Profiles" in output
     assert "Hash files" in output
     assert "Reconstruct workers" in output
+
+
+def test_compact_trace_covers_worker_roles_without_claiming_continuous_work(tmp_path: Path) -> None:
+    def span(name, tid, start, duration):
+        return {"name": name, "ph": "X", "pid": 1, "tid": tid, "ts": start, "dur": duration}
+
+    metadata = [{"name": "thread_name", "ph": "M", "cat": "__metadata", "pid": 1, "tid": tid,
+                 "args": {"name": name}, "ts": 0} for tid, name in [(1, "main"), (2, "worker-0")]]
+    events = metadata + [span("cli.command", 1, 10, 1000), span("capture.scan_source", 1, 20, 800)]
+    events += [span("capture.scan.file", 2, start, 2) for start in range(20, 800, 4)]
+    # A nested span must not increase recorded wall coverage.
+    events.append(span("capture.scan.file.hash", 2, 20, 1))
+    first, second, output = tmp_path / 'first.json', tmp_path / 'second.json', tmp_path / 'trace.json'
+    first.write_text(json.dumps({"traceEvents": events}))
+    second.write_text(json.dumps({"traceEvents": metadata[:1] + [span("cli.command", 1, 0, 100)]}))
+    combine_labeled_traces([('lane', first), ('lane', second)], output)
+    compact = json.loads(output.read_text())["traceEvents"]
+    detailed = json.loads(output.with_name('trace.detailed.json').read_text())["traceEvents"]
+    assert len(compact) < 20
+    assert sum(event.get('name') == 'capture.scan.file' for event in detailed) == 195
+    workers = [event for event in compact if event.get('name') == 'thread_name'
+               and event['args']['name'].startswith('worker-0')]
+    assert len(workers) == 1
+    slices = sorted((event for event in compact if event.get('ph') == 'X'
+                     and event['tid'] == workers[0]['tid']), key=lambda event: event['ts'])
+    assert slices[0]['ts'] == 0
+    assert all(left['ts'] + left['dur'] == right['ts'] for left, right in zip(slices, slices[1:]))
+    scan = next(event for event in slices if event['name'] == 'capture.scan_source')
+    assert scan['args']['recorded_wall_ms'] == 0.390
+    assert scan['args']['unrecorded_ms'] == 0.410
+    assert slices[-1]['args']['recorded_wall_ms'] == 0
+    assert 'not continuous execution' in slices[-1]['args']['view']
+
+
+def test_successful_cleanup_retains_both_trace_views(tmp_path: Path) -> None:
+    layout = RunLayout(tmp_path / 'run')
+    lane = layout.lane('worker')
+    (lane.payload / 'data').write_bytes(b'payload')
+    for name in ('trace.json', 'trace.detailed.json'):
+        (layout.root / name).write_text('{"traceEvents": []}')
+    layout.finish()
+    assert not lane.root.exists()
+    for name in ('trace.json', 'trace.detailed.json'):
+        assert json.loads((layout.root / name).read_text()) == {"traceEvents": []}

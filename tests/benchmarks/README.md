@@ -20,7 +20,8 @@ not guaranteed cold-cache measurements.
 
 During execution, each run records `run.json`, incremental `results.json`,
 `summary.json`, command logs, raw stats and validation results. Successful runs
-retain root summaries and the combined trace, then remove detailed lanes, temporary
+retain root summaries, the compact `trace.json`, and the job-level
+`trace.detailed.json`, then remove detailed lanes, temporary
 repositories and tool caches. Result paths describe the original measurements;
 `detailed_evidence_retained` in `run.json` states whether those files still exist.
 `--keep-artifacts` or an explicit recipe with `delete_artifacts: false` retains
@@ -172,8 +173,13 @@ credentials, remote workspace, or WSL distribution is required.
 The Gutch launcher shows an ASCII spinner for each command, including its lane
 and current step, then prints each measured lane as soon as it completes,
 followed by the machine-readable results path. A fixture with `open_perfetto: true`
-combines the retained lane traces and opens that trace in the Perfetto UI after
-the run. The local trace server follows the same `127.0.0.1:9001` workflow as
+combines the retained lane traces and opens a compact phase overview in Perfetto
+after the run. Each worker role has continuous phase bands across commands.
+These bands show phase context, not continuous execution: click one to inspect
+recorded span count, the union of recorded wall time, and unrecorded time.
+Unrecorded time may be waiting, uninstrumented work, or a role not observed in
+that command. Role names group separate command processes; they are not OS
+thread identities. The full job-by-job combined trace is `trace.detailed.json`. The local trace server follows the same `127.0.0.1:9001` workflow as
 the original benchmark. The completed run also prints the compact ASCII
 per-snapshot comparison tables followed by a summary of total and average
 capture/restore times, throughput, and final stored size. Averages use measured
