@@ -1,5 +1,5 @@
 profile_mode: detailed
-name: gutch_reconstruction_storage_paths
+name: 06_01_gutch_reconstruction_storage_paths
 runner: gutch-reconstruction-storage
 description: Compare local, fetched, and fetch-reconstruct Gutch paths.
 delete_artifacts: true

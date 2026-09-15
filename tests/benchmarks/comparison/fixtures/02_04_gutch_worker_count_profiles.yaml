@@ -1,5 +1,5 @@
 profile_mode: detailed
-name: gutch_worker_count_profiles
+name: 02_04_gutch_worker_count_profiles
 runner: gutch-fixture
 description: Compare Gutch capture and reconstruction worker counts.
 delete_artifacts: true

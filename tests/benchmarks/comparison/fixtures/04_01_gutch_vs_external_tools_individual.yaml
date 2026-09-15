@@ -1,30 +1,27 @@
-name: gutch_container_vs_external_tools_individual
+name: 04_01_gutch_vs_external_tools_individual
 runner: gutch-fixture
 profile_mode: detailed
-description: Container Linux comparison of per-snapshot Gutch, Restic, Kopia, Borg, and Plakar lanes.
+description: Compare per-snapshot backups using tool-specific fast compression presets; compression work is not identical.
 delete_artifacts: true
 open_perfetto: true
 corrupt_repair: false
-snapshot_limit: 1
-execution:
-  default_host: container
 lanes:
-  - label: restic-linux
+  - label: restic
     tool: restic
     workload: individual
     arguments: [--compression, fastest]
-  - label: kopia-linux
+  - label: kopia
     tool: kopia
     workload: individual
     arguments: [--compression=zstd-fastest]
-  - label: borg-linux
+  - label: borg
     tool: borg
     workload: individual
     arguments: [--compression, "zstd,1"]
-  - label: plakar-linux
+  - label: plakar
     tool: plakar
     workload: individual
-  - label: gutch-linux
+  - label: gutch
     tool: gutch
     workload: individual
     profile:

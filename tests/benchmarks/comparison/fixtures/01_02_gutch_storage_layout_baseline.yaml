@@ -1,5 +1,5 @@
 profile_mode: detailed
-name: gutch_storage_layout_baseline
+name: 01_02_gutch_storage_layout_baseline
 runner: gutch-fixture
 description: Gutch bundled versus loose chunk baseline.
 delete_artifacts: true

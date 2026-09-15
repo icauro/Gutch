@@ -141,7 +141,7 @@ before successful environment cleanup. OS caches remain uncontrolled.
 
 ## Memory evidence
 
-The opt-in `gutch_default_memory_with_corrupt_repair` fixture records streamed
+The opt-in `03_02_gutch_default_memory_with_corrupt_repair` fixture records streamed
 process-memory samples at a requested 2 ms interval beside each command, plus peak summaries and phase
 traces. Unsupported counters remain null. These measurements include mapped
 pages and worker stacks; they are not allocation accounting. Sampling and traces

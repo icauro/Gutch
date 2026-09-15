@@ -47,29 +47,29 @@ def test_catalog_contains_all_gutch_benchmark_scenarios() -> None:
         for document in ScenarioCatalog(Path("tests/benchmarks/comparison/fixtures")).list()
     }
     assert {
-        "gutch_default_trace_with_corrupt_repair",
-        "gutch_batch_vs_individual_capture",
-        "gutch_chunk_size_profiles",
-        "gutch_compression_profiles",
-        "filesystem_copy_baseline",
-        "gutch_reconstruction_storage_paths",
-        "gutch_s3_cold_publication_cycle",
-        "gutch_storage_layout_baseline",
-        "gutch_vs_external_tools_individual",
-        "gutch_vs_external_tools_bulk",
-        "gutch_worker_count_profiles",
+        "03_01_gutch_default_trace_with_corrupt_repair",
+        "02_01_gutch_batch_vs_individual_capture",
+        "02_02_gutch_chunk_size_profiles",
+        "02_03_gutch_compression_profiles",
+        "01_01_filesystem_copy_baseline",
+        "06_01_gutch_reconstruction_storage_paths",
+        "06_02_gutch_s3_cold_publication_cycle",
+        "01_02_gutch_storage_layout_baseline",
+        "04_01_gutch_vs_external_tools_individual",
+        "04_02_gutch_vs_external_tools_bulk",
+        "02_04_gutch_worker_count_profiles",
     } <= names
 
 
 def test_fixture_waits_default_to_four_seconds() -> None:
-    fixture = FixtureCatalog().resolve("gutch_storage_layout_baseline")
+    fixture = FixtureCatalog().resolve("01_02_gutch_storage_layout_baseline")
     assert fixture.lane_wait_seconds == 4.0
     assert fixture.step_wait_seconds == 4.0
 
 
 def test_external_fixture_lanes_include_plakar() -> None:
-    individual = FixtureCatalog().resolve("gutch_vs_external_tools_individual")
-    bulk = FixtureCatalog().resolve("gutch_vs_external_tools_bulk")
+    individual = FixtureCatalog().resolve("04_01_gutch_vs_external_tools_individual")
+    bulk = FixtureCatalog().resolve("04_02_gutch_vs_external_tools_bulk")
 
     assert any(lane.kind == "plakar-individual" for lane in individual.lanes)
     assert any(lane.kind == "plakar-exact-bulk" for lane in bulk.lanes)
@@ -108,7 +108,7 @@ def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
     lane_spec = LaneSpec(
         label="kopia",
         tool="kopia",
-        profile=FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
     result = run_external(
         ExternalTools(tmp_path, commands, kopia=executable),
@@ -153,7 +153,7 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
     lane_spec = LaneSpec(
         label="borg",
         tool="borg",
-        profile=FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
         arguments=("--compression", "zstd,1"),
     )
     run_external(
@@ -372,7 +372,7 @@ def test_gutch_product_prompt_selects_from_lookup_root(tmp_path: Path, monkeypat
 
 def test_s3_cycle_fixture_is_typed_and_has_no_post_reconstruct_verify() -> None:
     fixture, options = load_s3_cycle(
-        Path("tests/benchmarks/comparison/fixtures/gutch_s3_cold_publication_cycle.yaml")
+        Path("tests/benchmarks/comparison/fixtures/06_02_gutch_s3_cold_publication_cycle.yaml")
     )
     assert fixture.runner == "gutch-s3"
     assert len(fixture.lanes) == 3
@@ -384,10 +384,10 @@ def test_s3_cycle_fixture_is_typed_and_has_no_post_reconstruct_verify() -> None:
 def test_container_fixture_catalog_contains_single_trace_and_s3_cycle() -> None:
     fixtures = {fixture.name: fixture for fixture in container_launcher._fixtures()}
 
-    assert fixtures["gutch_container_trace_single_lane"].runner == "gutch-fixture"
-    assert fixtures["gutch_s3_cold_publication_cycle"].runner == "gutch-s3"
-    assert fixtures["gutch_container_vs_external_tools_individual"].runner == "gutch-fixture"
-    assert fixtures["gutch_container_vs_external_tools_individual"].snapshot_limit == 1
+    assert fixtures["05_01_gutch_container_trace_single_lane"].runner == "gutch-fixture"
+    assert fixtures["06_02_gutch_s3_cold_publication_cycle"].runner == "gutch-s3"
+    assert fixtures["05_02_gutch_container_vs_external_tools_individual"].runner == "gutch-fixture"
+    assert fixtures["05_02_gutch_container_vs_external_tools_individual"].snapshot_limit == 1
 
 
 def test_snapshot_limit_selects_newest_product_targets(tmp_path: Path) -> None:
@@ -495,7 +495,7 @@ def test_fixture_loader_rejects_legacy_mapping_shape(tmp_path: Path) -> None:
 
 
 def test_gutch_profile_uses_rust_cli_flag_names() -> None:
-    profile = FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile
+    profile = FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair").lanes[0].profile
     args = GutchCli(Path("gutch-cli.exe")).profile_args(profile)
     assert "--compression-algorithm" in args
     assert "--compression-level" in args
@@ -535,7 +535,7 @@ def test_default_gutch_binary_rebuilds_when_source_is_newer(tmp_path: Path, monk
 
 
 def test_default_fixture_enables_corruption_without_extra_verify_phase() -> None:
-    fixture = FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair")
+    fixture = FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair")
     assert fixture.corrupt_repair is True
     source = Path("tests/benchmarks/comparison/workflow.py").read_text(encoding="utf-8")
     assert '"snapshot",\n                "verify"' not in source
@@ -791,7 +791,7 @@ def test_container_runner_uploads_fixed_bundle_and_downloads_outputs(tmp_path: P
                 destination.write_text(
                     json.dumps(
                         {
-                            "fixture": "gutch_s3_cold_publication_cycle",
+                            "fixture": "06_02_gutch_s3_cold_publication_cycle",
                             "dataset_path": "/home/tester/benchmark-fixtures/gutch-container-blender-cache",
                             "results_path": "/tmp/results.json",
                             "trace_path": "/tmp/trace.json",
@@ -818,7 +818,7 @@ def test_container_runner_uploads_fixed_bundle_and_downloads_outputs(tmp_path: P
     )
 
     result_path = container_runner.run_docker_benchmark(
-        fixture="gutch_s3_cold_publication_cycle",
+        fixture="06_02_gutch_s3_cold_publication_cycle",
         config_path=config_path,
         transfer_concurrency=1,
         transfer_max_concurrency=1,
@@ -829,7 +829,7 @@ def test_container_runner_uploads_fixed_bundle_and_downloads_outputs(tmp_path: P
     assert len(launcher.uploads) == 3
     container_command = next(command for command in launcher.runs if "--fixture" in command)
     assert "--product" not in container_command
-    assert container_command[container_command.index("--fixture") + 1] == "gutch_s3_cold_publication_cycle"
+    assert container_command[container_command.index("--fixture") + 1] == "06_02_gutch_s3_cold_publication_cycle"
     assert "--binary" in container_command
     assert container_command[container_command.index("--transfer-concurrency") + 1] == "1"
     assert container_command[container_command.index("--transfer-max-concurrency") + 1] == "1"
@@ -869,7 +869,7 @@ def test_docker_benchmark_closes_services_on_failure(monkeypatch):
     monkeypatch.setattr(container_runner, "_execute_benchmark", fail)
     import pytest
     with pytest.raises(RuntimeError, match="fixture failed"):
-        container_runner.run_docker_benchmark(fixture="gutch_s3_cold_publication_cycle")
+        container_runner.run_docker_benchmark(fixture="06_02_gutch_s3_cold_publication_cycle")
     assert outcomes == ["closed"]
 
 
@@ -996,7 +996,7 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
     lane = LaneSpec(
         label="default",
         tool="gutch",
-        profile=FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
     result = LocalFixtureRunner(GutchCli(Path("gutch-cli.exe")), fake, layout).run_lane(
         product,
@@ -1054,7 +1054,7 @@ def test_gutch_reconstructs_latest_capture_first(tmp_path: Path) -> None:
     lane = LaneSpec(
         label="ordered",
         tool="gutch",
-        profile=FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
     layout = RunLayout(tmp_path / "run")
     result = LocalFixtureRunner(GutchCli(Path("gutch-cli.exe")), runner, layout).run_lane(
@@ -1072,7 +1072,7 @@ def test_gutch_reconstructs_latest_capture_first(tmp_path: Path) -> None:
 def test_gutch_command_prints_each_completed_lane(monkeypatch, tmp_path: Path, capsys) -> None:
     product = tmp_path / "product"
     product.mkdir()
-    fixture = FixtureCatalog().resolve("gutch_storage_layout_baseline")
+    fixture = FixtureCatalog().resolve("01_02_gutch_storage_layout_baseline")
     lane = LaneResult("bundled-default", "gutch-individual", {"backup": 1.25}, metadata={"differences": []})
     monkeypatch.setattr(gutch_cli, "resolve_gutch_executable", lambda *_args: tmp_path / "gutch.exe")
     monkeypatch.setattr(gutch_cli.FixtureCatalog, "resolve", lambda _self, _name: fixture)
@@ -1100,7 +1100,7 @@ def test_gutch_command_prints_each_completed_lane(monkeypatch, tmp_path: Path, c
     output = capsys.readouterr().out
     assert "=== Benchmark lane: bundled-default (gutch-individual) ===" in output
     assert "backup: 1.25" in output
-    assert "Fixture Benchmark: gutch_storage_layout_baseline / product" in output
+    assert "Fixture Benchmark: 01_02_gutch_storage_layout_baseline / product" in output
     assert "| Comparison" in output
 
 
@@ -1116,7 +1116,7 @@ def test_fixture_perfetto_opens_after_lane_results(tmp_path: Path, monkeypatch) 
         delete_artifacts=False,
         open_perfetto=True,
         profile_mode="detailed",
-        lanes=(LaneSpec("lane", "gutch", FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile),),
+        lanes=(LaneSpec("lane", "gutch", FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair").lanes[0].profile),),
         source_path=tmp_path / "fixture.yaml",
     )
     opened: list[Path] = []
@@ -1148,7 +1148,7 @@ def test_fixture_perfetto_opens_after_lane_results(tmp_path: Path, monkeypatch) 
 def test_run_fixture_waits_between_measured_lanes(tmp_path: Path, monkeypatch) -> None:
     product = tmp_path / "product"
     product.mkdir()
-    profile = FixtureCatalog().resolve("gutch_default_trace_with_corrupt_repair").lanes[0].profile
+    profile = FixtureCatalog().resolve("03_01_gutch_default_trace_with_corrupt_repair").lanes[0].profile
     fixture = FixtureSpec(
         name="lane-waits",
         runner="gutch-fixture",

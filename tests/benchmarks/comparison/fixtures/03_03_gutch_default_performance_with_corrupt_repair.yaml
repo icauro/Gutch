@@ -1,14 +1,13 @@
-profile_mode: detailed
-name: gutch_container_trace_single_lane
+name: 03_03_gutch_default_performance_with_corrupt_repair
 runner: gutch-fixture
-description: Single-lane container Gutch trace benchmark with corruption and repair enabled.
+description: Default full-flow workload with detailed profiling, repeated five times.
 delete_artifacts: true
 open_perfetto: true
+profile_mode: detailed
+repetitions: 5
 corrupt_repair: true
-execution:
-  default_host: container
 lanes:
-  - label: container-default-gutch
+  - label: default-gutch
     tool: gutch
     workload: individual
     profile:

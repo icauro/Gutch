@@ -114,6 +114,21 @@ List Gutch fixtures:
 
     python gutch.py benchmark list
 
+Fixture filenames and names use `group_order_` numeric prefixes so the menu
+progresses from basic local measurements to more involved workflows:
+
+| Prefix | Group |
+|---|---|
+| `01` | Filesystem and Gutch storage-layout baselines |
+| `02` | Capture batching, chunk size, compression, and worker tuning |
+| `03` | Full-flow tracing, memory profiling, and repeated runs with recovery |
+| `04` | Individual and bulk comparisons with external tools |
+| `05` | Single-lane and external-tool container runs |
+| `06` | Storage reconstruction paths and cold S3 publication cycles |
+
+Use the complete numbered name with `--fixture`, for example
+`--fixture 04_01_gutch_vs_external_tools_individual`.
+
 Run storage benchmarks interactively:
 
     python gutch.py benchmark storage
@@ -234,7 +249,7 @@ never part of the source tree.
 
 ## Process memory profiling
 
-Use fixture `gutch_default_memory_with_corrupt_repair` for the default workload.
+Use fixture `03_02_gutch_default_memory_with_corrupt_repair` for the default workload.
 `profile_mode: detailed` activates both trace and memory collection. The old
 `memory_profile` and `measurement_mode` keys are rejected. Each command retains a
 `commands/NNNN.memory.jsonl` timeline and a `memory` summary in its command JSON.
