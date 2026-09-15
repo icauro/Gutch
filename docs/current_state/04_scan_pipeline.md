@@ -160,3 +160,16 @@ manifest finalization, `src/artifact/chunk.rs` for streaming FastCDC, and
   storage contracts after the scan plan.
 - [`12_performance_and_development.md`](12_performance_and_development.md) —
   runtime overrides, profiling, and benchmark interpretation.
+
+## Bundle sizing target and probe
+
+The encoded target is the profile's preferred size, capped by its maximum.
+It does not vary with estimated total snapshot size. The compression probe
+estimates the raw capacity needed to approach that target; the final encoded
+size check enforces the maximum and splits oversized groups.
+
+The probe uses the selected codec and level, but it is not a full bundle build.
+It compresses hash-ordered sample bytes without bundle metadata. The bundle
+writer uses locality-ordered chunks; its Zstd encoder explicitly sets window
+log 27 and pledges the raw input size, while the probe's in-memory encoder
+uses its default window configuration and does not pledge input size.

@@ -50,20 +50,8 @@ impl BundleSizingPolicy {
         }
     }
 
-    fn snapshot_size_for(&self, compressed_bytes: u64) -> u64 {
-        if compressed_bytes == 0 {
-            return self.preferred_size.min(self.max_size);
-        }
-
-        if compressed_bytes <= self.preferred_size {
-            return compressed_bytes.max(self.preferred_size).min(self.max_size);
-        }
-
-        let bundle_count = compressed_bytes.div_ceil(self.preferred_size);
-        compressed_bytes
-            .div_ceil(bundle_count)
-            .max(self.preferred_size)
-            .min(self.max_size)
+    fn encoded_target_size(&self) -> u64 {
+        self.preferred_size.min(self.max_size)
     }
 }
 
@@ -181,10 +169,7 @@ fn plan_bundle_compressed_groups(
         )?;
         (ratio, raw_bytes, probe_start.elapsed())
     };
-    let new_raw_bytes = sort_bytes;
-    let estimated_total_compressed_bytes =
-        ((new_raw_bytes as f64) * bundle_compression_ratio).ceil() as u64;
-    let bundle_compressed_size = bundle_policy.snapshot_size_for(estimated_total_compressed_bytes);
+    let bundle_compressed_size = bundle_policy.encoded_target_size();
     let bundle_raw_capacity = estimate_bundle_raw_capacity(
         bundle_compressed_size,
         bundle_compression_ratio,
