@@ -124,8 +124,8 @@ supported file permissions. Command measurements exclude cooldown. Gutch
 embedded verification and incremental repair remain distinct from external
 repository checks and full-restore recovery.
 
-External-tool comparison fixtures select `profile_mode: "off"` to suppress
-Gutch diagnostic overhead. Bulk lanes capture and validate the same whole-product tree,
+All bundled comparison fixtures enable detailed profiling and Perfetto opening.
+Timing comparisons therefore include Gutch diagnostic overhead. Bulk lanes capture and validate the same whole-product tree,
 including root files and hidden directories. Restic restores enable content
 verification. Local repository size means logical file bytes sampled after
 capture. Filesystem capture copies the same selected snapshots into storage,

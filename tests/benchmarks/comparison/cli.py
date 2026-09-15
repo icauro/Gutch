@@ -143,7 +143,7 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
         raise SystemExit('concurrency values must be positive integers')
     result = run_reconstruction_storage(
         product,
-        GutchCli(executable),
+        GutchCli(executable, profile_mode=scenario.values.get("profile_mode", "off")),
         settings,
         args.artifacts_root or config.artifacts_root,
         profile=_profile(scenario.values, scenario.name),

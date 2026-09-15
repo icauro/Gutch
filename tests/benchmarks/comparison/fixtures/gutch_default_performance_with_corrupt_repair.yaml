@@ -1,9 +1,9 @@
 name: gutch_default_performance_with_corrupt_repair
 runner: gutch-fixture
-description: Default full-flow workload without tracing, repeated five times.
+description: Default full-flow workload with detailed profiling, repeated five times.
 delete_artifacts: true
-open_perfetto: false
-profile_mode: "off"
+open_perfetto: true
+profile_mode: detailed
 repetitions: 5
 corrupt_repair: true
 lanes:

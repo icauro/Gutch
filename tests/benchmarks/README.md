@@ -68,8 +68,9 @@ performance ranking or equivalence of backup features.
 | Filesystem copy | Same selected snapshots as individual lanes | Capture copies each snapshot into a separate stored directory; restore copies those directories into fresh output, newest first. Size is the retained copies, without compression or deduplication. Independent validation runs outside timing; copy has no embedded content verification. Recovery recopies from storage. |
 | S3 cycles | Comparing Gutch layouts under the same storage conditions | These exercise publication, fetching, and reconstruction; they do not establish a cross-tool network-performance comparison. |
 
-Timing comparison fixtures explicitly use `profile_mode: "off"`. Diagnostic
-fixtures select `detailed`. Quote `"off"` in YAML to avoid boolean interpretation. `open_perfetto: false` only
+All bundled comparison fixtures select `profile_mode: detailed` and
+`open_perfetto: true`. Set `profile_mode: "off"` and `open_perfetto: false`
+explicitly when collecting timings without profiling overhead. Quote `"off"` in YAML to avoid boolean interpretation. `open_perfetto: false` only
 disables opening the viewer. Profiling instruments Gutch alone.
 
 Compression remains tool-specific: Gutch uses Zstd level 1, Restic requests
@@ -247,7 +248,7 @@ an allocation profile or a repository-size-independent memory guarantee.
 
 Timelines use seconds since sampler start, near command launch. Correlate these
 with command traces to investigate phases. Sampling and tracing add overhead;
-use the separate performance fixture with both disabled for timing comparisons.
+disable both explicitly in the selected fixture for timing comparisons.
 
 Local S3 benchmarks require explicit storage settings in the benchmark config
 (`GUTCH_S3_*`) or command-line options. They do not assume an existing application

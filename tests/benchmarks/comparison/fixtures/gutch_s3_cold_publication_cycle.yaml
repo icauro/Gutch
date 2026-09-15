@@ -3,7 +3,7 @@ name: gutch_s3_cold_publication_cycle
 runner: gutch-s3
 description: Compare Gutch loose-chunk and bundled S3 publication cycles.
 delete_artifacts: true
-open_perfetto: false
+open_perfetto: true
 corrupt_repair: false
 storage:
   backend: s3

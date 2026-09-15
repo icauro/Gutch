@@ -3,7 +3,7 @@ name: gutch_batch_vs_individual_capture
 runner: gutch-fixture
 description: Compare create-many with repeated per-snapshot capture.
 delete_artifacts: true
-open_perfetto: false
+open_perfetto: true
 lanes:
   - label: gutch-batch-default
     tool: gutch

@@ -3,7 +3,7 @@ name: filesystem_copy_baseline
 runner: gutch-fixture
 description: Direct filesystem copy baseline.
 delete_artifacts: true
-open_perfetto: false
+open_perfetto: true
 lanes:
   - label: filesystem-copy
     tool: filesystem

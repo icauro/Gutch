@@ -3,7 +3,7 @@ name: gutch_storage_layout_baseline
 runner: gutch-fixture
 description: Gutch bundled versus loose chunk baseline.
 delete_artifacts: true
-open_perfetto: false
+open_perfetto: true
 lanes:
   - label: bundled-default
     tool: gutch

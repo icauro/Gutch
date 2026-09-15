@@ -3,7 +3,7 @@ name: gutch_reconstruction_storage_paths
 runner: gutch-reconstruction-storage
 description: Compare local, fetched, and fetch-reconstruct Gutch paths.
 delete_artifacts: true
-open_perfetto: false
+open_perfetto: true
 corrupt_repair: false
 source:
   container_mock:
