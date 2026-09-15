@@ -1,5 +1,5 @@
 profile_mode: detailed
-name: 02_02_gutch_chunk_size_profiles
+name: 04_gutch_chunk_size_profiles
 runner: gutch-fixture
 description: Compare Gutch chunk sizing profiles.
 delete_artifacts: true

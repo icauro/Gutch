@@ -1,4 +1,4 @@
-name: 05_02_gutch_container_vs_external_tools_individual
+name: 13_gutch_container_vs_external_tools_individual
 runner: gutch-fixture
 profile_mode: detailed
 description: Container Linux comparison of per-snapshot Gutch, Restic, Kopia, Borg, and Plakar lanes.

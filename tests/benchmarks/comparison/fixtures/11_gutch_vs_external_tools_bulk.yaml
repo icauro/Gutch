@@ -1,4 +1,4 @@
-name: 04_02_gutch_vs_external_tools_bulk
+name: 11_gutch_vs_external_tools_bulk
 runner: gutch-fixture
 profile_mode: detailed
 description: Compare whole-product snapshots using tool-specific fast compression presets; compression work is not identical.

@@ -1,5 +1,5 @@
 profile_mode: detailed
-name: 02_03_gutch_compression_profiles
+name: 05_gutch_compression_profiles
 runner: gutch-fixture
 description: Compare Gutch compression settings.
 delete_artifacts: true

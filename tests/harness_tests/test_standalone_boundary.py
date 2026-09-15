@@ -77,7 +77,7 @@ def test_reconstruction_requires_explicit_storage(monkeypatch):
     for name in list(os.environ):
         if name.startswith("GUTCH_S3_"):
             monkeypatch.delenv(name)
-    fixture = load_scenario(ROOT / "tests/benchmarks/comparison/fixtures/06_01_gutch_reconstruction_storage_paths.yaml")
+    fixture = load_scenario(ROOT / "tests/benchmarks/comparison/fixtures/14_gutch_reconstruction_storage_paths.yaml")
     args = SimpleNamespace(bucket=None, endpoint=None, region=None, access_key_id=None, secret_access_key=None)
     with pytest.raises(ValueError, match="GUTCH_S3_BUCKET_NAME"):
         _s3_settings(args, fixture.values["storage"])

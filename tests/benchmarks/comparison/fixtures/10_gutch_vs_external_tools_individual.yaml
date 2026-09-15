@@ -1,4 +1,4 @@
-name: 04_01_gutch_vs_external_tools_individual
+name: 10_gutch_vs_external_tools_individual
 runner: gutch-fixture
 profile_mode: detailed
 description: Compare per-snapshot backups using tool-specific fast compression presets; compression work is not identical.

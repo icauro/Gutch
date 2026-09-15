@@ -29,8 +29,8 @@ from ..benchmark_config import load_benchmark_config
 PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parents[2]
 DEFAULT_PRODUCTS_ROOT = load_benchmark_config().product_root
-S3_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "06_02_gutch_s3_cold_publication_cycle.yaml"
-RECONSTRUCTION_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "06_01_gutch_reconstruction_storage_paths.yaml"
+S3_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "15_gutch_s3_cold_publication_cycle.yaml"
+RECONSTRUCTION_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "14_gutch_reconstruction_storage_paths.yaml"
 
 
 @dataclass(frozen=True)
@@ -219,7 +219,7 @@ def _run_explicit(arguments: list[str]) -> int:
         parser = argparse.ArgumentParser(
             prog="tests.benchmarks.comparison docker"
         )
-        parser.add_argument("--fixture", default="06_02_gutch_s3_cold_publication_cycle")
+        parser.add_argument("--fixture", default="15_gutch_s3_cold_publication_cycle")
         parser.add_argument("--config", type=Path)
         parser.add_argument("--artifacts-root", type=Path)
         parser.add_argument("--transfer-concurrency", type=int)

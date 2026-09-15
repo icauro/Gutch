@@ -39,7 +39,7 @@ def _selected_product(args):
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--fixture", default="03_01_gutch_default_trace_with_corrupt_repair")
+    parser.add_argument("--fixture", default="07_gutch_default_trace_with_corrupt_repair")
     _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
@@ -98,7 +98,7 @@ def run_command(args: argparse.Namespace) -> int:
 
 
 def add_reconstruction_storage_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--fixture", default="06_01_gutch_reconstruction_storage_paths")
+    parser.add_argument("--fixture", default="14_gutch_reconstruction_storage_paths")
     _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
@@ -192,7 +192,7 @@ def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings
 
 
 def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--fixture", default="06_02_gutch_s3_cold_publication_cycle")
+    parser.add_argument("--fixture", default="15_gutch_s3_cold_publication_cycle")
     _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
