@@ -57,7 +57,7 @@ pub struct ExplicitIngestionRules {
 pub struct SnapshotRule {
     /// Relative path from the source root to the snapshot source folder.
     pub path: String,
-    /// `key::value` compact tags applied to this snapshot (same format as CLI
+    /// `key=value` compact tags applied to this snapshot (same format as CLI
     /// `--tag`). CLI `--tag` values still win over these.
     pub tags: Vec<String>,
 }
