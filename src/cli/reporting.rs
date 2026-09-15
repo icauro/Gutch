@@ -148,8 +148,8 @@ pub(crate) fn print_profile_summary(profile: Option<&crate::profile::GutchProfil
         "  +--------------------------------------+----------+------------+------------+"
     ));
     print_metric_line(
-        "sampled jobs",
-        "job durations are samples; nested spans overlap",
+        "job coverage",
+        "recorded jobs; nested spans overlap; recording limits may omit jobs",
     );
 }
 

@@ -13,7 +13,7 @@ The suite separates three responsibilities:
 
 Fixture lanes declare `tool` and `workload` separately. Only Gutch lanes accept
 Gutch profiles. `profile_mode: "off"` is the default; `summary` adds coarse
-profiling and `detailed` adds sampled traces and external process-memory sampling. `repetitions` defaults to one and rotates
+profiling and `detailed` adds worker-job traces and external process-memory sampling. `repetitions` defaults to one and rotates
 case order across samples. Warmup lanes execute once and are excluded from
 measured results. OS caches are uncontrolled; these are fresh-repository runs,
 not guaranteed cold-cache measurements.

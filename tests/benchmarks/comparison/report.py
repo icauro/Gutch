@@ -264,7 +264,7 @@ def print_gutch_profile_table(results: list[LaneResult]) -> None:
         )
     print()
     print("  Gutch Perfetto Profiles")
-    print("  note: values are inclusive recorded spans; job spans are samples, not exhaustive totals.")
+    print("  note: values are inclusive recorded spans; nested spans overlap and recording limits may omit jobs.")
     _table("Gutch Perfetto Profiles", [label for label, _ in aggregates], rows)
 
 

@@ -52,7 +52,7 @@ One engine session has three modes, selected with `--profile`:
 |---|---|
 | `off` (default) | No diagnostic timers, arguments, or events in operation paths. Essential counters, progress, retries, and cancellation remain active. |
 | `summary` | Operation and major-phase inclusive elapsed times. |
-| `detailed` | Summary plus sampled worker jobs, diagnostic timings, and progress counters. |
+| `detailed` | Summary plus consecutive worker jobs, diagnostic timings, and progress counters. |
 
 `--profile-dir <absolute-directory>` is required for detailed, optional for
 summary, and rejected for off. It contains `summary.json` and, in detailed mode,
@@ -63,11 +63,14 @@ available independently. The public API exposes `GutchProfileMode` and
 Finish the session after operation controls and worker spans have been dropped.
 
 Events use complete durations (`X`), named worker tracks, and live byte/rate
-counters (`C`). File and bundle jobs are sampled at most once per 250 ms per
-worker and marker; buffer-read and target-write loops do not emit
-individual events; source-chunk jobs receive only time-window samples. Sampling continues throughout the operation. Suppressed jobs
-are counted, and sampled duration sums are explicitly marked: they are not total
-worker time. Nested inclusive spans must never be added to obtain elapsed time.
+counters (`C`). Detailed mode records consecutive file, bundle, and source-chunk
+jobs without a time-based sampling interval, until recording limits are reached.
+Buffer-read and target-write loops do not emit individual events. Gaps can still
+represent waits, uninstrumented work, or omissions after a recording limit;
+they are not proof of worker inactivity. Reports count suppressed and dropped
+records and mark detail span summaries as sampled when either count is nonzero.
+Perfetto also shows a `profile.recording_incomplete` marker with those counts.
+Nested inclusive spans must never be added to obtain elapsed time.
 `installation.bundle.decode_verify_and_write` includes decode, integrity checks,
 and output callbacks; it is not a measurement of decoder CPU time alone.
 

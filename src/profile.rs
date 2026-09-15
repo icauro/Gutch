@@ -101,7 +101,6 @@ struct Recorder {
     thread_name: String,
     events: Vec<Event>,
     aggregates: BTreeMap<&'static str, Aggregate>,
-    admission: BTreeMap<&'static str, Option<Instant>>,
 }
 #[derive(Debug)]
 struct Event {
@@ -271,7 +270,7 @@ impl GutchProfiler {
             return None;
         }
         let recorder = self.recorder()?;
-        if !overview && !self.admit(&recorder, name) {
+        if !overview && !self.admit() {
             return None;
         }
         let started = Instant::now();
@@ -296,27 +295,15 @@ impl GutchProfiler {
             return;
         }
         if let Some(recorder) = self.recorder() {
-            if !overview_marker(name) && !self.admit(&recorder, name) {
+            if !overview_marker(name) && !self.admit() {
                 return;
             }
             self.reserve_event(&recorder, name, Instant::now(), true, args);
         }
     }
-    fn admit(&self, recorder: &Arc<Mutex<Recorder>>, name: &'static str) -> bool {
-        let Ok(mut recorder) = recorder.lock() else {
-            return false;
-        };
-        if !recorder.admission.contains_key(name) && recorder.admission.len() >= 256 {
-            self.state.suppressed.fetch_add(1, Ordering::Relaxed);
-            return false;
-        }
-        let last = recorder.admission.entry(name).or_default();
-        // Admission is based on time, not item count: later slow jobs must remain visible.
-        let now = Instant::now();
-        if last.is_some_and(|last| now.duration_since(last) < Duration::from_millis(250)) {
-            self.state.suppressed.fetch_add(1, Ordering::Relaxed);
-            return false;
-        }
+    fn admit(&self) -> bool {
+        // Detailed traces record consecutive jobs; time-based sampling makes busy
+        // workers look idle. The event and byte budgets still bound recording.
         if self
             .state
             .detail_events
@@ -328,7 +315,6 @@ impl GutchProfiler {
             self.state.suppressed.fetch_add(1, Ordering::Relaxed);
             return false;
         }
-        *last = Some(now);
         true
     }
     fn reserve_event(
@@ -430,7 +416,9 @@ impl GutchProfiler {
             .into_iter()
             .map(|(name, a)| GutchProfileSpanSummary {
                 name,
-                sampled: !overview_marker(name),
+                sampled: !overview_marker(name)
+                    && (self.state.suppressed.load(Ordering::Relaxed) > 0
+                        || self.state.dropped.load(Ordering::Relaxed) > 0),
                 count: a.count,
                 total_seconds: a.total.as_secs_f64(),
                 maximum_seconds: a.maximum.as_secs_f64(),
@@ -470,7 +458,7 @@ impl GutchProfiler {
             "operation_succeeded": operation_succeeded,
             "export_succeeded": trace_result.is_ok(),
             "trace_export_seconds": started.elapsed().as_secs_f64(),
-            "duration_semantics": "inclusive spans; sampled job durations are not exhaustive worker time",
+            "duration_semantics": "inclusive spans; nested spans overlap; recording limits may omit jobs",
         });
         let mut summary_output =
             BufWriter::new(std::fs::File::create(directory.join("summary.json"))?);
@@ -491,6 +479,19 @@ impl GutchProfiler {
             "ts": 0, "pid": 1, "tid": 0, "args": { "name": process_name },
         });
         serde_json::to_writer(&mut output, &process_metadata)?;
+        let dropped = self.state.dropped.load(Ordering::Relaxed);
+        let suppressed = self.state.suppressed.load(Ordering::Relaxed);
+        if dropped > 0 || suppressed > 0 {
+            output.write_all(b",")?;
+            serde_json::to_writer(
+                &mut output,
+                &serde_json::json!({
+                    "name": "profile.recording_incomplete", "cat": "gutch", "ph": "i",
+                    "s": "g", "ts": 0, "pid": 1, "tid": 0,
+                    "args": {"dropped_events": dropped, "suppressed_events": suppressed},
+                }),
+            )?;
+        }
         if let Ok(recorders) = self.state.recorders.lock() {
             for recorder in recorders.iter() {
                 if let Ok(recorder) = recorder.lock() {
@@ -566,7 +567,7 @@ impl Drop for GutchProfileSpan {
     }
 }
 
-/// Only workflow boundaries are exhaustive. Job records are explicitly sampled.
+/// Summary keeps workflow boundaries; detailed job records use the detail budget.
 fn overview_marker(name: &str) -> bool {
     matches!(
         name,
@@ -634,8 +635,8 @@ mod tests {
         }
         drop(p.span("capture.publish_snapshot"));
         let summary = p.summary();
-        assert!(evaluated.get() < 1000);
-        assert!(summary.suppressed_events > 900_000);
+        assert!(evaluated.get() <= 100000);
+        assert!(summary.suppressed_events >= 900_000);
         assert!(summary.recording_capacity_bytes <= summary.recording_limit_bytes);
         assert!(
             summary
@@ -662,23 +663,34 @@ mod tests {
                 .iter()
                 .any(|e| e.name == "capture.publish_snapshot")
         );
+        drop(recorder);
+        let directory = tempfile::tempdir().unwrap();
+        p.finish(directory.path(), true).unwrap();
+        let trace: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join("trace.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(trace["traceEvents"].as_array().unwrap().iter().any(|event| {
+            event["name"] == "profile.recording_incomplete"
+                && event["args"]["dropped_events"].as_u64().unwrap() > 0
+        }));
     }
     #[test]
-    fn late_jobs_are_sampled_and_disabled_clocks_are_absent() {
+    fn consecutive_jobs_are_recorded_without_time_sampling() {
         let profiler = GutchProfiler::new(GutchProfileMode::Detailed);
-        drop(profiler.span("capture.scan.file"));
-        profiler
-            .recorder()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .admission
-            .insert(
-                "capture.scan.file",
-                Some(Instant::now() - Duration::from_secs(1)),
-            );
-        drop(profiler.span("capture.scan.file"));
-        assert_eq!(profiler.summary().spans[0].count, 2);
+        for _ in 0..512 {
+            drop(profiler.span("capture.scan.file"));
+            drop(profiler.span("capture.bundle.encode_and_write"));
+        }
+        let summary = profiler.summary();
+        assert_eq!(summary.spans.len(), 2);
+        assert!(summary.spans.iter().all(|span| span.count == 512 && !span.sampled));
+        assert_eq!(summary.suppressed_events, 0);
+        assert_eq!(summary.dropped_events, 0);
+        let recorder = profiler.recorder().unwrap();
+        let recorder = recorder.lock().unwrap();
+        assert_eq!(recorder.events.len(), 1024);
+        assert!(recorder.events.iter().all(|event| event.duration.is_some()));
         assert!(ProfileInstant::start(None).0.is_none());
         let summary = GutchProfiler::new(GutchProfileMode::Summary);
         assert!(ProfileInstant::detailed(Some(&summary)).0.is_none());
