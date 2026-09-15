@@ -168,8 +168,10 @@ It does not vary with estimated total snapshot size. The compression probe
 estimates the raw capacity needed to approach that target; the final encoded
 size check enforces the maximum and splits oversized groups.
 
-The probe uses the selected codec and level, but it is not a full bundle build.
-It compresses hash-ordered sample bytes without bundle metadata. The bundle
-writer uses locality-ordered chunks; its Zstd encoder explicitly sets window
-log 27 and pledges the raw input size, while the probe's in-memory encoder
-uses its default window configuration and does not pledge input size.
+The probe and bundle writer share the streaming encoder, including codec level,
+Zstd window log 27, pledged input size, and frame finalization. The probe counts
+encoded bytes without retaining compressed output and adds header, chunk-table,
+trailer, and identity overhead using the bundle format's constants. For identical
+chunk bytes, order, and boundaries, its estimated encoded size matches a real bundle.
+Sampling remains approximate: the probe uses hash-ordered sample chunks, while
+actual bundles use file locality and can have a different compression ratio.

@@ -373,3 +373,24 @@ fn test_bundle_identity_rejects_corrupt_framing_and_payload() {
     let path = write_named_bundle(temp.path(), &bundle_id, &payload);
     assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
 }
+
+#[test]
+fn probe_encoded_size_matches_real_bundle_for_all_codecs() {
+    use crate::manifest::CompressionKind;
+    for codec in [CompressionKind::None, CompressionKind::Zstd, CompressionKind::Lz4] {
+        let profile = CompressionProfile::for_algorithm(codec, None);
+        for chunk_count in [0, 1, 3] {
+            let mut builder = BundleBuilder::new(profile.clone());
+            let mut raw = Vec::new();
+            for index in 0..chunk_count {
+                let data = format!("chunk {index} repeated content ").repeat(20_000).into_bytes();
+                raw.push(data.clone());
+                builder.add_chunk(ChunkHash::from_blake3(hash::hash_chunk(&data)), data);
+            }
+            let segments: Vec<&[u8]> = raw.iter().map(Vec::as_slice).collect();
+            let expected = crate::artifact::compression::compressed_size(&segments, &profile).unwrap()
+                + encoded_metadata_size(chunk_count);
+            assert_eq!(builder.build().unwrap().len() as u64, expected);
+        }
+    }
+}

@@ -10,7 +10,6 @@ use crate::manifest::CompressionProfile;
 trait CompressionAdapter {
     fn default_level(&self) -> i32;
     fn validate_level(&self, level: Option<i32>) -> Result<i32>;
-    fn compress_segments(&self, segments: &[&[u8]], raw_size: u64, level: i32) -> Result<Vec<u8>>;
     #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>>;
 }
@@ -29,17 +28,6 @@ impl CompressionAdapter for NoneAdapter {
                 "compression level {level} is invalid for uncompressed content"
             ))),
         }
-    }
-
-    fn compress_segments(&self, segments: &[&[u8]], raw_size: u64, _level: i32) -> Result<Vec<u8>> {
-        let capacity = usize::try_from(raw_size).map_err(|_| {
-            crate::error::Error::bundle("uncompressed payload is too large for this platform")
-        })?;
-        let mut output = Vec::with_capacity(capacity);
-        for segment in segments {
-            output.extend_from_slice(segment);
-        }
-        Ok(output)
     }
 
     #[cfg(test)]
@@ -66,22 +54,6 @@ impl CompressionAdapter for ZstdAdapter {
         }
     }
 
-    fn compress_segments(&self, segments: &[&[u8]], raw_size: u64, level: i32) -> Result<Vec<u8>> {
-        let output = Vec::with_capacity(estimated_zstd_output_capacity(raw_size));
-        let mut encoder = zstd::stream::Encoder::new(output, level)
-            .map_err(|error| crate::error::Error::bundle(format!("zstd compress: {error}")))?;
-
-        for segment in segments {
-            encoder
-                .write_all(segment)
-                .map_err(|error| crate::error::Error::bundle(format!("zstd compress: {error}")))?;
-        }
-
-        encoder
-            .finish()
-            .map_err(|error| crate::error::Error::bundle(format!("zstd compress: {error}")))
-    }
-
     #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>> {
         let decoder = zstd::stream::read::Decoder::new(Cursor::new(data))
@@ -106,24 +78,6 @@ impl CompressionAdapter for Lz4Adapter {
                 "lz4 compression level {level} is outside the supported range 0..=9"
             )))
         }
-    }
-
-    fn compress_segments(&self, segments: &[&[u8]], raw_size: u64, level: i32) -> Result<Vec<u8>> {
-        let output = Vec::with_capacity(estimated_lz4_output_capacity(raw_size));
-        let mut encoder = lz4::EncoderBuilder::new()
-            .level(level as u32)
-            .build(output)
-            .map_err(|error| crate::error::Error::bundle(format!("lz4 compress: {error}")))?;
-
-        for segment in segments {
-            encoder
-                .write_all(segment)
-                .map_err(|error| crate::error::Error::bundle(format!("lz4 compress: {error}")))?;
-        }
-
-        let (output, result) = encoder.finish();
-        result.map_err(|error| crate::error::Error::bundle(format!("lz4 compress: {error}")))?;
-        Ok(output)
     }
 
     #[cfg(test)]
@@ -202,33 +156,46 @@ pub(crate) fn encode_to_writer(
     }
 }
 
-pub(crate) fn compress_with_profile(data: &[u8], profile: &CompressionProfile) -> Result<Vec<u8>> {
-    compress_segments_with_profile(std::slice::from_ref(&data), data.len() as u64, profile)
-}
-
-pub(crate) fn compress_segments_with_profile(
-    segments: &[&[u8]],
-    raw_size: u64,
-    profile: &CompressionProfile,
-) -> Result<Vec<u8>> {
-    let adapter = adapter_for(profile.compression);
-    let level = adapter.validate_level(profile.level)?;
-    adapter.compress_segments(segments, raw_size, level)
-}
-
-fn estimated_zstd_output_capacity(raw_size: u64) -> usize {
-    if raw_size == 0 {
-        return 0;
+/// Count the exact codec output without retaining compressed bytes.
+pub(crate) fn compressed_size(segments: &[&[u8]], profile: &CompressionProfile) -> Result<u64> {
+    struct ByteCounter(u64);
+    impl Write for ByteCounter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len() as u64;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
-
-    let bounded_size = raw_size.min(usize::MAX as u64) as usize;
-    (bounded_size / 2)
-        .saturating_add(1024 * 1024)
-        .min(bounded_size)
+    let mut output = ByteCounter(0);
+    let raw_size = segments.iter().map(|segment| segment.len() as u64).sum();
+    encode_to_writer(&mut output, profile, raw_size, |writer| {
+        for segment in segments {
+            writer.write_all(segment)?;
+        }
+        Ok(())
+    })?;
+    Ok(output.0)
 }
 
-fn estimated_lz4_output_capacity(raw_size: u64) -> usize {
-    raw_size.min(usize::MAX as u64) as usize
+#[cfg(test)]
+fn compress_with_profile(data: &[u8], profile: &CompressionProfile) -> Result<Vec<u8>> {
+    compress_segments_with_profile(&[data], data.len() as u64, profile)
+}
+
+#[cfg(test)]
+fn compress_segments_with_profile(
+    segments: &[&[u8]], raw_size: u64, profile: &CompressionProfile,
+) -> Result<Vec<u8>> {
+    let mut output = Vec::new();
+    encode_to_writer(&mut output, profile, raw_size, |writer| {
+        for segment in segments {
+            writer.write_all(segment)?;
+        }
+        Ok(())
+    })?;
+    Ok(output)
 }
 
 #[cfg(test)]

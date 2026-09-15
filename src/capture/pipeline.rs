@@ -80,11 +80,9 @@ fn estimate_bundle_compression_ratio_from_probe(
     let mut raw_probe_size: u64 = 0;
     let mut probe_payload = Vec::new();
     for (_, payload) in chunks {
-        let bytes_added = payload.with_bytes(|data| {
-            probe_payload.extend_from_slice(data);
-            data.len() as u64
-        })?;
-        raw_probe_size += bytes_added;
+        let data = payload.load_bytes()?;
+        raw_probe_size += data.len() as u64;
+        probe_payload.push(data);
         if raw_probe_size >= probe_target_bytes {
             break;
         }
@@ -94,9 +92,11 @@ fn estimate_bundle_compression_ratio_from_probe(
         return Ok((1.0, 0));
     }
 
-    let compressed_probe = compress::compress_with_profile(&probe_payload, compression_profile)?;
+    let segments: Vec<&[u8]> = probe_payload.iter().map(Vec::as_slice).collect();
+    let encoded_size = compress::compressed_size(&segments, compression_profile)?
+        + crate::artifact::bundle::encoded_metadata_size(segments.len() as u64);
     Ok((
-        (compressed_probe.len() as f64 / raw_probe_size as f64).max(0.01),
+        (encoded_size as f64 / raw_probe_size as f64).max(0.01),
         raw_probe_size,
     ))
 }

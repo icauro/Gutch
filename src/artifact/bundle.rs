@@ -26,6 +26,12 @@ const BUNDLE_HEADER_SIZE: u64 = 16 + 2 + 2 + 4;
 const BUNDLE_TRAILER_SIZE: u64 = 4 + 16;
 const BUNDLE_ID_SIZE: u64 = 32;
 const BUNDLE_TABLE_ENTRY_SIZE: usize = 36;
+
+pub(crate) fn encoded_metadata_size(chunk_count: u64) -> u64 {
+    BUNDLE_HEADER_SIZE + 4 + chunk_count * BUNDLE_TABLE_ENTRY_SIZE as u64
+        + BUNDLE_TRAILER_SIZE + BUNDLE_ID_SIZE
+}
+
 const STREAM_BUFFER_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Default)]

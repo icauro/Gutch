@@ -203,9 +203,6 @@ impl ChunkPayload {
         Ok(bytes)
     }
 
-    pub(crate) fn with_bytes<T>(&self, f: impl FnOnce(&[u8]) -> T) -> crate::Result<T> {
-        Ok(f(&self.load_bytes()?))
-    }
 }
 
 #[derive(Debug, Clone, Default)]
