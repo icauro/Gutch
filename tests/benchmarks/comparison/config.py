@@ -164,7 +164,7 @@ def load_fixture(path: Path) -> FixtureSpec:
         if tool == "filesystem" and workload != "copy":
             raise ValueError("filesystem cases only support the copy workload")
         if "kind" in raw:
-            raise ValueError("configure tool and workload separately")
+            raise ValueError(f"{path}: lane {label!r}: configure tool and workload separately instead of kind")
         if not isinstance(label, str) or not label.strip() or label in labels:
             raise ValueError(f"fixture lane labels must be unique non-empty strings: {path}")
         if not isinstance(kind, str):
