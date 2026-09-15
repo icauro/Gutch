@@ -551,7 +551,8 @@ impl GutchProfiler {
 }
 impl Drop for GutchProfileSpan {
     fn drop(&mut self) {
-        let duration = self.started.elapsed();
+        let finished = Instant::now();
+        let duration = finished.duration_since(self.started);
         if let Ok(mut recorder) = self.recorder.lock() {
             if recorder.aggregates.contains_key(self.name) || recorder.aggregates.len() < 256 {
                 let aggregate = recorder.aggregates.entry(self.name).or_default();
@@ -560,7 +561,11 @@ impl Drop for GutchProfileSpan {
                 aggregate.maximum = aggregate.maximum.max(duration);
             }
             if let Some(index) = self.event {
-                recorder.events[index].duration = Some(duration.as_micros() as u64);
+                // Quantize both endpoints on the session clock. Rounding the duration
+                // separately can make a nested child end one microsecond after its parent.
+                let end = finished.duration_since(self.state.started).as_micros() as u64;
+                let event = &mut recorder.events[index];
+                event.duration = Some(end - event.ts);
             }
         }
         self.state.active_spans.fetch_sub(1, Ordering::Release);
@@ -615,6 +620,22 @@ fn overview_marker(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nested_trace_endpoints_remain_inside_the_parent() {
+        let profiler = GutchProfiler::new(GutchProfileMode::Detailed);
+        for _ in 0..1024 {
+            let _parent = profiler.span("test.parent");
+            let _child = profiler.span("test.child");
+        }
+        let recorders = profiler.state.recorders.lock().unwrap();
+        let recorder = recorders[0].lock().unwrap();
+        for pair in recorder.events.chunks_exact(2) {
+            let (parent, child) = (&pair[0], &pair[1]);
+            assert!(parent.ts <= child.ts);
+            assert!(child.ts + child.duration.unwrap() <= parent.ts + parent.duration.unwrap());
+        }
+    }
+
     #[test]
     fn disabled_and_summary_do_not_evaluate_arguments() {
         for mode in [GutchProfileMode::Off, GutchProfileMode::Summary] {

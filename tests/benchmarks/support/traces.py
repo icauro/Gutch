@@ -1,5 +1,6 @@
 """Perfetto trace composition without workflow-specific knowledge."""
 
+import hashlib
 import http.server
 import json
 from pathlib import Path
@@ -79,79 +80,6 @@ def combine_traces(inputs: Iterable[Path], output: Path) -> None:
     )
 
 
-def _compact_worker_phases(events: list[dict]) -> list[dict]:
-    """Project command phases onto worker roles; coverage is not CPU utilization."""
-    commands = [event for event in events if event.get("name") == "cli.command" and event.get("ph") == "X"]
-    if not commands:
-        return events
-    roles = {}
-    thread_roles = {}
-    compact = [event for event in events if event.get("name") in {"process_name", "profile.recording_incomplete"}]
-    for event in events:
-        if event.get("name") != "thread_name":
-            continue
-        key = (event["pid"], event["args"]["name"])
-        if key not in roles:
-            roles[key] = len(roles) + 1
-            compact.append({**event, "tid": roles[key], "args": {"name": key[1] + " (role across commands)"}})
-        thread_roles[(event["pid"], event["tid"])] = roles[key]
-    if not roles:
-        return events
-    spans = [event for event in events if event.get("ph") == "X"]
-    phase_names = {
-        "capture.prepare_source", "capture.scan_source", "capture.plan_deduplicated_chunks",
-        "capture.build_artifacts", "capture.build_snapshot_manifest", "capture.publish_snapshot",
-        "installation.reconstruct.pipeline", "installation.reconstruct.verify",
-        "installation.repair.verify", "installation.repair.finalize",
-        "transfer.prepare", "transfer.download_queue",
-    }
-    ends = {}
-    for command in sorted(commands, key=lambda event: event["ts"]):
-        pid, start = command["pid"], command["ts"]
-        end = start + command["dur"]
-        phases = [event for event in spans if event["pid"] == pid and event["tid"] == command["tid"]
-                  and event["name"] in phase_names and start <= event["ts"] < end]
-        boundaries = sorted({start, end, *(event["ts"] for event in phases),
-                             *(min(end, event["ts"] + event["dur"]) for event in phases)})
-        windows = []
-        for left, right in zip(boundaries, boundaries[1:]):
-            covering = [event for event in phases if event["ts"] <= left < event["ts"] + event["dur"]]
-            name = min(covering, key=lambda event: event["dur"])["name"] if covering else "Command context (other phases)"
-            if windows and windows[-1][2] == name:
-                windows[-1] = (windows[-1][0], right, name)
-            else:
-                windows.append((left, right, name))
-        previous_end = ends.get(pid, 0)
-        if start > previous_end:
-            windows.insert(0, (previous_end, start, "Between commands / unrecorded"))
-        ends[pid] = end
-        for (role_pid, _role_name), tid in roles.items():
-            if role_pid != pid:
-                continue
-            activity = [event for event in spans if event["pid"] == pid
-                        and thread_roles.get((pid, event["tid"])) == tid
-                        and event["ts"] < end and event["ts"] + event["dur"] > previous_end]
-            for left, right, name in windows:
-                if right <= left:
-                    continue
-                intervals = sorted((max(left, event["ts"]), min(right, event["ts"] + event["dur"]))
-                                   for event in activity if event["ts"] < right and event["ts"] + event["dur"] > left)
-                # Union nested spans so inclusive children do not inflate coverage.
-                covered = 0
-                cursor = left
-                for begin, finish in intervals:
-                    covered += max(0, finish - max(cursor, begin))
-                    cursor = max(cursor, finish)
-                compact.append({"name": name, "cat": "phase_context", "ph": "X", "pid": pid,
-                                "tid": tid, "ts": left, "dur": right - left, "args": {
-                                    "view": "phase context, not continuous execution or CPU utilization",
-                                    "recorded_spans": len(intervals), "recorded_wall_ms": covered / 1000,
-                                    "unrecorded_ms": (right - left - covered) / 1000,
-                                    "unrecorded_meaning": "waiting, uninstrumented work, or role not observed; cannot distinguish",
-                                }})
-    return sorted(compact, key=lambda event: (event.get("ts", 0), event.get("pid", 0)))
-
-
 def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> None:
     """Combine phase traces while keeping every benchmark lane in one process."""
     events: list[dict] = []
@@ -208,13 +136,8 @@ def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> 
 
     events.sort(key=lambda event: (event.get("ts", 0), event.get("pid", 0)))
     output.parent.mkdir(parents=True, exist_ok=True)
-    detailed_output = output.with_name(output.stem + ".detailed.json")
-    detailed_output.write_text(
-        json.dumps({"traceEvents": events, "displayTimeUnit": "ms"}, indent=2) + "\n",
-        encoding="utf-8",
-    )
     output.write_text(
-        json.dumps({"traceEvents": _compact_worker_phases(events), "displayTimeUnit": "ms"}, indent=2) + "\n",
+        json.dumps({"traceEvents": events, "displayTimeUnit": "ms"}, indent=2) + "\n",
         encoding="utf-8",
     )
 
@@ -230,8 +153,12 @@ def open_trace_in_perfetto(trace_path: Path, log: Callable[[str], None]) -> bool
         with _TraceServer(("127.0.0.1", PERFETTO_PORT), handler) as server:
             server.trace_name = trace_path.name
             server.trace_requested = False
-            local_url = f"http://127.0.0.1:{PERFETTO_PORT}/{urllib.parse.quote(trace_path.name)}"
-            browser_url = f"{PERFETTO_ORIGIN}/#!/?url={local_url}&referrer=gutch_benchmark"
+            # A changed trace must not reuse a browser tab/import for an older file
+            # served under the same localhost path.
+            with trace_path.open("rb") as trace_file:
+                revision = hashlib.file_digest(trace_file, "sha256").hexdigest()[:12]
+            local_url = f"http://127.0.0.1:{PERFETTO_PORT}/{urllib.parse.quote(trace_path.name)}?v={revision}"
+            browser_url = f"{PERFETTO_ORIGIN}/#!/?url={urllib.parse.quote(local_url, safe='')}&referrer=gutch_benchmark"
             deadline = time.monotonic() + PERFETTO_REQUEST_TIMEOUT_SECONDS
             server.timeout = 1
             if not webbrowser.open_new_tab(browser_url):

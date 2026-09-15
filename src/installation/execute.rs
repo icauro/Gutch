@@ -246,7 +246,18 @@ fn spawn_reconstruct_work(
 ) {
     let context = Arc::clone(context);
     let event_tx = event_tx.clone();
+    let queued_at = ProfileInstant::detailed(context.control.profiler());
     pool.spawn(move || {
+        let queue_wait = queued_at.elapsed();
+        let _work_span = context.control.profile_span_with_args("installation.worker.execute", || {
+            std::collections::BTreeMap::from([
+                ("queue_wait_us".into(), serde_json::json!(queue_wait.as_micros() as u64)),
+                ("work_kind".into(), serde_json::json!(match &work_item {
+                    ReconstructWorkItem::Job(_) => "reconstruct",
+                    ReconstructWorkItem::VerifyFile(_) => "verify",
+                })),
+            ])
+        });
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
             ReconstructWorkItem::Job(job_index) => {
                 let working_bytes = match &context.jobs[job_index] {
@@ -281,6 +292,8 @@ fn spawn_reconstruct_work(
             Ok(result) => result,
             Err(_) => Err(Error::reconstruct("reconstruction worker panicked")),
         };
+        // Completion lets the coordinator finalize profiling; close the worker span first.
+        drop(_work_span);
         match result {
             Ok(event) => {
                 let _ = event_tx.send(event);
@@ -607,7 +620,11 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         if completed_job_count == jobs.len() && completed_file_count == file_plans.len() {
             break;
         }
-        match event_rx.recv_timeout(Duration::from_millis(10)) {
+        let event = {
+            let _wait_span = control.profile_span("installation.coordinator.wait_for_worker");
+            event_rx.recv_timeout(Duration::from_millis(10))
+        };
+        match event {
             Ok(ReconstructJobEvent::Completed {
                 job_index,
                 timings: job_timings,
@@ -721,7 +738,11 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         scheduler.join()?;
     }
     while pipeline_error.is_some() && finished_work_count < submitted_work_count {
-        match event_rx.recv() {
+        let event = {
+            let _wait_span = control.profile_span("installation.coordinator.drain_workers");
+            event_rx.recv()
+        };
+        match event {
             Ok(_) => finished_work_count += 1,
             Err(_) => break,
         }

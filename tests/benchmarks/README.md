@@ -20,9 +20,8 @@ not guaranteed cold-cache measurements.
 
 During execution, each run records `run.json`, incremental `results.json`,
 `summary.json`, command logs, raw stats and validation results. Successful runs
-retain root summaries, the compact `trace.json`, and the job-level
-`trace.detailed.json`, then remove detailed lanes, temporary
-repositories and tool caches. Result paths describe the original measurements;
+retain root summaries and the measured `trace.json`, then remove detailed lanes,
+temporary repositories and tool caches. Result paths describe the original measurements;
 `detailed_evidence_retained` in `run.json` states whether those files still exist.
 `--keep-artifacts` or an explicit recipe with `delete_artifacts: false` retains
 details. Failed and cancelled runs keep evidence. Automatic retention keeps the
@@ -173,13 +172,16 @@ credentials, remote workspace, or WSL distribution is required.
 The Gutch launcher shows an ASCII spinner for each command, including its lane
 and current step, then prints each measured lane as soon as it completes,
 followed by the machine-readable results path. A fixture with `open_perfetto: true`
-combines the retained lane traces and opens a compact phase overview in Perfetto
-after the run. Each worker role has continuous phase bands across commands.
-These bands show phase context, not continuous execution: click one to inspect
-recorded span count, the union of recorded wall time, and unrecorded time.
-Unrecorded time may be waiting, uninstrumented work, or a role not observed in
-that command. Role names group separate command processes; they are not OS
-thread identities. The full job-by-job combined trace is `trace.detailed.json`. The local trace server follows the same `127.0.0.1:9001` workflow as
+combines the retained lane traces into `trace.json` and opens it in Perfetto.
+Main-thread phases provide the overview; worker tracks retain measured jobs and
+nested operations with separate thread identities for each command. Gaps remain
+unrecorded time, not inferred sleeping or CPU activity. Reconstruction jobs include
+`queue_wait_us`, measured from submission to worker entry. `runtime.memory.wait`
+measures budget contention; coordinator waits measure receiving worker results.
+A bundle-build span encloses input loading and encoding so its children can be
+inspected by zooming. No global phases are projected onto worker tracks.
+Automatic opening uses a content-versioned local URL so changed traces do not
+reuse an earlier browser import at the same path. The local trace server follows the same `127.0.0.1:9001` workflow as
 the original benchmark. The completed run also prints the compact ASCII
 per-snapshot comparison tables followed by a summary of total and average
 capture/restore times, throughput, and final stored size. Averages use measured

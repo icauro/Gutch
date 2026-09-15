@@ -37,6 +37,9 @@ impl MemoryBudget {
             .available
             .lock()
             .map_err(|_| Error::manifest("memory budget poisoned"))?;
+        // Keep one measured wait across cancellation polling, not one slice per timeout.
+        let waiting = (*available < bytes)
+            .then(|| control.profile_span("runtime.memory.wait"));
         while *available < bytes {
             control.checkpoint()?;
             available = self
@@ -46,6 +49,7 @@ impl MemoryBudget {
                 .0;
         }
         control.checkpoint()?;
+        drop(waiting);
         *available -= bytes;
         Ok(MemoryPermit {
             budget: self,
@@ -112,7 +116,11 @@ mod tests {
             }
         }
         let budget = MemoryBudget::new();
-        let control = crate::progress::GutchOperationControl::default();
+        let profiler = std::sync::Arc::new(crate::profile::GutchProfiler::new(
+            crate::profile::GutchProfileMode::Detailed,
+        ));
+        let control = crate::progress::GutchOperationControl::default()
+            .with_profiler(profiler.clone());
         let permit = budget
             .acquire(OPERATION_MEMORY_BUDGET_BYTES, &control)
             .unwrap();
@@ -127,6 +135,11 @@ mod tests {
                 .store(true, std::sync::atomic::Ordering::Release);
             assert!(waiter.join().unwrap());
         });
+        let summary = profiler.summary();
+        let waits: Vec<_> = summary.spans.iter()
+            .filter(|span| span.name == "runtime.memory.wait").collect();
+        assert_eq!(waits.len(), 1);
+        assert_eq!(waits[0].count, 1);
         drop(permit);
         assert!(
             budget

@@ -139,11 +139,14 @@ and recovery differences are documented in the [benchmark README](../../tests/be
 
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed retains traces.
 Completed runs include raw evidence, a status manifest, samples, and summary
-statistics. The benchmark's default combined Perfetto trace shows continuous
-phase context for worker roles, with recorded and unrecorded wall-time coverage.
-It does not imply continuous execution or distinguish waiting from uninstrumented
-work. The separate `trace.detailed.json` retains individual job spans. Docker copies the evidence archive to a unique host directory
-before successful environment cleanup. OS caches remain uncontrolled.
+statistics. The benchmark's combined `trace.json` preserves measured worker spans,
+nesting, and distinct thread identities across commands. Main-thread phases supply
+the overview. Bundle-build and reconstruction-job spans enclose detail; reconstruction
+jobs report submission-to-start queue delay. Memory-budget and coordinator waits
+are measured explicitly. Uninstrumented intervals remain gaps; application spans
+are elapsed wall time, not CPU scheduling states. Trace endpoints share the session
+clock so microsecond rounding preserves nested boundaries. Docker copies the
+evidence archive to a unique host directory before successful environment cleanup. OS caches remain uncontrolled.
 
 ## Memory evidence
 

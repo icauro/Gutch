@@ -533,6 +533,9 @@ fn build_bundle_compressed_group(
     control: &crate::progress::GutchOperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
     control.checkpoint()?;
+    let _job_span = control.profile_span_with_args("capture.bundle.build", || {
+        BTreeMap::from([("chunk_count".into(), serde_json::json!(planned_bundle.len()))])
+    });
     let mut builder = BundleBuilder::new(compression_profile.clone());
     let mut payload_load = std::time::Duration::ZERO;
     let mut payload_load_bytes: u64 = 0;

@@ -115,7 +115,7 @@ class RunLayout:
             for action in self.cleanup_actions:
                 action()
             self.remove_payloads()
-        reports = ("run.json", "results.json", "summary.json", "summary.md", "trace.json", "trace.detailed.json")
+        reports = ("run.json", "results.json", "summary.json", "summary.md", "trace.json")
         compact_success(self.root, keep=keep, reports=reports)
         self.write_manifest("passed", cleanup_complete=True, keep_artifacts=keep,
                             detailed_evidence_retained=keep)
