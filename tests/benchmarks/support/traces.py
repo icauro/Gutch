@@ -4,6 +4,7 @@ from collections import Counter
 import hashlib
 import http.server
 import json
+import re
 from pathlib import Path
 import socketserver
 import time
@@ -127,6 +128,33 @@ def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> 
             for event in local_events
             if event.get("ph") == "M" and event.get("name") == "thread_name"
         }
+        # Pool numbers describe reusable display rows, not OS thread identity.
+        neutral_names = {
+            thread: re.sub(r"^(Capture|Reconstruction|Verification) worker #", "Worker #", name)
+            if isinstance(name, str) else name
+            for thread, name in names.items()
+        }
+        reusable_names = set()
+        for candidate in set(neutral_names.values()):
+            members = [thread for thread, name in neutral_names.items() if name == candidate]
+            intervals = []
+            for thread in members:
+                spans = [event for event in local_events
+                         if (event.get("pid", 0), event.get("tid", 0)) == thread
+                         and event.get("ph") == "X"]
+                if spans:
+                    intervals.append((min(event["ts"] for event in spans),
+                                      max(event["ts"] + event.get("dur", 0) for event in spans)))
+            intervals.sort()
+            distinct_roles = len({names[thread] for thread in members}) == len(members)
+            if distinct_roles and len(intervals) == len(members) and all(
+                left[1] <= right[0] for left, right in zip(intervals, intervals[1:])
+            ):
+                reusable_names.add(candidate)
+        names = {
+            thread: neutral_names[thread] if neutral_names[thread] in reusable_names else name
+            for thread, name in names.items()
+        }
         name_counts = Counter(names.values())
         for source_event in local_events:
             if source_event.get("cat") == "__metadata" and source_event.get("name") == "process_name":
@@ -134,7 +162,7 @@ def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> 
             event = dict(source_event)
             original_thread = (event.get("pid", 0), event.get("tid", 0))
             name = names.get(original_thread)
-            source_thread_id = ("name", name) if name and name_counts[name] == 1 else (str(source), original_thread)
+            source_thread_id = ("name", name) if name and (name_counts[name] == 1 or name in reusable_names) else (str(source), original_thread)
             if source_thread_id not in thread_ids:
                 thread_ids[source_thread_id] = len(thread_ids) + 1
             event["pid"] = process_id
@@ -144,6 +172,7 @@ def combine_labeled_traces(inputs: Iterable[tuple[str, Path]], output: Path) -> 
                 if track in named_tracks:
                     continue
                 named_tracks.add(track)
+                event["args"] = {**event.get("args", {}), "name": name}
             source_timestamp = event.get("ts", 0)
             if isinstance(source_timestamp, (int, float)):
                 source_duration = max(source_duration, int(source_timestamp + event.get("dur", 0)))

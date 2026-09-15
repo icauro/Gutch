@@ -173,8 +173,9 @@ The Gutch launcher shows an ASCII spinner for each command, including its lane
 and current step, then prints each measured lane as soon as it completes,
 followed by the machine-readable results path. A fixture with `open_perfetto: true`
 combines the retained lane traces into `trace.json` and opens it in Perfetto.
-Sequential commands reuse rows with the same unique thread name (role and worker
-number), within each lane. Unnamed or duplicate-named threads retain separate
+Sequential commands reuse neutral `Worker #N` rows across capture, reconstruction,
+and verification, within each lane. Pools with the same worker number also share rows inside a command when their
+recorded activity does not overlap; overlapping pools retain separate role names. Unnamed or duplicate-named threads retain separate
 rows. Commands are concatenated; their internal timing and gaps are preserved.
 Main-thread phases provide the overview; worker tracks retain measured jobs and
 nested operations with separate thread identities for each command. Pool threads

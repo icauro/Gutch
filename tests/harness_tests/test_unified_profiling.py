@@ -33,7 +33,7 @@ def test_named_rows_reuse_across_commands_but_not_lanes(tmp_path):
         path = tmp_path / f"named-{index}.json"
         path.write_text(json.dumps({"traceEvents": [
             {"ph": "M", "name": "thread_name", "pid": 1, "tid": tid,
-             "args": {"name": "Capture worker #1"}},
+             "args": {"name": ("Capture worker #1", "Reconstruction worker #1")[index]}},
             {"ph": "X", "name": "work", "pid": 1, "tid": tid, "ts": 2, "dur": 8},
         ]}))
         paths.append(("lane", path))
@@ -61,3 +61,22 @@ def test_duplicate_thread_names_do_not_merge_concurrent_workers(tmp_path):
     combine_labeled_traces([("lane", source)], output)
     spans = [event for event in json.loads(output.read_text())["traceEvents"] if event["ph"] == "X"]
     assert spans[0]["tid"] != spans[1]["tid"]
+
+
+def test_role_rows_share_only_when_activity_does_not_overlap(tmp_path):
+    for start, shared in ((10, True), (5, False)):
+        source = tmp_path / f"roles-{start}.json"
+        events = []
+        for tid, name, timestamp in ((1, "Verification worker #1", 0),
+                                     (2, "Reconstruction worker #1", start)):
+            events.extend([
+                {"ph": "M", "name": "thread_name", "pid": 1, "tid": tid,
+                 "args": {"name": name}},
+                {"ph": "X", "name": "work", "pid": 1, "tid": tid,
+                 "ts": timestamp, "dur": 10},
+            ])
+        source.write_text(json.dumps({"traceEvents": events}))
+        output = tmp_path / "combined.json"
+        combine_labeled_traces([("lane", source)], output)
+        spans = [event for event in json.loads(output.read_text())["traceEvents"] if event["ph"] == "X"]
+        assert (spans[0]["tid"] == spans[1]["tid"]) == shared
