@@ -24,7 +24,7 @@ capture Rayon pool unless noted otherwise.
 | Stage | Work | Parallel behavior |
 | --- | --- | --- |
 | 1. Source and identity | Resolve selected source roots, normalized paths, tags, and snapshot identity. | Performed before capture work begins. |
-| 2. Runtime setup | Resolve `jobs` into a bounded worker count and create the `gutch-capture` pool. | One operation-local pool is shared by scan and packaging. |
+| 2. Runtime setup | Resolve `jobs` into a bounded worker count and create the capture worker pool. | One operation-local pool is shared by scan and packaging. |
 | 3. Inventory | Walk each source with `WalkDir`, without following links, in filename order. Record regular files, directories, and supported symlinks. | Directory enumeration is ordered; metadata conversion can run on the pool. |
 | 4. File scan | Read each regular file as a stream, find FastCDC boundaries, and compute the full-file BLAKE3 hash. | Files are scanned concurrently when more than one worker is configured. |
 | 5. Chunk hashes | Hash each chunk as it is read and retain its source range, size, and identity. | Hashing runs in the file worker; raw chunks are released immediately. |
@@ -64,6 +64,12 @@ already available locally.
 the runtime uses physical CPU count capped by process-visible logical
 parallelism. An explicit value is clamped to at least one and at most the
 logical-parallelism limit. Capture does not create an unbounded worker pool.
+
+Parallel file scanning uses one-file scheduling units (`with_max_len(1)`) so a
+batch of large neighboring files cannot remain assigned to one worker. Indexed
+collection preserves inventory order, including each file's chunk order, before
+deterministic deduplication and packing. Each file remains a sequential stream;
+a single very large file can still determine the end of the scan stage.
 
 The pool is reused across these units of work:
 
