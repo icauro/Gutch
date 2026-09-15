@@ -290,6 +290,9 @@ fn spawn_reconstruct_work(
         // Completion lets the coordinator finalize profiling; close the worker span first.
         drop(memory_permit);
         drop(_work_span);
+        // Publication may follow the final event immediately. Release cached file
+        // handles before allowing the coordinator to advance to that boundary.
+        drop(context);
         match result {
             Ok(event) => {
                 let _ = event_tx.send(event);
@@ -698,7 +701,9 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                             verify_started_at = Some(ProfileInstant::start(control.profiler()));
                             verify_span = control.profile_span("installation.reconstruct.verify");
                         }
-                        pending_work.push_back((
+                        // Verify while the completed file may still be cached, overlapping
+                        // hashing with remaining writes. All its producers have finished.
+                        pending_work.push_front((
                             ReconstructWorkItem::VerifyFile(file_index),
                             ProfileInstant::detailed(control.profiler()),
                         ));

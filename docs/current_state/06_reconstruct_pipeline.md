@@ -50,7 +50,10 @@ The reconstruction pool has the runtime-planned worker count. The dispatcher
 starts all jobs that are ready from local artifacts or verified source data.
 Each job completion decrements the dependency count for its target files. A
 file is eligible for full-file verification only when its count reaches zero;
-the scheduler does not wait for unrelated files.
+the scheduler gives these newly completed files priority over queued producing
+jobs. This overlaps hashing with remaining reconstruction and can read recently
+written pages from the filesystem cache. Empty-file checks need no such priority.
+Verification never starts while a producer for that file is still running.
 
 Remote transfer has a separate worker limit. The default transfer policy uses
 four workers, while adaptive transfer can change the active count up to sixteen
@@ -185,6 +188,10 @@ adjustments.
   because promotion has not occurred.
 - Reusing a local path is not itself proof of integrity; the reader and file
   verifier provide the integrity gates.
+
+Workers release their shared context before reporting completion. Once the
+coordinator has received every completion and released its own context, cached
+output handles cannot remain owned by an exiting worker during publication.
 
 ## Implementation anchors
 

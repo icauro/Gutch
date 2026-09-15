@@ -622,6 +622,138 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
 }
 
 #[test]
+fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_file() {
+    #[derive(Debug, Default)]
+    struct RecordedProgress(Mutex<Vec<String>>);
+
+    impl crate::progress::GutchProgressSink for RecordedProgress {
+        fn emit(&self, event: GutchProgressEvent) {
+            if event.phase == GutchProgressPhase::Reconstruct
+                && event.message.starts_with("Reconstructing ")
+            {
+                self.0.lock().unwrap().push(event.message);
+            }
+        }
+    }
+
+    let workspace = tempfile::tempdir().unwrap();
+    let repo_root = workspace.path().join("repo");
+    let destination = workspace.path().join("output");
+    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "readiness-test").unwrap();
+    let compression = manifest::CompressionProfile::default();
+    let mut chunk_entries = BTreeMap::new();
+    let mut existing_artifacts = HashSet::new();
+    let mut chunk_refs = Vec::new();
+    for bytes in [b"first".as_slice(), b"second".as_slice()] {
+        let hash = crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes));
+        let mut builder = crate::artifact::bundle::BundleBuilder::new(compression.clone());
+        builder.add_chunk(hash, bytes.to_vec());
+        let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
+        let reader = crate::artifact::bundle::BundleReader::open(
+            std::io::Cursor::new(bundle_bytes.as_slice()),
+            &compression,
+        )
+        .unwrap();
+        let artifact = crate::repo::artifacts::ArtifactRef::Bundle {
+            id: bundle_id.clone(),
+        };
+        let artifact_path = artifact.local_path(&repo_paths).unwrap();
+        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        std::fs::write(&artifact_path, &bundle_bytes).unwrap();
+        chunk_entries.insert(
+            hash.to_hex(),
+            manifest::ChunkIndexEntry::new(
+                0,
+                0,
+                bundle_id.into(),
+                bytes.len() as u32,
+                reader.entries()[0].compressed_size,
+                manifest::ArtifactStorageMode::Bundled,
+            ),
+        );
+        chunk_refs.push(ChunkRef {
+            chunk_hash: hash.to_hex(),
+            raw_size: bytes.len() as u32,
+        });
+        existing_artifacts.insert(artifact);
+    }
+    let chunk_index = manifest::ChunkIndex {
+        format_version: "1".to_string(),
+        entries: crate::test_util::chunk_entries(chunk_entries),
+    };
+    let mut snapshot = SnapshotManifest::new("readiness".to_string(), SnapshotTagSet::default());
+    // Bundle one completes the first file, but only supplies the dependent file's
+    // prefix. Bundle two must finish before that second file can pass verification.
+    for (path, bytes, chunks) in [
+        ("a-ready.bin", b"first".as_slice(), vec![chunk_refs[0].clone()]),
+        ("b-dependent.bin", b"firstsecond".as_slice(), chunk_refs),
+    ] {
+        snapshot.push_file(FileManifest {
+            path: path.to_string(),
+            size: bytes.len() as u64,
+            executable: false,
+            read_only: false,
+            full_file_hash: test_hash(bytes),
+            chunks,
+        });
+    }
+    let plan = build_reconstruct_pipeline_plan(
+        &snapshot,
+        &chunk_index,
+        &repo_paths,
+        &existing_artifacts,
+        None,
+    )
+    .unwrap();
+    assert_eq!(plan.jobs.len(), 2);
+    let progress = Arc::new(RecordedProgress::default());
+    // Record coordinator events directly: live UI feedback intentionally coalesces them.
+    let control = GutchOperationControl::default().with_replaced_progress(progress.clone());
+    apply_reconstruct_pipeline(
+        ReconstructPipelineApplyRequest {
+            publication: super::super::publish::Publication::ReplaceDirectory,
+            repo_root: &repo_root,
+            compression_profile: compression,
+            snapshot_manifest: &snapshot,
+            destination_dir: &destination,
+            staging_dir: None,
+            source_destination_dir: None,
+            runtime_hints: &RuntimeResourceHints {
+                jobs: Some(1),
+                ..Default::default()
+            },
+            existing_artifacts: &existing_artifacts,
+            pending_artifact_downloads: &[],
+            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
+            control: &control,
+            download_client: None,
+            transfer_progress: None,
+        },
+        plan,
+    )
+    .unwrap();
+    let events = progress.0.lock().unwrap();
+    assert_eq!(
+        &events[..4],
+        [
+            "Reconstructing jobs (1/2)",
+            "Reconstructing files (1/2)",
+            "Reconstructing jobs (2/2)",
+            "Reconstructing files (2/2)",
+        ],
+    );
+    assert_eq!(
+        std::fs::read(destination.join("a-ready.bin")).unwrap(),
+        b"first",
+    );
+    assert_eq!(
+        std::fs::read(destination.join("b-dependent.bin")).unwrap(),
+        b"firstsecond",
+    );
+}
+
+#[test]
 fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     use std::io::Read;
     use std::io::Write;
