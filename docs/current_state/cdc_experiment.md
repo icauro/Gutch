@@ -428,3 +428,33 @@ breakdown is inferred from them.
 The run-specific fixture and retained evidence are under
 `tests/.artifacts/lz4-chunker-comparison/`; results directory:
 `2026.09.27-Blender-f5c6014c-17_gutch_fastcd-e7223052-001/`.
+
+
+## LZ4 level 1 with all chunkers at 256 KiB
+
+Repeated the four-snapshot Blender full-flow comparison with `chunk_256KiB` in
+all three lanes, retaining LZ4 level 1 and 8 MiB bundles. FastCDC and JC have
+64 KiB minimum and 1 MiB maximum; RAM has a 256 KiB search window and 1 MiB
+maximum. Equal presets therefore do not imply equal chunk distributions.
+Three rotating repetitions used profiling off, no explicit warm-up, and
+uncontrolled OS cache and host load. Saved lane profiles confirm these settings.
+All nine lanes passed independent reconstruction and corruption-repair checks.
+
+Medians sum all four builds within each repetition:
+
+| Chunker | Capture s | Reconstruction s | Repair s | Repository MiB |
+|---|---:|---:|---:|---:|
+| fastcdc | 6.116 | 10.332 | 1.564 | 1609.82 |
+| jc | 8.634 | 10.122 | 1.535 | 1614.80 |
+| vram256 | 6.179 | 7.273 | 1.510 | 1635.38 |
+
+Capture ranges were FastCDC 4.597-8.959 s, JC 5.178-10.243 s and VRAM
+5.616-7.732 s. This run had large timing variability; the median ordering is
+not a reliable general performance ranking. In particular, JC's configuration
+was unchanged from the previous run while its timing changed substantially.
+Repository sizes were stable. Initial required unique chunk counts were 7,173
+for FastCDC, 9,266 for JC, and 7,696 for VRAM.
+
+The run-specific fixture and retained evidence are under
+`tests/.artifacts/lz4-all-256-comparison/`; results directory:
+`2026.09.27-Blender-f5c6014c-all_chunkers_25-e42e5000-001/`. No production settings or algorithms changed.
