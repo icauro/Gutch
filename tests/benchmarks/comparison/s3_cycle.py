@@ -154,7 +154,6 @@ def run_s3_cycle(
             stats_path = lane.stats / f"capture-{index:03d}.json"
             trace_path = lane.traces / f"capture-{index:03d}" / "trace.json"
             elapsed, stats = local.capture(
-                lane.root,
                 repo,
                 source,
                 lane_spec.profile,

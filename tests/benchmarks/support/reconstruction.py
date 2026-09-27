@@ -62,7 +62,6 @@ def run_reconstruction_storage(
         capture_stats = lane.stats / "capture.json"
         capture_trace = lane.traces / "capture" / "trace.json"
         capture_elapsed, capture = local.capture(
-            lane.root,
             repo,
             product,
             profile,
