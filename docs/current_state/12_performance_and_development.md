@@ -249,9 +249,12 @@ capture or write a JC snapshot with a FastCDC identifier.
 
 `tests/benchmarks/cdc_experiment.py` compares the frozen pre-interface adapter,
 current FastCDC, Plakar-compatible JC, and paper-scaled JC. It accepts `--base`
-and `--updated` build directories and `--repetitions` (default five). Run from
+and `--updated` build directories, `--name` for a dataset label, and
+`--repetitions` (default five). Run from
 the project root with `python tests/benchmarks/cdc_experiment.py --base PATH
---updated PATH`. Evidence is written to `tests/.artifacts/jc-experiment/`.
+--updated PATH`. Evidence is written to `tests/.artifacts/jc-experiment/<name>/`, so datasets
+do not overwrite each other. The base build is resident during measurement;
+updated files are loaded one at a time during untimed reuse analysis.
 
 The experiment reports boundary scanning, scanning plus BLAKE3, streaming plus
 BLAKE3, chunk-size statistics, and byte reuse against the previous build.

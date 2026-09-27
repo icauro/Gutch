@@ -7,9 +7,15 @@ mod cdc_baseline;
 use crate::manifest::{ChunkSizingPreset, ChunkSizingProfile};
 use crate::progress::GutchOperationControl;
 use serde_json::json;
-use std::{collections::HashSet, hint::black_box, io::Cursor, path::Path, time::Instant};
+use std::{
+    collections::HashSet,
+    hint::black_box,
+    io::Cursor,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
-fn files(root: &Path) -> Vec<Vec<u8>> {
+fn file_paths(root: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<_> = walkdir::WalkDir::new(root)
         .into_iter()
         .map(Result::unwrap)
@@ -17,7 +23,24 @@ fn files(root: &Path) -> Vec<Vec<u8>> {
         .map(|e| e.into_path())
         .collect();
     paths.sort();
-    paths.iter().map(|p| std::fs::read(p).unwrap()).collect()
+    paths
+}
+
+// Untimed reuse analysis needs only one updated file resident alongside the base.
+enum UpdatedInput {
+    Memory(Vec<Vec<u8>>),
+    Files(Vec<PathBuf>),
+}
+
+impl UpdatedInput {
+    fn visit(&self, mut consume: impl FnMut(&[u8])) {
+        match self {
+            Self::Memory(files) => files.iter().for_each(|file| consume(file)),
+            Self::Files(paths) => paths
+                .iter()
+                .for_each(|path| consume(&std::fs::read(path).unwrap())),
+        }
+    }
 }
 
 fn scan<C: ChunkBoundary>(boundary: &C, data: &[Vec<u8>], hash: bool) -> usize {
@@ -92,7 +115,7 @@ fn baseline_stream(data: &[Vec<u8>], profile: &ChunkSizingProfile) -> usize {
 fn distribution<C: ChunkBoundary>(
     boundary: &C,
     base: &[Vec<u8>],
-    updated: &[Vec<u8>],
+    updated: &UpdatedInput,
 ) -> serde_json::Value {
     let mut known = HashSet::new();
     let mut lengths = Vec::new();
@@ -108,8 +131,10 @@ fn distribution<C: ChunkBoundary>(
     let mut reused = 0_u64;
     let mut new_chunks = HashSet::new();
     let mut new_unique = 0_u64;
-    for file in updated {
-        let mut remaining = file.as_slice();
+    let mut updated_bytes = 0_usize;
+    updated.visit(|file| {
+        updated_bytes += file.len();
+        let mut remaining = file;
         while !remaining.is_empty() {
             let length = boundary.cut(remaining);
             let digest = blake3::hash(&remaining[..length]);
@@ -120,10 +145,9 @@ fn distribution<C: ChunkBoundary>(
             }
             remaining = &remaining[length..];
         }
-    }
+    });
     lengths.sort();
     let total: usize = lengths.iter().sum();
-    let updated_bytes: usize = updated.iter().map(Vec::len).sum();
     json!({"chunks": lengths.len(), "mean_bytes": total as f64 / lengths.len() as f64,
         "p50_bytes": lengths[lengths.len()/2], "p95_bytes": lengths[lengths.len()*95/100],
         "max_size_cuts": lengths.iter().filter(|&&n| n == boundary.max_size()).count(),
@@ -133,7 +157,7 @@ fn distribution<C: ChunkBoundary>(
 }
 
 #[test]
-#[ignore = "explicit release experiment; reads caller-provided Blender inputs"]
+#[ignore = "explicit release experiment; reads caller-provided input builds"]
 fn compare_chunkers() {
     let repetitions: usize = std::env::var("GUTCH_CDC_REPETITIONS")
         .unwrap_or("5".into())
@@ -147,16 +171,25 @@ fn compare_chunkers() {
         edited.splice(position..position, [7; 17]);
     }
     let mut rows = Vec::new();
-    for dataset in ["random-edits", "repeated", "blender"] {
+    let label = std::env::var("GUTCH_CDC_LABEL").unwrap_or("input-builds".into());
+    for dataset in ["random-edits", "repeated", label.as_str()] {
         let (base, updated) = match dataset {
-            "random-edits" => (vec![random.clone()], vec![edited.clone()]),
+            "random-edits" => (
+                vec![random.clone()],
+                UpdatedInput::Memory(vec![edited.clone()]),
+            ),
             "repeated" => (
                 vec![vec![0; 64 * 1024 * 1024]],
-                vec![vec![0; 64 * 1024 * 1024 + 17]],
+                UpdatedInput::Memory(vec![vec![0; 64 * 1024 * 1024 + 17]]),
             ),
             _ => (
-                files(Path::new(&std::env::var("GUTCH_CDC_BASE").unwrap())),
-                files(Path::new(&std::env::var("GUTCH_CDC_UPDATED").unwrap())),
+                file_paths(Path::new(&std::env::var("GUTCH_CDC_BASE").unwrap()))
+                    .iter()
+                    .map(|p| std::fs::read(p).unwrap())
+                    .collect(),
+                UpdatedInput::Files(file_paths(Path::new(
+                    &std::env::var("GUTCH_CDC_UPDATED").unwrap(),
+                ))),
             ),
         };
         let bytes: usize = base.iter().map(Vec::len).sum();
@@ -199,6 +232,9 @@ fn compare_chunkers() {
                         }
                     }
                 }
+                println!(
+                    "CDC progress {dataset} target={avg} repetition={repetition}/{repetitions}"
+                );
             }
             for (variant, name) in [
                 "fastcdc-direct",

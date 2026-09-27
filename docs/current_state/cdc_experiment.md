@@ -75,3 +75,35 @@ Keep JC experimental. At 128 KiB, Plakar-compatible JC improves Blender scan-plu
 References: [JC paper](https://doi.org/10.1109/TPDS.2023.3290770), [pinned Plakar JC source](https://github.com/PlakarKorp/go-cdc-chunkers/blob/b6c4abce19e9691184a0aceefc4e9f53fcfe79c8/chunkers/jc/jc.go). Paper-scaled masks use evenly spaced bits, one fewer embedded jump bit, and target/2 jumps; this is a documented experimental parameterization, not an asserted byte-identical author implementation.
 
 Run `python tests/benchmarks/cdc_experiment.py --base PATH --updated PATH --repetitions 11` from the project root. Raw samples and metadata are under `tests/.artifacts/jc-experiment/`. The original five-sample run is retained as `results-5-samples.json`.
+
+## Hollow Knight follow-up — 2026-09-27
+
+Fixture: `HollowKnight/hk-v0.0.1` to `hk-v1.1.0` (earliest to latest; the intermediate `hk-v1.0.0` was not measured separately). Both builds contain 1,785 files; base size is 5,197,398,400 bytes and updated size is 5,231,995,691 bytes. Hardware, release build, size bounds, warmup, and 11-sample rotating median methodology match the Blender experiment.
+
+The timed base is resident in memory. Updated files are read one at a time during untimed reuse analysis, avoiding simultaneous residency of the two approximately 5 GB builds. The largest updated file is 255,055,152 bytes. No input files are modified.
+
+| Target KiB | Kernel | Scan MiB/s | Scan + BLAKE3 MiB/s | Stream + BLAKE3 MiB/s | Mean chunk KiB | Reused updated bytes % | New unique MiB |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 8 | FastCDC | 3530 | 2135 | 2033 | 14.40 | 90.549 | 458.52 |
+| 8 | JC Plakar | 4115 | 2089 | 2076 | 10.38 | 90.925 | 431.48 |
+| 8 | JC paper-scaled | 3630 | 2056 | 2018 | 12.51 | 90.341 | 459.89 |
+| 128 | FastCDC | 3518 | 2387 | 2193 | 230.23 | 81.591 | 918.19 |
+| 128 | JC Plakar | 15501 | 4479 | 3940 | 100.18 | 84.448 | 775.45 |
+| 128 | JC paper-scaled | 3426 | 2342 | 2127 | 213.57 | 80.925 | 951.45 |
+| 1024 | FastCDC | 3717 | 2480 | 2025 | 1129.41 | 71.255 | 1434.23 |
+| 1024 | JC Plakar | 33703 | 5304 | 3315 | 625.15 | 72.031 | 1395.26 |
+| 1024 | JC paper-scaled | 3428 | 2363 | 1955 | 1263.53 | 68.369 | 1578.22 |
+
+At 128 KiB, Plakar JC improves scan-plus-BLAKE3 throughput by 87.6% and reduces new unique data by 142.74 MiB versus FastCDC. At 1 MiB, the corresponding figures are +113.9% and -38.97 MiB. At 8 KiB, it is 2.1% slower in scan-plus-hash but produces 27.04 MiB less new unique data.
+
+Paper-scaled JC is 1.9% slower at 128 KiB with 33.27 MiB more new unique data; at 1 MiB it is 4.7% slower with 143.99 MiB more new unique data. It does not improve the measured tradeoff on this fixture.
+
+Plakar JC wins both measured axes at the larger targets here, unlike the Blender 128 KiB storage tradeoff. Its actual chunk sizes are also smaller. These results do not establish performance at matched actual average sizes, compressed repository size, or full capture/transfer/repair performance. Production remains FastCDC.
+
+All nine requested algorithm/size combinations completed; each has 11 measured samples for each of three timing modes. The frozen FastCDC adapter remains an additional interface control. Raw results, metadata, and the native log are in `tests/.artifacts/jc-experiment/hollow-knight/`. Existing Blender evidence was retained.
+
+Reproduce from the project root:
+
+```text
+python tests/benchmarks/cdc_experiment.py --name hollow-knight --base /path/to/HollowKnight/hk-v0.0.1 --updated /path/to/HollowKnight/hk-v1.1.0 --repetitions 11
+```
