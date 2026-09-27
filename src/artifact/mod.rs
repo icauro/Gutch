@@ -21,3 +21,7 @@ mod jc_tests;
 mod cdc_experiment;
 
 mod ram;
+
+#[cfg(test)]
+#[path = "../../tests/benchmarks/ram_diagnosis.rs"]
+mod ram_diagnosis;

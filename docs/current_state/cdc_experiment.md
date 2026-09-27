@@ -324,3 +324,76 @@ covering empty inputs, unaligned slices, vector tails, repeated bytes, all prese
 short reads and small/streaming capture paths. No global AVX2 compiler flag is used.
 Evidence and per-command statistics:
 `tests/.artifacts/vram-blender-four/2026.09.27-Blender-f5c6014c-17_gutch_fastcd-12342793-001/`.
+
+
+## VectorCDC paper-claim diagnosis
+
+A separate diagnostic isolates boundary detection from hashing and full capture.
+`tests/benchmarks/ram_diagnosis.py --product PATH` requires an AVX2 CPU, g++ and
+Cargo. It loads the four-snapshot Blender input into memory before timing, runs
+one worker, excludes one warm-up, and rotates seven measured repetitions at 8 KiB
+and 128 KiB. Throughputs below use decimal GB/s of logical input, including bytes
+skipped by a chunker. High numbers do not represent physical memory bandwidth.
+
+The C++ reference kernels were extracted from pinned DedupBench commit
+`8e2697cbf6332ac5da6dc615bfab82a720e820e4`, with `-O3 -mavx2 -std=c++17`.
+The original range scan omits a final tail shorter than 32 bytes. An additional
+variant checks that tail. Its boundary counts and rolling fingerprints match the
+reference scalar and both Gutch RAM implementations. The original vector version
+produces 57 fewer chunks at 8 KiB and 11 fewer at 128 KiB on this input.
+No production boundary rule was changed.
+
+Boundary-only median throughput:
+
+| Kernel | 8 KiB GB/s | 128 KiB GB/s |
+|---|---:|---:|
+| Gutch FastCDC | 3.64 | 4.39 |
+| Reference scalar with auto-vectorization disabled | 2.86 | 2.97 |
+| Reference scalar source compiled at O3 | 47.41 | 54.20 |
+| Reference AVX2 as written | 27.16 | 19.99 |
+| Reference AVX2 with corrected tail | 27.47 | 19.78 |
+| Gutch scalar RAM, early exit at maximum byte 255 | 5.43 | 11.75 |
+| Gutch AVX2 RAM, early exit at maximum byte 255 | 55.11 | 198.07 |
+
+GCC auto-vectorizes the scalar-looking source at O3; saved assembly contains
+`vpmaxub`. The explicitly non-vectorized control separates that compiler effect.
+Gutch's early exit can avoid most of the initial window, while preserving the
+maximum-byte rule. The reference scans the full window with a scratch-array tree.
+This explains why a boundary-equivalent implementation need not have the same
+speed. Compiler, hardware, workload and size differences remain; this is not an
+exact reproduction of the paper's testbed.
+
+At 128 KiB, boundary plus chunk BLAKE3 falls to 2.88 GB/s for FastCDC and
+6.24 GB/s for Gutch VRAM. Including both chunk and full-file BLAKE3 lowers these
+to 2.10 and 3.41 GB/s. At 8 KiB, both-hash throughput is 1.16 and 1.69 GB/s.
+Hashing still reads every byte that the boundary kernel can skip.
+
+A separate capture diagnostic used automatic workers, detailed profiling,
+one warm-up and three rotating measured repetitions. Each value sums four
+snapshots before taking its median. FastCDC stayed at 128 KiB, JC at 256 KiB,
+and VRAM at a 128 KiB window, with zstd 3 and 8 MiB bundles.
+
+| Stage, seconds | FastCDC | JC | VRAM |
+|---|---:|---:|---:|
+| Scan and hashing | 0.708 | 0.580 | 0.568 |
+| Artifact packaging | 1.744 | 1.754 | 1.767 |
+| Outside build pipeline | 2.636 | 2.673 | 2.669 |
+| Whole capture command | 5.126 | 5.016 | 5.014 |
+
+Phase medians are independent and need not sum to command medians. Source
+inventory spans alone total approximately 1.86 seconds for FastCDC and VRAM;
+these are included in outside-pipeline work, not additional time. Inclusive
+nested trace spans must not be added together. Packaging also includes planning,
+loading, compression and staged writes.
+
+VRAM saves about 0.14 seconds of scan time, only about 2.7% of the baseline whole
+command. Even eliminating the entire scan stage would remove only about 14% of
+that time. It was about 2.2% faster overall in this diagnostic run, whereas the
+previous full-flow run had the opposite small difference. That variation does
+not negate the large, directly measured boundary speedup. It does mean that the
+current evidence does not establish a consistent end-to-end winner.
+
+Evidence: `tests/.artifacts/vram-diagnosis/` (native timings, assembly, compiler
+metadata and boundary fingerprints) and `tests/.artifacts/vram-profiled-capture/`
+(per-command profiling, warm-up and samples). No production optimization was
+applied by this diagnosis.
