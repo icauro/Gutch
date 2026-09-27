@@ -172,7 +172,10 @@ and recovery differences are documented in the [benchmark README](../../tests/be
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed records engine
 spans and sampled memory. The comparison timeline includes subprocess wall times
 and filesystem-copy operations in every mode, with one zero-based tool/repetition
-row and no warm-ups. Detailed engine spans are approximately aligned to command
+row and no warm-ups. The `Compacted tool time` track removes gaps between
+operations while preserving durations and raw measurement timestamps. Harness
+validation, preparation and cleanup are excluded. Detailed engine spans move
+with their parent commands and are approximately aligned to command
 starts. `open_perfetto` can open this combined overview in every mode.
 Completed runs include raw evidence, a status manifest, samples, and summary
 statistics. The benchmark's combined `trace.json` preserves measured worker spans,
