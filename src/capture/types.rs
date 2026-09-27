@@ -188,27 +188,48 @@ impl ChunkPayload {
     }
 
     pub(crate) fn load_bytes(&self) -> crate::Result<Vec<u8>> {
-        use std::io::Read;
-        use std::io::Seek;
-        use std::io::SeekFrom;
-        let mut file = std::fs::File::open(self.source.as_ref())?;
-        file.seek(SeekFrom::Start(self.offset))?;
+        ChunkPayloadReader::default().load(self)
+    }
+}
+
+/// Retain only the current source handle: bundle planning groups nearby chunks.
+/// Each packaging job owns its reader, so there are no shared cursors or locks.
+#[derive(Default)]
+pub(crate) struct ChunkPayloadReader {
+    current: Option<(Arc<PathBuf>, std::fs::File)>,
+}
+
+impl ChunkPayloadReader {
+    pub(crate) fn load(&mut self, payload: &ChunkPayload) -> crate::Result<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom};
+        if self
+            .current
+            .as_ref()
+            .is_none_or(|(path, _)| path != &payload.source)
+        {
+            // Close the previous handle before opening the next source.
+            self.current = None;
+            let file = std::fs::File::open(payload.source.as_ref())?;
+            self.current = Some((payload.source.clone(), file));
+        }
+        let (_, file) = self.current.as_mut().expect("source handle was opened");
+        file.seek(SeekFrom::Start(payload.offset))?;
         let mut bytes = vec![
             0;
-            usize::try_from(self.size).map_err(|_| crate::Error::manifest(
+            usize::try_from(payload.size).map_err(|_| crate::Error::manifest(
                 "chunk exceeds address space"
             ))?
         ];
         file.read_exact(&mut bytes)?;
-        if ChunkHash::from_blake3(blake3::hash(&bytes)) != self.hash {
+        // Reusing a handle never skips validation against the scan-time hash.
+        if ChunkHash::from_blake3(blake3::hash(&bytes)) != payload.hash {
             return Err(crate::Error::manifest(format!(
                 "source changed during capture: {}",
-                self.source.display()
+                payload.source.display()
             )));
         }
         Ok(bytes)
     }
-
 }
 
 #[derive(Debug, Clone, Default)]

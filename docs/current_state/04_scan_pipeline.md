@@ -156,6 +156,11 @@ released through the same operation-owned artifact lifecycle.
   and every referenced chunk has an available artifact. Missing artifacts are
   rebuilt from source, including when recapturing an identical snapshot.
 - Encoding re-reads selected source ranges and verifies their chunk hashes.
+- Each bundle-loading job retains only its current source file handle, reusing
+  it for consecutive chunks from the same path. Switching paths closes the old
+  handle; the job closes its reader before compression. Compression probes use
+  the same reader. Handles and seek positions are never shared between workers.
+  Loose-chunk jobs still open one source for their single payload.
   A changed or truncated source stops capture before snapshot publication.
 - Corrupt or incomplete artifact writes do not become valid repo content.
 - Manifest and artifact paths remain inside the derived repo layout.

@@ -134,3 +134,33 @@ Validation also passed 317 Rust library tests, eight public API/installation
 integration tests, 84 Gutch harness tests, six shared-suite tests, and the desktop
 core compile check. Public API and CLI coverage verifies persisted `jc-v1.1.0`
 identity. Changing chunkers with an unchanged file in a new snapshot is covered.
+
+
+## Source-handle reuse follow-up
+
+A bounded reader now retains the current source handle during bundle loading
+and compression probing. It still seeks and verifies every chunk; no chunk
+boundaries, packing order, or compression settings change. A source change,
+read failure, or truncated range still fails capture. The reader retains at most
+one handle per active job; this primarily helps multiple chunks from one file.
+
+The old and new release binaries were alternated on the same Blender pair,
+using detailed profiling, automatic 12 workers, one warm-up per combination and
+three measured repetitions. Times below are medians of totals across both builds.
+OS cache was uncontrolled. Worker seconds aggregate parallel work, not wall time.
+
+| Chunker | Capture before / after s | Payload loading before / after worker-s | Packaging before / after s |
+|---|---:|---:|---:|
+| FastCDC | 2.644 / 2.548 | 3.315 / 2.369 | 0.897 / 0.781 |
+| JC | 2.736 / 2.650 | 4.279 / 2.942 | 0.978 / 0.853 |
+
+Total capture improved 3.7% for FastCDC and 3.1% for JC in this run. Payload
+loading improved 28.5% and 31.2%, respectively. JC still takes longer overall
+on this input. Published artifacts, blueprints and chunk maps were byte-identical
+in all six measured before/after repository pairs.
+Evidence: `tests/.artifacts/handle-reuse-comparison/`; old binary retained under
+`tests/.artifacts/jc-timing-diagnosis/gutch-before-handle-reuse.exe`.
+
+Validation passed 318 library tests and a full Blender capture, reconstruction,
+and corruption-repair cycle for both chunkers. The new reader test covers source
+switching, backward seeks, changed contents, and truncated input.

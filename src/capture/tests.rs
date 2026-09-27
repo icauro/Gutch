@@ -227,3 +227,39 @@ fn memory_admission_keeps_capture_results_in_input_order() {
     );
     assert!(result.is_err());
 }
+
+#[test]
+fn payload_reader_seeks_switches_sources_and_detects_mutation() {
+    use crate::capture::types::ChunkPayloadReader;
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first");
+    let second = temp.path().join("second");
+    std::fs::write(&first, b"abcdef").unwrap();
+    std::fs::write(&second, b"uvwxyz").unwrap();
+    let chunk = |path: &std::path::Path, offset, bytes: &[u8]| ChunkPayload {
+        source: std::sync::Arc::new(path.to_path_buf()),
+        offset,
+        size: bytes.len() as u64,
+        hash: ChunkHash::from_blake3(blake3::hash(bytes)),
+    };
+    let mut reader = ChunkPayloadReader::default();
+    for payload in [
+        chunk(&first, 3, b"def"),
+        chunk(&first, 0, b"abc"),
+        chunk(&second, 1, b"vw"),
+        chunk(&first, 2, b"cd"),
+    ] {
+        assert_eq!(
+            blake3::hash(&reader.load(&payload).unwrap()),
+            blake3::hash(
+                &std::fs::read(payload.source.as_ref()).unwrap()
+                    [payload.offset as usize..(payload.offset + payload.size) as usize]
+            )
+        );
+    }
+    let expected = chunk(&first, 0, b"abc");
+    std::fs::write(&first, b"ABCdef").unwrap();
+    assert!(reader.load(&expected).is_err());
+    std::fs::write(&first, b"a").unwrap();
+    assert!(reader.load(&expected).is_err());
+}
