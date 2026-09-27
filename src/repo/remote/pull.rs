@@ -233,10 +233,11 @@ pub(super) fn local_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
         let entry = entry?;
-        if entry.path().is_file()
+        if (entry.file_type().is_file()
+            || (entry.file_type().is_symlink() && entry.path().is_file()))
             && crate::repo::paths::bundle_id_from_bundle_path(entry.path()).is_some()
         {
-            paths.push(entry.path().to_path_buf());
+            paths.push(entry.into_path());
         }
     }
     Ok(paths)

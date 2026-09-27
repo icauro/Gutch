@@ -367,3 +367,39 @@ Evidence: `tests/.artifacts/probe-seek/`.
 
 Full-flow validation also passed independent reconstruction and corruption
 repair with both uncompressed and LZ4 bundles on the two Blender builds.
+
+
+## Directory traversal review, September 2026
+
+Repository status now collects bundle and total artifact counts in one walk.
+Push reuses its local status and snapshot summaries between planning and execution
+inside the repository write operation. Repository walkers use cached entry types
+for regular files and retain target queries for symlinks, including broken links.
+Installation inspection, path comparison and artifact listings move owned paths
+where possible. Source timestamp discovery uses cached Windows metadata and no
+longer sorts entries to compute a maximum. Deterministic artifact traversal and
+installation containment checks remain unchanged. WalkDir is not forked.
+
+Final release CLI status measurements used alternating baseline/final binaries,
+one warm-up and nine measured repetitions, without concurrent benchmark or
+validation jobs. Outputs matched exactly on both inputs:
+
+| Input | Baseline median | Final median | Reduction |
+|---|---:|---:|---:|
+| Existing two-snapshot Blender repository | 98.72 ms | 83.66 ms | 15.3% |
+| Synthetic 10,000 bundles + 10,000 loose chunks | 1092.69 ms | 55.78 ms | 94.9% |
+
+The synthetic entries are empty files used to isolate enumeration and status
+accounting; they are not valid payloads for artifact verification. These are
+Windows warm-cache results, not cross-platform performance guarantees.
+A capture path-move prototype was dropped: three measured alternating Blender
+capture pairs after warm-up gave 1.677 s baseline versus 1.777 s candidate, with
+variable samples and no demonstrated benefit. Other small allocation changes
+remain for simpler ownership; no separate speedup is claimed for them or push.
+
+Validation: 322 library tests passed, two ignored; an added mixed-artifact test
+covers bundle/loose totals and ignored filenames. Baseline/final status matched
+for file and broken symlinks. Blender 5.0/5.1 capture, independent reconstruction,
+and corruption repair passed with uncompressed and LZ4 profiles. Successful
+full-flow validation removed its payloads. Diagnostic captures remain in the
+ignored evidence directory: `tests/.artifacts/walkdir-review/`.

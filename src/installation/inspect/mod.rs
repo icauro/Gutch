@@ -457,7 +457,7 @@ fn build_filesystem_inventory(
         entries.insert(
             key,
             FilesystemInventoryEntry {
-                path: entry.path().to_path_buf(),
+                path: entry.into_path(),
                 kind,
                 metadata,
             },

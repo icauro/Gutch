@@ -25,12 +25,12 @@ fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
 
     let mut max_mtime = std::time::SystemTime::UNIX_EPOCH;
     let mut found_file = false;
-    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+    for entry in walkdir::WalkDir::new(dir) {
         let entry = entry?;
         if !entry.file_type().is_file() {
             continue;
         }
-        let mtime = std::fs::symlink_metadata(entry.path())?.modified()?;
+        let mtime = entry.metadata()?.modified()?;
         if !found_file || mtime > max_mtime {
             max_mtime = mtime;
             found_file = true;

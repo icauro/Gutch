@@ -6,7 +6,6 @@ use serde::Serialize;
 
 use super::inventory::list_repo_snapshot_ids;
 use super::inventory::scan_artifact_inventory;
-use super::inventory::scan_bundle_inventory;
 use super::snapshot_tag_summary::summarize_snapshot_tags;
 use crate::Error;
 use crate::Result;
@@ -135,15 +134,12 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
 
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo_path)?;
 
-    let (_available_bundle_ids, bundle_count, bundle_bytes) =
-        scan_bundle_inventory(&repo_paths.bundles_root)?;
-    let (available_artifacts, artifact_count, artifact_bytes) =
-        scan_artifact_inventory(&repo_paths)?;
+    let inventory = scan_artifact_inventory(&repo_paths)?;
 
     let snapshots = check_snapshot_manifests(
         &repo_paths,
         &repo_paths.snapshots_root,
-        &available_artifacts,
+        &inventory.artifacts,
     )?;
 
     Ok(RepoStatus {
@@ -154,10 +150,10 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
         repo_manifest: Some(serde_json::to_value(&repo_manifest)?),
         snapshots,
-        bundle_count,
-        bundle_bytes,
-        artifact_count,
-        artifact_bytes,
+        bundle_count: inventory.bundle_count,
+        bundle_bytes: inventory.bundle_bytes,
+        artifact_count: inventory.artifact_count,
+        artifact_bytes: inventory.artifact_bytes,
         error: None,
     })
 }

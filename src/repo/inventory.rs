@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path::Path;
 use std::path::PathBuf;
 
 use crate::Result;
@@ -47,7 +46,7 @@ pub(crate) fn list_repo_artifact_paths(
 ) -> Result<Vec<(crate::repo::artifacts::ArtifactRef, PathBuf)>> {
     let mut artifacts = Vec::new();
     visit_repo_artifacts(paths, |artifact, entry| {
-        artifacts.push((artifact, entry.path().to_path_buf()));
+        artifacts.push((artifact, entry.into_path()));
         Ok(())
     })?;
     Ok(artifacts)
@@ -60,7 +59,9 @@ fn visit_repo_artifacts(
     if paths.bundles_root.exists() {
         for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
             let entry = entry?;
-            if !entry.path().is_file() {
+            if !(entry.file_type().is_file()
+                || (entry.file_type().is_symlink() && entry.path().is_file()))
+            {
                 continue;
             }
             if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
@@ -74,7 +75,9 @@ fn visit_repo_artifacts(
     if paths.chunks_root.exists() {
         for entry in walkdir::WalkDir::new(&paths.chunks_root).sort_by_file_name() {
             let entry = entry?;
-            if !entry.path().is_file() {
+            if !(entry.file_type().is_file()
+                || (entry.file_type().is_symlink() && entry.path().is_file()))
+            {
                 continue;
             }
             let Some(hash) = entry.file_name().to_str() else {
@@ -91,50 +94,60 @@ fn visit_repo_artifacts(
     Ok(())
 }
 
-pub(crate) fn scan_bundle_inventory(bundles_root: &Path) -> Result<(HashSet<String>, usize, u64)> {
-    if !bundles_root.exists() {
-        return Ok((HashSet::new(), 0, 0));
-    }
-
-    let mut bundle_ids = HashSet::new();
-    let mut bundle_count = 0usize;
-    let mut bundle_bytes = 0u64;
-    for entry in walkdir::WalkDir::new(bundles_root).sort_by_file_name() {
-        let entry = entry?;
-        if !entry.path().is_file() {
-            continue;
-        }
-
-        if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
-            bundle_count += 1;
-            bundle_bytes += entry.metadata()?.len();
-            bundle_ids.insert(bundle_id);
-        }
-    }
-
-    Ok((bundle_ids, bundle_count, bundle_bytes))
+#[derive(Default)]
+pub(crate) struct ArtifactInventory {
+    pub artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub artifact_count: usize,
+    pub artifact_bytes: u64,
+    pub bundle_count: usize,
+    pub bundle_bytes: u64,
 }
 
-pub(crate) fn scan_artifact_inventory(
-    paths: &GutchRepoPaths,
-) -> Result<(HashSet<crate::repo::artifacts::ArtifactRef>, usize, u64)> {
-    let mut artifacts = HashSet::new();
-    let mut artifact_count = 0usize;
-    let mut artifact_bytes = 0u64;
-
+pub(crate) fn scan_artifact_inventory(paths: &GutchRepoPaths) -> Result<ArtifactInventory> {
+    let mut inventory = ArtifactInventory::default();
     visit_repo_artifacts(paths, |artifact, entry| {
-        artifacts.insert(artifact);
-        artifact_count += 1;
-        artifact_bytes += entry.metadata()?.len();
+        let bytes = entry.metadata()?.len();
+        if matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. }) {
+            inventory.bundle_count += 1;
+            inventory.bundle_bytes += bytes;
+        }
+        inventory.artifacts.insert(artifact);
+        inventory.artifact_count += 1;
+        inventory.artifact_bytes += bytes;
         Ok(())
     })?;
-
-    Ok((artifacts, artifact_count, artifact_bytes))
+    Ok(inventory)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_counts_bundles_and_loose_chunks_in_one_pass() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let empty = scan_artifact_inventory(&paths).unwrap();
+        assert_eq!(empty.artifact_count, 0);
+        for (directory, name, bytes) in [
+            (&paths.bundles_root, "a".repeat(64), b"bundle".as_slice()),
+            (&paths.chunks_root, "b".repeat(64), b"chunk".as_slice()),
+            (
+                &paths.bundles_root,
+                "ignored".to_string(),
+                b"other".as_slice(),
+            ),
+        ] {
+            std::fs::create_dir_all(directory).unwrap();
+            std::fs::write(directory.join(name), bytes).unwrap();
+        }
+        let inventory = scan_artifact_inventory(&paths).unwrap();
+        assert_eq!(inventory.bundle_count, 1);
+        assert_eq!(inventory.bundle_bytes, 6);
+        assert_eq!(inventory.artifact_count, 2);
+        assert_eq!(inventory.artifact_bytes, 11);
+        assert_eq!(inventory.artifacts.len(), 2);
+    }
 
     #[test]
     fn snapshot_listing_excludes_only_owned_promotion_backups() {

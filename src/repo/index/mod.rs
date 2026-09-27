@@ -64,7 +64,8 @@ pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for entry in walkdir::WalkDir::new(root).sort_by_file_name() {
         let entry = entry?;
-        if entry.path().is_file() {
+        if entry.file_type().is_file() || (entry.file_type().is_symlink() && entry.path().is_file())
+        {
             paths.push(entry.into_path());
         }
     }

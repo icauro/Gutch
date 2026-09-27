@@ -149,7 +149,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
             files.push((
                 relative_path,
                 ComparableEntry {
-                    path: entry.path().to_path_buf(),
+                    path: entry.into_path(),
                     kind,
                 },
             ));

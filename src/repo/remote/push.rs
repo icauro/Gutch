@@ -92,12 +92,28 @@ pub(crate) fn plan_push(
     remote_snapshots: &[RemoteSnapshot],
 ) -> Result<RepoPushPlan> {
     let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo_root)?;
+    plan_push_from_local(
+        &status,
+        &repo_paths,
+        &local_snapshots,
+        repository,
+        remote_snapshots,
+    )
+}
+
+fn plan_push_from_local(
+    status: &RepoStatus,
+    repo_paths: &GutchRepoPaths,
+    local_snapshots: &[LocalSyncSnapshot],
+    repository: &RemoteRepository,
+    remote_snapshots: &[RemoteSnapshot],
+) -> Result<RepoPushPlan> {
     let repo_manifest_changed = hashes_differ(
-        &local_repo_metadata_hash_b3(&repo_paths)?,
+        &local_repo_metadata_hash_b3(repo_paths)?,
         &repository.metadata_hash_b3,
     );
     let chunk_index_changed = hashes_differ(
-        &local_chunk_map_hash_b3(&repo_paths)?,
+        &local_chunk_map_hash_b3(repo_paths)?,
         &repository.chunk_map_hash_b3,
     );
     let remote_by_snapshot_id: HashMap<&str, &RemoteSnapshot> = remote_snapshots
@@ -107,7 +123,7 @@ pub(crate) fn plan_push(
     let mut to_add = Vec::new();
     let mut to_update = Vec::new();
     let mut unchanged = Vec::new();
-    for local in &local_snapshots {
+    for local in local_snapshots {
         match remote_by_snapshot_id.get(local.snapshot_id.as_str()) {
             None => to_add.push(sync_snapshot_change(
                 &local.snapshot_id,
@@ -305,9 +321,15 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             false,
         );
         let remote_snapshots = provider.list_snapshots(&repository)?;
-        let plan = plan_push(&repo, &repository, &remote_snapshots)?;
+        let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(&repo)?;
+        let plan = plan_push_from_local(
+            &status,
+            &repo_paths,
+            &local_snapshots,
+            &repository,
+            &remote_snapshots,
+        )?;
         control.checkpoint()?;
-        let (status, repo_paths, _) = collect_local_sync_snapshots(&repo)?;
         let bundle_paths = local_bundle_paths(&repo_paths.bundles_root)?;
         let required_bundle_ids = {
             let chunk_index = load_chunk_index(&repo_paths)?;

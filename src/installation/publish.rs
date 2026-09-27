@@ -318,7 +318,9 @@ fn reconstruct_preserved_extra_files(
 
     for entry in walkdir::WalkDir::new(preserve_dir).sort_by_file_name() {
         let entry = entry?;
-        if !entry.path().is_file() {
+        if !(entry.file_type().is_file()
+            || (entry.file_type().is_symlink() && entry.path().is_file()))
+        {
             continue;
         }
         let Ok(relative_path) = entry.path().strip_prefix(preserve_dir) else {
