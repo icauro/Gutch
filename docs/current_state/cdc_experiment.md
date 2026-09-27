@@ -397,3 +397,34 @@ Evidence: `tests/.artifacts/vram-diagnosis/` (native timings, assembly, compiler
 metadata and boundary fingerprints) and `tests/.artifacts/vram-profiled-capture/`
 (per-command profiling, warm-up and samples). No production optimization was
 applied by this diagnosis.
+
+
+## Four-snapshot Blender comparison with LZ4 level 1
+
+Repeated the same three-lane full-flow comparison with LZ4 level 1 in every lane.
+FastCDC stayed at 128 KiB, JC at 256 KiB and VRAM at a 128 KiB window; bundles
+remained 8 MiB. The input was Blender 4.4.0, 4.5.0, 5.0.0 and 5.1.0 on Windows
+x64. Three rotating repetitions used profiling off and no explicit warm-up;
+OS cache and host load were uncontrolled. All nine lanes passed independent
+reconstruction and corruption-repair validation. Compression settings were
+confirmed in the saved run manifest. The normal Zstd fixture was not modified.
+
+Medians sum all four builds within each repetition:
+
+| Chunker | Capture s | Reconstruction s | Repair s | Repository MiB |
+|---|---:|---:|---:|---:|
+| fastcdc | 5.216 | 7.973 | 1.536 | 1577.61 |
+| jc | 5.340 | 7.051 | 1.503 | 1614.80 |
+| vram256 | 5.485 | 8.268 | 1.570 | 1605.54 |
+
+Capture ranges were FastCDC 4.621-5.445 s, JC 5.143-5.651 s and VRAM
+4.627-5.831 s. VRAM's capture median was 5.1% slower than FastCDC's, but the
+ranges overlap substantially. LZ4 did not demonstrate a consistent VRAM capture
+advantage. FastCDC's capture median was effectively unchanged from the earlier
+Zstd run, with about 32% more stored bytes. These are separate runs, not paired
+codec trials; internal stage timings were disabled, so no causal timing
+breakdown is inferred from them.
+
+The run-specific fixture and retained evidence are under
+`tests/.artifacts/lz4-chunker-comparison/`; results directory:
+`2026.09.27-Blender-f5c6014c-17_gutch_fastcd-e7223052-001/`.
