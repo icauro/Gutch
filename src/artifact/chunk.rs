@@ -1,11 +1,11 @@
 use crate::profile::ProfileInstant;
 #[cfg(test)]
 use fastcdc::v2020::Chunk;
-#[cfg(test)]
 use fastcdc::v2020::FastCDC;
 use fastcdc::v2020::Normalization;
 use fastcdc::v2020::StreamCDC;
 use std::io::BufReader;
+use std::io::Read;
 use std::time::Duration;
 
 use crate::artifact::hash::hash_hex;
@@ -96,6 +96,7 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
 
 pub(crate) fn scan_file_chunks(
     path: &std::path::Path,
+    inventory_size: u64,
     profile: &ChunkSizingProfile,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
@@ -105,6 +106,12 @@ pub(crate) fn scan_file_chunks(
     let max = profile.max_chunk_size_bytes() as usize;
 
     let file = std::fs::File::open(path)?;
+    // The inventory already knows the size. Keep this path within the streaming
+    // chunker's buffer bound, without another metadata query or a probing pass.
+    let small_file_limit = (max as u64).min(1024 * 1024);
+    if inventory_size <= small_file_limit {
+        return scan_small_file(file, inventory_size, profile, control);
+    }
     let reader = BufReader::new(file);
     let mut chunker = StreamCDC::with_level(reader, min, avg, max, Normalization::Level1);
 
@@ -157,6 +164,69 @@ pub(crate) fn scan_file_chunks(
             boundary_scan_bytes,
             hash_judgment,
             hash_judgment_bytes,
+        },
+    ))
+}
+
+fn scan_small_file(
+    file: std::fs::File,
+    inventory_size: u64,
+    profile: &ChunkSizingProfile,
+    control: &crate::progress::GutchOperationControl,
+) -> Result<(ChunkFileScan, ChunkScanTimings)> {
+    let started = ProfileInstant::detailed(control.profiler());
+    let mut bytes = Vec::with_capacity(inventory_size as usize + 1);
+    // The extra byte detects growth without letting a changing source turn a
+    // bounded small-file read into an unbounded allocation.
+    file.take(inventory_size + 1).read_to_end(&mut bytes)?;
+    control.checkpoint()?;
+    if bytes.len() as u64 != inventory_size {
+        return Err(crate::Error::manifest("source size changed during capture"));
+    }
+    let mut boundary_scan = started.elapsed();
+    let started = ProfileInstant::detailed(control.profiler());
+    let full_hash = blake3::hash(&bytes);
+    let full_file_hash_duration = started.elapsed();
+    let mut chunker = FastCDC::with_level(
+        &bytes,
+        profile.min_chunk_size_bytes() as usize,
+        profile.avg_chunk_size_bytes() as usize,
+        profile.max_chunk_size_bytes() as usize,
+        Normalization::Level1,
+    );
+    let mut chunks = Vec::new();
+    let mut hash_judgment = Duration::ZERO;
+    loop {
+        control.checkpoint()?;
+        let started = ProfileInstant::detailed(control.profiler());
+        let chunk = chunker.next();
+        boundary_scan += started.elapsed();
+        let Some(chunk) = chunk else { break };
+        let started = ProfileInstant::detailed(control.profiler());
+        let hash = if chunk.length == bytes.len() {
+            full_hash
+        } else {
+            blake3::hash(&bytes[chunk.offset..chunk.offset + chunk.length])
+        };
+        hash_judgment += started.elapsed();
+        chunks.push(ChunkResult {
+            offset: chunk.offset as u64,
+            size: chunk.length as u64,
+            hash,
+        });
+    }
+    Ok((
+        ChunkFileScan {
+            chunks,
+            file_size: inventory_size,
+            full_file_hash: hash_hex(&full_hash),
+            full_file_hash_duration,
+        },
+        ChunkScanTimings {
+            boundary_scan,
+            boundary_scan_bytes: inventory_size,
+            hash_judgment,
+            hash_judgment_bytes: inventory_size,
         },
     ))
 }

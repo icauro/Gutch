@@ -45,9 +45,13 @@ entries for the snapshot manifest. Unsupported filesystem objects fail the
 capture rather than being silently omitted. The source root itself is not
 emitted as a snapshot entry.
 
-For each file, Gutch streams bytes through FastCDC with the resolved chunking
-profile. The same read supplies the full-file BLAKE3 hash and the raw chunk
-boundaries. Chunk hashes are calculated before the file result is returned, so
+Gutch uses the inventory's file size to choose a bounded in-memory FastCDC scan
+for files no larger than the smaller of 1 MiB and the chunk profile's maximum
+chunk size. Larger files use streaming FastCDC. Both paths use the resolved
+chunking profile and produce the same boundaries and hashes. The small-file
+read detects size changes and reuses the full-file digest for a single chunk.
+The same read supplies the full-file BLAKE3 hash and the raw chunk boundaries.
+Chunk hashes are calculated before the file result is returned, so
 the manifest always contains ordered, content-addressed references rather than
 only offsets.
 

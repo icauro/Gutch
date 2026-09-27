@@ -379,8 +379,12 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     };
     #[cfg(not(unix))]
     let executable = false;
-    let (chunk_scan, chunk_timings) =
-        { crate::artifact::chunk::scan_file_chunks(path, options.chunking_profile, control)? };
+    let (chunk_scan, chunk_timings) = crate::artifact::chunk::scan_file_chunks(
+        path,
+        source_metadata.len(),
+        options.chunking_profile,
+        control,
+    )?;
     let file_size = chunk_scan.file_size;
     let full_file_hash = chunk_scan.full_file_hash;
     let file_hash = chunk_scan.full_file_hash_duration;
