@@ -90,7 +90,6 @@ def run_command(args: argparse.Namespace) -> int:
         GutchCli(executable),
         artifacts,
         keep_artifacts=args.keep_artifacts,
-        repo_root=repo_root,
         on_lane_complete=print_lane_result,
         on_run_complete=lambda results: print_fixture_report(fixture, product, results),
     )

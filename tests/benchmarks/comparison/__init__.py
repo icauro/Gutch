@@ -1,4 +1,4 @@
-"""Gutch fixture runner and external-tool benchmark workflows."""
+"""Gutch internal fixture models and diagnostic workflows."""
 
 from comparison_benchmark_suite.tools.models import FixtureSpec, GutchProfile, LaneResult, LaneSpec
 

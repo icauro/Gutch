@@ -151,31 +151,16 @@ supported file permissions. Command measurements exclude cooldown. Gutch
 embedded verification and incremental repair remain distinct from external
 repository checks and native restore-over-existing behavior.
 
-The standalone `comparison_benchmark_suite/run.py` ships a Blender overview and five pairwise fixtures
-with profiling off, explicit executable resolution, and suite-owned `.artifacts/`.
-Its Blender fixture aligns nominal chunks at 1 MiB and selects Zstd level 3 or
-the nearest exposed standard preset where supported. The standalone
-[suite settings table](../../../comparison_benchmark_suite/README.md#comparison-settings)
-records exact arguments and the Plakar/BuildPatchTool compression exceptions.
-BuildPatchTool uses local manifest generation and installation, independently
-validates clean output, and optionally restores over the corrupted installation
-using its previous manifest. External recovery retains damaged output; Restic
-and Kopia request native extra deletion. Extra files are recorded in validation evidence without failing the run; missing
-expected entries, content mismatches and metadata mismatches still fail. Successful capture/restore metrics remain
-visible when recovery fails. The filesystem baseline alone uses full recopy.
-Custom fixtures list build paths in chronological order. Missing tools are
-reported without preventing available candidates from running. The existing
-developer diagnostic fixtures remain under `tests/benchmarks/comparison/fixtures/`;
-those selecting detailed profiling include diagnostic overhead. Bulk lanes capture and validate the same whole-product tree,
-including root files and hidden directories. Restic restores enable content
-verification. Local repository size means logical file bytes sampled after
-capture. Filesystem capture copies the same selected snapshots into storage,
-then restore copies them to fresh output. Its retained size includes all copies.
-The standalone CLI prints the Markdown report's comparison values as an ASCII
-table, including statuses, median seconds, stored MiB and missing-value markers.
-Reports show per-snapshot measurements, totals, per-snapshot averages, and
-throughput; verification and enabled recovery appear separately. Compression, protection,
-and recovery differences are documented in the [benchmark README](../../tests/benchmarks/README.md).
+`python gutch.py benchmark` lists internal Gutch fixtures. The interactive,
+explicit fixture, Docker, reconstruction-storage, and S3 commands remain.
+External-tool fixtures and their binary provisioning have been removed from
+Gutch; cross-tool comparisons run only in the separate
+[comparison suite](../../../comparison_benchmark_suite/README.md).
+
+Internal diagnostics retain chunk/compression/worker profiles, individual versus
+batch capture, filesystem baselines, and storage/recovery workloads. Reports
+show per-snapshot measurements, totals and throughput; verification and recovery
+appear separately. Batch capture does not invent per-snapshot capture timings.
 
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed records engine
 spans and sampled memory. The comparison timeline includes subprocess wall times
@@ -245,33 +230,8 @@ RSS for direct tool processes. CPU is weighted by observed command sampling time
 child processes and the harness are excluded. Off-mode and unavailable samples
 remain missing values rather than zero utilization.
 
-Comparison lanes require Borg 2 and retain its native FastCDC, targeting 1 MiB.
-Plakar uses its default backup cache policy within the isolated lane cache.
-The Linux installer pins Borg 2.0.0b23 (glibc 2.39 minimum); the standalone
-builder uses Debian Trixie to satisfy that binary requirement.
-
-Borg version checking is a cached preflight step before the lane schedule; it
-does not contribute to command timings, utilization averages or Perfetto rows.
-
-Pairwise `gutch_vs_*` fixtures share the Blender dataset and preserve the other
-tool's performance defaults. Gutch adapts its codec and chunk target; unmatched
-settings are documented in the suite README. Runs use profiling off, one warm-up
-and three rotating measured repetitions. Shared dataset references reuse one
-prepared-input cache, with paths resolved relative to the definition file.
-
-Fixture descriptions appear in the CLI and Markdown summary and explain
-remaining command overrides and differences from Gutch. Encryption stays off
-where supported (Borg/Plakar); Kopia/Restic retain mandatory encryption.
-
-The standalone comparison entrypoint without arguments opens a Textual terminal
-fixture picker with hover/focus descriptions. It runs the existing CLI in an
-owned subprocess, shows phase/elapsed and measured-case progress, and retains
-the summary screen for another run or manual Perfetto opening. Stop terminates
-only that run's process tree and preserves partial evidence. Noninteractive
-invocations require `--fixture`; that form remains a single run with plain output.
-
 The comparison suite is a separate root project. Before using Gutch benchmark
 commands, install its checkout into the same Python environment:
-`python -m pip install -e <suite-checkout>`. Gutch does not search sibling folders.
+`uv pip install --python .venv -e <suite-checkout>`. Gutch does not search sibling folders.
 Its build image includes the installed suite when available; build and engine
 correctness commands do not require it.

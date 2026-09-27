@@ -22,7 +22,6 @@ import tests.benchmarks.comparison.__main__ as gutch_launcher
 from tests.benchmarks.comparison.__main__ import _prompt_product, main as gutch_main
 from tests.benchmarks.comparison.binary import resolve_gutch_executable
 from comparison_benchmark_suite.tools.external import ExternalTools, _plakar_cache_directory, _plakar_command, run_external
-import tests.benchmarks.comparison.external_tools as external_tools
 from tests.benchmarks.support.s3 import S3Settings, s3_key
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
 from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult, LaneSpec
@@ -55,10 +54,23 @@ def test_catalog_contains_all_gutch_benchmark_scenarios() -> None:
         "14_gutch_reconstruction_storage_paths",
         "15_gutch_s3_cold_publication_cycle",
         "02_gutch_storage_layout_baseline",
-        "10_gutch_vs_external_tools_individual",
-        "11_gutch_vs_external_tools_bulk",
         "06_gutch_worker_count_profiles",
     } <= names
+
+
+def test_internal_fixture_catalog_excludes_external_tools():
+    fixtures = FixtureCatalog(Path("tests/benchmarks/comparison/fixtures")).list()
+    assert fixtures
+    assert all(lane.tool in {"gutch", "filesystem"} for fixture in fixtures for lane in fixture.lanes)
+
+
+def test_internal_runner_rejects_external_tools_before_creating_artifacts(tmp_path):
+    import pytest
+    fixture = FixtureCatalog().resolve("blender")
+    artifacts = tmp_path / "runs"
+    with pytest.raises(ValueError, match="standalone suite"):
+        gutch_workflow.run_fixture(fixture, tmp_path, GutchCli(Path("unused")), artifacts, keep_artifacts=False)
+    assert not artifacts.exists()
 
 
 def test_fixture_waits_default_to_four_seconds() -> None:
@@ -67,12 +79,6 @@ def test_fixture_waits_default_to_four_seconds() -> None:
     assert fixture.step_wait_seconds == 4.0
 
 
-def test_external_fixture_lanes_include_plakar() -> None:
-    individual = FixtureCatalog().resolve("blender")
-    bulk = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("11_gutch_vs_external_tools_bulk")
-
-    assert any(lane.kind == "plakar-individual" for lane in individual.lanes)
-    assert any(lane.kind == "plakar-exact-bulk" for lane in bulk.lanes)
 
 
 def test_external_tools_resolve_nested_plakar_binary(tmp_path: Path) -> None:
@@ -167,21 +173,6 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
     assert all("--repo" in call for call in commands.calls[1:])
 
 
-def test_linux_external_tool_installation_uses_bin_linux_x64_and_manifest(tmp_path: Path, monkeypatch) -> None:
-    def install(release, destination):
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(release.name.encode("utf-8"))
-
-    monkeypatch.setattr(external_tools, "_install_release", install)
-
-    paths = external_tools.ensure_linux_external_tools(tmp_path, {"borg", "restic"})
-
-    assert paths == {
-        "borg": tmp_path / "tests/benchmarks/comparison/bin/linux-x64/borg",
-        "restic": tmp_path / "tests/benchmarks/comparison/bin/linux-x64/restic",
-    }
-    manifest = paths["borg"].parent / ".versions.json"
-    assert json.loads(manifest.read_text(encoding="utf-8")) == {"borg": "2.0.0b23", "restic": "0.19.1"}
 
 
 def test_plakar_uses_short_unique_cache_socket_path(tmp_path: Path) -> None:
@@ -386,8 +377,6 @@ def test_container_fixture_catalog_contains_single_trace_and_s3_cycle() -> None:
 
     assert fixtures["12_gutch_container_trace_single_lane"].runner == "gutch-fixture"
     assert fixtures["15_gutch_s3_cold_publication_cycle"].runner == "gutch-s3"
-    assert fixtures["13_gutch_container_vs_external_tools_individual"].runner == "gutch-fixture"
-    assert fixtures["13_gutch_container_vs_external_tools_individual"].snapshot_limit == 1
 
 
 def test_snapshot_limit_selects_newest_product_targets(tmp_path: Path) -> None:
@@ -849,20 +838,6 @@ def test_container_progress_output_is_human_readable(capsys) -> None:
     assert "[container] step: container-default-gutch lane started" in capsys.readouterr().err
 
 
-def test_container_external_binaries_are_marked_executable(tmp_path: Path, monkeypatch) -> None:
-    binary = tmp_path / "restic"
-    binary.write_bytes(b"linux-binary")
-    chmod_modes: list[int] = []
-
-    def record_chmod(self: Path, mode: int) -> None:
-        chmod_modes.append(mode)
-
-    monkeypatch.setattr(Path, "chmod", record_chmod)
-
-    container_entry._make_external_binaries_executable(tmp_path)
-
-    assert len(chmod_modes) == 1
-    assert chmod_modes[0] & 0o111 == 0o111
 
 
 def test_docker_benchmark_closes_services_on_failure(monkeypatch):

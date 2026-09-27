@@ -2,12 +2,14 @@
 
 Run these commands from the Gutch project root.
 
-For a simple local comparison, run `python gutch.py benchmark` or copy
-[`comparison_benchmark_suite/`](../../../comparison_benchmark_suite/README.md) and
-run its `run.py` for the interactive fixture picker, progress and summary screen.
-Use `--fixture NAME` for a single scripted run. It ships a Blender overview and
-pairwise fixtures, accepts custom build paths, and
-owns its `.artifacts/` cache and reports.
+`python gutch.py benchmark` lists internal Gutch fixtures. Use
+`python gutch.py benchmark interactive` to select one, or pass `--fixture` with
+`--product` / `--dataset` for a scripted run. These compare Gutch profiles,
+capture modes, reconstruction paths, storage layouts, and a filesystem baseline.
+
+Comparisons against other tools belong exclusively to the separate
+[comparison suite](../../../comparison_benchmark_suite/README.md). Run its
+`python run.py`; Gutch no longer downloads or uploads competitor binaries.
 
 This directory retains advanced diagnostic fixtures and optional Docker/S3
 workflows. They import the same command, validation, scheduling, and comparison
@@ -41,69 +43,11 @@ run and lane directory names are bounded and hash-suffixed when shortened;
 full fixture and case labels remain in result metadata. This limits Windows
 path growth; use a short artifact root when source trees are deeply nested.
 
-The Borg adapter reads the executable's major version: the pinned Linux Borg 1
-uses repository/archive syntax, while Windows Borg 2 uses explicit repository
-options and `repo-create`. The detected version is retained in lane metadata.
-Kopia disables credential persistence without platform-specific keyring flags.
-
 Process timings exclude cooldown and independent correctness checks. Embedded
-Gutch verification, external repository checks, incremental Gutch repair, and
-external full-restore recovery are separate metrics. Throughput uses selected
-input bytes. Dataset fingerprints identify the exact input inventory: whole
-product and selected-snapshot workloads can differ and must not be treated as
-identical merely because they share a product directory.
-
-## Reading Gutch versus external-tool comparisons
-
-These are configured end-to-end workflow measurements. They can compare the
-cost of delivering the same selected files on the same machine; they do not
-isolate the efficiency of a compression, chunking, or deduplication algorithm.
-A successful Blender run establishes correctness for that dataset, not a
-performance ranking or equivalence of backup features.
-
-| Measurement | When comparable | Current limitations |
-|---|---|---|
-| Individual capture and restore | Same selected target directories, history, order, host, and performance mode | Each tool uses its own repository format, chunking, compression, protection, and concurrency settings. Initialization is outside capture timing. |
-| Bulk capture and restore | Same whole-product inventory | All five tools capture the entire product root, including root files and hidden directories. Input counts, fingerprints, and validation use that same whole tree. Restic, Borg, and Plakar capture `.` from the product directory; Kopia and Gutch receive the product path. |
-| Restore time | Time until each configured restore command completes | Gutch includes embedded output verification; Restic restores use `--verify` to check restored contents. Other adapters have no equivalent output-reread switch established by their installed restore help. External repository checks run separately; they are not equivalent to verifying restored files. Embedded verification is already part of Gutch restore time and must not be added again. |
-| Recovery | Operational cost of the stated recovery strategy | Gutch repairs an existing damaged output incrementally. External tools restore the output from scratch; deleting the old output is outside that timer. This compares strategies, not equivalent repair implementations. Corruption targets output files, not stored repository data. |
-| Repository size and ratio | Logical repository-file bytes relative to matched input bytes | "Stored size (final)" sums file lengths, not allocated disk space, and excludes caches outside the repository. All local repository lanes sample immediately after capture, before restore or recovery. This is total retained repository size, not incremental snapshot growth. |
-| Filesystem copy | Same selected snapshots as individual lanes | Capture copies each snapshot into a separate stored directory; restore copies those directories into fresh output, newest first. Size is the retained copies, without compression or deduplication. Independent validation runs outside timing; copy has no embedded content verification. Recovery recopies from storage. |
-| S3 cycles | Comparing Gutch layouts under the same storage conditions | These exercise publication, fetching, and reconstruction; they do not establish a cross-tool network-performance comparison. |
-
-All bundled comparison fixtures select `profile_mode: detailed` and
-`open_perfetto: true`. Set `profile_mode: "off"` and `open_perfetto: false`
-explicitly when collecting timings without profiling overhead. Quote `"off"` in YAML to avoid boolean interpretation. `open_perfetto: false` only
-disables opening the viewer. Profiling instruments Gutch alone.
-
-Compression remains tool-specific: Gutch uses Zstd level 1, Restic requests
-`fastest`, Kopia requests `zstd-fastest`, and Borg requests `zstd,1`; Plakar
-keeps its native configuration. Matching preset names would not match chunk
-boundaries, codecs, or CPU work. Borg explicitly disables encryption and
-Plakar uses plaintext; Restic and Kopia use password-protected repositories.
-These configured protection and format differences remain part of the timing.
-Installed restore help exposes Restic overwrite/delete controls, Kopia
-overwrite/skip-existing/delete-extra controls, and Borg interrupted-extraction
-continuation. These are not a common content-verified incremental repair
-contract; the suite retains full restore for external recovery. Plakar restore
-help exposes destination/selection options, without an equivalent repair mode.
-Repository verification and recovery metrics stay separate.
-
-Use repeated samples and inspect `summary.json`, keeping the host, dataset,
-tool binaries, and competing workload fixed. One repetition is the default;
-case-order rotation only spans all starting positions after a full case-count
-cycle. Warmups use separate repositories, and inventory hashing reads source
-files before measurement. Neither cooldown nor warmup guarantees cold OS caches.
-Do not treat results from different Windows/Linux Blender distributions or
-Borg major versions as measurements of the same workload.
-
-Check the selected paths and inventories as well as byte counts. Fingerprints
-include inventory grouping, so whole-product and per-target fingerprints can
-differ even when file contents match. Throughput is logical input bytes divided
-by elapsed command time, not measured disk or network bandwidth. Correctness
-checks cover paths, contents, symlink targets, read-only state, and executable
-state where supported; they do not certify timestamps, ownership, ACLs,
-extended attributes, hardlink identity, or sparse allocation.
+verification is already included in reconstruction time; repair and filesystem
+full recovery are reported separately. Input inventories and fingerprints
+identify each workload. OS cache state is uncontrolled, and detailed profiling
+adds overhead. Use repeated samples on the same host and dataset.
 
 Run Gutch benchmarks interactively:
 
@@ -117,12 +61,13 @@ List Gutch fixtures:
 
     python gutch.py benchmark list
 
-Fixture filenames and names use a single numeric prefix, `01` through `15`.
+Fixture filenames retain their numeric prefixes; removed external comparisons
+leave gaps in the numbering.
 Similar fixtures appear together, ordered from basic local measurements to
 more involved workflows.
 
 Use the complete numbered name with `--fixture`, for example
-`--fixture 10_gutch_vs_external_tools_individual`.
+`--fixture 03_gutch_batch_vs_individual_capture --dataset empty_and_tiny`.
 
 Run storage benchmarks interactively:
 
@@ -211,53 +156,29 @@ Fixture roots may set `lane_wait_seconds` and `step_wait_seconds` to control
 cooldown between measured lanes and between commands within a lane. Both
 default to 4 seconds; set either to `0` to disable that wait.
 
-External lanes may set an `arguments` list for capture-time tool options. The
-adapter routes these arguments to the tool's repository setup and capture
-command as required: Restic init/backup, Kopia global policy, Borg create, or
-Plakar backup. Gutch lanes use their typed `profile` options instead.
-
-Fixtures may set `snapshot_limit` to use only the newest N target directories
-from a generated product for individual snapshot lanes and filesystem copy. The Docker external
-comparison uses `snapshot_limit: 1` to keep its five-tool comparison practical.
+Gutch lanes use typed `profile` options. Fixtures may set `snapshot_limit` to
+select the newest N targets for individual capture and filesystem copy lanes.
 
 ## Source tree
 
-    tests/benchmarks/scheduling/
-      environment.py   benchmark-owned YAML environment loading
-      config.py        recursive YAML catalog
-      dataset.py       frozen input inventories and snapshot selection
-      runner.py        shared case scheduling, samples, and retention
-    tests/benchmarks/support/
-      command.py       subprocess boundary, timing, and redaction
-      artifacts.py     run/lane layout and retention
-      filesystem.py    tree stats and content comparison
-      gutch.py         shared Gutch operations
-      s3.py            S3 transport and publication helpers
-      traces.py        Perfetto composition
     tests/benchmarks/
-      comparison/
-        __main__.py    interactive and explicit Gutch launcher
-        config.py      validated Gutch fixture model
-        report.py      compact comparison and detailed Gutch tables
-        workflow.py    capture, reconstruct, optional corruption, repair
-        external.py    Restic/Kopia/Borg/Plakar adapters
-        external_tools.py pinned Linux x86_64 external-tool installers
-        s3_cycle.py    cold S3 publication and fetch-reconstruct cycle
-        fixtures/      typed Gutch benchmark scenarios
-        bin/           Gutch CLI and external comparison tools
-      s3_throughput/
-        __main__.py    interactive and explicit storage launcher
-        config.py      typed object-storage workload config
-        workflow.py    parallel upload/download phases
-    tests/benchmarks/docker/
-      launcher.py     Docker execution and artifact-copy boundary
+      comparison/       internal fixture launcher, binary selection, S3 cycles
+        fixtures/       Gutch profiles, capture modes, storage and recovery cases
+      scheduling/       benchmark-owned environment configuration
+      support/          S3 transport and reconstruction diagnostics
+      s3_throughput/    object-storage workload measurements
+      docker/           Linux execution and evidence export
+
+The installed `comparison_benchmark_suite` package supplies shared process,
+validation, scheduling, Gutch operation, and reporting helpers. It owns the
+external-tool adapters and comparison fixtures.
 
 Each measured lane gets an isolated artifact directory. Reconstruct owns its single
 verification measurement through the Gutch stats payload; corruption and
 repair are one optional fixture-level phase that never issues another verify
 command. Set corrupt_repair: true at the fixture root to run it for every
 lane; omit it or set it to false to skip it. Scan, recount/inventory,
-comparison, and each external tool's native verification are always run.
+and independent output validation are always run.
 Snapshots are captured chronologically and reconstructed newest-first by
 default in every multi-snapshot lane.
 Generated repositories, payloads, and traces live below tests/.artifacts/ and are
@@ -308,6 +229,6 @@ it is not a production decoder or a substitute for malformed-input fuzzing.
 
 The comparison suite is a separate root project. Before using Gutch benchmark
 commands, install its checkout into the same Python environment:
-`python -m pip install -e <suite-checkout>`. Gutch does not search sibling folders.
+`uv pip install --python .venv -e <suite-checkout>`. Gutch does not search sibling folders.
 Its build image includes the installed suite when available; build and engine
 correctness commands do not require it.

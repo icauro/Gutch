@@ -11,17 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_module(module, arguments):
-    if module == "comparison_benchmark_suite.run" or module.startswith("tests.benchmarks."):
+    if module.startswith("tests.benchmarks."):
         import importlib.util
         if importlib.util.find_spec("comparison_benchmark_suite") is None:
             print("Install the standalone comparison suite in this Python environment first: "
-                  "python -m pip install -e <suite-checkout>", file=sys.stderr)
+                  f'uv pip install --python "{sys.executable}" -e <suite-checkout>', file=sys.stderr)
             return 1
     environment = os.environ.copy()
-    if module == "comparison_benchmark_suite.run":
-        binary = ROOT / ".builds/compiler-cache/cargo/release" / ("gutch-cli.exe" if os.name == "nt" else "gutch-cli")
-        if binary.is_file():
-            environment.setdefault("GUTCH_EXECUTABLE", str(binary))
     return subprocess.call([sys.executable, "-m", module, *arguments], cwd=ROOT, env=environment)
 
 
@@ -108,13 +104,6 @@ def main(arguments=None):
     routes = {"fuzz": "tests.helpers.fuzz", "test": "tests.run", "dataset": "tests.datasets.generate", "benchmark": "tests.benchmarks.comparison"}
     if arguments and arguments[0] in routes:
         forwarded = arguments[1:]
-        diagnostic_commands = {"list", "interactive", "storage", "docker", "s3-cycle", "reconstruction-storage"}
-        diagnostic_flags = {"--product", "--dataset", "--gutch-exe", "--config"}
-        if (arguments[0] == "benchmark" and
-                not (forwarded and forwarded[0] in diagnostic_commands) and
-                not diagnostic_flags.intersection(forwarded)):
-            return run_module("comparison_benchmark_suite.run", forwarded)
-
         if arguments[0] == "dataset" and forwarded[:1] == ["freeze"]:
             return run_module("tests.helpers.corpus", forwarded[1:])
         if arguments[0] == "benchmark" and forwarded[:1] == ["storage"]:

@@ -14,7 +14,6 @@ from tests.benchmarks.benchmark_config import BenchmarkConfig, load_benchmark_co
 from comparison_benchmark_suite.support.artifacts import safe_component, create_run_dir
 from comparison_benchmark_suite.support.traces import open_trace_in_perfetto
 from comparison_benchmark_suite.tools.config import load_fixture
-from tests.benchmarks.comparison.external_tools import ensure_linux_external_tools
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
 from tests.benchmarks.docker.launcher import DockerLauncher, DockerTarget
 
@@ -95,22 +94,16 @@ def _run_docker_benchmark(
         load_s3_cycle(fixture_path)
     elif fixture_spec.runner != "gutch-fixture":
         raise ValueError(f"fixture {fixture!r} is not a supported container Gutch fixture")
-    external_kinds = {
-        lane.kind.split("-", 1)[0]
-        for lane in fixture_spec.lanes
-        if lane.kind.startswith(("restic-", "kopia-", "borg-", "plakar-"))
-    }
-    linux_external_tools = ensure_linux_external_tools(REPOSITORY_ROOT, external_kinds)
     target = DockerTarget.start(config, REPOSITORY_ROOT)
     try:
         return _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurrency,
-                                  transfer_max_concurrency, keep_artifacts, linux_external_tools)
+                                  transfer_max_concurrency, keep_artifacts)
     finally:
         target.close()
 
 
 def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurrency,
-                       transfer_max_concurrency, keep_artifacts, linux_external_tools):
+                       transfer_max_concurrency, keep_artifacts):
     launcher = DockerLauncher(target)
     workspace = target.workspace
     local_root = create_run_dir((artifacts_root or config.artifacts_root) / "container", "linux", fixture)
@@ -131,23 +124,11 @@ def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurr
             ["mkdir", "-p", workspace],
             description="create container benchmark workspace",
         )
-        container_external_root = _container_path(workspace, "external")
-        if linux_external_tools:
-            launcher.run(
-                ["mkdir", "-p", container_external_root],
-                description="create container external-tool directory",
-            )
         launcher.upload(package_path, container_package, description="upload benchmark package")
         launcher.upload(runtime_config_path, container_config, description="upload benchmark config")
         launcher.upload(CONTAINER_ENTRY, container_entry, description="upload container benchmark runner")
         launcher.run(["cp", "/gutch/.builds/compiler-cache/cargo/release/gutch-cli", container_binary],
                      description="copy Docker-built Linux gutch-cli")
-        for kind, path in sorted(linux_external_tools.items()):
-            launcher.upload(
-                path,
-                _container_path(container_external_root, kind),
-                description=f"upload Linux {kind} benchmark tool",
-            )
         command = [
             "python3",
             container_entry,
@@ -166,8 +147,6 @@ def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurr
             command.extend(["--transfer-concurrency", str(transfer_concurrency)])
         if transfer_max_concurrency is not None:
             command.extend(["--transfer-max-concurrency", str(transfer_max_concurrency)])
-        if linux_external_tools:
-            command.extend(["--external-root", container_external_root])
         if keep_artifacts:
             command.append("--keep-artifacts")
         try:
