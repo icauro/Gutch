@@ -17,7 +17,7 @@ SOURCE_PATHS = (
     "comparison_benchmark_suite/datasets.py", "comparison_benchmark_suite/requirements.txt",
     "comparison_benchmark_suite/support", "comparison_benchmark_suite/scheduling",
     "comparison_benchmark_suite/tools", "comparison_benchmark_suite/tests",
-    "comparison_benchmark_suite/fixtures/blender/fixture.yaml",
+    "comparison_benchmark_suite/fixtures",
 )
 EXCLUDED_PARTS = {"__pycache__", ".artifacts", ".builds", "bin", ".pytest_cache"}
 

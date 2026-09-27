@@ -151,7 +151,7 @@ supported file permissions. Command measurements exclude cooldown. Gutch
 embedded verification and incremental repair remain distinct from external
 repository checks and native restore-over-existing behavior.
 
-The standalone `comparison_benchmark_suite/run.py` ships one Blender fixture
+The standalone `comparison_benchmark_suite/run.py` ships a Blender overview and five pairwise fixtures
 with profiling off, explicit executable resolution, and suite-owned `.artifacts/`.
 Its Blender fixture aligns nominal chunks at 1 MiB and selects Zstd level 3 or
 the nearest exposed standard preset where supported. The standalone
@@ -252,3 +252,9 @@ builder uses Debian Trixie to satisfy that binary requirement.
 
 Borg version checking is a cached preflight step before the lane schedule; it
 does not contribute to command timings, utilization averages or Perfetto rows.
+
+Pairwise `gutch_vs_*` fixtures share the Blender dataset and preserve the other
+tool's performance defaults. Gutch adapts its codec and chunk target; unmatched
+settings are documented in the suite README. Runs use profiling off, one warm-up
+and three rotating measured repetitions. Shared dataset references reuse one
+prepared-input cache, with paths resolved relative to the definition file.
