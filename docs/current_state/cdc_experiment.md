@@ -458,3 +458,30 @@ for FastCDC, 9,266 for JC, and 7,696 for VRAM.
 The run-specific fixture and retained evidence are under
 `tests/.artifacts/lz4-all-256-comparison/`; results directory:
 `2026.09.27-Blender-f5c6014c-all_chunkers_25-e42e5000-001/`. No production settings or algorithms changed.
+
+
+## Two-snapshot Blender rerun, all 256 KiB and LZ4 level 1
+
+Used the existing `Blender_2_snapshot` dataset: Blender 5.0.0 and 5.1.0 Windows
+x64. All three lanes used the 256 KiB preset, LZ4 level 1 and 8 MiB bundles.
+RAM's preset remains its initial search window. Three rotating repetitions had
+profiling off, no explicit warm-up and uncontrolled OS cache/host load.
+All nine lanes passed independent reconstruction and corruption-repair checks.
+
+Median totals across the two snapshots:
+
+| Chunker | Capture s | Reconstruction s | Repair s | Repository MiB |
+|---|---:|---:|---:|---:|
+| fastcdc | 2.358 | 3.714 | 0.783 | 899.95 |
+| jc | 2.491 | 3.658 | 0.779 | 904.91 |
+| vram256 | 2.351 | 3.670 | 0.779 | 922.22 |
+
+Capture ranges were FastCDC 2.339-2.453 s, JC 2.316-2.588 s and VRAM
+2.312-2.372 s. FastCDC and VRAM medians differ by only 0.3%, with overlapping
+ranges: effectively tied for capture in this run. FastCDC retains the smallest
+repository. Timing was steadier than the earlier four-snapshot run, but the
+input also changed, so no specific cause such as NVMe cache recovery is proven.
+
+The run-specific fixture and compact results remain under
+`tests/.artifacts/blender-two-256-lz4/`; results directory:
+`2026.09.27-Blender-786d8ef6-blender_two_all-e674645b-001/`. Normal successful-run cleanup removed large temporary payloads.
