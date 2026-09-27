@@ -153,6 +153,10 @@ repository checks and full-restore recovery.
 
 The standalone `comparison_benchmark_suite/run.py` ships one Blender fixture
 with profiling off, explicit executable resolution, and suite-owned `.artifacts/`.
+Its Blender fixture aligns nominal chunks at 1 MiB and selects Zstd level 3 or
+the nearest exposed standard preset where supported. The standalone
+[suite settings table](../../comparison_benchmark_suite/README.md#comparison-settings)
+records exact arguments and the Plakar/BuildPatchTool compression exceptions.
 Custom fixtures list build paths in chronological order. Missing tools are
 reported without preventing available candidates from running. The existing
 developer diagnostic fixtures remain under `tests/benchmarks/comparison/fixtures/`;
