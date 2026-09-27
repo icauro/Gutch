@@ -751,11 +751,16 @@ where
         })?;
 
         if required[index] {
-            chunk_buffer.resize(raw_size, 0);
+            // Retain initialized bytes when a smaller chunk follows a larger one.
+            // The decoder overwrites only the current chunk before it is delivered.
+            if chunk_buffer.len() < raw_size {
+                chunk_buffer.resize(raw_size, 0);
+            }
+            let chunk = &mut chunk_buffer[..raw_size];
             let decode_started_at = ProfileInstant::detailed(profiler);
-            reader.read_exact(&mut chunk_buffer)?;
+            reader.read_exact(chunk)?;
             *decompress += decode_started_at.elapsed();
-            on_chunk(index, &chunk_buffer)?;
+            on_chunk(index, chunk)?;
         } else {
             let mut remaining = raw_size;
             while remaining > 0 {

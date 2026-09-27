@@ -172,8 +172,9 @@ fn test_build_and_read_bundle_compressed_payload() {
 fn test_stream_bundle_chunks_only_delivers_required_chunks() {
     let chunks = [
         b"streamed chunk one".to_vec(),
-        b"streamed chunk two".to_vec(),
-        b"streamed chunk three".to_vec(),
+        b"streamed chunk two".repeat(100),
+        b"small".to_vec(),
+        b"larger again".repeat(200),
     ];
     let hashes = chunks
         .iter()
@@ -192,7 +193,7 @@ fn test_stream_bundle_chunks_only_delivers_required_chunks() {
     let mut reader = read_bundle(&bundle_data, &profile).unwrap();
     let mut delivered = Vec::new();
     let metrics = reader
-        .stream_bundle_chunks_with_profiler(None, &[false, true, true], |index, chunk| {
+        .stream_bundle_chunks_with_profiler(None, &[false, true, true, true], |index, chunk| {
             delivered.push((index, chunk.to_vec()));
             Ok(())
         })
@@ -200,7 +201,7 @@ fn test_stream_bundle_chunks_only_delivers_required_chunks() {
 
     assert_eq!(
         delivered,
-        vec![(1, chunks[1].clone()), (2, chunks[2].clone())]
+        vec![(1, chunks[1].clone()), (2, chunks[2].clone()), (3, chunks[3].clone())]
     );
     assert_eq!(
         metrics.raw_bytes,

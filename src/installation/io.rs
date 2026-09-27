@@ -442,6 +442,7 @@ struct OutputHandleCacheState {
     handles: HashMap<usize, Arc<File>>,
     lru: VecDeque<usize>,
     max_open: usize,
+    initialized_files: Vec<bool>,
 }
 
 const LOCAL_OUTPUT_HANDLE_CACHE_LIMIT: usize = 8;
@@ -467,6 +468,7 @@ impl OutputHandleCache {
                     && size >= INDEPENDENT_OUTPUT_MIN_BYTES
             })
             .collect();
+        let initialized_files = vec![false; output_paths.len()];
         Self {
             output_paths,
             output_sizes,
@@ -475,6 +477,7 @@ impl OutputHandleCache {
                 handles: HashMap::new(),
                 lru: VecDeque::new(),
                 max_open: 256,
+                initialized_files,
             }),
         }
     }
@@ -486,7 +489,7 @@ impl OutputHandleCache {
                 file_index
             )));
         }
-        {
+        let needs_initialization = {
             let mut state = self
                 .state
                 .lock()
@@ -496,22 +499,28 @@ impl OutputHandleCache {
                 state.lru.push_back(file_index);
                 return Ok(file);
             }
-        }
+            !state.initialized_files[file_index]
+        };
 
         // Do filesystem work outside the cache mutex. A reconstruction can touch thousands of
         // files, and holding the mutex across open/set_len otherwise serializes every first write.
         let file = OpenOptions::new()
             .write(true)
-            .create(true)
+            .create(needs_initialization)
             .truncate(false)
             .open(&self.output_paths[file_index])?;
-        file.set_len(self.output_sizes[file_index])?;
+        if needs_initialization {
+            file.set_len(self.output_sizes[file_index])?;
+        }
         let file = Arc::new(file);
 
         let mut state = self
             .state
             .lock()
             .map_err(|_| Error::reconstruct("output handle cache is poisoned"))?;
+        // Preserve successful initialization across handle eviction. Concurrent
+        // first opens may both size the file, as before; failed sizing is not cached.
+        state.initialized_files[file_index] = true;
         if let Some(existing) = state.handles.get(&file_index).cloned() {
             state.lru.retain(|index| *index != file_index);
             state.lru.push_back(file_index);
@@ -765,6 +774,19 @@ pub(super) fn build_source_chunk_locations(
 #[cfg(test)]
 mod output_handle_tests {
     use super::*;
+
+    #[test]
+    fn output_reopen_after_eviction_preserves_written_ranges() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Arc::new(vec![root.path().join("first"), root.path().join("second")]);
+        let cache = OutputHandleCache::new(Arc::clone(&paths), Arc::new(vec![8, 8]), &[2, 1], 2);
+        cache.state.lock().unwrap().max_open = 1;
+        let control = GutchOperationControl::default();
+        write_file_at(&cache.get_or_open(0).unwrap(), 4, b"tail", &control).unwrap();
+        drop(cache.get_or_open(1).unwrap());
+        write_file_at(&cache.get_or_open(0).unwrap(), 0, b"head", &control).unwrap();
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), b"headtail");
+    }
 
     #[test]
     fn output_handle_selection_preserves_ranges_and_job_local_reuse() {

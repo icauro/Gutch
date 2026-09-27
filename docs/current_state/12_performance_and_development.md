@@ -448,3 +448,35 @@ their large payloads and retain compact reports and combined traces.
 After removing buffering, the final binary passed both full workflows again.
 This single confirmation run reconstructed the pair in 2.304 s uncompressed and
 2.616 s with LZ4; it is not another repeated median. No capture change is retained.
+
+
+## Reconstruction buffer and handle reuse, single comparison
+
+A single baseline run followed by a single candidate run used Blender 5.0/5.1,
+LZ4 level 0, 1 MiB chunk preset and 8 MiB bundles. No warm-up or repetitions were
+performed, to limit SSD writes. Both runs independently validated reconstructed
+content and corruption repair; repository bytes and file counts matched.
+
+| Operation, both snapshots | Baseline s | Candidate s |
+|---|---:|---:|
+| Reconstruction | 2.533 | 2.380 |
+| Repair | 0.777 | 0.772 |
+
+The observed reconstruction reduction is 6.1%, preliminary rather than a stable
+speedup claim. Cache, run order and host/storage variability were uncontrolled;
+individual contributions were not isolated. Capture code was unchanged, yet its
+elapsed time varied from 1.414 to 1.511 s, illustrating the noise in this sample.
+
+Retained changes: the bundle decoder keeps initialized buffer storage across
+smaller chunks and passes only the current chunk's slice to consumers. Existing
+peak buffer capacity is unchanged. Output handle caching remembers successful
+file initialization across eviction, avoiding repeated sizing on later reopens.
+Initialization state belongs to one reconstruction operation, never to another
+command. Concurrent first opens may still both initialize, as before; failed
+initialization is not remembered, and a missing previously initialized output
+fails to reopen rather than being silently recreated.
+
+Library validation passed 324 tests with two ignored. Coverage includes eviction
+with preserved output ranges and decoding large/small/larger selected chunks.
+Evidence is under `tests/.artifacts/reconstruct-reuse/`. Successful full-flow runs
+removed their payloads. No extra comparison runs were performed.
