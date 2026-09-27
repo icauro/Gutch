@@ -258,3 +258,7 @@ tool's performance defaults. Gutch adapts its codec and chunk target; unmatched
 settings are documented in the suite README. Runs use profiling off, one warm-up
 and three rotating measured repetitions. Shared dataset references reuse one
 prepared-input cache, with paths resolved relative to the definition file.
+
+Fixture descriptions appear in the CLI and Markdown summary and explain
+remaining command overrides and differences from Gutch. Encryption stays off
+where supported (Borg/Plakar); Kopia/Restic retain mandatory encryption.
