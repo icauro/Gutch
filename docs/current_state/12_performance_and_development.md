@@ -257,7 +257,8 @@ algorithms can reduce reuse of chunks from older snapshots.
 
 Run `python gutch.py benchmark --fixture 16_gutch_fastcdc_vs_jc --product PATH`
 from the Gutch directory. The fixture compares three full-flow runs per algorithm
-at 128 KiB target with identical compression and bundle settings. Equal target
+with FastCDC at 128 KiB and JC at 256 KiB, with identical compression and bundle
+settings. Equal target
 sizes do not imply equal actual average chunk sizes. Each lane has its own repo.
 
 `tests/benchmarks/cdc_experiment.py` compares the frozen pre-interface adapter,

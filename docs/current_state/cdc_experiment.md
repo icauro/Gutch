@@ -164,3 +164,37 @@ Evidence: `tests/.artifacts/handle-reuse-comparison/`; old binary retained under
 Validation passed 318 library tests and a full Blender capture, reconstruction,
 and corruption-repair cycle for both chunkers. The new reader test covers source
 switching, backward seeks, changed contents, and truncated input.
+
+
+## FastCDC 128 KiB versus JC 256 KiB on Blender
+
+The full-flow fixture now uses FastCDC at 128 KiB (32–512 KiB bounds) and JC at
+256 KiB (64–1024 KiB bounds). Both retain zstd 3, 8 MiB bundles, automatic workers,
+and source-handle reuse. This changes JC's complete size profile, not just its
+jump distance. It is a near-count comparison, not an exactly matched-count test.
+
+Three alternating repetitions per lane passed capture, independent reconstruction
+comparison, corruption and repair. Profiling was off, no explicit warm-up was
+added, and OS cache was uncontrolled. Medians sum both builds per repetition.
+
+| Metric | FastCDC 128 KiB | JC 256 KiB |
+|---|---:|---:|
+| Capture seconds | 2.473 | 2.379 |
+| Reconstruction seconds | 3.538 | 3.514 |
+| Repair seconds | 0.781 | 0.767 |
+| Repository MiB | 527.64 | 539.85 |
+| First build unique chunks | 10,504 | 10,034 |
+| Updated build required unique chunks | 10,498 | 10,064 |
+| Update new unique chunks | 1,890 | 1,809 |
+| Update new raw bytes to package | 327,602,738 | 357,507,134 |
+
+JC capture was 3.8% faster, with 2.3% more repository bytes (+12.21 MiB).
+The first-build unique chunk count is 4.5% below FastCDC. Similar counts do not
+imply similar reuse: JC packages 28.52 MiB more new raw data on the update.
+These three samples support a small observed capture gain on this fixture,
+not a universal speed advantage. The repository size difference is deterministic
+across these runs. Prior 128-versus-128 measurements above retain their original
+settings and should not be treated as the current fixture configuration.
+
+Evidence: `tests/.artifacts/jc-256-blender/2026.09.27-source-16_gutch_fastcdc_vs_jc-001/`.
+Per-command capture statistics and all payloads were retained for inspection.
