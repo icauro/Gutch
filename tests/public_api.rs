@@ -31,6 +31,20 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
 
 #[test]
 fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
+    use gutch::api::Chunker;
+    for (chunker, cli_name, persisted_name) in [
+        (Chunker::Jc, "jc", "jc-v1.1.0"),
+        (Chunker::Vram256, "vram256", "ram-v1"),
+    ] {
+        assert_api_and_cli_capture_equivalent(chunker, cli_name, persisted_name);
+    }
+}
+
+fn assert_api_and_cli_capture_equivalent(
+    chunker: gutch::api::Chunker,
+    cli_chunker: &str,
+    persisted_chunker: &str,
+) {
     use gutch::api::*;
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");
@@ -44,7 +58,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         explicit_tags: SnapshotTagSet::from_compact_strings(&["version=1.0.0".to_string()])
             .unwrap(),
         chunk_profile: Default::default(),
-        chunker: gutch::api::Chunker::Jc,
+        chunker,
         bundle_profile: Default::default(),
         compression_algorithm: CompressionKind::Lz4,
         compression_level: None,
@@ -75,7 +89,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         "--tag",
         "version=1.0.0",
         "--chunker",
-        "jc",
+        cli_chunker,
         "--compression-algorithm",
         "lz4",
         "--storage-mode",
@@ -102,7 +116,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         serde_json::json!({"key_value": {"version": "1.0.0"}})
     );
     assert_eq!(api_metadata["tags"], cli_metadata["tags"]);
-    assert_eq!(api_metadata["chunker"], "jc-v1.1.0");
+    assert_eq!(api_metadata["chunker"], persisted_chunker);
     assert_eq!(api_metadata["chunker"], cli_metadata["chunker"]);
     std::fs::remove_dir_all(&source).unwrap();
     for (repository, label) in [(repo, "api-output"), (cli_repo, "cli-output")] {

@@ -16,6 +16,9 @@ pub enum Chunker {
     #[serde(rename = "jc-v1.1.0")]
     #[value(name = "jc")]
     Jc,
+    #[serde(rename = "ram-v1")]
+    #[value(name = "vram256")]
+    Vram256,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
@@ -182,9 +185,15 @@ impl ChunkSizingProfile {
 
     pub fn with_chunker(mut self, chunker: Chunker) -> Self {
         self.chunker = chunker;
+        self.min_chunk_bytes = if chunker == Chunker::Vram256 {
+            self.avg_chunk_bytes
+        } else {
+            self.avg_chunk_bytes / 4
+        };
         self.gear_table_id = match chunker {
             Chunker::FastCdc => 3,
             Chunker::Jc => 4,
+            Chunker::Vram256 => 0,
         };
         self
     }

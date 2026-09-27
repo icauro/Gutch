@@ -26,7 +26,7 @@ capture Rayon pool unless noted otherwise.
 | 1. Source and identity | Resolve selected source roots, normalized paths, tags, and snapshot identity. | Performed before capture work begins. |
 | 2. Runtime setup | Resolve `jobs` into a bounded worker count and create the capture worker pool. | One operation-local pool is shared by scan and packaging. |
 | 3. Inventory | Walk each source with `WalkDir`, without following links, in filename order. Record regular files, directories, and supported symlinks. | Directory enumeration is ordered; metadata conversion can run on the pool. |
-| 4. File scan | Read each regular file as a stream, find FastCDC boundaries, and compute the full-file BLAKE3 hash. | Files are scanned concurrently when more than one worker is configured. |
+| 4. File scan | Read each regular file as a stream, find the selected CDC boundaries, and compute the full-file BLAKE3 hash. | Files are scanned concurrently when more than one worker is configured. |
 | 5. Chunk hashes | Hash each chunk as it is read and retain its source range, size, and identity. | Hashing runs in the file worker; raw chunks are released immediately. |
 | 6. Reuse decision | Compare each file with the previous manifest and look up already-known chunk identities. | Decisions are made per file and then combined. |
 | 7. Dedupe planning | Keep only content not already represented in the repo and collapse duplicate new chunk identities. | Planning is deterministic and mostly sequential after collection. |
@@ -45,9 +45,9 @@ entries for the snapshot manifest. Unsupported filesystem objects fail the
 capture rather than being silently omitted. The source root itself is not
 emitted as a snapshot entry.
 
-Gutch uses the inventory's file size to choose a bounded in-memory FastCDC scan
+Gutch uses the inventory's file size to choose a bounded in-memory chunk scan
 for files no larger than the smaller of 1 MiB and the chunk profile's maximum
-chunk size. Larger files use streaming FastCDC. Both paths use the resolved
+chunk size. Larger files use the borrowed chunk stream. Both paths use the resolved
 chunking profile and produce the same boundaries and hashes. The small-file
 read detects size changes and reuses the full-file digest for a single chunk.
 The streaming adapter lends slices from its read buffer to the hashing step;
@@ -57,7 +57,12 @@ inventory size, stays between one and two maximum-sized chunks, and never change
 boundary decisions. This matches the former buffer-plus-owned-chunk worst-case
 bound, although typical resident memory can increase slightly. Gutch owns a small
 FastCDC v2020 kernel containing the default gear tables and level-1 boundary rules.
-Plakar-compatible JC is selectable with `--chunker jc`; FastCDC remains the default.
+Plakar-compatible JC is selectable with `--chunker jc`. `--chunker vram256`
+selects RAM with runtime AVX2 acceleration and an identical scalar fallback.
+RAM searches for the maximum byte in its initial window, then cuts before the
+first following byte at least as large. The preset is that window's size, with
+four times that size as the maximum; it does not use Gear. Scalar and AVX2 both
+persist `ram-v1`. CPU dispatch happens once per file. FastCDC remains the default.
 The selected kernel is statically dispatched through the shared borrowed stream.
 Upstream FastCDC is pinned as a test-only oracle for exact boundary comparisons.
 The local subset retains its upstream license, copyright, and provenance.
@@ -173,7 +178,7 @@ released through the same operation-owned artifact lifecycle.
 
 The owning implementation is `src/capture/scan.rs` for inventory and per-file
 work, `src/capture/pipeline.rs` for runtime setup, dedupe, artifact grouping, and
-manifest finalization, `src/artifact/chunk.rs` for streaming FastCDC, and
+manifest finalization, `src/artifact/chunk.rs` for shared chunk scanning, and
 `src/runtime/mod.rs` for worker planning.
 
 ## Related pages

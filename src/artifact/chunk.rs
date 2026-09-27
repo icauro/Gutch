@@ -106,6 +106,17 @@ pub(crate) fn scan_file_chunks(
         crate::manifest::Chunker::FastCdc => {
             scan_with_boundary(path, inventory_size, control, BoundaryFinder::new(profile))
         }
+        crate::manifest::Chunker::Vram256 => {
+            let scalar = super::ram::Ram::new(
+                profile.avg_chunk_bytes as usize,
+                profile.max_chunk_bytes as usize,
+            );
+            if let Some(vector) = scalar.accelerated() {
+                scan_with_boundary(path, inventory_size, control, vector)
+            } else {
+                scan_with_boundary(path, inventory_size, control, scalar)
+            }
+        }
         crate::manifest::Chunker::Jc => scan_with_boundary(
             path,
             inventory_size,

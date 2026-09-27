@@ -1245,3 +1245,10 @@ def test_jc_fixture_selects_chunker_sizes_with_matching_packaging():
     assert args[0][2:4] == ["--chunk-preset", "128KiB"]
     assert args[1][2:4] == ["--chunk-preset", "256KiB"]
     assert args[0][4:] == args[1][4:]
+
+
+def test_vram_fixture_exposes_three_chunkers():
+    fixture = load_fixture(Path("tests/benchmarks/comparison/fixtures/17_gutch_fastcdc_jc_vram256.yaml"))
+    assert [lane.profile.chunker for lane in fixture.lanes] == ["fastcdc", "jc", "vram256"]
+    args = GutchCli.profile_args(fixture.lanes[2].profile)
+    assert args[:4] == ["--chunker", "vram256", "--chunk-preset", "128KiB"]

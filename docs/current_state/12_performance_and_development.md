@@ -242,7 +242,7 @@ correctness commands do not require it.
 ## Selectable jump chunking
 
 The borrowed chunk stream uses a statically dispatched `ChunkBoundary` kernel.
-FastCDC v2020 level 1 remains the default. Capture accepts `--chunker fastcdc|jc`;
+FastCDC v2020 level 1 remains the default. Capture accepts `--chunker fastcdc|jc|vram256`;
 `jc` is the Plakar go-cdc-chunkers v1.1.0 algorithm with its fixed masks and Gear
 table. The paper-scaled variant remains test-only. Dispatch happens once per
 file; the chunk loop stays statically dispatched. The shifted FastCDC Gear table
@@ -292,3 +292,22 @@ The tests run offline. The reference Gear table and JC source retain the
 upstream ISC notices; Gutch's FastCDC table retains its upstream MIT notice.
 
 Measured results and limitations: [JC experiment](cdc_experiment.md).
+
+
+## RAM and VRAM-256 comparison
+
+`--chunker vram256` selects RAM byte-comparison boundaries. AVX2 is detected at
+runtime once per file, with scalar RAM on unsupported CPUs. Both paths use the
+shared `ChunkBoundary` interface and produce the same persisted `ram-v1` identity.
+The size preset denotes the initial maximum-search window (and effective minimum),
+not FastCDC's average-size mask. Maximum chunk size remains four times the preset.
+The cutoff byte belongs to the following chunk. Files shorter than the window
+form one chunk; a search without a qualifying byte cuts at the maximum or EOF.
+Unaligned vector loads stay inside the live input and scalar code handles tails.
+
+Run `python gutch.py benchmark --fixture 17_gutch_fastcdc_jc_vram256 --product PATH`
+with a directory containing the builds. The fixture compares FastCDC 128 KiB,
+JC 256 KiB, and VRAM-256 with a 128 KiB window, using zstd 3 and 8 MiB bundles.
+It runs three repetitions with reconstruction and corruption repair. Targets do
+not normalize actual chunk counts or reuse. See the implementation's
+[reference and provenance](../../src/artifact/ram/README.md).

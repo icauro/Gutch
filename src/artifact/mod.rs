@@ -19,3 +19,5 @@ mod jc_tests;
 #[cfg(test)]
 #[path = "../../tests/benchmarks/cdc_experiment.rs"]
 mod cdc_experiment;
+
+mod ram;

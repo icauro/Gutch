@@ -1,0 +1,25 @@
+name: 17_gutch_fastcdc_jc_vram256
+runner: gutch-fixture
+description: >-
+  FastCDC 128 KiB (32-512 KiB bounds), JC 256 KiB (64-1024 KiB bounds),
+  and VRAM-256 with a 128 KiB initial window and 512 KiB maximum.
+  RAM uses byte comparisons, not Gear; window size is its effective minimum.
+  VRAM-256 uses AVX2 when supported, otherwise identical scalar RAM boundaries.
+  All lanes use zstd 3 and 8 MiB bundles. Chunk counts and reuse are not normalized.
+delete_artifacts: true
+open_perfetto: false
+profile_mode: "off"
+repetitions: 3
+corrupt_repair: true
+lane_wait_seconds: 0
+step_wait_seconds: 0
+lanes:
+  - label: fastcdc
+    tool: gutch
+    profile: {chunker: fastcdc, chunk: chunk_128KiB}
+  - label: jc
+    tool: gutch
+    profile: {chunker: jc, chunk: chunk_256KiB}
+  - label: vram256
+    tool: gutch
+    profile: {chunker: vram256, chunk: chunk_128KiB}

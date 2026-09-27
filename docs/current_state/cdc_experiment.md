@@ -168,8 +168,8 @@ switching, backward seeks, changed contents, and truncated input.
 
 ## FastCDC 128 KiB versus JC 256 KiB on Blender
 
-The full-flow fixture now uses FastCDC at 128 KiB (32–512 KiB bounds) and JC at
-256 KiB (64–1024 KiB bounds). Both retain zstd 3, 8 MiB bundles, automatic workers,
+The full-flow fixture now uses FastCDC at 128 KiB (32â€“512 KiB bounds) and JC at
+256 KiB (64â€“1024 KiB bounds). Both retain zstd 3, 8 MiB bundles, automatic workers,
 and source-handle reuse. This changes JC's complete size profile, not just its
 jump distance. It is a near-count comparison, not an exactly matched-count test.
 
@@ -218,7 +218,7 @@ Medians below sum the three builds within each repetition:
 
 JC capture was 6.9% slower, reconstruction 3.3% slower, repair 3.5% faster,
 and repository size 2.0% larger (+23.62 MiB). Capture totals ranged from
-7.154–9.991 seconds for FastCDC and 7.745–10.199 seconds for JC; three samples
+7.154â€“9.991 seconds for FastCDC and 7.745â€“10.199 seconds for JC; three samples
 with overlapping ranges do not establish a precise general performance gap.
 
 | Build | FastCDC required unique chunks | JC required unique chunks | FastCDC new chunks | JC new chunks |
@@ -278,3 +278,49 @@ under `tests/.artifacts/jc-path-prototypes/`.
 The retained ownership-only implementation also passed all 318 library tests
 and the Blender full-flow fixture (one validation repetition per chunker),
 including independent reconstruction comparison and corruption repair.
+
+
+## RAM / VRAM-256 on the four-snapshot Blender fixture
+
+Implemented scalar RAM and AVX2 VRAM-256 through the shared `ChunkBoundary`
+interface, retaining BLAKE3, packaging, reconstruction and repair. Runtime AVX2
+detection happens once per file; unsupported CPUs use scalar RAM. Both paths
+persist `ram-v1` and have identical boundaries. RAM uses a maximum-byte search
+and a >= byte comparison, with no Gear table. The preset specifies the initial
+window, equivalent to DedupBench's `ram_avg_block_size` minus 256.
+The reference is pinned in `src/artifact/ram/README.md` with its Apache-2.0 license.
+
+The available `Blender_4_snapshot` dataset contains Windows x64 Blender 4.4.0,
+4.5.0, 5.0.0 and 5.1.0: 3,794,868,170 bytes across 23,371 files. Three rotating
+repetitions used FastCDC 128 KiB, JC 256 KiB, and VRAM-256 with a 128 KiB window
+and 512 KiB maximum. All used zstd 3, 8 MiB bundles, automatic workers, profiling
+off, and no explicit warm-up. AVX2 was detected on the benchmark host. OS cache
+was uncontrolled. Medians sum all four builds within each repetition.
+
+| Chunker | Capture s | Reconstruction s | Repair s | Repository MiB |
+|---|---:|---:|---:|---:|
+| fastcdc | 5.224 | 7.379 | 1.581 | 1191.58 |
+| jc | 5.714 | 8.551 | 1.559 | 1220.15 |
+| vram256 | 5.460 | 9.759 | 1.586 | 1214.04 |
+
+VRAM capture was 4.5% slower than FastCDC and 4.4% faster than JC. VRAM used
+1.9% more repository bytes than FastCDC and reconstructed 32.3% slower.
+Capture ranges overlap: FastCDC 5.142-6.440 s, JC 5.509-5.931 s, VRAM
+5.292-6.033 s. Three samples do not establish a precise general speed gap.
+These full-flow runs have no internal stage timings and do not measure kernel
+speed independently. FastCDC remains the default.
+
+Required unique chunk counts by version (4.4, 4.5, 5.0, 5.1):
+
+- FastCDC: 9,461 / 9,687 / 10,054 / 10,533.
+- JC: 9,266 / 9,362 / 9,783 / 10,169.
+- VRAM: 10,411 / 10,690 / 11,034 / 11,615.
+
+All nine lanes passed independent reconstruction and corruption-repair checks.
+Validation also passed 320 Rust library tests, three public API tests including
+both JC and RAM CLI/metadata round trips, 72 benchmark/boundary harness tests, and six shared-suite tests.
+The RAM tests compare scalar and AVX2 with an independent literal reference,
+covering empty inputs, unaligned slices, vector tails, repeated bytes, all presets,
+short reads and small/streaming capture paths. No global AVX2 compiler flag is used.
+Evidence and per-command statistics:
+`tests/.artifacts/vram-blender-four/2026.09.27-Blender-f5c6014c-17_gutch_fastcd-12342793-001/`.
