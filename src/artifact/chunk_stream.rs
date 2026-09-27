@@ -4,6 +4,13 @@ use crate::manifest::ChunkSizingProfile;
 use crate::progress::GutchOperationControl;
 use std::io::Read;
 
+/// Stateless boundary kernels must return 1..=min(input.len(), max_size())
+/// for nonempty input, and zero for empty input.
+pub(crate) trait ChunkBoundary {
+    fn max_size(&self) -> usize;
+    fn cut(&self, bytes: &[u8]) -> usize;
+}
+
 pub(crate) struct BoundaryFinder {
     min: usize,
     average: usize,
@@ -24,8 +31,16 @@ impl BoundaryFinder {
             relaxed_mask,
         }
     }
+}
 
-    pub(crate) fn cut(&self, bytes: &[u8]) -> usize {
+impl ChunkBoundary for BoundaryFinder {
+    #[inline]
+    fn max_size(&self) -> usize {
+        self.max
+    }
+
+    #[inline]
+    fn cut(&self, bytes: &[u8]) -> usize {
         super::fastcdc_v2020::cut(
             bytes,
             self.min,
@@ -43,9 +58,9 @@ pub(crate) struct BorrowedChunk<'a> {
     pub(crate) data: &'a [u8],
 }
 
-pub(crate) struct ChunkStream<R> {
+pub(crate) struct ChunkStream<R, C = BoundaryFinder> {
     reader: R,
-    boundary: BoundaryFinder,
+    boundary: C,
     buffer: Vec<u8>,
     start: usize,
     end: usize,
@@ -55,15 +70,21 @@ pub(crate) struct ChunkStream<R> {
 
 impl<R: Read> ChunkStream<R> {
     pub(crate) fn new(reader: R, profile: &ChunkSizingProfile, inventory_size: u64) -> Self {
-        let boundary = BoundaryFinder::new(profile);
+        Self::with_boundary(reader, BoundaryFinder::new(profile), inventory_size)
+    }
+}
+
+impl<R: Read, C: ChunkBoundary> ChunkStream<R, C> {
+    pub(crate) fn with_boundary(reader: R, boundary: C, inventory_size: u64) -> Self {
+        let max_size = boundary.max_size();
         // Upstream retains a max-sized buffer plus an owned chunk of up to max.
         // Reuse that worst-case bound for read-ahead instead of copying every chunk.
         // Small sources need no extra read-ahead allocation; never shrink below max,
         // because inventory size is a hint and cannot decide a chunk boundary.
         let extra = inventory_size
-            .saturating_sub(boundary.max as u64)
-            .min(boundary.max as u64) as usize;
-        let capacity = boundary.max + extra;
+            .saturating_sub(max_size as u64)
+            .min(max_size as u64) as usize;
+        let capacity = max_size + extra;
         Self {
             reader,
             boundary,
@@ -80,7 +101,7 @@ impl<R: Read> ChunkStream<R> {
         control: &GutchOperationControl,
     ) -> crate::Result<Option<BorrowedChunk<'_>>> {
         control.checkpoint()?;
-        if !self.eof && self.end - self.start < self.boundary.max {
+        if !self.eof && self.end - self.start < self.boundary.max_size() {
             self.buffer.copy_within(self.start..self.end, 0);
             self.end -= self.start;
             self.start = 0;

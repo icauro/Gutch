@@ -1,3 +1,4 @@
+use super::chunk_stream::ChunkBoundary;
 use super::chunk_stream::{BoundaryFinder, ChunkStream};
 use crate::profile::ProfileInstant;
 #[cfg(test)]

@@ -6,8 +6,9 @@ Source: src/v2020/mod.rs
 Source SHA-256: 930f3646dbd331c6ff9d6274b2e8d6bf64a4ce9456b6b743f97bcec436f6d46d
 License: MIT; preserve LICENSE and source copyright notices when redistributing.
 
-mod.rs copies the masks, default gear tables, and two-byte cut routine. The
-entry point uses the default tables directly. Seeded tables, alternate algorithms,
+mod.rs retains the masks and two-byte cut routine. The unchanged default Gear
+table lives in ../gear.rs, with its shifted table derived at compile time. The
+entry point uses these tables directly. Seeded tables, alternate algorithms,
 async adapters, owned chunk iterators, and unrelated APIs are omitted. The kernel
 retains upstream boundary behavior; Gutch owns the borrowed streaming adapter in
 ../chunk_stream.rs. Gutch fixes normalization at level 1, as in its persisted chunking profile.

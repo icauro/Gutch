@@ -238,3 +238,40 @@ commands, install its checkout into the same Python environment:
 `uv pip install --python .venv -e <suite-checkout>`. Gutch does not search sibling folders.
 Its build image includes the installed suite when available; build and engine
 correctness commands do not require it.
+
+## Experimental jump chunking
+
+The borrowed chunk stream uses a statically dispatched `ChunkBoundary` kernel.
+Production uses the existing FastCDC v2020 level-1 boundaries and Gear table.
+The shifted Gear table is derived at compile time. Experimental JC code is
+compiled only under `cfg(test)` and cannot select an algorithm for production
+capture or write a JC snapshot with a FastCDC identifier.
+
+`tests/benchmarks/cdc_experiment.py` compares the frozen pre-interface adapter,
+current FastCDC, Plakar-compatible JC, and paper-scaled JC. It accepts `--base`
+and `--updated` build directories and `--repetitions` (default five). Run from
+the project root with `python tests/benchmarks/cdc_experiment.py --base PATH
+--updated PATH`. Evidence is written to `tests/.artifacts/jc-experiment/`.
+
+The experiment reports boundary scanning, scanning plus BLAKE3, streaming plus
+BLAKE3, chunk-size statistics, and byte reuse against the previous build.
+Input loading is excluded, bytes are resident in memory, and variants rotate
+order after a warmup. These are single-thread kernel/pipeline measurements,
+not complete backup or capture throughput. Reuse checks chunk contents across
+files; it does not estimate compressed repository size.
+
+Plakar compatibility is pinned to go-cdc-chunkers v1.1.0, commit
+`b6c4abce19e9691184a0aceefc4e9f53fcfe79c8`. Its fixed cut/jump masks contain 11/10
+bits. Paper-scaled JC uses `log2(target)-1` cut bits, one fewer jump bit,
+evenly spaced mask positions, and target/2 jumps. Both share the JC loop and
+Plakar Gear table; the paper preset is not advertised as an exact upstream
+implementation. That table differs from Gutch's and must remain distinct.
+
+The 24 frozen Go-oracle cases in `src/artifact/jc_tests.rs` use xorshift64
+(13-left, 7-right, 17-left), seed 917, emitting the low byte after each update.
+Each case records its exact size parameters, input length, and cut lengths.
+They were generated using the pinned Go library's `jc-v1.1.0` reader API.
+The tests run offline. The reference Gear table and JC source retain the
+upstream ISC notices; Gutch's FastCDC table retains its upstream MIT notice.
+
+Measured results and limitations: [JC experiment](cdc_experiment.md).
