@@ -161,6 +161,9 @@ Internal diagnostics retain chunk/compression/worker profiles, individual versus
 batch capture, filesystem baselines, and storage/recovery workloads. Reports
 show per-snapshot measurements, totals and throughput; verification and recovery
 appear separately. Batch capture does not invent per-snapshot capture timings.
+Internal fixture loading, diagnostic reports, and batch/whole-product workflows
+are owned by `tests/benchmarks/comparison/`; the separate suite provides shared
+process execution, Gutch operations, validation, and measurement helpers.
 
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed records engine
 spans and sampled memory. The comparison timeline includes subprocess wall times

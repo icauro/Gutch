@@ -86,11 +86,6 @@ class GutchBenchmarkContractTests(unittest.TestCase):
             assert json.loads((tmp_path / '0001.json').read_text(encoding='utf-8'))['returncode'] == 7
             assert '�' in (tmp_path / '0001.stdout.log').read_text(encoding='utf-8')
 
-    def test_borg_two_commands_use_explicit_repository(self):
-        for operation, arguments, expected in [('init', ['--encryption', 'none', 'repo'], ['repo-create', '--repo', 'repo', '--encryption', 'none-sha256']), ('create', ['--compression', 'zstd,1', 'repo::snapshot', 'source'], ['create', '--repo', 'repo', '--compression', 'zstd,1', 'snapshot', 'source']), ('extract', ['repo::snapshot'], ['extract', '--repo', 'repo', 'snapshot']), ('check', ['--verify-data', 'repo'], ['check', '--repo', 'repo', '--verify-data'])]:
-            from comparison_benchmark_suite.tools.external import borg_command
-            command = ['borg', operation, *arguments]
-            assert list(map(str, borg_command(command, Path('repo')))) == ['borg', *expected]
 
     def test_long_artifact_names_remain_bounded_distinct_and_reusable(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -130,49 +125,6 @@ class GutchBenchmarkContractTests(unittest.TestCase):
             self.enterContext(patch.object(binary.subprocess, 'run', cargo))
             assert binary.resolve_gutch_executable(tmp_path) == executable
             assert len(calls) == 1
-
-    def test_bulk_tools_count_and_validate_entire_product(self):
-        for tool in ['restic', 'kopia', 'borg', 'plakar']:
-            for missing_root_file in [False, True]:
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    tmp_path = Path(temporary_directory)
-                    import shutil
-                    from comparison_benchmark_suite.tools.external import ExternalTools
-                    from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
-                    from comparison_benchmark_suite.support.command import CommandResult
-                    from comparison_benchmark_suite.support.commands import GutchCli
-                    product = tmp_path / 'product'
-                    for name in ('1.0.0', '.hidden'):
-                        (product / name).mkdir(parents=True)
-                        (product / name / 'data').write_bytes(b'data')
-                    (product / 'root.txt').write_bytes(b'root')
-                    executable = tmp_path / tool
-                    executable.write_bytes(b'tool')
-                    layout = RunLayout(tmp_path / 'run')
-                    output = layout.lane(tool).payload / 'installation'
-
-                    class Commands:
-
-                        def run(self, command, *, description, **kwargs):
-                            if description.endswith((' restore', ' extract')):
-                                if tool == 'restic':
-                                    assert '--verify' in command
-                                shutil.copytree(product, output, dirs_exist_ok=True)
-                                if missing_root_file:
-                                    (output / 'root.txt').unlink()
-                            stdout = 'borg 2.0.0b23' if '--version' in command else '{"message_type":"summary","snapshot_id":"abc"}'
-                            return CommandResult(tuple(map(str, command)), 0.01, 0, stdout, '')
-                    commands = Commands()
-                    runner = LocalFixtureRunner(GutchCli(executable), commands, layout, ExternalTools(tmp_path, commands, **{tool: executable}))
-                    case = LaneSpec(tool, tool, workload='exact-bulk')
-                    if missing_root_file:
-                        with self.assertRaisesRegex(RuntimeError, 'root.txt'):
-                            runner.run_lane(product, case)
-                    else:
-                        result = runner.run_lane(product, case)
-                        assert result.metrics['input_bytes'] == 12
-                        assert result.metrics['input_files'] == 3
-                        assert result.metadata['dataset_sha256'] == DatasetSelection.resolve(product, whole_product=True).fingerprint
 
 
 class SnapshotComparisonTests(unittest.TestCase):
@@ -240,7 +192,7 @@ class SnapshotComparisonTests(unittest.TestCase):
     def test_report_shows_snapshot_averages_and_weighted_throughput(self):
         import io
         from contextlib import redirect_stdout
-        from comparison_benchmark_suite.tools.report import print_comparison_table
+        from tests.benchmarks.comparison.report import print_comparison_table
         result = LaneResult('filesystem-copy', 'filesystem-copy',
             {'input_bytes': 8 * 1048576, 'backup': 4.0, 'restore': 10.0, 'repo_size': 8 * 1048576,
              'corrupt': 0.0, 'full_restore_recovery': 0.0}, metadata={'snapshot_metrics': {
@@ -263,7 +215,7 @@ class SnapshotComparisonTests(unittest.TestCase):
     def test_batch_report_does_not_invent_per_snapshot_capture_times(self):
         import io
         from contextlib import redirect_stdout
-        from comparison_benchmark_suite.tools.report import print_comparison_table
+        from tests.benchmarks.comparison.report import print_comparison_table
         result = LaneResult('batch', 'gutch-batch', {'backup': 4.0}, metadata={'snapshot_metrics': {
             '1.0.0': {'input_bytes': 0, 'restore': 0.5}}})
         output = io.StringIO()

@@ -12,12 +12,12 @@ from comparison_benchmark_suite.support.artifacts import RunLayout
 from comparison_benchmark_suite.support.command import CommandResult, CommandRunner
 from comparison_benchmark_suite.scheduling.config import ScenarioCatalog
 from tests.benchmarks.scheduling.environment import load_benchmark_environment
-from comparison_benchmark_suite.support.traces import combine_labeled_traces, combine_traces
+from comparison_benchmark_suite.support.traces import combine_labeled_traces
 from tests.benchmarks.benchmark_config import load_benchmark_config
 import tests.benchmarks.comparison.cli as gutch_cli
 import tests.benchmarks.comparison.binary as gutch_binary
 from comparison_benchmark_suite.support.commands import GutchCli
-from comparison_benchmark_suite.tools.config import FixtureCatalog, load_fixture
+from tests.benchmarks.comparison.config import FixtureCatalog, load_fixture
 import tests.benchmarks.comparison.__main__ as gutch_launcher
 from tests.benchmarks.comparison.__main__ import _prompt_product, main as gutch_main
 from tests.benchmarks.comparison.binary import resolve_gutch_executable
@@ -25,8 +25,8 @@ from comparison_benchmark_suite.tools.external import ExternalTools, _plakar_cac
 from tests.benchmarks.support.s3 import S3Settings, s3_key
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
 from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult, LaneSpec
-from comparison_benchmark_suite.tools.report import print_gutch_profile_table
-import comparison_benchmark_suite.tools.workflow as gutch_workflow
+from tests.benchmarks.comparison.report import print_gutch_profile_table
+import tests.benchmarks.comparison.workflow as gutch_workflow
 import comparison_benchmark_suite.scheduling.runner as benchmark_runner
 from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
 from tests.benchmarks.docker.launcher import DockerLauncher, DockerTarget
@@ -66,7 +66,7 @@ def test_internal_fixture_catalog_excludes_external_tools():
 
 def test_internal_runner_rejects_external_tools_before_creating_artifacts(tmp_path):
     import pytest
-    fixture = FixtureCatalog().resolve("blender")
+    fixture = load_fixture(Path(__file__).resolve().parents[3] / "comparison_benchmark_suite/fixtures/blender/fixture.yaml")
     artifacts = tmp_path / "runs"
     with pytest.raises(ValueError, match="standalone suite"):
         gutch_workflow.run_fixture(fixture, tmp_path, GutchCli(Path("unused")), artifacts, keep_artifacts=False)
@@ -79,14 +79,10 @@ def test_fixture_waits_default_to_four_seconds() -> None:
     assert fixture.step_wait_seconds == 4.0
 
 
-
-
-def test_external_tools_resolve_nested_plakar_binary(tmp_path: Path) -> None:
-    executable = tmp_path / "tests/benchmarks" / "comparison" / "bin" / ("plakar/plakar.exe" if os.name == "nt" else "linux-x64/plakar")
-    executable.parent.mkdir(parents=True)
+def test_external_tools_use_explicit_binary(tmp_path: Path) -> None:
+    executable = tmp_path / "plakar"
     executable.write_bytes(b"plakar")
-
-    assert ExternalTools(tmp_path, CommandRunner()).executable("plakar") == executable
+    assert ExternalTools(CommandRunner(), plakar=executable).executable("plakar") == executable
 
 
 def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
@@ -117,7 +113,7 @@ def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
         profile=FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
     result = run_external(
-        ExternalTools(tmp_path, commands, kopia=executable),
+        ExternalTools(commands, kopia=executable),
         RunLayout(tmp_path / "run").lane("kopia"),
         product,
         lane_spec,
@@ -163,7 +159,7 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
         arguments=("--compression", "zstd,1"),
     )
     run_external(
-        ExternalTools(tmp_path, commands, borg=executable),
+        ExternalTools(commands, borg=executable),
         RunLayout(tmp_path / "run").lane("borg"),
         product,
         lane_spec,
@@ -171,8 +167,6 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
 
     assert commands.calls[1][1:] == ("repo-create", "--repo", str(tmp_path / "run/lanes/borg/payload/repo"), "--encryption", "none-sha256")
     assert all("--repo" in call for call in commands.calls[1:])
-
-
 
 
 def test_plakar_uses_short_unique_cache_socket_path(tmp_path: Path) -> None:
@@ -389,7 +383,7 @@ def test_snapshot_limit_selects_newest_product_targets(tmp_path: Path) -> None:
     assert [path.name for path in entries] == ["5.2.1", "5.2.2"]
 
 
-def test_fixture_loader_accepts_explicit_mapping_shape(tmp_path: Path) -> None:
+def test_fixture_loader_accepts_explicit_list_shape(tmp_path: Path) -> None:
     fixture = tmp_path / "fixture.yaml"
     fixture.write_text(
         "\n".join(
@@ -397,7 +391,7 @@ def test_fixture_loader_accepts_explicit_mapping_shape(tmp_path: Path) -> None:
                 "name: explicit",
                 "runner: gutch-fixture",
                 "lanes:",
-                "  lane-a:",
+                "  - label: lane-a",
                 "    tool: gutch",
                 "    profile:",
                 "      chunk: chunk_64KiB",
@@ -458,29 +452,6 @@ def test_fixture_loader_rejects_arguments_on_gutch_lane(tmp_path: Path) -> None:
         assert "only supported for external lanes" in str(error)
     else:
         raise AssertionError("Gutch lanes should use typed profile options")
-
-
-def test_fixture_loader_rejects_legacy_mapping_shape(tmp_path: Path) -> None:
-    fixture = tmp_path / "fixture.yaml"
-    fixture.write_text(
-        "\n".join(
-            [
-                "name: legacy",
-                "runner: gutch-fixture",
-                "lanes:",
-                "  lane-a:",
-                "    tool: gutch",
-                "    compression_profile: zstd_1",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    try:
-        load_fixture(fixture)
-    except ValueError as error:
-        assert "unsupported legacy profile fields" in str(error)
-    else:
-        raise AssertionError("legacy compression profile fields must be rejected")
 
 
 def test_gutch_profile_uses_rust_cli_flag_names() -> None:
@@ -548,7 +519,7 @@ def test_recovery_options_are_fixture_level(tmp_path: Path) -> None:
     try:
         load_fixture(fixture)
     except ValueError as error:
-        assert "fixture level" in str(error)
+        assert "unsupported lane fields" in str(error)
     else:
         raise AssertionError("lane recovery options should be rejected")
 
@@ -629,18 +600,6 @@ def test_run_layout_removes_only_payloads(tmp_path: Path) -> None:
     run.remove_payloads()
     assert not (lane.payload / "repo").exists()
     assert (lane.stats / "result.json").exists()
-
-
-def test_combine_traces_offsets_processes_and_timestamps(tmp_path: Path) -> None:
-    first = tmp_path / "first.json"
-    second = tmp_path / "second.json"
-    output = tmp_path / "combined.json"
-    first.write_text(json.dumps({"traceEvents": [{"pid": 1, "tid": 2, "ts": 10}]}), encoding="utf-8")
-    second.write_text(json.dumps({"traceEvents": [{"pid": 1, "tid": 2, "ts": 40}]}), encoding="utf-8")
-    combine_traces([first, second], output)
-    events = json.loads(output.read_text(encoding="utf-8"))["traceEvents"]
-    assert events[0]["pid"] != events[1]["pid"]
-    assert events[0]["ts"] < events[1]["ts"]
 
 
 def test_combine_labeled_traces_keeps_phases_in_one_perfetto_lane(tmp_path: Path) -> None:
@@ -836,8 +795,6 @@ def test_container_progress_output_is_human_readable(capsys) -> None:
     )
 
     assert "[container] step: container-default-gutch lane started" in capsys.readouterr().err
-
-
 
 
 def test_docker_benchmark_closes_services_on_failure(monkeypatch):
@@ -1108,7 +1065,7 @@ def test_fixture_perfetto_opens_after_lane_results(tmp_path: Path, monkeypatch) 
         def run_lane(self, *_args, **_kwargs):
             return LaneResult("lane", "gutch-individual", {"backup": 1.0}, {"capture": [str(trace)]})
 
-    monkeypatch.setattr(gutch_workflow, "LocalFixtureRunner", FakeFixtureRunner)
+    monkeypatch.setattr(gutch_workflow, "GutchDiagnosticRunner", FakeFixtureRunner)
     monkeypatch.setattr(benchmark_runner, "open_trace_in_perfetto", lambda path, _log: opened.append(path) or True)
 
     callbacks: list[str] = []
@@ -1152,8 +1109,8 @@ def test_run_fixture_waits_between_measured_lanes(tmp_path: Path, monkeypatch) -
             return LaneResult(lane.label, lane.kind, {"backup": 1.0})
 
     waits: list[float] = []
-    monkeypatch.setattr(gutch_workflow, "LocalFixtureRunner", FakeFixtureRunner)
-    monkeypatch.setattr(gutch_workflow.time, "sleep", waits.append)
+    monkeypatch.setattr(gutch_workflow, "GutchDiagnosticRunner", FakeFixtureRunner)
+    monkeypatch.setattr(benchmark_runner.time, "sleep", waits.append)
 
     gutch_workflow.run_fixture(
         fixture,

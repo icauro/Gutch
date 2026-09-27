@@ -117,7 +117,7 @@ Launch the Docker fixture menu:
 Progress includes preparation, lanes, and individual Gutch commands. No SSH
 credentials, remote workspace, or WSL distribution is required.
 
-The Gutch launcher shows an ASCII spinner for each command, including its lane
+The Gutch launcher prints command start/completion lines, including its lane
 and current step, then prints each measured lane as soon as it completes,
 followed by the machine-readable results path. A fixture with `open_perfetto: true`
 combines the retained lane traces into `trace.json` and opens it in Perfetto.
@@ -170,7 +170,9 @@ select the newest N targets for individual capture and filesystem copy lanes.
       docker/           Linux execution and evidence export
 
 The installed `comparison_benchmark_suite` package supplies shared process,
-validation, scheduling, Gutch operation, and reporting helpers. It owns the
+validation, scheduling, and Gutch operation helpers. Internal diagnostic reports,
+fixture catalogs, and batch/whole-product capture live in `comparison/report.py`,
+`comparison/config.py`, and `comparison/workflow.py`. The independent suite owns
 external-tool adapters and comparison fixtures.
 
 Each measured lane gets an isolated artifact directory. Reconstruct owns its single

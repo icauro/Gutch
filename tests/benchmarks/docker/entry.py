@@ -71,14 +71,14 @@ def main() -> int:
     from tests.benchmarks.benchmark_config import load_benchmark_config
     from tests.benchmarks.scheduling.environment import load_benchmark_environment
     from comparison_benchmark_suite.support.commands import GutchCli
-    from comparison_benchmark_suite.tools.config import load_fixture
-    from comparison_benchmark_suite.tools.report import print_fixture_report
+    from tests.benchmarks.comparison.config import load_fixture
+    from tests.benchmarks.comparison.report import print_fixture_report
     from tests.benchmarks.support.s3 import S3Settings
     from tests.benchmarks.comparison.s3_cycle import (
         load_s3_cycle,
         run_s3_cycle,
     )
-    from comparison_benchmark_suite.tools.workflow import run_fixture
+    from tests.benchmarks.comparison.workflow import run_fixture
 
     config = load_benchmark_config(args.config.resolve())
     load_benchmark_environment(args.config.resolve(), overwrite=True)

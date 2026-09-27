@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from comparison_benchmark_suite.support.commands import GutchCli
 from comparison_benchmark_suite.support.traces import combine_labeled_traces
-from comparison_benchmark_suite.tools.report import _read_trace_spans
+from tests.benchmarks.comparison.report import _read_trace_spans
 
 
 def test_cli_profile_modes_have_one_switch(tmp_path):

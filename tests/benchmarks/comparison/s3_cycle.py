@@ -12,7 +12,7 @@ from comparison_benchmark_suite.support.command import CommandRunner
 from comparison_benchmark_suite.scheduling.config import load_scenario
 from comparison_benchmark_suite.support.filesystem import remove_tree, scan_tree
 from comparison_benchmark_suite.support.commands import GutchCli
-from comparison_benchmark_suite.tools.config import load_fixture
+from tests.benchmarks.comparison.config import load_fixture
 from comparison_benchmark_suite.scheduling.dataset import DatasetSelection, select_sources
 from comparison_benchmark_suite.scheduling.runner import execute_cases
 from comparison_benchmark_suite.tools.models import FixtureSpec, GutchProfile, LaneResult

@@ -13,7 +13,7 @@ import yaml
 from tests.benchmarks.benchmark_config import BenchmarkConfig, load_benchmark_config
 from comparison_benchmark_suite.support.artifacts import safe_component, create_run_dir
 from comparison_benchmark_suite.support.traces import open_trace_in_perfetto
-from comparison_benchmark_suite.tools.config import load_fixture
+from tests.benchmarks.comparison.config import load_fixture
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
 from tests.benchmarks.docker.launcher import DockerLauncher, DockerTarget
 
