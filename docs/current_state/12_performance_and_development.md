@@ -239,3 +239,8 @@ tests, so validation does not launch browser tabs with synthetic traces.
 
 Benchmark corruption leaves permissions unchanged. It flips bytes in a writable
 file, deletes another writable file when available, and adds an extra file.
+
+Detailed comparisons report sampled CPU usage (100% per logical core) and peak
+RSS for direct tool processes. CPU is weighted by observed command sampling time;
+child processes and the harness are excluded. Off-mode and unavailable samples
+remain missing values rather than zero utilization.
