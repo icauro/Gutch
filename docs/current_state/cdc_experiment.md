@@ -198,3 +198,40 @@ settings and should not be treated as the current fixture configuration.
 
 Evidence: `tests/.artifacts/jc-256-blender/2026.09.27-source-16_gutch_fastcdc_vs_jc-001/`.
 Per-command capture statistics and all payloads were retained for inspection.
+
+
+## FastCDC 128 KiB versus JC 256 KiB on Hollow Knight
+
+The same full-flow fixture and release binary were run on all three available
+builds: `hk-v0.0.1`, `hk-v1.0.0`, and `hk-v1.1.0`. Total input was
+15,661,389,815 bytes across 5,355 files. Settings remained FastCDC 128 KiB versus
+JC 256 KiB, zstd 3, 8 MiB bundles, automatic workers, profiling off, three
+alternating repetitions and no explicit warm-up. OS cache was uncontrolled.
+Unlike the earlier kernel experiment, this run includes the middle build.
+
+Medians below sum the three builds within each repetition:
+
+| Chunker | Capture s | Reconstruction s | Repair s | Repository MiB |
+|---|---:|---:|---:|---:|
+| fastcdc | 7.391 | 9.568 | 2.456 | 1165.38 |
+| jc | 7.897 | 9.882 | 2.369 | 1189.00 |
+
+JC capture was 6.9% slower, reconstruction 3.3% slower, repair 3.5% faster,
+and repository size 2.0% larger (+23.62 MiB). Capture totals ranged from
+7.154–9.991 seconds for FastCDC and 7.745–10.199 seconds for JC; three samples
+with overlapping ranges do not establish a precise general performance gap.
+
+| Build | FastCDC required unique chunks | JC required unique chunks | FastCDC new chunks | JC new chunks |
+|---|---:|---:|---:|---:|
+| 0.0.1 | 21,562 | 26,849 | 21,562 | 26,849 |
+| 1.0.0 | 21,779 | 26,988 | 3,996 | 4,079 |
+| 1.1.0 | 21,780 | 26,966 | 1,081 | 1,349 |
+
+The initial JC unique chunk count is 24.5% higher: the size pairing that nearly
+matched counts on Blender does not do so on Hollow Knight. These full-flow
+measurements have no internal stage timings, so they do not separately attribute
+the difference to chunk loading, compression, or other stages.
+
+All six lanes passed independent reconstruction and corruption-repair checks.
+Evidence and retained per-command statistics:
+`tests/.artifacts/jc-256-hollow-knight/2026.09.27-HollowKnight-16_gutch_fastcdc_vs_jc-001/`.
