@@ -18,6 +18,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         source_dir: source,
         explicit_tags: SnapshotTagSet::default(),
         chunk_profile: Default::default(),
+        chunker: gutch::api::Chunker::FastCdc,
         bundle_profile: Default::default(),
         compression_algorithm: CompressionKind::None,
         compression_level: None,

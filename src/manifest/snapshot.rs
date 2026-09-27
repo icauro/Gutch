@@ -280,6 +280,8 @@ pub(crate) fn current_host_tags() -> SnapshotTagSet {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SnapshotMetadata {
+    #[serde(default)]
+    pub chunker: Chunker,
     #[serde(rename = "snapshot_metadata_version")]
     pub metadata_version: String,
     #[serde(skip)]
@@ -297,6 +299,7 @@ pub(crate) struct SnapshotBlueprint {
 
 #[derive(Debug, Clone)]
 pub struct SnapshotManifest {
+    pub chunker: Chunker,
     pub metadata_version: String,
     pub snapshot_id: String,
     pub captured_at: String,
@@ -313,6 +316,7 @@ pub struct SnapshotManifest {
 impl SnapshotManifest {
     pub fn new(snapshot_id: String, snapshot_tags: SnapshotTagSet) -> Self {
         SnapshotManifest {
+            chunker: Chunker::default(),
             metadata_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             snapshot_id,
             captured_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
@@ -328,6 +332,7 @@ impl SnapshotManifest {
 
     pub(crate) fn metadata(&self) -> SnapshotMetadata {
         SnapshotMetadata {
+            chunker: self.chunker,
             metadata_version: self.metadata_version.clone(),
             snapshot_id: self.snapshot_id.clone(),
             captured_at: self.captured_at.clone(),
@@ -343,6 +348,7 @@ impl SnapshotManifest {
 
     pub(crate) fn from_metadata(metadata: SnapshotMetadata) -> Self {
         Self {
+            chunker: metadata.chunker,
             metadata_version: metadata.metadata_version,
             snapshot_id: metadata.snapshot_id,
             captured_at: metadata.captured_at,

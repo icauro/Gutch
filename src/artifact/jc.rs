@@ -13,7 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-//! Experimental JC kernels; compiled only into tests and benchmarks.
+//! Plakar-compatible JC, with a test-only paper-scaled parameterization.
 //! The Plakar preset reproduces go-cdc-chunkers v1.1.0. The scaled preset
 //! uses paper-derived bit counts with explicitly chosen evenly spaced bits.
 
@@ -25,6 +25,7 @@ mod table;
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Parameters {
     Plakar,
+    #[cfg(test)]
     PaperScaled,
 }
 
@@ -42,6 +43,7 @@ impl JumpChunker {
         assert!(0 < min && min < target && target < max);
         let (cut_mask, jump_mask) = match parameters {
             Parameters::Plakar => (0x590003570000, 0x590003560000),
+            #[cfg(test)]
             Parameters::PaperScaled => {
                 let bits = target.ilog2() - 1;
                 let step = 64 / bits;

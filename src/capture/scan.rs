@@ -395,9 +395,14 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
                 && candidate.full_file_hash == full_file_hash
                 && candidate.executable == executable
                 && candidate.read_only == read_only
-                && candidate.chunks.iter().all(|chunk| {
-                    ChunkHash::parse_hex(&chunk.chunk_hash)
-                        .is_ok_and(|hash| options.existing_chunk_locations.contains_key(&hash))
+                // Settings may change while file contents stay identical.
+                && candidate.chunks.len() == chunk_scan.chunks.len()
+                && candidate.chunks.iter().zip(&chunk_scan.chunks).all(|(old, new)| {
+                    u64::from(old.raw_size) == new.size
+                        && ChunkHash::parse_hex(&old.chunk_hash).is_ok_and(|hash| {
+                            hash == ChunkHash::from_blake3(new.hash)
+                                && options.existing_chunk_locations.contains_key(&hash)
+                        })
                 })
         })
     };

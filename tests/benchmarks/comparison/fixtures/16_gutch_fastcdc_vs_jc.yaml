@@ -1,0 +1,25 @@
+name: 16_gutch_fastcdc_vs_jc
+runner: gutch-fixture
+description: >-
+  FastCDC versus Plakar-compatible JC (go-cdc-chunkers v1.1.0), with identical
+  128 KiB target, 32 KiB minimum, 512 KiB maximum, zstd level 3 and 8 MiB bundles.
+  JC uses fixed masks, so equal targets do not imply equal average chunk sizes.
+  Each lane captures, reconstructs and repairs the same builds in its own repository.
+delete_artifacts: true
+open_perfetto: false
+profile_mode: "off"
+repetitions: 3
+corrupt_repair: true
+lane_wait_seconds: 0
+step_wait_seconds: 0
+lanes:
+  - label: fastcdc
+    tool: gutch
+    workload: individual
+    profile:
+      chunker: fastcdc
+  - label: jc
+    tool: gutch
+    workload: individual
+    profile:
+      chunker: jc

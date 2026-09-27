@@ -123,6 +123,7 @@ pub(crate) fn run(
                     source_dir: source.path.clone(),
                     explicit_tags: source.tags.clone(),
                     chunk_profile: build_profile.chunk_profile,
+                    chunker: build_profile.chunker,
                     bundle_profile: build_profile.bundle_profile,
                     compression_algorithm: build_profile.compression_algorithm,
                     compression_level: build_profile.compression_level,

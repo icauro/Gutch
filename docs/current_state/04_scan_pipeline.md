@@ -57,6 +57,8 @@ inventory size, stays between one and two maximum-sized chunks, and never change
 boundary decisions. This matches the former buffer-plus-owned-chunk worst-case
 bound, although typical resident memory can increase slightly. Gutch owns a small
 FastCDC v2020 kernel containing the default gear tables and level-1 boundary rules.
+Plakar-compatible JC is selectable with `--chunker jc`; FastCDC remains the default.
+The selected kernel is statically dispatched through the shared borrowed stream.
 Upstream FastCDC is pinned as a test-only oracle for exact boundary comparisons.
 The local subset retains its upstream license, copyright, and provenance.
 The same read supplies the full-file BLAKE3 hash and the raw chunk boundaries.
@@ -65,7 +67,9 @@ the manifest always contains ordered, content-addressed references rather than
 only offsets.
 
 The previous manifest is reusable for a path only when the current file has the
-same normalized path, size, full-file hash, executable bit, and read-only bit.
+same normalized path, size, full-file hash, executable bit, read-only bit, and
+newly scanned chunk hashes and lengths. Chunker or size changes therefore cannot
+reuse a different old boundary layout in a new snapshot.
 When that comparison succeeds, Gutch reuses the previous file manifest without
 rechunking it into new artifacts. Otherwise, each chunk is resolved through the
 repo-wide chunk map; source ranges are retained only for chunks that are not

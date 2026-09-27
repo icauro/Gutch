@@ -1,6 +1,6 @@
 # JC chunking experiment — 2026-09-27
 
-Implemented as test-only kernels. Production capture remains FastCDC v2020, normalization level 1. No repository format, persisted algorithm identifier, or default changed.
+These measurements were collected with test-only kernels. Plakar-compatible JC is now selectable as `--chunker jc`, with persisted `jc-v1.1.0` identity; FastCDC v2020 normalization level 1 remains the default. Paper-scaled JC remains test-only. See [full-flow fixture](12_performance_and_development.md#selectable-jump-chunking).
 
 ## Method
 
@@ -98,7 +98,7 @@ At 128 KiB, Plakar JC improves scan-plus-BLAKE3 throughput by 87.6% and reduces 
 
 Paper-scaled JC is 1.9% slower at 128 KiB with 33.27 MiB more new unique data; at 1 MiB it is 4.7% slower with 143.99 MiB more new unique data. It does not improve the measured tradeoff on this fixture.
 
-Plakar JC wins both measured axes at the larger targets here, unlike the Blender 128 KiB storage tradeoff. Its actual chunk sizes are also smaller. These results do not establish performance at matched actual average sizes, compressed repository size, or full capture/transfer/repair performance. Production remains FastCDC.
+Plakar JC wins both measured axes at the larger targets here, unlike the Blender 128 KiB storage tradeoff. Its actual chunk sizes are also smaller. These results do not establish performance at matched actual average sizes, compressed repository size, or full capture/transfer/repair performance. FastCDC remains the default.
 
 All nine requested algorithm/size combinations completed; each has 11 measured samples for each of three timing modes. The frozen FastCDC adapter remains an additional interface control. Raw results, metadata, and the native log are in `tests/.artifacts/jc-experiment/hollow-knight/`. Existing Blender evidence was retained.
 
@@ -107,3 +107,30 @@ Reproduce from the project root:
 ```text
 python tests/benchmarks/cdc_experiment.py --name hollow-knight --base /path/to/HollowKnight/hk-v0.0.1 --updated /path/to/HollowKnight/hk-v1.1.0 --repetitions 11
 ```
+
+
+## Production integration validation
+
+The `16_gutch_fastcdc_vs_jc` fixture ran three repetitions per algorithm against
+Blender 5.2.0 and 5.2.1: 13,051 input files and 1,889,262,014 bytes across both
+builds. Each lane used a fresh repository, 128 KiB target, zstd level 3 and
+8 MiB bundles. Profiling was off; OS cache was uncontrolled, with no explicit
+warm-up. These are full-flow observations, not kernel throughput measurements.
+
+Median seconds sum both builds within each repetition:
+
+| Chunker | Capture s | Reconstruction s | Repair s | Repository MiB |
+|---|---:|---:|---:|---:|
+| fastcdc | 2.543 | 3.764 | 0.787 | 527.64 |
+| jc | 2.716 | 3.812 | 0.806 | 534.50 |
+
+All six measured lanes passed independent reconstruction and corruption-repair
+comparison. Evidence: `tests/.artifacts/jc-full-flow/2026.09.27-source-16_gutch_fastcdc_vs_jc-002/`.
+An earlier run completed five lanes before Windows returned access denied during
+the final reconstruction. The fresh complete run above did not reproduce it;
+its cause is unconfirmed. Do not include the incomplete run in these medians.
+
+Validation also passed 317 Rust library tests, eight public API/installation
+integration tests, 84 Gutch harness tests, six shared-suite tests, and the desktop
+core compile check. Public API and CLI coverage verifies persisted `jc-v1.1.0`
+identity. Changing chunkers with an unchanged file in a new snapshot is covered.

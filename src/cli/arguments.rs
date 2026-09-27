@@ -78,6 +78,9 @@ impl TransferArgs {
 
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct ArtifactBuildProfileArgs {
+    /// Content-defined chunker; JC uses the pinned Plakar-compatible variant.
+    #[arg(long, value_enum, default_value_t = crate::manifest::Chunker::FastCdc)]
+    pub(crate) chunker: crate::manifest::Chunker,
     #[arg(short = 'C', long = "chunk-preset", value_enum, default_value_t = crate::manifest::ChunkSizingPreset::Chunk128KiB)]
     pub(crate) chunk_profile: crate::manifest::ChunkSizingPreset,
     #[arg(short = 'B', long = "bundle-preset", value_enum, default_value_t = crate::manifest::BundleSizingPreset::Bundle8MiB)]

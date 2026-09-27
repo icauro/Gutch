@@ -239,13 +239,26 @@ commands, install its checkout into the same Python environment:
 Its build image includes the installed suite when available; build and engine
 correctness commands do not require it.
 
-## Experimental jump chunking
+## Selectable jump chunking
 
 The borrowed chunk stream uses a statically dispatched `ChunkBoundary` kernel.
-Production uses the existing FastCDC v2020 level-1 boundaries and Gear table.
-The shifted Gear table is derived at compile time. Experimental JC code is
-compiled only under `cfg(test)` and cannot select an algorithm for production
-capture or write a JC snapshot with a FastCDC identifier.
+FastCDC v2020 level 1 remains the default. Capture accepts `--chunker fastcdc|jc`;
+`jc` is the Plakar go-cdc-chunkers v1.1.0 algorithm with its fixed masks and Gear
+table. The paper-scaled variant remains test-only. Dispatch happens once per
+file; the chunk loop stays statically dispatched. The shifted FastCDC Gear table
+is derived at compile time.
+
+The public API exposes `Chunker` and `SnapshotCaptureRequest.chunker`. Repository
+profiles and snapshot metadata record `fastcdc-v2020` or `jc-v1.1.0`.
+Reconstruction and repair use stored boundaries, with no chunker selection.
+Recapturing identical content retains the existing snapshot and its algorithm;
+new snapshots use the requested algorithm even for unchanged files. Changing
+algorithms can reduce reuse of chunks from older snapshots.
+
+Run `python gutch.py benchmark --fixture 16_gutch_fastcdc_vs_jc --product PATH`
+from the Gutch directory. The fixture compares three full-flow runs per algorithm
+at 128 KiB target with identical compression and bundle settings. Equal target
+sizes do not imply equal actual average chunk sizes. Each lane has its own repo.
 
 `tests/benchmarks/cdc_experiment.py` compares the frozen pre-interface adapter,
 current FastCDC, Plakar-compatible JC, and paper-scaled JC. It accepts `--base`

@@ -12,7 +12,6 @@ pub(crate) mod typed;
 
 pub const FORMAT_VERSION: &str = "1";
 pub const PUBLIC_METADATA_FORMAT_VERSION: &str = "1.0.0";
-pub const CHUNKER_FASTCDC: &str = "fastcdc-v2020";
 pub const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const REPO_METADATA_FILE: &str = "repo_metadata.json";
@@ -32,6 +31,7 @@ pub use profiles::BundleSizingPreset;
 pub(crate) use profiles::BundleSizingProfile;
 pub use profiles::ChunkSizingPreset;
 pub(crate) use profiles::ChunkSizingProfile;
+pub use profiles::Chunker;
 pub use profiles::CompressionKind;
 pub(crate) use profiles::CompressionProfile;
 pub(crate) use profiles::CompressionUnit;

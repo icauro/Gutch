@@ -6,6 +6,8 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactProfile {
+    #[serde(default)]
+    pub chunker: Chunker,
     #[serde(rename = "chunk_size_profile")]
     pub chunk: ChunkSizingPreset,
     #[serde(rename = "bundle_size_profile")]
@@ -27,6 +29,7 @@ impl ArtifactProfile {
         storage: ArtifactStorageMode,
     ) -> Self {
         Self {
+            chunker: Chunker::default(),
             chunk,
             bundle,
             compression,

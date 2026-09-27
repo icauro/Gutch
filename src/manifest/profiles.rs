@@ -4,8 +4,19 @@ use serde::Serialize;
 use smol_str::SmolStr;
 
 use super::CHUNK_HASH_BLAKE3;
-use super::CHUNKER_FASTCDC;
 use super::FORMAT_VERSION;
+
+/// CLI names are short; serialized names pin the exact boundary algorithm.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+pub enum Chunker {
+    #[default]
+    #[serde(rename = "fastcdc-v2020")]
+    #[value(name = "fastcdc")]
+    FastCdc,
+    #[serde(rename = "jc-v1.1.0")]
+    #[value(name = "jc")]
+    Jc,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
 pub enum ArtifactStorageMode {
@@ -123,7 +134,7 @@ pub enum BundleSizingPreset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ChunkSizingProfile {
     pub preset: ChunkSizingPreset,
-    pub chunker: SmolStr,
+    pub chunker: Chunker,
     pub min_chunk_bytes: u32,
     pub avg_chunk_bytes: u32,
     pub max_chunk_bytes: u32,
@@ -159,7 +170,7 @@ impl ChunkSizingProfile {
 
         ChunkSizingProfile {
             preset,
-            chunker: CHUNKER_FASTCDC.into(),
+            chunker: Chunker::FastCdc,
             min_chunk_bytes,
             avg_chunk_bytes,
             max_chunk_bytes,
@@ -167,6 +178,15 @@ impl ChunkSizingProfile {
             chunk_hash_algorithm: CHUNK_HASH_BLAKE3.into(),
             format_version: FORMAT_VERSION.into(),
         }
+    }
+
+    pub fn with_chunker(mut self, chunker: Chunker) -> Self {
+        self.chunker = chunker;
+        self.gear_table_id = match chunker {
+            Chunker::FastCdc => 3,
+            Chunker::Jc => 4,
+        };
+        self
     }
 
     pub fn min_chunk_size_bytes(&self) -> u32 {

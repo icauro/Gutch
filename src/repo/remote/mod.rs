@@ -486,6 +486,7 @@ mod tests {
                     source_dir: source.clone(),
                     explicit_tags: Default::default(),
                     chunk_profile,
+                    chunker: crate::manifest::Chunker::FastCdc,
                     bundle_profile: Default::default(),
                     compression_algorithm: crate::manifest::CompressionKind::Zstd,
                     compression_level: None,

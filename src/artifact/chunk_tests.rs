@@ -202,3 +202,45 @@ fn repeated_chunk_scans_have_identical_boundaries() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
+    use crate::artifact::jc::{JumpChunker, Parameters};
+    use crate::manifest::{ChunkSizingPreset, Chunker};
+    use clap::ValueEnum;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("source");
+    let mut seed = 917u64;
+    let data: Vec<u8> = (0..2_100_000)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as u8
+        })
+        .collect();
+    for size in [0, 1, 32768, 524288, 524289, 1048576, data.len()] {
+        let bytes = &data[..size];
+        std::fs::write(&path, bytes).unwrap();
+        for preset in ChunkSizingPreset::value_variants() {
+            let profile = ChunkSizingProfile::for_preset(*preset).with_chunker(Chunker::Jc);
+            let boundary = JumpChunker::new(
+                profile.min_chunk_size_bytes() as usize,
+                profile.avg_chunk_size_bytes() as usize,
+                profile.max_chunk_size_bytes() as usize,
+                Parameters::Plakar,
+            );
+            let (scan, _) =
+                scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
+            assert_eq!(scan.full_file_hash, hash_hex(&blake3::hash(bytes)));
+            let mut offset = 0;
+            for chunk in scan.chunks {
+                let length = boundary.cut(&bytes[offset..]);
+                assert_eq!((chunk.offset, chunk.size), (offset as u64, length as u64));
+                assert_eq!(chunk.hash, blake3::hash(&bytes[offset..offset + length]));
+                offset += length;
+            }
+            assert_eq!(offset, size);
+        }
+    }
+}

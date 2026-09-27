@@ -875,6 +875,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot_entries),
             config.snapshot_tags.clone(),
         );
+        vm.chunker = config.chunk_profile.chunker;
         vm.total_logical_size = total_logical_size;
         vm.total_compressed_size_estimate = total_compressed;
         vm.entries = snapshot_entries;

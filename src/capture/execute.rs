@@ -113,6 +113,7 @@ pub struct SnapshotCaptureRequest {
     pub source_dir: PathBuf,
     pub explicit_tags: SnapshotTagSet,
     pub chunk_profile: crate::manifest::ChunkSizingPreset,
+    pub chunker: crate::manifest::Chunker,
     pub bundle_profile: crate::manifest::BundleSizingPreset,
     pub compression_algorithm: crate::manifest::CompressionKind,
     pub compression_level: Option<i32>,
@@ -190,6 +191,7 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
             request.bundle_profile,
             request.storage_mode,
         );
+        manifest.artifact_profile.chunker = request.chunker;
         let result = capture_repo_snapshot_with_existing_reuse_state(
             request,
             &mut reuse_state,
@@ -323,6 +325,7 @@ fn execute_repo_snapshot_capture(
         .with_existing_bundles(&reuse_state.bundle_ids)
         .with_previous_manifests(&reuse_state.previous_file_manifests)
         .with_chunk_profile(request.chunk_profile)
+        .with_chunker(request.chunker)
         .with_bundle_profile(request.bundle_profile)
         .with_compression(request.compression_algorithm, request.compression_level)
         .with_storage_mode(request.storage_mode)
@@ -478,6 +481,7 @@ fn execute_repo_snapshot_capture(
         let rebuilt_entries = std::mem::take(&mut result.snapshot_manifest.entries);
         let rebuilt_estimate = result.snapshot_manifest.total_compressed_size_estimate;
         result.snapshot_manifest = existing_manifest;
+        result.snapshot_manifest.chunker = request.chunker;
         result.snapshot_manifest.entries = rebuilt_entries;
         result.snapshot_manifest.total_compressed_size_estimate = rebuilt_estimate;
     }
@@ -912,6 +916,7 @@ mod tests {
             source_dir: source_dir.to_path_buf(),
             explicit_tags: tags.clone(),
             chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+            chunker: crate::manifest::Chunker::FastCdc,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -957,6 +962,64 @@ mod tests {
         )
         .unwrap();
         assert!(verification.ok, "strict verification failed");
+    }
+
+    #[test]
+    fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut seed = 917u64;
+        let data: Vec<u8> = (0..2_100_000)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed as u8
+            })
+            .collect();
+        let (repo_root, source) = test_repo_with_source(&temp, "game", &data);
+        let first = test_capture(&repo_root, &source, &test_tags(), Default::default());
+        // Change another file so content identity creates a new snapshot while
+        // game.exe exercises reuse of an unchanged file across chunker settings.
+        std::fs::write(source.join("new.txt"), b"new snapshot").unwrap();
+        let second = capture_snapshot(SnapshotCaptureRequest {
+            repo_root: repo_root.clone(),
+            source_dir: source,
+            explicit_tags: test_tags(),
+            chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+            chunker: manifest::Chunker::Jc,
+            bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+            compression_algorithm: manifest::CompressionKind::Zstd,
+            compression_level: None,
+            storage_mode: manifest::ArtifactStorageMode::Bundled,
+            runtime_hints: Default::default(),
+            control: Default::default(),
+        })
+        .unwrap();
+        let paths = GutchRepoPaths::from_repo_root(&repo_root);
+        let old =
+            crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &first.snapshot_id)
+                .unwrap();
+        let new =
+            crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &second.snapshot_id)
+                .unwrap();
+        assert_eq!(old.chunker, manifest::Chunker::FastCdc);
+        assert_eq!(new.chunker, manifest::Chunker::Jc);
+        let old_file = old.files().find(|file| file.path == "game.exe").unwrap();
+        let new_file = new.files().find(|file| file.path == "game.exe").unwrap();
+        assert_ne!(
+            serde_json::to_vec(&old_file.chunks).unwrap(),
+            serde_json::to_vec(&new_file.chunks).unwrap()
+        );
+        test_reconstruct_and_strict_verify(&repo_root, &second.snapshot_id);
+        assert_eq!(
+            std::fs::read(
+                repo_root
+                    .join(format!("reconstructed-{}", second.snapshot_id))
+                    .join("game.exe")
+            )
+            .unwrap(),
+            data
+        );
     }
 
     #[test]
@@ -1018,6 +1081,7 @@ mod tests {
             source_dir: source_b,
             explicit_tags: test_tags(),
             chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+            chunker: crate::manifest::Chunker::FastCdc,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -1089,6 +1153,7 @@ mod tests {
             source_dir: source,
             explicit_tags: other_tags,
             chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+            chunker: crate::manifest::Chunker::FastCdc,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -1179,6 +1244,7 @@ mod tests {
             source_dir: source,
             explicit_tags: test_tags(),
             chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+            chunker: crate::manifest::Chunker::FastCdc,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,
@@ -1262,6 +1328,7 @@ mod tests {
             source_dir: source_b,
             explicit_tags: test_tags(),
             chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+            chunker: crate::manifest::Chunker::FastCdc,
             bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: manifest::CompressionKind::Zstd,
             compression_level: None,

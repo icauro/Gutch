@@ -244,6 +244,7 @@ fn capture_source_snapshot(
             source_dir: std::path::PathBuf::from(&candidate.path),
             explicit_tags: candidate.snapshot_tags.clone(),
             chunk_profile: crate::manifest::ChunkSizingPreset::Chunk128KiB,
+            chunker: crate::manifest::Chunker::FastCdc,
             bundle_profile: crate::manifest::BundleSizingPreset::Bundle8MiB,
             compression_algorithm: crate::manifest::CompressionKind::Zstd,
             compression_level: Some(3),

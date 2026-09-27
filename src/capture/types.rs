@@ -72,7 +72,13 @@ impl<'a> BuildConfig<'a> {
     }
 
     pub fn with_chunk_profile(mut self, preset: ChunkSizingPreset) -> Self {
-        self.chunk_profile = ChunkSizingProfile::for_preset(preset);
+        self.chunk_profile =
+            ChunkSizingProfile::for_preset(preset).with_chunker(self.chunk_profile.chunker);
+        self
+    }
+
+    pub fn with_chunker(mut self, chunker: crate::manifest::Chunker) -> Self {
+        self.chunk_profile = self.chunk_profile.with_chunker(chunker);
         self
     }
 

@@ -102,17 +102,41 @@ pub(crate) fn scan_file_chunks(
     profile: &ChunkSizingProfile,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
+    match profile.chunker {
+        crate::manifest::Chunker::FastCdc => {
+            scan_with_boundary(path, inventory_size, control, BoundaryFinder::new(profile))
+        }
+        crate::manifest::Chunker::Jc => scan_with_boundary(
+            path,
+            inventory_size,
+            control,
+            super::jc::JumpChunker::new(
+                profile.min_chunk_bytes as usize,
+                profile.avg_chunk_bytes as usize,
+                profile.max_chunk_bytes as usize,
+                super::jc::Parameters::Plakar,
+            ),
+        ),
+    }
+}
+
+fn scan_with_boundary<C: ChunkBoundary>(
+    path: &std::path::Path,
+    inventory_size: u64,
+    control: &crate::progress::GutchOperationControl,
+    boundary: C,
+) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     control.checkpoint()?;
-    let max = profile.max_chunk_size_bytes() as usize;
+    let max = boundary.max_size();
 
     let file = std::fs::File::open(path)?;
     // The inventory already knows the size. Keep this path within the streaming
     // chunker's buffer bound, without another metadata query or a probing pass.
     let small_file_limit = (max as u64).min(1024 * 1024);
     if inventory_size <= small_file_limit {
-        return scan_small_file(file, inventory_size, profile, control);
+        return scan_small_file(file, inventory_size, control, boundary);
     }
-    let mut chunker = ChunkStream::new(file, profile, inventory_size);
+    let mut chunker = ChunkStream::with_boundary(file, boundary, inventory_size);
 
     let mut chunk_results = Vec::new();
     let mut boundary_scan = Duration::ZERO;
@@ -166,11 +190,11 @@ pub(crate) fn scan_file_chunks(
     ))
 }
 
-fn scan_small_file(
+fn scan_small_file<C: ChunkBoundary>(
     file: std::fs::File,
     inventory_size: u64,
-    profile: &ChunkSizingProfile,
     control: &crate::progress::GutchOperationControl,
+    boundary: C,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     let started = ProfileInstant::detailed(control.profiler());
     let mut bytes = Vec::with_capacity(inventory_size as usize + 1);
@@ -185,7 +209,6 @@ fn scan_small_file(
     let started = ProfileInstant::detailed(control.profiler());
     let full_hash = blake3::hash(&bytes);
     let full_file_hash_duration = started.elapsed();
-    let boundary = BoundaryFinder::new(profile);
     let mut offset = 0;
     let mut chunks = Vec::new();
     let mut hash_judgment = Duration::ZERO;

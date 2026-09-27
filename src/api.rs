@@ -30,6 +30,7 @@ pub use crate::manifest::ArtifactStorageMode;
 pub use crate::manifest::BundleSizingPreset;
 pub use crate::manifest::ChunkRef;
 pub use crate::manifest::ChunkSizingPreset;
+pub use crate::manifest::Chunker;
 pub use crate::manifest::CompressionKind;
 pub use crate::manifest::DirectoryManifest;
 pub use crate::manifest::Estimate;

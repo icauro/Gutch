@@ -13,7 +13,6 @@ pub(crate) mod chunk_stream;
 mod fastcdc_v2020;
 
 mod gear;
-#[cfg(test)]
 mod jc;
 #[cfg(test)]
 mod jc_tests;

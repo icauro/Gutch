@@ -1234,3 +1234,12 @@ def test_perfetto_does_not_open_empty_or_metadata_only_traces(tmp_path: Path, mo
         messages = []
         assert not traces.open_trace_in_perfetto(path, messages.append)
         assert "no recorded events" in messages[-1]
+
+
+def test_jc_fixture_selects_distinct_chunkers_with_matching_profiles():
+    fixture = load_fixture(Path("tests/benchmarks/comparison/fixtures/16_gutch_fastcdc_vs_jc.yaml"))
+    assert [lane.profile.chunker for lane in fixture.lanes] == ["fastcdc", "jc"]
+    args = [GutchCli.profile_args(lane.profile) for lane in fixture.lanes]
+    assert args[0][:2] == ["--chunker", "fastcdc"]
+    assert args[1][:2] == ["--chunker", "jc"]
+    assert args[0][2:] == args[1][2:]

@@ -13,7 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-// Pinned Plakar go-cdc-chunkers v1.1.0; test-only reference table.
+// Pinned Plakar go-cdc-chunkers v1.1.0; reference Gear table.
 #[rustfmt::skip]
 pub(super) const GEAR: [u64; 256] = [
     0x4d65822107fcfd52, 0x78629a0f5f3f164f, 0xd5104dc76695721d, 0xb80704bb7b4d7c03,

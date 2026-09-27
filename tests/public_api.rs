@@ -44,6 +44,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         explicit_tags: SnapshotTagSet::from_compact_strings(&["version=1.0.0".to_string()])
             .unwrap(),
         chunk_profile: Default::default(),
+        chunker: gutch::api::Chunker::Jc,
         bundle_profile: Default::default(),
         compression_algorithm: CompressionKind::Lz4,
         compression_level: None,
@@ -73,6 +74,8 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         "1",
         "--tag",
         "version=1.0.0",
+        "--chunker",
+        "jc",
         "--compression-algorithm",
         "lz4",
         "--storage-mode",
@@ -99,6 +102,8 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
         serde_json::json!({"key_value": {"version": "1.0.0"}})
     );
     assert_eq!(api_metadata["tags"], cli_metadata["tags"]);
+    assert_eq!(api_metadata["chunker"], "jc-v1.1.0");
+    assert_eq!(api_metadata["chunker"], cli_metadata["chunker"]);
     std::fs::remove_dir_all(&source).unwrap();
     for (repository, label) in [(repo, "api-output"), (cli_repo, "cli-output")] {
         let destination = root.path().join(label);

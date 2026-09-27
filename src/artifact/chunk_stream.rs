@@ -68,6 +68,7 @@ pub(crate) struct ChunkStream<R, C = BoundaryFinder> {
     eof: bool,
 }
 
+#[cfg(test)]
 impl<R: Read> ChunkStream<R> {
     pub(crate) fn new(reader: R, profile: &ChunkSizingProfile, inventory_size: u64) -> Self {
         Self::with_boundary(reader, BoundaryFinder::new(profile), inventory_size)
