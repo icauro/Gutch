@@ -236,3 +236,6 @@ allocation measurement. There are no performance pass/fail thresholds.
 Perfetto auto-opening skips empty or metadata-only traces and logs the trace
 path instead. Harness tests mock browser opening, including container export
 tests, so validation does not launch browser tabs with synthetic traces.
+
+Benchmark corruption leaves permissions unchanged. It flips bytes in a writable
+file, deletes another writable file when available, and adds an extra file.
