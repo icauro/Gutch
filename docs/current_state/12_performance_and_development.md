@@ -43,7 +43,8 @@ of four; CLI diagnostics and benchmarks can select `--transfer-policy fixed`
 or `--transfer-policy adaptive`, with a hard maximum of sixteen. Adaptive
 transfers start at the requested initial value. With queued work and stable
 positive throughput, they probe one additional worker and retain it only when
-averaged throughput improves by at least five percent. Two two-second samples
+averaged throughput improves by at least five percent. Probes use real queued
+artifacts rather than extra test requests. Two two-second samples
 form an observation; unstable samples do not start a probe. Measurements wait
 for the active worker count to match the target, so a still-draining concurrency
 change is not mistaken for evidence about the new target.
