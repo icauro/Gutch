@@ -480,3 +480,33 @@ Library validation passed 324 tests with two ignored. Coverage includes eviction
 with preserved output ranges and decoding large/small/larger selected chunks.
 Evidence is under `tests/.artifacts/reconstruct-reuse/`. Successful full-flow runs
 removed their payloads. No extra comparison runs were performed.
+
+
+## Source-reuse cursor tracking, single comparison
+
+Source-chunk reads now track the cursor beside the file handle under the same
+mutex. Adjacent reads avoid both the position query and seek; other reads seek
+explicitly. Position becomes unknown before any fallible seek/read and is restored
+only after a complete read. Evicted handles reopen at position zero. State is
+operation-local, with unchanged chunk hashing and source validation.
+
+This affects reconstruction with `--reuse-snapshot` and `--reuse-from`, not ordinary
+selective repair: repair currently supplies no reuse source. The first attempted
+ordinary-workflow baseline failed during reconstruction with Windows error 5
+(access denied), before its candidate ran. It supplies no performance evidence;
+failed artifacts/logs remain available. The full workflow was not retried.
+
+One targeted baseline/candidate pair reused the existing uncompressed Blender
+repository (4 MiB chunks, 16 MiB bundles), reconstructing 5.1 from 5.0 source files.
+No recapture, warm-up or repetitions were performed. Both reported 3,041 reused
+chunks (including whole-file reuse). The changed source-chunk path read
+111,637,740 bytes, based on total artifact-read bytes minus bundle-read bytes.
+Elapsed time was 5.926 s baseline and 5.152 s candidate, an observed 13.1%
+reduction, not a stable speedup claim: run order, cache and SSD/host state were
+uncontrolled. Ordinary repair is not claimed to improve.
+
+All 325 library tests passed with two ignored. The added test covers sequential
+and backward reads, partial-read failure followed by file extension/retry, and
+concurrent requests. Independent SHA-256 comparison checked every output file
+against the target source for both binaries. Evidence and outputs are under
+`tests/.artifacts/repair-cursor/`.

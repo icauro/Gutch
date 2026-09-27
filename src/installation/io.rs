@@ -405,8 +405,13 @@ pub(super) struct OutputHandleCache {
 
 #[derive(Default)]
 pub(super) struct SourceHandleCache {
-    handles: Mutex<HashMap<PathBuf, Arc<Mutex<File>>>>,
+    handles: Mutex<HashMap<PathBuf, Arc<Mutex<SourceReadHandle>>>>,
 }
+struct SourceReadHandle {
+    file: File,
+    position: Option<u64>,
+}
+
 impl SourceHandleCache {
     fn read_range(&self, path: &std::path::Path, offset: u64, bytes: &mut [u8]) -> Result<()> {
         let input = {
@@ -422,7 +427,10 @@ impl SourceHandleCache {
                 {
                     handles.remove(&key);
                 }
-                let file = Arc::new(Mutex::new(File::open(path)?));
+                let file = Arc::new(Mutex::new(SourceReadHandle {
+                    file: File::open(path)?,
+                    position: Some(0),
+                }));
                 handles.insert(path.to_path_buf(), Arc::clone(&file));
                 file
             }
@@ -430,10 +438,15 @@ impl SourceHandleCache {
         let mut input = input
             .lock()
             .map_err(|_| Error::reconstruct("source handle poisoned"))?;
-        if input.stream_position()? != offset {
-            input.seek(SeekFrom::Start(offset))?;
+        if input.position != Some(offset) {
+            input.position = None;
+            input.file.seek(SeekFrom::Start(offset))?;
         }
-        input.read_exact(bytes)?;
+        // A failed read can advance the cursor. Only a complete read establishes
+        // a reusable position; the same handle mutex protects both values.
+        input.position = None;
+        input.file.read_exact(bytes)?;
+        input.position = offset.checked_add(bytes.len() as u64);
         Ok(())
     }
 }
@@ -774,6 +787,36 @@ pub(super) fn build_source_chunk_locations(
 #[cfg(test)]
 mod output_handle_tests {
     use super::*;
+
+    #[test]
+    fn source_ranges_handle_seeks_partial_reads_and_concurrency() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("source");
+        std::fs::write(&path, b"abcdefghijkl").unwrap();
+        let cache = SourceHandleCache::default();
+        let mut bytes = [0; 4];
+        for (offset, expected) in [(0, b"abcd"), (4, b"efgh"), (0, b"abcd"), (8, b"ijkl")] {
+            cache.read_range(&path, offset, &mut bytes).unwrap();
+            assert_eq!(&bytes, expected);
+        }
+        assert!(cache.read_range(&path, 10, &mut bytes).is_err());
+        // The failed read advanced to EOF. Extend the same file, then retry at
+        // its original offset to ensure the stale position is never reused.
+        OpenOptions::new().append(true).open(&path).unwrap().write_all(b"mnop").unwrap();
+        cache.read_range(&path, 10, &mut bytes).unwrap();
+        assert_eq!(&bytes, b"klmn");
+        std::thread::scope(|scope| {
+            for (offset, expected) in [(0, b"abcd"), (4, b"efgh"), (8, b"ijkl")] {
+                let cache = &cache;
+                let path = &path;
+                scope.spawn(move || {
+                    let mut bytes = [0; 4];
+                    cache.read_range(path, offset, &mut bytes).unwrap();
+                    assert_eq!(&bytes, expected);
+                });
+            }
+        });
+    }
 
     #[test]
     fn output_reopen_after_eviction_preserves_written_ranges() {
