@@ -4,7 +4,9 @@ Run these commands from the Gutch project root.
 
 For a simple local comparison, run `python gutch.py benchmark` or copy
 [`comparison_benchmark_suite/`](../../comparison_benchmark_suite/README.md) and
-run its `run.py`. It ships one Blender fixture, accepts custom build paths, and
+run its `run.py` for the interactive fixture picker, progress and summary screen.
+Use `--fixture NAME` for a single scripted run. It ships a Blender overview and
+pairwise fixtures, accepts custom build paths, and
 owns its `.artifacts/` cache and reports.
 
 This directory retains advanced diagnostic fixtures and optional Docker/S3

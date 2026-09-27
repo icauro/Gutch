@@ -262,3 +262,10 @@ prepared-input cache, with paths resolved relative to the definition file.
 Fixture descriptions appear in the CLI and Markdown summary and explain
 remaining command overrides and differences from Gutch. Encryption stays off
 where supported (Borg/Plakar); Kopia/Restic retain mandatory encryption.
+
+The standalone comparison entrypoint without arguments opens a Textual terminal
+fixture picker with hover/focus descriptions. It runs the existing CLI in an
+owned subprocess, shows phase/elapsed and measured-case progress, and retains
+the summary screen for another run or manual Perfetto opening. Stop terminates
+only that run's process tree and preserves partial evidence. Noninteractive
+invocations require `--fixture`; that form remains a single run with plain output.

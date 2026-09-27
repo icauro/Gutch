@@ -8,6 +8,7 @@ dependencies = [
     "pytest>=8",
     "psutil>=6",
     "blake3>=1.0.9",
+    "textual>=8.2.8,<9",
 ]
 
 [tool.pytest.ini_options]
