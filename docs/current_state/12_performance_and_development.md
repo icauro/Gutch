@@ -149,7 +149,7 @@ and a reproducible fingerprint before execution. Reconstruction is checked
 before and after recovery, including empty directories, symlink targets, and
 supported file permissions. Command measurements exclude cooldown. Gutch
 embedded verification and incremental repair remain distinct from external
-repository checks and full-restore recovery.
+repository checks and native restore-over-existing behavior.
 
 The standalone `comparison_benchmark_suite/run.py` ships one Blender fixture
 with profiling off, explicit executable resolution, and suite-owned `.artifacts/`.
@@ -158,8 +158,11 @@ the nearest exposed standard preset where supported. The standalone
 [suite settings table](../../comparison_benchmark_suite/README.md#comparison-settings)
 records exact arguments and the Plakar/BuildPatchTool compression exceptions.
 BuildPatchTool uses local manifest generation and installation, independently
-validates clean output, and optionally repeats installation after corruption
-and output removal. Its recovery metric is full restore, not in-place repair.
+validates clean output, and optionally restores over the corrupted installation
+using its previous manifest. External recovery retains damaged output; Restic
+and Kopia request native extra deletion. Unsupported deletion or permission
+handling can fail exact-tree validation. Successful capture/restore metrics remain
+visible when recovery fails. The filesystem baseline alone uses full recopy.
 Custom fixtures list build paths in chronological order. Missing tools are
 reported without preventing available candidates from running. The existing
 developer diagnostic fixtures remain under `tests/benchmarks/comparison/fixtures/`;
