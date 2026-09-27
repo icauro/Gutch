@@ -23,7 +23,6 @@ use crate::capture::types::BuildTimings;
 use crate::capture::types::BuiltBundle;
 use crate::capture::types::BuiltLooseChunk;
 use crate::capture::types::ChunkPayload;
-use crate::capture::types::ChunkPayloadReader;
 use crate::capture::types::ExistingChunkLocation;
 use crate::capture::types::StagedArtifactFile;
 use crate::manifest;
@@ -80,9 +79,8 @@ fn estimate_bundle_compression_ratio_from_probe(
 
     let mut raw_probe_size: u64 = 0;
     let mut probe_payload = Vec::new();
-    let mut source_reader = ChunkPayloadReader::default();
     for (_, payload) in chunks {
-        let data = source_reader.load(payload)?;
+        let data = payload.load_bytes()?;
         raw_probe_size += data.len() as u64;
         probe_payload.push(data);
         if raw_probe_size >= probe_target_bytes {
@@ -462,7 +460,7 @@ fn build_loose_chunk(
         .profile_span_with_args("capture.loose.load_encode_and_write", || {
             BTreeMap::from([("size_bytes".into(), serde_json::json!(raw_size))])
         });
-    let bytes = ChunkPayloadReader::default().load(&payload)?;
+    let bytes = payload.load_bytes()?;
     let payload_load = load_start.elapsed();
 
     let mut staged = tempfile::NamedTempFile::new_in(artifact_staging_root)?;
@@ -538,11 +536,10 @@ fn build_bundle_compressed_group(
     let mut payload_load_bytes: u64 = 0;
 
     let input_span = control.profile_span("capture.bundle.load_inputs");
-    let mut source_reader = ChunkPayloadReader::default();
     for (hash, payload) in planned_bundle {
         control.checkpoint()?;
         let load_start = ProfileInstant::detailed(control.profiler());
-        let bytes = std::sync::Arc::<[u8]>::from(source_reader.load(&payload)?);
+        let bytes = std::sync::Arc::<[u8]>::from(payload.load_bytes()?);
         payload_load += load_start.elapsed();
         payload_load_bytes += bytes.len() as u64;
         builder.add_shared_chunk(hash, bytes);

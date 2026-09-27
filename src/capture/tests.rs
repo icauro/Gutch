@@ -147,50 +147,11 @@ fn source_range_payload_rejects_changes_between_scan_and_encoding() {
         size: 6,
         hash: ChunkHash::from_blake3(blake3::hash(b"before")),
     };
-    let mut reader = ChunkPayloadReader::default();
-    assert_eq!(reader.load(&payload).unwrap(), b"before");
+    assert_eq!(payload.load_bytes().unwrap(), b"before");
     std::fs::write(&source, b"after!").unwrap();
-    assert!(reader.load(&payload).is_err());
+    assert!(payload.load_bytes().is_err());
     std::fs::write(&source, b"short").unwrap();
-    assert!(reader.load(&payload).is_err());
-}
-
-#[test]
-fn source_reader_switches_files_and_seeks_for_nonconsecutive_ranges() {
-    let root = tempfile::tempdir().unwrap();
-    let first = std::sync::Arc::new(root.path().join("first"));
-    let second = std::sync::Arc::new(root.path().join("second"));
-    std::fs::write(first.as_ref(), b"abcdef").unwrap();
-    std::fs::write(second.as_ref(), b"uvwxyz").unwrap();
-    let mut reader = ChunkPayloadReader::default();
-    for (source, offset, expected) in [
-        (&first, 3, b"def"),
-        (&first, 0, b"abc"),
-        (&second, 0, b"uvw"),
-        (&first, 3, b"def"),
-    ] {
-        let payload = ChunkPayload {
-            source: source.clone(),
-            offset,
-            size: 3,
-            hash: ChunkHash::from_blake3(blake3::hash(expected)),
-        };
-        assert_eq!(reader.load(&payload).unwrap(), expected);
-    }
-    drop(reader);
-    // A subsequent encoding job must reopen the path, never retain the old file.
-    std::fs::remove_file(first.as_ref()).unwrap();
-    std::fs::write(first.as_ref(), b"new").unwrap();
-    let payload = ChunkPayload {
-        source: first,
-        offset: 0,
-        size: 3,
-        hash: ChunkHash::from_blake3(blake3::hash(b"new")),
-    };
-    assert_eq!(
-        ChunkPayloadReader::default().load(&payload).unwrap(),
-        b"new"
-    );
+    assert!(payload.load_bytes().is_err());
 }
 
 #[test]
@@ -253,22 +214,16 @@ fn optimistic_probe_cannot_exceed_raw_bundle_cap() {
 
 #[test]
 fn memory_admission_keeps_capture_results_in_input_order() {
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
     let control = crate::progress::GutchOperationControl::default();
     let result = super::run_parallel_chunk_work(
-        (0..32).collect(),
-        &pool,
-        &control,
-        1,
-        |_| 1,
+        (0..32).collect(), &pool, &control, 1, |_| 1,
         |index, _| Ok(index),
-    )
-    .unwrap();
+    ).unwrap();
     assert_eq!(result, (0..32).collect::<Vec<_>>());
-    let result =
-        super::run_parallel_chunk_work(vec![0, 1], &pool, &control, 1, |_| 2, |index, _| Ok(index));
+    let result = super::run_parallel_chunk_work(
+        vec![0, 1], &pool, &control, 1, |_| 2,
+        |index, _| Ok(index),
+    );
     assert!(result.is_err());
 }

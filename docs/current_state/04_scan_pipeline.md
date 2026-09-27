@@ -62,12 +62,6 @@ rechunking it into new artifacts. Otherwise, each chunk is resolved through the
 repo-wide chunk map; source ranges are retained only for chunks that are not
 already available locally.
 
-Each compression probe and bundle-encoding job retains at most one open source
-file while loading its ranges. Switching source files closes the preceding
-handle, and the handle closes when that job ends. Range bytes are still hashed
-against their scanned chunk identity on every load; no source bytes are cached
-across jobs or captures. The post-build source inventory check remains required.
-
 ## Parallelization and resource limits
 
 `RuntimeResourceHints.jobs` is the only worker-count input. With no override,
