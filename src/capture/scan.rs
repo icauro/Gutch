@@ -199,7 +199,9 @@ pub(crate) fn scan_source_inventory(
                 continue;
             }
             let path = entry.path().to_path_buf();
-            let metadata = std::fs::symlink_metadata(&path)?;
+            // WalkDir already holds metadata on Windows. Each inventory is a
+            // new walk, so post-capture validation still observes the source anew.
+            let metadata = entry.metadata()?;
             let normalized_relative = normalized_relative(root, &path)?;
             if entry.file_type().is_file() {
                 let modified_at = metadata.modified()?;

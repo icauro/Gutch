@@ -311,3 +311,28 @@ JC 256 KiB, and VRAM-256 with a 128 KiB window, using zstd 3 and 8 MiB bundles.
 It runs three repetitions with reconstruction and corruption repair. Targets do
 not normalize actual chunk counts or reuse. See the implementation's
 [reference and provenance](../../src/artifact/ram/README.md).
+
+
+## Windows inventory metadata reuse
+
+The capture inventory now consumes directory-entry metadata. WalkDir 2.5.0
+already caches this information on Windows when links are not followed; requesting
+it through the entry avoids redundant per-path metadata queries. Both independent
+source inventories, chunk verification, retry behavior and publication checks
+remain enabled. The metadata loop is serial, so adding capture workers did not
+remove this cost.
+
+An alternating before/after release-binary test used Blender 5.0.0 and 5.1.0,
+FastCDC 4 MiB, no compression, 16 MiB bundles and automatic 12 workers. Inputs
+were immutable, repositories fresh, profiling detailed, OS cache uncontrolled.
+One warm-up was excluded, followed by seven measured repetitions per binary.
+Median capture totals fell from 2.549 to 1.742 seconds (31.7%); source inventory
+fell from 0.994 to 0.187 seconds (81.2%). Published artifacts, blueprints and the
+chunk map were byte-identical in a before/after two-build repository comparison.
+All 320 library tests passed, including source modification, truncation,
+addition, removal and permission-change checks. Results are Windows-specific;
+other platforms do not receive the same cached-metadata optimization.
+Evidence: `tests/.artifacts/inventory-metadata/`.
+
+A follow-up full-flow validation passed independent reconstruction and
+corruption-repair checks with the optimized release binary.

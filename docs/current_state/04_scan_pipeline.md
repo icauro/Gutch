@@ -16,6 +16,11 @@ finalization. Source selection and tag identity are defined in
 The pipeline reads source content and writes repo artifacts. It does not decide
 creator access, authorize remote storage, or commit app install metadata.
 
+On Windows, each inventory uses the metadata already obtained by directory
+entry enumeration, avoiding a second metadata lookup per entry. The before/after
+inventories remain independent fresh walks, and source-change verification stays
+enabled. On other platforms, the entry API performs its normal metadata lookup.
+
 ## Execution timeline
 
 The capture operation runs these stages in order. Parallel stages use the same
