@@ -9,7 +9,6 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::artifact::compression::validate_profile;
@@ -72,23 +71,7 @@ pub(crate) struct BundleBuilder {
 struct ChunkData {
     hash: ChunkHash,
     raw_size: u64,
-    raw: Option<ChunkRawData>,
-}
-
-enum ChunkRawData {
-    #[cfg(test)]
-    Owned(Vec<u8>),
-    Shared(Arc<[u8]>),
-}
-
-impl ChunkRawData {
-    fn as_slice(&self) -> &[u8] {
-        match self {
-            #[cfg(test)]
-            Self::Owned(bytes) => bytes.as_slice(),
-            Self::Shared(bytes) => bytes.as_ref(),
-        }
-    }
+    raw: Option<Vec<u8>>,
 }
 
 impl BundleBuilder {
@@ -99,22 +82,12 @@ impl BundleBuilder {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn add_chunk(&mut self, chunk_hash: ChunkHash, raw_data: Vec<u8>) {
         let raw_size = raw_data.len() as u64;
         self.chunks.push(ChunkData {
             hash: chunk_hash,
             raw_size,
-            raw: Some(ChunkRawData::Owned(raw_data)),
-        });
-    }
-
-    pub(crate) fn add_shared_chunk(&mut self, chunk_hash: ChunkHash, raw_data: Arc<[u8]>) {
-        let raw_size = raw_data.len() as u64;
-        self.chunks.push(ChunkData {
-            hash: chunk_hash,
-            raw_size,
-            raw: Some(ChunkRawData::Shared(raw_data)),
+            raw: Some(raw_data),
         });
     }
 

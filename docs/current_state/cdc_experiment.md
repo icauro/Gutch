@@ -235,3 +235,46 @@ the difference to chunk loading, compression, or other stages.
 All six lanes passed independent reconstruction and corruption-repair checks.
 Evidence and retained per-command statistics:
 `tests/.artifacts/jc-256-hollow-knight/2026.09.27-HollowKnight-16_gutch_fastcdc_vs_jc-001/`.
+
+
+## Payload ownership, JC loop and stream prototypes on Blender
+
+Three isolated prototypes were compared with the existing release binary on the
+two Blender builds, with FastCDC 128 KiB and JC 256 KiB. Other settings stayed
+zstd 3, 8 MiB bundles and automatic workers. Detailed profiling was enabled.
+One warm-up per combination was excluded, then nine measured repetitions rotated
+binary order and alternated chunker order. OS cache and host load were uncontrolled.
+
+Median capture seconds, summing both builds within each repetition:
+
+| Prototype | FastCDC | JC |
+|---|---:|---:|
+| Baseline | 2.613 | 2.499 |
+| Own loaded buffers directly | 2.483 | 2.390 |
+| Unroll JC scan to two bytes | 2.570 | 2.407 |
+| Try buffered cuts before refill | 2.589 | 2.417 |
+
+Direct ownership removes the per-chunk Vec-to-Arc allocation/copy and the unused
+shared payload abstraction. It reduced capture by 5.0% for FastCDC and 4.4% for JC
+in this run. Median payload-load worker time fell from 2.500 to 2.136 seconds for
+FastCDC and from 2.352 to 2.003 seconds for JC (about 15%). Chunk verification,
+packing order and artifact formats remain unchanged.
+
+The stream prototype tries a boundary cut in the remaining buffer before moving
+bytes and refilling. A failed attempt repeats work after refill. In a separate
+five-measured-repeat follow-up, adding it to direct ownership regressed capture:
+FastCDC 2.498 to 2.567 seconds (+2.7%); JC 2.364 to 2.441 (+3.2%). It was discarded.
+The unrolled loop was also discarded: its small scan improvement was not clearly
+separated from variation in the unchanged FastCDC control, and it duplicated
+the JC step. These are workload observations rather than universal conclusions.
+
+Only direct buffer ownership is retained. All three prototypes matched baseline
+published artifact bytes, snapshot blueprints and chunk maps in a two-build
+repository comparison for each chunker. Loop and stream prototypes passed the
+50 artifact tests; the combined prototype passed all 318 library tests.
+Evidence, prototype sources, binaries and per-command measurements are retained
+under `tests/.artifacts/jc-path-prototypes/`.
+
+The retained ownership-only implementation also passed all 318 library tests
+and the Blender full-flow fixture (one validation repetition per chunker),
+including independent reconstruction comparison and corruption repair.

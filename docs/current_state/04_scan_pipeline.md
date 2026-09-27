@@ -161,6 +161,8 @@ released through the same operation-owned artifact lifecycle.
   handle; the job closes its reader before compression. Compression probes use
   the same reader. Handles and seek positions are never shared between workers.
   Loose-chunk jobs still open one source for their single payload.
+- Bundle encoding takes ownership of each loaded byte buffer directly; it does
+  not allocate and copy that payload again for shared ownership.
   A changed or truncated source stops capture before snapshot publication.
 - Corrupt or incomplete artifact writes do not become valid repo content.
 - Manifest and artifact paths remain inside the derived repo layout.

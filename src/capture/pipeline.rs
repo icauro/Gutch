@@ -561,10 +561,10 @@ fn build_bundle_compressed_group(
     for (hash, payload) in planned_bundle {
         control.checkpoint()?;
         let load_start = ProfileInstant::detailed(control.profiler());
-        let bytes = std::sync::Arc::<[u8]>::from(reader.load(&payload)?);
+        let bytes = reader.load(&payload)?;
         payload_load += load_start.elapsed();
         payload_load_bytes += bytes.len() as u64;
-        builder.add_shared_chunk(hash, bytes);
+        builder.add_chunk(hash, bytes);
     }
 
     drop(reader);
