@@ -66,11 +66,6 @@ pub fn hash_chunk(data: &[u8]) -> blake3::Hash {
     blake3::hash(data)
 }
 
-pub(crate) fn hash_file(path: &std::path::Path) -> Result<blake3::Hash> {
-    let data = crate::filesystem::read(path)?;
-    Ok(blake3::hash(&data))
-}
-
 pub fn hash_hex(hash: &blake3::Hash) -> String {
     hash.to_hex().to_string()
 }

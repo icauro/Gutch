@@ -101,7 +101,10 @@ pub(crate) fn repair(
         removed_extra_file_count: result.removed_extra_file_count,
         reconstructed_extra_file_count: result.reconstructed_extra_file_count,
         resolved_bundle_file_count: execution.resolved_bundle_file_count,
-        elapsed_seconds: started_at.elapsed().as_secs_f64(),
+        elapsed_seconds: crate::cli::reporting::diagnostic_seconds(
+            started_at.elapsed(),
+            profile.as_deref(),
+        ),
         outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, profile.as_deref())?;
@@ -171,7 +174,10 @@ pub(crate) fn corrupt(
         destination_dir: result.destination_dir.display().to_string(),
         plan_path: command.plan.display().to_string(),
         applied_operation_count: result.applied_operation_count,
-        elapsed_seconds: started_at.elapsed().as_secs_f64(),
+        elapsed_seconds: crate::cli::reporting::diagnostic_seconds(
+            started_at.elapsed(),
+            profile.as_deref(),
+        ),
         outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, profile.as_deref())?;
@@ -206,16 +212,15 @@ pub(crate) fn run_installation(
             runtime,
         } => {
             let publication = if publication == "selective" {
-                crate::api::InstallationPublication::Selective
+                crate::api::InstallationPublication::Selective {
+                    extra_files: if remove_added_files {
+                        crate::api::ExtraFilePolicy::Remove
+                    } else {
+                        crate::api::ExtraFilePolicy::Preserve
+                    },
+                }
             } else {
                 crate::api::InstallationPublication::ReplaceDirectory
-            };
-            let extra_files = if remove_added_files
-                || publication == crate::api::InstallationPublication::ReplaceDirectory
-            {
-                crate::api::ExtraFilePolicy::Remove
-            } else {
-                crate::api::ExtraFilePolicy::Preserve
             };
             let summary = crate::api::visit_installation_plan(
                 &crate::api::InstallationRequest {
@@ -230,7 +235,6 @@ pub(crate) fn run_installation(
                         .with_progress(CliProgressSink::new()),
                 },
                 publication,
-                extra_files,
                 if metadata_only {
                     crate::api::InstallationInspection::MetadataOnly
                 } else {
@@ -365,8 +369,14 @@ pub(crate) fn reconstruct(
         reused_source_chunk_percent,
         total_logical_size: snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
-        reconstruct_timings: reconstruct_timings_summary(&result.reconstruct_timings),
-        verify_timings: verify_timings_summary(&result.verify_timings),
+        reconstruct_timings: reconstruct_timings_summary(
+            &result.reconstruct_timings,
+            crate::cli::reporting::profile_mode(profile.as_deref()),
+        ),
+        verify_timings: verify_timings_summary(
+            &result.verify_timings,
+            crate::cli::reporting::profile_mode(profile.as_deref()),
+        ),
         outputs: optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, profile.as_deref())?;
@@ -419,7 +429,10 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::api::Result<()> 
         extra_file_count,
         verification_passed: errors.is_empty(),
         errors: errors.clone(),
-        timings: verify_timings_summary(&timings),
+        timings: verify_timings_summary(
+            &timings,
+            crate::cli::reporting::profile_mode(command.profile.as_deref()),
+        ),
         outputs: optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, command.profile.as_deref())?;

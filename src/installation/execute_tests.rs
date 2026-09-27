@@ -8,6 +8,50 @@ use crate::manifest::SnapshotManifest;
 use crate::manifest::SnapshotTagSet;
 use std::collections::BTreeMap;
 
+#[test]
+fn work_queue_verifies_while_source_job_waits_for_memory_and_drains_only_dispatched_work() {
+    let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
+    let occupied = memory.try_acquire(2 * 1024 * 1024).unwrap().unwrap();
+    let jobs = vec![ReconstructJob::CopySourceFile {
+        file_index: 0,
+        source_path: "unused".into(),
+    }];
+    let mut queue = ReconstructionWorkQueue::default();
+    queue
+        .ready
+        .push_back((ReconstructWorkItem::Job(0), ProfileInstant::detailed(None)));
+    queue.ready.push_back((
+        ReconstructWorkItem::VerifyFile(1),
+        ProfileInstant::detailed(None),
+    ));
+    let verification = queue.admit_next(&jobs, &memory).unwrap().unwrap();
+    assert!(matches!(
+        verification.work,
+        ReconstructWorkItem::VerifyFile(1)
+    ));
+    assert_eq!(queue.in_flight, 1);
+    assert!(queue.admit_next(&jobs, &memory).unwrap().is_none());
+    drop(occupied);
+    let source = queue.admit_next(&jobs, &memory).unwrap().unwrap();
+    assert!(matches!(source.work, ReconstructWorkItem::Job(0)));
+    assert_eq!(queue.in_flight, 2);
+    queue.ready.push_back((
+        ReconstructWorkItem::VerifyFile(2),
+        ProfileInstant::detailed(None),
+    ));
+    queue.ready.clear();
+    assert_eq!(
+        queue.in_flight, 2,
+        "discarding queued work must not hide dispatched work"
+    );
+    drop(verification);
+    queue.complete();
+    drop(source);
+    queue.complete();
+    assert_eq!(queue.in_flight, 0);
+    assert!(memory.try_acquire(2 * 1024 * 1024).unwrap().is_some());
+}
+
 fn test_hash(bytes: &[u8]) -> String {
     hash_hex(&blake3::hash(bytes))
 }
@@ -36,13 +80,13 @@ fn snapshot_manifest_with_chunk(
     manifest
 }
 
-fn bundled_chunk_index() -> crate::manifest::ChunkIndex {
-    crate::manifest::ChunkIndex {
+fn bundled_chunk_index() -> crate::repo::index::ChunkIndex {
+    crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             test_hash(b"game"),
-            manifest::ChunkIndexEntry::new(
+            crate::repo::index::ChunkIndexEntry::new(
                 0,
                 0,
                 ("bundle-a".to_string()).into(),
@@ -203,12 +247,12 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
     let repo_root = crate::test_util::temp_path("gutch_pipeline_mixed_repo");
     let _ = std::fs::remove_dir_all(&repo_root);
     let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
-    let chunk_index = crate::manifest::ChunkIndex {
+    let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             snapshot_only_chunk_hash,
-            manifest::ChunkIndexEntry::new(
+            crate::repo::index::ChunkIndexEntry::new(
                 0,
                 0,
                 ("bundle-b".to_string()).into(),
@@ -289,12 +333,12 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
         shared_chunk_hash.clone(),
         replacement_chunk_hash.clone(),
     );
-    let chunk_index = manifest::ChunkIndex {
+    let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             replacement_chunk_hash.clone(),
-            manifest::ChunkIndexEntry::new(
+            crate::repo::index::ChunkIndexEntry::new(
                 0,
                 0,
                 (replacement_chunk_hash.clone()).into(),
@@ -339,7 +383,10 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
             destination_dir: &destination,
             staging_dir: None,
             source_destination_dir: Some(source_root.clone()),
-            runtime_hints: &RuntimeResourceHints { jobs: Some(2), memory_budget_bytes: std::num::NonZeroU64::new(136 * 1024 * 1024) },
+            runtime_hints: &RuntimeResourceHints {
+                jobs: Some(2),
+                memory_budget_bytes: std::num::NonZeroU64::new(136 * 1024 * 1024),
+            },
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
@@ -384,12 +431,12 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
         crate::test_util::loose_bytes(b"game", &compression_profile),
     )
     .unwrap();
-    let chunk_index = crate::manifest::ChunkIndex {
+    let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             chunk_hash.clone(),
-            manifest::ChunkIndexEntry::new(
+            crate::repo::index::ChunkIndexEntry::new(
                 0,
                 0,
                 (chunk_hash.clone()).into(),
@@ -529,13 +576,13 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             },
         ],
     });
-    let chunk_index = manifest::ChunkIndex {
+    let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([
             (
                 first_hash,
-                manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     0,
                     0,
                     (bundle_id.clone()).into(),
@@ -547,7 +594,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             ),
             (
                 second_hash,
-                manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     0,
                     0,
                     (bundle_id.clone()).into(),
@@ -559,7 +606,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             ),
             (
                 third_hash,
-                manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     0,
                     0,
                     bundle_id.into(),
@@ -597,7 +644,10 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             destination_dir: &destination,
             staging_dir: None,
             source_destination_dir: None,
-            runtime_hints: &RuntimeResourceHints { jobs: Some(2), memory_budget_bytes: std::num::NonZeroU64::new(136 * 1024 * 1024) },
+            runtime_hints: &RuntimeResourceHints {
+                jobs: Some(2),
+                memory_budget_bytes: std::num::NonZeroU64::new(136 * 1024 * 1024),
+            },
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
@@ -663,7 +713,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         std::fs::write(&artifact_path, &bundle_bytes).unwrap();
         chunk_entries.insert(
             hash.to_hex(),
-            manifest::ChunkIndexEntry::new(
+            crate::repo::index::ChunkIndexEntry::new(
                 0,
                 0,
                 bundle_id.into(),
@@ -678,7 +728,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         });
         existing_artifacts.insert(artifact);
     }
-    let chunk_index = manifest::ChunkIndex {
+    let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
         entries: crate::test_util::chunk_entries(chunk_entries),
     };
@@ -686,7 +736,11 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     // Bundle one completes the first file, but only supplies the dependent file's
     // prefix. Bundle two must finish before that second file can pass verification.
     for (path, bytes, chunks) in [
-        ("a-ready.bin", b"first".as_slice(), vec![chunk_refs[0].clone()]),
+        (
+            "a-ready.bin",
+            b"first".as_slice(),
+            vec![chunk_refs[0].clone()],
+        ),
         ("b-dependent.bin", b"firstsecond".as_slice(), chunk_refs),
     ] {
         snapshot.push_file(FileManifest {
@@ -790,12 +844,12 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         file.path = format!("copy-{index}.bin");
         snapshot.push_file(file);
     }
-    let index = manifest::ChunkIndex {
+    let index = crate::repo::index::ChunkIndex {
         format_version: "1".into(),
 
         entries: crate::test_util::chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
-            manifest::ChunkIndexEntry::new(
+            crate::repo::index::ChunkIndexEntry::new(
                 0,
                 0,
                 (chunk_hash.clone()).into(),
@@ -824,7 +878,10 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
             destination_dir: &destination,
             staging_dir: None,
             source_destination_dir: None,
-            runtime_hints: &RuntimeResourceHints { jobs: Some(1), ..Default::default() },
+            runtime_hints: &RuntimeResourceHints {
+                jobs: Some(1),
+                ..Default::default()
+            },
             existing_artifacts: &HashSet::new(),
             pending_artifact_downloads: &pending,
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),

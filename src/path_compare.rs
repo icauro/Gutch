@@ -193,8 +193,8 @@ fn entries_match(
                     return Ok(false);
                 }
             }
-            Ok(crate::artifact::hash::hash_file(&expected.path)?
-                == crate::artifact::hash::hash_file(&actual.path)?)
+            Ok(crate::file_integrity::hash_file(&expected.path)?
+                == crate::file_integrity::hash_file(&actual.path)?)
         }
     }
 }

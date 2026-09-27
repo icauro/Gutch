@@ -59,8 +59,10 @@ repair translate to these presets:
 | Reconstruction | Complete staged directory replacement | Removed with the previous tree |
 | Repair | Replace only missing/corrupt entries; update matching content's supported metadata in place | Preserved by default; remove with `--remove-extra-files` |
 
-Complete replacement with preserve-extras is rejected before installation writes.
-Call selective publication when preserving extras. Healthy files retain their
+The API represents publication as `ReplaceDirectory` or
+`Selective { extra_files }`. Extra-file policy is a choice only for selective
+publication; complete replacement always replaces the entire directory.
+Healthy files retain their
 contents and modification times during repair. Damaged files are replaced in
 full, not patched in place. Healthy source files can contribute reused chunks
 when other files in the source installation are damaged.

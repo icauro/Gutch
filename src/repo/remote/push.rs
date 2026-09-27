@@ -26,7 +26,7 @@ fn collect_local_sync_snapshots(
         let summary = summarize_snapshot_tags(&manifest.snapshot_tags);
         local_snapshots.push(LocalSyncSnapshot {
             snapshot_id: manifest.snapshot_id.clone(),
-            version: summary.version_id,
+            version: summary.version_tag,
             os: summary.os,
             arch: summary.arch,
             tags: summary.canonical_tags,
@@ -83,7 +83,7 @@ fn remote_snapshot_change(snapshot: &RemoteSnapshot) -> RepoPushSnapshotChange {
 pub(super) fn summarize_snapshot_tags_from_values(tags: &[String]) -> (String, String, String) {
     let tag_set = SnapshotTagSet::from_compact_strings(tags).unwrap_or_default();
     let summary = summarize_snapshot_tags(&tag_set);
-    (summary.version_id, summary.os, summary.arch)
+    (summary.version_tag, summary.os, summary.arch)
 }
 
 pub(crate) fn plan_push(

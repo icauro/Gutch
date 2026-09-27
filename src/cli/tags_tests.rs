@@ -14,31 +14,21 @@ fn test_parse_cli_tags_rejects_bare_values() {
 }
 
 #[test]
-fn test_resolve_tags_uses_only_explicit_tags() {
+fn test_normalize_tags_uses_only_explicit_tags() {
     let mut explicit = SnapshotTagSet::default();
     explicit.insert("release_channel", "nightly").unwrap();
     explicit.insert("loader", "fabric").unwrap();
 
-    let resolved = resolve_snapshot_tags(
-        std::path::Path::new("game-v1.0.0-win-x64"),
-        &explicit,
-        "test",
-    )
-    .unwrap();
+    let resolved = explicit.normalized().unwrap();
 
-    assert_eq!(resolved.snapshot_tags, explicit);
+    assert_eq!(resolved, explicit);
 }
 
 #[test]
-fn test_resolve_tags_allows_tagless_snapshots() {
-    let resolved = resolve_snapshot_tags(
-        std::path::Path::new("some-random-folder"),
-        &SnapshotTagSet::default(),
-        "test",
-    )
-    .unwrap();
+fn test_normalize_tags_allows_tagless_snapshots() {
+    let resolved = SnapshotTagSet::default().normalized().unwrap();
 
-    assert!(resolved.snapshot_tags.is_empty());
+    assert!(resolved.is_empty());
 }
 
 #[test]
@@ -47,8 +37,9 @@ fn direct_capture_and_retag_reject_hyphenated_tag_values() {
     explicit
         .key_value
         .insert("released_at".into(), "2026-09-07".into());
-    assert!(resolve_snapshot_tags(Path::new("unused"), &explicit, "test").is_err());
+    assert!(explicit.normalized().is_err());
     let error =
-        crate::api::retag_snapshot_by_id(Path::new("unused"), "unused", explicit).unwrap_err();
+        crate::api::retag_snapshot_by_id(std::path::Path::new("unused"), "unused", explicit)
+            .unwrap_err();
     assert!(error.to_string().contains("hyphens"));
 }

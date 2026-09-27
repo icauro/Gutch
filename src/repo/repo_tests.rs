@@ -1,9 +1,9 @@
 use super::*;
-use crate::repo::index::add_built_bundles_to_chunk_index;
+use crate::capture::reuse::add_built_bundles_to_chunk_index;
+use crate::capture::reuse::load_capture_reuse_state;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::rebuild_chunk_index_from_bundles_with_pool;
 use crate::repo::index::required_bundle_ids;
-use crate::repo::index::scan_existing_store_state_with_pool;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::bundle_path;
@@ -67,7 +67,7 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
     }
 
     let pool = crate::runtime::build_thread_pool(1, "gutch-test").unwrap();
-    let state = scan_existing_store_state_with_pool(
+    let state = load_capture_reuse_state(
         &paths,
         &pool,
         &crate::progress::GutchOperationControl::default(),
@@ -261,13 +261,13 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
         ],
     });
 
-    let chunk_index = manifest::ChunkIndex {
+    let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".into(),
 
         entries: crate::test_util::chunk_entries(BTreeMap::from([
             (
                 test_hash("chunk-a"),
-                manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     0,
                     0,
                     (test_hash("bundle-1")).into(),
@@ -278,7 +278,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
             ),
             (
                 test_hash("chunk-b"),
-                manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     0,
                     0,
                     (test_hash("bundle-1")).into(),
@@ -406,12 +406,12 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot.entries);
     write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
-    let index = manifest::ChunkIndex {
+    let index = crate::repo::index::ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
 
         entries: crate::test_util::chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
-            manifest::ChunkIndexEntry::new(
+            crate::repo::index::ChunkIndexEntry::new(
                 0,
                 0,
                 (chunk_hash).into(),
@@ -471,7 +471,7 @@ fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
         candidates[0].folder_name,
         "ae2-v15.4.10-loader-fabric-mc-1.21"
     );
-    assert_eq!(candidates[0].version_id, "");
+    assert_eq!(candidates[0].version_tag, "");
     assert_eq!(
         candidates[0].disposition,
         SourceSnapshotOperationDisposition::Unchanged
@@ -501,7 +501,7 @@ fn chunk_index_write_and_load_roundtrip() {
     let mut entries = BTreeMap::new();
     entries.insert(
         test_hash("chunk-a"),
-        manifest::ChunkIndexEntry::new(
+        crate::repo::index::ChunkIndexEntry::new(
             0,
             0,
             (test_hash("bundle-1")).into(),
@@ -512,7 +512,7 @@ fn chunk_index_write_and_load_roundtrip() {
     );
     entries.insert(
         test_hash("chunk-b"),
-        manifest::ChunkIndexEntry::new(
+        crate::repo::index::ChunkIndexEntry::new(
             0,
             0,
             (test_hash("bundle-1")).into(),
@@ -523,7 +523,7 @@ fn chunk_index_write_and_load_roundtrip() {
     );
     entries.insert(
         test_hash("chunk-c"),
-        manifest::ChunkIndexEntry::new(
+        crate::repo::index::ChunkIndexEntry::new(
             0,
             0,
             (test_hash("bundle-2")).into(),
@@ -532,7 +532,7 @@ fn chunk_index_write_and_load_roundtrip() {
             manifest::ArtifactStorageMode::Bundled,
         ),
     );
-    let index = manifest::ChunkIndex {
+    let index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
         entries: crate::test_util::chunk_entries(entries),
@@ -601,17 +601,13 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
         entries: reader.entries().to_vec(),
     };
 
-    let mut incremental = manifest::ChunkIndex {
+    let mut incremental = crate::repo::index::ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
 
-        entries: crate::manifest::ChunkIndexEntries::new(),
+        entries: crate::repo::index::ChunkIndexEntries::new(),
     };
-    add_built_bundles_to_chunk_index(
-        &mut incremental,
-        std::slice::from_ref(&built_bundle),
-        &manifest::CompressionProfile::default(),
-    )
-    .unwrap();
+    add_built_bundles_to_chunk_index(&mut incremental, std::slice::from_ref(&built_bundle))
+        .unwrap();
 
     let bundle_path = bundle_path(&paths, &bundle_id).unwrap();
     std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
@@ -667,7 +663,7 @@ fn inspect_repo_shows_snapshot_tags() {
     let status = read_repo_status(&root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
-    assert_eq!(status.snapshots[0].version_id, "2.0.0");
+    assert_eq!(status.snapshots[0].version_tag, "2.0.0");
     assert_eq!(status.snapshots[0].os, "linux");
 
     let _ = std::fs::remove_dir_all(&root);

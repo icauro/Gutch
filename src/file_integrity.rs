@@ -58,6 +58,39 @@ pub(crate) fn select_full_file_hash_mode(
     }
 }
 
+/// Hashes arbitrary files without allocating in proportion to their size.
+pub(crate) fn hash_file(path: &Path) -> Result<blake3::Hash> {
+    let (hash, _, _) = hash_file_streaming(path, &GutchOperationControl::default())?;
+    Ok(hash)
+}
+
+fn hash_file_streaming(
+    path: &Path,
+    control: &GutchOperationControl,
+) -> Result<(blake3::Hash, Duration, Duration)> {
+    control.checkpoint()?;
+    let mut input = File::open(path)?;
+    STREAM_BUFFER.with(|buffer| {
+        let mut buffer = buffer.borrow_mut();
+        let mut hasher = blake3::Hasher::new();
+        let mut read_elapsed = Duration::ZERO;
+        let mut hash_elapsed = Duration::ZERO;
+        loop {
+            control.checkpoint()?;
+            let read_started_at = ProfileInstant::detailed(control.profiler());
+            let read = input.read(&mut buffer)?;
+            read_elapsed += read_started_at.elapsed();
+            if read == 0 {
+                break;
+            }
+            let hash_started_at = ProfileInstant::detailed(control.profiler());
+            hasher.update(&buffer[..read]);
+            hash_elapsed += hash_started_at.elapsed();
+        }
+        Ok((hasher.finalize(), read_elapsed, hash_elapsed))
+    })
+}
+
 pub(crate) fn verify_full_file_integrity(
     path: &Path,
     file_size: u64,
@@ -88,34 +121,10 @@ pub(crate) fn verify_full_file_integrity(
             ChunkHash::from_blake3(hasher.finalize())
         }
         (FullFileHashMode::Stream, None) => {
-            let mut input = File::open(path)?;
-            let (hash, measured_read, measured_hash) =
-                STREAM_BUFFER.with(|buffer| -> Result<(ChunkHash, Duration, Duration)> {
-                    let mut buffer = buffer.borrow_mut();
-                    let mut hasher = blake3::Hasher::new();
-                    let mut measured_read = Duration::ZERO;
-                    let mut measured_hash = Duration::ZERO;
-                    loop {
-                        control.checkpoint()?;
-                        let read_started_at = ProfileInstant::detailed(control.profiler());
-                        let read = input.read(&mut buffer)?;
-                        measured_read += read_started_at.elapsed();
-                        if read == 0 {
-                            break;
-                        }
-                        let hash_started_at = ProfileInstant::detailed(control.profiler());
-                        hasher.update(&buffer[..read]);
-                        measured_hash += hash_started_at.elapsed();
-                    }
-                    Ok((
-                        ChunkHash::from_blake3(hasher.finalize()),
-                        measured_read,
-                        measured_hash,
-                    ))
-                })?;
+            let (hash, measured_read, measured_hash) = hash_file_streaming(path, control)?;
             read_elapsed = measured_read;
             hash_elapsed = measured_hash;
-            hash
+            ChunkHash::from_blake3(hash)
         }
         (FullFileHashMode::Forwarded, None)
         | (FullFileHashMode::Stream, Some(_))
@@ -142,6 +151,45 @@ pub(crate) fn verify_full_file_integrity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_hash_handles_empty_files_and_buffer_boundaries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("content");
+        for size in [
+            0,
+            1,
+            STREAM_BUFFER_BYTES - 1,
+            STREAM_BUFFER_BYTES,
+            STREAM_BUFFER_BYTES + 37,
+        ] {
+            let bytes: Vec<_> = (0..size).map(|index| (index % 251) as u8).collect();
+            std::fs::write(&path, &bytes).unwrap();
+            assert_eq!(hash_file(&path).unwrap(), blake3::hash(&bytes));
+        }
+        assert!(hash_file(&directory.path().join("missing")).is_err());
+    }
+
+    #[test]
+    fn streaming_hash_observes_cancellation_between_reads() {
+        #[derive(Debug)]
+        struct CancelAfterRead(std::sync::atomic::AtomicUsize);
+        impl crate::progress::GutchCancellationHook for CancelAfterRead {
+            fn is_cancelled(&self) -> bool {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("content");
+        std::fs::write(&path, vec![17; STREAM_BUFFER_BYTES * 2]).unwrap();
+        let control = GutchOperationControl::default().with_cancellation(std::sync::Arc::new(
+            CancelAfterRead(std::sync::atomic::AtomicUsize::new(0)),
+        ));
+        assert!(matches!(
+            hash_file_streaming(&path, &control),
+            Err(Error::Cancelled)
+        ));
+    }
 
     #[test]
     fn full_file_hash_mode_matches_reconstruction_policy() {

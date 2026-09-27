@@ -199,7 +199,7 @@ pub struct InstallationRepairPlanResult {
     pub corrupt_file_count: usize,
     pub extra_file_count: usize,
     pub needs_rebuild: bool,
-    pub required_bundle_ids: Vec<String>,
+    pub required_artifact_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

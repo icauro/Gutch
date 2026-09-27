@@ -231,13 +231,13 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
 
     let chunk_a = test_hash("chunk-a");
     let chunk_b = test_hash("chunk-b");
-    let chunk_index = manifest::ChunkIndex {
+    let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([
             (
                 chunk_a.clone(),
-                manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     0,
                     0,
                     test_hash("bundle-a").into(),
@@ -248,7 +248,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             ),
             (
                 chunk_b.clone(),
-                manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     0,
                     0,
                     test_hash("bundle-b").into(),
@@ -309,7 +309,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
 
     assert_eq!(plan.missing_file_count, 0);
     assert_eq!(plan.corrupt_file_count, 1);
-    assert_eq!(plan.required_bundle_ids, vec![test_hash("bundle-a")]);
+    assert_eq!(plan.required_artifact_ids, vec![test_hash("bundle-a")]);
 
     let _ = std::fs::remove_dir_all(&root);
 }

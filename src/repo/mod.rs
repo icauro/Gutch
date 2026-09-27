@@ -2,7 +2,7 @@ pub(crate) mod cleanup;
 pub(crate) mod coordination;
 pub(crate) mod index;
 pub(crate) mod init_policy;
-mod inventory;
+pub(crate) mod inventory;
 pub(crate) mod paths;
 pub(crate) mod recovery;
 pub(crate) mod remote;

@@ -5,10 +5,9 @@ use std::sync::Arc;
 
 use crate::Error;
 use crate::Result;
-use crate::installation::apply::resolve_verified_source;
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::jobs::ReconstructPipelineApplyRequest;
-use crate::installation::plan::build_reconstruct_pipeline_plan;
+use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
 use crate::installation::types::SnapshotReconstructSource;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -41,7 +40,7 @@ struct PreparedSnapshotFetch {
     repo_manifest: GutchRepoManifest,
     compression_profile: crate::manifest::CompressionProfile,
     snapshot_manifest: SnapshotManifest,
-    chunk_index: crate::manifest::ChunkIndex,
+    chunk_index: crate::repo::index::ChunkIndex,
     required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
     existing_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
     pending_artifact_downloads: Vec<PendingArtifactDownload>,
@@ -164,52 +163,35 @@ pub fn fetch_and_reconstruct_snapshot(
                 &progress,
                 &transfer_progress,
             )?;
-            crate::filesystem::paths::validate_destination_paths(
-                &request.destination_dir,
-                prepared
-                    .snapshot_manifest
-                    .entries
-                    .iter()
-                    .map(|entry| entry.path()),
-            )?;
-            let _promotion_lock = crate::installation::apply::prepare_directory_promotion(
+            let _promotion_lock = crate::installation::apply::prepare_installation_destination(
+                &prepared.snapshot_manifest,
                 &request.destination_dir,
                 request.staging_dir.as_deref(),
                 &request.fetch_request.repo_path,
                 &request.fetch_request.control,
             )?;
             let resolved_source = resolve_snapshot_source(&request, &prepared.repo_paths)?;
-            let verified_source = resolve_verified_source(
-                resolved_source
+            let reconstruction = prepare_reconstruction(ReconstructionInputs {
+                snapshot_manifest: &prepared.snapshot_manifest,
+                chunk_index: &prepared.chunk_index,
+                repo_paths: &prepared.repo_paths,
+                existing_artifacts: &prepared.existing_artifacts,
+                source: resolved_source
                     .source_manifest
                     .as_ref()
                     .zip(resolved_source.source_destination_dir.as_deref())
                     .map(
-                        |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
-                            snapshot_manifest: source_manifest,
-                            destination_dir: source_destination_dir,
+                        |(snapshot_manifest, destination_dir)| SnapshotReconstructSource {
+                            snapshot_manifest,
+                            destination_dir,
                         },
                     ),
-                &request.runtime_hints,
-                &request.fetch_request.control,
-            )?;
-
-            let pipeline_plan = {
-                let _plan_span = request
-                    .fetch_request
-                    .control
-                    .profile_span("installation.reconstruct.prepare.plan");
-                build_reconstruct_pipeline_plan(
-                    &prepared.snapshot_manifest,
-                    &prepared.chunk_index,
-                    &prepared.repo_paths,
-                    &prepared.existing_artifacts,
-                    verified_source.as_ref().map(|source| source.source()),
-                )?
-            };
+                runtime_hints: &request.runtime_hints,
+                control: &request.fetch_request.control,
+            })?;
             let pending_artifact_downloads = select_pending_artifact_downloads(
                 &prepared.pending_artifact_downloads,
-                &pipeline_plan.required_artifacts,
+                &reconstruction.plan.required_artifacts,
             );
             if pending_artifact_downloads.is_empty() {
                 transfer_progress.finish();
@@ -223,7 +205,7 @@ pub fn fetch_and_reconstruct_snapshot(
                     snapshot_manifest: &prepared.snapshot_manifest,
                     destination_dir: &request.destination_dir,
                     staging_dir: request.staging_dir.as_deref(),
-                    source_destination_dir: resolved_source.source_destination_dir,
+                    source_destination_dir: reconstruction.source_directory,
                     runtime_hints: &request.runtime_hints,
                     existing_artifacts: &prepared.existing_artifacts,
                     pending_artifact_downloads: &pending_artifact_downloads,
@@ -232,7 +214,7 @@ pub fn fetch_and_reconstruct_snapshot(
                     download_client: Some(&download_client),
                     transfer_progress: Some(&transfer_progress),
                 },
-                pipeline_plan,
+                reconstruction.plan,
             )?;
             publish_fetched_snapshot(&prepared)?;
             let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);

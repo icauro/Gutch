@@ -1,4 +1,5 @@
-use super::apply::{VerifiedSource, prepare_directory_promotion, resolve_verified_source};
+use super::apply::prepare_installation_destination;
+use super::prepare::{ReconstructionInputs, prepare_reconstruction};
 use super::types::{
     InstallationReconstructResult, InstallationRequest, SnapshotReconstructSource,
     SnapshotRepairResult,
@@ -9,7 +10,7 @@ use crate::Result;
 #[serde(rename_all = "camelCase")]
 pub enum InstallationPublication {
     ReplaceDirectory,
-    Selective,
+    Selective { extra_files: ExtraFilePolicy },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,41 +27,29 @@ pub struct InstallationResult {
 pub fn install_snapshot_from_repo(
     request: InstallationRequest,
     publication: InstallationPublication,
-    extra_files: ExtraFilePolicy,
 ) -> Result<InstallationResult> {
-    if publication == InstallationPublication::ReplaceDirectory
-        && extra_files == ExtraFilePolicy::Preserve
-    {
-        return Err(crate::Error::manifest(
-            "complete replacement requires removing extra files; use selective publication to preserve them",
-        ));
-    }
     request.control.checkpoint()?;
     let operation_root = (&request.repo_path).to_path_buf();
     crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span(match publication {
             InstallationPublication::ReplaceDirectory => "installation.reconstruct",
-            InstallationPublication::Selective => "installation.repair",
+            InstallationPublication::Selective { .. } => "installation.repair",
         });
-        let (repo_paths, snapshot_manifest) = super::snapshot_inputs::load_repo_snapshot_manifest(
-            &request.repo_path,
-            &request.snapshot_id,
-        )?;
-        let (_, repo_manifest) =
-            crate::repo::paths::load_gutch_repo_manifest(&repo_paths.repo_root)?;
+        let super::prepare::LoadedRepoSnapshot {
+            repo_paths,
+            repo_manifest,
+            snapshot_manifest,
+        } = super::prepare::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let chunk_index = crate::repo::index::load_chunk_index(&repo_paths)?;
-        crate::filesystem::paths::validate_destination_paths(
-            &request.destination_dir,
-            snapshot_manifest.entries.iter().map(|entry| entry.path()),
-        )?;
-        let _promotion_lock = prepare_directory_promotion(
+        let _promotion_lock = prepare_installation_destination(
+            &snapshot_manifest,
             &request.destination_dir,
             request.staging_dir.as_deref(),
             &request.repo_path,
             &request.control,
         )?;
-        let changes = if publication == InstallationPublication::Selective {
+        let changes = if publication.is_selective() {
             Some(super::plan::inspect_installation_changes(
                 &snapshot_manifest,
                 Some(&chunk_index),
@@ -112,27 +101,22 @@ pub fn install_snapshot_from_repo(
                     destination_dir: source_destination_dir,
                 },
             );
-        let verified_source =
-            resolve_verified_source(source, &request.runtime_hints, &request.control)?;
-        let pipeline_plan = {
-            let _plan_span = request
-                .control
-                .profile_span("installation.reconstruct.prepare.plan");
-            crate::installation::plan::build_reconstruct_pipeline_plan(
-                execution_manifest,
-                &chunk_index,
-                &repo_paths,
-                &existing_artifacts,
-                verified_source.as_ref().map(VerifiedSource::source),
-            )?
-        };
+        let prepared = prepare_reconstruction(ReconstructionInputs {
+            snapshot_manifest: execution_manifest,
+            chunk_index: &chunk_index,
+            repo_paths: &repo_paths,
+            existing_artifacts: &existing_artifacts,
+            source,
+            runtime_hints: &request.runtime_hints,
+            control: &request.control,
+        })?;
         let (mut reconstruction, repair) = super::execute::apply_reconstruct_pipeline(
             crate::installation::jobs::ReconstructPipelineApplyRequest {
                 publication: match changes.as_ref() {
                     Some(changes) => super::publish::Publication::Selective {
                         target: &snapshot_manifest,
                         changes,
-                        remove_extra_files: extra_files == ExtraFilePolicy::Remove,
+                        remove_extra_files: publication.removes_extra_files(),
                     },
                     None => super::publish::Publication::ReplaceDirectory,
                 },
@@ -141,7 +125,7 @@ pub fn install_snapshot_from_repo(
                 snapshot_manifest: execution_manifest,
                 destination_dir: &request.destination_dir,
                 staging_dir: request.staging_dir.as_deref(),
-                source_destination_dir,
+                source_destination_dir: prepared.source_directory,
                 runtime_hints: &request.runtime_hints,
                 existing_artifacts: &existing_artifacts,
                 pending_artifact_downloads: &[],
@@ -150,7 +134,7 @@ pub fn install_snapshot_from_repo(
                 download_client: None,
                 transfer_progress: None,
             },
-            pipeline_plan,
+            prepared.plan,
         )?;
         reconstruction.snapshot_manifest = snapshot_manifest;
         Ok(InstallationResult {
@@ -158,4 +142,19 @@ pub fn install_snapshot_from_repo(
             repair,
         })
     })
+}
+
+impl InstallationPublication {
+    pub(crate) fn is_selective(self) -> bool {
+        matches!(self, Self::Selective { .. })
+    }
+
+    pub(crate) fn removes_extra_files(self) -> bool {
+        !matches!(
+            self,
+            Self::Selective {
+                extra_files: ExtraFilePolicy::Preserve
+            }
+        )
+    }
 }

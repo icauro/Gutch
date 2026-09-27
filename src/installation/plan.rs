@@ -47,7 +47,7 @@ pub(crate) fn build_artifact_priorities(
 
 pub(crate) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
-    chunk_index: &crate::manifest::ChunkIndex,
+    chunk_index: &crate::repo::index::ChunkIndex,
     repo_paths: &crate::repo::paths::GutchRepoPaths,
     existing_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
     verified_source: Option<SnapshotReconstructSource<'_>>,
@@ -306,7 +306,7 @@ pub(crate) struct InstallationChanges {
 
 pub(crate) fn inspect_installation_changes(
     snapshot_manifest: &SnapshotManifest,
-    chunk_index: Option<&crate::manifest::ChunkIndex>,
+    chunk_index: Option<&crate::repo::index::ChunkIndex>,
     destination_dir: &Path,
     inspection: super::inspect::VerifyMode,
     runtime_hints: &RuntimeResourceHints,
@@ -342,7 +342,7 @@ pub(crate) fn inspect_installation_changes(
 
 pub(crate) fn build_installation_changes(
     snapshot_manifest: &SnapshotManifest,
-    chunk_index: Option<&crate::manifest::ChunkIndex>,
+    chunk_index: Option<&crate::repo::index::ChunkIndex>,
     classification: RepairClassification,
 ) -> Result<InstallationChanges> {
     let missing_file_count = classification.missing_files.len();

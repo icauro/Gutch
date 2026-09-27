@@ -11,7 +11,7 @@ impl SnapshotCapturePlan {
         Self {
             folder_name: candidate.folder_name,
             path: candidate.path,
-            version_id: candidate.version_id,
+            version_tag: candidate.version_tag,
             os: candidate.os,
             arch: candidate.arch,
             snapshot_tags: candidate.snapshot_tags,
@@ -72,7 +72,7 @@ pub fn describe_snapshot_capture_plan(plan: &SnapshotCapturePlan) -> String {
     format!(
         "Capture new snapshot from {} ({}) with tags {}",
         plan.folder_name,
-        plan.version_id,
+        plan.version_tag,
         plan.snapshot_tags.to_canonical_strings().join(" ")
     )
 }

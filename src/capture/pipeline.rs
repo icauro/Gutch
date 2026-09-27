@@ -332,7 +332,9 @@ where
         BTreeMap::from([("budget_bytes".into(), serde_json::json!(memory_budget))])
     });
     let memory = std::sync::Arc::new(crate::runtime::MemoryBudget::new(memory_budget));
-    let results = (0..work_items.len()).map(|_| std::sync::Mutex::new(None)).collect::<Vec<_>>();
+    let results = (0..work_items.len())
+        .map(|_| std::sync::Mutex::new(None))
+        .collect::<Vec<_>>();
     // in_place_scope keeps admission on the caller, not on a Rayon worker.
     pool.in_place_scope(|scope| -> Result<()> {
         for (item, slot) in work_items.into_iter().zip(&results) {
@@ -346,8 +348,14 @@ where
         }
         Ok(())
     })?;
-    results.into_iter().map(|slot| slot.into_inner().expect("capture result slot")
-        .expect("joined capture worker")).collect()
+    results
+        .into_iter()
+        .map(|slot| {
+            slot.into_inner()
+                .expect("capture result slot")
+                .expect("joined capture worker")
+        })
+        .collect()
 }
 
 fn build_bundled_chunks(
@@ -379,7 +387,13 @@ fn build_bundled_chunks(
         pool,
         control,
         memory_budget,
-        |(_, bundle)| bundle.iter().map(|(_, payload)| payload.raw_size()).sum::<u64>() + 128 * 1024 * 1024,
+        |(_, bundle)| {
+            bundle
+                .iter()
+                .map(|(_, payload)| payload.raw_size())
+                .sum::<u64>()
+                + crate::artifact::compression::ENCODE_WORKING_MEMORY_BYTES
+        },
         move |(_bundle_index, planned_bundle), control| {
             build_bounded_bundle_groups(
                 planned_bundle,
@@ -419,7 +433,9 @@ fn build_loose_chunks(
         pool,
         control,
         memory_budget,
-        |(_, payload)| payload.raw_size() + 128 * 1024 * 1024,
+        |(_, payload)| {
+            payload.raw_size() + crate::artifact::compression::ENCODE_WORKING_MEMORY_BYTES
+        },
         move |(chunk_hash, payload), control| {
             build_loose_chunk(
                 chunk_hash,
@@ -529,7 +545,10 @@ fn build_bundle_compressed_group(
 ) -> Result<BuiltBundleCompressedGroup> {
     control.checkpoint()?;
     let _job_span = control.profile_span_with_args("capture.bundle.build", || {
-        BTreeMap::from([("chunk_count".into(), serde_json::json!(planned_bundle.len()))])
+        BTreeMap::from([(
+            "chunk_count".into(),
+            serde_json::json!(planned_bundle.len()),
+        )])
     });
     let mut builder = BundleBuilder::new(compression_profile.clone());
     let mut payload_load = std::time::Duration::ZERO;

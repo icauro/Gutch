@@ -22,7 +22,10 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         compression_algorithm: CompressionKind::None,
         compression_level: None,
         storage_mode: ArtifactStorageMode::LooseChunks,
-        runtime_hints: RuntimeResourceHints { jobs: Some(2), ..Default::default() },
+        runtime_hints: RuntimeResourceHints {
+            jobs: Some(2),
+            ..Default::default()
+        },
         control: Default::default(),
     })
     .unwrap();
@@ -33,7 +36,10 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         staging_dir: None,
         source_snapshot_id: None,
         source_dir: None,
-        runtime_hints: RuntimeResourceHints { jobs: Some(2), ..Default::default() },
+        runtime_hints: RuntimeResourceHints {
+            jobs: Some(2),
+            ..Default::default()
+        },
         control: Default::default(),
     };
     reconstruct_snapshot(request.clone()).unwrap();
@@ -57,8 +63,9 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
     let mut actions = std::collections::BTreeMap::new();
     let summary = visit_installation_plan(
         &request,
-        InstallationPublication::Selective,
-        ExtraFilePolicy::Preserve,
+        InstallationPublication::Selective {
+            extra_files: ExtraFilePolicy::Preserve,
+        },
         InstallationInspection::Content,
         &mut |event| {
             if let InstallationPlanEvent::Entry { path, action, .. } = event {
@@ -78,8 +85,9 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
     fs::write(request.destination_dir.join("damaged"), b"different again").unwrap();
     install_snapshot_from_repo(
         request.clone(),
-        InstallationPublication::Selective,
-        ExtraFilePolicy::Preserve,
+        InstallationPublication::Selective {
+            extra_files: ExtraFilePolicy::Preserve,
+        },
     )
     .unwrap();
     assert_eq!(
@@ -120,8 +128,9 @@ fn metadata_only_preview_does_not_claim_content_integrity() {
     fs::write(request.destination_dir.join("damaged"), b"modified content").unwrap();
     let summary = visit_installation_plan(
         &request,
-        InstallationPublication::Selective,
-        ExtraFilePolicy::Remove,
+        InstallationPublication::Selective {
+            extra_files: ExtraFilePolicy::Remove,
+        },
         InstallationInspection::MetadataOnly,
         &mut |event| {
             if let InstallationPlanEvent::Entry {
@@ -149,8 +158,9 @@ fn permission_repair_keeps_verified_content_in_place() {
     let mut saw_metadata = false;
     let summary = visit_installation_plan(
         &request,
-        InstallationPublication::Selective,
-        ExtraFilePolicy::Preserve,
+        InstallationPublication::Selective {
+            extra_files: ExtraFilePolicy::Preserve,
+        },
         InstallationInspection::Content,
         &mut |event| {
             if let InstallationPlanEvent::Entry { path, action, .. } = event {
@@ -166,8 +176,9 @@ fn permission_repair_keeps_verified_content_in_place() {
     assert_eq!(summary.staging_file_bytes, 0);
     install_snapshot_from_repo(
         request,
-        InstallationPublication::Selective,
-        ExtraFilePolicy::Preserve,
+        InstallationPublication::Selective {
+            extra_files: ExtraFilePolicy::Preserve,
+        },
     )
     .unwrap();
     assert!(!fs::metadata(&file).unwrap().permissions().readonly());
@@ -183,8 +194,9 @@ fn repairing_a_link_does_not_replace_its_healthy_target() {
     fs::remove_file(request.destination_dir.join("link")).unwrap();
     install_snapshot_from_repo(
         request.clone(),
-        InstallationPublication::Selective,
-        ExtraFilePolicy::Preserve,
+        InstallationPublication::Selective {
+            extra_files: ExtraFilePolicy::Preserve,
+        },
     )
     .unwrap();
     assert_eq!(fs::metadata(&healthy).unwrap().modified().unwrap(), before);
@@ -204,8 +216,9 @@ fn removing_extra_content_preserves_expected_empty_directories() {
     fs::write(extra_directory.join("user-file"), b"extra content").unwrap();
     install_snapshot_from_repo(
         request,
-        InstallationPublication::Selective,
-        ExtraFilePolicy::Remove,
+        InstallationPublication::Selective {
+            extra_files: ExtraFilePolicy::Remove,
+        },
     )
     .unwrap();
     assert!(expected_directory.is_dir());

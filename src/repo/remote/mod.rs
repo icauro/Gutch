@@ -228,7 +228,7 @@ fn local_snapshot_blueprint_hash_b3(
         return Ok(String::new());
     }
     Ok(crate::artifact::hash::hash_hex(
-        &crate::artifact::hash::hash_file(&path)?,
+        &crate::file_integrity::hash_file(&path)?,
     ))
 }
 
@@ -490,7 +490,10 @@ mod tests {
                     compression_algorithm: crate::manifest::CompressionKind::Zstd,
                     compression_level: None,
                     storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
-                    runtime_hints: crate::runtime::RuntimeResourceHints { jobs: Some(1), ..Default::default() },
+                    runtime_hints: crate::runtime::RuntimeResourceHints {
+                        jobs: Some(1),
+                        ..Default::default()
+                    },
                     control: Default::default(),
                 },
             )

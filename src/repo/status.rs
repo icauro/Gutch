@@ -45,7 +45,7 @@ pub struct RepoStatus {
 #[serde(rename_all = "camelCase")]
 pub struct RepoSnapshotStatus {
     pub snapshot_id: String,
-    pub version_id: String,
+    pub version_tag: String,
     pub os: String,
     pub arch: String,
     pub file_count: usize,
@@ -79,7 +79,7 @@ pub struct SourceSnapshotOperationCandidate {
     pub folder_name: String,
     #[serde(default)]
     pub source_modified_at: String,
-    pub version_id: String,
+    pub version_tag: String,
     pub os: String,
     pub arch: String,
     #[serde(rename = "tags")]
@@ -200,7 +200,7 @@ pub fn discover_source_snapshot_operations(
                         path: snapshot.path.display().to_string(),
                         folder_name,
                         source_modified_at: String::new(),
-                        version_id: String::new(),
+                        version_tag: String::new(),
                         os: String::new(),
                         arch: String::new(),
                         snapshot_tags: manifest::SnapshotTagSet::default(),
@@ -283,7 +283,7 @@ fn check_snapshot_manifests(
         let summary = summarize_snapshot_tags(&manifest.snapshot_tags);
         snapshots.push(RepoSnapshotStatus {
             snapshot_id: manifest.snapshot_id.clone(),
-            version_id: summary.version_id,
+            version_tag: summary.version_tag,
             os: summary.os,
             arch: summary.arch,
             file_count: manifest.file_count(),
@@ -321,10 +321,7 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
     explicit_tags: &manifest::SnapshotTagSet,
     source_modified_at: String,
 ) -> Result<SourceSnapshotOperationCandidate> {
-    use crate::cli::tags::resolve_snapshot_tags;
-
-    let context = format!("source snapshot '{}'", path.display());
-    let resolved = resolve_snapshot_tags(path, explicit_tags, &context)?;
+    let normalized_tags = explicit_tags.normalized()?;
 
     let folder_name = path
         .file_name()
@@ -335,16 +332,16 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
         })?
         .to_string();
 
-    let summary = summarize_snapshot_tags(&resolved.snapshot_tags);
+    let summary = summarize_snapshot_tags(&normalized_tags);
 
     Ok(SourceSnapshotOperationCandidate {
         path: path.display().to_string(),
         folder_name,
         source_modified_at,
-        version_id: summary.version_id,
+        version_tag: summary.version_tag,
         os: summary.os,
         arch: summary.arch,
-        snapshot_tags: resolved.snapshot_tags,
+        snapshot_tags: normalized_tags,
         disposition: SourceSnapshotOperationDisposition::Unchanged,
         error: None,
     })

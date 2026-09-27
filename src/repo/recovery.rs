@@ -1,10 +1,10 @@
 use crate::Error;
 use crate::Result;
 use crate::manifest::ArtifactStorageMode;
-use crate::manifest::ChunkIndex;
-use crate::manifest::ChunkIndexEntry;
 use crate::manifest::CompressionProfile;
 use crate::progress::GutchOperationControl;
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::ChunkIndexEntry;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;

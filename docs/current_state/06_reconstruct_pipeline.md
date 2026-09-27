@@ -55,6 +55,12 @@ jobs. This overlaps hashing with remaining reconstruction and can read recently
 written pages from the filesystem cache. Empty-file checks need no such priority.
 Verification never starts while a producer for that file is still running.
 
+The coordinator tracks ready work separately from dispatched work. Memory
+admission can skip a temporarily blocked producer and run a ready verification.
+On failure, queued work is discarded and dispatched workers are drained before
+their output resources are released. Download readiness remains separate from
+this reconstruction queue.
+
 Remote transfer has a separate worker limit. The default transfer policy uses
 four workers, while adaptive transfer can change the active count up to sixteen
 based on throughput, retries, and downstream backpressure. Reconstruction

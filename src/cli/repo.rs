@@ -148,7 +148,7 @@ pub(crate) fn run(
                     crate::cli::output::line(format_args!(
                         "{} | version={} | os={} | arch={} | files={} | missing_artifacts={}",
                         snapshot.snapshot_id,
-                        snapshot.version_id,
+                        snapshot.version_tag,
                         snapshot.os,
                         snapshot.arch,
                         snapshot.file_count,

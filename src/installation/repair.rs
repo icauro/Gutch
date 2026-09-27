@@ -18,11 +18,12 @@ pub fn repair_installation(request: InstallationRepairRequest) -> Result<Install
             runtime_hints: request.runtime_hints,
             control: request.control,
         },
-        super::install::InstallationPublication::Selective,
-        if request.remove_added_files {
-            super::install::ExtraFilePolicy::Remove
-        } else {
-            super::install::ExtraFilePolicy::Preserve
+        super::install::InstallationPublication::Selective {
+            extra_files: if request.remove_added_files {
+                super::install::ExtraFilePolicy::Remove
+            } else {
+                super::install::ExtraFilePolicy::Preserve
+            },
         },
     )?;
     Ok(InstallationRepairResult {
@@ -42,10 +43,11 @@ pub fn plan_installation_repair(
     let operation_root = (&request.repo_path).to_path_buf();
     crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
-        let (repo_paths, snapshot_manifest) = super::snapshot_inputs::load_repo_snapshot_manifest(
-            &request.repo_path,
-            &request.snapshot_id,
-        )?;
+        let super::prepare::LoadedRepoSnapshot {
+            repo_paths,
+            snapshot_manifest,
+            ..
+        } = super::prepare::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let chunk_index = crate::repo::index::load_chunk_index(&repo_paths)?;
         let repair_plan = inspect_installation_changes(
             &snapshot_manifest,
@@ -64,7 +66,7 @@ pub fn plan_installation_repair(
             corrupt_file_count: repair_plan.corrupt_file_count,
             extra_file_count: repair_plan.extra_file_count,
             needs_rebuild: repair_plan.needs_rebuild,
-            required_bundle_ids: repair_plan
+            required_artifact_ids: repair_plan
                 .required_artifacts
                 .into_iter()
                 .map(|artifact| artifact.id().to_string())

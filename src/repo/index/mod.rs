@@ -8,43 +8,20 @@ use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::manifest;
 use crate::manifest::ArtifactStorageMode;
-use crate::manifest::FileManifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::paths::bundle_id_from_bundle_path;
-use crate::repo::paths::chunk_path;
-use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
 use crate::repo::paths::GutchRepoPaths;
 
-#[derive(Debug)]
-pub struct ExistingStoreState {
-    pub bundle_ids: HashSet<String>,
-    pub chunk_index: manifest::ChunkIndex,
-    pub chunk_locations:
-        std::collections::HashMap<String, crate::capture::types::ExistingChunkLocation>,
-    pub previous_file_manifests: std::collections::HashMap<String, Vec<FileManifest>>,
-}
-
-impl Default for ExistingStoreState {
-    fn default() -> Self {
-        Self {
-            bundle_ids: HashSet::new(),
-            chunk_index: empty_chunk_index(),
-            chunk_locations: std::collections::HashMap::new(),
-            previous_file_manifests: std::collections::HashMap::new(),
-        }
-    }
-}
-
-fn empty_chunk_index() -> manifest::ChunkIndex {
-    manifest::ChunkIndex {
+pub(crate) fn empty_chunk_index() -> ChunkIndex {
+    ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
 
-        entries: manifest::ChunkIndexEntries::new(),
+        entries: ChunkIndexEntries::new(),
     }
 }
 
-pub(crate) fn load_chunk_index(paths: &GutchRepoPaths) -> Result<manifest::ChunkIndex> {
+pub(crate) fn load_chunk_index(paths: &GutchRepoPaths) -> Result<ChunkIndex> {
     if paths.chunk_map_path.exists() {
         return binary_codec::load_chunk_index_binary(&paths.chunk_map_path);
     }
@@ -70,7 +47,7 @@ pub fn required_chunk_hashes_typed(
 
 pub fn required_bundle_ids(
     snapshot_manifest: &SnapshotManifest,
-    chunk_index: &manifest::ChunkIndex,
+    chunk_index: &ChunkIndex,
 ) -> Result<HashSet<String>> {
     Ok(
         crate::repo::artifacts::required_artifacts(snapshot_manifest, chunk_index)?
@@ -83,74 +60,7 @@ pub fn required_bundle_ids(
     )
 }
 
-/// Scan the existing store using the caller's operation pool.
-///
-/// The scan is read-only. Results are merged after the parallel work in the
-/// same sorted order as the sequential implementation so duplicate index
-/// entries and previous-manifest candidates remain deterministic.
-pub fn scan_existing_store_state_with_pool(
-    paths: &GutchRepoPaths,
-    pool: &rayon::ThreadPool,
-    control: &crate::progress::GutchOperationControl,
-) -> Result<ExistingStoreState> {
-    let mut state = ExistingStoreState::default();
-    let chunk_index = load_chunk_index(paths)?;
-    let (_, repo_manifest) = crate::repo::paths::load_gutch_repo_manifest(&paths.repo_root)?;
-    let compression_profile = repo_manifest.compression_profile();
-
-    let _bundle_ids_span =
-        control.profile_span("capture.prepare_source.load_existing_store_state.bundle_ids");
-    let bundle_paths = collect_file_paths(&paths.bundles_root)?;
-    state.bundle_ids = pool.install(|| {
-        bundle_paths
-            .par_iter()
-            .filter_map(|path| bundle_id_from_bundle_path(path))
-            .collect()
-    });
-    drop(_bundle_ids_span);
-
-    state.chunk_index = if chunk_index.entries.is_empty() {
-        let _rebuild_span = control
-            .profile_span("capture.prepare_source.load_existing_store_state.rebuild_chunk_index");
-        let result = rebuild_chunk_index_from_bundles_with_pool(paths, &compression_profile, pool);
-        drop(_rebuild_span);
-        result?
-    } else {
-        chunk_index
-    };
-    let _locations_span = control
-        .profile_span("capture.prepare_source.load_existing_store_state.check_chunk_locations");
-    state.chunk_locations = existing_chunk_locations_from_index_with_pool_and_bundle_ids(
-        &state.chunk_index,
-        paths,
-        pool,
-        &state.bundle_ids,
-    )?;
-    drop(_locations_span);
-
-    let _manifests_span = control
-        .profile_span("capture.prepare_source.load_existing_store_state.load_snapshot_manifests");
-    let snapshot_manifest_paths = collect_snapshot_manifest_paths(paths)?;
-    let manifests = pool.install(|| {
-        snapshot_manifest_paths
-            .par_iter()
-            .map(|path| {
-                let Some(snapshot_id) = snapshot_id_from_manifest_path(path) else {
-                    return Ok(None);
-                };
-                load_snapshot_manifest(paths, snapshot_id).map(Some)
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
-    for manifest in manifests.into_iter().flatten() {
-        add_previous_file_manifests(&mut state.previous_file_manifests, manifest);
-    }
-    drop(_manifests_span);
-
-    Ok(state)
-}
-
-fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for entry in walkdir::WalkDir::new(root).sort_by_file_name() {
         let entry = entry?;
@@ -161,81 +71,11 @@ fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-fn collect_snapshot_manifest_paths(paths: &GutchRepoPaths) -> Result<Vec<PathBuf>> {
-    super::inventory::list_repo_snapshot_ids(paths)?
-        .into_iter()
-        .map(|snapshot_id| {
-            crate::repo::snapshot_manifests::snapshot_metadata_path(paths, &snapshot_id)
-        })
-        .collect()
-}
-
-fn snapshot_id_from_manifest_path(path: &Path) -> Option<&str> {
-    path.parent()
-        .and_then(Path::file_name)
-        .and_then(|value| value.to_str())
-}
-
-fn add_previous_file_manifests(
-    previous_file_manifests: &mut std::collections::HashMap<String, Vec<FileManifest>>,
-    manifest: SnapshotManifest,
-) {
-    for entry in manifest.entries {
-        let crate::manifest::SnapshotEntry::File(file) = entry else {
-            continue;
-        };
-        let candidates = previous_file_manifests
-            .entry(file.path.clone())
-            .or_default();
-        if !candidates.iter().any(|candidate| {
-            candidate.size == file.size && candidate.full_file_hash == file.full_file_hash
-        }) {
-            candidates.push(file);
-        }
-    }
-}
-
-pub(crate) fn existing_chunk_locations_from_index_with_pool_and_bundle_ids(
-    chunk_index: &manifest::ChunkIndex,
-    paths: &GutchRepoPaths,
-    pool: &rayon::ThreadPool,
-    available_bundle_ids: &HashSet<String>,
-) -> Result<std::collections::HashMap<String, crate::capture::types::ExistingChunkLocation>> {
-    let locations = pool.install(|| {
-        chunk_index
-            .entries
-            .iter()
-            .map(|(chunk_hash, entry)| {
-                let path_exists = match entry.storage_mode {
-                    ArtifactStorageMode::Bundled => {
-                        available_bundle_ids.contains(entry.bundle_id.as_str())
-                    }
-                    ArtifactStorageMode::LooseChunks => {
-                        chunk_path(paths, &chunk_hash.to_hex())?.is_file()
-                    }
-                };
-                Ok(path_exists.then(|| {
-                    (
-                        chunk_hash.to_hex(),
-                        crate::capture::types::ExistingChunkLocation {
-                            bundle_id: entry.bundle_id.to_string(),
-                            compressed_size: u64::from(entry.compressed_size),
-                            storage_mode: entry.storage_mode,
-                        },
-                    )
-                }))
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
-
-    Ok(locations.into_iter().flatten().collect())
-}
-
 pub fn rebuild_chunk_index_from_bundles_with_pool(
     paths: &GutchRepoPaths,
     compression_profile: &crate::manifest::CompressionProfile,
     pool: &rayon::ThreadPool,
-) -> Result<manifest::ChunkIndex> {
+) -> Result<ChunkIndex> {
     let bundle_paths = collect_file_paths(&paths.bundles_root)?;
     let bundle_entries = pool.install(|| {
         bundle_paths
@@ -249,7 +89,7 @@ pub fn rebuild_chunk_index_from_bundles_with_pool(
 fn read_bundle_index_entries(
     path: &Path,
     compression_profile: &crate::manifest::CompressionProfile,
-) -> Result<Vec<(String, manifest::ChunkIndexEntry)>> {
+) -> Result<Vec<(String, ChunkIndexEntry)>> {
     let Some(bundle_id) = bundle_id_from_bundle_path(path) else {
         return Ok(Vec::new());
     };
@@ -264,7 +104,7 @@ fn read_bundle_index_entries(
         .map(|(ordinal, chunk)| {
             (
                 chunk.chunk_hash.to_hex(),
-                manifest::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     artifact_size,
                     ordinal as u32,
                     shared_bundle_id.clone(),
@@ -278,8 +118,8 @@ fn read_bundle_index_entries(
 }
 
 fn build_chunk_index_from_bundle_entries(
-    bundle_entries: Vec<Vec<(String, manifest::ChunkIndexEntry)>>,
-) -> Result<manifest::ChunkIndex> {
+    bundle_entries: Vec<Vec<(String, ChunkIndexEntry)>>,
+) -> Result<ChunkIndex> {
     let mut entries = std::collections::BTreeMap::new();
     for bundle_entries in bundle_entries {
         for (chunk_hash, entry) in bundle_entries {
@@ -287,66 +127,14 @@ fn build_chunk_index_from_bundle_entries(
         }
     }
 
-    Ok(manifest::ChunkIndex {
+    Ok(ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
 
         entries: entries.into_iter().collect(),
     })
 }
 
-pub(crate) fn add_built_bundles_to_chunk_index(
-    chunk_index: &mut manifest::ChunkIndex,
-    bundles: &[crate::capture::types::BuiltBundle],
-    _compression_profile: &crate::manifest::CompressionProfile,
-) -> Result<()> {
-    let mut updates = Vec::new();
-    for bundle in bundles {
-        let shared_bundle_id = smol_str::SmolStr::new(&bundle.bundle_id);
-        for (ordinal, chunk) in bundle.entries.iter().enumerate() {
-            updates.push((
-                chunk.chunk_hash,
-                manifest::ChunkIndexEntry::new(
-                    crate::artifact::format::size_u32(bundle.size)?,
-                    ordinal as u32,
-                    shared_bundle_id.clone(),
-                    chunk.raw_size,
-                    chunk.compressed_size,
-                    ArtifactStorageMode::Bundled,
-                ),
-            ));
-        }
-    }
-    chunk_index.entries.extend(updates);
-    Ok(())
-}
-
-pub(crate) fn add_built_loose_chunks_to_chunk_index(
-    chunk_index: &mut manifest::ChunkIndex,
-    chunks: &[crate::capture::types::BuiltLooseChunk],
-) -> Result<()> {
-    let mut updates = Vec::new();
-    for chunk in chunks {
-        let chunk_hash = chunk.chunk_hash.to_string();
-        updates.push((
-            ChunkHash::parse_hex(&chunk_hash)?,
-            manifest::ChunkIndexEntry::new(
-                crate::artifact::format::size_u32(chunk.compressed_size)?,
-                0,
-                chunk_hash.into(),
-                crate::artifact::format::size_u32(chunk.raw_size)?,
-                crate::artifact::format::size_u32(chunk.compressed_size)?,
-                ArtifactStorageMode::LooseChunks,
-            ),
-        ));
-    }
-    chunk_index.entries.extend(updates);
-    Ok(())
-}
-
-pub(crate) fn write_chunk_index(
-    paths: &GutchRepoPaths,
-    index: &manifest::ChunkIndex,
-) -> Result<()> {
+pub(crate) fn write_chunk_index(paths: &GutchRepoPaths, index: &ChunkIndex) -> Result<()> {
     binary_codec::write_chunk_index_binary(&paths.chunk_map_path, index)
 }
 

@@ -5,12 +5,12 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::Result;
+use crate::capture::reuse::load_capture_reuse_state;
 use crate::progress;
 use crate::progress::GutchOperation;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
-use crate::repo::index::scan_existing_store_state_with_pool;
 use crate::repo::status::RepoStatus;
 use crate::repo::status::SourceSnapshotOperationCandidate;
 use crate::repo::status::discover_source_snapshot_operations;
@@ -175,8 +175,7 @@ pub fn capture_snapshot_sources(
                 )])
             },
         );
-        let mut store_state =
-            scan_existing_store_state_with_pool(&repo_paths, &build_pool, control)?;
+        let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, control)?;
         drop(_existing_state_span);
 
         let mut captured_count = 0usize;
@@ -198,7 +197,7 @@ pub fn capture_snapshot_sources(
                     done: false,
                 },
             );
-            capture_source_snapshot(repo_root, candidate, control, &mut store_state, &build_pool)?;
+            capture_source_snapshot(repo_root, candidate, control, &mut reuse_state, &build_pool)?;
             captured_count += 1;
         }
 
@@ -228,7 +227,7 @@ fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotOperationCandidate,
     control: &crate::progress::GutchOperationControl,
-    store_state: &mut crate::repo::index::ExistingStoreState,
+    reuse_state: &mut crate::capture::reuse::CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<()> {
     let candidate_control = if let Some(sink) = control.progress() {
@@ -239,7 +238,7 @@ fn capture_source_snapshot(
     } else {
         control.clone()
     };
-    crate::capture::execute::capture_repo_snapshot_with_existing_store_state(
+    crate::capture::execute::capture_repo_snapshot_with_existing_reuse_state(
         crate::capture::execute::SnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
             source_dir: std::path::PathBuf::from(&candidate.path),
@@ -252,7 +251,7 @@ fn capture_source_snapshot(
             runtime_hints: crate::runtime::RuntimeResourceHints::default(),
             control: candidate_control,
         },
-        store_state,
+        reuse_state,
         build_pool,
     )
     .map(|_| ())
@@ -369,7 +368,7 @@ mod tests {
             path: source_root.join(folder).display().to_string(),
             folder_name: folder.to_string(),
             source_modified_at: String::new(),
-            version_id: String::from("1.0.0"),
+            version_tag: String::from("1.0.0"),
             os: String::from("windows"),
             arch: String::new(),
             snapshot_tags: tags.clone(),
@@ -396,7 +395,7 @@ mod tests {
             path: "game-a".to_string(),
             folder_name: String::from("game-a"),
             source_modified_at: String::new(),
-            version_id: String::from("1.0.0"),
+            version_tag: String::from("1.0.0"),
             os: String::from("windows"),
             arch: String::new(),
             snapshot_tags: manifest::SnapshotTagSet::from_compact_strings(&[

@@ -5,8 +5,8 @@ pub(crate) mod execute;
 mod io;
 pub(crate) mod jobs;
 pub(crate) mod plan;
+pub(crate) mod prepare;
 mod repair;
-mod snapshot_inputs;
 pub(crate) mod state;
 
 pub(crate) mod types;

@@ -13,7 +13,7 @@ use crate::artifact::binary_io::*;
 
 const LOOSE_CHUNK_ARTIFACT_ROW: u32 = u32::MAX;
 
-pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<manifest::ChunkIndex> {
+pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<crate::repo::index::ChunkIndex> {
     load_chunk_index_binary_from_bytes(&crate::artifact::metadata::read_file(path)?)
 }
 
@@ -49,7 +49,7 @@ fn decode_artifact_table(
     Ok(artifacts)
 }
 
-fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<manifest::ChunkIndex> {
+fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::ChunkIndex> {
     let artifacts = decode_artifact_table(&groups[0])?;
     let mut reader = BinaryReader {
         inner: groups[1].as_slice(),
@@ -71,7 +71,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<manifest::ChunkIndex> {
     let chunk_raw_sizes: Vec<_> = (0..chunk_count)
         .map(|_| read_u32(&mut reader))
         .collect::<Result<_>>()?;
-    let mut entries = manifest::ChunkIndexEntries::new();
+    let mut entries = crate::repo::index::ChunkIndexEntries::new();
     let mut bundle_raw_byte_totals = vec![0u64; artifacts.len()];
     let mut seen_bundle_chunk_ordinals = std::collections::HashSet::new();
     let mut previous_chunk_hash = None;
@@ -121,7 +121,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<manifest::ChunkIndex> {
         };
         entries.insert(
             chunk_hash,
-            manifest::ChunkIndexEntry {
+            crate::repo::index::ChunkIndexEntry {
                 compressed_size: record.artifact_size,
                 artifact: record,
                 chunk_ordinal,
@@ -147,13 +147,15 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<manifest::ChunkIndex> {
             )?;
         }
     }
-    Ok(manifest::ChunkIndex {
+    Ok(crate::repo::index::ChunkIndex {
         format_version: manifest::FORMAT_VERSION.to_string(),
         entries,
     })
 }
 
-pub(crate) fn load_chunk_index_binary_from_bytes(bytes: &[u8]) -> Result<manifest::ChunkIndex> {
+pub(crate) fn load_chunk_index_binary_from_bytes(
+    bytes: &[u8],
+) -> Result<crate::repo::index::ChunkIndex> {
     read_chunk_index_binary(&crate::artifact::metadata::decode(
         bytes,
         CHUNK_INDEX_BINARY_MAGIC,
@@ -161,7 +163,10 @@ pub(crate) fn load_chunk_index_binary_from_bytes(bytes: &[u8]) -> Result<manifes
     )?)
 }
 
-pub(crate) fn write_chunk_index_binary(path: &Path, index: &manifest::ChunkIndex) -> Result<()> {
+pub(crate) fn write_chunk_index_binary(
+    path: &Path,
+    index: &crate::repo::index::ChunkIndex,
+) -> Result<()> {
     let mut artifacts = BTreeMap::new();
     for (hash, entry) in &index.entries {
         if entry.raw_size == 0
@@ -257,12 +262,12 @@ mod tests {
         let path = root.path().join("index");
         let bundle = smol_str::SmolStr::new("07".repeat(32));
         let loose = ChunkHash::from_bytes([3; 32]);
-        let mut index = manifest::ChunkIndex {
+        let mut index = crate::repo::index::ChunkIndex {
             format_version: manifest::FORMAT_VERSION.into(),
             entries: [
                 (
                     ChunkHash::from_bytes([1; 32]),
-                    manifest::ChunkIndexEntry::new(
+                    crate::repo::index::ChunkIndexEntry::new(
                         100,
                         0,
                         bundle.clone(),
@@ -273,7 +278,7 @@ mod tests {
                 ),
                 (
                     ChunkHash::from_bytes([2; 32]),
-                    manifest::ChunkIndexEntry::new(
+                    crate::repo::index::ChunkIndexEntry::new(
                         100,
                         1,
                         bundle,
@@ -284,7 +289,7 @@ mod tests {
                 ),
                 (
                     loose,
-                    manifest::ChunkIndexEntry::new(
+                    crate::repo::index::ChunkIndexEntry::new(
                         60,
                         0,
                         loose.to_hex().into(),

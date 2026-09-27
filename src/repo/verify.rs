@@ -112,7 +112,7 @@ pub fn verify_gutch_repo_artifacts(
 
 pub(crate) fn verify_snapshot_artifacts(
     repo_paths: &GutchRepoPaths,
-    chunk_index: &crate::manifest::ChunkIndex,
+    chunk_index: &crate::repo::index::ChunkIndex,
     compression_profile: &crate::manifest::CompressionProfile,
     snapshot_id: &str,
     mode: VerifyMode,
@@ -129,7 +129,7 @@ pub(crate) fn verify_snapshot_artifacts(
 
 fn verify_snapshot_artifacts_cached(
     repo_paths: &GutchRepoPaths,
-    chunk_index: &crate::manifest::ChunkIndex,
+    chunk_index: &crate::repo::index::ChunkIndex,
     compression_profile: &crate::manifest::CompressionProfile,
     snapshot_id: &str,
     mode: VerifyMode,

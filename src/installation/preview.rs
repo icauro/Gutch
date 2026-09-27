@@ -1,7 +1,7 @@
 //! Streamed installation change previews. Execution always reinspects its inputs.
-use super::install::{ExtraFilePolicy, InstallationPublication};
+use super::install::InstallationPublication;
 use super::types::InstallationRequest;
-use crate::{Error, Result};
+use crate::Result;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 
@@ -56,17 +56,9 @@ pub struct InstallationPlanSummary {
 pub fn visit_installation_plan(
     request: &InstallationRequest,
     publication: InstallationPublication,
-    extra_files: ExtraFilePolicy,
     inspection: InstallationInspection,
     visitor: &mut dyn FnMut(InstallationPlanEvent) -> Result<()>,
 ) -> Result<InstallationPlanSummary> {
-    if publication == InstallationPublication::ReplaceDirectory
-        && extra_files == ExtraFilePolicy::Preserve
-    {
-        return Err(Error::manifest(
-            "complete replacement requires removing extra files; use selective publication to preserve them",
-        ));
-    }
     crate::repo::coordination::read_with_control(&request.repo_path, &request.control, || {
         request.control.checkpoint()?;
         super::apply::validate_installation_paths(
@@ -74,10 +66,11 @@ pub fn visit_installation_plan(
             request.staging_dir.as_deref(),
             &request.repo_path,
         )?;
-        let (paths, target) = super::snapshot_inputs::load_repo_snapshot_manifest(
-            &request.repo_path,
-            &request.snapshot_id,
-        )?;
+        let super::prepare::LoadedRepoSnapshot {
+            repo_paths: paths,
+            snapshot_manifest: target,
+            ..
+        } = super::prepare::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let index = crate::repo::index::load_chunk_index(&paths)?;
         let verified = inspection == InstallationInspection::Content;
         let changes = super::plan::inspect_installation_changes(
@@ -109,7 +102,7 @@ pub fn visit_installation_plan(
             .iter()
             .map(|issue| (issue.path.as_str(), issue.detail.as_str()))
             .collect();
-        let selective = publication == InstallationPublication::Selective;
+        let selective = publication.is_selective();
         let mut retained_file_bytes = 0;
         let entries: BTreeMap<_, _> = target
             .entries
@@ -156,7 +149,7 @@ pub fn visit_installation_plan(
             request.control.checkpoint()?;
             visitor(InstallationPlanEvent::Entry {
                 path: extra.path.clone(),
-                action: if extra_files == ExtraFilePolicy::Preserve {
+                action: if !publication.removes_extra_files() {
                     InstallationAction::PreserveExtra
                 } else {
                     InstallationAction::Remove

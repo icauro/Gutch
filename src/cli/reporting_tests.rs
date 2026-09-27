@@ -2,6 +2,87 @@ use super::*;
 use std::time::Duration;
 
 #[test]
+fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
+    use crate::profile::GutchProfileMode;
+    let build = crate::capture::types::BuildTimings {
+        logical_bytes: 42,
+        compression_input_bytes: 100,
+        compression_output_bytes: 25,
+        total: Duration::from_secs(1),
+        ..Default::default()
+    };
+    for mode in [
+        GutchProfileMode::Off,
+        GutchProfileMode::Summary,
+        GutchProfileMode::Detailed,
+    ] {
+        let detailed = mode == GutchProfileMode::Detailed;
+        let build = build_timings_summary(&build, mode);
+        assert_eq!(build.total_seconds.is_some(), detailed);
+        assert_eq!(
+            build
+                .phases
+                .scan_chunk
+                .details
+                .chunk_hash_worker_seconds
+                .is_some(),
+            detailed
+        );
+        assert_eq!(build.phases.scan_chunk.details.logical_bytes, 42);
+        assert_eq!(
+            build
+                .phases
+                .artifact_encode
+                .details
+                .compression_ratio_percent,
+            25.0
+        );
+        let reconstruction = reconstruct_timings_summary(
+            &crate::installation::ReconstructTimings {
+                verify_files: true,
+                file_verify_bytes: 42,
+                ..Default::default()
+            },
+            mode,
+        );
+        assert_eq!(
+            reconstruction
+                .phases
+                .reconstruct
+                .details
+                .file_hash_worker_seconds
+                .is_some(),
+            detailed
+        );
+        assert_eq!(
+            reconstruction.phases.reconstruct.details.file_verify_bytes,
+            42
+        );
+        let verification = verify_timings_summary(
+            &crate::installation::inspect::VerifyTimings {
+                verify_mode: crate::api::VerifyMode::Strict,
+                chunk_hash_bytes: 42,
+                ..Default::default()
+            },
+            mode,
+        );
+        assert_eq!(
+            verification
+                .phases
+                .verify_files
+                .details
+                .chunk_hash_mib_per_second
+                .is_some(),
+            detailed
+        );
+        assert_eq!(
+            verification.phases.verify_files.details.chunk_hash_bytes,
+            Some(42)
+        );
+    }
+}
+
+#[test]
 fn ratio_pct_zero_denominator() {
     assert_eq!(ratio_pct(100, 0), 0.0);
 }
@@ -48,19 +129,19 @@ fn build_summary_separates_wall_phases_from_worker_details() {
         ..crate::capture::types::BuildTimings::default()
     };
 
-    let summary = build_timings_summary(&timings);
+    let summary = build_timings_summary(&timings, crate::profile::GutchProfileMode::Detailed);
 
     assert_eq!(summary.schema_version, 1);
     assert_eq!(summary.scan_strategy, "single_pass");
-    assert!((summary.unaccounted_seconds - 1.0).abs() < f64::EPSILON);
-    assert_eq!(summary.phases.scan_chunk.wall_seconds, 4.0);
+    assert!((summary.unaccounted_seconds.unwrap() - 1.0).abs() < f64::EPSILON);
+    assert_eq!(summary.phases.scan_chunk.wall_seconds, Some(4.0));
     assert_eq!(
         summary
             .phases
             .scan_chunk
             .details
             .stream_chunk_worker_seconds,
-        6.0
+        Some(6.0)
     );
     assert_eq!(
         summary
@@ -98,11 +179,11 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
         ..crate::installation::ReconstructTimings::default()
     };
 
-    let summary = reconstruct_timings_summary(&timings);
+    let summary = reconstruct_timings_summary(&timings, crate::profile::GutchProfileMode::Detailed);
     let json = serde_json::to_value(&summary).expect("serialize reconstruct timing summary");
 
-    assert_eq!(summary.unaccounted_seconds, 1.0);
-    assert_eq!(summary.phases.reconstruct.wall_seconds, 7.0);
+    assert_eq!(summary.unaccounted_seconds, Some(1.0));
+    assert_eq!(summary.phases.reconstruct.wall_seconds, Some(7.0));
     assert!(json["phases"]["reconstruct"]["details"]["chunk_verify_worker_seconds"].is_null());
     assert!(json["phases"]["reconstruct"]["details"]["file_hash_worker_seconds"].is_null());
     assert_eq!(
@@ -133,13 +214,13 @@ fn verify_summary_reports_wall_phases_and_strict_worker_details() {
         ..crate::installation::inspect::VerifyTimings::default()
     };
 
-    let summary = verify_timings_summary(&timings);
+    let summary = verify_timings_summary(&timings, crate::profile::GutchProfileMode::Detailed);
 
     assert_eq!(summary.verify_mode, "strict");
-    assert_eq!(summary.unaccounted_seconds, 0.5);
+    assert_eq!(summary.unaccounted_seconds, Some(0.5));
     assert_eq!(
         summary.phases.verify_files.details.file_read_mib_per_second,
-        4.0
+        Some(4.0)
     );
     assert_eq!(
         summary

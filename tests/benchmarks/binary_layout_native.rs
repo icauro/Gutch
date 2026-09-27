@@ -1,9 +1,6 @@
 //! Native codec measurements invoked by binary_layout_experiment.py.
 use crate::artifact::{binary_io::*, hash::ChunkHash};
-use crate::manifest::{
-    self,
-    blueprint_columns::{decode, encode},
-};
+use crate::manifest::blueprint_columns::{decode, encode};
 
 #[test]
 fn native_corpus_layout_comparison() {
@@ -48,7 +45,7 @@ fn native_corpus_layout_comparison() {
                 .values()
                 .map(|entry| std::sync::Arc::as_ptr(&entry.artifact))
                 .collect();
-            index_report.push(serde_json::json!({"path": item.path().strip_prefix(root).unwrap(), "encoded_bytes": bytes.len(), "chunks": index.entries.len(), "shared_artifacts": artifacts.len(), "inline_bytes_per_chunk": std::mem::size_of::<(ChunkHash, manifest::ChunkIndexEntry)>(), "decode_median_us": decode_us, "all_key_lookups_median_us": lookup_us}));
+            index_report.push(serde_json::json!({"path": item.path().strip_prefix(root).unwrap(), "encoded_bytes": bytes.len(), "chunks": index.entries.len(), "shared_artifacts": artifacts.len(), "inline_bytes_per_chunk": std::mem::size_of::<(ChunkHash, crate::repo::index::ChunkIndexEntry)>(), "decode_median_us": decode_us, "all_key_lookups_median_us": lookup_us}));
             continue;
         }
         if !item.file_type().is_file() || item.file_name() != "snapshot_blueprint.gtcbin" {

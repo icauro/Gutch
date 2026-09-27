@@ -19,7 +19,7 @@ pub(crate) struct SnapshotCaptureStats {
     pub(crate) manifest_path: String,
     pub(crate) product_id: String,
     pub(crate) remote_repo_id: String,
-    pub(crate) version_id: String,
+    pub(crate) version_tag: String,
     pub(crate) os: String,
     pub(crate) arch: String,
     pub(crate) storage_mode: String,
@@ -52,7 +52,7 @@ pub(crate) struct SnapshotCaptureManyStats {
     pub(crate) generated_bundle_bytes: u64,
     pub(crate) generated_chunk_count: usize,
     pub(crate) generated_chunk_bytes: u64,
-    pub(crate) total_build_seconds: f64,
+    pub(crate) total_build_seconds: Option<f64>,
     pub(crate) snapshots: Vec<SnapshotCaptureStats>,
     pub(crate) outputs: OptionalOutputPaths,
 }
@@ -87,7 +87,7 @@ pub(crate) struct InstallationRepairStats {
     pub(crate) removed_extra_file_count: usize,
     pub(crate) reconstructed_extra_file_count: usize,
     pub(crate) resolved_bundle_file_count: usize,
-    pub(crate) elapsed_seconds: f64,
+    pub(crate) elapsed_seconds: Option<f64>,
     pub(crate) outputs: OptionalOutputPaths,
 }
 
@@ -97,7 +97,7 @@ pub(crate) struct InstallationCorruptStats {
     pub(crate) destination_dir: String,
     pub(crate) plan_path: String,
     pub(crate) applied_operation_count: usize,
-    pub(crate) elapsed_seconds: f64,
+    pub(crate) elapsed_seconds: Option<f64>,
     pub(crate) outputs: OptionalOutputPaths,
 }
 

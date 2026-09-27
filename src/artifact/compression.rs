@@ -7,6 +7,12 @@ use crate::error::Result;
 use crate::manifest::CompressionKind;
 use crate::manifest::CompressionProfile;
 
+// Admission estimates for codec work, not a bound on total process RSS.
+// Keep encoder and decoder reservations separate: their live buffers differ.
+const ZSTD_WINDOW_LOG: u32 = 27;
+pub(crate) const ENCODE_WORKING_MEMORY_BYTES: u64 = 1 << ZSTD_WINDOW_LOG;
+pub(crate) const DECODE_WORKING_MEMORY_BYTES: u64 = (1 << ZSTD_WINDOW_LOG) + 8 * 1024 * 1024;
+
 trait CompressionAdapter {
     fn default_level(&self) -> i32;
     fn validate_level(&self, level: Option<i32>) -> Result<i32>;
@@ -121,7 +127,7 @@ pub(crate) fn decoder_from_reader<'a>(
         CompressionKind::None => Box::new(reader),
         CompressionKind::Zstd => {
             let mut decoder = zstd::stream::read::Decoder::new(reader)?;
-            decoder.window_log_max(27)?;
+            decoder.window_log_max(ZSTD_WINDOW_LOG)?;
             Box::new(decoder)
         }
         CompressionKind::Lz4 => Box::new(lz4::Decoder::new(reader)?),
@@ -139,7 +145,7 @@ pub(crate) fn encode_to_writer(
         CompressionKind::None => write_raw(writer),
         CompressionKind::Zstd => {
             let mut encoder = zstd::stream::Encoder::new(writer, level)?;
-            encoder.window_log(27)?;
+            encoder.window_log(ZSTD_WINDOW_LOG)?;
             encoder.set_pledged_src_size(Some(raw_size))?;
             write_raw(&mut encoder)?;
             encoder.finish()?;
@@ -186,7 +192,9 @@ fn compress_with_profile(data: &[u8], profile: &CompressionProfile) -> Result<Ve
 
 #[cfg(test)]
 fn compress_segments_with_profile(
-    segments: &[&[u8]], raw_size: u64, profile: &CompressionProfile,
+    segments: &[&[u8]],
+    raw_size: u64,
+    profile: &CompressionProfile,
 ) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     encode_to_writer(&mut output, profile, raw_size, |writer| {

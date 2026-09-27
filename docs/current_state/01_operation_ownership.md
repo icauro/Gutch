@@ -34,6 +34,16 @@ The shared installation entrypoint is `install_snapshot_from_repo`; reconstructi
 and repair are presets. `visit_installation_plan` streams change descriptions
 from the same classification and job-planning functions.
 
+Capture owns the derived state used to reuse existing chunks and previous file
+manifests. Repository code owns persisted indexes and their codecs. Tag
+normalization belongs to the tag model and is shared by API operations and CLI
+parsing; engine operations do not depend on CLI helpers.
+
+Local installation and combined fetch share source verification and reconstruction
+preparation. Their callers retain repository coordination and destination guards
+through execution and publication. Remote metadata publication remains owned by
+the transfer operation.
+
 ## Public naming
 
 Local-to-remote synchronization uses `push_repo`, `plan_push_with_provider`,
@@ -53,6 +63,11 @@ Destination operations use `installation plan|verify|repair|corrupt`.
 Corruption requests and results use `InstallationCorruption*` and
 `corrupt_installation`. `snapshot reconstruct` still creates an installation;
 repair and full reconstruction keep their distinct reports and policies.
+
+Capture and repository summaries call the optional version label `version_tag`
+(`versionTag` in camel-case reports). It is a descriptive tag, not snapshot
+identity. Repair plans return `required_artifact_ids`, including bundle and
+loose-chunk IDs, for use with artifact-filtered fetching.
 
 These are prerelease source/CLI renames with no old-name aliases. Binary
 identifiers and layouts remain v1. The API facade groups exports by capability;

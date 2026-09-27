@@ -10,3 +10,5 @@ pub(crate) mod plan;
 
 pub(crate) mod configured_sources;
 pub(crate) mod sources;
+
+pub(crate) mod reuse;

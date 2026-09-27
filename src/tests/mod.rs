@@ -1,16 +1,15 @@
 use crate::capture::pipeline::build_from_directory;
+use crate::capture::reuse::add_built_bundles_to_chunk_index;
 use crate::installation::InstallationRequest;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory;
 use crate::installation::reconstruct_snapshot;
-use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperationControl;
-use crate::repo::index::add_built_bundles_to_chunk_index;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
@@ -99,12 +98,7 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
         std::fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
     }
     let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
-    add_built_bundles_to_chunk_index(
-        &mut chunk_index,
-        &v2.bundles,
-        &manifest::CompressionProfile::default(),
-    )
-    .unwrap();
+    add_built_bundles_to_chunk_index(&mut chunk_index, &v2.bundles).unwrap();
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
     let result = reconstruct_snapshot(InstallationRequest {
@@ -352,12 +346,7 @@ fn test_large_game_build_200mb() {
         std::fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
     }
     let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
-    add_built_bundles_to_chunk_index(
-        &mut chunk_index,
-        &result.bundles,
-        &manifest::CompressionProfile::default(),
-    )
-    .unwrap();
+    add_built_bundles_to_chunk_index(&mut chunk_index, &result.bundles).unwrap();
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
     let t2 = Instant::now();

@@ -212,8 +212,12 @@ pub(crate) fn fetch_and_reconstruct(
         total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
         reconstruct_timings: crate::cli::reporting::reconstruct_timings_summary(
             &reconstruct.reconstruct_timings,
+            crate::cli::reporting::profile_mode(profile.as_deref()),
         ),
-        verify_timings: crate::cli::reporting::verify_timings_summary(&reconstruct.verify_timings),
+        verify_timings: crate::cli::reporting::verify_timings_summary(
+            &reconstruct.verify_timings,
+            crate::cli::reporting::profile_mode(profile.as_deref()),
+        ),
         outputs: crate::cli::reporting::optional_output_paths(&stats_json_out),
     };
     write_report(&stats_json_out, &stats, profile.as_deref())?;

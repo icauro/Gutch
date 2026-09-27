@@ -1,4 +1,5 @@
-use crate::manifest::{ArtifactStorageMode, ChunkIndexEntry};
+use crate::manifest::ArtifactStorageMode;
+use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::GutchRepoPaths;
 use crate::{Error, Result};
 use std::path::{Path, PathBuf};
@@ -42,7 +43,7 @@ impl ArtifactRef {
 
 pub(crate) fn required_artifacts(
     snapshot_manifest: &crate::manifest::snapshot::SnapshotManifest,
-    chunk_index: &crate::manifest::ChunkIndex,
+    chunk_index: &crate::repo::index::ChunkIndex,
 ) -> Result<std::collections::HashSet<ArtifactRef>> {
     snapshot_manifest
         .files()

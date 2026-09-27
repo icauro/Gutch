@@ -152,8 +152,8 @@ pub fn recreate_dir(path: &std::path::Path) {
 }
 
 pub(crate) fn chunk_entries(
-    mut entries: std::collections::BTreeMap<String, crate::manifest::ChunkIndexEntry>,
-) -> crate::manifest::ChunkIndexEntries {
+    mut entries: std::collections::BTreeMap<String, crate::repo::index::ChunkIndexEntry>,
+) -> crate::repo::index::ChunkIndexEntries {
     let mut sizes = std::collections::HashMap::new();
     for entry in entries.values() {
         *sizes.entry(entry.bundle_id.clone()).or_insert(0u32) += entry.compressed_size;
@@ -199,7 +199,7 @@ pub fn index_manifest(
         .map(|chunk| {
             (
                 crate::artifact::hash::ChunkHash::parse_hex(&chunk.chunk_hash).unwrap(),
-                crate::manifest::ChunkIndexEntry::new(
+                crate::repo::index::ChunkIndexEntry::new(
                     chunk.raw_size,
                     0,
                     chunk.chunk_hash.as_str().into(),
@@ -212,7 +212,7 @@ pub fn index_manifest(
         .collect();
     crate::repo::index::write_chunk_index(
         paths,
-        &crate::manifest::ChunkIndex {
+        &crate::repo::index::ChunkIndex {
             format_version: "1".into(),
             entries,
         },

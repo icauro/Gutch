@@ -9,6 +9,8 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::artifact::hash::ChunkHash;
+use crate::capture::reuse::CaptureReuseState;
+use crate::capture::reuse::load_capture_reuse_state;
 use crate::capture::scan::SourceInventory;
 use crate::capture::scan::scan_source_inventory;
 use crate::manifest::SnapshotTagSet;
@@ -18,8 +20,6 @@ use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
 use crate::repo::Result;
-use crate::repo::index::ExistingStoreState;
-use crate::repo::index::scan_existing_store_state_with_pool;
 use crate::runtime::RuntimeResourceHints;
 
 use super::plan::*;
@@ -100,7 +100,7 @@ impl std::fmt::Display for SnapshotCaptureOutcome {
 pub struct SnapshotCapturePlan {
     pub folder_name: String,
     pub path: String,
-    pub version_id: String,
+    pub version_tag: String,
     pub os: String,
     pub arch: String,
     #[serde(rename = "tags")]
@@ -127,7 +127,7 @@ pub struct SnapshotCaptureResult {
     pub snapshot_id: String,
     pub outcome: SnapshotCaptureOutcome,
     pub manifest_path: PathBuf,
-    pub version_id: String,
+    pub version_tag: String,
     pub os: String,
     pub arch: String,
     pub file_count: usize,
@@ -179,8 +179,7 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
         let _existing_state_span = request
             .control
             .profile_span("capture.prepare_source.load_existing_store_state");
-        let mut store_state =
-            scan_existing_store_state_with_pool(&repo_paths, &build_pool, &request.control)?;
+        let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, &request.control)?;
         drop(_existing_state_span);
 
         let (_, mut manifest) = crate::repo::paths::load_gutch_repo_manifest(&request.repo_root)?;
@@ -191,9 +190,9 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
             request.bundle_profile,
             request.storage_mode,
         );
-        let result = capture_repo_snapshot_with_existing_store_state(
+        let result = capture_repo_snapshot_with_existing_reuse_state(
             request,
-            &mut store_state,
+            &mut reuse_state,
             &build_pool,
         )?;
         crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &manifest)?;
@@ -201,9 +200,9 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
     })
 }
 
-pub(crate) fn capture_repo_snapshot_with_existing_store_state(
+pub(crate) fn capture_repo_snapshot_with_existing_reuse_state(
     request: SnapshotCaptureRequest,
-    store_state: &mut ExistingStoreState,
+    reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<SnapshotCaptureResult> {
     request.control.checkpoint()?;
@@ -215,13 +214,13 @@ pub(crate) fn capture_repo_snapshot_with_existing_store_state(
             &request.explicit_tags,
             &request.control,
         )?;
-        execute_repo_snapshot_capture(request, store_state, build_pool)
+        execute_repo_snapshot_capture(request, reuse_state, build_pool)
     })
 }
 
 fn execute_repo_snapshot_capture(
     request: SnapshotCaptureRequest,
-    store_state: &mut ExistingStoreState,
+    reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<SnapshotCaptureResult> {
     request.control.checkpoint()?;
@@ -273,15 +272,9 @@ fn execute_repo_snapshot_capture(
     let _identity_span = request
         .control
         .profile_span("capture.prepare_source.resolve_tags");
-    let resolved_tags = crate::cli::tags::resolve_snapshot_tags(
-        request.source_dir.as_path(),
-        &request.explicit_tags,
-        &format!("snapshot capture input '{}'", request.source_dir.display()),
-    )?;
-    constraints.validate_snapshot_tags(
-        &resolved_tags.snapshot_tags,
-        &request.source_dir.display().to_string(),
-    )?;
+    let normalized_tags = request.explicit_tags.normalized()?;
+    constraints
+        .validate_snapshot_tags(&normalized_tags, &request.source_dir.display().to_string())?;
     drop(_identity_span);
 
     let _existing_chunks_span = request.control.profile_span_with_args(
@@ -290,16 +283,16 @@ fn execute_repo_snapshot_capture(
             std::collections::BTreeMap::from([
                 (
                     "existing_chunk_location_count".to_string(),
-                    serde_json::json!(store_state.chunk_locations.len()),
+                    serde_json::json!(reuse_state.chunk_locations.len()),
                 ),
                 (
                     "previous_file_manifest_path_count".to_string(),
-                    serde_json::json!(store_state.previous_file_manifests.len()),
+                    serde_json::json!(reuse_state.previous_file_manifests.len()),
                 ),
             ])
         },
     );
-    let existing_chunk_ids = store_state
+    let existing_chunk_ids = reuse_state
         .chunk_locations
         .keys()
         .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
@@ -313,33 +306,28 @@ fn execute_repo_snapshot_capture(
                 std::collections::BTreeMap::from([
                     (
                         "existing_bundle_count".to_string(),
-                        serde_json::json!(store_state.bundle_ids.len()),
+                        serde_json::json!(reuse_state.bundle_ids.len()),
                     ),
                     (
                         "existing_chunk_location_count".to_string(),
-                        serde_json::json!(store_state.chunk_locations.len()),
+                        serde_json::json!(reuse_state.chunk_locations.len()),
                     ),
                     (
                         "previous_file_manifest_path_count".to_string(),
-                        serde_json::json!(store_state.previous_file_manifests.len()),
+                        serde_json::json!(reuse_state.previous_file_manifests.len()),
                     ),
                 ])
             });
-    let mut build_config =
-        crate::capture::types::BuildConfig::for_snapshot(&resolved_tags.snapshot_tags)
-            .with_existing_chunks(&store_state.chunk_locations)
-            .with_existing_bundles(&store_state.bundle_ids)
-            .with_previous_manifests(&store_state.previous_file_manifests)
-            .with_chunk_profile(request.chunk_profile)
-            .with_bundle_profile(request.bundle_profile)
-            .with_compression(request.compression_algorithm, request.compression_level)
-            .with_storage_mode(request.storage_mode)
-            .with_runtime_hints(request.runtime_hints)
-            .with_artifact_staging_root(repo_paths.bundles_root.clone());
-    let compression_profile = crate::manifest::CompressionProfile::for_algorithm(
-        request.compression_algorithm,
-        request.compression_level,
-    );
+    let mut build_config = crate::capture::types::BuildConfig::for_snapshot(&normalized_tags)
+        .with_existing_chunks(&reuse_state.chunk_locations)
+        .with_existing_bundles(&reuse_state.bundle_ids)
+        .with_previous_manifests(&reuse_state.previous_file_manifests)
+        .with_chunk_profile(request.chunk_profile)
+        .with_bundle_profile(request.bundle_profile)
+        .with_compression(request.compression_algorithm, request.compression_level)
+        .with_storage_mode(request.storage_mode)
+        .with_runtime_hints(request.runtime_hints)
+        .with_artifact_staging_root(repo_paths.bundles_root.clone());
     build_config.control = request.control.clone();
     drop(_config_span);
 
@@ -398,7 +386,7 @@ fn execute_repo_snapshot_capture(
     let snapshot_id = result.snapshot_manifest.snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
         crate::snapshot::identity::format_system_time_utc(source_inventory.source_modified_at);
-    crate::cli::tags::apply_resolved_snapshot_tags(&mut result.snapshot_manifest, &resolved_tags);
+    result.snapshot_manifest.snapshot_tags = normalized_tags.clone();
 
     let existing_manifest_path =
         crate::repo::snapshot_manifests::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
@@ -450,16 +438,16 @@ fn execute_repo_snapshot_capture(
         }
         if crate::repo::index::required_chunk_hashes(&existing_manifest)
             .iter()
-            .all(|hash| store_state.chunk_locations.contains_key(*hash))
+            .all(|hash| reuse_state.chunk_locations.contains_key(*hash))
         {
             let required_chunk_count =
                 crate::repo::index::required_chunk_hashes(&existing_manifest).len();
             let required_bundle_count = crate::repo::index::required_bundle_ids(
                 &existing_manifest,
-                &store_state.chunk_index,
+                &reuse_state.chunk_index,
             )?
             .len();
-            crate::repo::index::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
+            crate::repo::index::write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
             return Ok(SnapshotCaptureResult {
                 repo_root: repo_paths.repo_root,
                 snapshot_id: existing_manifest.snapshot_id.clone(),
@@ -467,21 +455,12 @@ fn execute_repo_snapshot_capture(
                     snapshot_id: snapshot_id.clone(),
                 },
                 manifest_path: existing_manifest_path,
-                version_id: resolved_tags
-                    .snapshot_tags
+                version_tag: normalized_tags
                     .get("version")
                     .unwrap_or_default()
                     .to_string(),
-                os: resolved_tags
-                    .snapshot_tags
-                    .get("os")
-                    .unwrap_or_default()
-                    .to_string(),
-                arch: resolved_tags
-                    .snapshot_tags
-                    .get("arch")
-                    .unwrap_or_default()
-                    .to_string(),
+                os: normalized_tags.get("os").unwrap_or_default().to_string(),
+                arch: normalized_tags.get("arch").unwrap_or_default().to_string(),
                 file_count: existing_manifest.file_count(),
                 total_logical_size: existing_manifest.total_logical_size,
                 total_compressed_size_estimate: existing_manifest.total_compressed_size_estimate,
@@ -533,18 +512,17 @@ fn execute_repo_snapshot_capture(
         let _bundle_index_span = request
             .control
             .profile_span("capture.publish_snapshot.index_bundle_entries");
-        crate::repo::index::add_built_bundles_to_chunk_index(
-            &mut store_state.chunk_index,
+        crate::capture::reuse::add_built_bundles_to_chunk_index(
+            &mut reuse_state.chunk_index,
             &result.bundles,
-            &compression_profile,
         )?;
     }
     {
         let _chunk_index_span = request
             .control
             .profile_span("capture.publish_snapshot.index_loose_chunk_entries");
-        crate::repo::index::add_built_loose_chunks_to_chunk_index(
-            &mut store_state.chunk_index,
+        crate::capture::reuse::add_built_loose_chunks_to_chunk_index(
+            &mut reuse_state.chunk_index,
             &result.loose_chunks,
         )?;
     }
@@ -554,9 +532,9 @@ fn execute_repo_snapshot_capture(
         .control
         .profile_span("capture.publish_snapshot.update_capture_state");
     for bundle in &result.bundles {
-        store_state.bundle_ids.insert(bundle.bundle_id.clone());
+        reuse_state.bundle_ids.insert(bundle.bundle_id.clone());
         for chunk in &bundle.entries {
-            store_state.chunk_locations.insert(
+            reuse_state.chunk_locations.insert(
                 chunk.chunk_hash.to_hex(),
                 crate::capture::types::ExistingChunkLocation {
                     bundle_id: bundle.bundle_id.clone(),
@@ -568,7 +546,7 @@ fn execute_repo_snapshot_capture(
     }
     for chunk in &result.loose_chunks {
         let chunk_hash = chunk.chunk_hash.to_string();
-        store_state.chunk_locations.insert(
+        reuse_state.chunk_locations.insert(
             chunk_hash.clone(),
             crate::capture::types::ExistingChunkLocation {
                 bundle_id: chunk_hash,
@@ -578,7 +556,7 @@ fn execute_repo_snapshot_capture(
         );
     }
     for file in result.snapshot_manifest.files() {
-        let candidates = store_state
+        let candidates = reuse_state
             .previous_file_manifests
             .entry(file.path.clone())
             .or_default();
@@ -591,11 +569,11 @@ fn execute_repo_snapshot_capture(
     let _chunk_index_write_span = request
         .control
         .profile_span("capture.publish_snapshot.write_chunk_index");
-    crate::repo::index::write_chunk_index(&repo_paths, &store_state.chunk_index)?;
+    crate::repo::index::write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
     drop(_chunk_index_write_span);
     for artifact in crate::repo::artifacts::required_artifacts(
         &result.snapshot_manifest,
-        &store_state.chunk_index,
+        &reuse_state.chunk_index,
     )? {
         if !artifact.local_path(&repo_paths)?.is_file() {
             return Err(crate::Error::manifest(format!(
@@ -617,7 +595,7 @@ fn execute_repo_snapshot_capture(
     let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
         &result.snapshot_manifest,
-        &store_state.chunk_locations,
+        &reuse_state.chunk_locations,
         &result.bundles,
     );
     let reused_chunk_count = required_chunks
@@ -638,21 +616,12 @@ fn execute_repo_snapshot_capture(
             }
         },
         manifest_path,
-        version_id: resolved_tags
-            .snapshot_tags
+        version_tag: normalized_tags
             .get("version")
             .unwrap_or_default()
             .to_string(),
-        os: resolved_tags
-            .snapshot_tags
-            .get("os")
-            .unwrap_or_default()
-            .to_string(),
-        arch: resolved_tags
-            .snapshot_tags
-            .get("arch")
-            .unwrap_or_default()
-            .to_string(),
+        os: normalized_tags.get("os").unwrap_or_default().to_string(),
+        arch: normalized_tags.get("arch").unwrap_or_default().to_string(),
         file_count: result.snapshot_manifest.file_count(),
         total_logical_size: result.snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: result.snapshot_manifest.total_compressed_size_estimate,
@@ -881,11 +850,11 @@ mod tests {
             executable: false,
             read_only: false,
             full_file_hash: crate::artifact::hash::hash_hex(
-                &crate::artifact::hash::hash_file(new_source.join("game.exe").as_path()).unwrap(),
+                &crate::file_integrity::hash_file(new_source.join("game.exe").as_path()).unwrap(),
             ),
             chunks: vec![crate::manifest::ChunkRef {
                 chunk_hash: crate::artifact::hash::hash_hex(
-                    &crate::artifact::hash::hash_file(new_source.join("game.exe").as_path())
+                    &crate::file_integrity::hash_file(new_source.join("game.exe").as_path())
                         .unwrap(),
                 ),
                 raw_size: 11,

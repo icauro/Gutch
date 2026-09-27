@@ -1,8 +1,7 @@
 pub(crate) mod blueprint_codec;
 pub(crate) mod blueprint_columns;
-mod content;
-pub(crate) use crate::repo::index::ChunkIndexEntries;
 pub(crate) mod constraints;
+mod content;
 pub(crate) mod external_dependency;
 pub(crate) mod gutch_repo;
 pub(crate) mod launch;
@@ -19,8 +18,6 @@ pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";
 pub const REPO_METADATA_FILE: &str = "repo_metadata.json";
 
 pub use crate::artifact::bundle::BundleTableEntry;
-pub use crate::repo::index::ChunkIndex;
-pub use crate::repo::index::ChunkIndexEntry;
 pub use content::ChunkRef;
 pub use content::DirectoryManifest;
 pub use content::Estimate;

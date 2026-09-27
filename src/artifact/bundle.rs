@@ -1,3 +1,4 @@
+use super::binary_io::{read_exact_array, read_u32};
 use crate::profile::ProfileInstant;
 #[cfg(test)]
 use std::collections::HashMap;
@@ -28,8 +29,11 @@ const BUNDLE_ID_SIZE: u64 = 32;
 const BUNDLE_TABLE_ENTRY_SIZE: usize = 36;
 
 pub(crate) fn encoded_metadata_size(chunk_count: u64) -> u64 {
-    BUNDLE_HEADER_SIZE + 4 + chunk_count * BUNDLE_TABLE_ENTRY_SIZE as u64
-        + BUNDLE_TRAILER_SIZE + BUNDLE_ID_SIZE
+    BUNDLE_HEADER_SIZE
+        + 4
+        + chunk_count * BUNDLE_TABLE_ENTRY_SIZE as u64
+        + BUNDLE_TRAILER_SIZE
+        + BUNDLE_ID_SIZE
 }
 
 const STREAM_BUFFER_SIZE: usize = 1024 * 1024;
@@ -907,16 +911,6 @@ fn read_bundle_table_entries(
             .ok_or_else(|| crate::Error::bundle("bundle raw offset overflow"))?;
     }
     Ok(entries)
-}
-
-fn read_exact_array<const N: usize>(reader: &mut impl Read) -> Result<[u8; N]> {
-    let mut bytes = [0u8; N];
-    reader.read_exact(&mut bytes)?;
-    Ok(bytes)
-}
-
-fn read_u32(reader: &mut impl Read) -> Result<u32> {
-    Ok(u32::from_le_bytes(read_exact_array(reader)?))
 }
 
 #[cfg(test)]

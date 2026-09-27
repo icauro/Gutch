@@ -23,6 +23,7 @@ fn capture_stats_from_engine_result(
     explicit_tags: &crate::manifest::SnapshotTagSet,
     storage_mode_cli: String,
     result: &crate::api::SnapshotCaptureResult,
+    mode: crate::profile::GutchProfileMode,
 ) -> SnapshotCaptureStats {
     SnapshotCaptureStats {
         command: "snapshot capture",
@@ -32,7 +33,7 @@ fn capture_stats_from_engine_result(
         manifest_path: result.manifest_path.display().to_string(),
         product_id: repo_name.to_string(),
         remote_repo_id: repo_name.to_string(),
-        version_id: explicit_tags.get("version").unwrap_or_default().to_string(),
+        version_tag: explicit_tags.get("version").unwrap_or_default().to_string(),
         os: explicit_tags.get("os").unwrap_or_default().to_string(),
         arch: explicit_tags.get("arch").unwrap_or_default().to_string(),
         storage_mode: storage_mode_cli,
@@ -60,7 +61,7 @@ fn capture_stats_from_engine_result(
                 .saturating_sub(result.generated_bundle_count) as u64,
             result.required_bundle_count as u64,
         ),
-        timings: build_timings_summary(&result.build_timings),
+        timings: build_timings_summary(&result.build_timings, mode),
         outputs: optional_output_paths(&None),
     }
 }
@@ -168,6 +169,7 @@ pub(crate) fn run(
                     &source.tags,
                     build_profile.storage_mode.cli_name().to_string(),
                     result,
+                    crate::cli::reporting::profile_mode(profile.as_deref()),
                 ));
             }
             if single_report && snapshot_stats.len() == 1 {
@@ -204,7 +206,11 @@ pub(crate) fn run(
                 let total_build_seconds = snapshot_stats
                     .iter()
                     .map(|stats| stats.timings.total_seconds)
-                    .sum();
+                    .sum::<Option<f64>>()
+                    .filter(|_| {
+                        crate::cli::reporting::profile_mode(profile.as_deref())
+                            == crate::profile::GutchProfileMode::Detailed
+                    });
                 let aggregate_stats = SnapshotCaptureManyStats {
                     command: "snapshot capture",
                     repo_root: repo_paths.repo_root.display().to_string(),

@@ -136,10 +136,11 @@ pub fn verify_installation(request: InstallationVerifyRequest) -> Result<Install
     let root = request.repo_path.clone();
     crate::repo::coordination::read_with_control(&root, &request.control.clone(), || {
         request.control.checkpoint()?;
-        let (repo_paths, snapshot_manifest) = super::snapshot_inputs::load_repo_snapshot_manifest(
-            &request.repo_path,
-            &request.snapshot_id,
-        )?;
+        let super::prepare::LoadedRepoSnapshot {
+            repo_paths,
+            snapshot_manifest,
+            ..
+        } = super::prepare::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let (classification, verify_timings) = classify_directory(VerifyRequest {
             snapshot_manifest: &snapshot_manifest,
             dir: &request.destination_dir,
@@ -161,7 +162,6 @@ pub fn reconstruct_snapshot(request: InstallationRequest) -> Result<Installation
     super::install::install_snapshot_from_repo(
         request,
         super::install::InstallationPublication::ReplaceDirectory,
-        super::install::ExtraFilePolicy::Remove,
     )
     .map(|result| result.reconstruction)
 }
@@ -198,12 +198,17 @@ pub(crate) fn build_snapshot_reconstruct_result(
 #[path = "tests.rs"]
 mod tests;
 
-pub(crate) fn prepare_directory_promotion(
+pub(crate) fn prepare_installation_destination(
+    snapshot_manifest: &SnapshotManifest,
     destination: &Path,
     staging: Option<&Path>,
     repository_path: &Path,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<std::fs::File> {
+    crate::filesystem::paths::validate_destination_paths(
+        destination,
+        snapshot_manifest.entries.iter().map(|entry| entry.path()),
+    )?;
     validate_installation_paths(destination, staging, repository_path)?;
     let lock = crate::filesystem::directory::lock_directory_promotion(destination, control)?;
     crate::filesystem::directory::recover_directory_promotion(destination)?;

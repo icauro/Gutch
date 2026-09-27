@@ -55,7 +55,10 @@ pub(crate) fn apply_reconstruct_pipeline(
         let _pool_span = request
             .control
             .profile_span("installation.reconstruct.prepare.pool");
-        Some(build_reconstruct_pool(reconstruct_worker_count)?)
+        Some(
+            crate::runtime::build_thread_pool(reconstruct_worker_count, "Reconstruction worker")
+                .map_err(|error| Error::reconstruct(error.to_string()))?,
+        )
     };
     let staging = {
         let _staging_span = request
@@ -114,7 +117,7 @@ pub(crate) fn apply_reconstruct_pipeline(
         let required_artifact_count = pipeline_plan.required_artifact_count;
         let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
         let (mut reconstruct_timings, verify_timings) =
-            execute_reconstruct_pipeline_reconstruction(ExecuteReconstructPipelineRequest {
+            run_reconstruction_jobs(ExecuteReconstructPipelineRequest {
                 pipeline_plan,
                 output_paths,
                 snapshot_id: &request.snapshot_manifest.snapshot_id,
@@ -184,18 +187,6 @@ pub(crate) fn apply_reconstruct_pipeline(
     main_result
 }
 
-pub(crate) fn build_reconstruct_pool(worker_count: usize) -> Result<ThreadPool> {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(worker_count)
-        .thread_name(|index| format!("Reconstruction worker #{}", index + 1))
-        .build()
-        .map_err(|error| {
-            Error::reconstruct(format!(
-                "failed to create reconstruction thread pool: {error}"
-            ))
-        })
-}
-
 pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
     pub(crate) pipeline_plan: ReconstructPipelinePlan,
     pub(crate) output_paths: Arc<Vec<PathBuf>>,
@@ -214,6 +205,50 @@ pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
 enum ReconstructWorkItem {
     Job(usize),
     VerifyFile(usize),
+}
+
+/// Tracks only runnable and dispatched work. Jobs waiting for downloads are
+/// owned by the artifact scheduler and enter this queue when ready.
+#[derive(Default)]
+struct ReconstructionWorkQueue {
+    ready: std::collections::VecDeque<(ReconstructWorkItem, ProfileInstant)>,
+    // Decremented when the coordinator consumes one terminal event, including failure.
+    in_flight: usize,
+}
+
+struct AdmittedReconstructionWork {
+    work: ReconstructWorkItem,
+    permit: crate::runtime::MemoryPermit,
+    queued_at: ProfileInstant,
+}
+
+impl ReconstructionWorkQueue {
+    fn admit_next(
+        &mut self,
+        jobs: &[ReconstructJob],
+        memory: &Arc<crate::runtime::MemoryBudget>,
+    ) -> Result<Option<AdmittedReconstructionWork>> {
+        for (index, (work, _)) in self.ready.iter().enumerate() {
+            let bytes = match work {
+                ReconstructWorkItem::Job(job_index) => jobs[*job_index].memory_reservation_bytes(),
+                ReconstructWorkItem::VerifyFile(_) => 0,
+            };
+            if let Some(permit) = memory.try_acquire(bytes)? {
+                let (work, queued_at) = self.ready.remove(index).expect("admitted queued work");
+                self.in_flight += 1;
+                return Ok(Some(AdmittedReconstructionWork {
+                    work,
+                    permit,
+                    queued_at,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    fn complete(&mut self) {
+        self.in_flight -= 1;
+    }
 }
 
 enum ReconstructJobEvent {
@@ -250,29 +285,36 @@ fn spawn_reconstruct_work(
     let event_tx = event_tx.clone();
     pool.spawn(move || {
         let queue_wait = queued_at.elapsed();
-        let _work_span = context.control.profile_span_with_args("installation.worker.execute", || {
-            std::collections::BTreeMap::from([
-                ("queue_wait_us".into(), serde_json::json!(queue_wait.as_micros() as u64)),
-                ("work_kind".into(), serde_json::json!(match &work_item {
-                    ReconstructWorkItem::Job(_) => "reconstruct",
-                    ReconstructWorkItem::VerifyFile(_) => "verify",
-                })),
-            ])
-        });
+        let _work_span =
+            context
+                .control
+                .profile_span_with_args("installation.worker.execute", || {
+                    std::collections::BTreeMap::from([
+                        (
+                            "queue_wait_us".into(),
+                            serde_json::json!(queue_wait.as_micros() as u64),
+                        ),
+                        (
+                            "work_kind".into(),
+                            serde_json::json!(match &work_item {
+                                ReconstructWorkItem::Job(_) => "reconstruct",
+                                ReconstructWorkItem::VerifyFile(_) => "verify",
+                            }),
+                        ),
+                    ])
+                });
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
-            ReconstructWorkItem::Job(job_index) => {
-                reconstruct_job(
-                    &context.jobs[job_index],
-                    &context.file_plans,
-                    &context.output_paths,
-                    &context.precomputed_file_hashes,
-                    &context.output_handles,
-                    &context.source_handles,
-                    &context.compression_profile,
-                    &context.control,
-                )
-                .map(|timings| ReconstructJobEvent::Completed { job_index, timings })
-            }
+            ReconstructWorkItem::Job(job_index) => reconstruct_job(
+                &context.jobs[job_index],
+                &context.file_plans,
+                &context.output_paths,
+                &context.precomputed_file_hashes,
+                &context.output_handles,
+                &context.source_handles,
+                &context.compression_profile,
+                &context.control,
+            )
+            .map(|timings| ReconstructJobEvent::Completed { job_index, timings }),
             ReconstructWorkItem::VerifyFile(file_index) => verify_reconstructed_output_file(
                 file_index,
                 &context.file_plans[file_index],
@@ -304,7 +346,7 @@ fn spawn_reconstruct_work(
     });
 }
 
-pub(crate) fn execute_reconstruct_pipeline_reconstruction(
+pub(crate) fn run_reconstruction_jobs(
     request: ExecuteReconstructPipelineRequest<'_>,
 ) -> Result<(
     ReconstructTimings,
@@ -330,7 +372,10 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     let pipeline_started_at = ProfileInstant::start(control.profiler());
     let runtime_plan = plan_runtime(runtime_hints);
     control.profile_event_with_args("runtime.memory.budget", || {
-        std::collections::BTreeMap::from([("budget_bytes".into(), serde_json::json!(runtime_plan.memory_budget_bytes))])
+        std::collections::BTreeMap::from([(
+            "budget_bytes".into(),
+            serde_json::json!(runtime_plan.memory_budget_bytes),
+        )])
     });
     let mut reconstruct_timings = ReconstructTimings {
         runtime_plan: Some(runtime_plan.clone()),
@@ -451,7 +496,9 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         runtime_plan.worker_count,
     ));
     let work_context = Arc::new(ReconstructWorkContext {
-        memory: Arc::new(crate::runtime::MemoryBudget::new(runtime_plan.memory_budget_bytes)),
+        memory: Arc::new(crate::runtime::MemoryBudget::new(
+            runtime_plan.memory_budget_bytes,
+        )),
         source_handles: SourceHandleCache::default(),
         jobs: Arc::clone(&jobs),
         file_plans: Arc::clone(&file_plans),
@@ -462,9 +509,8 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         control: control.clone(),
         reconstruct_worker_count: runtime_plan.worker_count,
     });
-    let mut pending_work = std::collections::VecDeque::new();
-    let mut submitted_work_count = 0usize;
-    let mut submitted_job_count = 0usize;
+    let mut work_queue = ReconstructionWorkQueue::default();
+    let mut enqueued_job_count = 0usize;
     let mut downloads_done = artifact_scheduler.is_none();
     let mut completed_download_worker_count = 0usize;
 
@@ -477,7 +523,6 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     let mut verify_span = None;
     let mut verified_file_bytes = 0u64;
     let mut pipeline_error = None;
-    let mut finished_work_count = 0usize;
     let reconstruct_started_at = ProfileInstant::start(control.profiler());
     let mut reconstruct_finished_at = jobs.is_empty().then_some(reconstruct_started_at);
     if jobs.is_empty() {
@@ -505,19 +550,19 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
             };
             if ready {
-                pending_work.push_back((
+                work_queue.ready.push_back((
                     ReconstructWorkItem::Job(job_index),
                     ProfileInstant::detailed(control.profiler()),
                 ));
                 scheduled_job_indices.insert(job_index);
-                submitted_work_count += 1;
-                submitted_job_count += 1;
+
+                enqueued_job_count += 1;
             }
         }
     }
     update_reconstruct_backpressure(
         transfer_progress,
-        submitted_job_count,
+        enqueued_job_count,
         completed_job_count,
         runtime_plan.worker_count,
     );
@@ -528,12 +573,12 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 &output_paths[file_index],
                 control,
             )?;
-            pending_work.push_back((
+            work_queue.ready.push_back((
                 ReconstructWorkItem::VerifyFile(file_index),
                 ProfileInstant::detailed(control.profiler()),
             ));
             verification_queued[file_index] = true;
-            submitted_work_count += 1;
+
             if verify_started_at.is_none() {
                 verify_started_at = Some(ProfileInstant::start(control.profiler()));
                 verify_span = control.profile_span("installation.reconstruct.verify");
@@ -574,15 +619,15 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                         if scheduled_job_indices.insert(job_index) {
                             let _dispatch_span = control
                                 .profile_span("installation.reconstruct.dispatch.downloaded");
-                            pending_work.push_back((
+                            work_queue.ready.push_back((
                                 ReconstructWorkItem::Job(job_index),
                                 ProfileInstant::detailed(control.profiler()),
                             ));
-                            submitted_work_count += 1;
-                            submitted_job_count += 1;
+
+                            enqueued_job_count += 1;
                             update_reconstruct_backpressure(
                                 transfer_progress,
-                                submitted_job_count,
+                                enqueued_job_count,
                                 completed_job_count,
                                 runtime_plan.worker_count,
                             );
@@ -617,34 +662,21 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
 
         // Admit only runnable jobs, leaving pool threads free instead of blocking them
         // on memory. Verification can proceed while larger artifact jobs wait.
-        while pipeline_error.is_none()
-            && submitted_work_count - finished_work_count - pending_work.len() < runtime_plan.worker_count
-        {
-            let mut admitted = None;
-            for (index, (work, _)) in pending_work.iter().enumerate() {
-                let bytes = match work {
-                    ReconstructWorkItem::Job(job_index) => match &jobs[*job_index] {
-                        ReconstructJob::Artifact(_) => 136 * 1024 * 1024,
-                        ReconstructJob::SourceChunk(chunk) => u64::from(chunk.raw_size) + 1024 * 1024,
-                        ReconstructJob::CopySourceFile { .. } => 1024 * 1024,
-                    },
-                    ReconstructWorkItem::VerifyFile(_) => 0,
-                };
-                match work_context.memory.try_acquire(bytes) {
-                    Ok(Some(permit)) => {
-                        admitted = Some((index, permit));
-                        break;
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        pipeline_error = Some(error);
-                        break;
-                    }
+        while pipeline_error.is_none() && work_queue.in_flight < runtime_plan.worker_count {
+            match work_queue.admit_next(&jobs, &work_context.memory) {
+                Ok(Some(admitted)) => {
+                    spawn_reconstruct_work(
+                        pool,
+                        admitted.work,
+                        &work_context,
+                        &event_tx,
+                        admitted.permit,
+                        admitted.queued_at,
+                    );
                 }
+                Ok(None) => break,
+                Err(error) => pipeline_error = Some(error),
             }
-            let Some((index, permit)) = admitted else { break; };
-            let (work, queued_at) = pending_work.remove(index).expect("admitted queued work");
-            spawn_reconstruct_work(pool, work, &work_context, &event_tx, permit, queued_at);
         }
         if pipeline_error.is_some() {
             break;
@@ -661,11 +693,11 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 job_index,
                 timings: job_timings,
             }) => {
-                finished_work_count += 1;
+                work_queue.complete();
                 completed_job_count += 1;
                 update_reconstruct_backpressure(
                     transfer_progress,
-                    submitted_job_count,
+                    enqueued_job_count,
                     completed_job_count,
                     runtime_plan.worker_count,
                 );
@@ -707,17 +739,16 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                         }
                         // Verify while the completed file may still be cached, overlapping
                         // hashing with remaining writes. All its producers have finished.
-                        pending_work.push_front((
+                        work_queue.ready.push_front((
                             ReconstructWorkItem::VerifyFile(file_index),
                             ProfileInstant::detailed(control.profiler()),
                         ));
                         verification_queued[file_index] = true;
-                        submitted_work_count += 1;
                     }
                 }
             }
             Ok(ReconstructJobEvent::Verified(file_verification)) => {
-                finished_work_count += 1;
+                work_queue.complete();
                 completed_file_count += 1;
                 if verify_finished_at.is_none() && completed_file_count == file_plans.len() {
                     verify_finished_at = Some(ProfileInstant::start(control.profiler()));
@@ -748,7 +779,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
                 );
             }
             Ok(ReconstructJobEvent::Failed(error)) => {
-                finished_work_count += 1;
+                work_queue.complete();
                 pipeline_error = Some(error);
                 break;
             }
@@ -770,15 +801,14 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         scheduler.join()?;
     }
     // Queued work has never started and emits no completion event.
-    submitted_work_count -= pending_work.len();
-    pending_work.clear();
-    while pipeline_error.is_some() && finished_work_count < submitted_work_count {
+    work_queue.ready.clear();
+    while pipeline_error.is_some() && work_queue.in_flight > 0 {
         let event = {
             let _wait_span = control.profile_span("installation.coordinator.drain_workers");
             event_rx.recv()
         };
         match event {
-            Ok(_) => finished_work_count += 1,
+            Ok(_) => work_queue.complete(),
             Err(_) => break,
         }
     }
@@ -861,7 +891,7 @@ fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {
 
 fn update_reconstruct_backpressure(
     transfer_progress: Option<&Arc<FetchTransferProgress>>,
-    submitted_job_count: usize,
+    enqueued_job_count: usize,
     completed_job_count: usize,
     worker_count: usize,
 ) {
@@ -869,7 +899,7 @@ fn update_reconstruct_backpressure(
         return;
     };
     let queue_limit = worker_count.saturating_mul(2).max(1);
-    let queued_jobs = submitted_job_count.saturating_sub(completed_job_count);
+    let queued_jobs = enqueued_job_count.saturating_sub(completed_job_count);
     transfer_progress.set_downstream_backpressure(queued_jobs > queue_limit);
 }
 
