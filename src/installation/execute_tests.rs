@@ -9,6 +9,51 @@ use crate::manifest::SnapshotTagSet;
 use std::collections::BTreeMap;
 
 #[test]
+fn output_verification_uses_file_concurrency_without_misreporting_pool_size() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("large.bin");
+    let bytes = vec![37; crate::file_integrity::PARALLEL_FULL_HASH_MIN_BYTES as usize];
+    std::fs::write(&path, &bytes).unwrap();
+    let file_plan = ReconstructPipelineFile {
+        path: "large.bin".into(),
+        size: bytes.len() as u64,
+        full_file_hash: crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(&bytes)),
+    };
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    for (file_count, expected_mode) in [(1, "mmap_rayon"), (2, "mmap")] {
+        let profiler = Arc::new(crate::profile::GutchProfiler::new(
+            crate::profile::GutchProfileMode::Detailed,
+        ));
+        let control = GutchOperationControl::default().with_profiler(profiler.clone());
+        let mut paths = vec![path.clone()];
+        if file_count == 2 {
+            paths.push(directory.path().join("another-planned-file"));
+        }
+        pool.install(|| {
+            verify_reconstructed_output_file(
+                0, &file_plan, &paths, &[Mutex::new(None)], &control, 4,
+            )
+        })
+        .unwrap();
+        let trace_path = directory.path().join("trace.json");
+        profiler.write_trace(&trace_path).unwrap();
+        let trace: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(trace_path).unwrap()).unwrap();
+        let event = trace["traceEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["name"] == "installation.file.verify")
+            .unwrap();
+        assert_eq!(event["args"]["hash_mode"], expected_mode);
+        assert_eq!(event["args"]["configured_workers"], 4);
+    }
+}
+
+#[test]
 fn work_queue_verifies_while_source_job_waits_for_memory_and_drains_only_dispatched_work() {
     let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
     let occupied = memory.try_acquire(2 * 1024 * 1024).unwrap().unwrap();

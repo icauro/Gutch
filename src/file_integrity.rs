@@ -42,16 +42,18 @@ pub(crate) struct FullFileIntegrityResult {
     pub(crate) bytes: u64,
 }
 
+// Prefer file-level parallelism when multiple files can occupy the pool.
+// With one file, Rayon can use the same pool for its internal hash tree.
 pub(crate) fn select_full_file_hash_mode(
     file_size: u64,
     has_precomputed_hash: bool,
-    worker_count: usize,
+    concurrent_file_count: usize,
 ) -> FullFileHashMode {
     if has_precomputed_hash {
         FullFileHashMode::Forwarded
     } else if file_size < PARALLEL_FULL_HASH_MIN_BYTES {
         FullFileHashMode::Stream
-    } else if worker_count <= 1 {
+    } else if concurrent_file_count <= 1 {
         FullFileHashMode::MmapRayon
     } else {
         FullFileHashMode::Mmap
@@ -70,15 +72,14 @@ fn hash_file_streaming(
 ) -> Result<(blake3::Hash, Duration, Duration)> {
     control.checkpoint()?;
     let mut input = File::open(path)?;
-    STREAM_BUFFER.with(|buffer| {
-        let mut buffer = buffer.borrow_mut();
+    with_hash_read_buffer(|buffer| {
         let mut hasher = blake3::Hasher::new();
         let mut read_elapsed = Duration::ZERO;
         let mut hash_elapsed = Duration::ZERO;
         loop {
             control.checkpoint()?;
             let read_started_at = ProfileInstant::detailed(control.profiler());
-            let read = input.read(&mut buffer)?;
+            let read = input.read(buffer)?;
             read_elapsed += read_started_at.elapsed();
             if read == 0 {
                 break;
@@ -91,16 +92,23 @@ fn hash_file_streaming(
     })
 }
 
+/// Reuses bounded scratch storage for sequential file and artifact hashing.
+pub(crate) fn with_hash_read_buffer<T>(
+    hash: impl FnOnce(&mut [u8]) -> Result<T>,
+) -> Result<T> {
+    STREAM_BUFFER.with(|buffer| hash(&mut buffer.borrow_mut()))
+}
+
 pub(crate) fn verify_full_file_integrity(
     path: &Path,
     file_size: u64,
     expected_hash: ChunkHash,
     precomputed_hash: Option<ChunkHash>,
-    worker_count: usize,
+    concurrent_file_count: usize,
     control: &GutchOperationControl,
 ) -> Result<FullFileIntegrityResult> {
     control.checkpoint()?;
-    let mode = select_full_file_hash_mode(file_size, precomputed_hash.is_some(), worker_count);
+    let mode = select_full_file_hash_mode(file_size, precomputed_hash.is_some(), concurrent_file_count);
     let mut read_elapsed = Duration::ZERO;
     let mut hash_elapsed = Duration::ZERO;
 
@@ -189,6 +197,49 @@ mod tests {
             hash_file_streaming(&path, &control),
             Err(Error::Cancelled)
         ));
+    }
+
+    #[test]
+    fn full_file_verification_rejects_corruption_in_stream_and_mmap_modes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("content");
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        for size in [37, PARALLEL_FULL_HASH_MIN_BYTES as usize] {
+            let mut bytes = vec![17; size];
+            let expected = ChunkHash::from_blake3(blake3::hash(&bytes));
+            std::fs::write(&path, &bytes).unwrap();
+            for concurrent_files in [1, 4] {
+                pool.install(|| {
+                    verify_full_file_integrity(
+                        &path,
+                        size as u64,
+                        expected,
+                        None,
+                        concurrent_files,
+                        &GutchOperationControl::default(),
+                    )
+                })
+                .unwrap();
+            }
+            bytes[size - 1] ^= 1;
+            std::fs::write(&path, &bytes).unwrap();
+            for concurrent_files in [1, 4] {
+                let result = pool.install(|| {
+                    verify_full_file_integrity(
+                        &path,
+                        size as u64,
+                        expected,
+                        None,
+                        concurrent_files,
+                        &GutchOperationControl::default(),
+                    )
+                });
+                assert!(matches!(result, Err(Error::HashMismatch { .. })));
+            }
+        }
     }
 
     #[test]

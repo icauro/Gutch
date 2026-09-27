@@ -683,11 +683,11 @@ pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Res
             "bundle '{bundle_id}' is missing its content hash"
         )));
     }
-    let actual_hash = hash::hash_hex(&blake3::hash(&bytes[..bytes.len() - id_size]));
-    if actual_hash != expected_hash.to_hex() {
+    let actual_hash = ChunkHash::from_blake3(blake3::hash(&bytes[..bytes.len() - id_size]));
+    if actual_hash != expected_hash {
         return Err(crate::error::Error::HashMismatch {
             expected: expected_hash.to_hex(),
-            actual: actual_hash,
+            actual: actual_hash.to_hex(),
         });
     }
     if &bytes[bytes.len() - id_size..] != expected_hash.as_bytes() {
@@ -716,23 +716,25 @@ pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     })?;
     let mut hasher = blake3::Hasher::new();
     let mut remaining = content_len;
-    let mut buffer = vec![0u8; 1024 * 1024];
-    while remaining > 0 {
-        let take = remaining.min(buffer.len() as u64) as usize;
-        file.read_exact(&mut buffer[..take])?;
-        hasher.update(&buffer[..take]);
-        remaining -= take as u64;
-    }
-    let mut trailing = vec![0u8; id_size];
+    crate::file_integrity::with_hash_read_buffer(|buffer| {
+        while remaining > 0 {
+            let take = remaining.min(buffer.len() as u64) as usize;
+            file.read_exact(&mut buffer[..take])?;
+            hasher.update(&buffer[..take]);
+            remaining -= take as u64;
+        }
+        Ok(())
+    })?;
+    let mut trailing = [0u8; BUNDLE_ID_SIZE as usize];
     file.read_exact(&mut trailing)?;
-    let actual_hash = hash::hash_hex(&hasher.finalize());
-    if actual_hash != expected_hash.to_hex() {
+    let actual_hash = ChunkHash::from_blake3(hasher.finalize());
+    if actual_hash != expected_hash {
         return Err(crate::error::Error::HashMismatch {
             expected: expected_hash.to_hex(),
-            actual: actual_hash,
+            actual: actual_hash.to_hex(),
         });
     }
-    if trailing != expected_hash.as_bytes() {
+    if trailing.as_slice() != expected_hash.as_bytes() {
         return Err(crate::error::Error::InvalidBundle(format!(
             "bundle '{bundle_id}' has an inconsistent trailing content hash"
         )));

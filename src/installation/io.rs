@@ -673,10 +673,11 @@ pub(super) fn verify_reconstructed_output_file(
         })?
         .lock()
         .map_err(|_| Error::reconstruct("precomputed file hash is poisoned"))?;
+    let concurrent_file_count = reconstruct_worker_count.min(output_paths.len());
     let hash_mode = crate::file_integrity::select_full_file_hash_mode(
         file_plan.size,
         precomputed_hash.is_some(),
-        reconstruct_worker_count,
+        concurrent_file_count,
     );
     let started_at = ProfileInstant::detailed(control.profiler());
     let output_path = &output_paths[file_index];
@@ -703,7 +704,7 @@ pub(super) fn verify_reconstructed_output_file(
         file_plan.size,
         file_plan.full_file_hash,
         precomputed_hash,
-        reconstruct_worker_count,
+        concurrent_file_count,
         control,
     )?;
     Ok(ReconstructedFileVerification {

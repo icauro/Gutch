@@ -174,8 +174,9 @@ to the new snapshot.
 For ordinary artifact and source-chunk jobs, the per-file verifier reads the
 completed output and checks size and full-file BLAKE3. A whole-file copy hashes
 while copying, so its completed hash can be forwarded to verification without a
-second full read. Large-file hash mode uses the reconstruction runtime policy;
-the exact threshold and modes are described in
+second full read. Large-file hash mode considers both the reconstruction worker
+count and the number of output files, so one large output can use the existing
+pool for parallel hashing. The exact threshold and modes are described in
 [`07_verify_pipeline.md`](07_verify_pipeline.md).
 
 ## Timeline and diagnostic evidence

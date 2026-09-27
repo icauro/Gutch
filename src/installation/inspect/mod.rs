@@ -315,7 +315,7 @@ fn classify_inner(
                             prepared_file,
                             opts.mode,
                             opts.control,
-                            runtime_plan.worker_count,
+                            runtime_plan.worker_count.min(prepared_files.len()),
                             marker_namespace,
                         );
                         let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
@@ -871,7 +871,7 @@ fn verify_manifest_file(
     prepared_file: &PreparedVerifyFile<'_>,
     verify_mode: VerifyMode,
     control: &GutchOperationControl,
-    worker_count: usize,
+    concurrent_file_count: usize,
     marker_namespace: &'static str,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
     let file_manifest = prepared_file.manifest;
@@ -971,7 +971,7 @@ fn verify_manifest_file(
         return Ok((Vec::new(), timings));
     }
     let verification = if verify_mode == VerifyMode::Fast {
-        verify_file_fast(prepared_file, worker_count, &mut timings, control)
+        verify_file_fast(prepared_file, concurrent_file_count, &mut timings, control)
     } else {
         verify_file_streaming(
             file_manifest,
@@ -1008,7 +1008,7 @@ fn verify_manifest_file(
 
 fn verify_file_fast(
     prepared_file: &PreparedVerifyFile<'_>,
-    worker_count: usize,
+    concurrent_file_count: usize,
     timings: &mut VerifyTimings,
     control: &GutchOperationControl,
 ) -> Result<Vec<RepairIssue>> {
@@ -1018,7 +1018,7 @@ fn verify_file_fast(
         prepared_file.manifest.size,
         expected_full_hash,
         None,
-        worker_count,
+        concurrent_file_count,
         control,
     )?;
     timings.file_read += integrity.read_elapsed;

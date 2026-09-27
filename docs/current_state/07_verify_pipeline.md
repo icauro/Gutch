@@ -58,10 +58,11 @@ does not match the blueprint.
 Full-file hashing uses these current modes:
 
 - Files below 16 MiB use a streaming reader with a 1 MiB thread-local buffer.
-- Files at or above 16 MiB use memory mapping when verification has multiple
-  workers.
-- Files at or above 16 MiB use Rayon-backed mapped hashing when the verification
-  worker count is one.
+- Files at or above 16 MiB use serial mapped hashing when multiple files can
+  occupy the verification pool.
+- When the plan contains one file, or only one worker is configured, large-file
+  verification uses Rayon-backed mapped hashing within the existing pool.
+  This choice uses the prepared file count and requires no additional scan.
 
 These choices change how bytes are read, not the BLAKE3 input or result.
 

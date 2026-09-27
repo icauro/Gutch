@@ -27,6 +27,9 @@ fn test_chunk_hash_byte_roundtrip() {
     let hash = ChunkHash::from_blake3(hash_chunk(b"hello"));
     let reparsed = ChunkHash::from_bytes(*hash.as_bytes());
     assert_eq!(hash, reparsed);
+    let expected = blake3::hash(b"hello").to_hex().to_string();
+    assert_eq!(hash.to_string(), expected);
+    assert_eq!(serde_json::to_string(&hash).unwrap(), format!("\"{expected}\""));
 }
 
 #[test]

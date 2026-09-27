@@ -44,7 +44,7 @@ impl serde::Serialize for ChunkHash {
         &self,
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_hex())
+        serializer.serialize_str(blake3::Hash::from_bytes(self.0).to_hex().as_str())
     }
 }
 impl<'de> serde::Deserialize<'de> for ChunkHash {
@@ -58,7 +58,7 @@ impl<'de> serde::Deserialize<'de> for ChunkHash {
 
 impl std::fmt::Display for ChunkHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.to_hex())
+        f.write_str(blake3::Hash::from_bytes(self.0).to_hex().as_str())
     }
 }
 
