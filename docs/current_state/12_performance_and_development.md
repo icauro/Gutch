@@ -336,3 +336,34 @@ Evidence: `tests/.artifacts/inventory-metadata/`.
 
 A follow-up full-flow validation passed independent reconstruction and
 corruption-repair checks with the optimized release binary.
+
+
+## Analytical uncompressed probing and cursor reuse
+
+Uncompressed bundle planning now computes the exact probe size from known chunk
+lengths plus bundle metadata overhead. It selects the same prefix of chunks and
+preserves the estimate and resulting artifacts, while reporting zero probe-read
+bytes. The compression profile is still validated; encoding still loads and
+checks the chunks. Compressed-codec probing is unchanged.
+
+Payload readers also track their owned file cursor, avoiding a seek on new
+handles at offset zero or contiguous reads. Failed reads invalidate the known
+position, forcing a seek on a subsequent load. Source switches, gaps and backward
+reads remain supported.
+
+An alternating release-binary comparison on Blender 5.0.0/5.1.0 used FastCDC
+4 MiB, no compression, 16 MiB bundles, automatic workers and detailed profiling.
+One warm-up was excluded; seven measured repetitions used fresh repositories and
+uncontrolled OS cache. Median capture totals were baseline 1.764 s, analytical
+probe 1.695 s, and analytical probe plus cursor reuse 1.677 s. Probe work dropped
+from about 24.7 ms to approximately 1-2 microseconds per build pair. The combined
+capture improvement was about 4.9%; the incremental seek gain was only about 1%,
+so its timing benefit should not be treated as a precise universal estimate.
+Both candidate variants produced byte-identical artifacts, blueprints and chunk
+maps compared with baseline. All 321 library tests passed; coverage includes
+probe threshold/metadata accounting, actual-load failures, contiguous/backward
+reads, source switches and recovery after a partial read failure.
+Evidence: `tests/.artifacts/probe-seek/`.
+
+Full-flow validation also passed independent reconstruction and corruption
+repair with both uncompressed and LZ4 bundles on the two Blender builds.

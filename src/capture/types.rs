@@ -197,6 +197,7 @@ impl ChunkPayload {
 #[derive(Default)]
 pub(crate) struct ChunkPayloadReader {
     current: Option<(Arc<PathBuf>, std::fs::File)>,
+    position: Option<u64>,
 }
 
 impl ChunkPayloadReader {
@@ -209,18 +210,27 @@ impl ChunkPayloadReader {
         {
             // Close the previous handle before opening the next source.
             self.current = None;
+            self.position = None;
             let file = std::fs::File::open(payload.source.as_ref())?;
             self.current = Some((payload.source.clone(), file));
+            self.position = Some(0);
         }
         let (_, file) = self.current.as_mut().expect("source handle was opened");
-        file.seek(SeekFrom::Start(payload.offset))?;
+        if self.position != Some(payload.offset) {
+            self.position = None;
+            file.seek(SeekFrom::Start(payload.offset))?;
+        }
         let mut bytes = vec![
             0;
             usize::try_from(payload.size).map_err(|_| crate::Error::manifest(
                 "chunk exceeds address space"
             ))?
         ];
+        // A failed read may advance the cursor partially. Invalidate it first
+        // so any later load seeks explicitly; successful reads establish it anew.
+        self.position = None;
         file.read_exact(&mut bytes)?;
+        self.position = payload.offset.checked_add(payload.size);
         // Reusing a handle never skips validation against the scan-time hash.
         if ChunkHash::from_blake3(blake3::hash(&bytes)) != payload.hash {
             return Err(crate::Error::manifest(format!(

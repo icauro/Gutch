@@ -78,13 +78,17 @@ fn estimate_bundle_compression_ratio_from_probe(
         return Ok((1.0, 0));
     }
 
+    let uncompressed = compression_profile.compression == manifest::CompressionKind::None;
+    let mut probe_chunk_count = 0;
     let mut raw_probe_size: u64 = 0;
     let mut probe_payload = Vec::new();
     let mut reader = ChunkPayloadReader::default();
     for (_, payload) in chunks {
-        let data = reader.load(payload)?;
-        raw_probe_size += data.len() as u64;
-        probe_payload.push(data);
+        raw_probe_size += payload.raw_size();
+        probe_chunk_count += 1;
+        if !uncompressed {
+            probe_payload.push(reader.load(payload)?);
+        }
         if raw_probe_size >= probe_target_bytes {
             break;
         }
@@ -94,12 +98,20 @@ fn estimate_bundle_compression_ratio_from_probe(
         return Ok((1.0, 0));
     }
 
-    let segments: Vec<&[u8]> = probe_payload.iter().map(Vec::as_slice).collect();
-    let encoded_size = compress::compressed_size(&segments, compression_profile)?
-        + crate::artifact::bundle::encoded_metadata_size(segments.len() as u64);
+    let encoded_payload_size = if uncompressed {
+        compress::validate_profile(compression_profile)?;
+        // No codec framing: the payload length is already exact. Actual packing
+        // still reads and verifies every chunk against its scan-time hash.
+        raw_probe_size
+    } else {
+        let segments: Vec<&[u8]> = probe_payload.iter().map(Vec::as_slice).collect();
+        compress::compressed_size(&segments, compression_profile)?
+    };
+    let encoded_size = encoded_payload_size
+        + crate::artifact::bundle::encoded_metadata_size(probe_chunk_count);
     Ok((
         (encoded_size as f64 / raw_probe_size as f64).max(0.01),
-        raw_probe_size,
+        if uncompressed { 0 } else { raw_probe_size },
     ))
 }
 

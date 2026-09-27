@@ -244,6 +244,7 @@ fn payload_reader_seeks_switches_sources_and_detects_mutation() {
     };
     let mut reader = ChunkPayloadReader::default();
     for payload in [
+        chunk(&first, 0, b"abc"),
         chunk(&first, 3, b"def"),
         chunk(&first, 0, b"abc"),
         chunk(&second, 1, b"vw"),
@@ -262,4 +263,48 @@ fn payload_reader_seeks_switches_sources_and_detects_mutation() {
     assert!(reader.load(&expected).is_err());
     std::fs::write(&first, b"a").unwrap();
     assert!(reader.load(&expected).is_err());
+    std::fs::write(&first, b"abcdef").unwrap();
+    assert_eq!(reader.load(&expected).unwrap(), b"abc");
+}
+
+
+#[test]
+fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let segments: [&[u8]; 3] = [b"ab", b"cdef", b"g"];
+    let chunks: Vec<_> = segments
+        .iter()
+        .map(|bytes| {
+            let hash = ChunkHash::from_blake3(blake3::hash(bytes));
+            (
+                hash,
+                ChunkPayload {
+                    source: std::sync::Arc::new(temp.path().join("missing")),
+                    offset: 0,
+                    size: bytes.len() as u64,
+                    hash,
+                },
+            )
+        })
+        .collect();
+    let profile =
+        manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::None, None);
+    for (target, selected) in [(0, 1), (2, 1), (3, 2), (6, 2), (7, 3), (99, 3)] {
+        let selected_segments = &segments[..selected];
+        let raw: usize = selected_segments.iter().map(|s| s.len()).sum();
+        let encoded = compress::compressed_size(selected_segments, &profile).unwrap()
+            + crate::artifact::bundle::encoded_metadata_size(selected as u64);
+        let (ratio, read_bytes) =
+            estimate_bundle_compression_ratio_from_probe(&chunks, &profile, target).unwrap();
+        assert_eq!(ratio, encoded as f64 / raw as f64);
+        assert_eq!(read_bytes, 0);
+    }
+    assert_eq!(
+        estimate_bundle_compression_ratio_from_probe(&[], &profile, 16).unwrap(),
+        (1.0, 0)
+    );
+    // Skipping an unnecessary probe must not skip loading during actual encoding.
+    assert!(
+        build_bundle_compressed_group(chunks, &profile, temp.path(), &Default::default()).is_err()
+    );
 }

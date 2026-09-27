@@ -170,7 +170,9 @@ released through the same operation-owned artifact lifecycle.
   it for consecutive chunks from the same path. Switching paths closes the old
   handle; the job closes its reader before compression. Compression probes use
   the same reader. Handles and seek positions are never shared between workers.
-  Loose-chunk jobs still open one source for their single payload.
+  Loose-chunk jobs still open one source for their single payload. Readers reuse
+  their known cursor position for contiguous ranges; unknown positions after I/O
+  errors, gaps, backward reads and nonzero offsets on new handles seek explicitly.
 - Bundle encoding takes ownership of each loaded byte buffer directly; it does
   not allocate and copy that payload again for shared ownership.
   A changed or truncated source stops capture before snapshot publication.
@@ -209,3 +211,10 @@ trailer, and identity overhead using the bundle format's constants. For identica
 chunk bytes, order, and boundaries, its estimated encoded size matches a real bundle.
 Sampling remains approximate: the probe uses hash-ordered sample chunks, while
 actual bundles use file locality and can have a different compression ratio.
+
+
+For uncompressed bundles, compression-ratio planning uses selected chunk lengths
+and exact bundle metadata overhead. It does not load sample payloads. The sample
+selection and estimated ratio are unchanged; reported probe-read bytes are zero.
+Compressed codecs still probe actual data. Packing continues to load and verify
+every selected source range, even when the size estimate needed no reads.
