@@ -39,6 +39,7 @@ const ADAPTIVE_SAMPLE_INTERVAL: Duration = Duration::from_secs(2);
 const ADAPTIVE_MIN_IMPROVEMENT: f64 = 1.05;
 const ADAPTIVE_MAX_REGRESSION: f64 = 0.90;
 const ADAPTIVE_STABLE_WINDOWS: usize = 2;
+const ADAPTIVE_COOLDOWN_WINDOWS: usize = 2;
 pub(crate) const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
 pub(crate) const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
@@ -582,7 +583,13 @@ struct AdaptiveTransferState {
     previous_sample_at: Instant,
     previous_bytes: u64,
     previous_rate: Option<f64>,
-    stable_windows: usize,
+    probe_baseline: Option<f64>,
+    cooldown_windows: usize,
+    window_count: usize,
+    window_bytes: u64,
+    window_seconds: f64,
+    minimum_rate: f64,
+    maximum_rate: f64,
     last_retry_count: usize,
 }
 
@@ -594,7 +601,13 @@ impl AdaptiveTransferState {
             previous_sample_at: Instant::now(),
             previous_bytes: 0,
             previous_rate: None,
-            stable_windows: 0,
+            probe_baseline: None,
+            cooldown_windows: 0,
+            window_count: 0,
+            window_bytes: 0,
+            window_seconds: 0.0,
+            minimum_rate: f64::INFINITY,
+            maximum_rate: 0.0,
             last_retry_count: 0,
         }
     }
@@ -605,41 +618,100 @@ impl AdaptiveTransferState {
         transferred_bytes: u64,
         retry_count: usize,
         downstream_backpressure: bool,
+        has_queued_work: bool,
+        active_workers: usize,
     ) -> Option<usize> {
         let elapsed = now.saturating_duration_since(self.previous_sample_at);
         if elapsed < ADAPTIVE_SAMPLE_INTERVAL {
             return None;
         }
-        let rate = transferred_bytes.saturating_sub(self.previous_bytes) as f64
-            / elapsed.as_secs_f64().max(f64::EPSILON);
+        let bytes = transferred_bytes.saturating_sub(self.previous_bytes);
+        let seconds = elapsed.as_secs_f64();
+        let rate = bytes as f64 / seconds;
         let had_new_retry = retry_count > self.last_retry_count;
-        let previous_rate = self.previous_rate;
         self.previous_sample_at = now;
         self.previous_bytes = transferred_bytes;
-        self.previous_rate = Some(rate);
         self.last_retry_count = retry_count;
 
         if had_new_retry || downstream_backpressure {
-            self.stable_windows = 0;
+            self.back_off();
             return self.reduce_target();
         }
-        let Some(previous_rate) = previous_rate else {
+        if !has_queued_work {
+            // A draining queue cannot use another worker or measure a probe fairly.
+            self.reset_window();
+            self.previous_rate = None;
+            self.probe_baseline = None;
             return None;
-        };
-        if rate < previous_rate * ADAPTIVE_MAX_REGRESSION {
-            self.stable_windows = 0;
+        }
+        if bytes == 0 {
+            // Zero compared with zero is not an improvement. Undo an active probe
+            // or back off once after progress stops, then wait for positive evidence.
+            let was_active = self.previous_rate.is_some() || self.probe_baseline.is_some();
+            self.back_off();
+            return if was_active {
+                self.reduce_target()
+            } else {
+                None
+            };
+        }
+        if self.cooldown_windows > 0 {
+            self.cooldown_windows -= 1;
+            return None;
+        }
+        if active_workers != self.target {
+            // Lowering the target never cancels healthy downloads. Wait until
+            // the changed concurrency is actually in effect before comparing it.
+            self.reset_window();
+            return None;
+        }
+        self.window_count += 1;
+        self.window_bytes = self.window_bytes.saturating_add(bytes);
+        self.window_seconds += seconds;
+        self.minimum_rate = self.minimum_rate.min(rate);
+        self.maximum_rate = self.maximum_rate.max(rate);
+        if self.window_count < ADAPTIVE_STABLE_WINDOWS {
+            return None;
+        }
+        let average_rate = self.window_bytes as f64 / self.window_seconds;
+        let stable = self.minimum_rate >= self.maximum_rate * ADAPTIVE_MAX_REGRESSION;
+        self.reset_window();
+
+        if let Some(baseline) = self.probe_baseline.take() {
+            // Compare averaged work after the change with work before it. A flat
+            // rate at the new concurrency means the extra worker did not help.
+            if average_rate < baseline * ADAPTIVE_MIN_IMPROVEMENT {
+                self.back_off();
+                return self.reduce_target();
+            }
+        } else if self
+            .previous_rate
+            .is_some_and(|previous| average_rate < previous * ADAPTIVE_MAX_REGRESSION)
+        {
+            self.back_off();
             return self.reduce_target();
         }
-        if rate >= previous_rate * ADAPTIVE_MIN_IMPROVEMENT {
-            self.stable_windows += 1;
-            if self.stable_windows >= ADAPTIVE_STABLE_WINDOWS {
-                self.stable_windows = 0;
-                return self.increase_target();
-            }
-        } else {
-            self.stable_windows = 0;
+        self.previous_rate = Some(average_rate);
+        if stable && self.target < self.maximum {
+            self.probe_baseline = Some(average_rate);
+            return self.increase_target();
         }
         None
+    }
+
+    fn reset_window(&mut self) {
+        self.window_count = 0;
+        self.window_bytes = 0;
+        self.window_seconds = 0.0;
+        self.minimum_rate = f64::INFINITY;
+        self.maximum_rate = 0.0;
+    }
+
+    fn back_off(&mut self) {
+        self.reset_window();
+        self.previous_rate = None;
+        self.probe_baseline = None;
+        self.cooldown_windows = ADAPTIVE_COOLDOWN_WINDOWS;
     }
 
     fn increase_target(&mut self) -> Option<usize> {
@@ -670,6 +742,9 @@ fn run_adaptive_transfer_controller(
         return;
     };
     let mut controller = AdaptiveTransferState::new(initial, maximum);
+    // Metadata may already have been fetched through these counters. Only bytes
+    // arriving during the controller's observation belong in its first rate.
+    controller.previous_bytes = transfer_progress.transferred_bytes();
     while !controller_stop.load(AtomicOrdering::Acquire) {
         for _ in 0..20 {
             if controller_stop.load(AtomicOrdering::Acquire) {
@@ -680,11 +755,23 @@ fn run_adaptive_transfer_controller(
         if controller_stop.load(AtomicOrdering::Acquire) {
             return;
         }
+        let (has_queued_work, active_workers) = shared
+            .state
+            .lock()
+            .map(|state| {
+                (
+                    !state.stopped && !state.pending.is_empty(),
+                    state.active_worker_count,
+                )
+            })
+            .unwrap_or((false, 0));
         let Some(new_target) = controller.observe(
             Instant::now(),
             transfer_progress.transferred_bytes(),
             transfer_progress.retry_count(),
             transfer_progress.downstream_backpressure(),
+            has_queued_work,
+            active_workers,
         ) else {
             continue;
         };
@@ -1010,6 +1097,7 @@ fn non_empty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {
 
 #[cfg(test)]
 mod tests {
+    use super::ADAPTIVE_COOLDOWN_WINDOWS;
     use super::ADAPTIVE_SAMPLE_INTERVAL;
     use super::AdaptiveTransferState;
     use super::ArtifactPriority;
@@ -1017,6 +1105,7 @@ mod tests {
     use super::resolve_transfer_worker_limits;
     use crate::transfer::types::TransferConcurrencyPolicy;
     use std::time::Duration;
+    use std::time::Instant;
 
     #[test]
     fn transfer_worker_limits_clamp_to_pending_artifacts() {
@@ -1034,48 +1123,166 @@ mod tests {
         );
     }
 
-    #[test]
-    fn adaptive_transfer_state_ramps_up_after_stable_improvement() {
-        let mut state = AdaptiveTransferState::new(4, 8);
-        let start = state.previous_sample_at;
-        assert_eq!(
-            state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false),
-            None
-        );
-        assert_eq!(
-            state.observe(start + Duration::from_secs(4), 220, 0, false),
-            None
-        );
-        assert_eq!(
-            state.observe(start + Duration::from_secs(6), 360, 0, false),
-            Some(5)
-        );
+    fn observe_rate(state: &mut AdaptiveTransferState, rate: u64) -> Option<usize> {
+        state.observe(
+            state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+            state.previous_bytes + rate * 2,
+            0,
+            false,
+            true,
+            state.target,
+        )
     }
 
     #[test]
-    fn adaptive_transfer_state_reduces_on_regression() {
-        let mut state = AdaptiveTransferState::new(4, 8);
-        let start = state.previous_sample_at;
-        state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false);
-        assert_eq!(
-            state.observe(start + Duration::from_secs(4), 140, 0, false),
-            Some(3)
-        );
-        assert_eq!(
-            state.observe(start + Duration::from_secs(6), 150, 0, false),
-            Some(2)
-        );
+    fn adaptive_stalls_never_ramp_and_abort_an_unproductive_probe() {
+        let mut state = AdaptiveTransferState::new(4, 16);
+        for _ in 0..30 {
+            assert_eq!(observe_rate(&mut state, 0), None);
+            assert_eq!(state.target, 4);
+        }
+        for _ in 0..4 {
+            observe_rate(&mut state, 100);
+        }
+        assert_eq!(state.target, 5);
+        assert_eq!(observe_rate(&mut state, 0), Some(4));
+        for _ in 0..30 {
+            assert_eq!(observe_rate(&mut state, 0), None);
+        }
     }
 
     #[test]
-    fn adaptive_transfer_state_reduces_when_reconstruction_is_backlogged() {
-        let mut state = AdaptiveTransferState::new(4, 8);
-        let start = state.previous_sample_at;
-        state.observe(start + ADAPTIVE_SAMPLE_INTERVAL, 100, 0, false);
+    fn adaptive_probes_constant_throughput_then_rolls_back_with_cooldown() {
+        let mut state = AdaptiveTransferState::new(4, 16);
+        assert_eq!(observe_rate(&mut state, 100), None);
+        assert_eq!(observe_rate(&mut state, 100), Some(5));
+        assert_eq!(observe_rate(&mut state, 100), None);
+        assert_eq!(observe_rate(&mut state, 100), Some(4));
+        for _ in 0..ADAPTIVE_COOLDOWN_WINDOWS {
+            assert_eq!(observe_rate(&mut state, 100), None);
+        }
+        for _ in 0..60 {
+            observe_rate(&mut state, 100);
+            assert!((4..=5).contains(&state.target));
+        }
+    }
+
+    #[test]
+    fn adaptive_finds_per_connection_capacity_without_running_away_at_saturation() {
+        let mut state = AdaptiveTransferState::new(4, 16);
+        let mut peak = 4;
+        for _ in 0..60 {
+            let rate = (state.target as u64 * 100).min(800);
+            observe_rate(&mut state, rate);
+            peak = peak.max(state.target);
+        }
+        assert_eq!(peak, 9);
+        assert!((8..=9).contains(&state.target));
+        let mut capped = AdaptiveTransferState::new(4, 6);
+        for _ in 0..60 {
+            let rate = capped.target as u64 * 100;
+            observe_rate(&mut capped, rate);
+            assert!(capped.target <= 6);
+        }
+        assert_eq!(capped.target, 6);
+    }
+
+    #[test]
+    fn adaptive_averages_regressions_and_ignores_bursty_growth() {
+        let mut state = AdaptiveTransferState::new(4, 4);
+        observe_rate(&mut state, 100);
+        observe_rate(&mut state, 100);
+        assert_eq!(observe_rate(&mut state, 20), None);
+        assert_eq!(observe_rate(&mut state, 20), Some(3));
+        let mut bursty = AdaptiveTransferState::new(4, 16);
+        for _ in 0..30 {
+            observe_rate(&mut bursty, 100);
+            observe_rate(&mut bursty, 300);
+            assert_eq!(bursty.target, 4);
+        }
+    }
+
+    #[test]
+    fn adaptive_retries_and_backpressure_reduce_even_during_cooldown() {
+        let mut state = AdaptiveTransferState::new(4, 16);
+        for (retries, pressure, expected) in [(1, false, 3), (1, true, 2), (2, false, 1)] {
+            assert_eq!(
+                state.observe(
+                    state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                    state.previous_bytes + 100,
+                    retries,
+                    pressure,
+                    true,
+                    state.target,
+                ),
+                Some(expected)
+            );
+        }
         assert_eq!(
-            state.observe(start + Duration::from_secs(4), 220, 0, true),
-            Some(3)
+            state.observe(
+                state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                state.previous_bytes + 100,
+                3,
+                true,
+                true,
+                state.target,
+            ),
+            None
         );
+        assert_eq!(state.target, 1);
+    }
+
+    #[test]
+    fn adaptive_does_not_probe_a_draining_queue_or_short_observation() {
+        let mut state = AdaptiveTransferState::new(4, 16);
+        assert_eq!(
+            state.observe(
+                state.previous_sample_at + Duration::from_secs(1),
+                100,
+                0,
+                false,
+                true,
+                4
+            ),
+            None
+        );
+        for _ in 0..30 {
+            assert_eq!(
+                state.observe(
+                    state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                    state.previous_bytes + 100,
+                    0,
+                    false,
+                    false,
+                    4,
+                ),
+                None
+            );
+        }
+        assert_eq!(state.target, 4);
+    }
+
+    #[test]
+    fn adaptive_waits_for_actual_worker_count_before_evaluating_a_probe() {
+        let mut state = AdaptiveTransferState::new(4, 16);
+        observe_rate(&mut state, 100);
+        observe_rate(&mut state, 100);
+        assert_eq!(state.target, 5);
+        for _ in 0..10 {
+            assert_eq!(
+                state.observe(
+                    state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                    state.previous_bytes + 200,
+                    0,
+                    false,
+                    true,
+                    4,
+                ),
+                None
+            );
+        }
+        assert_eq!(observe_rate(&mut state, 100), None);
+        assert_eq!(observe_rate(&mut state, 100), Some(4));
     }
 
     #[test]
@@ -1095,7 +1302,10 @@ mod tests {
 
     #[test]
     fn transfer_stats_report_bytes_and_average_rate() {
-        let progress = FetchTransferProgress::default();
+        let progress = FetchTransferProgress {
+            started_at: Instant::now() - Duration::from_secs(1),
+            ..Default::default()
+        };
         progress.add_total_bytes(8 * 1024 * 1024);
         progress.add_transferred_bytes(4 * 1024 * 1024);
         progress.finish();

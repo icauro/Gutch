@@ -457,9 +457,16 @@ impl OutputHandleCache {
         // These sizes and producer counts already exist for verification scheduling.
         // Independent Windows file objects help concurrent large-file writes, but
         // reopening tiny files costs more than it saves. No I/O probe is needed.
-        let independent_handles = output_sizes.iter().zip(producer_counts).map(|(&size, &producers)| {
-            cfg!(windows) && worker_count > 1 && producers > 1 && size >= INDEPENDENT_OUTPUT_MIN_BYTES
-        }).collect();
+        let independent_handles = output_sizes
+            .iter()
+            .zip(producer_counts)
+            .map(|(&size, &producers)| {
+                cfg!(windows)
+                    && worker_count > 1
+                    && producers > 1
+                    && size >= INDEPENDENT_OUTPUT_MIN_BYTES
+            })
+            .collect();
         Self {
             output_paths,
             output_sizes,
@@ -496,6 +503,7 @@ impl OutputHandleCache {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&self.output_paths[file_index])?;
         file.set_len(self.output_sizes[file_index])?;
         let file = Arc::new(file);
@@ -532,7 +540,11 @@ fn cached_target_handle(
     let file = if output_handles.independent_handles[file_index] {
         // Creation and sizing stay centralized. This handle only opens an already
         // prepared file; it must never truncate data written by another job.
-        Arc::new(OpenOptions::new().write(true).open(&output_handles.output_paths[file_index])?)
+        Arc::new(
+            OpenOptions::new()
+                .write(true)
+                .open(&output_handles.output_paths[file_index])?,
+        )
     } else {
         file
     };
@@ -765,7 +777,10 @@ mod output_handle_tests {
             let root = tempfile::tempdir().unwrap();
             let path = root.path().join("output");
             let cache = OutputHandleCache::new(
-                Arc::new(vec![path.clone()]), Arc::new(vec![size]), &[producers], workers,
+                Arc::new(vec![path.clone()]),
+                Arc::new(vec![size]),
+                &[producers],
+                workers,
             );
             let mut first_job = HashMap::new();
             let first = cached_target_handle(&cache, &mut first_job, 0).unwrap();
@@ -773,7 +788,10 @@ mod output_handle_tests {
             let mut second_job = HashMap::new();
             let second = cached_target_handle(&cache, &mut second_job, 0).unwrap();
             assert_eq!(!Arc::ptr_eq(&first, &second), independent);
-            assert!(Arc::ptr_eq(&first, &cached_target_handle(&cache, &mut first_job, 0).unwrap()));
+            assert!(Arc::ptr_eq(
+                &first,
+                &cached_target_handle(&cache, &mut first_job, 0).unwrap()
+            ));
             std::thread::scope(|scope| {
                 scope.spawn(|| write_file_at(&first, 0, b"head", &Default::default()).unwrap());
                 scope.spawn(|| write_file_at(&second, 4, b"next", &Default::default()).unwrap());

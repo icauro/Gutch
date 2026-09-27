@@ -8,23 +8,31 @@ fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
     let mut seed = 17u64;
-    for size in [0usize, 1, 127, 128, 511, 512, 32767, 32768, 524287, 524288,
-                 524289, 1048575, 1048576, 1048577] {
-        let data: Vec<u8> = (0..size).map(|_| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed as u8
-        }).collect();
+    for size in [
+        0usize, 1, 127, 128, 511, 512, 32767, 32768, 524287, 524288, 524289, 1048575, 1048576,
+        1048577,
+    ] {
+        let data: Vec<u8> = (0..size)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed as u8
+            })
+            .collect();
         std::fs::write(&path, &data).unwrap();
         for preset in crate::manifest::ChunkSizingPreset::value_variants() {
             let profile = ChunkSizingProfile::for_preset(*preset);
             let expected = chunk_bytes(&data, &profile);
-            let (actual, _) = scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
+            let (actual, _) =
+                scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
             assert_eq!(actual.full_file_hash, hash_hex(&blake3::hash(&data)));
             assert_eq!(expected.len(), actual.chunks.len());
             for (left, right) in expected.iter().zip(&actual.chunks) {
-                assert_eq!((left.offset, left.size, left.hash), (right.offset, right.size, right.hash));
+                assert_eq!(
+                    (left.offset, left.size, left.hash),
+                    (right.offset, right.size, right.hash)
+                );
             }
         }
     }
@@ -36,7 +44,15 @@ fn small_file_scan_rejects_growth_and_truncation_since_inventory() {
     let path = root.path().join("source");
     std::fs::write(&path, b"bytes").unwrap();
     for inventory_size in [0, 4, 6, 1024] {
-        assert!(scan_file_chunks(&path, inventory_size, &Default::default(), &Default::default()).is_err());
+        assert!(
+            scan_file_chunks(
+                &path,
+                inventory_size,
+                &Default::default(),
+                &Default::default()
+            )
+            .is_err()
+        );
     }
 }
 

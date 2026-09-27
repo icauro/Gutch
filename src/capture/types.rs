@@ -194,13 +194,17 @@ impl ChunkPayloadReader {
         use std::io::Read;
         use std::io::Seek;
         use std::io::SeekFrom;
-        let same_source = self.current.as_ref().is_some_and(|(path, _)| {
-            Arc::ptr_eq(path, &payload.source) || path == &payload.source
-        });
+        let same_source = self
+            .current
+            .as_ref()
+            .is_some_and(|(path, _)| Arc::ptr_eq(path, &payload.source) || path == &payload.source);
         if !same_source {
             // Close the preceding source before opening another: one handle per job.
             self.current = None;
-            self.current = Some((payload.source.clone(), std::fs::File::open(payload.source.as_ref())?));
+            self.current = Some((
+                payload.source.clone(),
+                std::fs::File::open(payload.source.as_ref())?,
+            ));
         }
         let file = &mut self.current.as_mut().expect("source opened above").1;
         file.seek(SeekFrom::Start(payload.offset))?;

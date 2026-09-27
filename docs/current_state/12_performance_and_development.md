@@ -15,8 +15,9 @@ result ordering. Targeted post-repair verification continues to resolve only
 the affected entries.
 
 Build, reconstruction, and verification use the same runtime worker policy.
-When no worker count is supplied, Gutch uses the logical CPU count available to
-the process. An explicit worker count overrides that default. CLI diagnostics
+When no worker count is supplied, Gutch uses physical CPU count capped by the
+logical CPU count available to the process. An explicit worker count overrides
+that default but is still capped by available logical parallelism. CLI diagnostics
 and benchmarks may override worker count, chunk and bundle sizing, compression
 level, and artifact storage mode through the same configuration path rather
 than separate implementations.
@@ -40,9 +41,19 @@ Standalone fetch and unified `snapshot fetch-reconstruct` share a bounded
 scheduler with dependency-aware priorities. The default is fixed concurrency
 of four; CLI diagnostics and benchmarks can select `--transfer-policy fixed`
 or `--transfer-policy adaptive`, with a hard maximum of sixteen. Adaptive
-transfers start at the requested initial value, ramp up only after stable
-throughput improvement, and step down on regressions, retries, or downstream
-reconstruction backpressure. Healthy active downloads are allowed to finish.
+transfers start at the requested initial value. With queued work and stable
+positive throughput, they probe one additional worker and retain it only when
+averaged throughput improves by at least five percent. Two two-second samples
+form an observation; unstable samples do not start a probe. Measurements wait
+for the active worker count to match the target, so a still-draining concurrency
+change is not mistaken for evidence about the new target.
+
+An unsuccessful probe rolls back one worker and starts a four-second cooldown.
+Averaged regressions over ten percent, retries, or downstream reconstruction
+backpressure also reduce the target. A stall never increases concurrency; it
+aborts an active probe or reduces once after positive progress stops. A draining
+queue does not initiate probes. Healthy active downloads are allowed to finish,
+and the fixed-four default remains unchanged.
 
 ## Profiling Contract
 
