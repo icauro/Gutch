@@ -160,8 +160,8 @@ records exact arguments and the Plakar/BuildPatchTool compression exceptions.
 BuildPatchTool uses local manifest generation and installation, independently
 validates clean output, and optionally restores over the corrupted installation
 using its previous manifest. External recovery retains damaged output; Restic
-and Kopia request native extra deletion. Unsupported deletion or permission
-handling can fail exact-tree validation. Successful capture/restore metrics remain
+and Kopia request native extra deletion. Extra files are recorded in validation evidence without failing the run; missing
+expected entries, content mismatches and metadata mismatches still fail. Successful capture/restore metrics remain
 visible when recovery fails. The filesystem baseline alone uses full recopy.
 Custom fixtures list build paths in chronological order. Missing tools are
 reported without preventing available candidates from running. The existing
