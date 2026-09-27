@@ -13,11 +13,6 @@ SOURCE_PATHS = (
     "tests/public_api.rs", "tests/installation_plan.rs", "tests/__init__.py",
     "tests/run.py", "tests/repository_suite.py", "tests/helpers", "tests/scenarios",
     "tests/datasets", "tests/harness_tests", "tests/benchmarks",
-    "comparison_benchmark_suite/__init__.py", "comparison_benchmark_suite/run.py",
-    "comparison_benchmark_suite/interactive.py", "comparison_benchmark_suite/datasets.py", "comparison_benchmark_suite/requirements.txt",
-    "comparison_benchmark_suite/support", "comparison_benchmark_suite/scheduling",
-    "comparison_benchmark_suite/tools", "comparison_benchmark_suite/tests",
-    "comparison_benchmark_suite/fixtures",
 )
 EXCLUDED_PARTS = {"__pycache__", ".artifacts", ".builds", "bin", ".pytest_cache"}
 
@@ -33,6 +28,23 @@ def source_files(root=ROOT):
                 yield candidate, relative
 
 
+def benchmark_dependency_files():
+    """Bundle the explicitly installed suite, never search sibling checkouts."""
+    import importlib.util
+    spec = importlib.util.find_spec("comparison_benchmark_suite")
+    if spec is None or spec.origin is None:
+        return
+    root = Path(spec.origin).parent
+    from itertools import chain
+    candidates = chain(root.glob("*.py"), *( (root / name).rglob("*")
+                       for name in ("support", "scheduling", "tools", "fixtures")))
+    for path in candidates:
+        relative = path.relative_to(root)
+        if (path.is_file() and not EXCLUDED_PARTS.intersection(relative.parts)
+                and path.suffix in {".py", ".yaml"}):
+            yield path, Path("comparison_benchmark_suite") / relative
+
+
 def build_image(tag):
     intermediate = ROOT / ".builds/intermediate"
     intermediate.mkdir(parents=True, exist_ok=True)
@@ -40,7 +52,8 @@ def build_image(tag):
         context = Path(directory).resolve()
         assert context.is_relative_to(intermediate.resolve())
         total = 0
-        for path, relative in source_files():
+        from itertools import chain
+        for path, relative in chain(source_files(), benchmark_dependency_files()):
             destination = context / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, destination)

@@ -11,6 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_module(module, arguments):
+    if module == "comparison_benchmark_suite.run" or module.startswith("tests.benchmarks."):
+        import importlib.util
+        if importlib.util.find_spec("comparison_benchmark_suite") is None:
+            print("Install the standalone comparison suite in this Python environment first: "
+                  "python -m pip install -e <suite-checkout>", file=sys.stderr)
+            return 1
     environment = os.environ.copy()
     if module == "comparison_benchmark_suite.run":
         binary = ROOT / ".builds/compiler-cache/cargo/release" / ("gutch-cli.exe" if os.name == "nt" else "gutch-cli")

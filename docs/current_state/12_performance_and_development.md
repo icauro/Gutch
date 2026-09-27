@@ -155,7 +155,7 @@ The standalone `comparison_benchmark_suite/run.py` ships a Blender overview and 
 with profiling off, explicit executable resolution, and suite-owned `.artifacts/`.
 Its Blender fixture aligns nominal chunks at 1 MiB and selects Zstd level 3 or
 the nearest exposed standard preset where supported. The standalone
-[suite settings table](../../comparison_benchmark_suite/README.md#comparison-settings)
+[suite settings table](../../../comparison_benchmark_suite/README.md#comparison-settings)
 records exact arguments and the Plakar/BuildPatchTool compression exceptions.
 BuildPatchTool uses local manifest generation and installation, independently
 validates clean output, and optionally restores over the corrupted installation
@@ -269,3 +269,9 @@ owned subprocess, shows phase/elapsed and measured-case progress, and retains
 the summary screen for another run or manual Perfetto opening. Stop terminates
 only that run's process tree and preserves partial evidence. Noninteractive
 invocations require `--fixture`; that form remains a single run with plain output.
+
+The comparison suite is a separate root project. Before using Gutch benchmark
+commands, install its checkout into the same Python environment:
+`python -m pip install -e <suite-checkout>`. Gutch does not search sibling folders.
+Its build image includes the installed suite when available; build and engine
+correctness commands do not require it.

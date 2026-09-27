@@ -537,7 +537,7 @@ def test_default_gutch_binary_rebuilds_when_source_is_newer(tmp_path: Path, monk
 def test_default_fixture_enables_corruption_without_extra_verify_phase() -> None:
     fixture = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair")
     assert fixture.corrupt_repair is True
-    source = Path("comparison_benchmark_suite/tools/workflow.py").read_text(encoding="utf-8")
+    source = Path(gutch_workflow.__file__).read_text(encoding="utf-8")
     assert '"snapshot",\n                "verify"' not in source
 
 

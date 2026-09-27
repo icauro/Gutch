@@ -3,7 +3,7 @@
 Run these commands from the Gutch project root.
 
 For a simple local comparison, run `python gutch.py benchmark` or copy
-[`comparison_benchmark_suite/`](../../comparison_benchmark_suite/README.md) and
+[`comparison_benchmark_suite/`](../../../comparison_benchmark_suite/README.md) and
 run its `run.py` for the interactive fixture picker, progress and summary screen.
 Use `--fixture NAME` for a single scripted run. It ships a Blender overview and
 pairwise fixtures, accepts custom build paths, and
@@ -305,3 +305,9 @@ Results, input hashes, script identity and warm Python timings are written to
 `tests/.artifacts/binary-layouts/results.json`. Timings are prototype measurements,
 not native Gutch performance claims. The script handles trusted experiment inputs;
 it is not a production decoder or a substitute for malformed-input fuzzing.
+
+The comparison suite is a separate root project. Before using Gutch benchmark
+commands, install its checkout into the same Python environment:
+`python -m pip install -e <suite-checkout>`. Gutch does not search sibling folders.
+Its build image includes the installed suite when available; build and engine
+correctness commands do not require it.
