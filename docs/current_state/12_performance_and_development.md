@@ -157,6 +157,9 @@ Its Blender fixture aligns nominal chunks at 1 MiB and selects Zstd level 3 or
 the nearest exposed standard preset where supported. The standalone
 [suite settings table](../../comparison_benchmark_suite/README.md#comparison-settings)
 records exact arguments and the Plakar/BuildPatchTool compression exceptions.
+BuildPatchTool uses local manifest generation and installation, independently
+validates clean output, and optionally repeats installation after corruption
+and output removal. Its recovery metric is full restore, not in-place repair.
 Custom fixtures list build paths in chronological order. Missing tools are
 reported without preventing available candidates from running. The existing
 developer diagnostic fixtures remain under `tests/benchmarks/comparison/fixtures/`;
