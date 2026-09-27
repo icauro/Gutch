@@ -64,11 +64,14 @@ fn resolve_snapshot_file_paths(
     // Bound trace volume while keeping enough batches for workers to share the work.
     // Indexed batch collection preserves manifest file order and error ordering.
     let resolve_batch = |batch: &[&crate::manifest::FileManifest]| {
-        let _batch_span = control.profile_span_with_args(
-            "installation.worker.resolve_output_paths",
-            || BTreeMap::from([("path_count".into(), serde_json::json!(batch.len()))]),
-        );
-        batch.iter().map(|file| path_resolver.resolve(&file.path)).collect::<Vec<_>>()
+        let _batch_span = control
+            .profile_span_with_args("installation.worker.resolve_output_paths", || {
+                BTreeMap::from([("path_count".into(), serde_json::json!(batch.len()))])
+            });
+        batch
+            .iter()
+            .map(|file| path_resolver.resolve(&file.path))
+            .collect::<Vec<_>>()
     };
     let batches = if let Some(reconstruct_pool) = reconstruct_pool {
         reconstruct_pool.install(|| files.par_chunks(64).map(resolve_batch).collect::<Vec<_>>())
@@ -149,13 +152,16 @@ fn create_snapshot_directory(path: &Path) -> Result<()> {
     match std::fs::create_dir(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if std::fs::metadata(path)?.is_dir() {
+            if std::fs::metadata(path)
+                .map_err(|e| Error::io_context("checking output directory", path, e))?
+                .is_dir()
+            {
                 Ok(())
             } else {
-                Err(error.into())
+                Err(Error::io_context("creating output directory", path, error))
             }
         }
-        Err(error) => Err(error.into()),
+        Err(error) => Err(Error::io_context("creating output directory", path, error)),
     }
 }
 
@@ -327,10 +333,13 @@ pub(super) fn finalize_snapshot_entries(
                     || finalize_directory_trace_args(directory),
                 );
                 let path = path_resolver.resolve(&directory.path)?;
-                let mut permissions = std::fs::metadata(&path)?.permissions();
+                let mut permissions = std::fs::metadata(&path)
+                    .map_err(|e| Error::io_context("reading directory permissions", &path, e))?
+                    .permissions();
                 if permissions.readonly() != directory.read_only {
                     permissions.set_readonly(directory.read_only);
-                    std::fs::set_permissions(path, permissions)?;
+                    std::fs::set_permissions(&path, permissions)
+                        .map_err(|e| Error::io_context("setting entry permissions", &path, e))?;
                 }
                 Ok(())
             },
@@ -470,7 +479,9 @@ pub(super) fn apply_entry_permissions(
     read_only: bool,
     executable: Option<bool>,
 ) -> Result<()> {
-    let mut permissions = std::fs::symlink_metadata(path)?.permissions();
+    let mut permissions = std::fs::symlink_metadata(path)
+        .map_err(|e| Error::io_context("reading entry permissions", path, e))?
+        .permissions();
     let original = permissions.clone();
     #[cfg(unix)]
     if let Some(executable) = executable {
@@ -488,7 +499,8 @@ pub(super) fn apply_entry_permissions(
         permissions.set_readonly(read_only);
     }
     if permissions != original {
-        std::fs::set_permissions(path, permissions)?;
+        std::fs::set_permissions(&path, permissions)
+            .map_err(|e| Error::io_context("setting entry permissions", &path, e))?;
     }
     Ok(())
 }

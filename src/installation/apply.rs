@@ -124,7 +124,14 @@ pub(crate) fn create_snapshot_staging(
     crate::filesystem::create_dir_all(staging_parent)?;
     let directory = tempfile::Builder::new()
         .prefix(".gutch-operation-")
-        .tempdir_in(staging_parent)?;
+        .tempdir_in(staging_parent)
+        .map_err(|e| {
+            Error::io_context(
+                "creating reconstruction staging directory",
+                staging_parent,
+                e,
+            )
+        })?;
     Ok(SnapshotStaging {
         directory,
         created_parent,

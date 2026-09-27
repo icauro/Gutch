@@ -13,6 +13,14 @@ pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("I/O error while {operation} at '{path}': {source}")]
+    IoContext {
+        operation: String,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
@@ -83,6 +91,26 @@ impl From<zstd::zstd_safe::ErrorCode> for Error {
 }
 
 impl Error {
+    pub(crate) fn io_context(
+        operation: impl Into<String>,
+        path: &std::path::Path,
+        source: std::io::Error,
+    ) -> Self {
+        Self::IoContext {
+            operation: operation.into(),
+            path: path.to_path_buf(),
+            source,
+        }
+    }
+
+    /// Attach the owning operation without hiding typed integrity or path errors.
+    pub(crate) fn with_io_context(self, operation: &str, path: &std::path::Path) -> Self {
+        match self {
+            Self::Io(source) => Self::io_context(operation, path, source),
+            other => other,
+        }
+    }
+
     pub fn is_cancelled(&self) -> bool {
         matches!(self, Self::Cancelled)
     }
@@ -105,7 +133,7 @@ impl Error {
     pub fn is_retryable_download(&self) -> bool {
         match self {
             Error::Download { retryable, .. } => *retryable,
-            Error::Io(_) => true,
+            Error::Io(_) | Error::IoContext { .. } => true,
             _ => false,
         }
     }

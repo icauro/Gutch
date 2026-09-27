@@ -62,7 +62,7 @@ where
 
 /// Replace a directory with a fully prepared same-parent directory.
 pub(crate) fn create_dir_all(path: &Path) -> Result<(), Error> {
-    Ok(std::fs::create_dir_all(path)?)
+    std::fs::create_dir_all(path).map_err(|e| Error::io_context("creating directory tree", path, e))
 }
 
 /// Remove a file.

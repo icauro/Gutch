@@ -510,3 +510,25 @@ and backward reads, partial-read failure followed by file extension/retry, and
 concurrent requests. Independent SHA-256 comparison checked every output file
 against the target source for both binaries. Evidence and outputs are under
 `tests/.artifacts/repair-cursor/`.
+
+
+## Reconstruction I/O failure diagnostics
+
+Reconstruction I/O errors identify the operation and affected path when opening,
+sizing or writing outputs, reading artifacts or reused source ranges, verifying
+output files, creating staging directories, or applying permissions. Directory
+promotion and recovery rename failures name both source and destination; promotion
+lock failures identify the lock path. Shared directory creation also carries path
+context. CLI text and JSON error strings display this context.
+
+The original `std::io::Error` remains the error source, preserving its native OS
+code and kind. Adding context does not reclassify cancellation, integrity failures
+or already-contextual errors, and preserves existing I/O retry classification.
+This improves future diagnosis; it does not establish or fix the cause of the
+previous baseline Windows error 5. Cleanup and rollback behavior is unchanged.
+
+Validation: 328 library tests passed, two ignored, and the release CLI built.
+Focused tests cover native-error preservation, an actual output-open failure,
+and a failed staging promotion that restores the old destination and reports
+both paths. No benchmark or large reconstruction was rerun. Logs are under
+`tests/.artifacts/io-diagnostics/`.

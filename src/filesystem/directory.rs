@@ -27,7 +27,16 @@ fn replace_directory_with_cleanup(
             return Err(Error::manifest("unowned promotion backup exists"));
         }
         write(&backup_path.with_extension("owner"), b"GUTCH_PROMOTION_V1")?;
-        std::fs::rename(destination_dir, &backup_path)?;
+        std::fs::rename(destination_dir, &backup_path).map_err(|error| {
+            Error::io_context(
+                format!(
+                    "moving existing destination to backup {}",
+                    backup_path.display()
+                ),
+                destination_dir,
+                error,
+            )
+        })?;
         Some(backup_path)
     } else {
         None
@@ -38,7 +47,11 @@ fn replace_directory_with_cleanup(
             let _ = std::fs::rename(backup, destination_dir);
         }
         let _ = std::fs::remove_dir_all(staging_dir);
-        return Err(Error::Io(error));
+        return Err(Error::io_context(
+            format!("promoting staging directory {}", staging_dir.display()),
+            destination_dir,
+            error,
+        ));
     }
 
     if let Some(backup) = backup_dir {
@@ -72,7 +85,8 @@ pub(crate) fn lock_directory_promotion(
         .write(true)
         .create(true)
         .truncate(false)
-        .open(lock_path)?;
+        .open(&lock_path)
+        .map_err(|e| Error::io_context("opening promotion lock", &lock_path, e))?;
     control.checkpoint()?;
     loop {
         control.checkpoint()?;
@@ -81,7 +95,13 @@ pub(crate) fn lock_directory_promotion(
             Err(std::fs::TryLockError::WouldBlock) => {
                 std::thread::sleep(std::time::Duration::from_millis(25))
             }
-            Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+            Err(std::fs::TryLockError::Error(error)) => {
+                return Err(Error::io_context(
+                    "locking directory promotion",
+                    &lock_path,
+                    error,
+                ));
+            }
         }
     }
     Ok(file)
@@ -135,9 +155,16 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
         ));
     }
     if destination.exists() {
-        std::fs::remove_dir_all(&backup)?;
+        std::fs::remove_dir_all(&backup)
+            .map_err(|e| Error::io_context("removing recovered promotion backup", &backup, e))?;
     } else {
-        std::fs::rename(&backup, destination)?;
+        std::fs::rename(&backup, destination).map_err(|error| {
+            Error::io_context(
+                format!("recovering backup {}", backup.display()),
+                destination,
+                error,
+            )
+        })?;
     }
     std::fs::remove_file(backup.with_extension("owner"))?;
     Ok(())
@@ -187,5 +214,26 @@ mod tests {
             std::fs::read(destination.join("new")).unwrap(),
             b"new installation"
         );
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn promotion_failure_names_both_paths_and_restores_existing_destination() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("destination");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::write(destination.join("old"), b"original").unwrap();
+        let staging = root.path().join("missing-staging");
+        let error = replace_directory(&staging, &destination).unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("promoting staging directory"));
+        assert!(message.contains(&staging.display().to_string()));
+        assert!(message.contains(&destination.display().to_string()));
+        assert_eq!(std::fs::read(destination.join("old")).unwrap(), b"original");
+        assert!(matches!(error, Error::IoContext { .. }));
     }
 }

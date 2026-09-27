@@ -38,7 +38,9 @@ pub(super) fn reconstruct_job(
 ) -> Result<ReconstructTimings> {
     match job {
         ReconstructJob::Artifact(job) => {
-            reconstruct_artifact_job(job, output_handles, compression_profile, control)
+            reconstruct_artifact_job(job, output_handles, compression_profile, control).map_err(
+                |e| e.with_io_context("reading reconstruction artifact", &job.artifact_path),
+            )
         }
         ReconstructJob::SourceChunk(job) => {
             reconstruct_source_chunk_job(job, file_plans, output_handles, source_handles, control)
@@ -75,14 +77,18 @@ fn reconstruct_artifact_job(
     let _artifact_span =
         control.profile_span_with_args(artifact_span_name, || reconstruct_artifact_trace_args(job));
     let profiler = control.profiler();
-    let compressed_bytes = std::fs::metadata(&job.artifact_path)?.len();
+    let compressed_bytes = std::fs::metadata(&job.artifact_path)
+        .map_err(|e| Error::io_context("reading artifact metadata", &job.artifact_path, e))?
+        .len();
     let mut timings = ReconstructTimings::default();
     let mut target_handles = HashMap::new();
 
     match &job.artifact {
         crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
             let mut reader = crate::artifact::bundle::BundleReader::open(
-                File::open(&job.artifact_path)?,
+                File::open(&job.artifact_path).map_err(|e| {
+                    Error::io_context("opening reconstruction artifact", &job.artifact_path, e)
+                })?,
                 compression_profile,
             )?;
             let mut required = vec![false; reader.entries().len()];
@@ -272,7 +278,12 @@ fn reconstruct_source_chunk_job(
 
         let write_started_at = ProfileInstant::detailed(control.profiler());
         let output = cached_target_handle(output_handles, &mut target_handles, target.file_index)?;
-        write_file_at(&output, target.file_offset, &bytes, control)?;
+        write_file_at(&output, target.file_offset, &bytes, control).map_err(|e| {
+            e.with_io_context(
+                "writing reused source range",
+                &output_handles.output_paths[target.file_index],
+            )
+        })?;
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings
@@ -298,13 +309,19 @@ fn copy_source_file_job(
     let _source_span = control.profile_span_with_args("installation.file.copy_and_hash", || {
         crate::profile::file_trace_args(&file_plan.path, file_plan.size)
     });
-    let mut input = { File::open(source_path)? };
+    let mut input = {
+        File::open(source_path)
+            .map_err(|e| Error::io_context("opening source file", source_path, e))?
+    };
     let mut output = {
         OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&output_paths[file_index])?
+            .open(&output_paths[file_index])
+            .map_err(|e| {
+                Error::io_context("opening copied output file", &output_paths[file_index], e)
+            })?
     };
     let mut timings = ReconstructTimings::default();
     let mut buffer = vec![0u8; 1024 * 1024];
@@ -312,7 +329,11 @@ fn copy_source_file_job(
     let mut copied = 0u64;
     loop {
         control.checkpoint()?;
-        let read = { input.read(&mut buffer)? };
+        let read = {
+            input
+                .read(&mut buffer)
+                .map_err(|e| Error::io_context("reading source file", source_path, e))?
+        };
         if read == 0 {
             break;
         }
@@ -321,7 +342,9 @@ fn copy_source_file_job(
         let write_started_at = ProfileInstant::detailed(control.profiler());
         let mut offset = 0;
         while offset < read {
-            let count = output.write(&buffer[offset..read])?;
+            let count = output.write(&buffer[offset..read]).map_err(|e| {
+                Error::io_context("writing copied output file", &output_paths[file_index], e)
+            })?;
             if count == 0 {
                 return Err(Error::reconstruct("output write returned zero bytes"));
             }
@@ -335,7 +358,9 @@ fn copy_source_file_job(
     }
     {
         let flush_started_at = ProfileInstant::detailed(control.profiler());
-        output.flush()?;
+        output.flush().map_err(|e| {
+            Error::io_context("flushing copied output file", &output_paths[file_index], e)
+        })?;
         timings.file_write += flush_started_at.elapsed();
     }
     timings.file_rebuild = timings.file_write;
@@ -385,7 +410,12 @@ fn write_reconstruct_targets(
         control.checkpoint()?;
         let write_started_at = ProfileInstant::detailed(control.profiler());
         let output = cached_target_handle(output_handles, target_handles, target.file_index)?;
-        write_file_at(&output, target.file_offset, bytes, control)?;
+        write_file_at(&output, target.file_offset, bytes, control).map_err(|e| {
+            e.with_io_context(
+                "writing reconstructed range",
+                &output_handles.output_paths[target.file_index],
+            )
+        })?;
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings
@@ -428,7 +458,8 @@ impl SourceHandleCache {
                     handles.remove(&key);
                 }
                 let file = Arc::new(Mutex::new(SourceReadHandle {
-                    file: File::open(path)?,
+                    file: File::open(path)
+                        .map_err(|e| Error::io_context("opening reused source file", path, e))?,
                     position: Some(0),
                 }));
                 handles.insert(path.to_path_buf(), Arc::clone(&file));
@@ -440,12 +471,18 @@ impl SourceHandleCache {
             .map_err(|_| Error::reconstruct("source handle poisoned"))?;
         if input.position != Some(offset) {
             input.position = None;
-            input.file.seek(SeekFrom::Start(offset))?;
+            input
+                .file
+                .seek(SeekFrom::Start(offset))
+                .map_err(|e| Error::io_context("seeking reused source file", path, e))?;
         }
         // A failed read can advance the cursor. Only a complete read establishes
         // a reusable position; the same handle mutex protects both values.
         input.position = None;
-        input.file.read_exact(bytes)?;
+        input
+            .file
+            .read_exact(bytes)
+            .map_err(|e| Error::io_context("reading reused source range", path, e))?;
         input.position = offset.checked_add(bytes.len() as u64);
         Ok(())
     }
@@ -521,9 +558,22 @@ impl OutputHandleCache {
             .write(true)
             .create(needs_initialization)
             .truncate(false)
-            .open(&self.output_paths[file_index])?;
+            .open(&self.output_paths[file_index])
+            .map_err(|e| {
+                Error::io_context(
+                    "opening reconstruction output",
+                    &self.output_paths[file_index],
+                    e,
+                )
+            })?;
         if needs_initialization {
-            file.set_len(self.output_sizes[file_index])?;
+            file.set_len(self.output_sizes[file_index]).map_err(|e| {
+                Error::io_context(
+                    "sizing reconstruction output",
+                    &self.output_paths[file_index],
+                    e,
+                )
+            })?;
         }
         let file = Arc::new(file);
 
@@ -565,7 +615,14 @@ fn cached_target_handle(
         Arc::new(
             OpenOptions::new()
                 .write(true)
-                .open(&output_handles.output_paths[file_index])?,
+                .open(&output_handles.output_paths[file_index])
+                .map_err(|e| {
+                    Error::io_context(
+                        "opening independent output handle",
+                        &output_handles.output_paths[file_index],
+                        e,
+                    )
+                })?,
         )
     } else {
         file
@@ -703,7 +760,9 @@ pub(super) fn verify_reconstructed_output_file(
     );
     let started_at = ProfileInstant::detailed(control.profiler());
     let output_path = &output_paths[file_index];
-    let actual_size = std::fs::metadata(output_path)?.len();
+    let actual_size = std::fs::metadata(output_path)
+        .map_err(|e| Error::io_context("reading reconstructed file metadata", output_path, e))?
+        .len();
     if actual_size != file_plan.size {
         return Err(Error::reconstruct(format!(
             "reconstructed size {} does not match expected {} for {}",
@@ -728,7 +787,8 @@ pub(super) fn verify_reconstructed_output_file(
         precomputed_hash,
         concurrent_file_count,
         control,
-    )?;
+    )
+    .map_err(|e| e.with_io_context("verifying reconstructed file", output_path))?;
     Ok(ReconstructedFileVerification {
         elapsed: started_at.elapsed(),
         bytes: actual_size,
@@ -789,6 +849,21 @@ mod output_handle_tests {
     use super::*;
 
     #[test]
+    fn output_open_failure_identifies_operation_path_and_native_source() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("missing-parent/output");
+        let cache =
+            OutputHandleCache::new(Arc::new(vec![path.clone()]), Arc::new(vec![8]), &[1], 1);
+        let error = cache.get_or_open(0).unwrap_err();
+        assert!(error.to_string().contains("opening reconstruction output"));
+        assert!(error.to_string().contains(&path.display().to_string()));
+        let Error::IoContext { source, .. } = error else {
+            panic!("missing I/O context")
+        };
+        assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
     fn source_ranges_handle_seeks_partial_reads_and_concurrency() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("source");
@@ -802,7 +877,12 @@ mod output_handle_tests {
         assert!(cache.read_range(&path, 10, &mut bytes).is_err());
         // The failed read advanced to EOF. Extend the same file, then retry at
         // its original offset to ensure the stale position is never reused.
-        OpenOptions::new().append(true).open(&path).unwrap().write_all(b"mnop").unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"mnop")
+            .unwrap();
         cache.read_range(&path, 10, &mut bytes).unwrap();
         assert_eq!(&bytes, b"klmn");
         std::thread::scope(|scope| {

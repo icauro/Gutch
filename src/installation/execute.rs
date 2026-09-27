@@ -921,14 +921,17 @@ fn ensure_empty_reconstruct_output_file(
             .write(true)
             .create(true)
             .truncate(false)
-            .open(output_path)?
+            .open(output_path)
+            .map_err(|e| Error::io_context("creating empty output file", output_path, e))?
     };
     {
         let _size_span = control
             .profile_span_with_args("installation.reconstruct.prepare.file.set_len", || {
                 crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size)
             });
-        output.set_len(file_plan.size)?;
+        output
+            .set_len(file_plan.size)
+            .map_err(|e| Error::io_context("sizing empty output file", output_path, e))?;
     }
     Ok(())
 }
