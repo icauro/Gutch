@@ -1,5 +1,5 @@
-FROM rust:1.97.1-bookworm
-COPY --from=python:3.12-bookworm /usr/local/ /usr/local/
+FROM rust:1.97.1-trixie
+COPY --from=python:3.12-trixie /usr/local/ /usr/local/
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 RUN python3 -m venv /opt/gutch-python
 ENV PATH="/opt/gutch-python/bin:${PATH}"

@@ -39,9 +39,9 @@ LINUX_TOOL_RELEASES = {
     ),
     "borg": LinuxToolRelease(
         "borg",
-        "1.4.5",
-        "https://github.com/borgbackup/borg/releases/download/1.4.5/borg-linux-glibc235-x86_64-gh",
-        "1410e28609be3080d0e3ab27a78f5c586a29fd0c75c2aa6415fcde1293bcd923",
+        "2.0.0b23",
+        "https://github.com/borgbackup/borg/releases/download/2.0.0b23/borg-linux-glibc239-x86_64-gh",
+        "1b9fdf74ff177459dbb42b4eea4464712b361f35f144e9fb7018e44dd4b64907",
         "binary",
     ),
     "plakar": LinuxToolRelease(

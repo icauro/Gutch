@@ -244,3 +244,8 @@ Detailed comparisons report sampled CPU usage (100% per logical core) and peak
 RSS for direct tool processes. CPU is weighted by observed command sampling time;
 child processes and the harness are excluded. Off-mode and unavailable samples
 remain missing values rather than zero utilization.
+
+Comparison lanes require Borg 2 and retain its native FastCDC, targeting 1 MiB.
+Plakar uses its default backup cache policy within the isolated lane cache.
+The Linux installer pins Borg 2.0.0b23 (glibc 2.39 minimum); the standalone
+builder uses Debian Trixie to satisfy that binary requirement.

@@ -90,8 +90,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
         for operation, arguments, expected in [('init', ['--encryption', 'none', 'repo'], ['repo-create', '--repo', 'repo', '--encryption', 'none-sha256']), ('create', ['--compression', 'zstd,1', 'repo::snapshot', 'source'], ['create', '--repo', 'repo', '--compression', 'zstd,1', 'snapshot', 'source']), ('extract', ['repo::snapshot'], ['extract', '--repo', 'repo', 'snapshot']), ('check', ['--verify-data', 'repo'], ['check', '--repo', 'repo', '--verify-data'])]:
             from comparison_benchmark_suite.tools.external import borg_command
             command = ['borg', operation, *arguments]
-            assert list(map(str, borg_command(command, Path('repo'), 2))) == ['borg', *expected]
-            assert borg_command(command, Path('repo'), 1) == command
+            assert list(map(str, borg_command(command, Path('repo')))) == ['borg', *expected]
 
     def test_long_artifact_names_remain_bounded_distinct_and_reusable(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -161,7 +160,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
                                 shutil.copytree(product, output, dirs_exist_ok=True)
                                 if missing_root_file:
                                     (output / 'root.txt').unlink()
-                            stdout = 'borg 1.4.5' if '--version' in command else '{"message_type":"summary","snapshot_id":"abc"}'
+                            stdout = 'borg 2.0.0b23' if '--version' in command else '{"message_type":"summary","snapshot_id":"abc"}'
                             return CommandResult(tuple(map(str, command)), 0.01, 0, stdout, '')
                     commands = Commands()
                     runner = LocalFixtureRunner(GutchCli(executable), commands, layout, ExternalTools(tmp_path, commands, **{tool: executable}))

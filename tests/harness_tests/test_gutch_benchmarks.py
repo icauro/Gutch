@@ -139,15 +139,15 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
         def run(self, command, *, description, cwd=None, env=None, expected_failure=False, on_output=None):
             rendered = tuple(str(item) for item in command)
             self.calls.append(rendered)
-            if rendered[1] == "init":
-                Path(rendered[-1]).mkdir(parents=True, exist_ok=True)
+            if rendered[1] == "repo-create":
+                Path(rendered[rendered.index("--repo") + 1]).mkdir(parents=True, exist_ok=True)
             elif rendered[1] == "create":
-                archive = next(item for item in rendered if "::" in item)
+                archive = rendered[-2]
                 self.archives[archive] = Path(cwd) / rendered[-1]
             elif rendered[1] == "extract":
-                source_path = self.archives[rendered[2]]
+                source_path = self.archives[rendered[-1]]
                 shutil.copytree(source_path, Path(cwd) / source_path.name)
-            return CommandResult(rendered, 0.01, 0, "borg 1.4.5" if rendered[1] == "--version" else "", "")
+            return CommandResult(rendered, 0.01, 0, "borg 2.0.0b23" if rendered[1] == "--version" else "", "")
 
     commands = FakeCommands()
     lane_spec = LaneSpec(
@@ -163,8 +163,8 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
         lane_spec,
     )
 
-    assert commands.calls[1][1:] == ("init", "--encryption", "none", str(tmp_path / "run/lanes/borg/payload/repo"))
-    assert all("repo-create" not in call and "--repo" not in call for call in commands.calls)
+    assert commands.calls[1][1:] == ("repo-create", "--repo", str(tmp_path / "run/lanes/borg/payload/repo"), "--encryption", "none-sha256")
+    assert all("--repo" in call for call in commands.calls[1:])
 
 
 def test_linux_external_tool_installation_uses_bin_linux_x64_and_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -181,7 +181,7 @@ def test_linux_external_tool_installation_uses_bin_linux_x64_and_manifest(tmp_pa
         "restic": tmp_path / "tests/benchmarks/comparison/bin/linux-x64/restic",
     }
     manifest = paths["borg"].parent / ".versions.json"
-    assert json.loads(manifest.read_text(encoding="utf-8")) == {"borg": "1.4.5", "restic": "0.19.1"}
+    assert json.loads(manifest.read_text(encoding="utf-8")) == {"borg": "2.0.0b23", "restic": "0.19.1"}
 
 
 def test_plakar_uses_short_unique_cache_socket_path(tmp_path: Path) -> None:
