@@ -165,6 +165,8 @@ including root files and hidden directories. Restic restores enable content
 verification. Local repository size means logical file bytes sampled after
 capture. Filesystem capture copies the same selected snapshots into storage,
 then restore copies them to fresh output. Its retained size includes all copies.
+The standalone CLI prints the Markdown report's comparison values as an ASCII
+table, including statuses, median seconds, stored MiB and missing-value markers.
 Reports show per-snapshot measurements, totals, per-snapshot averages, and
 throughput; verification and enabled recovery appear separately. Compression, protection,
 and recovery differences are documented in the [benchmark README](../../tests/benchmarks/README.md).
