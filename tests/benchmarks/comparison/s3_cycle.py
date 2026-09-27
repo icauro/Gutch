@@ -7,16 +7,16 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ..support.artifacts import RunLayout, create_run_dir
-from ..support.command import CommandRunner
-from ..scheduling.config import load_scenario
-from ..support.filesystem import remove_tree, scan_tree
-from ..support.commands import GutchCli
-from .config import load_fixture
-from ..scheduling.dataset import DatasetSelection, select_sources
-from ..scheduling.runner import execute_cases
-from .models import FixtureSpec, GutchProfile, LaneResult
-from ..support.s3 import (
+from comparison_benchmark_suite.support.artifacts import RunLayout, create_run_dir
+from comparison_benchmark_suite.support.command import CommandRunner
+from comparison_benchmark_suite.scheduling.config import load_scenario
+from comparison_benchmark_suite.support.filesystem import remove_tree, scan_tree
+from comparison_benchmark_suite.support.commands import GutchCli
+from comparison_benchmark_suite.tools.config import load_fixture
+from comparison_benchmark_suite.scheduling.dataset import DatasetSelection, select_sources
+from comparison_benchmark_suite.scheduling.runner import execute_cases
+from comparison_benchmark_suite.tools.models import FixtureSpec, GutchProfile, LaneResult
+from tests.benchmarks.support.s3 import (
     S3Settings,
     fetch_command,
     make_artifact_url_manifest,
@@ -24,7 +24,7 @@ from ..support.s3 import (
     metadata_urls,
     publish_repository,
 )
-from ..support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from comparison_benchmark_suite.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
 
 
 @dataclass(frozen=True)
@@ -167,7 +167,7 @@ def run_s3_cycle(
             captures.append((source.name, _snapshot_id(stats)))
             traces["capture"].append(str(trace_path))
         from uuid import uuid4
-        from ..support.s3 import delete_published_prefix
+        from tests.benchmarks.support.s3 import delete_published_prefix
         prefix = f"{options.prefix_root}/{run_root.name}/{lane_spec.label}/{uuid4().hex}"
         layout.cleanup_actions.append(lambda prefix=prefix: delete_published_prefix(client, settings, prefix))
         layout.write_json(lane.root / "publication.json", {"bucket": settings.bucket, "prefix": prefix})

@@ -12,11 +12,11 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     __package__ = "tests.benchmarks.docker"
 
-from ..benchmark_config import load_benchmark_config
-from ..scheduling.config import load_scenario
-from ..comparison.config import load_fixture
-from ..comparison.s3_cycle import load_s3_cycle
-from .runner import run_docker_benchmark
+from tests.benchmarks.benchmark_config import load_benchmark_config
+from comparison_benchmark_suite.scheduling.config import load_scenario
+from comparison_benchmark_suite.tools.config import load_fixture
+from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
+from tests.benchmarks.docker.runner import run_docker_benchmark
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "comparison" / "fixtures"

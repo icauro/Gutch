@@ -5,11 +5,11 @@ import math
 import re
 from pathlib import Path
 from typing import Any
-from .commands import GutchCli
-from .command import CommandRunner
-from .models import GutchProfile
-from .artifacts import LaneLayout, safe_component
-from .recovery import build_corruption_plan
+from comparison_benchmark_suite.support.commands import GutchCli
+from comparison_benchmark_suite.support.command import CommandRunner
+from comparison_benchmark_suite.support.models import GutchProfile
+from comparison_benchmark_suite.support.artifacts import LaneLayout, safe_component
+from comparison_benchmark_suite.support.recovery import build_corruption_plan
 
 def snapshot_version(name: str) -> str:
     if re.fullmatch(r"v[1-9][0-9]*", name):

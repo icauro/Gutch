@@ -10,7 +10,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     __package__ = "tests.benchmarks.comparison"
 
-from .cli import (
+from tests.benchmarks.comparison.cli import (
     add_arguments,
     add_reconstruction_storage_arguments,
     add_s3_cycle_arguments,
@@ -18,12 +18,12 @@ from .cli import (
     run_reconstruction_storage_command,
     run_s3_cycle_command,
 )
-from .binary import resolve_gutch_executable
-from .config import FixtureCatalog
-from .s3_cycle import load_s3_cycle
-from ..docker.runner import run_docker_benchmark
-from ..scheduling.config import load_scenario
-from ..benchmark_config import load_benchmark_config
+from tests.benchmarks.comparison.binary import resolve_gutch_executable
+from comparison_benchmark_suite.tools.config import FixtureCatalog
+from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
+from tests.benchmarks.docker.runner import run_docker_benchmark
+from comparison_benchmark_suite.scheduling.config import load_scenario
+from tests.benchmarks.benchmark_config import load_benchmark_config
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -48,7 +48,7 @@ def _print_fixtures() -> None:
 def _interactive_fixtures() -> list[InteractiveFixture]:
     entries = [
         InteractiveFixture("gutch", fixture.name, fixture.description)
-        for fixture in FixtureCatalog().list()
+        for fixture in FixtureCatalog(Path(__file__).resolve().parent / "fixtures").list()
     ]
     s3_fixture, _ = load_s3_cycle(S3_FIXTURE_PATH)
     entries.append(InteractiveFixture("s3-cycle", s3_fixture.name, s3_fixture.description))

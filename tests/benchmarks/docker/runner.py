@@ -10,13 +10,13 @@ import zipfile
 
 import yaml
 
-from ..benchmark_config import BenchmarkConfig, load_benchmark_config
-from ..support.artifacts import safe_component, create_run_dir
-from ..support.traces import open_trace_in_perfetto
-from ..comparison.config import load_fixture
-from ..comparison.external_tools import ensure_linux_external_tools
-from ..comparison.s3_cycle import load_s3_cycle
-from .launcher import DockerLauncher, DockerTarget
+from tests.benchmarks.benchmark_config import BenchmarkConfig, load_benchmark_config
+from comparison_benchmark_suite.support.artifacts import safe_component, create_run_dir
+from comparison_benchmark_suite.support.traces import open_trace_in_perfetto
+from comparison_benchmark_suite.tools.config import load_fixture
+from tests.benchmarks.comparison.external_tools import ensure_linux_external_tools
+from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
+from tests.benchmarks.docker.launcher import DockerLauncher, DockerTarget
 
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +33,10 @@ def _package_sources(destination: Path) -> None:
             if path.suffix not in {".py", ".yaml"}:
                 continue
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
+        from tools.build_image import source_files
+        for path, relative in source_files(REPOSITORY_ROOT):
+            if relative.parts[0] == "comparison_benchmark_suite":
+                package.write(path, relative.as_posix())
         package.write(REPOSITORY_ROOT / "tests/__init__.py", "tests/__init__.py")
         for name in ("__init__.py", "artifacts.py"):
             package.write(REPOSITORY_ROOT / "tools" / name, "tools/" + name)

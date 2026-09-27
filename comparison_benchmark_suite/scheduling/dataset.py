@@ -3,10 +3,10 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
-from ..support.filesystem import inventory, validate_output
+from comparison_benchmark_suite.support.filesystem import inventory, validate_output
 
 
-from ..support.gutch import snapshot_version
+from comparison_benchmark_suite.support.gutch import snapshot_version
 
 
 def select_sources(product: Path, limit: int | None = None) -> list[Path]:

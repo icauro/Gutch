@@ -141,6 +141,7 @@ Python benchmark fixtures separate tool selection from workload and Gutch
 profile configuration. Local and S3 cycle workflows share a scheduler that
 runs warmups, rotates repeated cases, and retains partial results and payloads
 on failure. Benchmark operation mechanics live in
+`comparison_benchmark_suite/support/`. Optional S3 transports remain in
 `tests/benchmarks/support/`.
 
 Dataset inventories determine numeric version order, selected input size,
@@ -150,8 +151,12 @@ supported file permissions. Command measurements exclude cooldown. Gutch
 embedded verification and incremental repair remain distinct from external
 repository checks and full-restore recovery.
 
-All bundled comparison fixtures enable detailed profiling and Perfetto opening.
-Timing comparisons therefore include Gutch diagnostic overhead. Bulk lanes capture and validate the same whole-product tree,
+The standalone `comparison_benchmark_suite/run.py` ships one Blender fixture
+with profiling off, explicit executable resolution, and suite-owned `.artifacts/`.
+Custom fixtures list build paths in chronological order. Missing tools are
+reported without preventing available candidates from running. The existing
+developer diagnostic fixtures remain under `tests/benchmarks/comparison/fixtures/`;
+those selecting detailed profiling include diagnostic overhead. Bulk lanes capture and validate the same whole-product tree,
 including root files and hidden directories. Restic restores enable content
 verification. Local repository size means logical file bytes sampled after
 capture. Filesystem capture copies the same selected snapshots into storage,

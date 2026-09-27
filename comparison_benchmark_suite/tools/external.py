@@ -7,14 +7,15 @@ import os
 import re
 from pathlib import Path
 import tempfile
+import shutil
 import time
 
-from ..support.command import CommandRunner
-from ..support.filesystem import remove_tree, scan_tree
-from ..support.recovery import apply_corruption_plan, build_corruption_plan
-from ..scheduling.dataset import DatasetSelection
-from ..support.filesystem import file_sha256
-from .models import LaneResult, LaneSpec
+from comparison_benchmark_suite.support.command import CommandRunner
+from comparison_benchmark_suite.support.filesystem import remove_tree, scan_tree
+from comparison_benchmark_suite.support.recovery import apply_corruption_plan, build_corruption_plan
+from comparison_benchmark_suite.scheduling.dataset import DatasetSelection
+from comparison_benchmark_suite.support.filesystem import file_sha256
+from comparison_benchmark_suite.tools.models import LaneResult, LaneSpec
 
 
 @dataclass
@@ -37,6 +38,9 @@ class ExternalTools:
             if not explicit.is_file():
                 raise FileNotFoundError(f"configured {kind} executable does not exist: {explicit}")
             return explicit
+        found = shutil.which(kind)
+        if found:
+            return Path(found).resolve()
         candidate = self.repo_root / "tests/benchmarks" / "comparison" / "bin"
         if os.name == "nt":
             if kind == "plakar":

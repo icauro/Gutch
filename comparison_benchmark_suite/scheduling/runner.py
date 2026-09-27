@@ -5,13 +5,14 @@ import platform
 import subprocess
 import time
 import statistics
-from ..support.filesystem import file_sha256
-from ..support.traces import combine_labeled_traces, open_trace_in_perfetto
+from comparison_benchmark_suite.support.filesystem import file_sha256
+from comparison_benchmark_suite.support.traces import combine_labeled_traces, open_trace_in_perfetto
 
 
 def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifacts=False,
                   on_lane_complete=None, on_run_complete=None):
     results = []
+    failed_cases = []
     schedule = []
     for lane in fixture.lanes:
         if lane.warmup:
@@ -24,7 +25,7 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
         rotation = repetition % len(measured)
         schedule.extend((lane, repetition + 1) for lane in measured[rotation:] + measured[:rotation])
     try:
-        revision = subprocess.run(['git', 'rev-parse', 'HEAD'], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False).stdout.strip()
+        revision = subprocess.run(['git', 'rev-parse', 'HEAD'], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, cwd=Path(__file__).resolve().parents[1]).stdout.strip()
     except OSError:
         revision = None
     layout.write_manifest('running', schema_version=1, fixture=asdict(fixture),
@@ -36,11 +37,13 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
             label = specification.label
             if specification.warmup: label += '-warmup'
             elif fixture.repetitions > 1: label += f'-sample-{repetition:03d}'
-            case = replace(specification, label=label)
+            case = replace(specification, label=label, configuration_label=specification.label)
             layout.write_manifest('running', current_case=label)
             commands.begin_lane()
             commands.evidence_directory = layout.lane(label).root / 'commands'
             result = execute(case)
+            if result.metadata.get('status') == 'ERROR':
+                failed_cases.append(label)
             result.metadata.update(case=specification.label, repetition=repetition,
                 warmup=specification.warmup, profile_mode=fixture.profile_mode, memory_profile=fixture.profile_mode == "detailed")
             if result.metadata.get('differences'):
@@ -69,6 +72,9 @@ def execute_cases(fixture, layout, commands, execute, *, executable, keep_artifa
             summary[case.label] = metrics
         layout.write_json(layout.root / 'summary.json', summary)
         if on_run_complete: on_run_complete(results)
+        if failed_cases:
+            layout.write_manifest('failed', current_case=None, cleanup_complete=False, failed_cases=failed_cases)
+            return results
         layout.write_manifest('passed', current_case=None, cleanup_complete=False)
         layout.finish(keep=keep_artifacts or not fixture.delete_artifacts)
     except BaseException as error:

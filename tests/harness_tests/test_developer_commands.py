@@ -17,11 +17,11 @@ def test_repository_suite_uses_discoverable_case_paths():
     assert any(case.suite == "s3" for case in selected_scenarios("all", None))
 
 
-def test_benchmark_without_arguments_lists_without_starting_a_workload(monkeypatch):
+def test_benchmark_without_arguments_runs_the_standalone_suite(monkeypatch):
     calls = []
     monkeypatch.setattr(runner, "run_module", lambda *args: calls.append(args) or 0)
     assert runner.main(["benchmark"]) == 0
-    assert calls == [("tests.benchmarks.comparison", ["list"])]
+    assert calls == [("comparison_benchmark_suite.run", [])]
 
 
 @pytest.mark.parametrize("arguments,module,forwarded", [

@@ -12,18 +12,18 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ..support.artifacts import RunLayout, create_run_dir
-from ..support.command import CommandRunner
-from ..support.filesystem import remove_tree, scan_tree
-from ..support.recovery import apply_corruption_plan, build_corruption_plan
-from ..support.commands import GutchCli
-from .external import ExternalTools, run_external
-from .models import FixtureSpec, LaneResult, LaneSpec
+from comparison_benchmark_suite.support.artifacts import RunLayout, create_run_dir
+from comparison_benchmark_suite.support.command import CommandRunner
+from comparison_benchmark_suite.support.filesystem import remove_tree, scan_tree
+from comparison_benchmark_suite.support.recovery import apply_corruption_plan, build_corruption_plan
+from comparison_benchmark_suite.support.commands import GutchCli
+from comparison_benchmark_suite.tools.external import ExternalTools, run_external
+from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult, LaneSpec
 
 
-from ..support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
-from ..scheduling.dataset import select_sources as _selected_product_sources, DatasetSelection
-from ..scheduling.runner import execute_cases
+from comparison_benchmark_suite.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from comparison_benchmark_suite.scheduling.dataset import select_sources as _selected_product_sources, DatasetSelection
+from comparison_benchmark_suite.scheduling.runner import execute_cases
 
 
 @dataclass
@@ -420,7 +420,7 @@ def run_fixture(
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
     commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.profile_mode == "detailed")
-    external = ExternalTools(repo_root or Path(__file__).resolve().parents[3], commands)
+    external = ExternalTools(repo_root or Path(__file__).resolve().parents[1], commands)
     if external_binary_root is not None:
         external = ExternalTools(
             external.repo_root,

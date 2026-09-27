@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from ..benchmark_config import DEFAULT_CONFIG_PATH, load_benchmark_config
+from tests.benchmarks.benchmark_config import DEFAULT_CONFIG_PATH, load_benchmark_config
 
 
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_PATH

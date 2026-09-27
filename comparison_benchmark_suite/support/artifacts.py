@@ -8,9 +8,9 @@ from pathlib import Path
 import re
 import time
 
-from .filesystem import remove_tree
-from tools.artifacts import compact_success, prune_successful_runs
-from tools.artifacts import remove_owned
+from comparison_benchmark_suite.support.filesystem import remove_tree
+from .retention import compact_success, prune_successful_runs
+from .retention import remove_owned
 import tempfile
 
 
@@ -57,6 +57,7 @@ class LaneLayout:
 class RunLayout:
     root: Path
     cleanup_actions: list = field(default_factory=list, repr=False)
+    retain_evidence: bool = False
 
     def lane(self, label: str) -> LaneLayout:
         lane_root = self.root / "lanes" / compact_component(label, 32)
@@ -107,8 +108,20 @@ class RunLayout:
                 remove_owned(lane / "payload", self.root)
                 for name in ("restic-cache", "kopia-cache", "borg-cache"):
                     remove_owned(lane / name, self.root)
-                from ..comparison.external import _plakar_cache_directory
-                remove_owned(_plakar_cache_directory(lane), Path(tempfile.gettempdir()))
+                from comparison_benchmark_suite.tools.external import _plakar_cache_directory
+                cache = _plakar_cache_directory(lane)
+                for attempt in range(41):
+                    try:
+                        remove_owned(cache, Path(tempfile.gettempdir()))
+                        break
+                    except OSError as error:
+                        # Plakar's cache helper can briefly outlive its CLI on
+                        # Windows. Wait only for this run-owned cache to close.
+                        if getattr(error, "winerror", None) not in {32, 33} or attempt == 40:
+                            raise
+                        if attempt == 0:
+                            print("Waiting for the Plakar cache to close...", flush=True)
+                        time.sleep(0.25)
 
     def finish(self, *, keep=False):
         if not keep:
@@ -116,7 +129,8 @@ class RunLayout:
                 action()
             self.remove_payloads()
         reports = ("run.json", "results.json", "summary.json", "summary.md", "trace.json")
-        compact_success(self.root, keep=keep, reports=reports)
+        if not self.retain_evidence:
+            compact_success(self.root, keep=keep, reports=reports)
         self.write_manifest("passed", cleanup_complete=True, keep_artifacts=keep,
-                            detailed_evidence_retained=keep)
+                            detailed_evidence_retained=keep or self.retain_evidence)
         prune_successful_runs(self.root.parent)

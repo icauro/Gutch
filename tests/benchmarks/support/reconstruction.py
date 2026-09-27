@@ -6,13 +6,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .artifacts import RunLayout, create_run_dir
-from .command import CommandRunner
-from .filesystem import compare_directories, scan_tree, validate_output
-from .traces import combine_labeled_traces, open_trace_in_perfetto
-from .commands import GutchCli
-from .models import GutchProfile
-from .s3 import (
+from comparison_benchmark_suite.support.artifacts import RunLayout, create_run_dir
+from comparison_benchmark_suite.support.command import CommandRunner
+from comparison_benchmark_suite.support.filesystem import compare_directories, scan_tree, validate_output
+from comparison_benchmark_suite.support.traces import combine_labeled_traces, open_trace_in_perfetto
+from comparison_benchmark_suite.support.commands import GutchCli
+from comparison_benchmark_suite.support.models import GutchProfile
+from tests.benchmarks.support.s3 import (
     S3Settings,
     fetch_command,
     make_artifact_url_manifest,
@@ -20,7 +20,7 @@ from .s3 import (
     metadata_urls,
     publish_repository,
 )
-from .gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from comparison_benchmark_suite.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
 
 
 def run_reconstruction_storage(
@@ -85,7 +85,7 @@ def run_reconstruction_storage(
         validate_output(product, local_destination, lane.stats / "validate-local-restored.json")
         client = make_client(settings)
         prefix = f"gutch/reconstruction-benchmark/{run_root.name}/{uuid4().hex}"
-        from .s3 import delete_published_prefix
+        from tests.benchmarks.support.s3 import delete_published_prefix
         layout.cleanup_actions.append(lambda: delete_published_prefix(client, settings, prefix))
         layout.write_manifest("running", published_prefix=prefix)
         upload = publish_repository(client, settings, repo, prefix, workers=upload_concurrency)

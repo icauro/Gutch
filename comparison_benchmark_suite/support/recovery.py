@@ -5,7 +5,7 @@ from pathlib import Path
 import stat
 from typing import Any
 
-from .filesystem import remove_tree
+from comparison_benchmark_suite.support.filesystem import remove_tree
 
 
 def build_corruption_plan(destination: Path, plan_path: Path, sequence: int) -> Path:

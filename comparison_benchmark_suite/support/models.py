@@ -1,4 +1,4 @@
-"""Gutch operation configuration shared by benchmarks and regressions."""
+"""Gutch command settings used by comparison adapters."""
 from dataclasses import dataclass
 
 @dataclass(frozen=True)

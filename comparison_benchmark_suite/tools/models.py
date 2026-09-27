@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 
-from ..support.models import GutchProfile
+from comparison_benchmark_suite.support.models import GutchProfile
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class LaneSpec:
     warmup: bool = False
     arguments: tuple[str, ...] = ()
     workload: str = "individual"
+    configuration_label: str = ""
 
     @property
     def kind(self) -> str:

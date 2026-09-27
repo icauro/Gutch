@@ -4,10 +4,10 @@ import argparse
 import json
 from pathlib import Path
 
-from ..scheduling.environment import load_benchmark_environment
-from ..benchmark_config import load_benchmark_config
-from .config import load_storage_scenario
-from .workflow import run_abort_multipart_uploads, run_delete, run_download, run_prepare
+from tests.benchmarks.scheduling.environment import load_benchmark_environment
+from tests.benchmarks.benchmark_config import load_benchmark_config
+from tests.benchmarks.s3_throughput.config import load_storage_scenario
+from tests.benchmarks.s3_throughput.workflow import run_abort_multipart_uploads, run_delete, run_download, run_prepare
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"

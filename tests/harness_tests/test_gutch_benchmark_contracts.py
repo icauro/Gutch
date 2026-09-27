@@ -6,13 +6,13 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from tests.benchmarks.scheduling.dataset import DatasetSelection
-from tests.benchmarks.scheduling.runner import execute_cases
-from tests.benchmarks.comparison.models import FixtureSpec, LaneSpec, LaneResult
-from tests.benchmarks.support.artifacts import RunLayout
-from tests.benchmarks.support.command import CommandRunner, CommandError
-from tests.benchmarks.support.gutch import verification_seconds
-from tests.benchmarks.support.filesystem import compare_directories
+from comparison_benchmark_suite.scheduling.dataset import DatasetSelection
+from comparison_benchmark_suite.scheduling.runner import execute_cases
+from comparison_benchmark_suite.tools.models import FixtureSpec, LaneSpec, LaneResult
+from comparison_benchmark_suite.support.artifacts import RunLayout
+from comparison_benchmark_suite.support.command import CommandRunner, CommandError
+from comparison_benchmark_suite.support.gutch import verification_seconds
+from comparison_benchmark_suite.support.filesystem import compare_directories
 
 def fixture_spec(tmp_path):
     return FixtureSpec('contract', 'local', '', True, False, (LaneSpec('first', 'filesystem'), LaneSpec('second', 'filesystem')), tmp_path / 'fixture.yaml', lane_wait_seconds=0, step_wait_seconds=0)
@@ -88,7 +88,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
 
     def test_borg_two_commands_use_explicit_repository(self):
         for operation, arguments, expected in [('init', ['--encryption', 'none', 'repo'], ['repo-create', '--repo', 'repo', '--encryption', 'none-sha256']), ('create', ['--compression', 'zstd,1', 'repo::snapshot', 'source'], ['create', '--repo', 'repo', '--compression', 'zstd,1', 'snapshot', 'source']), ('extract', ['repo::snapshot'], ['extract', '--repo', 'repo', 'snapshot']), ('check', ['--verify-data', 'repo'], ['check', '--repo', 'repo', '--verify-data'])]:
-            from tests.benchmarks.comparison.external import borg_command
+            from comparison_benchmark_suite.tools.external import borg_command
             command = ['borg', operation, *arguments]
             assert list(map(str, borg_command(command, Path('repo'), 2))) == ['borg', *expected]
             assert borg_command(command, Path('repo'), 1) == command
@@ -96,7 +96,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
     def test_long_artifact_names_remain_bounded_distinct_and_reusable(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             tmp_path = Path(temporary_directory)
-            from tests.benchmarks.support.artifacts import create_run_dir
+            from comparison_benchmark_suite.support.artifacts import create_run_dir
             common = 'blender-validation-' * 12
             first = create_run_dir(tmp_path, common, common + 'first')
             second = create_run_dir(tmp_path, common, common + 'second')
@@ -138,10 +138,10 @@ class GutchBenchmarkContractTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     tmp_path = Path(temporary_directory)
                     import shutil
-                    from tests.benchmarks.comparison.external import ExternalTools
-                    from tests.benchmarks.comparison.workflow import LocalFixtureRunner
-                    from tests.benchmarks.support.command import CommandResult
-                    from tests.benchmarks.support.commands import GutchCli
+                    from comparison_benchmark_suite.tools.external import ExternalTools
+                    from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
+                    from comparison_benchmark_suite.support.command import CommandResult
+                    from comparison_benchmark_suite.support.commands import GutchCli
                     product = tmp_path / 'product'
                     for name in ('1.0.0', '.hidden'):
                         (product / name).mkdir(parents=True)
@@ -179,8 +179,8 @@ class GutchBenchmarkContractTests(unittest.TestCase):
 class SnapshotComparisonTests(unittest.TestCase):
     def test_filesystem_uses_selected_snapshots_and_restores_from_storage(self):
         import shutil
-        from tests.benchmarks.comparison.workflow import LocalFixtureRunner
-        from tests.benchmarks.support.commands import GutchCli
+        from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
+        from comparison_benchmark_suite.support.commands import GutchCli
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             product = root / 'product'
@@ -198,7 +198,7 @@ class SnapshotComparisonTests(unittest.TestCase):
                 copies.append((Path(source), Path(destination)))
                 return original_copy(source, destination, **kwargs)
 
-            with patch('tests.benchmarks.comparison.workflow.shutil.copytree', side_effect=copy):
+            with patch('comparison_benchmark_suite.tools.workflow.shutil.copytree', side_effect=copy):
                 result = runner.run_lane(product, LaneSpec('copy', 'filesystem'), True, snapshot_limit=2)
             lane = layout.lane('copy')
             assert [source.name for source, _ in copies[:2]] == ['2.0.0', '10.0.0']
@@ -216,8 +216,8 @@ class SnapshotComparisonTests(unittest.TestCase):
 
     def test_filesystem_validates_initial_restore_before_recovery(self):
         import shutil
-        from tests.benchmarks.comparison.workflow import LocalFixtureRunner
-        from tests.benchmarks.support.commands import GutchCli
+        from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
+        from comparison_benchmark_suite.support.commands import GutchCli
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'product' / '1.0.0'
@@ -231,8 +231,8 @@ class SnapshotComparisonTests(unittest.TestCase):
                 if Path(destination).parent.name == 'installation':
                     (Path(destination) / 'data').write_bytes(b'bad')
 
-            with patch('tests.benchmarks.comparison.workflow.shutil.copytree', side_effect=broken_copy), patch(
-                'tests.benchmarks.comparison.workflow.build_corruption_plan'
+            with patch('comparison_benchmark_suite.tools.workflow.shutil.copytree', side_effect=broken_copy), patch(
+                'comparison_benchmark_suite.tools.workflow.build_corruption_plan'
             ) as recovery:
                 with self.assertRaises(RuntimeError):
                     runner.run_lane(source.parent, LaneSpec('copy', 'filesystem'), True)
@@ -241,7 +241,7 @@ class SnapshotComparisonTests(unittest.TestCase):
     def test_report_shows_snapshot_averages_and_weighted_throughput(self):
         import io
         from contextlib import redirect_stdout
-        from tests.benchmarks.comparison.report import print_comparison_table
+        from comparison_benchmark_suite.tools.report import print_comparison_table
         result = LaneResult('filesystem-copy', 'filesystem-copy',
             {'input_bytes': 8 * 1048576, 'backup': 4.0, 'restore': 10.0, 'repo_size': 8 * 1048576,
              'corrupt': 0.0, 'full_restore_recovery': 0.0}, metadata={'snapshot_metrics': {
@@ -264,7 +264,7 @@ class SnapshotComparisonTests(unittest.TestCase):
     def test_batch_report_does_not_invent_per_snapshot_capture_times(self):
         import io
         from contextlib import redirect_stdout
-        from tests.benchmarks.comparison.report import print_comparison_table
+        from comparison_benchmark_suite.tools.report import print_comparison_table
         result = LaneResult('batch', 'gutch-batch', {'backup': 4.0}, metadata={'snapshot_metrics': {
             '1.0.0': {'input_bytes': 0, 'restore': 0.5}}})
         output = io.StringIO()

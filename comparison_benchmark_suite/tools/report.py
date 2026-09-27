@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .models import FixtureSpec, LaneResult
+from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult
 
 
 def _format_mib(byte_count: int) -> str:
@@ -32,6 +32,8 @@ def _speed(source_mib: float, result: LaneResult, *keys: str) -> str:
 
 
 def _comparison(result: LaneResult) -> str:
+    if result.metadata.get("status") not in {None, "PASS"}:
+        return result.metadata["status"]
     differences = result.metadata.get("differences", [])
     if not differences:
         return "OK"

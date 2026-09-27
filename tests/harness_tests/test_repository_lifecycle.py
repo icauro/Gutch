@@ -75,8 +75,8 @@ def test_retention_never_prunes_failed_active_or_pinned_runs(tmp_path):
 
 
 def test_benchmark_compaction_removes_owned_external_caches(tmp_path):
-    from tests.benchmarks.support.artifacts import RunLayout
-    from tests.benchmarks.comparison.external import _plakar_cache_directory
+    from comparison_benchmark_suite.support.artifacts import RunLayout
+    from comparison_benchmark_suite.tools.external import _plakar_cache_directory
     layout = RunLayout(tmp_path)
     lane = layout.lane("comparison")
     cache = _plakar_cache_directory(lane.root)
@@ -106,7 +106,7 @@ def test_clean_migrates_old_success_without_dangling_evidence_links(tmp_path, mo
     assert json.loads((run / "run.json").read_text())["cleanup_complete"]
 
 
-@pytest.mark.parametrize("module", ["tests.helpers.filesystem", "tests.benchmarks.support.filesystem"])
+@pytest.mark.parametrize("module", ["tests.helpers.filesystem", "comparison_benchmark_suite.support.filesystem"])
 def test_unreadable_directories_cannot_pass_inventory_validation(tmp_path, monkeypatch, module):
     import importlib
     import os
@@ -125,7 +125,7 @@ def test_unreadable_directories_cannot_pass_inventory_validation(tmp_path, monke
 
 
 def test_benchmark_deadline_terminates_hung_command_and_records_failure(tmp_path):
-    from tests.benchmarks.support.command import CommandRunner
+    from comparison_benchmark_suite.support.command import CommandRunner
     runner = CommandRunner(timeout_seconds=0.2, progress=False)
     runner.evidence_directory = tmp_path
     with pytest.raises(subprocess.TimeoutExpired):

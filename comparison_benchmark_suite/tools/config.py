@@ -4,12 +4,12 @@ import math
 from pathlib import Path
 from typing import Any
 
-from ..scheduling.config import ScenarioCatalog, load_scenario
-from ..support.artifacts import safe_component
-from .models import FixtureSpec, GutchProfile, LaneSpec
+from comparison_benchmark_suite.scheduling.config import ScenarioCatalog, load_scenario
+from comparison_benchmark_suite.support.artifacts import safe_component
+from comparison_benchmark_suite.tools.models import FixtureSpec, GutchProfile, LaneSpec
 
 
-FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
+FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 CHUNK_PROFILES = {
     "chunk_512B", "chunk_2KiB", "chunk_8KiB", "chunk_2MiB", "chunk_4MiB",
     "chunk_1KiB",
@@ -173,7 +173,7 @@ def load_fixture(path: Path) -> FixtureSpec:
         if normalized_label in labels:
             raise ValueError(f"lane labels collide as artifact names: {label}")
         labels.add(normalized_label)
-        if kind not in {"gutch-individual", "gutch-batch", "gutch-product-bulk", "filesystem-copy",
+        if kind not in {"gutch-individual", "gutch-batch", "gutch-product-bulk", "filesystem-copy", "buildpatchtool-individual",
                        *(f"{tool}-{mode}" for tool in ("restic", "kopia", "borg", "plakar") for mode in ("individual", "exact-bulk"))}:
             raise ValueError(f"unsupported lane kind: {kind}")
         if tool != "gutch" and "profile" in raw:

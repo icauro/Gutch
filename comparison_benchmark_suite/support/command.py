@@ -224,7 +224,7 @@ class CommandRunner:
         )
         sampler = None
         if memory is not None:
-            from .memory import ProcessMemorySampler
+            from comparison_benchmark_suite.support.memory import ProcessMemorySampler
             sampler = ProcessMemorySampler(process.pid, memory_timeline)
             sampler.start()
         events: queue.Queue[tuple[bool, str | BaseException | None]] = queue.Queue()

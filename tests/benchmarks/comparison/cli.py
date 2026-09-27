@@ -5,18 +5,18 @@ import json
 import os
 from pathlib import Path
 
-from ..scheduling.environment import load_benchmark_environment
-from ..scheduling.config import load_scenario
-from ..benchmark_config import load_benchmark_config
-from .binary import resolve_gutch_executable
-from ..support.commands import GutchCli
-from .config import FixtureCatalog, _wait_seconds, _profile
-from .models import LaneResult
-from .report import print_fixture_report
-from ..support.reconstruction import run_reconstruction_storage
-from ..support.s3 import S3Settings
-from .s3_cycle import S3CycleOptions, load_s3_cycle, run_s3_cycle
-from .workflow import run_fixture
+from tests.benchmarks.scheduling.environment import load_benchmark_environment
+from comparison_benchmark_suite.scheduling.config import load_scenario
+from tests.benchmarks.benchmark_config import load_benchmark_config
+from tests.benchmarks.comparison.binary import resolve_gutch_executable
+from comparison_benchmark_suite.support.commands import GutchCli
+from comparison_benchmark_suite.tools.config import FixtureCatalog, _wait_seconds, _profile
+from comparison_benchmark_suite.tools.models import LaneResult
+from comparison_benchmark_suite.tools.report import print_fixture_report
+from tests.benchmarks.support.reconstruction import run_reconstruction_storage
+from tests.benchmarks.support.s3 import S3Settings
+from tests.benchmarks.comparison.s3_cycle import S3CycleOptions, load_s3_cycle, run_s3_cycle
+from comparison_benchmark_suite.tools.workflow import run_fixture
 
 
 def _repo_root() -> Path:
@@ -81,7 +81,7 @@ def run_command(args: argparse.Namespace) -> int:
     if not product.is_dir():
         raise SystemExit(f"product directory does not exist: {product}")
     repo_root = _repo_root()
-    fixture = FixtureCatalog().resolve(args.fixture)
+    fixture = FixtureCatalog(Path(__file__).resolve().parent / "fixtures").resolve(args.fixture)
     executable = resolve_gutch_executable(repo_root, args.gutch_exe.resolve() if args.gutch_exe else None)
     artifacts = args.artifacts_root or load_benchmark_config(getattr(args, "config", None)).artifacts_root
     run_fixture(

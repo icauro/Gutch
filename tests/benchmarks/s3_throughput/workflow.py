@@ -7,8 +7,8 @@ from pathlib import Path
 import time
 from typing import Any
 
-from ..support.s3 import S3Client, S3Settings, make_client
-from .config import StorageTarget
+from tests.benchmarks.support.s3 import S3Client, S3Settings, make_client
+from tests.benchmarks.s3_throughput.config import StorageTarget
 
 
 @dataclass(frozen=True)

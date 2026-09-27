@@ -9,8 +9,8 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     __package__ = "tests.benchmarks.s3_throughput"
 
-from .cli import add_arguments, run_command
-from .config import StorageScenario, load_storage_scenario
+from tests.benchmarks.s3_throughput.cli import add_arguments, run_command
+from tests.benchmarks.s3_throughput.config import StorageScenario, load_storage_scenario
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"

@@ -1,15 +1,16 @@
-# Gutch and Storage Benchmark Suite
+# Gutch Benchmark Diagnostics
 
 Run these commands from the Gutch project root.
 
-The suite separates three responsibilities:
+For a simple local comparison, run `python gutch.py benchmark` or copy
+[`comparison_benchmark_suite/`](../../comparison_benchmark_suite/README.md) and
+run its `run.py`. It ships one Blender fixture, accepts custom build paths, and
+owns its `.artifacts/` cache and reports.
 
-- `scheduling/dataset.py` freezes selected input inventories and numeric version order.
-- `scheduling/runner.py` schedules local and S3 fixture cases, records outcomes and
-  repeated samples, and removes payloads only after success.
-- `tests/benchmarks/support/` owns command execution, Gutch operations, filesystem
-  validation, S3 transport, traces, and evidence layout for benchmarks only.
-  Correctness tests own separate helpers and datasets under `tests/`.
+This directory retains advanced diagnostic fixtures and optional Docker/S3
+workflows. They import the same command, validation, scheduling, and comparison
+runtime from `comparison_benchmark_suite/`; there is no second implementation.
+Correctness tests retain their independent helpers and input expectations.
 
 Fixture lanes declare `tool` and `workload` separately. Only Gutch lanes accept
 Gutch profiles. `profile_mode: "off"` is the default; `summary` adds coarse

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from .models import GutchProfile
+from comparison_benchmark_suite.support.models import GutchProfile
 
 
 class GutchCli:

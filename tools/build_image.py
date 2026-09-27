@@ -13,6 +13,11 @@ SOURCE_PATHS = (
     "tests/public_api.rs", "tests/installation_plan.rs", "tests/__init__.py",
     "tests/run.py", "tests/repository_suite.py", "tests/helpers", "tests/scenarios",
     "tests/datasets", "tests/harness_tests", "tests/benchmarks",
+    "comparison_benchmark_suite/__init__.py", "comparison_benchmark_suite/run.py",
+    "comparison_benchmark_suite/datasets.py", "comparison_benchmark_suite/requirements.txt",
+    "comparison_benchmark_suite/support", "comparison_benchmark_suite/scheduling",
+    "comparison_benchmark_suite/tools", "comparison_benchmark_suite/tests",
+    "comparison_benchmark_suite/fixtures/blender/fixture.yaml",
 )
 EXCLUDED_PARTS = {"__pycache__", ".artifacts", ".builds", "bin", ".pytest_cache"}
 

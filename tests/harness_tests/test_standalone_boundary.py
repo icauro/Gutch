@@ -71,7 +71,7 @@ def test_local_cargo_dependencies_stay_inside_the_project():
 
 def test_reconstruction_requires_explicit_storage(monkeypatch):
     import os
-    from tests.benchmarks.scheduling.config import load_scenario
+    from comparison_benchmark_suite.scheduling.config import load_scenario
     from tests.benchmarks.comparison.cli import _s3_settings
     import pytest
     for name in list(os.environ):

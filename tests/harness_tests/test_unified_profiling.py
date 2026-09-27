@@ -1,9 +1,9 @@
 """Unified profiling configuration and complete-duration trace composition."""
 import json
 from pathlib import Path
-from tests.benchmarks.support.commands import GutchCli
-from tests.benchmarks.support.traces import combine_labeled_traces
-from tests.benchmarks.comparison.report import _read_trace_spans
+from comparison_benchmark_suite.support.commands import GutchCli
+from comparison_benchmark_suite.support.traces import combine_labeled_traces
+from comparison_benchmark_suite.tools.report import _read_trace_spans
 
 
 def test_cli_profile_modes_have_one_switch(tmp_path):

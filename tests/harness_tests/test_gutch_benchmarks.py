@@ -7,29 +7,29 @@ from pathlib import Path
 from types import SimpleNamespace
 import zipfile
 
-import tests.benchmarks.support.command as command_module
-from tests.benchmarks.support.artifacts import RunLayout
-from tests.benchmarks.support.command import CommandResult, CommandRunner
-from tests.benchmarks.scheduling.config import ScenarioCatalog
+import comparison_benchmark_suite.support.command as command_module
+from comparison_benchmark_suite.support.artifacts import RunLayout
+from comparison_benchmark_suite.support.command import CommandResult, CommandRunner
+from comparison_benchmark_suite.scheduling.config import ScenarioCatalog
 from tests.benchmarks.scheduling.environment import load_benchmark_environment
-from tests.benchmarks.support.traces import combine_labeled_traces, combine_traces
+from comparison_benchmark_suite.support.traces import combine_labeled_traces, combine_traces
 from tests.benchmarks.benchmark_config import load_benchmark_config
 import tests.benchmarks.comparison.cli as gutch_cli
 import tests.benchmarks.comparison.binary as gutch_binary
-from tests.benchmarks.support.commands import GutchCli
-from tests.benchmarks.comparison.config import FixtureCatalog, load_fixture
+from comparison_benchmark_suite.support.commands import GutchCli
+from comparison_benchmark_suite.tools.config import FixtureCatalog, load_fixture
 import tests.benchmarks.comparison.__main__ as gutch_launcher
 from tests.benchmarks.comparison.__main__ import _prompt_product, main as gutch_main
 from tests.benchmarks.comparison.binary import resolve_gutch_executable
-from tests.benchmarks.comparison.external import ExternalTools, _plakar_cache_directory, _plakar_command, run_external
+from comparison_benchmark_suite.tools.external import ExternalTools, _plakar_cache_directory, _plakar_command, run_external
 import tests.benchmarks.comparison.external_tools as external_tools
 from tests.benchmarks.support.s3 import S3Settings, s3_key
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
-from tests.benchmarks.comparison.models import FixtureSpec, LaneResult, LaneSpec
-from tests.benchmarks.comparison.report import print_gutch_profile_table
-import tests.benchmarks.comparison.workflow as gutch_workflow
-import tests.benchmarks.scheduling.runner as benchmark_runner
-from tests.benchmarks.comparison.workflow import LocalFixtureRunner
+from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult, LaneSpec
+from comparison_benchmark_suite.tools.report import print_gutch_profile_table
+import comparison_benchmark_suite.tools.workflow as gutch_workflow
+import comparison_benchmark_suite.scheduling.runner as benchmark_runner
+from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
 from tests.benchmarks.docker.launcher import DockerLauncher, DockerTarget
 import tests.benchmarks.docker.runner as container_runner
 import tests.benchmarks.docker.__main__ as container_launcher
@@ -62,14 +62,14 @@ def test_catalog_contains_all_gutch_benchmark_scenarios() -> None:
 
 
 def test_fixture_waits_default_to_four_seconds() -> None:
-    fixture = FixtureCatalog().resolve("02_gutch_storage_layout_baseline")
+    fixture = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("02_gutch_storage_layout_baseline")
     assert fixture.lane_wait_seconds == 4.0
     assert fixture.step_wait_seconds == 4.0
 
 
 def test_external_fixture_lanes_include_plakar() -> None:
-    individual = FixtureCatalog().resolve("10_gutch_vs_external_tools_individual")
-    bulk = FixtureCatalog().resolve("11_gutch_vs_external_tools_bulk")
+    individual = FixtureCatalog().resolve("blender")
+    bulk = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("11_gutch_vs_external_tools_bulk")
 
     assert any(lane.kind == "plakar-individual" for lane in individual.lanes)
     assert any(lane.kind == "plakar-exact-bulk" for lane in bulk.lanes)
@@ -108,7 +108,7 @@ def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
     lane_spec = LaneSpec(
         label="kopia",
         tool="kopia",
-        profile=FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
     result = run_external(
         ExternalTools(tmp_path, commands, kopia=executable),
@@ -153,7 +153,7 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
     lane_spec = LaneSpec(
         label="borg",
         tool="borg",
-        profile=FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
         arguments=("--compression", "zstd,1"),
     )
     run_external(
@@ -495,7 +495,7 @@ def test_fixture_loader_rejects_legacy_mapping_shape(tmp_path: Path) -> None:
 
 
 def test_gutch_profile_uses_rust_cli_flag_names() -> None:
-    profile = FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile
+    profile = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile
     args = GutchCli(Path("gutch-cli.exe")).profile_args(profile)
     assert "--compression-algorithm" in args
     assert "--compression-level" in args
@@ -535,9 +535,9 @@ def test_default_gutch_binary_rebuilds_when_source_is_newer(tmp_path: Path, monk
 
 
 def test_default_fixture_enables_corruption_without_extra_verify_phase() -> None:
-    fixture = FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair")
+    fixture = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair")
     assert fixture.corrupt_repair is True
-    source = Path("tests/benchmarks/comparison/workflow.py").read_text(encoding="utf-8")
+    source = Path("comparison_benchmark_suite/tools/workflow.py").read_text(encoding="utf-8")
     assert '"snapshot",\n                "verify"' not in source
 
 
@@ -996,7 +996,7 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
     lane = LaneSpec(
         label="default",
         tool="gutch",
-        profile=FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
     result = LocalFixtureRunner(GutchCli(Path("gutch-cli.exe")), fake, layout).run_lane(
         product,
@@ -1054,7 +1054,7 @@ def test_gutch_reconstructs_latest_capture_first(tmp_path: Path) -> None:
     lane = LaneSpec(
         label="ordered",
         tool="gutch",
-        profile=FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
+        profile=FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile,
     )
     layout = RunLayout(tmp_path / "run")
     result = LocalFixtureRunner(GutchCli(Path("gutch-cli.exe")), runner, layout).run_lane(
@@ -1072,7 +1072,7 @@ def test_gutch_reconstructs_latest_capture_first(tmp_path: Path) -> None:
 def test_gutch_command_prints_each_completed_lane(monkeypatch, tmp_path: Path, capsys) -> None:
     product = tmp_path / "product"
     product.mkdir()
-    fixture = FixtureCatalog().resolve("02_gutch_storage_layout_baseline")
+    fixture = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("02_gutch_storage_layout_baseline")
     lane = LaneResult("bundled-default", "gutch-individual", {"backup": 1.25}, metadata={"differences": []})
     monkeypatch.setattr(gutch_cli, "resolve_gutch_executable", lambda *_args: tmp_path / "gutch.exe")
     monkeypatch.setattr(gutch_cli.FixtureCatalog, "resolve", lambda _self, _name: fixture)
@@ -1116,7 +1116,7 @@ def test_fixture_perfetto_opens_after_lane_results(tmp_path: Path, monkeypatch) 
         delete_artifacts=False,
         open_perfetto=True,
         profile_mode="detailed",
-        lanes=(LaneSpec("lane", "gutch", FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile),),
+        lanes=(LaneSpec("lane", "gutch", FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile),),
         source_path=tmp_path / "fixture.yaml",
     )
     opened: list[Path] = []
@@ -1148,7 +1148,7 @@ def test_fixture_perfetto_opens_after_lane_results(tmp_path: Path, monkeypatch) 
 def test_run_fixture_waits_between_measured_lanes(tmp_path: Path, monkeypatch) -> None:
     product = tmp_path / "product"
     product.mkdir()
-    profile = FixtureCatalog().resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile
+    profile = FixtureCatalog(Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures").resolve("07_gutch_default_trace_with_corrupt_repair").lanes[0].profile
     fixture = FixtureSpec(
         name="lane-waits",
         runner="gutch-fixture",
@@ -1251,7 +1251,7 @@ def test_successful_cleanup_retains_trace(tmp_path: Path) -> None:
 
 def test_perfetto_url_changes_when_trace_contents_change(tmp_path: Path, monkeypatch) -> None:
     import urllib.parse
-    import tests.benchmarks.support.traces as traces
+    import comparison_benchmark_suite.support.traces as traces
 
     class Server:
         def __init__(self, *_args):

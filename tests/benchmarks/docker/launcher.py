@@ -1,6 +1,6 @@
 """Docker process/copy boundary for isolated Linux benchmark runs."""
 from dataclasses import dataclass
-from ..support.command import CommandRunner
+from comparison_benchmark_suite.support.command import CommandRunner
 
 
 @dataclass
