@@ -403,3 +403,48 @@ for file and broken symlinks. Blender 5.0/5.1 capture, independent reconstructio
 and corruption repair passed with uncompressed and LZ4 profiles. Successful
 full-flow validation removed its payloads. Diagnostic captures remain in the
 ignored evidence directory: `tests/.artifacts/walkdir-review/`.
+
+
+## Capture and reconstruction follow-up, September 2026
+
+The two-snapshot Blender 5.0/5.1 profile identified output-path preparation as a
+substantial reconstruction cost. One uncompressed restore spent 0.649 s of
+1.805 s preparing entries, including 0.515 s resolving output paths. Capture's
+largest stage was bundle construction; durable sync remained significant.
+Worker span totals overlap and must not be added to command wall time.
+
+The retained change checks the existing resolver cache before querying whether
+a component exists. Previously even already-validated ancestors incurred that
+query for each descendant. Uncached components still undergo containment checks;
+missing components are never cached. Cache lifetime and directory creation order
+are unchanged. The added regression checks a newly created escaping symlink
+beneath a cached parent.
+
+A second prototype buffered bundle output in 64 KiB blocks. It retained hashes,
+explicit flushing and durable sync, and produced identical bundle bytes in small
+uncompressed, LZ4 and Zstd comparisons. It was discarded because capture did not
+improve consistently.
+
+Alternating baseline/candidate full workflows used one warm-up pair followed by
+three measured pairs, profiling off, with uncontrolled OS cache and host load.
+Medians below total both snapshots. The candidate combined the path-cache change
+and the subsequently discarded writer buffer; the writer does not participate
+in reconstruction and encoded bundle bytes were unchanged.
+
+| Profile | Operation | Baseline s | Candidate s | Outcome |
+|---|---|---:|---:|---|
+| None, 4 MiB chunks, 16 MiB bundles | Capture | 1.579 | 1.577 | No demonstrated gain |
+| None, 4 MiB chunks, 16 MiB bundles | Reconstruction | 3.268 | 2.304 | 29.5% reduction |
+| LZ4 level 0, 1 MiB chunks, 8 MiB bundles | Capture | 1.438 | 1.457 | 1.3% slower |
+| LZ4 level 0, 1 MiB chunks, 8 MiB bundles | Reconstruction | 3.301 | 2.445 | 25.9% reduction |
+
+All comparison lanes passed independent reconstruction and corruption-repair
+validation. Final library validation passed 323 tests with two ignored. These
+are Windows Blender measurements, not universal speedup claims. Evidence,
+prototype binaries and alternating samples are under
+`tests/.artifacts/capture-reconstruct-review/`; successful workflow runs remove
+their large payloads and retain compact reports and combined traces.
+
+After removing buffering, the final binary passed both full workflows again.
+This single confirmation run reconstructed the pair in 2.304 s uncompressed and
+2.616 s with LZ4; it is not another repeated median. No capture change is retained.

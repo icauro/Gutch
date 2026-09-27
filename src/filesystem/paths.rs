@@ -345,9 +345,9 @@ fn ensure_existing_ancestors_stay_within_root(
     })?;
     for component in relative.components() {
         current.push(component);
-        if !current.exists() {
-            break;
-        }
+        // Successful components already passed containment validation for this
+        // resolver. Consult that cache before issuing another filesystem query.
+        // Missing components are never cached, so later creations are checked.
         let already_validated = validated_ancestors
             .lock()
             .map_err(|_| Error::PathError {
@@ -357,6 +357,9 @@ fn ensure_existing_ancestors_stay_within_root(
             .contains(&current);
         if already_validated {
             continue;
+        }
+        if !current.exists() {
+            break;
         }
         let canonical_current = current.canonicalize().map_err(|error| Error::PathError {
             path: current.clone(),
@@ -458,6 +461,27 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(base);
     }
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn resolver_checks_new_links_beneath_a_cached_parent() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("root");
+        let parent = root.join("parent");
+        let outside = base.path().join("outside");
+        fs::create_dir_all(&parent).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let resolver = ManifestPathResolver::new(&root).unwrap();
+        // Cache the existing parent, but never the missing child.
+        assert!(resolver.resolve("parent/child/file").is_ok());
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, parent.join("child")).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&outside, parent.join("child")).is_err() {
+            return; // Windows may lack the privilege to create symbolic links.
+        }
+        assert!(resolver.resolve("parent/child/file").is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_symlinked_parent_that_escapes_root() {
