@@ -349,25 +349,7 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     };
     let file_plans = Arc::new(pipeline_plan.files);
     let jobs = Arc::new(pipeline_plan.jobs);
-    let mut remaining_file_jobs = vec![0usize; file_plans.len()];
-    let job_file_indices = jobs
-        .iter()
-        .map(reconstruct_job_file_indices)
-        .collect::<Vec<_>>();
-    for file_indices in &job_file_indices {
-        for &file_index in file_indices {
-            if let Some(remaining) = remaining_file_jobs.get_mut(file_index) {
-                *remaining += 1;
-            }
-        }
-    }
     let output_sizes = Arc::new(file_plans.iter().map(|file| file.size).collect::<Vec<_>>());
-    let output_handles = Arc::new(OutputHandleCache::new(
-        Arc::clone(&output_paths),
-        Arc::clone(&output_sizes),
-        &remaining_file_jobs,
-        runtime_plan.worker_count,
-    ));
     let precomputed_file_hashes = Arc::new(
         (0..file_plans.len())
             .map(|_| Mutex::new(None))
@@ -448,6 +430,26 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
 
     let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
     let compression_profile = Arc::new((*compression_profile).clone());
+    // Keep producer accounting after download startup so handle selection does
+    // not delay the existing overlap between transfer and preparation.
+    let mut remaining_file_jobs = vec![0usize; file_plans.len()];
+    let job_file_indices = jobs
+        .iter()
+        .map(reconstruct_job_file_indices)
+        .collect::<Vec<_>>();
+    for file_indices in &job_file_indices {
+        for &file_index in file_indices {
+            if let Some(remaining) = remaining_file_jobs.get_mut(file_index) {
+                *remaining += 1;
+            }
+        }
+    }
+    let output_handles = Arc::new(OutputHandleCache::new(
+        Arc::clone(&output_paths),
+        Arc::clone(&output_sizes),
+        &remaining_file_jobs,
+        runtime_plan.worker_count,
+    ));
     let work_context = Arc::new(ReconstructWorkContext {
         memory: Arc::new(crate::runtime::MemoryBudget::new(runtime_plan.memory_budget_bytes)),
         source_handles: SourceHandleCache::default(),
