@@ -808,6 +808,10 @@ def test_container_runner_uploads_fixed_bundle_and_downloads_outputs(tmp_path: P
             else:
                 destination.write_text('{"traceEvents": []}\n', encoding="utf-8")
 
+    opened_traces = []
+    monkeypatch.setattr(container_runner, "load_benchmark_fixture_open_perfetto", lambda _: True)
+    monkeypatch.setattr(container_runner, "open_trace_in_perfetto",
+                        lambda path, _log: opened_traces.append(path) or True)
     monkeypatch.setattr(container_runner, "DockerLauncher", FakeLauncher)
     binary_path = tmp_path / "gutch-cli"
     binary_path.write_bytes(b"linux-binary")
@@ -825,6 +829,7 @@ def test_container_runner_uploads_fixed_bundle_and_downloads_outputs(tmp_path: P
     )
 
     launcher = FakeLauncher.instances[-1]
+    assert opened_traces == [result_path.parent / "trace.json"]
     assert result_path.is_file()
     assert len(launcher.uploads) == 3
     container_command = next(command for command in launcher.runs if "--fixture" in command)
@@ -1270,8 +1275,10 @@ def test_perfetto_url_changes_when_trace_contents_change(tmp_path: Path, monkeyp
     monkeypatch.setattr(traces, '_TraceServer', Server)
     monkeypatch.setattr(traces.webbrowser, 'open_new_tab', lambda url: opened.append(url) or True)
     path = tmp_path / 'trace with spaces.json'
-    for contents in ('{"traceEvents": []}', '{"traceEvents": [{"name": "new"}]}'):
-        path.write_text(contents)
+    for name in ("first", "new"):
+        path.write_text(json.dumps({"traceEvents": [
+            {"name": name, "ph": "X", "pid": 1, "tid": 1, "ts": 0, "dur": 1},
+        ]}))
         assert traces.open_trace_in_perfetto(path, lambda _: None)
     urls = [urllib.parse.parse_qs(urllib.parse.urlsplit(url).fragment.split('?', 1)[1])['url'][0]
             for url in opened]
@@ -1280,3 +1287,18 @@ def test_perfetto_url_changes_when_trace_contents_change(tmp_path: Path, monkeyp
         parsed = urllib.parse.urlsplit(url)
         assert urllib.parse.unquote(parsed.path) == '/trace with spaces.json'
         assert len(urllib.parse.parse_qs(parsed.query)['v'][0]) == 12
+
+
+def test_perfetto_does_not_open_empty_or_metadata_only_traces(tmp_path: Path, monkeypatch) -> None:
+    import comparison_benchmark_suite.support.traces as traces
+
+    def unexpected_browser_open(_url):
+        raise AssertionError("Empty traces must not open a browser")
+
+    monkeypatch.setattr(traces.webbrowser, "open_new_tab", unexpected_browser_open)
+    path = tmp_path / "trace.json"
+    for events in ([], [{"ph": "M", "name": "process_name", "args": {"name": "empty"}}]):
+        path.write_text(json.dumps({"traceEvents": events}))
+        messages = []
+        assert not traces.open_trace_in_perfetto(path, messages.append)
+        assert "no recorded events" in messages[-1]

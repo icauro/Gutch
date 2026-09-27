@@ -217,3 +217,7 @@ page-cache eviction for a separate I/O measurement; hardware caches are not
 controlled. Results live in `tests/.artifacts/binary-layouts/`. The comparison
 process holds multiple representations, so its RSS is not an isolated decoder
 allocation measurement. There are no performance pass/fail thresholds.
+
+Perfetto auto-opening skips empty or metadata-only traces and logs the trace
+path instead. Harness tests mock browser opening, including container export
+tests, so validation does not launch browser tabs with synthetic traces.
