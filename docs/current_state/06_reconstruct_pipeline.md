@@ -111,6 +111,14 @@ jobs can fill different ranges without serializing an entire file through one
 worker. The cache stores handles, not decoded chunk bytes; a decoded chunk is
 verified and fanned out during its artifact job.
 
+On Windows, files of at least 64 MiB with multiple producing jobs use independent
+file objects in each job's local handle cache when multiple workers are enabled.
+File sizes and producer counts come from the existing reconstruction plan; no
+extra scan or runtime benchmark selects this path. Creation and sizing remain
+centralized, and independent opens never truncate existing ranges. Other files
+and platforms retain shared handles. Each active job keeps at most eight local
+handles, in addition to the bounded shared cache.
+
 ## Local, cached, and remote targets
 
 ### Local or cached repository

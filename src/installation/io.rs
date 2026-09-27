@@ -399,6 +399,7 @@ fn write_reconstruct_targets(
 pub(super) struct OutputHandleCache {
     output_paths: Arc<Vec<PathBuf>>,
     output_sizes: Arc<Vec<u64>>,
+    independent_handles: Vec<bool>,
     state: Mutex<OutputHandleCacheState>,
 }
 
@@ -444,12 +445,25 @@ struct OutputHandleCacheState {
 }
 
 const LOCAL_OUTPUT_HANDLE_CACHE_LIMIT: usize = 8;
+const INDEPENDENT_OUTPUT_MIN_BYTES: u64 = 64 * 1024 * 1024;
 
 impl OutputHandleCache {
-    pub(super) fn new(output_paths: Arc<Vec<PathBuf>>, output_sizes: Arc<Vec<u64>>) -> Self {
+    pub(super) fn new(
+        output_paths: Arc<Vec<PathBuf>>,
+        output_sizes: Arc<Vec<u64>>,
+        producer_counts: &[usize],
+        worker_count: usize,
+    ) -> Self {
+        // These sizes and producer counts already exist for verification scheduling.
+        // Independent Windows file objects help concurrent large-file writes, but
+        // reopening tiny files costs more than it saves. No I/O probe is needed.
+        let independent_handles = output_sizes.iter().zip(producer_counts).map(|(&size, &producers)| {
+            cfg!(windows) && worker_count > 1 && producers > 1 && size >= INDEPENDENT_OUTPUT_MIN_BYTES
+        }).collect();
         Self {
             output_paths,
             output_sizes,
+            independent_handles,
             state: Mutex::new(OutputHandleCacheState {
                 handles: HashMap::new(),
                 lru: VecDeque::new(),
@@ -515,6 +529,13 @@ fn cached_target_handle(
         return Ok(Arc::clone(file));
     }
     let file = output_handles.get_or_open(file_index)?;
+    let file = if output_handles.independent_handles[file_index] {
+        // Creation and sizing stay centralized. This handle only opens an already
+        // prepared file; it must never truncate data written by another job.
+        Arc::new(OpenOptions::new().write(true).open(&output_handles.output_paths[file_index])?)
+    } else {
+        file
+    };
     if target_handles.len() >= LOCAL_OUTPUT_HANDLE_CACHE_LIMIT
         && let Some(oldest_file_index) = target_handles.keys().next().copied()
     {
@@ -726,4 +747,45 @@ pub(super) fn build_source_chunk_locations(
         }
     }
     Ok(chunk_locations)
+}
+
+#[cfg(test)]
+mod output_handle_tests {
+    use super::*;
+
+    #[test]
+    fn output_handle_selection_preserves_ranges_and_job_local_reuse() {
+        for (size, producers, workers, independent) in [
+            (4096, 2, 4, false),
+            (INDEPENDENT_OUTPUT_MIN_BYTES - 1, 2, 4, false),
+            (INDEPENDENT_OUTPUT_MIN_BYTES, 1, 4, false),
+            (INDEPENDENT_OUTPUT_MIN_BYTES, 2, 1, false),
+            (INDEPENDENT_OUTPUT_MIN_BYTES, 2, 4, cfg!(windows)),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let path = root.path().join("output");
+            let cache = OutputHandleCache::new(
+                Arc::new(vec![path.clone()]), Arc::new(vec![size]), &[producers], workers,
+            );
+            let mut first_job = HashMap::new();
+            let first = cached_target_handle(&cache, &mut first_job, 0).unwrap();
+            write_file_at(&first, size - 4, b"tail", &Default::default()).unwrap();
+            let mut second_job = HashMap::new();
+            let second = cached_target_handle(&cache, &mut second_job, 0).unwrap();
+            assert_eq!(!Arc::ptr_eq(&first, &second), independent);
+            assert!(Arc::ptr_eq(&first, &cached_target_handle(&cache, &mut first_job, 0).unwrap()));
+            std::thread::scope(|scope| {
+                scope.spawn(|| write_file_at(&first, 0, b"head", &Default::default()).unwrap());
+                scope.spawn(|| write_file_at(&second, 4, b"next", &Default::default()).unwrap());
+            });
+            let mut file = File::open(&path).unwrap();
+            assert_eq!(file.metadata().unwrap().len(), size);
+            let mut bytes = [0; 8];
+            file.read_exact(&mut bytes).unwrap();
+            assert_eq!(&bytes, b"headnext");
+            file.seek(SeekFrom::Start(size - 4)).unwrap();
+            file.read_exact(&mut bytes[..4]).unwrap();
+            assert_eq!(&bytes[..4], b"tail");
+        }
+    }
 }

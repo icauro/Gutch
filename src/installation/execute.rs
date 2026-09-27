@@ -348,17 +348,31 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
         build_artifact_priorities(&pipeline_plan, pending_artifact_downloads)
     };
     let file_plans = Arc::new(pipeline_plan.files);
+    let jobs = Arc::new(pipeline_plan.jobs);
+    let mut remaining_file_jobs = vec![0usize; file_plans.len()];
+    let job_file_indices = jobs
+        .iter()
+        .map(reconstruct_job_file_indices)
+        .collect::<Vec<_>>();
+    for file_indices in &job_file_indices {
+        for &file_index in file_indices {
+            if let Some(remaining) = remaining_file_jobs.get_mut(file_index) {
+                *remaining += 1;
+            }
+        }
+    }
     let output_sizes = Arc::new(file_plans.iter().map(|file| file.size).collect::<Vec<_>>());
     let output_handles = Arc::new(OutputHandleCache::new(
         Arc::clone(&output_paths),
         Arc::clone(&output_sizes),
+        &remaining_file_jobs,
+        runtime_plan.worker_count,
     ));
     let precomputed_file_hashes = Arc::new(
         (0..file_plans.len())
             .map(|_| Mutex::new(None))
             .collect::<Vec<Mutex<Option<crate::artifact::hash::ChunkHash>>>>(),
     );
-    let jobs = Arc::new(pipeline_plan.jobs);
     let (artifact_job_indices, artifact_scheduler) = {
         let _artifacts_span = control.profile_span("installation.reconstruct.prepare.artifacts");
         let pending_artifacts = pending_artifact_downloads
@@ -456,18 +470,6 @@ pub(crate) fn execute_reconstruct_pipeline_reconstruction(
     let mut completed_file_count = 0usize;
     let mut scheduled_job_indices = HashSet::new();
     let mut verification_queued = vec![false; file_plans.len()];
-    let mut remaining_file_jobs = vec![0usize; file_plans.len()];
-    let job_file_indices = jobs
-        .iter()
-        .map(|job| reconstruct_job_file_indices(job))
-        .collect::<Vec<_>>();
-    for file_indices in &job_file_indices {
-        for &file_index in file_indices {
-            if let Some(remaining) = remaining_file_jobs.get_mut(file_index) {
-                *remaining += 1;
-            }
-        }
-    }
     let mut verify_started_at = None;
     let mut verify_finished_at = None;
     let mut verify_span = None;
