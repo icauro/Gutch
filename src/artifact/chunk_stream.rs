@@ -15,8 +15,7 @@ pub(crate) struct BoundaryFinder {
 impl BoundaryFinder {
     pub(crate) fn new(profile: &ChunkSizingProfile) -> Self {
         let average = profile.avg_chunk_size_bytes() as usize;
-        let (strict_mask, relaxed_mask) =
-            fastcdc::v2020::select_masks(average, fastcdc::v2020::Normalization::Level1);
+        let (strict_mask, relaxed_mask) = super::fastcdc_v2020::select_masks(average);
         Self {
             min: profile.min_chunk_size_bytes() as usize,
             average,
@@ -27,15 +26,13 @@ impl BoundaryFinder {
     }
 
     pub(crate) fn cut(&self, bytes: &[u8]) -> usize {
-        fastcdc::v2020::cut(
+        super::fastcdc_v2020::cut(
             bytes,
             self.min,
             self.average,
             self.max,
             self.strict_mask,
             self.relaxed_mask,
-            self.strict_mask << 1,
-            self.relaxed_mask << 1,
         )
         .1
     }

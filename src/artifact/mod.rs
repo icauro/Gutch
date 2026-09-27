@@ -9,3 +9,5 @@ pub(crate) mod metadata;
 pub(crate) mod binary_io;
 
 pub(crate) mod chunk_stream;
+
+mod fastcdc_v2020;

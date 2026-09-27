@@ -55,9 +55,10 @@ it does not allocate and copy an owned vector for each chunk. It retains unread
 bytes until a refill requires compaction. Read-ahead capacity uses the existing
 inventory size, stays between one and two maximum-sized chunks, and never changes
 boundary decisions. This matches the former buffer-plus-owned-chunk worst-case
-bound, although typical resident memory can increase slightly. FastCDC remains
-the owner of the level-1 masks and boundary algorithm; no local kernel copy is
-used in production.
+bound, although typical resident memory can increase slightly. Gutch owns a small
+FastCDC v2020 kernel containing the default gear tables and level-1 boundary rules.
+Upstream FastCDC is pinned as a test-only oracle for exact boundary comparisons.
+The local subset retains its upstream license, copyright, and provenance.
 The same read supplies the full-file BLAKE3 hash and the raw chunk boundaries.
 Chunk hashes are calculated before the file result is returned, so
 the manifest always contains ordered, content-addressed references rather than
