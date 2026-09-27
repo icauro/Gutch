@@ -147,11 +147,41 @@ fn source_range_payload_rejects_changes_between_scan_and_encoding() {
         size: 6,
         hash: ChunkHash::from_blake3(blake3::hash(b"before")),
     };
-    assert_eq!(payload.load_bytes().unwrap(), b"before");
+    let mut reader = ChunkPayloadReader::default();
+    assert_eq!(reader.load(&payload).unwrap(), b"before");
     std::fs::write(&source, b"after!").unwrap();
-    assert!(payload.load_bytes().is_err());
+    assert!(reader.load(&payload).is_err());
     std::fs::write(&source, b"short").unwrap();
-    assert!(payload.load_bytes().is_err());
+    assert!(reader.load(&payload).is_err());
+}
+
+#[test]
+fn source_reader_switches_files_and_seeks_for_nonconsecutive_ranges() {
+    let root = tempfile::tempdir().unwrap();
+    let first = std::sync::Arc::new(root.path().join("first"));
+    let second = std::sync::Arc::new(root.path().join("second"));
+    std::fs::write(first.as_ref(), b"abcdef").unwrap();
+    std::fs::write(second.as_ref(), b"uvwxyz").unwrap();
+    let mut reader = ChunkPayloadReader::default();
+    for (source, offset, expected) in [
+        (&first, 3, b"def"), (&first, 0, b"abc"),
+        (&second, 0, b"uvw"), (&first, 3, b"def"),
+    ] {
+        let payload = ChunkPayload {
+            source: source.clone(), offset, size: 3,
+            hash: ChunkHash::from_blake3(blake3::hash(expected)),
+        };
+        assert_eq!(reader.load(&payload).unwrap(), expected);
+    }
+    drop(reader);
+    // A subsequent encoding job must reopen the path, never retain the old file.
+    std::fs::remove_file(first.as_ref()).unwrap();
+    std::fs::write(first.as_ref(), b"new").unwrap();
+    let payload = ChunkPayload {
+        source: first, offset: 0, size: 3,
+        hash: ChunkHash::from_blake3(blake3::hash(b"new")),
+    };
+    assert_eq!(ChunkPayloadReader::default().load(&payload).unwrap(), b"new");
 }
 
 #[test]

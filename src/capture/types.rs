@@ -180,29 +180,45 @@ impl ChunkPayload {
     pub(crate) fn raw_size(&self) -> u64 {
         self.size
     }
+}
 
-    pub(crate) fn load_bytes(&self) -> crate::Result<Vec<u8>> {
+/// One source handle, owned by the probe or encoding job that consumes ranges.
+/// It cannot outlive that job or leak into a subsequent capture on a reused pool.
+#[derive(Default)]
+pub(crate) struct ChunkPayloadReader {
+    current: Option<(Arc<PathBuf>, std::fs::File)>,
+}
+
+impl ChunkPayloadReader {
+    pub(crate) fn load(&mut self, payload: &ChunkPayload) -> crate::Result<Vec<u8>> {
         use std::io::Read;
         use std::io::Seek;
         use std::io::SeekFrom;
-        let mut file = std::fs::File::open(self.source.as_ref())?;
-        file.seek(SeekFrom::Start(self.offset))?;
+        let same_source = self.current.as_ref().is_some_and(|(path, _)| {
+            Arc::ptr_eq(path, &payload.source) || path == &payload.source
+        });
+        if !same_source {
+            // Close the preceding source before opening another: one handle per job.
+            self.current = None;
+            self.current = Some((payload.source.clone(), std::fs::File::open(payload.source.as_ref())?));
+        }
+        let file = &mut self.current.as_mut().expect("source opened above").1;
+        file.seek(SeekFrom::Start(payload.offset))?;
         let mut bytes = vec![
             0;
-            usize::try_from(self.size).map_err(|_| crate::Error::manifest(
+            usize::try_from(payload.size).map_err(|_| crate::Error::manifest(
                 "chunk exceeds address space"
             ))?
         ];
         file.read_exact(&mut bytes)?;
-        if ChunkHash::from_blake3(blake3::hash(&bytes)) != self.hash {
+        if ChunkHash::from_blake3(blake3::hash(&bytes)) != payload.hash {
             return Err(crate::Error::manifest(format!(
                 "source changed during capture: {}",
-                self.source.display()
+                payload.source.display()
             )));
         }
         Ok(bytes)
     }
-
 }
 
 #[derive(Debug, Clone, Default)]
