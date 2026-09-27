@@ -7,3 +7,5 @@ pub(crate) mod loose;
 pub(crate) mod metadata;
 
 pub(crate) mod binary_io;
+
+pub(crate) mod chunk_stream;

@@ -1,0 +1,117 @@
+//! Gutch's level-1 FastCDC boundary finder and borrowed streaming adapter.
+
+use crate::manifest::ChunkSizingProfile;
+use crate::progress::GutchOperationControl;
+use std::io::Read;
+
+pub(crate) struct BoundaryFinder {
+    min: usize,
+    average: usize,
+    max: usize,
+    strict_mask: u64,
+    relaxed_mask: u64,
+}
+
+impl BoundaryFinder {
+    pub(crate) fn new(profile: &ChunkSizingProfile) -> Self {
+        let average = profile.avg_chunk_size_bytes() as usize;
+        let (strict_mask, relaxed_mask) =
+            fastcdc::v2020::select_masks(average, fastcdc::v2020::Normalization::Level1);
+        Self {
+            min: profile.min_chunk_size_bytes() as usize,
+            average,
+            max: profile.max_chunk_size_bytes() as usize,
+            strict_mask,
+            relaxed_mask,
+        }
+    }
+
+    pub(crate) fn cut(&self, bytes: &[u8]) -> usize {
+        fastcdc::v2020::cut(
+            bytes,
+            self.min,
+            self.average,
+            self.max,
+            self.strict_mask,
+            self.relaxed_mask,
+            self.strict_mask << 1,
+            self.relaxed_mask << 1,
+        )
+        .1
+    }
+}
+
+pub(crate) struct BorrowedChunk<'a> {
+    pub(crate) offset: u64,
+    pub(crate) data: &'a [u8],
+}
+
+pub(crate) struct ChunkStream<R> {
+    reader: R,
+    boundary: BoundaryFinder,
+    buffer: Vec<u8>,
+    start: usize,
+    end: usize,
+    offset: u64,
+    eof: bool,
+}
+
+impl<R: Read> ChunkStream<R> {
+    pub(crate) fn new(reader: R, profile: &ChunkSizingProfile, inventory_size: u64) -> Self {
+        let boundary = BoundaryFinder::new(profile);
+        // Upstream retains a max-sized buffer plus an owned chunk of up to max.
+        // Reuse that worst-case bound for read-ahead instead of copying every chunk.
+        // Small sources need no extra read-ahead allocation; never shrink below max,
+        // because inventory size is a hint and cannot decide a chunk boundary.
+        let extra = inventory_size
+            .saturating_sub(boundary.max as u64)
+            .min(boundary.max as u64) as usize;
+        let capacity = boundary.max + extra;
+        Self {
+            reader,
+            boundary,
+            buffer: vec![0; capacity],
+            start: 0,
+            end: 0,
+            offset: 0,
+            eof: false,
+        }
+    }
+
+    pub(crate) fn next(
+        &mut self,
+        control: &GutchOperationControl,
+    ) -> crate::Result<Option<BorrowedChunk<'_>>> {
+        control.checkpoint()?;
+        if !self.eof && self.end - self.start < self.boundary.max {
+            self.buffer.copy_within(self.start..self.end, 0);
+            self.end -= self.start;
+            self.start = 0;
+            while self.end < self.buffer.len() && !self.eof {
+                control.checkpoint()?;
+                match self.reader.read(&mut self.buffer[self.end..]) {
+                    Ok(0) => self.eof = true,
+                    Ok(count) => self.end += count,
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(crate::Error::Chunk(error.to_string())),
+                }
+            }
+        }
+        if self.start == self.end {
+            return Ok(None);
+        }
+        let length = self.boundary.cut(&self.buffer[self.start..self.end]);
+        let start = self.start;
+        let offset = self.offset;
+        self.start += length;
+        self.offset += length as u64;
+        Ok(Some(BorrowedChunk {
+            offset,
+            data: &self.buffer[start..self.start],
+        }))
+    }
+}
+
+#[cfg(test)]
+#[path = "chunk_stream_tests.rs"]
+mod tests;

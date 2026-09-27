@@ -50,6 +50,14 @@ for files no larger than the smaller of 1 MiB and the chunk profile's maximum
 chunk size. Larger files use streaming FastCDC. Both paths use the resolved
 chunking profile and produce the same boundaries and hashes. The small-file
 read detects size changes and reuses the full-file digest for a single chunk.
+The streaming adapter lends slices from its read buffer to the hashing step;
+it does not allocate and copy an owned vector for each chunk. It retains unread
+bytes until a refill requires compaction. Read-ahead capacity uses the existing
+inventory size, stays between one and two maximum-sized chunks, and never changes
+boundary decisions. This matches the former buffer-plus-owned-chunk worst-case
+bound, although typical resident memory can increase slightly. FastCDC remains
+the owner of the level-1 masks and boundary algorithm; no local kernel copy is
+used in production.
 The same read supplies the full-file BLAKE3 hash and the raw chunk boundaries.
 Chunk hashes are calculated before the file result is returned, so
 the manifest always contains ordered, content-addressed references rather than

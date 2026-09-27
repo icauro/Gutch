@@ -1,10 +1,11 @@
+use super::chunk_stream::{BoundaryFinder, ChunkStream};
 use crate::profile::ProfileInstant;
 #[cfg(test)]
 use fastcdc::v2020::Chunk;
+#[cfg(test)]
 use fastcdc::v2020::FastCDC;
+#[cfg(test)]
 use fastcdc::v2020::Normalization;
-use fastcdc::v2020::StreamCDC;
-use std::io::BufReader;
 use std::io::Read;
 use std::time::Duration;
 
@@ -101,8 +102,6 @@ pub(crate) fn scan_file_chunks(
     control: &crate::progress::GutchOperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     control.checkpoint()?;
-    let min = profile.min_chunk_size_bytes() as usize;
-    let avg = profile.avg_chunk_size_bytes() as usize;
     let max = profile.max_chunk_size_bytes() as usize;
 
     let file = std::fs::File::open(path)?;
@@ -112,8 +111,7 @@ pub(crate) fn scan_file_chunks(
     if inventory_size <= small_file_limit {
         return scan_small_file(file, inventory_size, profile, control);
     }
-    let reader = BufReader::new(file);
-    let mut chunker = StreamCDC::with_level(reader, min, avg, max, Normalization::Level1);
+    let mut chunker = ChunkStream::new(file, profile, inventory_size);
 
     let mut chunk_results = Vec::new();
     let mut boundary_scan = Duration::ZERO;
@@ -127,29 +125,28 @@ pub(crate) fn scan_file_chunks(
     loop {
         control.checkpoint()?;
         let t = ProfileInstant::detailed(control.profiler());
-        let next_chunk = chunker.next();
+        let next_chunk = chunker.next(control);
         boundary_scan += t.elapsed();
 
-        let Some(chunk_result) = next_chunk else {
+        let Some(chunk) = next_chunk? else {
             break;
         };
-        let chunk = chunk_result.map_err(|e| crate::error::Error::Chunk(e.to_string()))?;
 
         let t = ProfileInstant::detailed(control.profiler());
-        full_file_hash.update(&chunk.data);
+        full_file_hash.update(chunk.data);
         full_file_hash_duration += t.elapsed();
 
-        file_size += chunk.length as u64;
-        boundary_scan_bytes += chunk.length as u64;
+        file_size += chunk.data.len() as u64;
+        boundary_scan_bytes += chunk.data.len() as u64;
         let started_at = ProfileInstant::detailed(control.profiler());
-        let hash = blake3::hash(&chunk.data);
+        let hash = blake3::hash(chunk.data);
         hash_judgment += started_at.elapsed();
         chunk_results.push(ChunkResult {
             offset: chunk.offset,
-            size: chunk.length as u64,
+            size: chunk.data.len() as u64,
             hash,
         });
-        hash_judgment_bytes += chunk.length as u64;
+        hash_judgment_bytes += chunk.data.len() as u64;
     }
 
     Ok((
@@ -187,33 +184,31 @@ fn scan_small_file(
     let started = ProfileInstant::detailed(control.profiler());
     let full_hash = blake3::hash(&bytes);
     let full_file_hash_duration = started.elapsed();
-    let mut chunker = FastCDC::with_level(
-        &bytes,
-        profile.min_chunk_size_bytes() as usize,
-        profile.avg_chunk_size_bytes() as usize,
-        profile.max_chunk_size_bytes() as usize,
-        Normalization::Level1,
-    );
+    let boundary = BoundaryFinder::new(profile);
+    let mut offset = 0;
     let mut chunks = Vec::new();
     let mut hash_judgment = Duration::ZERO;
     loop {
         control.checkpoint()?;
         let started = ProfileInstant::detailed(control.profiler());
-        let chunk = chunker.next();
+        if offset == bytes.len() {
+            break;
+        }
+        let length = boundary.cut(&bytes[offset..]);
         boundary_scan += started.elapsed();
-        let Some(chunk) = chunk else { break };
         let started = ProfileInstant::detailed(control.profiler());
-        let hash = if chunk.length == bytes.len() {
+        let hash = if length == bytes.len() {
             full_hash
         } else {
-            blake3::hash(&bytes[chunk.offset..chunk.offset + chunk.length])
+            blake3::hash(&bytes[offset..offset + length])
         };
         hash_judgment += started.elapsed();
         chunks.push(ChunkResult {
-            offset: chunk.offset as u64,
-            size: chunk.length as u64,
+            offset: offset as u64,
+            size: length as u64,
             hash,
         });
+        offset += length;
     }
     Ok((
         ChunkFileScan {
