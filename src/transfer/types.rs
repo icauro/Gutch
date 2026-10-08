@@ -1,8 +1,5 @@
-use crate::installation::types::InstallationReconstructResult;
 use crate::progress::GutchOperationControl;
-use crate::runtime::RuntimeResourceHints;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 pub const DEFAULT_TRANSFER_CONCURRENCY: usize = 4;
 pub const DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM: usize = 16;
@@ -89,49 +86,4 @@ where
     ) -> crate::Result<Vec<ArtifactDownload>> {
         self(artifact_ids, control)
     }
-}
-
-#[derive(Clone)]
-pub struct SnapshotFetchRequest {
-    pub repo_path: PathBuf,
-    pub snapshot_id: String,
-    pub repo_metadata_url: Option<String>,
-    pub metadata_url: String,
-    pub product_metadata_url: Option<String>,
-    pub blueprint_url: String,
-    pub chunk_index_url: Option<String>,
-    pub artifacts: Vec<ArtifactDownload>,
-    pub artifact_url_provider: Option<std::sync::Arc<dyn ArtifactUrlProvider>>,
-    pub transfer_policy: TransferConcurrencyPolicy,
-    pub control: GutchOperationControl,
-}
-
-#[derive(Debug, Clone)]
-pub struct SnapshotFetchResult {
-    pub repo_path: PathBuf,
-    pub snapshot_id: String,
-    pub required_bundle_count: usize,
-    pub downloaded_bundle_count: usize,
-    pub skipped_existing_bundle_count: usize,
-    pub required_artifact_count: usize,
-    pub downloaded_artifact_count: usize,
-    pub skipped_existing_artifact_count: usize,
-    pub transfer_policy: TransferConcurrencyPolicy,
-    pub transfer_stats: TransferStats,
-}
-
-#[derive(Clone)]
-pub struct SnapshotFetchAndReconstructRequest {
-    pub fetch_request: SnapshotFetchRequest,
-    pub destination_dir: PathBuf,
-    pub staging_dir: Option<PathBuf>,
-    pub source_snapshot_id: Option<String>,
-    pub source_dir: Option<PathBuf>,
-    pub runtime_hints: RuntimeResourceHints,
-}
-
-#[derive(Debug, Clone)]
-pub struct SnapshotFetchAndReconstructResult {
-    pub fetch_result: SnapshotFetchResult,
-    pub reconstruct_result: InstallationReconstructResult,
 }

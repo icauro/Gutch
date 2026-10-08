@@ -212,9 +212,12 @@ output handles cannot remain owned by an exiting worker during publication.
 
 The owning implementation is `src/installation/execute.rs` for planning,
 staging, dispatch, and promotion, `src/installation/io.rs` for
-artifact/source reads and positional writes, `src/installation/apply.rs` for
-local reconstruction entry, `src/transfer/fetch.rs` for unified remote
-fetch-reconstruct, and `src/transfer/download.rs` for transfer scheduling.
+artifact/source reads, `src/installation/apply.rs` for
+local reconstruction entry, `src/installation/fetch.rs` for combined remote fetch/reconstruction,
+`src/repo/fetch.rs` for repository acquisition and publication, and
+`src/transfer/download.rs` for transfer scheduling. Adaptive decisions and
+feedback have separate owners under `transfer`; bounded output/source handles
+and positioned writes belong to `installation/handles.rs`.
 
 ## Related pages
 

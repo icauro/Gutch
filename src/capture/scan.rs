@@ -479,6 +479,28 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     })
 }
 
+/// Apply repository filename constraints to the complete pre-read inventory.
+pub(crate) fn validate_source_inventory(
+    inventory: &SourceInventory,
+    constraints: &crate::manifest::constraints::RepositoryConstraints,
+) -> Result<()> {
+    crate::filesystem::constraints::validate_paths(
+        constraints,
+        inventory
+            .metadata_entries
+            .iter()
+            .map(|entry| entry.path())
+            .chain(
+                inventory
+                    .files
+                    .iter()
+                    .map(|file| file.normalized_relative.as_str()),
+            ),
+        "capture",
+        None,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,25 +533,38 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         for index in 0..32 {
             let size = if index < 4 { 256 * 1024 } else { index * 37 };
-            write_source(temp.path(), &format!("{index:02}.bin"), &vec![index as u8; size]);
+            write_source(
+                temp.path(),
+                &format!("{index:02}.bin"),
+                &vec![index as u8; size],
+            );
         }
         let inventory = scan_dir(temp.path());
         let scan = |workers| {
-            let pool = rayon::ThreadPoolBuilder::new().num_threads(workers).build().unwrap();
-            scan_directory_into_file_entries(&inventory, ScanDirectoryOptions {
-                previous_file_manifests: &HashMap::new(),
-                chunking_profile: &manifest::ChunkSizingProfile::default(),
-                existing_chunk_locations: &HashMap::new(),
-                worker_count: workers,
-                worker_pool: &pool,
-                control: crate::progress::GutchOperationControl::default(),
-            }).unwrap()
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .unwrap();
+            scan_directory_into_file_entries(
+                &inventory,
+                ScanDirectoryOptions {
+                    previous_file_manifests: &HashMap::new(),
+                    chunking_profile: &manifest::ChunkSizingProfile::default(),
+                    existing_chunk_locations: &HashMap::new(),
+                    worker_count: workers,
+                    worker_pool: &pool,
+                    control: crate::progress::GutchOperationControl::default(),
+                },
+            )
+            .unwrap()
         };
         let serial = scan(1);
         let parallel = scan(4);
         for (expected, actual) in serial.iter().zip(&parallel) {
-            assert_eq!(serde_json::to_vec(&expected.manifest).unwrap(),
-                       serde_json::to_vec(&actual.manifest).unwrap());
+            assert_eq!(
+                serde_json::to_vec(&expected.manifest).unwrap(),
+                serde_json::to_vec(&actual.manifest).unwrap()
+            );
             assert_eq!(expected.new_chunk_offsets, actual.new_chunk_offsets);
         }
         assert_eq!(serial.len(), parallel.len());

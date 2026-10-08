@@ -5,12 +5,12 @@ use crate::installation::resolve_snapshot_state;
 use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
+use crate::repo::fetch;
+use crate::repo::fetch_types::SnapshotFetchRequest;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::runtime::RuntimeResourceHints;
-use crate::transfer::download as transfer;
 use crate::transfer::types::ArtifactDownload;
-use crate::transfer::types::SnapshotFetchRequest;
 use std::collections::HashSet;
 
 fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
@@ -78,7 +78,7 @@ fn artifact_url_provider_rejects_unexpected_artifact_ids() {
         transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
-    let error = transfer::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
+    let error = fetch::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
         .expect_err("unexpected artifact IDs must fail resolution");
     assert!(error.to_string().contains("unexpected artifact 'bundle-b'"));
 }
@@ -109,7 +109,7 @@ fn direct_bundle_urls_reject_duplicate_artifact_ids() {
         transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
-    let error = transfer::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
+    let error = fetch::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
         .expect_err("duplicate bundle IDs must fail normalization");
     assert!(error.to_string().contains("duplicate direct artifact URL"));
 }

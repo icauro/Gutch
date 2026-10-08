@@ -481,7 +481,7 @@ mod tests {
             let paths = GutchRepoPaths::from_repo_root(&repo);
             crate::repo::paths::ensure_gutch_repo_layout(&paths, name).unwrap();
             let captured = crate::capture::execute::capture_snapshot(
-                crate::capture::execute::SnapshotCaptureRequest {
+                crate::capture::contracts::SnapshotCaptureRequest {
                     repo_root: repo.clone(),
                     source_dir: source.clone(),
                     explicit_tags: Default::default(),

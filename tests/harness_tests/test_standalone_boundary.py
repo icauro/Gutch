@@ -86,3 +86,34 @@ def test_reconstruction_requires_explicit_storage(monkeypatch):
     settings = _s3_settings(args, fixture.values["storage"])
     assert settings.bucket == "custom-benchmark-bucket"
     assert settings.endpoint == "http://localhost:8333"
+
+
+def implementation_sources(directory):
+    """Exclude dedicated tests and inline test modules from dependency checks."""
+    for path in sorted((ROOT / "src" / directory).rglob("*.rs")):
+        if "test" in path.stem:
+            continue
+        yield path, path.read_text(encoding="utf-8").split("#[cfg(test)]")[0]
+
+
+def test_repository_persistence_does_not_depend_on_capture_or_installation():
+    for path, source in implementation_sources("repo"):
+        assert not re.search(r"crate::(?:capture|installation)::", source), path.relative_to(ROOT)
+
+
+def test_transfer_does_not_orchestrate_repository_or_installation_workflows():
+    forbidden = re.compile(r"crate::(?:capture|installation)::|crate::repo::(?:coordination|paths|snapshot_manifests|fetch)::")
+    for path, source in implementation_sources("transfer"):
+        # ArtifactRef is the existing descriptor shared with the repository;
+        # acquiring locks, reading snapshot metadata and publication belong to workflows.
+        assert not forbidden.search(source), path.relative_to(ROOT)
+
+
+def test_artifact_codecs_do_not_depend_on_repository_workflows():
+    for path, source in implementation_sources("artifact"):
+        assert not re.search(r"crate::(?:repo|capture|installation)::", source), path.relative_to(ROOT)
+
+
+def test_public_api_only_reexports_owner_operations_and_contracts():
+    source = (ROOT / "src/api.rs").read_text(encoding="utf-8")
+    assert not re.search(r"pub(?:\([^)]*\))?\s+fn\s", source)

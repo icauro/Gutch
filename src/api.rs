@@ -4,7 +4,6 @@
 //! implementation paths are not part of the cross-crate contract.
 
 // Shared values and operation control
-pub use crate::artifact::bundle::BundleTableEntry;
 pub use crate::artifact::hash::ChunkHash;
 pub use crate::artifact::hash::hash_chunk;
 pub use crate::artifact::hash::hash_hex;
@@ -64,13 +63,13 @@ pub use crate::capture::configured_sources::capture_snapshot_sources;
 pub use crate::capture::configured_sources::describe_snapshot_sources_capture_plan;
 pub use crate::capture::configured_sources::plan_snapshot_sources_capture;
 pub use crate::capture::configured_sources::plan_snapshot_sources_capture_with_context;
+pub use crate::capture::contracts::MetadataFieldDifference;
+pub use crate::capture::contracts::SnapshotCaptureOutcome;
+pub use crate::capture::contracts::SnapshotCapturePlan;
+pub use crate::capture::contracts::SnapshotCaptureRequest;
+pub use crate::capture::contracts::SnapshotCaptureResult;
 pub use crate::capture::estimate::SnapshotEstimateResult;
 pub use crate::capture::estimate::estimate_snapshot;
-pub use crate::capture::execute::MetadataFieldDifference;
-pub use crate::capture::execute::SnapshotCaptureOutcome;
-pub use crate::capture::execute::SnapshotCapturePlan;
-pub use crate::capture::execute::SnapshotCaptureRequest;
-pub use crate::capture::execute::SnapshotCaptureResult;
 pub use crate::capture::execute::capture_snapshot;
 pub use crate::capture::plan::describe_snapshot_capture_plan;
 pub use crate::capture::plan::plan_snapshot_capture;
@@ -95,6 +94,9 @@ pub use crate::installation::ResolvedSnapshotOperationState;
 pub use crate::installation::SnapshotReconstructResult;
 pub use crate::installation::SnapshotRepairResult;
 pub use crate::installation::corrupt_installation;
+pub use crate::installation::fetch::SnapshotFetchAndReconstructRequest;
+pub use crate::installation::fetch::SnapshotFetchAndReconstructResult;
+pub use crate::installation::fetch::fetch_and_reconstruct_snapshot;
 pub use crate::installation::inspect::RepairClassification;
 pub use crate::installation::inspect::RepairIssue;
 pub use crate::installation::inspect::RepairIssueKind;
@@ -116,6 +118,10 @@ pub use crate::installation::verify_installation;
 
 // Repository operations and remote providers
 pub use crate::repo::artifacts::inspect_bundle;
+pub use crate::repo::fetch::fetch_snapshot;
+pub use crate::repo::fetch::fetch_snapshot_for_artifact_ids;
+pub use crate::repo::fetch_types::SnapshotFetchRequest;
+pub use crate::repo::fetch_types::SnapshotFetchResult;
 pub use crate::repo::init_policy::RepoInitAssessment;
 pub use crate::repo::init_policy::RepoInitOptions;
 pub use crate::repo::init_policy::RepoInitPathKind;
@@ -172,21 +178,14 @@ pub use crate::repo::updates::{
     plan_repo_rename, plan_repository_constraints, read_repository_constraints,
     update_repository_constraints,
 };
-pub use crate::repo::verify::RepoArtifactVerifyResult;
 pub use crate::repo::verify::SnapshotArtifactVerifyResult;
 pub use crate::repo::verify::verify_gutch_repo_artifacts;
+pub use crate::repo::verify::{RepoArtifactVerification, RepoArtifactVerifyResult};
 
 // Artifact transfer
-pub use crate::transfer::fetch::fetch_and_reconstruct_snapshot;
-pub use crate::transfer::fetch::fetch_snapshot;
-pub use crate::transfer::fetch::fetch_snapshot_for_artifact_ids;
 pub use crate::transfer::http::read_bounded_response;
 pub use crate::transfer::types::ArtifactDownload;
 pub use crate::transfer::types::ArtifactUrlProvider;
-pub use crate::transfer::types::SnapshotFetchAndReconstructRequest;
-pub use crate::transfer::types::SnapshotFetchAndReconstructResult;
-pub use crate::transfer::types::SnapshotFetchRequest;
-pub use crate::transfer::types::SnapshotFetchResult;
 pub use crate::transfer::types::TransferConcurrencyPolicy;
 pub use crate::transfer::types::TransferStats;
 
@@ -200,22 +199,7 @@ pub use crate::config::TrackedRepo;
 pub use crate::config::load_config;
 pub use crate::config::save_config;
 
-/// Load one committed repository metadata document under reader protection.
-pub fn load_gutch_repo_manifest(
-    root: &std::path::Path,
-) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
-    crate::repo::coordination::read(root, || crate::repo::paths::load_gutch_repo_manifest(root))
-}
-
-/// Load a coherent snapshot metadata/blueprint pair under reader protection.
-pub fn load_snapshot_manifest(
-    paths: &GutchRepoPaths,
-    snapshot_id: &str,
-) -> Result<SnapshotManifest> {
-    crate::repo::coordination::read(&paths.repo_root, || {
-        crate::repo::snapshot_manifests::load_snapshot_manifest(paths, snapshot_id)
-    })
-}
+pub use crate::repo::read::{load_gutch_repo_manifest, load_snapshot_manifest};
 
 pub use crate::snapshot::source_config::initialize_source_config;
 

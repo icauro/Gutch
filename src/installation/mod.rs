@@ -2,13 +2,18 @@ pub(crate) mod apply;
 mod corrupt;
 mod entries;
 pub(crate) mod execute;
+pub(crate) mod fetch;
+mod handles;
+pub(crate) mod inspect;
+pub(crate) mod install;
 mod io;
 pub(crate) mod jobs;
 pub(crate) mod plan;
 pub(crate) mod prepare;
+pub(crate) mod preview;
+pub(crate) mod publish;
 mod repair;
 pub(crate) mod state;
-
 pub(crate) mod types;
 
 pub use apply::reconstruct_snapshot;
@@ -31,11 +36,3 @@ pub use types::ReconstructTimings;
 pub use types::ResolvedSnapshotOperationState;
 pub use types::SnapshotReconstructResult;
 pub use types::SnapshotRepairResult;
-
-pub(crate) mod publish;
-
-pub(crate) mod install;
-
-pub(crate) mod preview;
-
-pub(crate) mod inspect;

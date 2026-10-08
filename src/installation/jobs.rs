@@ -7,8 +7,8 @@ use std::sync::Arc;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperationControl;
 use crate::runtime::RuntimeResourceHints;
-use crate::transfer::download::FetchTransferProgress;
 use crate::transfer::download::PendingArtifactDownload;
+use crate::transfer::progress::FetchTransferProgress;
 
 pub(crate) struct ReconstructPipelinePlan {
     pub(crate) files: Vec<ReconstructPipelineFile>,

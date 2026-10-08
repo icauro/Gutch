@@ -42,7 +42,7 @@ pub(super) fn compute_pull_plan(
                 &index,
                 &local_repo.compression_profile(),
                 &snapshot.snapshot_id,
-                crate::installation::inspect::VerifyMode::Strict,
+                crate::repo::verify::RepoArtifactVerification::Identity,
             )
             .is_ok_and(|result| result.ok)
         {
@@ -455,7 +455,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 &snapshot.metadata_hash_b3,
                 "snapshot metadata",
             )?;
-            let metadata = crate::transfer::download::snapshot_manifest_from_download(
+            let metadata = crate::repo::snapshot_manifests::snapshot_manifest_from_download(
                 snapshot_id,
                 &metadata_bytes,
             )?;

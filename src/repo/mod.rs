@@ -1,9 +1,13 @@
+pub(crate) mod artifacts;
 pub(crate) mod cleanup;
 pub(crate) mod coordination;
+pub(crate) mod fetch;
+pub(crate) mod fetch_types;
 pub(crate) mod index;
 pub(crate) mod init_policy;
 pub(crate) mod inventory;
 pub(crate) mod paths;
+pub(crate) mod read;
 pub(crate) mod recovery;
 pub(crate) mod remote;
 pub(crate) mod snapshot_manifests;
@@ -23,5 +27,3 @@ pub(crate) use status::read_repo_status;
 #[cfg(test)]
 #[path = "repo_tests.rs"]
 mod tests;
-
-pub(crate) mod artifacts;

@@ -45,9 +45,12 @@ pub enum Error {
     #[error("Source snapshot destination did not verify: {0}")]
     SourceSnapshotNotVerified(String),
 
+    #[error("Stored snapshot data does not match its content-derived ID: {snapshot_id}")]
+    SnapshotIntegrityMismatch { snapshot_id: String },
+
     #[error("{outcome}")]
     SnapshotCaptureConflict {
-        outcome: crate::capture::execute::SnapshotCaptureOutcome,
+        outcome: crate::capture::contracts::SnapshotCaptureOutcome,
     },
 
     #[error("Reconstruction error: {0}")]

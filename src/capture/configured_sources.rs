@@ -221,6 +221,7 @@ pub fn capture_snapshot_sources(
 
         Ok(SnapshotSourcesCaptureResult { captured_count })
     })
+    .map_err(super::execute::capture_error)
 }
 
 fn capture_source_snapshot(
@@ -239,7 +240,7 @@ fn capture_source_snapshot(
         control.clone()
     };
     crate::capture::execute::capture_repo_snapshot_with_existing_reuse_state(
-        crate::capture::execute::SnapshotCaptureRequest {
+        crate::capture::contracts::SnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
             source_dir: std::path::PathBuf::from(&candidate.path),
             explicit_tags: candidate.snapshot_tags.clone(),
@@ -390,7 +391,7 @@ mod tests {
 
     #[test]
     fn pre_scan_contracts_carry_no_snapshot_id() {
-        use crate::capture::execute::SnapshotCapturePlan;
+        use crate::capture::contracts::SnapshotCapturePlan;
 
         let candidate = crate::repo::status::SourceSnapshotOperationCandidate {
             path: "game-a".to_string(),

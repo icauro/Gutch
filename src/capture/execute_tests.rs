@@ -1,0 +1,520 @@
+use super::*;
+use crate::capture::plan::plan_snapshot_capture;
+use crate::manifest;
+use crate::manifest::snapshot::SnapshotManifest;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+use crate::repo::snapshots::retag_snapshot_by_id;
+use crate::repo::status::build_source_snapshot_ops_candidate;
+use crate::snapshot::identity::compute_snapshot_id_from_entries;
+
+#[test]
+fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo_root = temp.path().join("repo");
+    let source_root = temp.path().join("sources");
+    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+
+    let new_source = source_root.join("game-v1.0.0-windows-x86_64-base-2026_07_14");
+    std::fs::create_dir_all(&new_source).unwrap();
+    std::fs::write(new_source.join("game.exe"), b"old-content").unwrap();
+
+    let old_candidate =
+        build_source_snapshot_ops_candidate(&new_source, &manifest::SnapshotTagSet::default())
+            .unwrap();
+    let old_files = vec![manifest::FileManifest {
+        path: "game.exe".into(),
+        size: 11,
+        executable: false,
+        read_only: false,
+        full_file_hash: crate::artifact::hash::hash_hex(
+            &crate::file_integrity::hash_file(new_source.join("game.exe").as_path()).unwrap(),
+        ),
+        chunks: vec![crate::manifest::ChunkRef {
+            chunk_hash: crate::artifact::hash::hash_hex(
+                &crate::file_integrity::hash_file(new_source.join("game.exe").as_path()).unwrap(),
+            ),
+            raw_size: 11,
+        }],
+    }];
+    let old_entries = old_files
+        .iter()
+        .cloned()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+    let old_snapshot_id = compute_snapshot_id_from_entries(&old_entries);
+    let mut old_manifest =
+        SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
+    old_manifest.source_modified_at =
+        crate::snapshot::identity::source_modified_at_from_directory(&new_source).unwrap();
+    old_manifest.set_files(old_files);
+    write_snapshot_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
+
+    std::fs::write(new_source.join("game.exe"), b"new-content").unwrap();
+
+    let plan = plan_snapshot_capture(
+        &repo_root,
+        &new_source,
+        &manifest::SnapshotTagSet::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.snapshot_tags, manifest::SnapshotTagSet::default());
+}
+
+#[derive(Debug)]
+struct CancelledHook;
+
+impl crate::progress::GutchCancellationHook for CancelledHook {
+    fn is_cancelled(&self) -> bool {
+        true
+    }
+}
+
+fn test_tags() -> manifest::SnapshotTagSet {
+    manifest::SnapshotTagSet::from_compact_strings(&[
+        "version=1.0.0".to_string(),
+        "os=windows".to_string(),
+    ])
+    .unwrap()
+}
+
+fn test_capture(
+    repo_root: &std::path::Path,
+    source_dir: &std::path::Path,
+    tags: &manifest::SnapshotTagSet,
+    control: crate::progress::GutchOperationControl,
+) -> SnapshotCaptureResult {
+    capture_snapshot(SnapshotCaptureRequest {
+        repo_root: repo_root.to_path_buf(),
+        source_dir: source_dir.to_path_buf(),
+        explicit_tags: tags.clone(),
+        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::manifest::Chunker::FastCdc,
+        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: manifest::CompressionKind::Zstd,
+        compression_level: None,
+        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+        control,
+    })
+    .unwrap()
+}
+
+fn test_repo_with_source(
+    temp: &tempfile::TempDir,
+    source_name: &str,
+    content: &[u8],
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let repo_root = temp.path().join("repo");
+    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+    crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    let source_dir = temp.path().join(source_name);
+    std::fs::create_dir_all(&source_dir).unwrap();
+    std::fs::write(source_dir.join("game.exe"), content).unwrap();
+    (repo_root, source_dir)
+}
+
+fn test_reconstruct_and_strict_verify(repo_root: &std::path::Path, snapshot_id: &str) {
+    let destination = repo_root.join(format!("reconstructed-{snapshot_id}"));
+    crate::installation::reconstruct_snapshot(crate::installation::InstallationRequest {
+        repo_path: repo_root.to_path_buf(),
+        snapshot_id: snapshot_id.to_string(),
+        destination_dir: destination.clone(),
+        staging_dir: None,
+        source_snapshot_id: None,
+        source_dir: None,
+        runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+        control: crate::progress::GutchOperationControl::default(),
+    })
+    .unwrap();
+    assert!(destination.join("game.exe").is_file());
+    let verification = crate::repo::verify::verify_gutch_repo_artifacts(
+        repo_root,
+        Some(snapshot_id),
+        crate::repo::verify::RepoArtifactVerification::Identity,
+    )
+    .unwrap();
+    assert!(verification.ok, "strict verification failed");
+}
+
+#[test]
+fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut seed = 917u64;
+    let data: Vec<u8> = (0..2_100_000)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as u8
+        })
+        .collect();
+    let (repo_root, source) = test_repo_with_source(&temp, "game", &data);
+    let first = test_capture(&repo_root, &source, &test_tags(), Default::default());
+    // Change another file so content identity creates a new snapshot while
+    // game.exe exercises reuse of an unchanged file across chunker settings.
+    std::fs::write(source.join("new.txt"), b"new snapshot").unwrap();
+    let second = capture_snapshot(SnapshotCaptureRequest {
+        repo_root: repo_root.clone(),
+        source_dir: source,
+        explicit_tags: test_tags(),
+        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+        chunker: manifest::Chunker::Jc,
+        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: manifest::CompressionKind::Zstd,
+        compression_level: None,
+        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        runtime_hints: Default::default(),
+        control: Default::default(),
+    })
+    .unwrap();
+    let paths = GutchRepoPaths::from_repo_root(&repo_root);
+    let old = crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &first.snapshot_id)
+        .unwrap();
+    let new = crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &second.snapshot_id)
+        .unwrap();
+    assert_eq!(old.chunker, manifest::Chunker::FastCdc);
+    assert_eq!(new.chunker, manifest::Chunker::Jc);
+    let old_file = old.files().find(|file| file.path == "game.exe").unwrap();
+    let new_file = new.files().find(|file| file.path == "game.exe").unwrap();
+    assert_ne!(
+        serde_json::to_vec(&old_file.chunks).unwrap(),
+        serde_json::to_vec(&new_file.chunks).unwrap()
+    );
+    test_reconstruct_and_strict_verify(&repo_root, &second.snapshot_id);
+    assert_eq!(
+        std::fs::read(
+            repo_root
+                .join(format!("reconstructed-{}", second.snapshot_id))
+                .join("game.exe")
+        )
+        .unwrap(),
+        data
+    );
+}
+
+#[test]
+fn same_tags_create_distinct_snapshots() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+    let source_b = temp.path().join("game-b");
+    std::fs::create_dir_all(&source_b).unwrap();
+    std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+    let first = test_capture(
+        &repo_root,
+        &source_a,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    assert!(matches!(
+        first.outcome,
+        SnapshotCaptureOutcome::Created { .. }
+    ));
+    let second = test_capture(
+        &repo_root,
+        &source_b,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    assert!(matches!(
+        second.outcome,
+        SnapshotCaptureOutcome::Created { .. }
+    ));
+    assert_ne!(first.snapshot_id, second.snapshot_id);
+
+    for snapshot_id in [&first.snapshot_id, &second.snapshot_id] {
+        let (repo_paths, _) = crate::repo::paths::load_gutch_repo_manifest(&repo_root).unwrap();
+        crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, snapshot_id).unwrap();
+        test_reconstruct_and_strict_verify(&repo_root, snapshot_id);
+    }
+}
+
+#[test]
+fn cancelled_capture_retains_first_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+    let source_b = temp.path().join("game-b");
+    std::fs::create_dir_all(&source_b).unwrap();
+    std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+    let first = test_capture(
+        &repo_root,
+        &source_a,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    let cancelled = crate::progress::GutchOperationControl::default()
+        .with_cancellation(std::sync::Arc::new(CancelledHook));
+    let failed = capture_snapshot(SnapshotCaptureRequest {
+        repo_root: repo_root.clone(),
+        source_dir: source_b,
+        explicit_tags: test_tags(),
+        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::manifest::Chunker::FastCdc,
+        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: manifest::CompressionKind::Zstd,
+        compression_level: None,
+        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+        control: cancelled,
+    });
+    assert!(failed.is_err());
+
+    let (repo_paths, _) = crate::repo::paths::load_gutch_repo_manifest(&repo_root).unwrap();
+    let retained =
+        crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
+            .unwrap();
+    assert_eq!(retained.snapshot_tags, test_tags());
+    let status = crate::repo::read_repo_status(&repo_root).unwrap();
+    assert_eq!(status.snapshots.len(), 1);
+    test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
+}
+
+#[test]
+fn identical_recapture_returns_unchanged() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+    let first = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    let second = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    assert_eq!(first.snapshot_id, second.snapshot_id);
+    assert!(matches!(
+        second.outcome,
+        SnapshotCaptureOutcome::Unchanged { .. }
+    ));
+    assert_eq!(second.generated_bundle_count, 0);
+    assert_eq!(second.generated_chunk_count, 0);
+
+    let status = crate::repo::read_repo_status(&repo_root).unwrap();
+    assert_eq!(status.snapshots.len(), 1);
+}
+
+#[test]
+fn same_id_different_tags_returns_metadata_conflict() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+    let first = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    let other_tags = manifest::SnapshotTagSet::from_compact_strings(&[
+        "version=2.0.0".to_string(),
+        "os=windows".to_string(),
+    ])
+    .unwrap();
+    let conflict = capture_snapshot(SnapshotCaptureRequest {
+        repo_root: repo_root.clone(),
+        source_dir: source,
+        explicit_tags: other_tags,
+        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::manifest::Chunker::FastCdc,
+        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: manifest::CompressionKind::Zstd,
+        compression_level: None,
+        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+        control: crate::progress::GutchOperationControl::default(),
+    });
+    let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
+        panic!("expected a metadata conflict, got {conflict:?}");
+    };
+    let SnapshotCaptureOutcome::MetadataConflict {
+        snapshot_id,
+        differences,
+    } = outcome
+    else {
+        panic!("expected a metadata conflict outcome");
+    };
+    assert_eq!(snapshot_id, first.snapshot_id);
+    assert!(
+        differences
+            .iter()
+            .any(|difference| difference.field == "snapshot_tags")
+    );
+
+    let (repo_paths, _) = crate::repo::paths::load_gutch_repo_manifest(&repo_root).unwrap();
+    let stored =
+        crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
+            .unwrap();
+    assert_eq!(stored.snapshot_tags, test_tags());
+}
+
+#[test]
+fn explicit_retag_reports_previous_and_new_tags() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+    let first = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    let new_tags = manifest::SnapshotTagSet::from_compact_strings(&[
+        "version=2.0.0".to_string(),
+        "os=windows".to_string(),
+    ])
+    .unwrap();
+    let retagged = retag_snapshot_by_id(&repo_root, &first.snapshot_id, new_tags.clone()).unwrap();
+    assert_eq!(retagged.snapshot_id, first.snapshot_id);
+    assert_eq!(retagged.previous_tags, test_tags());
+    assert_eq!(retagged.new_tags, new_tags);
+
+    let (repo_paths, _) = crate::repo::paths::load_gutch_repo_manifest(&repo_root).unwrap();
+    let stored =
+        crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
+            .unwrap();
+    assert_eq!(stored.snapshot_tags, new_tags);
+}
+
+#[test]
+fn tampered_blueprint_returns_integrity_conflict() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+
+    let first = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    let (repo_paths, _) = crate::repo::paths::load_gutch_repo_manifest(&repo_root).unwrap();
+    let mut stored =
+        crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
+            .unwrap();
+    stored.entries.clear();
+    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&repo_paths, &stored)
+        .unwrap();
+
+    let reader_error = crate::repo::read::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
+        .expect_err("stored blueprint identity must be checked by repository readers");
+    assert!(
+        matches!(reader_error, crate::Error::SnapshotIntegrityMismatch { snapshot_id }
+        if snapshot_id == first.snapshot_id)
+    );
+
+    let conflict = capture_snapshot(SnapshotCaptureRequest {
+        repo_root: repo_root.clone(),
+        source_dir: source,
+        explicit_tags: test_tags(),
+        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::manifest::Chunker::FastCdc,
+        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: manifest::CompressionKind::Zstd,
+        compression_level: None,
+        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+        control: crate::progress::GutchOperationControl::default(),
+    });
+    let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
+        panic!("expected an integrity conflict, got {conflict:?}");
+    };
+    assert!(matches!(
+        outcome,
+        SnapshotCaptureOutcome::IntegrityConflict { .. }
+    ));
+}
+
+#[test]
+fn content_change_with_frozen_mtime_creates_new_snapshot() {
+    use std::time::SystemTime;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+    let source_b = temp.path().join("game-b");
+    std::fs::create_dir_all(&source_b).unwrap();
+    std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+    // Freeze modification times: snapshot identity must follow content,
+    // never timestamps.
+    let frozen = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    for source in [&source_a, &source_b] {
+        std::fs::File::options()
+            .write(true)
+            .open(source.join("game.exe"))
+            .unwrap()
+            .set_modified(frozen)
+            .unwrap();
+    }
+
+    let first = test_capture(
+        &repo_root,
+        &source_a,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    let second = test_capture(
+        &repo_root,
+        &source_b,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+    assert_ne!(first.snapshot_id, second.snapshot_id);
+
+    let status = crate::repo::read_repo_status(&repo_root).unwrap();
+    assert_eq!(status.snapshots.len(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_artifact_write_publishes_no_snapshot() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source_a) = test_repo_with_source(&temp, "game-a", b"content-a");
+    let source_b = temp.path().join("game-b");
+    std::fs::create_dir_all(&source_b).unwrap();
+    std::fs::write(source_b.join("game.exe"), b"content-b").unwrap();
+
+    let first = test_capture(
+        &repo_root,
+        &source_a,
+        &test_tags(),
+        crate::progress::GutchOperationControl::default(),
+    );
+
+    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let read_only = std::fs::Permissions::from_mode(0o555);
+    std::fs::set_permissions(&repo_paths.bundles_root, read_only.clone()).unwrap();
+    std::fs::set_permissions(&repo_paths.chunks_root, read_only).unwrap();
+    let failed = capture_snapshot(SnapshotCaptureRequest {
+        repo_root: repo_root.clone(),
+        source_dir: source_b,
+        explicit_tags: test_tags(),
+        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::manifest::Chunker::FastCdc,
+        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: manifest::CompressionKind::Zstd,
+        compression_level: None,
+        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+        control: crate::progress::GutchOperationControl::default(),
+    });
+    let read_write = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(&repo_paths.bundles_root, read_write.clone()).unwrap();
+    std::fs::set_permissions(&repo_paths.chunks_root, read_write).unwrap();
+    assert!(failed.is_err());
+
+    // No partial snapshot became visible and the first snapshot still
+    // verifies and reconstructs.
+    let status = crate::repo::read_repo_status(&repo_root).unwrap();
+    assert_eq!(status.snapshots.len(), 1);
+    assert_eq!(status.snapshots[0].snapshot_id, first.snapshot_id);
+    test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
+}

@@ -90,15 +90,7 @@ pub fn load_snapshot_manifest(
         )));
     }
     manifest.entries = blueprint_codec::read_snapshot_blueprint_binary(&blueprint_path)?;
-    if crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries)
-        != manifest.snapshot_id
-    {
-        return Err(crate::Error::SnapshotCaptureConflict {
-            outcome: crate::capture::execute::SnapshotCaptureOutcome::IntegrityConflict {
-                snapshot_id: manifest.snapshot_id.clone(),
-            },
-        });
-    }
+    validate_snapshot_identity(&manifest)?;
     manifest.total_logical_size = manifest.files().map(|file| file.size).sum();
     manifest.sync_launch_from_product_metadata();
     if let Some(launch) = manifest.launch.as_ref() {
@@ -113,13 +105,7 @@ pub(crate) fn snapshot_manifest_from_parts(
     blueprint: &[u8],
 ) -> Result<SnapshotManifest> {
     metadata.entries = blueprint_codec::read_snapshot_blueprint_bytes(blueprint)?;
-    if crate::snapshot::identity::compute_snapshot_id_from_entries(&metadata.entries)
-        != metadata.snapshot_id
-    {
-        return Err(crate::Error::manifest(
-            "snapshot blueprint does not match its installation ID",
-        ));
-    }
+    validate_snapshot_identity(&metadata)?;
     metadata.total_logical_size = metadata.files().map(|file| file.size).sum();
     metadata.product_metadata = product_metadata;
     metadata.sync_launch_from_product_metadata();
@@ -127,6 +113,16 @@ pub(crate) fn snapshot_manifest_from_parts(
         product.validate_for_snapshot(&metadata)?;
     }
     Ok(metadata)
+}
+
+fn validate_snapshot_identity(manifest: &SnapshotManifest) -> Result<()> {
+    let actual_id = crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    if actual_id != manifest.snapshot_id {
+        return Err(crate::Error::SnapshotIntegrityMismatch {
+            snapshot_id: manifest.snapshot_id.clone(),
+        });
+    }
+    Ok(())
 }
 
 pub(crate) fn serialize_snapshot_metadata_for_remote(
@@ -311,6 +307,19 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
     Ok(SnapshotManifest::from_metadata(metadata))
 }
 
+pub(crate) fn snapshot_manifest_from_download(
+    snapshot_id: &str,
+    manifest_bytes: &[u8],
+) -> Result<crate::manifest::snapshot::SnapshotManifest> {
+    let metadata_json = std::str::from_utf8(manifest_bytes).map_err(|err| {
+        crate::Error::manifest(format!("snapshot metadata is not valid UTF-8: {}", err))
+    })?;
+    crate::repo::snapshot_manifests::load_snapshot_metadata_from_json_text(
+        snapshot_id,
+        metadata_json,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,12 +338,10 @@ mod tests {
         assert!(snapshot_manifest_from_parts(manifest.clone(), None, &bytes).is_ok());
         let mut incorrect = manifest;
         incorrect.snapshot_id = "a".repeat(64);
-        assert!(
-            snapshot_manifest_from_parts(incorrect, None, &bytes)
-                .unwrap_err()
-                .to_string()
-                .contains("installation ID")
-        );
+        assert!(matches!(
+            snapshot_manifest_from_parts(incorrect, None, &bytes).unwrap_err(),
+            crate::Error::SnapshotIntegrityMismatch { snapshot_id } if snapshot_id == "a".repeat(64)
+        ));
     }
 
     #[test]

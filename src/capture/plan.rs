@@ -5,7 +5,7 @@ use crate::repo::Result;
 use crate::repo::SourceSnapshotOperationCandidate;
 use crate::repo::status::build_source_snapshot_ops_candidate_with_modified_at;
 
-use super::execute::*;
+use super::contracts::SnapshotCapturePlan;
 impl SnapshotCapturePlan {
     pub fn from_candidate(candidate: SourceSnapshotOperationCandidate) -> Self {
         Self {

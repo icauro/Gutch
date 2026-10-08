@@ -5,7 +5,6 @@ use std::path::Path;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle;
-use crate::installation::inspect::VerifyMode;
 use crate::repo::artifacts::ArtifactRef;
 
 use super::read_repo_status;
@@ -14,6 +13,21 @@ use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+
+/// Structural artifact checks optionally include full content-addressed identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepoArtifactVerification {
+    Structure,
+    Identity,
+}
+impl RepoArtifactVerification {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Structure => "fast",
+            Self::Identity => "strict",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,7 +61,7 @@ pub struct SnapshotArtifactVerifyResult {
 pub fn verify_gutch_repo_artifacts(
     repo_root: &Path,
     snapshot_id: Option<&str>,
-    mode: VerifyMode,
+    mode: RepoArtifactVerification,
 ) -> Result<RepoArtifactVerifyResult> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::read(&operation_root, || {
@@ -115,7 +129,7 @@ pub(crate) fn verify_snapshot_artifacts(
     chunk_index: &crate::repo::index::ChunkIndex,
     compression_profile: &crate::manifest::CompressionProfile,
     snapshot_id: &str,
-    mode: VerifyMode,
+    mode: RepoArtifactVerification,
 ) -> Result<SnapshotArtifactVerifyResult> {
     verify_snapshot_artifacts_cached(
         repo_paths,
@@ -132,7 +146,7 @@ fn verify_snapshot_artifacts_cached(
     chunk_index: &crate::repo::index::ChunkIndex,
     compression_profile: &crate::manifest::CompressionProfile,
     snapshot_id: &str,
-    mode: VerifyMode,
+    mode: RepoArtifactVerification,
     verified: &mut std::collections::HashMap<ArtifactRef, std::result::Result<(), String>>,
 ) -> Result<SnapshotArtifactVerifyResult> {
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
@@ -214,11 +228,55 @@ fn verify_bundle_file(
     path: &Path,
     bundle_id: &str,
     compression_profile: &crate::manifest::CompressionProfile,
-    mode: VerifyMode,
+    mode: RepoArtifactVerification,
 ) -> Result<()> {
     let mut reader = bundle::BundleReader::open(std::fs::File::open(path)?, compression_profile)?;
-    if mode == VerifyMode::Strict {
+    if mode == RepoArtifactVerification::Identity {
         reader.verify_identity(bundle_id)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn structural_verification_does_not_claim_content_addressed_identity() {
+        let profile = crate::manifest::CompressionProfile::default();
+        let mut builder = bundle::BundleBuilder::new(profile.clone());
+        let bytes = b"verified bundle payload";
+        builder.add_chunk(
+            crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(bytes)),
+            bytes.to_vec(),
+        );
+        let (bundle_id, encoded) = builder.build_with_id().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bundle");
+        std::fs::write(&path, encoded).unwrap();
+        verify_bundle_file(
+            &path,
+            &bundle_id,
+            &profile,
+            RepoArtifactVerification::Identity,
+        )
+        .unwrap();
+        let incorrect_id = "0".repeat(64);
+        verify_bundle_file(
+            &path,
+            &incorrect_id,
+            &profile,
+            RepoArtifactVerification::Structure,
+        )
+        .unwrap();
+        assert!(
+            verify_bundle_file(
+                &path,
+                &incorrect_id,
+                &profile,
+                RepoArtifactVerification::Identity
+            )
+            .is_err()
+        );
+    }
 }

@@ -27,11 +27,12 @@ use crate::runtime::RuntimeResourceHints;
 use crate::runtime::plan_runtime;
 use crate::transfer::download::ArtifactDownloadEvent;
 use crate::transfer::download::ArtifactDownloadScheduler;
-use crate::transfer::download::FetchTransferProgress;
 use crate::transfer::download::PendingArtifactDownload;
+use crate::transfer::progress::FetchTransferProgress;
 
 use super::entries::*;
-use super::io::*;
+use super::handles::{OutputHandleCache, SourceHandleCache};
+use super::io::{ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file};
 use super::jobs::*;
 use super::plan::*;
 pub(crate) fn apply_reconstruct_pipeline(

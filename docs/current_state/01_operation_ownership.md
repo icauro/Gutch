@@ -16,7 +16,8 @@ owners.
 | Repo layout and metadata | Private Gutch repo engine, exposed through `gutch::api` | Supply the repo root and persist only through Gutch operations |
 | Repo status and advisory tag references | Private Gutch repo engine, exposed through `gutch::api` | Render the returned status and references |
 | Verify Gutch repo artifacts | Private Gutch repo engine, exposed as `gutch::api::verify_gutch_repo_artifacts` | Supply the repo path, snapshot selection, and verification mode |
-| Fetch snapshot artifacts | Private `transfer/` engine, exposed as `gutch::api::fetch_snapshot` | Resolve authorized artifact sources and provide progress/cancellation |
+| Fetch snapshot artifacts | Private `repo/` acquisition workflow, exposed as `gutch::api::fetch_snapshot` | Resolve authorized artifact sources and provide progress/cancellation |
+| Fetch and reconstruct a destination | Private `installation/` workflow, exposed as `gutch::api::fetch_and_reconstruct_snapshot` | Supply authorized sources and destination/staging paths |
 | Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installation`; CLI `gutch installation verify` | Supply the repo path, destination, mode, and runtime hints |
 | Reconstruct and promote an install | Private `installation/` engine, exposed as `gutch::api::reconstruct_snapshot` | Select the destination/staging paths and commit app metadata only after success |
 | Repair a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::repair_installation`; CLI `gutch installation repair` | Choose repair policy and extra-file handling; present the result |
@@ -41,8 +42,7 @@ parsing; engine operations do not depend on CLI helpers.
 
 Local installation and combined fetch share source verification and reconstruction
 preparation. Their callers retain repository coordination and destination guards
-through execution and publication. Remote metadata publication remains owned by
-the transfer operation.
+through execution and publication. Remote metadata publication belongs to the repository acquisition workflow.
 
 ## Public naming
 
@@ -72,3 +72,28 @@ loose-chunk IDs, for use with artifact-filtered fetching.
 These are prerelease source/CLI renames with no old-name aliases. Binary
 identifiers and layouts remain v1. The API facade groups exports by capability;
 its metadata loaders still acquire reader protection.
+
+## Repository and transfer boundaries
+
+Repository acquisition owns metadata validation, artifact selection and cache
+publication. Transfer owns artifact URL input validation, bounded HTTP streaming,
+retry, queues, adaptive concurrency and quantitative feedback. It does not acquire
+repository locks or commit snapshot metadata. Installation owns combined remote
+fetch and reconstruction and feeds required artifacts into the existing executor.
+
+Combined fetch/reconstruction holds one repository write lock through preparation,
+execution and snapshot publication. The destination guard is acquired after
+snapshot preparation. Artifact readiness still enables reconstruction before all
+downloads finish; repository metadata is published after successful execution.
+Local reconstruction and repair continue to use the shared installation executor.
+
+Repository artifact verification selects `RepoArtifactVerification::Structure`
+or `Identity`; these retain the CLI's `fast` and `strict` report labels.
+Installation verification independently selects full-file or additional chunk
+checks. A stored blueprint whose content-derived identity differs from its
+snapshot ID produces `SnapshotIntegrityMismatch`. Capture translates that
+failure into its capture-specific integrity outcome.
+
+The public API re-exports operations and models. Guarded metadata-reader
+implementation belongs to the repository owner; both public metadata readers
+acquire reader protection before loading committed data.

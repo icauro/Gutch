@@ -431,7 +431,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     let verification = crate::repo::verify::verify_gutch_repo_artifacts(
         temp.path(),
         Some(&snapshot.snapshot_id),
-        crate::installation::inspect::VerifyMode::Strict,
+        crate::repo::verify::RepoArtifactVerification::Identity,
     )
     .unwrap();
     assert!(verification.ok);

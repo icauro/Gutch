@@ -1,14 +1,13 @@
-pub(crate) mod pipeline;
-mod progress;
-pub(crate) mod scan;
-pub(crate) mod types;
-
-pub(crate) mod estimate;
-
-pub(crate) mod execute;
-pub(crate) mod plan;
-
+mod build;
 pub(crate) mod configured_sources;
-pub(crate) mod sources;
-
+pub(crate) mod contracts;
+pub(crate) mod estimate;
+pub(crate) mod execute;
+pub(crate) mod pipeline;
+pub(crate) mod plan;
+mod progress;
+mod publish;
 pub(crate) mod reuse;
+pub(crate) mod scan;
+pub(crate) mod sources;
+pub(crate) mod types;

@@ -1,14 +1,14 @@
+//! Snapshot acquisition, validation and repository publication.
+const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::Error;
 use crate::Result;
-use crate::installation::execute::apply_reconstruct_pipeline;
-use crate::installation::jobs::ReconstructPipelineApplyRequest;
-use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
-use crate::installation::types::SnapshotReconstructSource;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::GutchOperation;
@@ -16,39 +16,28 @@ use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
 use crate::progress::emit_progress;
+use crate::repo::fetch_types::SnapshotFetchRequest;
+use crate::repo::fetch_types::SnapshotFetchResult;
+use crate::repo::paths::write_gutch_repo_manifest as write_repo_manifest;
+use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
+use crate::transfer::artifact_download::TransferDownloadRequest;
 use crate::transfer::download::ArtifactDownloadEvent;
 use crate::transfer::download::ArtifactDownloadScheduler;
 use crate::transfer::download::ArtifactPriority;
-use crate::transfer::download::FetchTransferProgress;
-use crate::transfer::download::MAX_CHUNK_INDEX_BYTES;
-use crate::transfer::download::MAX_SNAPSHOT_BLUEPRINT_BYTES;
-use crate::transfer::download::MAX_SNAPSHOT_METADATA_BYTES;
 use crate::transfer::download::PendingArtifactDownload;
-use crate::transfer::download::TransferDownloadRequest;
-use crate::transfer::download::TransferPhaseCounters;
-use crate::transfer::download::build_download_client;
-use crate::transfer::download::fetch_artifact_urls;
-use crate::transfer::download::snapshot_manifest_from_download;
-use crate::transfer::download::write_repo_manifest;
-use crate::transfer::types::SnapshotFetchAndReconstructRequest;
-use crate::transfer::types::SnapshotFetchAndReconstructResult;
-use crate::transfer::types::SnapshotFetchRequest;
-use crate::transfer::types::SnapshotFetchResult;
+use crate::transfer::http::build_download_client;
+use crate::transfer::progress::FetchTransferProgress;
+use crate::transfer::progress::TransferPhaseCounters;
 
-struct PreparedSnapshotFetch {
-    repo_paths: crate::repo::paths::GutchRepoPaths,
-    repo_manifest: GutchRepoManifest,
-    compression_profile: crate::manifest::CompressionProfile,
-    snapshot_manifest: SnapshotManifest,
-    chunk_index: crate::repo::index::ChunkIndex,
-    required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
-    existing_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
-    pending_artifact_downloads: Vec<PendingArtifactDownload>,
-}
-
-struct ResolvedSnapshotSource {
-    source_manifest: Option<SnapshotManifest>,
-    source_destination_dir: Option<PathBuf>,
+pub(crate) struct PreparedSnapshotFetch {
+    pub(crate) repo_paths: crate::repo::paths::GutchRepoPaths,
+    pub(crate) repo_manifest: GutchRepoManifest,
+    pub(crate) compression_profile: crate::manifest::CompressionProfile,
+    pub(crate) snapshot_manifest: SnapshotManifest,
+    pub(crate) chunk_index: crate::repo::index::ChunkIndex,
+    pub(crate) required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub(crate) existing_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub(crate) pending_artifact_downloads: Vec<PendingArtifactDownload>,
 }
 
 pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchResult> {
@@ -127,127 +116,17 @@ pub fn fetch_snapshot_for_artifact_ids(
         );
 
         Ok(build_fetch_result(
-            &prepared.repo_paths.repo_root,
-            &request.snapshot_id,
+            request,
             required_artifacts.len(),
             required_bundle_count,
             downloaded_artifact_count,
             downloaded_bundle_count,
-            request.transfer_policy,
             transfer_stats,
         ))
     })
 }
 
-pub fn fetch_and_reconstruct_snapshot(
-    request: SnapshotFetchAndReconstructRequest,
-) -> Result<SnapshotFetchAndReconstructResult> {
-    request.fetch_request.control.checkpoint()?;
-    let operation_root = (&request.fetch_request.repo_path).to_path_buf();
-    std::fs::create_dir_all(&operation_root)?;
-    crate::repo::coordination::write_with_control(
-        &operation_root,
-        &request.fetch_request.control.clone(),
-        || {
-            request.fetch_request.control.checkpoint()?;
-            let _operation_span = request
-                .fetch_request
-                .control
-                .profile_span("transfer.fetch_reconstruct");
-            let progress = request.fetch_request.control.progress().clone();
-            let download_client = build_download_client()?;
-            let transfer_progress = Arc::new(FetchTransferProgress::default());
-            let prepared = prepare_snapshot_fetch(
-                &request.fetch_request,
-                &download_client,
-                &progress,
-                &transfer_progress,
-            )?;
-            let _promotion_lock = crate::installation::apply::prepare_installation_destination(
-                &prepared.snapshot_manifest,
-                &request.destination_dir,
-                request.staging_dir.as_deref(),
-                &request.fetch_request.repo_path,
-                &request.fetch_request.control,
-            )?;
-            let resolved_source = resolve_snapshot_source(&request, &prepared.repo_paths)?;
-            let reconstruction = prepare_reconstruction(ReconstructionInputs {
-                snapshot_manifest: &prepared.snapshot_manifest,
-                chunk_index: &prepared.chunk_index,
-                repo_paths: &prepared.repo_paths,
-                existing_artifacts: &prepared.existing_artifacts,
-                source: resolved_source
-                    .source_manifest
-                    .as_ref()
-                    .zip(resolved_source.source_destination_dir.as_deref())
-                    .map(
-                        |(snapshot_manifest, destination_dir)| SnapshotReconstructSource {
-                            snapshot_manifest,
-                            destination_dir,
-                        },
-                    ),
-                runtime_hints: &request.runtime_hints,
-                control: &request.fetch_request.control,
-            })?;
-            let pending_artifact_downloads = select_pending_artifact_downloads(
-                &prepared.pending_artifact_downloads,
-                &reconstruction.plan.required_artifacts,
-            );
-            if pending_artifact_downloads.is_empty() {
-                transfer_progress.finish();
-            }
-
-            let (reconstruct_result, _) = apply_reconstruct_pipeline(
-                ReconstructPipelineApplyRequest {
-                    publication: crate::installation::publish::Publication::ReplaceDirectory,
-                    repo_root: &prepared.repo_paths.repo_root,
-                    compression_profile: prepared.compression_profile.clone(),
-                    snapshot_manifest: &prepared.snapshot_manifest,
-                    destination_dir: &request.destination_dir,
-                    staging_dir: request.staging_dir.as_deref(),
-                    source_destination_dir: reconstruction.source_directory,
-                    runtime_hints: &request.runtime_hints,
-                    existing_artifacts: &prepared.existing_artifacts,
-                    pending_artifact_downloads: &pending_artifact_downloads,
-                    transfer_policy: request.fetch_request.transfer_policy,
-                    control: &request.fetch_request.control,
-                    download_client: Some(&download_client),
-                    transfer_progress: Some(&transfer_progress),
-                },
-                reconstruction.plan,
-            )?;
-            publish_fetched_snapshot(&prepared)?;
-            let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);
-            let fetch_result = build_fetch_result(
-                &prepared.repo_paths.repo_root,
-                &request.fetch_request.snapshot_id,
-                reconstruct_result
-                    .reconstruct_result
-                    .required_artifact_count,
-                reconstruct_result.reconstruct_result.required_bundle_count,
-                pending_artifact_downloads.len(),
-                pending_artifact_downloads
-                    .iter()
-                    .filter(|download| {
-                        matches!(
-                            download.artifact,
-                            crate::repo::artifacts::ArtifactRef::Bundle { .. }
-                        )
-                    })
-                    .count(),
-                request.fetch_request.transfer_policy,
-                transfer_stats,
-            );
-
-            Ok(SnapshotFetchAndReconstructResult {
-                fetch_result,
-                reconstruct_result,
-            })
-        },
-    )
-}
-
-fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
+pub(crate) fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
     // Immutable downloads finish first; the validated snapshot is the commit marker.
     write_repo_manifest(&prepared.repo_paths, &prepared.repo_manifest)?;
     crate::repo::index::write_chunk_index(&prepared.repo_paths, &prepared.chunk_index)?;
@@ -258,7 +137,7 @@ fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
     Ok(())
 }
 
-fn prepare_snapshot_fetch(
+pub(crate) fn prepare_snapshot_fetch(
     request: &SnapshotFetchRequest,
     download_client: &crate::transfer::http::DownloadClient,
     progress: &Option<Arc<dyn GutchProgressSink>>,
@@ -440,7 +319,7 @@ fn prepare_snapshot_fetch(
                 &local_index,
                 &repo_manifest.compression_profile(),
                 &request.snapshot_id,
-                crate::installation::inspect::VerifyMode::Strict,
+                crate::repo::verify::RepoArtifactVerification::Identity,
             )
             .is_ok_and(|result| result.ok)
         {
@@ -584,30 +463,7 @@ fn build_pending_artifact_downloads(
         .collect()
 }
 
-fn resolve_snapshot_source(
-    request: &SnapshotFetchAndReconstructRequest,
-    repo_paths: &crate::repo::paths::GutchRepoPaths,
-) -> Result<ResolvedSnapshotSource> {
-    let source_manifest = match request.source_snapshot_id.as_ref() {
-        Some(source_snapshot_id) => Some(crate::repo::snapshot_manifests::load_snapshot_manifest(
-            repo_paths,
-            source_snapshot_id,
-        )?),
-        None => None,
-    };
-    let source_destination_dir = source_manifest.as_ref().map(|_| {
-        request
-            .source_dir
-            .clone()
-            .unwrap_or_else(|| request.destination_dir.clone())
-    });
-    Ok(ResolvedSnapshotSource {
-        source_manifest,
-        source_destination_dir,
-    })
-}
-
-fn select_pending_artifact_downloads(
+pub(crate) fn select_pending_artifact_downloads(
     pending_artifact_downloads: &[PendingArtifactDownload],
     required_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
 ) -> Vec<PendingArtifactDownload> {
@@ -618,19 +474,17 @@ fn select_pending_artifact_downloads(
         .collect()
 }
 
-fn build_fetch_result(
-    repo_root: &std::path::Path,
-    snapshot_id: &str,
+pub(crate) fn build_fetch_result(
+    request: &SnapshotFetchRequest,
     required_artifact_count: usize,
     required_bundle_count: usize,
     downloaded_artifact_count: usize,
     downloaded_bundle_count: usize,
-    transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     transfer_stats: crate::transfer::types::TransferStats,
 ) -> SnapshotFetchResult {
     SnapshotFetchResult {
-        repo_path: repo_root.to_path_buf(),
-        snapshot_id: snapshot_id.to_string(),
+        repo_path: request.repo_path.clone(),
+        snapshot_id: request.snapshot_id.clone(),
         required_bundle_count,
         downloaded_bundle_count,
         skipped_existing_bundle_count: required_bundle_count
@@ -639,7 +493,7 @@ fn build_fetch_result(
         downloaded_artifact_count,
         skipped_existing_artifact_count: required_artifact_count
             .saturating_sub(downloaded_artifact_count),
-        transfer_policy,
+        transfer_policy: request.transfer_policy,
         transfer_stats,
     }
 }
@@ -698,4 +552,62 @@ fn download_pending_artifacts(
     transfer_progress.finish();
     request.control.download_finished();
     Ok(downloaded_count)
+}
+
+pub(crate) fn fetch_artifact_urls(
+    request: &SnapshotFetchRequest,
+    required_artifact_ids: &std::collections::HashSet<String>,
+    existing_artifact_ids: &std::collections::HashSet<String>,
+) -> Result<HashMap<String, String>> {
+    let mut artifact_urls =
+        crate::transfer::sources::normalize_artifact_downloads(&request.artifacts)?;
+    let unresolved_artifact_ids = required_artifact_ids
+        .iter()
+        .filter(|artifact_id| {
+            !existing_artifact_ids.contains(*artifact_id)
+                && !artifact_urls.contains_key(artifact_id.as_str())
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if unresolved_artifact_ids.is_empty() {
+        return Ok(artifact_urls);
+    }
+
+    let provider = request.artifact_url_provider.as_ref().ok_or_else(|| {
+        Error::manifest(
+            "artifact URL provider is required when direct artifact URLs are not provided",
+        )
+    })?;
+    let resolved_artifacts =
+        provider.resolve_artifact_urls(&unresolved_artifact_ids, &request.control)?;
+    for artifact in resolved_artifacts {
+        let (artifact_id, url) = crate::transfer::sources::normalize_artifact_download(&artifact)?;
+        if !unresolved_artifact_ids.iter().any(|id| id == artifact_id) {
+            return Err(Error::manifest(format!(
+                "artifact URL provider returned unexpected artifact '{}'",
+                artifact_id
+            )));
+        }
+        if artifact_urls
+            .insert(artifact_id.to_string(), url.to_string())
+            .is_some()
+        {
+            return Err(Error::manifest(format!(
+                "artifact URL provider returned duplicate artifact '{}'",
+                artifact_id
+            )));
+        }
+    }
+
+    let missing = unresolved_artifact_ids
+        .into_iter()
+        .filter(|artifact_id| !artifact_urls.contains_key(artifact_id))
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(Error::manifest(format!(
+            "missing artifact download URLs for: {}",
+            missing.join(", ")
+        )));
+    }
+    Ok(artifact_urls)
 }

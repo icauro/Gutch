@@ -192,9 +192,9 @@ pub(crate) fn run(
             json_out,
         } => {
             let mode = if strict {
-                crate::api::VerifyMode::Strict
+                crate::api::RepoArtifactVerification::Identity
             } else {
-                crate::api::VerifyMode::Fast
+                crate::api::RepoArtifactVerification::Structure
             };
             let result =
                 crate::api::verify_gutch_repo_artifacts(&repo, snapshot_id.as_deref(), mode)?;
