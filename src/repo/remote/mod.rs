@@ -486,11 +486,11 @@ mod tests {
                     source_dir: source.clone(),
                     explicit_tags: Default::default(),
                     chunk_profile,
-                    chunker: crate::manifest::Chunker::FastCdc,
+                    chunker: crate::artifact::profiles::Chunker::FastCdc,
                     bundle_profile: Default::default(),
-                    compression_algorithm: crate::manifest::CompressionKind::Zstd,
+                    compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
                     compression_level: None,
-                    storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+                    storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
                     runtime_hints: crate::runtime::RuntimeResourceHints {
                         jobs: Some(1),
                         ..Default::default()
@@ -501,9 +501,14 @@ mod tests {
             .unwrap();
             (repo, paths, captured.snapshot_id)
         };
-        let (local, paths, id) = capture("local", crate::manifest::ChunkSizingPreset::Chunk16KiB);
-        let (_, remote_paths, remote_id) =
-            capture("remote", crate::manifest::ChunkSizingPreset::Chunk1MiB);
+        let (local, paths, id) = capture(
+            "local",
+            crate::artifact::profiles::ChunkSizingPreset::Chunk16KiB,
+        );
+        let (_, remote_paths, remote_id) = capture(
+            "remote",
+            crate::artifact::profiles::ChunkSizingPreset::Chunk1MiB,
+        );
         assert_eq!(id, remote_id);
         let remote = RemoteRepository {
             id: "remote".into(),

@@ -1,5 +1,5 @@
 //! Frozen pre-interface streaming adapter, used only as a performance control.
-use crate::manifest::ChunkSizingProfile;
+use crate::artifact::profiles::ChunkSizingProfile;
 use crate::progress::GutchOperationControl;
 use std::io::Read;
 

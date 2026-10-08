@@ -1,7 +1,7 @@
 use crate::Error;
 use crate::Result;
-use crate::manifest::ArtifactStorageMode;
-use crate::manifest::CompressionProfile;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::CompressionProfile;
 use crate::progress::GutchOperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;

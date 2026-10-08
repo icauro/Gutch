@@ -90,12 +90,12 @@ fn test_capture(
         repo_root: repo_root.to_path_buf(),
         source_dir: source_dir.to_path_buf(),
         explicit_tags: tags.clone(),
-        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
-        chunker: crate::manifest::Chunker::FastCdc,
-        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
-        compression_algorithm: manifest::CompressionKind::Zstd,
+        chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::artifact::profiles::Chunker::FastCdc,
+        bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
         compression_level: None,
-        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
         control,
     })
@@ -160,12 +160,12 @@ fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
         repo_root: repo_root.clone(),
         source_dir: source,
         explicit_tags: test_tags(),
-        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
-        chunker: manifest::Chunker::Jc,
-        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
-        compression_algorithm: manifest::CompressionKind::Zstd,
+        chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::artifact::profiles::Chunker::Jc,
+        bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
         compression_level: None,
-        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: Default::default(),
         control: Default::default(),
     })
@@ -175,8 +175,8 @@ fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
         .unwrap();
     let new = crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &second.snapshot_id)
         .unwrap();
-    assert_eq!(old.chunker, manifest::Chunker::FastCdc);
-    assert_eq!(new.chunker, manifest::Chunker::Jc);
+    assert_eq!(old.chunker, crate::artifact::profiles::Chunker::FastCdc);
+    assert_eq!(new.chunker, crate::artifact::profiles::Chunker::Jc);
     let old_file = old.files().find(|file| file.path == "game.exe").unwrap();
     let new_file = new.files().find(|file| file.path == "game.exe").unwrap();
     assert_ne!(
@@ -252,12 +252,12 @@ fn cancelled_capture_retains_first_snapshot() {
         repo_root: repo_root.clone(),
         source_dir: source_b,
         explicit_tags: test_tags(),
-        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
-        chunker: crate::manifest::Chunker::FastCdc,
-        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
-        compression_algorithm: manifest::CompressionKind::Zstd,
+        chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::artifact::profiles::Chunker::FastCdc,
+        bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
         compression_level: None,
-        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
         control: cancelled,
     });
@@ -322,12 +322,12 @@ fn same_id_different_tags_returns_metadata_conflict() {
         repo_root: repo_root.clone(),
         source_dir: source,
         explicit_tags: other_tags,
-        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
-        chunker: crate::manifest::Chunker::FastCdc,
-        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
-        compression_algorithm: manifest::CompressionKind::Zstd,
+        chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::artifact::profiles::Chunker::FastCdc,
+        bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
         compression_level: None,
-        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
         control: crate::progress::GutchOperationControl::default(),
     });
@@ -413,12 +413,12 @@ fn tampered_blueprint_returns_integrity_conflict() {
         repo_root: repo_root.clone(),
         source_dir: source,
         explicit_tags: test_tags(),
-        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
-        chunker: crate::manifest::Chunker::FastCdc,
-        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
-        compression_algorithm: manifest::CompressionKind::Zstd,
+        chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::artifact::profiles::Chunker::FastCdc,
+        bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
         compression_level: None,
-        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
         control: crate::progress::GutchOperationControl::default(),
     });
@@ -497,12 +497,12 @@ fn failed_artifact_write_publishes_no_snapshot() {
         repo_root: repo_root.clone(),
         source_dir: source_b,
         explicit_tags: test_tags(),
-        chunk_profile: manifest::ChunkSizingPreset::Chunk128KiB,
-        chunker: crate::manifest::Chunker::FastCdc,
-        bundle_profile: manifest::BundleSizingPreset::Bundle8MiB,
-        compression_algorithm: manifest::CompressionKind::Zstd,
+        chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+        chunker: crate::artifact::profiles::Chunker::FastCdc,
+        bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
         compression_level: None,
-        storage_mode: manifest::ArtifactStorageMode::Bundled,
+        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
         control: crate::progress::GutchOperationControl::default(),
     });

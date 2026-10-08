@@ -19,6 +19,11 @@ made available to the local engine; Gutch does not reconstruct into a remote
 filesystem target. The destination, staging directory, output handles, writes,
 and final verification are local operations.
 
+Installation orchestration owns staging and publication. Pipeline coordination
+owns artifact readiness, file dependency completion and verification scheduling.
+Workers own memory admission and execution. Completion releases worker handles
+before notification; failure drains dispatched work before staging cleanup.
+
 ## Execution timeline
 
 | Stage | Work | Overlap and gate |

@@ -372,7 +372,7 @@ pub(crate) fn build_timings_summary(
         ],
     );
     let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
-    let bundled = timings.storage_mode == crate::manifest::ArtifactStorageMode::Bundled;
+    let bundled = timings.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled;
 
     BuildTimingsSummary {
         schema_version: 1,

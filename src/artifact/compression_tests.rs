@@ -1,5 +1,5 @@
 use super::*;
-use crate::manifest::CompressionProfile;
+use crate::artifact::profiles::CompressionProfile;
 
 #[test]
 fn test_compress_decompress_roundtrip() {

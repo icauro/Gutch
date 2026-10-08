@@ -30,9 +30,9 @@ fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
 }
 
 pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
-    crate::manifest::profiles::validate_packaging_sizes(
-        &crate::manifest::ChunkSizingProfile::for_preset(request.chunk_profile),
-        &crate::manifest::BundleSizingProfile::for_preset(request.bundle_profile),
+    crate::artifact::profiles::validate_packaging_sizes(
+        &crate::artifact::profiles::ChunkSizingProfile::for_preset(request.chunk_profile),
+        &crate::artifact::profiles::BundleSizingProfile::for_preset(request.bundle_profile),
         request.storage_mode,
     )?;
     request.control.checkpoint()?;
@@ -444,7 +444,7 @@ fn count_required_bundles_for_build(
     };
     for chunk_hash in required_chunks {
         if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
-            && existing.storage_mode == crate::manifest::ArtifactStorageMode::Bundled
+            && existing.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled
         {
             required_bundle_ids.insert(existing.bundle_id.clone());
         }

@@ -8,6 +8,7 @@ pub(crate) mod inspect;
 pub(crate) mod install;
 mod io;
 pub(crate) mod jobs;
+mod pipeline;
 pub(crate) mod plan;
 pub(crate) mod prepare;
 pub(crate) mod preview;
@@ -15,6 +16,7 @@ pub(crate) mod publish;
 mod repair;
 pub(crate) mod state;
 pub(crate) mod types;
+mod workers;
 
 pub use apply::reconstruct_snapshot;
 pub use apply::verify_installation;

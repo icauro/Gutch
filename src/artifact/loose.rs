@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::Error;
 use crate::Result;
-use crate::manifest::CompressionProfile;
+use crate::artifact::profiles::CompressionProfile;
 
 pub(crate) fn read_loose_chunk(
     path: &std::path::Path,
@@ -125,7 +125,7 @@ pub(crate) fn read_loose_header(
 ) -> Result<(
     crate::artifact::hash::ChunkHash,
     u32,
-    crate::manifest::CompressionKind,
+    crate::artifact::profiles::CompressionKind,
 )> {
     let mut magic = [0u8; 16];
     reader.read_exact(&mut magic)?;
@@ -159,9 +159,9 @@ mod tests {
         let bytes = vec![97; format::MAX_RAW_CHUNK_SIZE as usize];
         let hash = crate::artifact::hash::ChunkHash::from_bytes(*blake3::hash(&bytes).as_bytes());
         for codec in [
-            crate::manifest::CompressionKind::None,
-            crate::manifest::CompressionKind::Zstd,
-            crate::manifest::CompressionKind::Lz4,
+            crate::artifact::profiles::CompressionKind::None,
+            crate::artifact::profiles::CompressionKind::Zstd,
+            crate::artifact::profiles::CompressionKind::Lz4,
         ] {
             let path = directory.path().join(format!("{codec:?}"));
             let profile = CompressionProfile::for_algorithm(codec, None);

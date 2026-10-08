@@ -3,9 +3,9 @@ use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
 
+use crate::artifact::profiles::CompressionKind;
+use crate::artifact::profiles::CompressionProfile;
 use crate::error::Result;
-use crate::manifest::CompressionKind;
-use crate::manifest::CompressionProfile;
 
 // Admission estimates for codec work, not a bound on total process RSS.
 // Keep encoder and decoder reservations separate: their live buffers differ.

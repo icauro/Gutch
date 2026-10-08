@@ -32,7 +32,7 @@ use crate::transfer::progress::TransferPhaseCounters;
 pub(crate) struct PreparedSnapshotFetch {
     pub(crate) repo_paths: crate::repo::paths::GutchRepoPaths,
     pub(crate) repo_manifest: GutchRepoManifest,
-    pub(crate) compression_profile: crate::manifest::CompressionProfile,
+    pub(crate) compression_profile: crate::artifact::profiles::CompressionProfile,
     pub(crate) snapshot_manifest: SnapshotManifest,
     pub(crate) chunk_index: crate::repo::index::ChunkIndex,
     pub(crate) required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,

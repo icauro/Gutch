@@ -1,4 +1,4 @@
-use crate::manifest::ArtifactStorageMode;
+use crate::artifact::profiles::ArtifactStorageMode;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::GutchRepoPaths;
 use crate::{Error, Result};

@@ -243,7 +243,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
                     test_hash("bundle-a").into(),
                     4,
                     4,
-                    manifest::ArtifactStorageMode::Bundled,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
             (
@@ -254,7 +254,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
                     test_hash("bundle-b").into(),
                     4,
                     4,
-                    manifest::ArtifactStorageMode::Bundled,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
         ])),

@@ -1,5 +1,5 @@
 use super::*;
-use crate::manifest::ChunkSizingProfile;
+use crate::artifact::profiles::ChunkSizingProfile;
 use crate::test_util;
 
 #[test]
@@ -21,7 +21,7 @@ fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
             })
             .collect();
         std::fs::write(&path, &data).unwrap();
-        for preset in crate::manifest::ChunkSizingPreset::value_variants() {
+        for preset in crate::artifact::profiles::ChunkSizingPreset::value_variants() {
             let profile = ChunkSizingProfile::for_preset(*preset);
             let expected = chunk_bytes(&data, &profile);
             let (actual, _) =
@@ -206,7 +206,7 @@ fn repeated_chunk_scans_have_identical_boundaries() {
 #[test]
 fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
     use crate::artifact::jc::{JumpChunker, Parameters};
-    use crate::manifest::{ChunkSizingPreset, Chunker};
+    use crate::artifact::profiles::{ChunkSizingPreset, Chunker};
     use clap::ValueEnum;
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");

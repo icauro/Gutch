@@ -47,9 +47,9 @@ pub fn plan_snapshot_captures(
     requests
         .iter()
         .map(|request| {
-            crate::manifest::profiles::validate_packaging_sizes(
-                &crate::manifest::ChunkSizingProfile::for_preset(request.chunk_profile),
-                &crate::manifest::BundleSizingProfile::for_preset(request.bundle_profile),
+            crate::artifact::profiles::validate_packaging_sizes(
+                &crate::artifact::profiles::ChunkSizingProfile::for_preset(request.chunk_profile),
+                &crate::artifact::profiles::BundleSizingProfile::for_preset(request.bundle_profile),
                 request.storage_mode,
             )?;
             crate::capture::plan::plan_snapshot_capture_with_control(

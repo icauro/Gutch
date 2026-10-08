@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::artifact::hash::ChunkHash;
-use crate::manifest::ArtifactStorageMode;
-use crate::manifest::BundleSizingPreset;
-use crate::manifest::BundleSizingProfile;
-use crate::manifest::ChunkSizingPreset;
-use crate::manifest::ChunkSizingProfile;
-use crate::manifest::CompressionKind;
-use crate::manifest::CompressionProfile;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::BundleSizingPreset;
+use crate::artifact::profiles::BundleSizingProfile;
+use crate::artifact::profiles::ChunkSizingPreset;
+use crate::artifact::profiles::ChunkSizingProfile;
+use crate::artifact::profiles::CompressionKind;
+use crate::artifact::profiles::CompressionProfile;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -77,7 +77,7 @@ impl<'a> BuildConfig<'a> {
         self
     }
 
-    pub fn with_chunker(mut self, chunker: crate::manifest::Chunker) -> Self {
+    pub fn with_chunker(mut self, chunker: crate::artifact::profiles::Chunker) -> Self {
         self.chunk_profile = self.chunk_profile.with_chunker(chunker);
         self
     }

@@ -42,7 +42,7 @@ pub(crate) struct ChunkPlacementKey {
 
 pub(crate) struct ScanDirectoryOptions<'a> {
     pub previous_file_manifests: &'a HashMap<String, Vec<FileManifest>>,
-    pub chunking_profile: &'a manifest::ChunkSizingProfile,
+    pub chunking_profile: &'a crate::artifact::profiles::ChunkSizingProfile,
     pub existing_chunk_locations: &'a HashMap<ChunkHash, ExistingChunkLocation>,
     pub worker_count: usize,
     pub worker_pool: &'a ThreadPool,
@@ -647,7 +647,7 @@ mod tests {
                 &inventory,
                 ScanDirectoryOptions {
                     previous_file_manifests: &HashMap::new(),
-                    chunking_profile: &manifest::ChunkSizingProfile::default(),
+                    chunking_profile: &crate::artifact::profiles::ChunkSizingProfile::default(),
                     existing_chunk_locations: &HashMap::new(),
                     worker_count: workers,
                     worker_pool: &pool,

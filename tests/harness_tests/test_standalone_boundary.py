@@ -88,12 +88,69 @@ def test_reconstruction_requires_explicit_storage(monkeypatch):
     assert settings.endpoint == "http://localhost:8333"
 
 
+def production_source(source):
+    """Remove test-gated items, retaining production code before and after them."""
+    # Blank comments and strings for brace matching; keep offsets into the source.
+    literals = re.compile(r'r(#+)".*?"\1|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])\'|//[^\n]*|/\*.*?\*/', re.S)
+    masked = literals.sub(lambda match: " " * len(match[0]), source)
+    ranges = []
+    for attribute in re.finditer(r"#\[cfg\(test\)\]", masked):
+        start = attribute.start()
+        if ranges and start < ranges[-1][1]:
+            continue
+        item = attribute.end()
+        # Test-only imports have a semicolon even when their use tree has braces.
+        declaration = re.sub(r"^\s*(?:#\[[^\]]*\]\s*)*", "", masked[item:])
+        if re.match(r"(?:pub(?:\([^)]*\))?\s+)?(?:use\b|mod\s+\w+\s*;)", declaration):
+            end = masked.index(";", item) + 1
+        else:
+            opening = masked.index("{", item)
+            depth = 1
+            end = opening + 1
+            while depth:
+                depth += (masked[end] == "{") - (masked[end] == "}")
+                end += 1
+        ranges.append((start, end))
+    for start, end in reversed(ranges):
+        source = source[:start] + " " * (end - start) + source[end:]
+    return source
+
+
 def implementation_sources(directory):
     """Exclude dedicated tests and inline test modules from dependency checks."""
     for path in sorted((ROOT / "src" / directory).rglob("*.rs")):
         if "test" in path.stem:
             continue
-        yield path, path.read_text(encoding="utf-8").split("#[cfg(test)]")[0]
+        yield path, production_source(path.read_text(encoding="utf-8"))
+
+
+def test_source_scanner_keeps_production_after_test_only_items():
+    source = '''#[cfg(test)]
+use std::io::{Cursor, Read};
+use crate::manifest::CompressionKind;
+#[cfg(test)]
+#[path = "tests.rs"]
+mod external_tests;
+#[cfg(test)]
+mod tests { fn example() { let text = r#"}"#; } }
+use crate::repo::coordination;
+'''
+    production = production_source(source)
+    assert "CompressionKind" in production
+    assert "crate::repo::coordination" in production
+    assert "Cursor" not in production
+    assert "fn example" not in production
+
+
+def test_source_scanner_keeps_production_after_test_only_function():
+    source = '''impl Codec {
+#[cfg(test)]
+fn decode_test() { let text = "{"; }
+fn encode() { crate::repo::coordination::write(); }
+}'''
+    production = production_source(source)
+    assert "fn decode_test" not in production
+    assert "crate::repo::coordination::write" in production
 
 
 def test_repository_persistence_does_not_depend_on_capture_or_installation():
@@ -111,7 +168,7 @@ def test_transfer_does_not_orchestrate_repository_or_installation_workflows():
 
 def test_artifact_codecs_do_not_depend_on_repository_workflows():
     for path, source in implementation_sources("artifact"):
-        assert not re.search(r"crate::(?:repo|capture|installation)::", source), path.relative_to(ROOT)
+        assert not re.search(r"crate::(?:repo|capture|installation|manifest)::", source), path.relative_to(ROOT)
 
 
 def test_public_api_only_reexports_owner_operations_and_contracts():

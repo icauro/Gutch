@@ -1,6 +1,6 @@
 //! Native property/fuzz targets: normal cargo tests sample inputs; cargo bolero uses instrumentation.
+use crate::artifact::profiles::{CompressionKind, CompressionProfile};
 use crate::artifact::{bundle, compression};
-use crate::manifest::{CompressionKind, CompressionProfile};
 use std::io::{Cursor, Read};
 
 #[test]

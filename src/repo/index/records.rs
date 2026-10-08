@@ -1,4 +1,4 @@
-use crate::manifest::ArtifactStorageMode;
+use crate::artifact::profiles::ArtifactStorageMode;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]

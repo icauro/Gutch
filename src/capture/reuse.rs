@@ -1,7 +1,8 @@
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::manifest::FileManifest;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::manifest::{ArtifactStorageMode, FileManifest};
 use crate::repo::index::{
     collect_file_paths, empty_chunk_index, load_chunk_index,
     rebuild_chunk_index_from_bundles_with_pool,

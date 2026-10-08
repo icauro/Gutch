@@ -162,7 +162,7 @@ pub(super) fn publish_snapshot_artifacts(
                 crate::capture::types::ExistingChunkLocation {
                     bundle_id: bundle.bundle_id.clone(),
                     compressed_size: u64::from(chunk.compressed_size),
-                    storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+                    storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 },
             );
         }
@@ -174,7 +174,7 @@ pub(super) fn publish_snapshot_artifacts(
             crate::capture::types::ExistingChunkLocation {
                 bundle_id: chunk_hash,
                 compressed_size: chunk.compressed_size,
-                storage_mode: crate::manifest::ArtifactStorageMode::LooseChunks,
+                storage_mode: crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             },
         );
     }

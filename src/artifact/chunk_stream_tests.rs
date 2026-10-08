@@ -62,7 +62,7 @@ fn compare(bytes: &[u8], profile: &ChunkSizingProfile, hint: u64, read_limit: us
 #[test]
 fn every_preset_matches_upstream_across_refills_and_short_reads() {
     let bytes = random_bytes(2 * 1024 * 1024 + 37, 917);
-    for preset in crate::manifest::ChunkSizingPreset::value_variants() {
+    for preset in crate::artifact::profiles::ChunkSizingPreset::value_variants() {
         let profile = ChunkSizingProfile::for_preset(*preset);
         for (hint, limit) in [
             (0, 4093),
@@ -79,7 +79,8 @@ fn every_preset_matches_upstream_across_refills_and_short_reads() {
 
 #[test]
 fn repeated_bytes_and_largest_windows_preserve_exact_boundaries() {
-    let profile = ChunkSizingProfile::for_preset(crate::manifest::ChunkSizingPreset::Chunk4MiB);
+    let profile =
+        ChunkSizingProfile::for_preset(crate::artifact::profiles::ChunkSizingPreset::Chunk4MiB);
     let length = 2 * profile.max_chunk_bytes as usize + 3;
     compare(&vec![0; length], &profile, length as u64, usize::MAX);
     compare(
@@ -93,7 +94,7 @@ fn repeated_bytes_and_largest_windows_preserve_exact_boundaries() {
 #[test]
 fn randomized_profiles_and_inputs_match_upstream() {
     bolero::check!().for_each(|input: &[u8]| {
-        let presets = crate::manifest::ChunkSizingPreset::value_variants();
+        let presets = crate::artifact::profiles::ChunkSizingPreset::value_variants();
         let index = input.first().copied().unwrap_or(0) as usize % presets.len();
         let profile = ChunkSizingProfile::for_preset(presets[index]);
         compare(input, &profile, input.len() as u64, 113);

@@ -3,8 +3,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use smol_str::SmolStr;
 
-use super::CHUNK_HASH_BLAKE3;
-use super::FORMAT_VERSION;
+use super::format::CHUNK_HASH_BLAKE3;
+use super::format::FORMAT_VERSION;
 
 /// CLI names are short; serialized names pin the exact boundary algorithm.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
@@ -367,5 +367,84 @@ mod sizing_tests {
                 validate_packaging_sizes(&chunk, &bundle, ArtifactStorageMode::LooseChunks).is_ok()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    #[test]
+    fn test_chunking_profile_defaults() {
+        let p = ChunkSizingProfile::default();
+        assert_eq!(p.preset, ChunkSizingPreset::Chunk128KiB);
+        assert_eq!(p.min_chunk_bytes, 32 * 1024);
+        assert_eq!(p.avg_chunk_bytes, 128 * 1024);
+        assert_eq!(p.max_chunk_bytes, 512 * 1024);
+        assert_eq!(p.min_chunk_size_bytes(), 32 * 1024);
+        assert_eq!(p.avg_chunk_size_bytes(), 128 * 1024);
+        assert_eq!(p.max_chunk_size_bytes(), 512 * 1024);
+        assert_eq!(p.chunk_hash_algorithm, "blake3");
+    }
+
+    #[test]
+    fn test_small_chunk_profile_uses_sub_kib_range() {
+        let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1KiB);
+        assert_eq!(p.preset, ChunkSizingPreset::Chunk1KiB);
+        assert_eq!(p.min_chunk_size_bytes(), 256);
+        assert_eq!(p.avg_chunk_size_bytes(), 1024);
+        assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
+    }
+
+    #[test]
+    fn test_chunk_profile_4kib_uses_expected_range() {
+        let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk4KiB);
+        assert_eq!(p.preset, ChunkSizingPreset::Chunk4KiB);
+        assert_eq!(p.min_chunk_size_bytes(), 1024);
+        assert_eq!(p.avg_chunk_size_bytes(), 4 * 1024);
+        assert_eq!(p.max_chunk_size_bytes(), 16 * 1024);
+    }
+
+    #[test]
+    fn test_chunk_profile_512kib_uses_expected_range() {
+        let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk512KiB);
+        assert_eq!(p.preset, ChunkSizingPreset::Chunk512KiB);
+        assert_eq!(p.min_chunk_size_bytes(), 128 * 1024);
+        assert_eq!(p.avg_chunk_size_bytes(), 512 * 1024);
+        assert_eq!(p.max_chunk_size_bytes(), 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_chunk_profile_1mib_uses_expected_range() {
+        let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1MiB);
+        assert_eq!(p.preset, ChunkSizingPreset::Chunk1MiB);
+        assert_eq!(p.min_chunk_size_bytes(), 256 * 1024);
+        assert_eq!(p.avg_chunk_size_bytes(), 1024 * 1024);
+        assert_eq!(p.max_chunk_size_bytes(), 4 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_bundle_sizing_profile_defaults() {
+        let p = BundleSizingProfile::default();
+        assert_eq!(p.preset, BundleSizingPreset::Bundle8MiB);
+        assert_eq!(p.bundle_max_mib, 16);
+        assert_eq!(p.bundle_preferred_mib, 8);
+        assert_eq!(p.bundle_max_size_bytes(), 16 * 1024 * 1024);
+        assert_eq!(p.bundle_preferred_size_bytes(), 8 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_compression_profile_defaults() {
+        let p = CompressionProfile::default();
+        assert_eq!(p.level, Some(3));
+        assert_eq!(p.compression, CompressionKind::Zstd);
+        assert_eq!(p.compression_unit, CompressionUnit::Bundle);
+    }
+
+    #[test]
+    fn test_compression_profile_zstd5_level() {
+        let p = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(5));
+        assert_eq!(p.level, Some(5));
+        assert_eq!(p.compression, CompressionKind::Zstd);
+        assert_eq!(p.compression_unit, CompressionUnit::Bundle);
     }
 }

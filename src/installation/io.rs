@@ -31,7 +31,7 @@ pub(super) struct ReconstructJobRequest<'a> {
     pub(super) precomputed_file_hashes: &'a [Mutex<Option<crate::artifact::hash::ChunkHash>>],
     pub(super) output_handles: &'a OutputHandleCache,
     pub(super) source_handles: &'a SourceHandleCache,
-    pub(super) compression_profile: &'a crate::manifest::CompressionProfile,
+    pub(super) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
     pub(super) control: &'a GutchOperationControl,
 }
 
@@ -72,7 +72,7 @@ pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
 fn reconstruct_artifact_job(
     job: &ReconstructArtifactJob,
     output_handles: &OutputHandleCache,
-    compression_profile: &crate::manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;

@@ -104,7 +104,7 @@ fn table_cells_are_truncated_without_breaking_width() {
 #[test]
 fn build_summary_separates_wall_phases_from_worker_details() {
     let timings = crate::capture::types::BuildTimings {
-        storage_mode: crate::manifest::ArtifactStorageMode::Bundled,
+        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         scan_chunk_wall: Duration::from_secs(4),
         logical_bytes: 20 * 1024 * 1024,
         stream_chunk: Duration::from_secs(6),

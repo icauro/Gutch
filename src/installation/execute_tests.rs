@@ -1,12 +1,20 @@
 use super::*;
 use crate::artifact::hash::hash_hex;
+use crate::installation::io::verify_reconstructed_output_file;
+use crate::installation::jobs::*;
+use crate::installation::plan::*;
 use crate::installation::types::SnapshotReconstructSource;
-use crate::manifest;
 use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::SnapshotTagSet;
+use crate::progress::{GutchOperationControl, GutchProgressEvent, GutchProgressPhase};
+use crate::runtime::RuntimeResourceHints;
+use crate::transfer::download::PendingArtifactDownload;
+use crate::transfer::progress::FetchTransferProgress;
 use std::collections::BTreeMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn output_verification_uses_file_concurrency_without_misreporting_pool_size() {
@@ -58,50 +66,6 @@ fn output_verification_uses_file_concurrency_without_misreporting_pool_size() {
     }
 }
 
-#[test]
-fn work_queue_verifies_while_source_job_waits_for_memory_and_drains_only_dispatched_work() {
-    let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
-    let occupied = memory.try_acquire(2 * 1024 * 1024).unwrap().unwrap();
-    let jobs = vec![ReconstructJob::CopySourceFile {
-        file_index: 0,
-        source_path: "unused".into(),
-    }];
-    let mut queue = ReconstructionWorkQueue::default();
-    queue
-        .ready
-        .push_back((ReconstructWorkItem::Job(0), ProfileInstant::detailed(None)));
-    queue.ready.push_back((
-        ReconstructWorkItem::VerifyFile(1),
-        ProfileInstant::detailed(None),
-    ));
-    let verification = queue.admit_next(&jobs, &memory).unwrap().unwrap();
-    assert!(matches!(
-        verification.work,
-        ReconstructWorkItem::VerifyFile(1)
-    ));
-    assert_eq!(queue.in_flight, 1);
-    assert!(queue.admit_next(&jobs, &memory).unwrap().is_none());
-    drop(occupied);
-    let source = queue.admit_next(&jobs, &memory).unwrap().unwrap();
-    assert!(matches!(source.work, ReconstructWorkItem::Job(0)));
-    assert_eq!(queue.in_flight, 2);
-    queue.ready.push_back((
-        ReconstructWorkItem::VerifyFile(2),
-        ProfileInstant::detailed(None),
-    ));
-    queue.ready.clear();
-    assert_eq!(
-        queue.in_flight, 2,
-        "discarding queued work must not hide dispatched work"
-    );
-    drop(verification);
-    queue.complete();
-    drop(source);
-    queue.complete();
-    assert_eq!(queue.in_flight, 0);
-    assert!(memory.try_acquire(2 * 1024 * 1024).unwrap().is_some());
-}
-
 fn test_hash(bytes: &[u8]) -> String {
     hash_hex(&blake3::hash(bytes))
 }
@@ -142,7 +106,7 @@ fn bundled_chunk_index() -> crate::repo::index::ChunkIndex {
                 ("bundle-a".to_string()).into(),
                 4,
                 4,
-                manifest::ArtifactStorageMode::Bundled,
+                crate::artifact::profiles::ArtifactStorageMode::Bundled,
             ),
         )])),
     }
@@ -212,7 +176,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
         ReconstructPipelineApplyRequest {
             publication: super::super::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: crate::manifest::CompressionProfile::default(),
+            compression_profile: crate::artifact::profiles::CompressionProfile::default(),
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
@@ -308,7 +272,7 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
                 ("bundle-b".to_string()).into(),
                 4,
                 4,
-                manifest::ArtifactStorageMode::Bundled,
+                crate::artifact::profiles::ArtifactStorageMode::Bundled,
             ),
         )])),
     };
@@ -358,8 +322,10 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     let shared_chunk_hash = test_hash(b"game");
     let source_only_chunk_hash = test_hash(b"old!");
     let replacement_chunk_hash = test_hash(b"new!");
-    let compression_profile =
-        manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::Zstd, Some(3));
+    let compression_profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
+        crate::artifact::profiles::CompressionKind::Zstd,
+        Some(3),
+    );
     let replacement_artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
         hash: replacement_chunk_hash.clone(),
     };
@@ -394,7 +360,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
                 (replacement_chunk_hash.clone()).into(),
                 4,
                 std::fs::metadata(&replacement_path).unwrap().len() as u32,
-                manifest::ArtifactStorageMode::LooseChunks,
+                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };
@@ -472,8 +438,8 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     };
     let chunk_path = artifact.local_path(&repo_paths).unwrap();
     std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
-    let compression_profile = crate::manifest::CompressionProfile::for_algorithm(
-        crate::manifest::CompressionKind::Zstd,
+    let compression_profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
+        crate::artifact::profiles::CompressionKind::Zstd,
         Some(3),
     );
     std::fs::write(
@@ -492,7 +458,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
                 (chunk_hash.clone()).into(),
                 4,
                 std::fs::metadata(&chunk_path).unwrap().len() as u32,
-                manifest::ArtifactStorageMode::LooseChunks,
+                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };
@@ -514,8 +480,8 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
         ReconstructPipelineApplyRequest {
             publication: super::super::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: crate::manifest::CompressionProfile::for_algorithm(
-                crate::manifest::CompressionKind::Zstd,
+            compression_profile: crate::artifact::profiles::CompressionProfile::for_algorithm(
+                crate::artifact::profiles::CompressionKind::Zstd,
                 Some(3),
             ),
             snapshot_manifest: &snapshot_manifest,
@@ -558,7 +524,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let first_hash = test_hash(first);
     let second_hash = test_hash(second);
     let third_hash = test_hash(third);
-    let compression_profile = manifest::CompressionProfile::default();
+    let compression_profile = crate::artifact::profiles::CompressionProfile::default();
     let mut builder = crate::artifact::bundle::BundleBuilder::new(compression_profile.clone());
     builder.add_chunk(
         crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(first)),
@@ -639,7 +605,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
                     4,
                     compressed_sizes
                         [&crate::artifact::hash::ChunkHash::parse_hex(&test_hash(first)).unwrap()],
-                    manifest::ArtifactStorageMode::Bundled,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
             (
@@ -651,7 +617,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
                     4,
                     compressed_sizes
                         [&crate::artifact::hash::ChunkHash::parse_hex(&test_hash(second)).unwrap()],
-                    manifest::ArtifactStorageMode::Bundled,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
             (
@@ -663,7 +629,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
                     4,
                     compressed_sizes
                         [&crate::artifact::hash::ChunkHash::parse_hex(&test_hash(third)).unwrap()],
-                    manifest::ArtifactStorageMode::Bundled,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
         ])),
@@ -741,7 +707,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     let destination = workspace.path().join("output");
     let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "readiness-test").unwrap();
-    let compression = manifest::CompressionProfile::default();
+    let compression = crate::artifact::profiles::CompressionProfile::default();
     let mut chunk_entries = BTreeMap::new();
     let mut existing_artifacts = HashSet::new();
     let mut chunk_refs = Vec::new();
@@ -769,7 +735,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
                 bundle_id.into(),
                 bytes.len() as u32,
                 reader.entries()[0].compressed_size,
-                manifest::ArtifactStorageMode::Bundled,
+                crate::artifact::profiles::ArtifactStorageMode::Bundled,
             ),
         );
         chunk_refs.push(ChunkRef {
@@ -865,7 +831,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let repo_root = workspace.path().join("repo");
     let destination = workspace.path().join("output");
     let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
-    let compression = manifest::CompressionProfile::default();
+    let compression = crate::artifact::profiles::CompressionProfile::default();
     let chunk_hash = test_hash(b"game");
     let artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
@@ -906,7 +872,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
                 (chunk_hash.clone()).into(),
                 4,
                 compressed_size as u32,
-                manifest::ArtifactStorageMode::LooseChunks,
+                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };

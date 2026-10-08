@@ -62,7 +62,7 @@ fn scalar_and_avx2_match_reference_at_edges_and_unaligned_offsets() {
 
 #[test]
 fn streaming_and_capture_preserve_ram_boundaries_and_hashes() {
-    use crate::manifest::{ChunkSizingPreset, ChunkSizingProfile, Chunker};
+    use crate::artifact::profiles::{ChunkSizingPreset, ChunkSizingProfile, Chunker};
     use clap::ValueEnum;
     struct ShortRead(Cursor<Vec<u8>>);
     impl Read for ShortRead {

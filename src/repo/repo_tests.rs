@@ -273,7 +273,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
                     (test_hash("bundle-1")).into(),
                     100,
                     50,
-                    manifest::ArtifactStorageMode::Bundled,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
             (
@@ -284,7 +284,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
                     (test_hash("bundle-1")).into(),
                     100,
                     50,
-                    manifest::ArtifactStorageMode::Bundled,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
         ])),
@@ -370,7 +370,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
     let raw_bytes = b"loose artifact content";
     let chunk_hash = test_hash("loose artifact content");
-    let compression_profile = manifest::CompressionProfile::default();
+    let compression_profile = crate::artifact::profiles::CompressionProfile::default();
     let compressed_bytes = crate::test_util::loose_bytes(raw_bytes, &compression_profile);
     let chunk_path = chunk_path(&paths, &chunk_hash).unwrap();
     std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
@@ -378,11 +378,11 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
     repo_manifest.set_artifact_profile(
-        manifest::ChunkSizingPreset::Chunk128KiB,
-        manifest::CompressionKind::Zstd,
+        crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+        crate::artifact::profiles::CompressionKind::Zstd,
         Some(3),
-        manifest::BundleSizingPreset::Bundle16MiB,
-        manifest::ArtifactStorageMode::LooseChunks,
+        crate::artifact::profiles::BundleSizingPreset::Bundle16MiB,
+        crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
     );
     write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
 
@@ -407,7 +407,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
     let index = crate::repo::index::ChunkIndex {
-        format_version: manifest::FORMAT_VERSION.to_string(),
+        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
 
         entries: crate::test_util::chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
@@ -417,7 +417,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
                 (chunk_hash).into(),
                 raw_bytes.len() as u32,
                 compressed_bytes.len() as u32,
-                manifest::ArtifactStorageMode::LooseChunks,
+                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };
@@ -507,7 +507,7 @@ fn chunk_index_write_and_load_roundtrip() {
             (test_hash("bundle-1")).into(),
             100,
             40,
-            manifest::ArtifactStorageMode::Bundled,
+            crate::artifact::profiles::ArtifactStorageMode::Bundled,
         ),
     );
     entries.insert(
@@ -518,7 +518,7 @@ fn chunk_index_write_and_load_roundtrip() {
             (test_hash("bundle-1")).into(),
             100,
             40,
-            manifest::ArtifactStorageMode::Bundled,
+            crate::artifact::profiles::ArtifactStorageMode::Bundled,
         ),
     );
     entries.insert(
@@ -529,7 +529,7 @@ fn chunk_index_write_and_load_roundtrip() {
             (test_hash("bundle-2")).into(),
             100,
             40,
-            manifest::ArtifactStorageMode::Bundled,
+            crate::artifact::profiles::ArtifactStorageMode::Bundled,
         ),
     );
     let index = crate::repo::index::ChunkIndex {
@@ -585,15 +585,18 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
 
     let chunk_hash =
         crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(b"hello"));
-    let mut builder =
-        crate::artifact::bundle::BundleBuilder::new(manifest::CompressionProfile::default());
+    let mut builder = crate::artifact::bundle::BundleBuilder::new(
+        crate::artifact::profiles::CompressionProfile::default(),
+    );
     builder.add_chunk(chunk_hash, b"hello".to_vec());
     let (bundle_id, data) = builder.build_with_id().unwrap();
     let staged_path = root.join("staged-bundle");
     std::fs::write(&staged_path, &data).unwrap();
-    let reader =
-        crate::artifact::bundle::read_bundle(&data, &manifest::CompressionProfile::default())
-            .unwrap();
+    let reader = crate::artifact::bundle::read_bundle(
+        &data,
+        &crate::artifact::profiles::CompressionProfile::default(),
+    )
+    .unwrap();
     let built_bundle = crate::capture::types::BuiltBundle {
         bundle_id: bundle_id.clone(),
         staged_file: crate::capture::types::StagedArtifactFile::new(staged_path),
@@ -602,7 +605,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     };
 
     let mut incremental = crate::repo::index::ChunkIndex {
-        format_version: manifest::FORMAT_VERSION.to_string(),
+        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
 
         entries: crate::repo::index::ChunkIndexEntries::new(),
     };
@@ -615,7 +618,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let pool = crate::runtime::build_thread_pool(1, "gutch-test").unwrap();
     let rebuilt = rebuild_chunk_index_from_bundles_with_pool(
         &paths,
-        &manifest::CompressionProfile::default(),
+        &crate::artifact::profiles::CompressionProfile::default(),
         &pool,
     )
     .unwrap();

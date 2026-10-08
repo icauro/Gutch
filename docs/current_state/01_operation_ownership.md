@@ -31,6 +31,8 @@ modules, worker functions, path helpers, and profiler recording machinery are
 implementation details and should not be reimplemented by adapters.
 
 Source navigation and import boundaries are maintained in the [module map](../../AGENTS.md).
+Artifact mechanics own packaging profiles; repository and snapshot schemas
+consume those profiles without defining a separate codec policy.
 The shared installation entrypoint is `install_snapshot_from_repo`; reconstruction
 and repair are presets. `visit_installation_plan` streams change descriptions
 from the same classification and job-planning functions.

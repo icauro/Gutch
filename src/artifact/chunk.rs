@@ -11,8 +11,8 @@ use std::io::Read;
 use std::time::Duration;
 
 use crate::artifact::hash::hash_hex;
+use crate::artifact::profiles::ChunkSizingProfile;
 use crate::error::Result;
-use crate::manifest::ChunkSizingProfile;
 
 pub(crate) struct ChunkResult {
     pub(crate) size: u64,
@@ -103,10 +103,10 @@ pub(crate) fn scan_file_chunks(
     control: &crate::progress::GutchOperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     match profile.chunker {
-        crate::manifest::Chunker::FastCdc => {
+        crate::artifact::profiles::Chunker::FastCdc => {
             scan_with_boundary(path, inventory_size, control, BoundaryFinder::new(profile))
         }
-        crate::manifest::Chunker::Vram256 => {
+        crate::artifact::profiles::Chunker::Vram256 => {
             let scalar = super::ram::Ram::new(
                 profile.avg_chunk_bytes as usize,
                 profile.max_chunk_bytes as usize,
@@ -117,7 +117,7 @@ pub(crate) fn scan_file_chunks(
                 scan_with_boundary(path, inventory_size, control, scalar)
             }
         }
-        crate::manifest::Chunker::Jc => scan_with_boundary(
+        crate::artifact::profiles::Chunker::Jc => scan_with_boundary(
             path,
             inventory_size,
             control,

@@ -5,7 +5,6 @@ use std::path::Path;
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
-use crate::manifest;
 
 use crate::artifact::format::CHUNK_INDEX_MAGIC as CHUNK_INDEX_BINARY_MAGIC;
 
@@ -40,7 +39,7 @@ fn decode_artifact_table(
         artifacts.push(std::sync::Arc::new(super::records::IndexedArtifact {
             bundle_id: smol_str::SmolStr::new(artifact_id.to_hex()),
             artifact_size,
-            storage_mode: manifest::ArtifactStorageMode::Bundled,
+            storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         }));
     }
     if reader.remaining != 0 {
@@ -97,7 +96,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
                 std::sync::Arc::new(super::records::IndexedArtifact {
                     bundle_id: smol_str::SmolStr::new(chunk_hash.to_hex()),
                     artifact_size: chunk_ordinal_or_artifact_size,
-                    storage_mode: manifest::ArtifactStorageMode::LooseChunks,
+                    storage_mode: crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
                 }),
                 0,
             )
@@ -140,7 +139,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
     // Encoded bytes are shared by a bundle. Attribute an approximate share to
     // each chunk for accounting; this value is not stored or used for integrity.
     for entry in entries.values_mut() {
-        if entry.storage_mode == manifest::ArtifactStorageMode::Bundled {
+        if entry.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled {
             let bundle_raw_bytes = raw_bytes_by_bundle_id[entry.bundle_id.as_str()];
             entry.compressed_size = crate::artifact::format::size_u32(
                 u64::from(entry.artifact_size) * u64::from(entry.raw_size) / bundle_raw_bytes,
@@ -148,7 +147,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
         }
     }
     Ok(crate::repo::index::ChunkIndex {
-        format_version: manifest::FORMAT_VERSION.to_string(),
+        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
         entries,
     })
 }
@@ -175,14 +174,14 @@ pub(crate) fn write_chunk_index_binary(
         {
             return Err(Error::manifest("invalid indexed artifact or chunk size"));
         }
-        if entry.storage_mode == manifest::ArtifactStorageMode::LooseChunks
+        if entry.storage_mode == crate::artifact::profiles::ArtifactStorageMode::LooseChunks
             && (ChunkHash::parse_hex(&entry.bundle_id)? != *hash || entry.chunk_ordinal != 0)
         {
             return Err(Error::manifest(
                 "loose index identity or ordinal is inconsistent",
             ));
         }
-        if entry.storage_mode == manifest::ArtifactStorageMode::Bundled {
+        if entry.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled {
             let id = ChunkHash::parse_hex(&entry.bundle_id)?;
             if let Some(size) = artifacts.insert(id, entry.artifact_size)
                 && size != entry.artifact_size
@@ -221,10 +220,12 @@ pub(crate) fn write_chunk_index_binary(
         write_u32(
             &mut chunk_group,
             match entry.storage_mode {
-                manifest::ArtifactStorageMode::Bundled => {
+                crate::artifact::profiles::ArtifactStorageMode::Bundled => {
                     artifact_rows[&ChunkHash::parse_hex(&entry.bundle_id)?]
                 }
-                manifest::ArtifactStorageMode::LooseChunks => LOOSE_CHUNK_ARTIFACT_ROW,
+                crate::artifact::profiles::ArtifactStorageMode::LooseChunks => {
+                    LOOSE_CHUNK_ARTIFACT_ROW
+                }
             },
         )?;
     }
@@ -232,8 +233,8 @@ pub(crate) fn write_chunk_index_binary(
         write_u32(
             &mut chunk_group,
             match entry.storage_mode {
-                manifest::ArtifactStorageMode::Bundled => entry.chunk_ordinal,
-                manifest::ArtifactStorageMode::LooseChunks => entry.artifact_size,
+                crate::artifact::profiles::ArtifactStorageMode::Bundled => entry.chunk_ordinal,
+                crate::artifact::profiles::ArtifactStorageMode::LooseChunks => entry.artifact_size,
             },
         )?;
     }
@@ -263,7 +264,7 @@ mod tests {
         let bundle = smol_str::SmolStr::new("07".repeat(32));
         let loose = ChunkHash::from_bytes([3; 32]);
         let mut index = crate::repo::index::ChunkIndex {
-            format_version: manifest::FORMAT_VERSION.into(),
+            format_version: crate::artifact::format::FORMAT_VERSION.into(),
             entries: [
                 (
                     ChunkHash::from_bytes([1; 32]),
@@ -273,7 +274,7 @@ mod tests {
                         bundle.clone(),
                         10,
                         20,
-                        manifest::ArtifactStorageMode::Bundled,
+                        crate::artifact::profiles::ArtifactStorageMode::Bundled,
                     ),
                 ),
                 (
@@ -284,7 +285,7 @@ mod tests {
                         bundle,
                         20,
                         80,
-                        manifest::ArtifactStorageMode::Bundled,
+                        crate::artifact::profiles::ArtifactStorageMode::Bundled,
                     ),
                 ),
                 (
@@ -295,7 +296,7 @@ mod tests {
                         loose.to_hex().into(),
                         4,
                         60,
-                        manifest::ArtifactStorageMode::LooseChunks,
+                        crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
                     ),
                 ),
             ]
@@ -344,7 +345,7 @@ mod tests {
         ));
         assert_eq!(
             entries[2].storage_mode,
-            manifest::ArtifactStorageMode::LooseChunks
+            crate::artifact::profiles::ArtifactStorageMode::LooseChunks
         );
         write_chunk_index_binary(&path, &restored).unwrap();
         assert_eq!(first, std::fs::read(&path).unwrap());

@@ -11,6 +11,7 @@ use crate::Result;
 use crate::artifact::bundle::BundleBuilder;
 use crate::artifact::compression as compress;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::ArtifactStorageMode;
 use crate::capture::progress::BuildProgressTracker;
 use crate::capture::scan::ChunkPlacementKey;
 use crate::capture::scan::ScanDirectoryOptions;
@@ -27,7 +28,6 @@ use crate::capture::types::ChunkPayloadReader;
 use crate::capture::types::ExistingChunkLocation;
 use crate::capture::types::StagedArtifactFile;
 use crate::manifest;
-use crate::manifest::ArtifactStorageMode;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::runtime::build_thread_pool;
@@ -71,14 +71,15 @@ type PlannedChunkGroup = Vec<ChunkPayloadEntry>;
 
 fn estimate_bundle_compression_ratio_from_probe(
     chunks: &[(ChunkHash, ChunkPayload)],
-    compression_profile: &manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     probe_target_bytes: u64,
 ) -> Result<(f64, u64)> {
     if chunks.is_empty() {
         return Ok((1.0, 0));
     }
 
-    let uncompressed = compression_profile.compression == manifest::CompressionKind::None;
+    let uncompressed =
+        compression_profile.compression == crate::artifact::profiles::CompressionKind::None;
     let mut probe_chunk_count = 0;
     let mut raw_probe_size: u64 = 0;
     let mut probe_payload = Vec::new();
@@ -138,8 +139,8 @@ struct PlannedBundleGroups {
 fn plan_bundle_compressed_groups(
     mut chunks: Vec<ChunkPayloadEntry>,
     chunk_placements: &HashMap<ChunkHash, ChunkPlacementKey>,
-    compression_profile: &manifest::CompressionProfile,
-    bundle_profile: &manifest::BundleSizingProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
+    bundle_profile: &crate::artifact::profiles::BundleSizingProfile,
     bundle_policy: BundleSizingPolicy,
     pool: &ThreadPool,
     control: &crate::progress::GutchOperationControl,
@@ -316,7 +317,7 @@ struct BuiltBundleCompressedGroup {
     bundle_id: String,
     staged_file: StagedArtifactFile,
     bundle_size: u64,
-    bundle_entries: Vec<manifest::BundleTableEntry>,
+    bundle_entries: Vec<crate::artifact::bundle::BundleTableEntry>,
     bundle_metrics: crate::artifact::bundle::BundleBuildMetrics,
     payload_load: std::time::Duration,
     payload_load_bytes: u64,
@@ -374,7 +375,7 @@ where
 
 fn build_bundled_chunks(
     planned_bundle_groups: PlannedBundleGroups,
-    compression_profile: &manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     artifact_staging_root: &Path,
     pool: &ThreadPool,
     control: &crate::progress::GutchOperationControl,
@@ -427,7 +428,7 @@ fn build_bundled_chunks(
 fn build_loose_chunks(
     chunks_to_compress: Vec<ChunkPayloadEntry>,
     artifact_staging_root: &Path,
-    compression_profile: &manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     pool: &ThreadPool,
     control: &crate::progress::GutchOperationControl,
     memory_budget: u64,
@@ -479,7 +480,7 @@ fn capture_bytes_trace_args(
 fn build_loose_chunk(
     chunk_hash: ChunkHash,
     payload: ChunkPayload,
-    compression_profile: &manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     artifact_staging_root: &Path,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<BuiltLooseChunkResult> {
@@ -524,7 +525,7 @@ fn build_loose_chunk(
 fn build_bounded_bundle_groups(
     planned: Vec<(ChunkHash, ChunkPayload)>,
     encoded_limit: u64,
-    profile: &manifest::CompressionProfile,
+    profile: &crate::artifact::profiles::CompressionProfile,
     staging: &Path,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
@@ -553,7 +554,7 @@ fn build_bounded_bundle_groups(
 
 fn build_bundle_compressed_group(
     planned_bundle: Vec<(ChunkHash, ChunkPayload)>,
-    compression_profile: &manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     artifact_staging_root: &Path,
     control: &crate::progress::GutchOperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
@@ -638,7 +639,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     build_pool: &ThreadPool,
     inventory: &SourceInventory,
 ) -> Result<(BuildResult, BuildTimings)> {
-    crate::manifest::profiles::validate_packaging_sizes(
+    crate::artifact::profiles::validate_packaging_sizes(
         &config.chunk_profile,
         &config.bundle_profile,
         config.storage_mode,
@@ -783,7 +784,9 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
 
         match config.storage_mode {
             ArtifactStorageMode::Bundled => {
-                if compression_profile.compression_unit != manifest::CompressionUnit::Bundle {
+                if compression_profile.compression_unit
+                    != crate::artifact::profiles::CompressionUnit::Bundle
+                {
                     return Err(crate::Error::manifest(
                         "gutch only supports bundle-compressed storage".to_string(),
                     ));

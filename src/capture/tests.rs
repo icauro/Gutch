@@ -176,8 +176,10 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
             )
         })
         .collect();
-    let profile =
-        manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::None, None);
+    let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
+        crate::artifact::profiles::CompressionKind::None,
+        None,
+    );
     let control = crate::progress::GutchOperationControl::default();
     let exact =
         build_bounded_bundle_groups(planned.clone(), 216, &profile, &staging, &control).unwrap();
@@ -214,17 +216,23 @@ fn optimistic_probe_cannot_exceed_raw_bundle_cap() {
 
 #[test]
 fn memory_admission_keeps_capture_results_in_input_order() {
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
     let control = crate::progress::GutchOperationControl::default();
     let result = super::run_parallel_chunk_work(
-        (0..32).collect(), &pool, &control, 1, |_| 1,
+        (0..32).collect(),
+        &pool,
+        &control,
+        1,
+        |_| 1,
         |index, _| Ok(index),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(result, (0..32).collect::<Vec<_>>());
-    let result = super::run_parallel_chunk_work(
-        vec![0, 1], &pool, &control, 1, |_| 2,
-        |index, _| Ok(index),
-    );
+    let result =
+        super::run_parallel_chunk_work(vec![0, 1], &pool, &control, 1, |_| 2, |index, _| Ok(index));
     assert!(result.is_err());
 }
 
@@ -267,7 +275,6 @@ fn payload_reader_seeks_switches_sources_and_detects_mutation() {
     assert_eq!(reader.load(&expected).unwrap(), b"abc");
 }
 
-
 #[test]
 fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
     let temp = tempfile::tempdir().unwrap();
@@ -287,8 +294,10 @@ fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
             )
         })
         .collect();
-    let profile =
-        manifest::CompressionProfile::for_algorithm(manifest::CompressionKind::None, None);
+    let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
+        crate::artifact::profiles::CompressionKind::None,
+        None,
+    );
     for (target, selected) in [(0, 1), (2, 1), (3, 2), (6, 2), (7, 3), (99, 3)] {
         let selected_segments = &segments[..selected];
         let raw: usize = selected_segments.iter().map(|s| s.len()).sum();

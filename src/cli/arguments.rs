@@ -81,20 +81,20 @@ impl TransferArgs {
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct ArtifactBuildProfileArgs {
     /// Content-defined chunker; JC uses the pinned Plakar-compatible variant.
-    #[arg(long, value_enum, default_value_t = crate::manifest::Chunker::FastCdc)]
-    pub(crate) chunker: crate::manifest::Chunker,
+    #[arg(long, value_enum, default_value_t = crate::artifact::profiles::Chunker::FastCdc)]
+    pub(crate) chunker: crate::artifact::profiles::Chunker,
     /// Chunk sizing preset (algorithm-specific target, not a fixed chunk size).
-    #[arg(short = 'C', long = "chunk-preset", value_enum, default_value_t = crate::manifest::ChunkSizingPreset::Chunk128KiB)]
-    pub(crate) chunk_profile: crate::manifest::ChunkSizingPreset,
+    #[arg(short = 'C', long = "chunk-preset", value_enum, default_value_t = crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB)]
+    pub(crate) chunk_profile: crate::artifact::profiles::ChunkSizingPreset,
     /// Bundle sizing preset.
-    #[arg(short = 'B', long = "bundle-preset", value_enum, default_value_t = crate::manifest::BundleSizingPreset::Bundle8MiB)]
-    pub(crate) bundle_profile: crate::manifest::BundleSizingPreset,
-    #[arg(long = "compression-algorithm", value_enum, default_value_t = crate::manifest::CompressionKind::Zstd)]
-    pub(crate) compression_algorithm: crate::manifest::CompressionKind,
+    #[arg(short = 'B', long = "bundle-preset", value_enum, default_value_t = crate::artifact::profiles::BundleSizingPreset::Bundle8MiB)]
+    pub(crate) bundle_profile: crate::artifact::profiles::BundleSizingPreset,
+    #[arg(long = "compression-algorithm", value_enum, default_value_t = crate::artifact::profiles::CompressionKind::Zstd)]
+    pub(crate) compression_algorithm: crate::artifact::profiles::CompressionKind,
     #[arg(long = "compression-level")]
     pub(crate) compression_level: Option<i32>,
-    #[arg(long = "storage-mode", value_enum, default_value_t = crate::manifest::ArtifactStorageMode::Bundled)]
-    pub(crate) storage_mode: crate::manifest::ArtifactStorageMode,
+    #[arg(long = "storage-mode", value_enum, default_value_t = crate::artifact::profiles::ArtifactStorageMode::Bundled)]
+    pub(crate) storage_mode: crate::artifact::profiles::ArtifactStorageMode,
 }
 
 #[derive(Parser)]

@@ -1,3 +1,4 @@
+use crate::artifact::profiles::Chunker;
 use serde::Deserialize;
 use serde::Serialize;
 

@@ -1,7 +1,7 @@
 //! Diagnostic only: resident-input boundary and hashing costs, one worker.
 use crate::artifact::chunk_stream::{BoundaryFinder, ChunkBoundary};
+use crate::artifact::profiles::{ChunkSizingPreset, ChunkSizingProfile};
 use crate::artifact::ram::Ram;
-use crate::manifest::{ChunkSizingPreset, ChunkSizingProfile};
 use std::{hint::black_box, time::Instant};
 
 fn scan<C: ChunkBoundary>(kernel: &C, files: &[Vec<u8>], mode: usize) -> (u64, u64) {

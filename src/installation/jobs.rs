@@ -26,7 +26,7 @@ pub(crate) struct ReconstructPipelinePlan {
 pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub publication: super::publish::Publication<'a>,
     pub repo_root: &'a Path,
-    pub compression_profile: crate::manifest::CompressionProfile,
+    pub compression_profile: crate::artifact::profiles::CompressionProfile,
     pub snapshot_manifest: &'a SnapshotManifest,
     pub destination_dir: &'a Path,
     pub staging_dir: Option<&'a Path>,

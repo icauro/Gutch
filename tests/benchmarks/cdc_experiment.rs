@@ -4,7 +4,7 @@ use super::fastcdc_v2020;
 use super::jc::{JumpChunker, Parameters};
 use super::jc_tests::random_bytes;
 mod cdc_baseline;
-use crate::manifest::{ChunkSizingPreset, ChunkSizingProfile};
+use crate::artifact::profiles::{ChunkSizingPreset, ChunkSizingProfile};
 use crate::progress::GutchOperationControl;
 use serde_json::json;
 use std::{

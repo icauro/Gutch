@@ -14,10 +14,10 @@ use std::time::Duration;
 use crate::artifact::compression::validate_profile;
 use crate::artifact::hash;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::CompressionKind;
+use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::profiles::CompressionUnit;
 use crate::error::Result;
-use crate::manifest::CompressionKind;
-use crate::manifest::CompressionProfile;
-use crate::manifest::CompressionUnit;
 
 use crate::artifact::format;
 use crate::artifact::format::BUNDLE_FOOTER_MAGIC as FOOTER_MAGIC;

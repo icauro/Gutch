@@ -1,6 +1,6 @@
 //! Gutch's level-1 FastCDC boundary finder and borrowed streaming adapter.
 
-use crate::manifest::ChunkSizingProfile;
+use crate::artifact::profiles::ChunkSizingProfile;
 use crate::progress::GutchOperationControl;
 use std::io::Read;
 

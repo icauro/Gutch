@@ -1,3 +1,4 @@
+use crate::artifact::profiles::*;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -59,7 +60,7 @@ fn deserialize_artifact_profile<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<ArtifactProfile, D::Error> {
     let profile = ArtifactProfile::deserialize(deserializer)?;
-    super::profiles::validate_packaging_sizes(
+    crate::artifact::profiles::validate_packaging_sizes(
         &ChunkSizingProfile::for_preset(profile.chunk),
         &BundleSizingProfile::for_preset(profile.bundle),
         profile.storage,

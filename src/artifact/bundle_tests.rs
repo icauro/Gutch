@@ -43,7 +43,8 @@ fn test_empty_bundle() {
 
 #[test]
 fn test_empty_lz4_bundle() {
-    let profile = CompressionProfile::for_algorithm(crate::manifest::CompressionKind::Lz4, None);
+    let profile =
+        CompressionProfile::for_algorithm(crate::artifact::profiles::CompressionKind::Lz4, None);
     let builder = BundleBuilder::new(profile.clone());
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data, &profile).unwrap();
@@ -201,7 +202,11 @@ fn test_stream_bundle_chunks_only_delivers_required_chunks() {
 
     assert_eq!(
         delivered,
-        vec![(1, chunks[1].clone()), (2, chunks[2].clone()), (3, chunks[3].clone())]
+        vec![
+            (1, chunks[1].clone()),
+            (2, chunks[2].clone()),
+            (3, chunks[3].clone())
+        ]
     );
     assert_eq!(
         metrics.raw_bytes,
@@ -214,7 +219,8 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     let chunk1 = vec![0x28, 0xB5, 0x2F, 0xFD, b'r', b'a', b'w', b'1'];
     let chunk2 = b"plain uncompressed payload".to_vec();
 
-    let profile = CompressionProfile::for_algorithm(crate::manifest::CompressionKind::None, None);
+    let profile =
+        CompressionProfile::for_algorithm(crate::artifact::profiles::CompressionKind::None, None);
     let mut builder = BundleBuilder::new(profile.clone());
     builder.add_chunk(
         ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
@@ -377,19 +383,26 @@ fn test_bundle_identity_rejects_corrupt_framing_and_payload() {
 
 #[test]
 fn probe_encoded_size_matches_real_bundle_for_all_codecs() {
-    use crate::manifest::CompressionKind;
-    for codec in [CompressionKind::None, CompressionKind::Zstd, CompressionKind::Lz4] {
+    use crate::artifact::profiles::CompressionKind;
+    for codec in [
+        CompressionKind::None,
+        CompressionKind::Zstd,
+        CompressionKind::Lz4,
+    ] {
         let profile = CompressionProfile::for_algorithm(codec, None);
         for chunk_count in [0, 1, 3] {
             let mut builder = BundleBuilder::new(profile.clone());
             let mut raw = Vec::new();
             for index in 0..chunk_count {
-                let data = format!("chunk {index} repeated content ").repeat(20_000).into_bytes();
+                let data = format!("chunk {index} repeated content ")
+                    .repeat(20_000)
+                    .into_bytes();
                 raw.push(data.clone());
                 builder.add_chunk(ChunkHash::from_blake3(hash::hash_chunk(&data)), data);
             }
             let segments: Vec<&[u8]> = raw.iter().map(Vec::as_slice).collect();
-            let expected = crate::artifact::compression::compressed_size(&segments, &profile).unwrap()
+            let expected = crate::artifact::compression::compressed_size(&segments, &profile)
+                .unwrap()
                 + encoded_metadata_size(chunk_count);
             assert_eq!(builder.build().unwrap().len() as u64, expected);
         }

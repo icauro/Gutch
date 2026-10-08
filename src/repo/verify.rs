@@ -127,7 +127,7 @@ pub fn verify_gutch_repo_artifacts(
 pub(crate) fn verify_snapshot_artifacts(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::repo::index::ChunkIndex,
-    compression_profile: &crate::manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     snapshot_id: &str,
     mode: RepoArtifactVerification,
 ) -> Result<SnapshotArtifactVerifyResult> {
@@ -144,7 +144,7 @@ pub(crate) fn verify_snapshot_artifacts(
 fn verify_snapshot_artifacts_cached(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::repo::index::ChunkIndex,
-    compression_profile: &crate::manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     snapshot_id: &str,
     mode: RepoArtifactVerification,
     verified: &mut std::collections::HashMap<ArtifactRef, std::result::Result<(), String>>,
@@ -227,7 +227,7 @@ fn verify_snapshot_artifacts_cached(
 fn verify_bundle_file(
     path: &Path,
     bundle_id: &str,
-    compression_profile: &crate::manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     mode: RepoArtifactVerification,
 ) -> Result<()> {
     let mut reader = bundle::BundleReader::open(std::fs::File::open(path)?, compression_profile)?;
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn structural_verification_does_not_claim_content_addressed_identity() {
-        let profile = crate::manifest::CompressionProfile::default();
+        let profile = crate::artifact::profiles::CompressionProfile::default();
         let mut builder = bundle::BundleBuilder::new(profile.clone());
         let bytes = b"verified bundle payload";
         builder.add_chunk(

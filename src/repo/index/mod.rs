@@ -6,8 +6,7 @@ use rayon::prelude::*;
 
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
-use crate::manifest;
-use crate::manifest::ArtifactStorageMode;
+use crate::artifact::profiles::ArtifactStorageMode;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::paths::bundle_id_from_bundle_path;
 
@@ -15,7 +14,7 @@ use crate::repo::paths::GutchRepoPaths;
 
 pub(crate) fn empty_chunk_index() -> ChunkIndex {
     ChunkIndex {
-        format_version: manifest::FORMAT_VERSION.to_string(),
+        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
 
         entries: ChunkIndexEntries::new(),
     }
@@ -74,7 +73,7 @@ pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
 
 pub fn rebuild_chunk_index_from_bundles_with_pool(
     paths: &GutchRepoPaths,
-    compression_profile: &crate::manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
     pool: &rayon::ThreadPool,
 ) -> Result<ChunkIndex> {
     let bundle_paths = collect_file_paths(&paths.bundles_root)?;
@@ -89,7 +88,7 @@ pub fn rebuild_chunk_index_from_bundles_with_pool(
 
 fn read_bundle_index_entries(
     path: &Path,
-    compression_profile: &crate::manifest::CompressionProfile,
+    compression_profile: &crate::artifact::profiles::CompressionProfile,
 ) -> Result<Vec<(String, ChunkIndexEntry)>> {
     let Some(bundle_id) = bundle_id_from_bundle_path(path) else {
         return Ok(Vec::new());
@@ -129,7 +128,7 @@ fn build_chunk_index_from_bundle_entries(
     }
 
     Ok(ChunkIndex {
-        format_version: manifest::FORMAT_VERSION.to_string(),
+        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
 
         entries: entries.into_iter().collect(),
     })
