@@ -31,7 +31,7 @@ def run(case):
     handle = create_file(str(target), 0x80000000, 1, None, 3, 0, None)
     assert handle != wintypes.HANDLE(-1).value
     try:
-        case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
+        case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                      "--destination", destination, success=False)
         assert inventory(destination) == before
     finally:

@@ -59,9 +59,9 @@ fetch to selected bundle or loose-chunk IDs. Serialized downloads use
 its endpoint-specific `bundleId`/`downloadUrl` response mapping. Bundle counters
 and `RemoteBundleSource` remain bundle-specific.
 
-Destination operations use `installation plan|verify|repair|corrupt`.
-Corruption requests and results use `InstallationCorruption*` and
-`corrupt_installation`. `snapshot reconstruct` still creates an installation;
+Destination operations use `installation preview|reconstruct|verify|repair`.
+Explicit corruption diagnostics use `debug corrupt-installation`; API requests
+and results use `InstallationCorruption*` and `corrupt_installation`.
 repair and full reconstruction keep their distinct reports and policies.
 
 Capture and repository summaries call the optional version label `version_tag`

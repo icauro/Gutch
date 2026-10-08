@@ -42,14 +42,17 @@ pub(crate) fn run(
                 ));
             }
         }
-        RepoCommands::RebuildIndex {
-            repo,
-            publish,
-            json_out,
+        RepoCommands::Index {
+            command:
+                crate::cli::arguments::RepoIndexCommands::Rebuild {
+                    repo,
+                    apply,
+                    json_out,
+                },
         } => {
             let result = crate::api::rebuild_index(
                 &repo,
-                publish && !crate::cli::output::dry_run(),
+                apply && !crate::cli::output::dry_run(),
                 &crate::progress::GutchOperationControl::default(),
             )?;
             crate::cli::output::record(&result)?;
@@ -61,7 +64,7 @@ pub(crate) fn run(
             crate::cli::output::line(format_args!("{}", String::from_utf8_lossy(&json)));
             if !result.complete {
                 return Err(crate::Error::manifest(
-                    "chunk map regeneration is incomplete; no index was published",
+                    "chunk index rebuild is incomplete; the index was not replaced",
                 ));
             }
         }

@@ -46,7 +46,7 @@ and reconstruction schedulers. Encoding and decoding retain distinct estimates;
 the admission budget is not a bound on total process resident memory.
 
 Artifact transfer concurrency is independent from reconstruction `jobs`.
-Standalone fetch and unified `snapshot fetch-reconstruct` share a bounded
+Standalone fetch and unified `installation reconstruct --fetch` share a bounded
 scheduler with dependency-aware priorities. The default is fixed concurrency
 of four; CLI diagnostics and benchmarks can select `--transfer-policy fixed`
 or `--transfer-policy adaptive`, with a hard maximum of sixteen. Adaptive

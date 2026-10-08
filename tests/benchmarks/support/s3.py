@@ -207,9 +207,9 @@ def fetch_command(
     stats_path: Path | None = None,
     trace_path: Path | None = None,
 ) -> list[str | Path]:
+    operation = ["installation", "reconstruct", "--fetch"] if destination is not None else ["snapshot", "fetch"]
     command = cli.command(
-        "snapshot",
-        "fetch-reconstruct" if destination is not None else "fetch",
+        *operation,
         "--repo",
         repo,
         "--snapshot",
@@ -233,7 +233,7 @@ def fetch_command(
     )
     if destination is not None:
         if stats_path is None:
-            raise ValueError("fetch-reconstruct requires stats_path")
+            raise ValueError("reconstruction with --fetch requires stats_path")
         command.extend(["--destination", destination, *GutchCli.runtime_args(profile), "--json", "--output", stats_path])
     if trace_path is not None and cli.profile_mode != "off":
         command.extend(["--profile", cli.profile_mode, "--profile-dir", trace_path.parent])

@@ -17,8 +17,9 @@ pub(crate) struct SnapshotCaptureStats {
     pub(crate) input_path: String,
     pub(crate) snapshot_id: String,
     pub(crate) manifest_path: String,
-    pub(crate) product_id: String,
-    pub(crate) remote_repo_id: String,
+    pub(crate) repo_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) remote_repo_id: Option<String>,
     pub(crate) version_tag: String,
     pub(crate) os: String,
     pub(crate) arch: String,
@@ -182,7 +183,7 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     let manifest_path = crate::api::snapshot_metadata_path(&repo_paths, snapshot_id)?;
     if !manifest_path.exists() {
         return Err(crate::api::Error::manifest(format!(
-            "snapshot manifest not found at {}",
+            "snapshot metadata not found at {}",
             manifest_path.display()
         )));
     }

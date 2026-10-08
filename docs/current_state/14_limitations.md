@@ -17,7 +17,7 @@ its absence is not a permanent decision or a roadmap commitment.
 ## Repository Safety and Maintenance
 
 Local reader/writer locks, recoverable metadata publication, and explicit
-`repo rebuild-index` now cover local coordination and index recovery.
+`repo index rebuild` now cover local coordination and index recovery.
 Strict repository scrubbing verifies shared artifacts once per operation.
 Lock acquisition polls cancellation for operations with a control hook. Remote
 transactions, exhaustive power-loss testing, and resumable recovery are not provided.

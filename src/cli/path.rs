@@ -20,7 +20,7 @@ pub(crate) fn compare(
     write_report(
         &stats_json_out,
         &Report {
-            command: "path compare",
+            command: "tree compare",
             result: &stats,
             outputs: optional_output_paths(&stats_json_out),
         },
@@ -29,12 +29,12 @@ pub(crate) fn compare(
 
     if stats.compare_passed {
         crate::cli::output::line(format_args!(
-            "binary compare passed: {} matched, {} expected files",
+            "tree comparison passed: {} matched, {} expected files",
             stats.matched_file_count, stats.expected_file_count
         ));
     } else {
         eprintln!(
-            "binary compare failed: mismatched={}, missing={}, extra={}",
+            "tree comparison failed: mismatched={}, missing={}, extra={}",
             stats.mismatched_file_count, stats.missing_file_count, stats.extra_file_count
         );
         for relative_path in &stats.mismatched_files {
@@ -46,7 +46,7 @@ pub(crate) fn compare(
         for relative_path in &stats.extra_files {
             eprintln!("  EXTRA: {}", relative_path);
         }
-        return Err(crate::api::Error::verify("path comparison failed"));
+        return Err(crate::api::Error::verify("tree comparison failed"));
     }
 
     Ok(())

@@ -55,7 +55,7 @@ pub(crate) fn repair(
 ) -> crate::api::Result<()> {
     if crate::cli::output::dry_run() {
         return run_installation(
-            crate::cli::InstallationCommands::Plan {
+            crate::cli::InstallationCommands::Preview {
                 repo: command.repo,
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,
@@ -110,7 +110,7 @@ pub(crate) fn repair(
     write_report(&command.stats_json_out, &stats, profile.as_deref())?;
 
     crate::cli::output::line(format_args!(
-        "repaired reconstructed snapshot {} at {}",
+        "repaired installation of snapshot {} at {}",
         stats.snapshot_id, stats.destination_dir
     ));
     if verbose_output_enabled() {
@@ -199,7 +199,73 @@ pub(crate) fn run_installation(
     profile: &crate::cli::Profile,
 ) -> crate::api::Result<()> {
     match command {
-        crate::cli::InstallationCommands::Plan {
+        crate::cli::InstallationCommands::Reconstruct(arguments) => {
+            let crate::cli::arguments::ReconstructionArgs {
+                repo,
+                snapshot_id,
+                destination,
+                staging_dir,
+                source_snapshot_id,
+                source_dir,
+                runtime,
+                fetch,
+                metadata_url,
+                product_metadata_url,
+                blueprint_url,
+                repo_metadata_url,
+                chunk_index_url,
+                bundle_downloads_endpoint,
+                session_id,
+                artifacts,
+                artifact_url_manifest,
+                transfer,
+                stats_json_out,
+            } = *arguments;
+            if fetch {
+                crate::cli::snapshot_transfer::fetch_and_reconstruct(
+                    crate::cli::snapshot_transfer::FetchAndReconstructCommand {
+                        fetch: crate::cli::snapshot_transfer::FetchCommand {
+                            repo,
+                            snapshot_id,
+                            metadata_url: metadata_url
+                                .expect("Clap requires snapshot metadata with --fetch"),
+                            blueprint_url: blueprint_url
+                                .expect("Clap requires a blueprint with --fetch"),
+                            product_metadata_url,
+                            repo_metadata_url,
+                            chunk_index_url,
+                            bundle_downloads_endpoint,
+                            session_id,
+                            artifacts,
+                            artifact_url_manifest,
+                            transfer_policy: transfer.policy(),
+                        },
+                        destination,
+                        staging_dir,
+                        source_snapshot_id,
+                        source_dir,
+                        runtime_hints: runtime.hints(),
+                        stats_json_out,
+                    },
+                    profile,
+                )
+            } else {
+                reconstruct(
+                    ReconstructCommand {
+                        repo,
+                        snapshot_id,
+                        destination,
+                        staging_dir,
+                        source_snapshot_id,
+                        source_dir,
+                        runtime,
+                        stats_json_out,
+                    },
+                    profile,
+                )
+            }
+        }
+        crate::cli::InstallationCommands::Preview {
             repo,
             snapshot_id,
             destination,
@@ -317,7 +383,7 @@ pub(crate) fn reconstruct(
 ) -> crate::api::Result<()> {
     if crate::cli::output::dry_run() {
         return run_installation(
-            crate::cli::InstallationCommands::Plan {
+            crate::cli::InstallationCommands::Preview {
                 repo: command.repo,
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,
@@ -349,7 +415,7 @@ pub(crate) fn reconstruct(
         result.required_chunk_count as u64,
     );
     let stats = SnapshotReconstructStats {
-        command: "snapshot reconstruct",
+        command: "installation reconstruct",
         repo_root: execution.repo_root.display().to_string(),
         snapshot_id: result.snapshot_id.clone(),
         destination_dir: result.destination_dir.display().to_string(),

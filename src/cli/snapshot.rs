@@ -19,7 +19,7 @@ use crate::cli::tags::parse_cli_tags;
 fn capture_stats_from_engine_result(
     repo_root: &str,
     input_path: &str,
-    repo_name: &str,
+    repository: &crate::api::GutchRepoManifest,
     explicit_tags: &crate::manifest::SnapshotTagSet,
     storage_mode_cli: String,
     result: &crate::api::SnapshotCaptureResult,
@@ -31,8 +31,9 @@ fn capture_stats_from_engine_result(
         input_path: input_path.to_string(),
         snapshot_id: result.snapshot_id.clone(),
         manifest_path: result.manifest_path.display().to_string(),
-        product_id: repo_name.to_string(),
-        remote_repo_id: repo_name.to_string(),
+        repo_name: repository.name.clone(),
+        remote_repo_id: (!repository.remote_repo_id.is_empty())
+            .then(|| repository.remote_repo_id.clone()),
         version_tag: explicit_tags.get("version").unwrap_or_default().to_string(),
         os: explicit_tags.get("os").unwrap_or_default().to_string(),
         arch: explicit_tags.get("arch").unwrap_or_default().to_string(),
@@ -166,7 +167,7 @@ pub(crate) fn run(
                 snapshot_stats.push(capture_stats_from_engine_result(
                     &repo.display().to_string(),
                     &source.path.display().to_string(),
-                    &repo_manifest.name,
+                    &repo_manifest,
                     &source.tags,
                     build_profile.storage_mode.cli_name().to_string(),
                     result,
@@ -293,12 +294,15 @@ pub(crate) fn run(
             ));
         }
 
-        SnapshotCommands::Retag {
-            repo,
-            snapshot_id,
-            tags,
-            tags_file,
-            yes,
+        SnapshotCommands::Tags {
+            command:
+                crate::cli::arguments::SnapshotTagsCommands::Replace {
+                    repo,
+                    snapshot_id,
+                    tags,
+                    tags_file,
+                    yes,
+                },
         } => {
             let single_snapshot = snapshot_id.is_some();
             let replacements = if let Some(path) = tags_file {
@@ -328,7 +332,9 @@ pub(crate) fn run(
                 return Ok(());
             }
             if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
-                return Err(crate::api::Error::manifest("snapshot retag cancelled"));
+                return Err(crate::api::Error::manifest(
+                    "snapshot tag replacement cancelled",
+                ));
             }
             let results = crate::api::retag_snapshots(&repo, replacements)?;
             if single_snapshot {
@@ -337,74 +343,6 @@ pub(crate) fn run(
                 crate::cli::output::record(&results)?;
             }
         }
-
-        SnapshotCommands::Reconstruct {
-            repo,
-            snapshot_id,
-            destination,
-            staging_dir,
-            source_snapshot_id,
-            source_dir,
-            runtime,
-            stats_json_out,
-        } => crate::cli::installation::reconstruct(
-            crate::cli::installation::ReconstructCommand {
-                repo,
-                snapshot_id,
-                destination,
-                staging_dir,
-                source_snapshot_id,
-                source_dir,
-                runtime,
-                stats_json_out,
-            },
-            profile,
-        )?,
-
-        SnapshotCommands::FetchReconstruct {
-            repo,
-            snapshot_id,
-            destination,
-            staging_dir,
-            source_snapshot_id,
-            source_dir,
-            metadata_url,
-            product_metadata_url,
-            blueprint_url,
-            repo_metadata_url,
-            chunk_index_url,
-            bundle_downloads_endpoint,
-            session_id,
-            artifacts,
-            artifact_url_manifest,
-            runtime,
-            transfer,
-            stats_json_out,
-        } => crate::cli::snapshot_transfer::fetch_and_reconstruct(
-            crate::cli::snapshot_transfer::FetchAndReconstructCommand {
-                fetch: crate::cli::snapshot_transfer::FetchCommand {
-                    repo,
-                    snapshot_id,
-                    metadata_url,
-                    product_metadata_url,
-                    blueprint_url,
-                    repo_metadata_url,
-                    chunk_index_url,
-                    bundle_downloads_endpoint,
-                    session_id,
-                    artifacts,
-                    artifact_url_manifest,
-                    transfer_policy: transfer.policy(),
-                },
-                destination,
-                staging_dir,
-                source_snapshot_id,
-                source_dir,
-                runtime_hints: runtime.hints(),
-                stats_json_out,
-            },
-            profile,
-        )?,
 
         SnapshotCommands::Fetch {
             repo,
@@ -437,14 +375,16 @@ pub(crate) fn run(
             profile,
         )?,
 
-        SnapshotCommands::Estimate { source_dir, tags } => {
+        SnapshotCommands::Measure { source_dir, tags } => {
             let result = crate::api::estimate_snapshot(&source_dir, &parse_cli_tags(&tags)?)?;
             crate::cli::output::record(
                 &serde_json::json!({"file_count": result.file_count, "logical_bytes": result.total_logical_size, "unique_chunks": result.estimate.unique_chunk_count, "encoded_artifact_bytes": result.estimate.encoded_artifact_bytes}),
             )?;
             let est = &result.estimate;
 
-            crate::cli::output::line(format_args!("fresh capture measurement (default profile):"));
+            crate::cli::output::line(format_args!(
+                "fresh capture measurement (default packaging presets):"
+            ));
             crate::cli::output::line(format_args!("  files: {}", result.file_count));
             crate::cli::output::line(format_args!(
                 "  logical size:  {:.2} MiB",

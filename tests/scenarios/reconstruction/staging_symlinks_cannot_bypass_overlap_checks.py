@@ -21,6 +21,6 @@ def run(case):
     except OSError as error:
         raise unittest.SkipTest(f"directory links unavailable: {error}") from error
     before = inventory(destination)
-    case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
+    case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination, "--staging-dir", alias, success=False)
     assert inventory(destination) == before

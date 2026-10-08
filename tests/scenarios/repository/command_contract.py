@@ -34,18 +34,24 @@ def run(case):
     case.stats("repo", "rename", "--repo", repo, "--name", "Preview name", "--dry-run")
     case.stats("repo", "constraints", "set", "--repo", repo, "--filesystem", "windows-ntfs", "--dry-run")
     assert repository_inventory(repo) == before
-    snapshot = case.capture(repo, source, "--chunk-preset", "512B")["snapshot_id"]
+    capture = case.capture(repo, source, "--chunk-preset", "512B")
+    assert capture["repo_name"] == json.loads((repo / "repo_metadata.json").read_text())["repository_name"]
+    assert "product_id" not in capture and "remote_repo_id" not in capture
+    snapshot = capture["snapshot_id"]
+    measurement = case.stats("snapshot", "measure", "--source", source)
+    assert measurement["file_count"] == 2
+    assert measurement["logical_bytes"] == len(b"release")
     captured = repository_inventory(repo)
     case.stats("snapshot", "delete", "--repo", repo, "--snapshot", snapshot, "--dry-run", "--yes")
-    case.stats("snapshot", "retag", "--repo", repo, "--snapshot", snapshot, "--tag", "version=2.0.0", "--dry-run", "--yes")
-    case.stats("repo", "rebuild-index", "--repo", repo, "--publish", "--dry-run")
+    case.stats("snapshot", "tags", "replace", "--repo", repo, "--snapshot", snapshot, "--tag", "version=2.0.0", "--dry-run", "--yes")
+    case.stats("repo", "index", "rebuild", "--repo", repo, "--apply", "--dry-run")
     assert repository_inventory(repo) == captured
     destination = case.payload / "installed"
-    preview = case.stats("snapshot", "reconstruct", "--repo", repo,
+    preview = case.stats("installation", "reconstruct", "--repo", repo,
                          "--snapshot", snapshot, "--destination", destination, "--dry-run")
     assert preview["summary"]["entryCount"] == 2
     assert not destination.exists()
-    case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
+    case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination, "--staging-dir", destination, "--dry-run", success=False)
     assert not destination.exists()
     case.reconstruct(repo, snapshot, destination)
@@ -54,7 +60,7 @@ def run(case):
                "--destination", destination, "--remove-extra-files", "--dry-run")
     assert (destination / "extra").read_bytes() == b"keep"
     events = case.payload / "preview.jsonl"
-    case.command("installation", "plan", "--repo", repo, "--snapshot", snapshot,
+    case.command("installation", "preview", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination, "--json-lines", "--output", events)
     records = [json.loads(line) for line in events.read_text(encoding="utf-8").splitlines()]
     assert records[-1]["kind"] == "summary"
@@ -62,4 +68,9 @@ def run(case):
     for arguments in [("repo", "name", "set"), ("repo", "bind"),
                       ("repo", "sources", "capture"), ("installation", "corrupt")]:
         case.command(*arguments, success=False)
-    case.checks.append("relative-paths-json-lines-dry-run-and-preset-validation")
+    case.command("repo", "remote", "bind", "--repo", repo, "--remote-repo-id", "actual-remote-id")
+    bound_capture = case.capture(repo, source, "--chunk-preset", "512B")
+    assert bound_capture["remote_repo_id"] == "actual-remote-id"
+    assert bound_capture["repo_name"] == capture["repo_name"]
+    assert "product_id" not in bound_capture
+    case.checks.append("relative-paths-json-lines-dry-run-preset-validation-and-capture-identities")

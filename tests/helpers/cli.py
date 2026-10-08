@@ -101,7 +101,7 @@ class Case:
         return stats
 
     def reconstruct(self, repo, snapshot, destination, *options, success=True):
-        return self.stats("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
+        return self.stats("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                           "--destination", destination, "--jobs", "2", *options, success=success)
 
     def verify(self, repo, snapshot, destination, *, success=True):

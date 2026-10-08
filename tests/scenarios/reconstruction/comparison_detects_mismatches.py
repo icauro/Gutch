@@ -9,8 +9,8 @@ def run(case):
     actual = case.payload / "actual.txt"
     expected.write_bytes(b"original")
     actual.write_bytes(b"original")
-    assert case.stats("path", "compare", "--expected", expected, "--actual", actual)["compare_passed"]
+    assert case.stats("tree", "compare", "--expected", expected, "--actual", actual)["compare_passed"]
     actual.write_bytes(b"modified")
-    result = case.stats("path", "compare", "--expected", expected, "--actual", actual, success=False)
+    result = case.stats("tree", "compare", "--expected", expected, "--actual", actual, success=False)
     assert not result["compare_passed"]
     assert result["mismatched_file_count"] == 1

@@ -21,11 +21,11 @@ pub(crate) use arguments::Commands;
 pub(crate) use arguments::ConstraintCommands;
 pub(crate) use arguments::DebugCommands;
 pub(crate) use arguments::InstallationCommands;
-pub(crate) use arguments::PathCommands;
 pub(crate) use arguments::RemoteCommands;
 pub(crate) use arguments::RepoCommands;
 pub(crate) use arguments::RepoTagsCommands;
 pub(crate) use arguments::SnapshotCommands;
+pub(crate) use arguments::TreeCommands;
 
 pub(crate) use command_support::prompt_yes_no;
 

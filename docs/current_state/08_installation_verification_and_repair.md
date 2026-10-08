@@ -67,7 +67,7 @@ contents and modification times during repair. Damaged files are replaced in
 full, not patched in place. Healthy source files can contribute reused chunks
 when other files in the source installation are damaged.
 
-`visit_installation_plan` and `installation plan` stream entry actions (`keep`,
+`visit_installation_plan` and `installation preview` stream entry actions (`keep`,
 `add`, `replace`, `remove`, `preserveExtra`, `updateMetadata`), reasons, artifact
 availability, then a summary. Target paths, extra paths, and artifact IDs are each
 sorted within their group. The summary records target ID, whether content was
@@ -95,8 +95,9 @@ write an optional Perfetto trace and render its internal span summary, but
 profiling details are not part of the cross-crate result contract.
 
 Destination operations use the `gutch installation` CLI namespace:
-`plan` previews changes, `verify` audits a destination, `repair` rebuilds its missing or corrupt entries,
-and `corrupt` applies an explicit destructive plan for tests and benchmarks.
+`preview` reports proposed changes, `reconstruct` replaces the complete destination,
+`verify` audits it, and `repair` rebuilds missing or corrupt entries. Explicit
+destructive diagnostics use `debug corrupt-installation`.
 
 An install with missing or corrupt expected content requires repair. Extra
 files are reported independently. Repair can preserve extra files or remove

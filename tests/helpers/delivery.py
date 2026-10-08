@@ -23,7 +23,8 @@ def fetch_arguments(case, repo, snapshot, published, url, *, destination=None):
     write_json(manifest, {p.name: url(p.relative_to(published).as_posix())
                          for p in repository_files(published)
                          if p.relative_to(published).parts[0] in {"bundles", "chunks"}})
-    arguments = ["snapshot", "fetch-reconstruct" if destination else "fetch", "--repo", repo,
+    operation = ["installation", "reconstruct", "--fetch"] if destination is not None else ["snapshot", "fetch"]
+    arguments = [*operation, "--repo", repo,
                  "--snapshot", snapshot, "--artifact-url-manifest", manifest,
                  "--transfer-concurrency", "2"]
     for flag, relative in [

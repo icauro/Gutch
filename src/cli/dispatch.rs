@@ -15,18 +15,21 @@ pub(crate) fn run(
                 command: crate::cli::RepoCommands::Init { .. }
                     | crate::cli::RepoCommands::Rename { .. }
                     | crate::cli::RepoCommands::Constraints { .. }
-                    | crate::cli::RepoCommands::RebuildIndex { .. }
+                    | crate::cli::RepoCommands::Index { .. }
                     | crate::cli::RepoCommands::Push { .. }
                     | crate::cli::RepoCommands::Pull { .. }
             } | Commands::Snapshot {
                 command: crate::cli::SnapshotCommands::Capture { .. }
-                    | crate::cli::SnapshotCommands::Reconstruct { .. }
                     | crate::cli::SnapshotCommands::Delete { .. }
-                    | crate::cli::SnapshotCommands::Retag { .. }
+                    | crate::cli::SnapshotCommands::Tags { .. }
             } | Commands::Installation {
-                command: crate::cli::InstallationCommands::Plan { .. }
+                command: crate::cli::InstallationCommands::Preview { .. }
                     | crate::cli::InstallationCommands::Repair { .. }
             }
+        ) || matches!(
+            &cli.command,
+            Commands::Installation { command: crate::cli::InstallationCommands::Reconstruct(arguments) }
+                if !arguments.fetch
         );
         if !supported {
             return Err(crate::api::Error::manifest(
@@ -60,8 +63,8 @@ pub(crate) fn run(
         Commands::Bundle { command } => match command {
             crate::cli::BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
         },
-        Commands::Path { command } => match command {
-            crate::cli::PathCommands::Compare {
+        Commands::Tree { command } => match command {
+            crate::cli::TreeCommands::Compare {
                 expected,
                 actual,
                 stats_json_out,

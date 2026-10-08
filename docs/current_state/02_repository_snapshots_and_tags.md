@@ -113,7 +113,7 @@ have no remembered key set. Existing filesystem `targets` remain independent.
 
 Standalone Gutch initializes without constraints. Hosts supply their own rules.
 Capture, imports, tag changes and constraint updates validate before publication;
-failed changes preserve the prior repository. `snapshot retag --tags-file PATH`
+failed changes preserve the prior repository. `snapshot tags replace --tags-file PATH`
 accepts a JSON object mapping snapshot IDs to complete `tags` sets and applies
 all replacements atomically. `--dry-run` previews without writing. This permits
 adding or removing a key across all snapshots when parity is enabled.

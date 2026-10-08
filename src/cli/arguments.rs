@@ -32,7 +32,9 @@ impl RuntimeArgs {
     pub(crate) fn hints(self) -> crate::api::RuntimeResourceHints {
         crate::api::RuntimeResourceHints {
             jobs: self.jobs,
-            memory_budget_bytes: self.memory_budget_mib.and_then(|mib| std::num::NonZeroU64::new(mib * 1024 * 1024)),
+            memory_budget_bytes: self
+                .memory_budget_mib
+                .and_then(|mib| std::num::NonZeroU64::new(mib * 1024 * 1024)),
         }
     }
 }
@@ -81,8 +83,10 @@ pub(crate) struct ArtifactBuildProfileArgs {
     /// Content-defined chunker; JC uses the pinned Plakar-compatible variant.
     #[arg(long, value_enum, default_value_t = crate::manifest::Chunker::FastCdc)]
     pub(crate) chunker: crate::manifest::Chunker,
+    /// Chunk sizing preset (algorithm-specific target, not a fixed chunk size).
     #[arg(short = 'C', long = "chunk-preset", value_enum, default_value_t = crate::manifest::ChunkSizingPreset::Chunk128KiB)]
     pub(crate) chunk_profile: crate::manifest::ChunkSizingPreset,
+    /// Bundle sizing preset.
     #[arg(short = 'B', long = "bundle-preset", value_enum, default_value_t = crate::manifest::BundleSizingPreset::Bundle8MiB)]
     pub(crate) bundle_profile: crate::manifest::BundleSizingPreset,
     #[arg(long = "compression-algorithm", value_enum, default_value_t = crate::manifest::CompressionKind::Zstd)]
@@ -97,7 +101,7 @@ pub(crate) struct ArtifactBuildProfileArgs {
 #[command(
     name = "gutch",
     version,
-    about = "Generic Gutch artifact and repo engine"
+    about = "Capture snapshots and reconstruct verified installation trees"
 )]
 pub(crate) struct Cli {
     /// Write structured failure details, including every filename violation.
@@ -106,7 +110,7 @@ pub(crate) struct Cli {
     #[arg(long, short = 'v', global = true)]
     pub(crate) verbose: bool,
 
-    /// Diagnostic collection: off, coarse summary, or sampled detailed timelines.
+    /// Diagnostic profiling: off, coarse summary, or sampled detailed timelines.
     #[arg(long, global = true, value_enum, default_value_t = crate::profile::GutchProfileMode::Off)]
     pub(crate) profile: crate::profile::GutchProfileMode,
     /// Absolute report directory; required for detailed, optional for summary.
@@ -131,14 +135,17 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Commands {
+    /// Manage repositories, constraints, indexes and remote synchronization.
     Repo {
         #[command(subcommand)]
         command: RepoCommands,
     },
+    /// Capture and manage stored snapshots.
     Snapshot {
         #[command(subcommand)]
         command: SnapshotCommands,
     },
+    /// Preview, reconstruct, verify and repair installation trees.
     Installation {
         #[command(subcommand)]
         command: InstallationCommands,
@@ -151,9 +158,10 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: BundleCommands,
     },
-    Path {
+    /// Compare physical filesystem trees.
+    Tree {
         #[command(subcommand)]
-        command: PathCommands,
+        command: TreeCommands,
     },
 }
 
@@ -164,18 +172,14 @@ pub(crate) enum RepoCommands {
         #[command(subcommand)]
         command: ConstraintCommands,
     },
-    /// Verify artifacts and regenerate the chunk map; report only unless --publish is given.
-    RebuildIndex {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long)]
-        publish: bool,
-        #[arg(skip)]
-        json_out: Option<PathBuf>,
+    /// Inspect or rebuild the repository chunk index.
+    Index {
+        #[command(subcommand)]
+        command: RepoIndexCommands,
     },
     Init {
         /// JSON file containing the complete repository constraints object.
-        #[arg(long, value_parser = parse_cli_path, conflicts_with = "targets")]
+        #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,
         #[arg(long = "filesystem", value_enum, value_delimiter = ',')]
         targets: Vec<crate::manifest::constraints::FilesystemTarget>,
@@ -184,12 +188,14 @@ pub(crate) enum RepoCommands {
         #[arg(long = "force")]
         force: bool,
     },
+    /// Synchronize local repository state to its bound remote.
     Push {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long = "yes")]
         yes: bool,
     },
+    /// Synchronize remote repository data locally; does not update installations.
     Pull {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -206,6 +212,7 @@ pub(crate) enum RepoCommands {
         #[command(subcommand)]
         command: RemoteCommands,
     },
+    /// Change the local display name, leaving the directory and remote name unchanged.
     Rename {
         #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -216,6 +223,7 @@ pub(crate) enum RepoCommands {
         #[command(subcommand)]
         command: RepoTagsCommands,
     },
+    /// Show local repository state.
     #[command(name = "status")]
     Status {
         #[arg(long = "repo", value_parser = parse_cli_path)]
@@ -223,13 +231,29 @@ pub(crate) enum RepoCommands {
         #[arg(skip)]
         json_out: Option<PathBuf>,
     },
+    /// Verify stored repository metadata and artifacts.
     Verify {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long = "snapshot")]
         snapshot_id: Option<String>,
+        /// Use strict artifact verification.
         #[arg(long = "strict")]
         strict: bool,
+        #[arg(skip)]
+        json_out: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum RepoIndexCommands {
+    /// Verify artifacts and rebuild the chunk index; report only unless --apply is given.
+    Rebuild {
+        #[arg(long = "repo", value_parser = parse_cli_path)]
+        repo: PathBuf,
+        /// Replace the local chunk index after a complete, successful rebuild.
+        #[arg(long)]
+        apply: bool,
         #[arg(skip)]
         json_out: Option<PathBuf>,
     },
@@ -252,7 +276,7 @@ pub(crate) enum ConstraintCommands {
         )]
         targets: Vec<crate::manifest::constraints::FilesystemTarget>,
         /// JSON file containing the complete replacement constraints object.
-        #[arg(long, value_parser = parse_cli_path, conflicts_with = "targets")]
+        #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,
     },
 
@@ -265,18 +289,21 @@ pub(crate) enum ConstraintCommands {
 #[derive(Subcommand)]
 pub(crate) enum RemoteCommands {
     List,
+    /// Create a remote repository and bind the local repository to it.
     Create {
         #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long)]
         scope_id: String,
     },
+    /// Bind to an existing remote repository without synchronizing content.
     Bind {
         #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long)]
         remote_repo_id: String,
     },
+    /// Remove the binding; retain remote content unless --delete-remote is supplied.
     Unbind {
         #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -287,6 +314,7 @@ pub(crate) enum RemoteCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoTagsCommands {
+    /// Inspect advisory tag references supplied by the remote provider.
     References {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -306,6 +334,7 @@ pub(crate) enum SnapshotCommands {
         #[arg(long)]
         to: String,
     },
+    /// Capture source trees as deduplicated, compressed snapshots.
     #[command(name = "capture")]
     Capture {
         #[arg(short, long = "source", value_parser = parse_cli_path)]
@@ -333,23 +362,10 @@ pub(crate) enum SnapshotCommands {
         #[arg(long = "yes")]
         yes: bool,
     },
-    #[command(name = "retag")]
-    Retag {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(
-            long = "snapshot",
-            required_unless_present = "tags_file",
-            conflicts_with = "tags_file"
-        )]
-        snapshot_id: Option<String>,
-        #[arg(long = "tag", conflicts_with = "tags_file")]
-        tags: Vec<String>,
-        /// JSON object mapping snapshot IDs to complete {"key_value": {...}} tag sets.
-        #[arg(long, value_parser = parse_cli_path)]
-        tags_file: Option<PathBuf>,
-        #[arg(long = "yes")]
-        yes: bool,
+    /// Replace snapshot tags without recapturing content.
+    Tags {
+        #[command(subcommand)]
+        command: SnapshotTagsCommands,
     },
     List {
         #[arg(long = "repo", value_parser = parse_cli_path)]
@@ -357,70 +373,14 @@ pub(crate) enum SnapshotCommands {
         #[arg(skip)]
         json_out: Option<PathBuf>,
     },
-    #[command(name = "reconstruct")]
-    Reconstruct {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: String,
-        #[arg(short, long, value_parser = parse_cli_path)]
-        destination: PathBuf,
-        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
-        staging_dir: Option<PathBuf>,
-        #[arg(long = "reuse-snapshot")]
-        source_snapshot_id: Option<String>,
-        #[arg(long = "reuse-from", value_parser = parse_cli_path)]
-        source_dir: Option<PathBuf>,
-        #[command(flatten)]
-        runtime: RuntimeArgs,
-        #[arg(skip)]
-        stats_json_out: Option<PathBuf>,
-    },
-    #[command(name = "fetch-reconstruct")]
-    FetchReconstruct {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: String,
-        #[arg(short, long, value_parser = parse_cli_path)]
-        destination: PathBuf,
-        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
-        staging_dir: Option<PathBuf>,
-        #[arg(long = "reuse-snapshot")]
-        source_snapshot_id: Option<String>,
-        #[arg(long = "reuse-from", value_parser = parse_cli_path)]
-        source_dir: Option<PathBuf>,
-        #[arg(long = "snapshot-metadata-url")]
-        metadata_url: String,
-        #[arg(long = "product-metadata-url")]
-        product_metadata_url: Option<String>,
-        #[arg(long = "blueprint-url")]
-        blueprint_url: String,
-        #[arg(long = "repo-metadata-url")]
-        repo_metadata_url: Option<String>,
-        #[arg(long = "chunk-index-url")]
-        chunk_index_url: Option<String>,
-        #[arg(long = "bundle-downloads-endpoint")]
-        bundle_downloads_endpoint: Option<String>,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-        #[arg(long = "artifact-url")]
-        artifacts: Vec<String>,
-        #[arg(long = "artifact-url-manifest", value_parser = parse_cli_path)]
-        artifact_url_manifest: Option<PathBuf>,
-        #[command(flatten)]
-        runtime: RuntimeArgs,
-        #[command(flatten)]
-        transfer: TransferArgs,
-        #[arg(skip)]
-        stats_json_out: Option<PathBuf>,
-    },
-    Estimate {
+    /// Measure fresh-capture storage with default packaging presets and no repository reuse.
+    Measure {
         #[arg(short, long = "source", value_parser = parse_cli_path)]
         source_dir: PathBuf,
         #[arg(long = "tag")]
         tags: Vec<String>,
     },
+    /// Download snapshot data and artifacts into a repository without reconstructing files.
     Fetch {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -450,9 +410,85 @@ pub(crate) enum SnapshotCommands {
 }
 
 #[derive(Subcommand)]
+pub(crate) enum SnapshotTagsCommands {
+    /// Replace the complete tag set; omitted keys are removed.
+    Replace {
+        #[arg(long = "repo", value_parser = parse_cli_path)]
+        repo: PathBuf,
+        #[arg(
+            long = "snapshot",
+            required_unless_present = "tags_file",
+            conflicts_with = "tags_file"
+        )]
+        snapshot_id: Option<String>,
+        #[arg(long = "tag", conflicts_with = "tags_file")]
+        tags: Vec<String>,
+        /// JSON object mapping snapshot IDs to complete {"key_value": {...}} tag sets.
+        #[arg(long, value_parser = parse_cli_path)]
+        tags_file: Option<PathBuf>,
+        #[arg(long = "yes")]
+        yes: bool,
+    },
+}
+
+#[derive(Args)]
+pub(crate) struct ReconstructionArgs {
+    #[arg(long = "repo", value_parser = parse_cli_path)]
+    pub(crate) repo: PathBuf,
+    #[arg(long = "snapshot")]
+    pub(crate) snapshot_id: String,
+    #[arg(short, long, value_parser = parse_cli_path)]
+    pub(crate) destination: PathBuf,
+    #[arg(long = "staging-dir", value_parser = parse_cli_path)]
+    pub(crate) staging_dir: Option<PathBuf>,
+    #[arg(long = "reuse-snapshot")]
+    pub(crate) source_snapshot_id: Option<String>,
+    #[arg(long = "reuse-from", value_parser = parse_cli_path)]
+    pub(crate) source_dir: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    /// Fetch authorized snapshot data and artifacts while reconstructing.
+    #[arg(long)]
+    pub(crate) fetch: bool,
+    #[arg(
+        long = "snapshot-metadata-url",
+        required_if_eq("fetch", "true"),
+        requires = "fetch"
+    )]
+    pub(crate) metadata_url: Option<String>,
+    #[arg(long = "product-metadata-url", requires = "fetch")]
+    pub(crate) product_metadata_url: Option<String>,
+    #[arg(
+        long = "blueprint-url",
+        required_if_eq("fetch", "true"),
+        requires = "fetch"
+    )]
+    pub(crate) blueprint_url: Option<String>,
+    #[arg(long = "repo-metadata-url", requires = "fetch")]
+    pub(crate) repo_metadata_url: Option<String>,
+    #[arg(long = "chunk-index-url", requires = "fetch")]
+    pub(crate) chunk_index_url: Option<String>,
+    #[arg(long = "bundle-downloads-endpoint", requires = "fetch")]
+    pub(crate) bundle_downloads_endpoint: Option<String>,
+    #[arg(long = "session-id", requires = "fetch")]
+    pub(crate) session_id: Option<String>,
+    #[arg(long = "artifact-url", requires = "fetch")]
+    pub(crate) artifacts: Vec<String>,
+    #[arg(long = "artifact-url-manifest", requires = "fetch", value_parser = parse_cli_path)]
+    pub(crate) artifact_url_manifest: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) transfer: TransferArgs,
+    #[arg(skip)]
+    pub(crate) stats_json_out: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
 pub(crate) enum InstallationCommands {
+    /// Reconstruct a verified tree, replacing the entire destination including extra files.
+    Reconstruct(Box<ReconstructionArgs>),
+
     /// Preview installation changes without modifying files.
-    Plan {
+    Preview {
         #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
         #[arg(long = "snapshot")]
@@ -463,6 +499,7 @@ pub(crate) enum InstallationCommands {
         staging_dir: Option<PathBuf>,
         #[arg(long = "mode", value_parser = ["selective", "replace-directory"], default_value = "selective")]
         publication: String,
+        /// Remove entries absent from the target snapshot. Repair preserves them by default.
         #[arg(long = "remove-extra-files")]
         remove_added_files: bool,
         #[arg(long)]
@@ -475,6 +512,7 @@ pub(crate) enum InstallationCommands {
         runtime: RuntimeArgs,
     },
 
+    /// Verify expected content hashes and report missing, corrupt and extra entries.
     Verify {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -482,6 +520,7 @@ pub(crate) enum InstallationCommands {
         snapshot_id: String,
         #[arg(short, long, value_parser = parse_cli_path)]
         destination: PathBuf,
+        /// Additionally verify chunk hashes. Default installation verification hashes full files.
         #[arg(long = "strict")]
         strict: bool,
         #[command(flatten)]
@@ -489,6 +528,7 @@ pub(crate) enum InstallationCommands {
         #[arg(skip)]
         stats_json_out: Option<PathBuf>,
     },
+    /// Repair missing or corrupt content, preserving extra files unless removal is requested.
     Repair {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -498,6 +538,7 @@ pub(crate) enum InstallationCommands {
         destination: PathBuf,
         #[arg(long = "staging-dir", value_parser = parse_cli_path)]
         staging_dir: Option<PathBuf>,
+        /// Remove entries absent from the target snapshot. Repair preserves them by default.
         #[arg(long = "remove-extra-files")]
         remove_added_files: bool,
         #[command(flatten)]
@@ -531,7 +572,6 @@ mod tests {
     use super::RemoteCommands;
     use super::RepoCommands;
     use super::RepoTagsCommands;
-    use super::SnapshotCommands;
     use super::TransferPolicyArg;
     use clap::Parser;
 
@@ -649,11 +689,12 @@ mod tests {
     }
 
     #[test]
-    fn parses_fetch_reconstruct_command() {
+    fn parses_reconstruction_with_fetch() {
         let cli = Cli::try_parse_from([
             "gutch",
-            "snapshot",
-            "fetch-reconstruct",
+            "installation",
+            "reconstruct",
+            "--fetch",
             "--repo",
             if cfg!(windows) {
                 r"D:\Repos\fetched"
@@ -681,23 +722,25 @@ mod tests {
             "--transfer-max-concurrency",
             "12",
         ])
-        .expect("fetch-reconstruct args should parse");
+        .expect("reconstruction fetch args should parse");
 
-        let Commands::Snapshot {
-            command:
-                SnapshotCommands::FetchReconstruct {
-                    transfer,
-                    artifacts,
-                    ..
-                },
+        let Commands::Installation {
+            command: InstallationCommands::Reconstruct(arguments),
         } = cli.command
         else {
-            panic!("expected fetch-reconstruct command");
+            panic!("expected reconstruction with fetch");
         };
-        assert!(matches!(transfer.policy, TransferPolicyArg::Adaptive));
-        assert_eq!(transfer.concurrency, 4);
-        assert_eq!(transfer.maximum, 12);
-        assert_eq!(artifacts, ["chunk-1=https://objects.example/chunk"]);
+        assert!(arguments.fetch);
+        assert!(matches!(
+            arguments.transfer.policy,
+            TransferPolicyArg::Adaptive
+        ));
+        assert_eq!(arguments.transfer.concurrency, 4);
+        assert_eq!(arguments.transfer.maximum, 12);
+        assert_eq!(
+            arguments.artifacts,
+            ["chunk-1=https://objects.example/chunk"]
+        );
     }
 
     #[test]
@@ -706,6 +749,64 @@ mod tests {
             .err()
             .expect("the retired command group must be rejected");
         assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn reconstruction_requires_explicit_fetch_and_complete_metadata_sources() {
+        let base = [
+            "gutch",
+            "installation",
+            "reconstruct",
+            "--repo",
+            "repo",
+            "--snapshot",
+            "snapshot",
+            "--destination",
+            "install",
+        ];
+        Cli::try_parse_from(base).expect("local reconstruction needs no remote inputs");
+        for options in [
+            vec!["--fetch"],
+            vec![
+                "--fetch",
+                "--snapshot-metadata-url",
+                "https://example.invalid/meta",
+            ],
+            vec!["--fetch", "--blueprint-url", "https://example.invalid/tree"],
+            vec![
+                "--snapshot-metadata-url",
+                "https://example.invalid/meta",
+                "--blueprint-url",
+                "https://example.invalid/tree",
+            ],
+            vec!["--artifact-url", "id=https://example.invalid/artifact"],
+        ] {
+            let error = Cli::try_parse_from(base.into_iter().chain(options))
+                .err()
+                .expect("incomplete or implicit fetch must fail during parsing");
+            assert_eq!(
+                error.kind(),
+                clap::error::ErrorKind::MissingRequiredArgument
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_retired_operation_names() {
+        for command in [
+            vec!["snapshot", "reconstruct"],
+            vec!["snapshot", "fetch-reconstruct"],
+            vec!["snapshot", "estimate"],
+            vec!["snapshot", "retag"],
+            vec!["installation", "plan"],
+            vec!["repo", "rebuild-index"],
+            vec!["path", "compare"],
+        ] {
+            let error = Cli::try_parse_from(std::iter::once("gutch").chain(command))
+                .err()
+                .expect("retired command names have no aliases");
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+        }
     }
 
     #[test]
@@ -801,7 +902,7 @@ pub(crate) enum BundleCommands {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum PathCommands {
+pub(crate) enum TreeCommands {
     Compare {
         #[arg(long = "expected", value_parser = parse_cli_path)]
         expected: PathBuf,

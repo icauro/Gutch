@@ -23,7 +23,7 @@ def run(case):
         blueprint.write_bytes(directory_blueprint(path))
         destination = case.payload / "installed"
         before = inventory(case.payload)
-        case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
+        case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                      "--destination", destination, success=False)
         assert inventory(case.payload) == before
     blueprint.write_bytes(original)

@@ -19,7 +19,7 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
     );
     let result = gutch::api::run_from_args([
         "gutch",
-        "path",
+        "tree",
         "compare",
         "--expected",
         expected.to_str().unwrap(),
@@ -63,7 +63,10 @@ fn assert_api_and_cli_capture_equivalent(
         compression_algorithm: CompressionKind::Lz4,
         compression_level: None,
         storage_mode: ArtifactStorageMode::LooseChunks,
-        runtime_hints: RuntimeResourceHints { jobs: Some(1), ..Default::default() },
+        runtime_hints: RuntimeResourceHints {
+            jobs: Some(1),
+            ..Default::default()
+        },
         control: Default::default(),
     })
     .unwrap();
@@ -128,7 +131,10 @@ fn assert_api_and_cli_capture_equivalent(
             staging_dir: None,
             source_snapshot_id: None,
             source_dir: None,
-            runtime_hints: RuntimeResourceHints { jobs: Some(1), ..Default::default() },
+            runtime_hints: RuntimeResourceHints {
+                jobs: Some(1),
+                ..Default::default()
+            },
             control: Default::default(),
         })
         .unwrap();

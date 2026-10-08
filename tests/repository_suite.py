@@ -141,7 +141,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         record("rebuild-index")
         (repo / "chunk_map.gtcbin").unlink()
         report = case.root / "rebuild.json"
-        case.command("repo", "rebuild-index", "--repo", repo, "--publish", "--json", "--output", report)
+        case.command("repo", "index", "rebuild", "--repo", repo, "--apply", "--json", "--output", report)
         assert json.loads(report.read_text(encoding="utf-8"))["published"]
 
     def repair():
@@ -154,7 +154,7 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         (destination / filename).chmod(0o644)
         (destination / filename).write_bytes(b"damaged installation")
         assert not case.verify(repo, snapshot, destination, success=False)["verification_passed"]
-        case.command("installation", "plan", "--repo", repo, "--snapshot", snapshot, "--destination", destination)
+        case.command("installation", "preview", "--repo", repo, "--snapshot", snapshot, "--destination", destination)
         case.repair(repo, snapshot, destination)
         assert_tree(model[snapshot]["entries"], destination, case.root / "repair-after.json")
 

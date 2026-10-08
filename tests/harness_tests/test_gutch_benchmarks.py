@@ -913,7 +913,7 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
                 self.sources[snapshot_id] = source_path
                 stats_path.parent.mkdir(parents=True, exist_ok=True)
                 stats_path.write_text(json.dumps({"snapshot_id": snapshot_id}), encoding="utf-8")
-            elif rendered[1:3] == ("snapshot", "reconstruct"):
+            elif rendered[1:3] == ("installation", "reconstruct"):
                 snapshot_id = rendered[rendered.index("--snapshot") + 1]
                 destination = Path(rendered[rendered.index("--destination") + 1])
                 shutil.copytree(self.sources[snapshot_id], destination)
@@ -944,7 +944,7 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
     assert verbs == [
         ("repo", "init"),
         ("snapshot", "capture"),
-        ("snapshot", "reconstruct"),
+        ("installation", "reconstruct"),
         ("debug", "corrupt-installation"),
         ("installation", "repair"),
     ]
@@ -974,7 +974,7 @@ def test_gutch_reconstructs_latest_capture_first(tmp_path: Path) -> None:
                     json.dumps({"snapshot_id": source.name}),
                     encoding="utf-8",
                 )
-            elif rendered[1:3] == ("snapshot", "reconstruct"):
+            elif rendered[1:3] == ("installation", "reconstruct"):
                 snapshot_id = rendered[rendered.index("--snapshot") + 1]
                 destination = Path(rendered[rendered.index("--destination") + 1])
                 self.reconstruct_order.append(snapshot_id)

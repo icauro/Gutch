@@ -24,7 +24,7 @@ def run(case):
     assert result["missing_file_count"] >= 1
     assert result["corrupt_file_count"] >= 2
     assert result["extra_file_count"] == 1
-    case.command("installation", "plan", "--json-lines", "--repo", repo, "--snapshot", snapshot,
+    case.command("installation", "preview", "--json-lines", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination)
     preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
     events = [json.loads(line) for line in preview.read_text().splitlines() if line.startswith("{")]
@@ -35,7 +35,7 @@ def run(case):
     assert actions["readonly.txt"] == "updateMetadata"
     assert events[-1]["kind"] == "summary"
     assert (destination / "data/shared.bin").read_bytes() == b"truncated"
-    case.command("installation", "plan", "--json-lines", "--repo", repo, "--snapshot", snapshot,
+    case.command("installation", "preview", "--json-lines", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination, "--metadata-only")
     metadata_preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
     metadata_events = [json.loads(line) for line in metadata_preview.read_text(encoding="utf-8").splitlines()

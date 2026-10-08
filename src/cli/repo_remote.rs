@@ -66,11 +66,11 @@ pub(crate) fn push(
         stats.snapshot_unchanged_count
     ));
     crate::cli::output::line(format_args!(
-        "repo manifest uploaded: {}, chunk index uploaded: {}",
+        "repository metadata uploaded: {}, chunk index uploaded: {}",
         stats.repo_manifest_uploaded, stats.chunk_index_uploaded
     ));
     crate::cli::output::line(format_args!(
-        "snapshot manifests uploaded: {}, bundles uploaded: {}, bundles skipped: {}",
+        "snapshot metadata uploaded: {}, bundles uploaded: {}, bundles skipped: {}",
         stats.snapshot_manifest_uploaded_count,
         stats.bundle_uploaded_count,
         stats.bundle_skipped_count
@@ -157,7 +157,7 @@ pub(crate) fn create(
     let (_, manifest) = crate::api::load_gutch_repo_manifest(&repo)?;
     provider.configure_repository_binding(&repo, &manifest.remote_repo_id)?;
     crate::cli::output::line(format_args!(
-        "linked repo '{}' to remote repo {} (scope {})",
+        "bound repo '{}' to remote repo {} (scope {})",
         repo.display(),
         manifest.remote_repo_id,
         scope_id
@@ -190,7 +190,7 @@ pub(crate) fn unbind(
     let (paths, manifest) = crate::api::load_gutch_repo_manifest(&repo)?;
     if !manifest.is_linked() {
         crate::cli::output::line(format_args!(
-            "repo '{}' is not linked, nothing to do.",
+            "repo '{}' is not bound, nothing to do.",
             paths.repo_root().display()
         ));
         return Ok(());
@@ -207,7 +207,7 @@ pub(crate) fn unbind(
         crate::cli::output::line(format_args!("deleted remote repo {remote_repo_id}"));
     }
     crate::cli::output::line(format_args!(
-        "unlinked repo '{}'",
+        "unbound repo '{}'",
         paths.repo_root().display()
     ));
     Ok(())
@@ -287,7 +287,7 @@ fn print_pull_plan(plan: &crate::api::RepoPullPlan) {
         plan.remote_repo_id, plan.remote_repo_name
     ));
     crate::cli::output::line(format_args!(
-        "changes: repo_manifest={} chunk_map={} snapshots_download={} snapshots_skip={} local_only={} kept_newer_local={}",
+        "changes: repo_metadata={} chunk_index={} snapshots_download={} snapshots_skip={} local_only={} kept_newer_local={}",
         plan.repo_manifest_needed,
         plan.chunk_map_needed,
         plan.snapshots_to_download.len(),

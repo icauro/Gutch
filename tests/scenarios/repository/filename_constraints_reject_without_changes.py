@@ -55,7 +55,7 @@ def run(case):
     destination.mkdir()
     (destination / "keep.txt").write_text("keep", encoding="utf-8")
     before = inventory(destination)
-    case.command("snapshot", "reconstruct", "--repo", repo, "--snapshot", snapshot,
+    case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
                  "--destination", destination, success=False)
     assert inventory(destination) == before
     case.command("repo", "constraints", "clear", "--repo", repo)

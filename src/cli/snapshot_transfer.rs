@@ -179,7 +179,7 @@ pub(crate) fn fetch_and_reconstruct(
         reconstruct.required_chunk_count as u64,
     );
     let stats = SnapshotFetchReconstructStats {
-        command: "snapshot fetch-reconstruct",
+        command: "installation reconstruct",
         repo_root: fetch_result.repo_path.display().to_string(),
         snapshot_id: fetch_result.snapshot_id.clone(),
         destination_dir: reconstruct.destination_dir.display().to_string(),
