@@ -48,10 +48,10 @@ pub(crate) fn line(arguments: std::fmt::Arguments<'_>) {
             if state.result.is_none() {
                 state.messages.push(arguments.to_string());
             }
-        } else if let Some(writer) = &mut state.writer {
-            if let Err(error) = writeln!(writer, "{arguments}") {
-                state.error = Some(error);
-            }
+        } else if let Some(writer) = &mut state.writer
+            && let Err(error) = writeln!(writer, "{arguments}")
+        {
+            state.error = Some(error);
         }
     });
 }

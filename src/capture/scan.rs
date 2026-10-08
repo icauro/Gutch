@@ -72,16 +72,18 @@ pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileB
     timings.metadata += entry.metadata;
 }
 
+pub(crate) struct ScannedChunks {
+    pub(crate) entries: Vec<SnapshotEntry>,
+    pub(crate) unique_chunks: HashMap<ChunkHash, ChunkPayload>,
+    pub(crate) chunk_placements: HashMap<ChunkHash, ChunkPlacementKey>,
+    pub(crate) total_logical_size: u64,
+}
+
 pub(crate) fn collect_scanned_chunks(
     inventory: &SourceInventory,
     options: ScanDirectoryOptions<'_>,
     timings: &mut BuildTimings,
-) -> Result<(
-    Vec<SnapshotEntry>,
-    HashMap<ChunkHash, ChunkPayload>,
-    HashMap<ChunkHash, ChunkPlacementKey>,
-    u64,
-)> {
+) -> Result<ScannedChunks> {
     let control = options.control.clone();
     let metadata_entries = inventory.metadata_entries.clone();
     let file_entries = scan_directory_into_file_entries(inventory, options)?;
@@ -122,7 +124,12 @@ pub(crate) fn collect_scanned_chunks(
 
     entries.sort_by(|left, right| left.path().cmp(right.path()));
     manifest::validate_snapshot_entries(&entries)?;
-    Ok((entries, unique_chunks, chunk_placements, total_logical_size))
+    Ok(ScannedChunks {
+        entries,
+        unique_chunks,
+        chunk_placements,
+        total_logical_size,
+    })
 }
 
 fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
@@ -501,6 +508,97 @@ pub(crate) fn validate_source_inventory(
     )
 }
 
+/// Compares normalized source observations from two inventories: entry paths,
+/// entry kinds, file sizes, high-resolution modification times, and supported
+/// permissions. Timestamps may be coarse or move backward on some filesystems,
+/// so equality only proves no observed change, never content identity (which
+/// the content-derived snapshot ID establishes).
+pub(crate) fn verify_source_inventory_stable(
+    before: &SourceInventory,
+    after: &SourceInventory,
+) -> Result<()> {
+    fn metadata_observation(entry: &SnapshotEntry) -> (String, String, String) {
+        match entry {
+            SnapshotEntry::File(file) => (
+                file.path.clone(),
+                String::from("file"),
+                format!("{}:{}:{}", file.size, file.executable, file.read_only),
+            ),
+            SnapshotEntry::Directory(directory) => (
+                directory.path.clone(),
+                String::from("directory"),
+                directory.read_only.to_string(),
+            ),
+            SnapshotEntry::Symlink(link) => (
+                link.path.clone(),
+                String::from("symlink"),
+                link.target_path.clone(),
+            ),
+        }
+    }
+
+    fn file_observation(
+        entry: &SourceFileEntry,
+    ) -> Result<(String, u64, std::time::SystemTime, bool, bool)> {
+        // Compare the metadata captured during that inventory's scan, never a
+        // fresh read: re-reading current state for both sides would always
+        // agree with itself.
+        let metadata = &entry.metadata;
+        let executable = is_executable(metadata);
+        Ok((
+            entry.normalized_relative.clone(),
+            metadata.len(),
+            metadata
+                .modified()
+                .map_err(|_| Error::manifest("source changed during capture".to_string()))?,
+            metadata.permissions().readonly(),
+            executable,
+        ))
+    }
+
+    #[cfg(unix)]
+    fn is_executable(metadata: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+
+    #[cfg(not(unix))]
+    fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+        false
+    }
+
+    let before_metadata: Vec<_> = before
+        .metadata_entries
+        .iter()
+        .map(metadata_observation)
+        .collect();
+    let after_metadata: Vec<_> = after
+        .metadata_entries
+        .iter()
+        .map(metadata_observation)
+        .collect();
+    if before_metadata != after_metadata {
+        return Err(Error::manifest("source changed during capture"));
+    }
+
+    let mut before_files: Vec<_> = before
+        .files
+        .iter()
+        .map(file_observation)
+        .collect::<Result<_>>()?;
+    let mut after_files: Vec<_> = after
+        .files
+        .iter()
+        .map(file_observation)
+        .collect::<Result<_>>()?;
+    before_files.sort();
+    after_files.sort();
+    if before_files != after_files {
+        return Err(Error::manifest("source changed during capture"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,110 +736,18 @@ mod tests {
         let before = scan_dir(temp.path());
 
         // Permission flip without touching content or timestamps.
-        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        let original_permissions = std::fs::metadata(&path).unwrap().permissions();
+        let mut permissions = original_permissions.clone();
         permissions.set_readonly(!permissions.readonly());
         std::fs::set_permissions(&path, permissions).unwrap();
         let after = scan_dir(temp.path());
         assert!(verify_source_inventory_stable(&before, &after).is_err());
 
         // Replace with different content under the same name.
-        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-        permissions.set_readonly(false);
-        std::fs::set_permissions(&path, permissions).unwrap();
+        std::fs::set_permissions(&path, original_permissions).unwrap();
         std::fs::remove_file(&path).unwrap();
         write_source(temp.path(), "game.exe", b"replacement-bytes!!");
         let after = scan_dir(temp.path());
         assert!(verify_source_inventory_stable(&before, &after).is_err());
     }
-}
-
-/// Compares normalized source observations from two inventories: entry paths,
-/// entry kinds, file sizes, high-resolution modification times, and supported
-/// permissions. Timestamps may be coarse or move backward on some filesystems,
-/// so equality only proves no observed change, never content identity (which
-/// the content-derived snapshot ID establishes).
-pub(crate) fn verify_source_inventory_stable(
-    before: &SourceInventory,
-    after: &SourceInventory,
-) -> Result<()> {
-    fn metadata_observation(entry: &SnapshotEntry) -> (String, String, String) {
-        match entry {
-            SnapshotEntry::File(file) => (
-                file.path.clone(),
-                String::from("file"),
-                format!("{}:{}:{}", file.size, file.executable, file.read_only),
-            ),
-            SnapshotEntry::Directory(directory) => (
-                directory.path.clone(),
-                String::from("directory"),
-                directory.read_only.to_string(),
-            ),
-            SnapshotEntry::Symlink(link) => (
-                link.path.clone(),
-                String::from("symlink"),
-                link.target_path.clone(),
-            ),
-        }
-    }
-
-    fn file_observation(
-        entry: &SourceFileEntry,
-    ) -> Result<(String, u64, std::time::SystemTime, bool, bool)> {
-        // Compare the metadata captured during that inventory's scan, never a
-        // fresh read: re-reading current state for both sides would always
-        // agree with itself.
-        let metadata = &entry.metadata;
-        let executable = is_executable(metadata);
-        Ok((
-            entry.normalized_relative.clone(),
-            metadata.len(),
-            metadata
-                .modified()
-                .map_err(|_| Error::manifest("source changed during capture".to_string()))?,
-            metadata.permissions().readonly(),
-            executable,
-        ))
-    }
-
-    #[cfg(unix)]
-    fn is_executable(metadata: &std::fs::Metadata) -> bool {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
-    }
-
-    #[cfg(not(unix))]
-    fn is_executable(_metadata: &std::fs::Metadata) -> bool {
-        false
-    }
-
-    let before_metadata: Vec<_> = before
-        .metadata_entries
-        .iter()
-        .map(metadata_observation)
-        .collect();
-    let after_metadata: Vec<_> = after
-        .metadata_entries
-        .iter()
-        .map(metadata_observation)
-        .collect();
-    if before_metadata != after_metadata {
-        return Err(Error::manifest("source changed during capture"));
-    }
-
-    let mut before_files: Vec<_> = before
-        .files
-        .iter()
-        .map(file_observation)
-        .collect::<Result<_>>()?;
-    let mut after_files: Vec<_> = after
-        .files
-        .iter()
-        .map(file_observation)
-        .collect::<Result<_>>()?;
-    before_files.sort();
-    after_files.sort();
-    if before_files != after_files {
-        return Err(Error::manifest("source changed during capture"));
-    }
-    Ok(())
 }

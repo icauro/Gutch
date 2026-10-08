@@ -151,7 +151,6 @@ pub fn capture_snapshot_sources(
         }
 
         let total_steps = plan.to_capture.len();
-        let mut current_step = 0usize;
 
         let runtime_plan =
             crate::runtime::plan_runtime(&crate::runtime::RuntimeResourceHints::default());
@@ -179,9 +178,8 @@ pub fn capture_snapshot_sources(
         drop(_existing_state_span);
 
         let mut captured_count = 0usize;
-        for candidate in &plan.to_capture {
+        for (step_index, candidate) in plan.to_capture.iter().enumerate() {
             control.checkpoint()?;
-            current_step += 1;
             progress::emit_progress(
                 control.progress(),
                 GutchProgressEvent {
@@ -189,7 +187,7 @@ pub fn capture_snapshot_sources(
                     operation: GutchOperation::SnapshotSourcesCapture,
                     phase: GutchProgressPhase::Capture,
                     message: format!("Capturing snapshot '{}'", candidate.folder_name),
-                    current: current_step,
+                    current: step_index + 1,
                     total: total_steps,
                     transferred_bytes: 0,
                     total_bytes: 0,

@@ -100,7 +100,7 @@ pub(crate) fn apply_reconstruct_pipeline(
     };
     let staging_dir = staging.path().to_path_buf();
 
-    let main_result = (|| -> Result<(InstallationReconstructResult, Option<super::types::SnapshotRepairResult>)> {
+    (|| -> Result<(InstallationReconstructResult, Option<super::types::SnapshotRepairResult>)> {
         let output_paths = {
             let _prepare_span = request
                 .control
@@ -155,8 +155,16 @@ pub(crate) fn apply_reconstruct_pipeline(
             super::publish::Publication::Selective { target, changes, remove_extra_files } => {
                 let started = ProfileInstant::start(request.control.profiler());
                 let result = super::publish::finalize_repair_result_after_reconstruction(
-                    target, request.destination_dir, &staging_dir, *remove_extra_files,
-                    request.runtime_hints, changes, request.control, reconstruct_pool.as_ref(),
+                    super::publish::FinalizeRepairRequest {
+                        snapshot_manifest: target,
+                        destination_dir: request.destination_dir,
+                        staging_dir: &staging_dir,
+                        remove_added_files: *remove_extra_files,
+                        runtime_hints: request.runtime_hints,
+                        repair_plan: changes,
+                        control: request.control,
+                        operation_pool: reconstruct_pool.as_ref(),
+                    },
                 )?;
                 reconstruct_timings.promote_wall = started.elapsed();
                 Some(result)
@@ -183,9 +191,7 @@ pub(crate) fn apply_reconstruct_pipeline(
             resolved_artifact_file_count: required_artifact_count,
             source_destination_dir: request.source_destination_dir.clone(),
         }, repair_result))
-    })();
-
-    main_result
+    })()
 }
 
 pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
@@ -255,7 +261,7 @@ impl ReconstructionWorkQueue {
 enum ReconstructJobEvent {
     Completed {
         job_index: usize,
-        timings: ReconstructTimings,
+        timings: Box<ReconstructTimings>,
     },
     Verified(ReconstructedFileVerification),
     Failed(Error),
@@ -305,17 +311,22 @@ fn spawn_reconstruct_work(
                     ])
                 });
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
-            ReconstructWorkItem::Job(job_index) => reconstruct_job(
-                &context.jobs[job_index],
-                &context.file_plans,
-                &context.output_paths,
-                &context.precomputed_file_hashes,
-                &context.output_handles,
-                &context.source_handles,
-                &context.compression_profile,
-                &context.control,
-            )
-            .map(|timings| ReconstructJobEvent::Completed { job_index, timings }),
+            ReconstructWorkItem::Job(job_index) => {
+                reconstruct_job(super::io::ReconstructJobRequest {
+                    job: &context.jobs[job_index],
+                    file_plans: &context.file_plans,
+                    output_paths: &context.output_paths,
+                    precomputed_file_hashes: &context.precomputed_file_hashes,
+                    output_handles: &context.output_handles,
+                    source_handles: &context.source_handles,
+                    compression_profile: &context.compression_profile,
+                    control: &context.control,
+                })
+                .map(|timings| ReconstructJobEvent::Completed {
+                    job_index,
+                    timings: Box::new(timings),
+                })
+            }
             ReconstructWorkItem::VerifyFile(file_index) => verify_reconstructed_output_file(
                 file_index,
                 &context.file_plans[file_index],

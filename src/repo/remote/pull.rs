@@ -299,7 +299,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
     prune: bool,
     control: GutchOperationControl,
 ) -> Result<RepoPullStats> {
-    let operation_root = (&repo).to_path_buf();
+    let operation_root = repo.to_path_buf();
     std::fs::create_dir_all(&operation_root)?;
     crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;

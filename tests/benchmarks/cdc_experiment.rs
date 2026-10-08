@@ -222,13 +222,13 @@ fn compare_chunkers() {
             for repetition in 0..=repetitions {
                 for index in 0..4 {
                     let variant = (index + repetition) % 4;
-                    for mode in 0..3 {
+                    for (mode, mode_samples) in samples[variant].iter_mut().enumerate() {
                         let start = Instant::now();
                         let count = measure(variant, mode);
                         let seconds = start.elapsed().as_secs_f64();
                         assert!(count > 0);
                         if repetition > 0 {
-                            samples[variant][mode].push(seconds);
+                            mode_samples.push(seconds);
                         }
                     }
                 }

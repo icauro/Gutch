@@ -41,7 +41,7 @@ pub fn fetch_and_reconstruct_snapshot(
     request: SnapshotFetchAndReconstructRequest,
 ) -> Result<SnapshotFetchAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
-    let operation_root = (&request.fetch_request.repo_path).to_path_buf();
+    let operation_root = request.fetch_request.repo_path.to_path_buf();
     std::fs::create_dir_all(&operation_root)?;
     crate::repo::coordination::write_with_control(
         &operation_root,

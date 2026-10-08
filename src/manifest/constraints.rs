@@ -122,7 +122,8 @@ impl SnapshotTagValueFormat {
                 let year: u32 = value[..4].parse().unwrap();
                 let month: u32 = value[5..7].parse().unwrap();
                 let day: u32 = value[8..].parse().unwrap();
-                let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+                let leap = year.is_multiple_of(4)
+                    && (!year.is_multiple_of(100) || year.is_multiple_of(400));
                 let days = match month {
                     2 => {
                         if leap {
@@ -171,10 +172,10 @@ impl RepositoryConstraints {
             match tags.get(key) {
                 None if rule.required => violations.push(format!("missing required key '{key}'")),
                 Some(value) => {
-                    if let Some(format) = rule.format {
-                        if !format.accepts(value) {
-                            violations.push(format!("key '{key}' must match {}", format.as_str()));
-                        }
+                    if let Some(format) = rule.format
+                        && !format.accepts(value)
+                    {
+                        violations.push(format!("key '{key}' must match {}", format.as_str()));
                     }
                 }
                 _ => {}

@@ -184,10 +184,10 @@ pub(crate) fn write_chunk_index_binary(
         }
         if entry.storage_mode == manifest::ArtifactStorageMode::Bundled {
             let id = ChunkHash::parse_hex(&entry.bundle_id)?;
-            if let Some(size) = artifacts.insert(id, entry.artifact_size) {
-                if size != entry.artifact_size {
-                    return Err(Error::manifest("inconsistent indexed artifact sizes"));
-                }
+            if let Some(size) = artifacts.insert(id, entry.artifact_size)
+                && size != entry.artifact_size
+            {
+                return Err(Error::manifest("inconsistent indexed artifact sizes"));
             }
         }
     }

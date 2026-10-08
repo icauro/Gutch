@@ -34,7 +34,12 @@ fn output_verification_uses_file_concurrency_without_misreporting_pool_size() {
         }
         pool.install(|| {
             verify_reconstructed_output_file(
-                0, &file_plan, &paths, &[Mutex::new(None)], &control, 4,
+                0,
+                &file_plan,
+                &paths,
+                &[Mutex::new(None)],
+                &control,
+                4,
             )
         })
         .unwrap();
@@ -576,7 +581,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let compressed_sizes = bundle_reader
         .entries()
         .iter()
-        .map(|entry| (entry.chunk_hash.clone(), entry.compressed_size))
+        .map(|entry| (entry.chunk_hash, entry.compressed_size))
         .collect::<HashMap<_, _>>();
     let bundle = crate::repo::artifacts::ArtifactRef::Bundle {
         id: bundle_id.clone(),
@@ -872,7 +877,8 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let mut request = [0; 4096];
-        stream.read(&mut request).unwrap();
+        let request_bytes = stream.read(&mut request).unwrap();
+        assert!(request_bytes > 0);
         write!(
             stream,
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

@@ -24,16 +24,28 @@ use crate::Result;
 use crate::installation::types::ReconstructTimings;
 use crate::progress::GutchOperationControl;
 
-pub(super) fn reconstruct_job(
-    job: &ReconstructJob,
-    file_plans: &[ReconstructPipelineFile],
-    output_paths: &[PathBuf],
-    precomputed_file_hashes: &[Mutex<Option<crate::artifact::hash::ChunkHash>>],
-    output_handles: &OutputHandleCache,
-    source_handles: &SourceHandleCache,
-    compression_profile: &crate::manifest::CompressionProfile,
-    control: &GutchOperationControl,
-) -> Result<ReconstructTimings> {
+pub(super) struct ReconstructJobRequest<'a> {
+    pub(super) job: &'a ReconstructJob,
+    pub(super) file_plans: &'a [ReconstructPipelineFile],
+    pub(super) output_paths: &'a [PathBuf],
+    pub(super) precomputed_file_hashes: &'a [Mutex<Option<crate::artifact::hash::ChunkHash>>],
+    pub(super) output_handles: &'a OutputHandleCache,
+    pub(super) source_handles: &'a SourceHandleCache,
+    pub(super) compression_profile: &'a crate::manifest::CompressionProfile,
+    pub(super) control: &'a GutchOperationControl,
+}
+
+pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<ReconstructTimings> {
+    let ReconstructJobRequest {
+        job,
+        file_plans,
+        output_paths,
+        precomputed_file_hashes,
+        output_handles,
+        source_handles,
+        compression_profile,
+        control,
+    } = request;
     match job {
         ReconstructJob::Artifact(job) => {
             reconstruct_artifact_job(job, output_handles, compression_profile, control).map_err(

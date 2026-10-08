@@ -293,6 +293,11 @@ pub fn fnmatch_name(name: &str, pattern: &str) -> bool {
     )
 }
 
+/// Persist the default discovery configuration only if the root has none.
+pub fn initialize_source_config(source_root: &Path) -> Result<()> {
+    SourceConfig::load_or_create(source_root).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,9 +476,4 @@ mod tests {
         let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();
         assert_eq!(snapshots.len(), 1);
     }
-}
-
-/// Persist the default discovery configuration only if the root has none.
-pub fn initialize_source_config(source_root: &Path) -> Result<()> {
-    SourceConfig::load_or_create(source_root).map(|_| ())
 }

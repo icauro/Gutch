@@ -49,7 +49,7 @@ pub fn fetch_snapshot_for_artifact_ids(
     required_artifact_ids_override: Option<&HashSet<String>>,
 ) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
-    let operation_root = (&request.repo_path).to_path_buf();
+    let operation_root = request.repo_path.to_path_buf();
     std::fs::create_dir_all(&operation_root)?;
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
@@ -357,10 +357,8 @@ pub(crate) fn prepare_snapshot_fetch(
             detail: None,
         }
         .download_bounded(MAX_CHUNK_INDEX_BYTES)?;
-        let chunk_index = crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(
-            &chunk_index_bytes,
-        )?;
-        chunk_index
+
+        crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&chunk_index_bytes)?
     } else {
         crate::repo::index::load_chunk_index(&repo_paths)?
     };

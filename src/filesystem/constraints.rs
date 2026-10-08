@@ -132,7 +132,7 @@ pub(crate) fn validate_paths<'a>(
                 |path: &str, conflicting_path: Option<String>, code: &str, reason: &str| {
                     violations.push(PathViolation {
                         path: path.into(),
-                        conflicting_path: conflicting_path,
+                        conflicting_path,
                         target: target.as_str().into(),
                         code: code.into(),
                         reason: reason.into(),
@@ -194,10 +194,8 @@ pub(crate) fn validate_paths<'a>(
                         ),
                     );
                 }
-                if uses_windows_naming {
-                    if let Some(reason) = windows_name_reason(part) {
-                        record_violation(&prefix, None, "unsupported_name", reason);
-                    }
+                if uses_windows_naming && let Some(reason) = windows_name_reason(part) {
+                    record_violation(&prefix, None, "unsupported_name", reason);
                 }
                 let comparison_key = if normalize_unicode_for_comparison {
                     prefix.nfd().collect::<String>()

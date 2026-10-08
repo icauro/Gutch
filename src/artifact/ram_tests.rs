@@ -9,8 +9,8 @@ fn reference(bytes: &[u8], window: usize, maximum: usize) -> usize {
         return limit;
     }
     let maximum_byte = *bytes[..window].iter().max().unwrap();
-    for i in window..limit {
-        if bytes[i] >= maximum_byte {
+    for (i, byte) in bytes.iter().enumerate().take(limit).skip(window) {
+        if *byte >= maximum_byte {
             return i;
         }
     }

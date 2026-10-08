@@ -361,15 +361,15 @@ where
     F: Fn(&T) -> Result<()> + Send + Sync,
 {
     if !should_parallelize_finalize(entries.len(), worker_count) || reconstruct_pool.is_none() {
-        return entries.iter().try_for_each(|entry| work(entry));
+        return entries.iter().try_for_each(&work);
     }
     reconstruct_pool
         .expect("parallel finalization pool should exist")
-        .install(|| entries.par_iter().try_for_each(|entry| work(entry)))
+        .install(|| entries.par_iter().try_for_each(work))
 }
 
-fn run_finalize_directory_levels<'a, F>(
-    levels: &BTreeMap<usize, Vec<&'a crate::manifest::DirectoryManifest>>,
+fn run_finalize_directory_levels<F>(
+    levels: &BTreeMap<usize, Vec<&crate::manifest::DirectoryManifest>>,
     worker_count: usize,
     reconstruct_pool: Option<&ThreadPool>,
     work: F,
@@ -499,8 +499,8 @@ pub(super) fn apply_entry_permissions(
         permissions.set_readonly(read_only);
     }
     if permissions != original {
-        std::fs::set_permissions(&path, permissions)
-            .map_err(|e| Error::io_context("setting entry permissions", &path, e))?;
+        std::fs::set_permissions(path, permissions)
+            .map_err(|e| Error::io_context("setting entry permissions", path, e))?;
     }
     Ok(())
 }

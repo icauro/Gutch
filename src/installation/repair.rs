@@ -40,7 +40,7 @@ pub fn plan_installation_repair(
     request: InstallationRepairPlanRequest,
 ) -> Result<InstallationRepairPlanResult> {
     request.control.checkpoint()?;
-    let operation_root = (&request.repo_path).to_path_buf();
+    let operation_root = request.repo_path.to_path_buf();
     crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let super::prepare::LoadedRepoSnapshot {

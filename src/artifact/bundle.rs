@@ -556,7 +556,6 @@ impl<R: Read + Seek> BundleReader<R> {
         if encoded.reader.limit() != 0 {
             return Err(crate::Error::bundle("truncated bundle payload"));
         }
-        drop(encoded);
         let end = self.reader.seek(SeekFrom::End(0))?;
         self.reader.seek(SeekFrom::Start(self.payload_end))?;
         let metadata_length = end - BUNDLE_ID_SIZE - self.payload_end;

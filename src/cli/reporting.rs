@@ -138,7 +138,7 @@ pub(crate) fn print_profile_summary(profile: Option<&crate::profile::GutchProfil
         "  +--------------------------------------+----------+------------+------------+"
     ));
     for span in spans.into_iter().take(24) {
-        let name = fit_table_cell(&span.name, 36);
+        let name = fit_table_cell(span.name, 36);
         crate::cli::output::line(format_args!(
             "  | {:<36} | {:>8} | {:>9.3} s | {:>9.3} s |",
             name, span.count, span.total_seconds, span.maximum_seconds

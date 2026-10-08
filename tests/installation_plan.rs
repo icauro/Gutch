@@ -164,10 +164,10 @@ fn permission_repair_keeps_verified_content_in_place() {
         },
         InstallationInspection::Content,
         &mut |event| {
-            if let InstallationPlanEvent::Entry { path, action, .. } = event {
-                if path == "healthy" {
-                    saw_metadata = action == InstallationAction::UpdateMetadata;
-                }
+            if let InstallationPlanEvent::Entry { path, action, .. } = event
+                && path == "healthy"
+            {
+                saw_metadata = action == InstallationAction::UpdateMetadata;
             }
             Ok(())
         },

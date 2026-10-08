@@ -29,7 +29,7 @@ pub fn install_snapshot_from_repo(
     publication: InstallationPublication,
 ) -> Result<InstallationResult> {
     request.control.checkpoint()?;
-    let operation_root = (&request.repo_path).to_path_buf();
+    let operation_root = request.repo_path.to_path_buf();
     crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span(match publication {

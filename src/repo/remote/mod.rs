@@ -533,7 +533,7 @@ mod tests {
             &local,
             &paths,
             &remote,
-            &[snapshot.clone()],
+            std::slice::from_ref(&snapshot),
             PullConflictPolicy::KeepRemote,
         )
         .unwrap();

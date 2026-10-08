@@ -38,16 +38,30 @@ fn manifest_paths_set(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
         .collect()
 }
 
-pub(crate) fn finalize_repair_result_after_reconstruction(
-    snapshot_manifest: &SnapshotManifest,
-    destination_dir: &Path,
-    staging_dir: &Path,
-    remove_added_files: bool,
-    runtime_hints: &RuntimeResourceHints,
-    repair_plan: &InstallationChanges,
-    control: &crate::progress::GutchOperationControl,
-    operation_pool: Option<&ThreadPool>,
+pub(super) struct FinalizeRepairRequest<'a> {
+    pub(super) snapshot_manifest: &'a SnapshotManifest,
+    pub(super) destination_dir: &'a Path,
+    pub(super) staging_dir: &'a Path,
+    pub(super) remove_added_files: bool,
+    pub(super) runtime_hints: &'a RuntimeResourceHints,
+    pub(super) repair_plan: &'a InstallationChanges,
+    pub(super) control: &'a crate::progress::GutchOperationControl,
+    pub(super) operation_pool: Option<&'a ThreadPool>,
+}
+
+pub(super) fn finalize_repair_result_after_reconstruction(
+    request: FinalizeRepairRequest<'_>,
 ) -> Result<SnapshotRepairResult> {
+    let FinalizeRepairRequest {
+        snapshot_manifest,
+        destination_dir,
+        staging_dir,
+        remove_added_files,
+        runtime_hints,
+        repair_plan,
+        control,
+        operation_pool,
+    } = request;
     let _finalize_span = control.profile_span("installation.repair.finalize");
     let mut reconstructed_extra_file_count = 0usize;
     let mut removed_extra_file_count = 0usize;

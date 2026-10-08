@@ -306,7 +306,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
     provider: &P,
     control: GutchOperationControl,
 ) -> Result<RepoPushStats> {
-    let operation_root = (&repo).to_path_buf();
+    let operation_root = repo.to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
         let progress = RemoteProgress::new(&control, GutchOperation::Push);

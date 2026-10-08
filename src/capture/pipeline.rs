@@ -107,8 +107,8 @@ fn estimate_bundle_compression_ratio_from_probe(
         let segments: Vec<&[u8]> = probe_payload.iter().map(Vec::as_slice).collect();
         compress::compressed_size(&segments, compression_profile)?
     };
-    let encoded_size = encoded_payload_size
-        + crate::artifact::bundle::encoded_metadata_size(probe_chunk_count);
+    let encoded_size =
+        encoded_payload_size + crate::artifact::bundle::encoded_metadata_size(probe_chunk_count);
     Ok((
         (encoded_size as f64 / raw_probe_size as f64).max(0.01),
         if uncompressed { 0 } else { raw_probe_size },
@@ -675,7 +675,12 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
         .unwrap_or(&empty_existing_bundle_ids);
 
     let scan_chunk_start = ProfileInstant::start(config.control.profiler());
-    let (mut snapshot_entries, unique_chunks, chunk_placements, total_logical_size) = {
+    let crate::capture::scan::ScannedChunks {
+        entries: mut snapshot_entries,
+        unique_chunks,
+        chunk_placements,
+        total_logical_size,
+    } = {
         let _scan_span = config.control.profile_span("capture.scan_source");
         collect_scanned_chunks(
             inventory,

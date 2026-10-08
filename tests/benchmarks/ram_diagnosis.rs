@@ -49,7 +49,7 @@ fn compare_ram_kernels() {
         for repetition in 0..8 {
             for offset in 0..3 {
                 let variant = (offset + repetition) % 3;
-                for mode in 0..3 {
+                for (mode, mode_samples) in samples[variant].iter_mut().enumerate() {
                     let start = Instant::now();
                     let count = match variant {
                         0 => scan(&fast, &files, mode),
@@ -59,7 +59,7 @@ fn compare_ram_kernels() {
                     let elapsed = start.elapsed().as_secs_f64();
                     counts[variant] = count;
                     if repetition > 0 {
-                        samples[variant][mode].push(elapsed);
+                        mode_samples.push(elapsed);
                     }
                 }
             }

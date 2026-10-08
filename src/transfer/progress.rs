@@ -70,10 +70,10 @@ impl FetchTransferProgress {
     }
 
     pub(crate) fn finish(&self) {
-        if let Ok(mut finished_at) = self.finished_at.lock() {
-            if finished_at.is_none() {
-                *finished_at = Some(Instant::now());
-            }
+        if let Ok(mut finished_at) = self.finished_at.lock()
+            && finished_at.is_none()
+        {
+            *finished_at = Some(Instant::now());
         }
     }
 

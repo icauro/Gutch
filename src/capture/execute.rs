@@ -36,7 +36,7 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
         request.storage_mode,
     )?;
     request.control.checkpoint()?;
-    let operation_root = (&request.repo_root).to_path_buf();
+    let operation_root = request.repo_root.to_path_buf();
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let runtime_plan = crate::runtime::plan_runtime(&request.runtime_hints);
@@ -86,7 +86,7 @@ pub(crate) fn capture_repo_snapshot_with_existing_reuse_state(
     build_pool: &rayon::ThreadPool,
 ) -> Result<SnapshotCaptureResult> {
     request.control.checkpoint()?;
-    let operation_root = (&request.repo_root).to_path_buf();
+    let operation_root = request.repo_root.to_path_buf();
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
         plan_snapshot_capture_with_control(
             request.repo_root.as_path(),
