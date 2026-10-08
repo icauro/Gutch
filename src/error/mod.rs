@@ -19,6 +19,8 @@ pub enum Error {
         path: PathBuf,
         #[source]
         source: std::io::Error,
+        promotion:
+            Option<Box<crate::filesystem::promotion_diagnostics::DirectoryPromotionDiagnostic>>,
     },
 
     #[error("JSON error: {0}")]
@@ -103,6 +105,7 @@ impl Error {
             operation: operation.into(),
             path: path.to_path_buf(),
             source,
+            promotion: None,
         }
     }
 
@@ -116,6 +119,21 @@ impl Error {
 
     pub fn is_cancelled(&self) -> bool {
         matches!(self, Self::Cancelled)
+    }
+
+    pub(crate) fn diagnostic_report(&self) -> serde_json::Value {
+        match self {
+            Self::PathValidation(failure) => serde_json::json!({
+                "code": "filename_constraints", "message": self.to_string(), "details": failure,
+            }),
+            Self::IoContext {
+                promotion: Some(details),
+                ..
+            } => serde_json::json!({
+                "code": "directory_promotion_failed", "message": self.to_string(), "details": details,
+            }),
+            _ => serde_json::json!({"code": "operation_failed", "message": self.to_string()}),
+        }
     }
 
     pub fn bundle(msg: impl Into<String>) -> Self {

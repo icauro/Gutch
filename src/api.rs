@@ -12,6 +12,10 @@ pub use crate::error::Result;
 pub use crate::filesystem::constraints::{PathValidationFailure, PathViolation};
 pub use crate::filesystem::paths::ExistingDestinationPathKind;
 pub use crate::filesystem::paths::resolve_existing_destination_path;
+pub use crate::filesystem::promotion_diagnostics::{
+    DiagnosticIoError, DirectoryPromotionDiagnostic, PromotionPathObservation,
+    PromotionRecoveryAttempt,
+};
 pub use crate::profile::{
     GutchProfileMode, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler,
 };

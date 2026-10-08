@@ -104,7 +104,7 @@ pub(crate) struct ArtifactBuildProfileArgs {
     about = "Capture snapshots and reconstruct verified installation trees"
 )]
 pub(crate) struct Cli {
-    /// Write structured failure details, including every filename violation.
+    /// Write structured failures, including filename violations and promotion recovery details.
     #[arg(long = "error-json-out", global = true, value_parser = parse_cli_path)]
     pub(crate) error_json_out: Option<PathBuf>,
     #[arg(long, short = 'v', global = true)]

@@ -1,7 +1,9 @@
 //! Recoverable directory replacement shared by repository and installation publication.
+use super::promotion_diagnostics::{DirectoryPromotionDiagnostic, PromotionRecoveryAttempt};
 use super::{create_dir_all, read, write};
 use crate::Error;
 use std::path::Path;
+use std::time::Instant;
 pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> Result<(), Error> {
     replace_directory_with_cleanup(staging_dir, destination_dir, |backup| {
         std::fs::remove_dir_all(backup)
@@ -14,54 +16,202 @@ fn replace_directory_with_cleanup(
     destination_dir: &Path,
     remove_backup: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> Result<(), Error> {
+    let warning = replace_directory_with_operations(
+        staging_dir,
+        destination_dir,
+        |from, to| std::fs::rename(from, to),
+        |staging| std::fs::remove_dir_all(staging),
+        remove_backup,
+    )?;
+    if let Some(warning) = warning {
+        warning.warn_committed_cleanup();
+    }
+    Ok(())
+}
+
+// Tests inject native I/O failures at the same boundaries as the real operation.
+fn replace_directory_with_operations(
+    staging_dir: &Path,
+    destination_dir: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+    remove_staging: impl FnOnce(&Path) -> std::io::Result<()>,
+    remove_backup: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> Result<Option<DirectoryPromotionDiagnostic>, Error> {
+    let started = Instant::now();
     let parent = destination_dir
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    create_dir_all(parent)?;
-
-    recover_directory_promotion(destination_dir)?;
     let backup_path = promotion_backup_path(destination_dir)?;
+    create_dir_all(parent).map_err(|error| {
+        attach_promotion_diagnostic(
+            error,
+            parent,
+            "prepare_destination_parent",
+            started,
+            staging_dir,
+            destination_dir,
+            &backup_path,
+        )
+    })?;
+
+    recover_directory_promotion(destination_dir).map_err(|error| {
+        attach_promotion_diagnostic(
+            error,
+            destination_dir,
+            "recover_existing_backup",
+            started,
+            staging_dir,
+            destination_dir,
+            &backup_path,
+        )
+    })?;
     let backup_dir = if destination_dir.exists() {
         if backup_path.exists() {
             return Err(Error::manifest("unowned promotion backup exists"));
         }
-        write(&backup_path.with_extension("owner"), b"GUTCH_PROMOTION_V1")?;
-        std::fs::rename(destination_dir, &backup_path).map_err(|error| {
-            Error::io_context(
+        let owner_path = backup_path.with_extension("owner");
+        write(&owner_path, b"GUTCH_PROMOTION_V1").map_err(|error| {
+            attach_promotion_diagnostic(
+                error,
+                &owner_path,
+                "write_backup_owner",
+                started,
+                staging_dir,
+                destination_dir,
+                &backup_path,
+            )
+        })?;
+        rename(destination_dir, &backup_path).map_err(|error| {
+            let diagnostic = DirectoryPromotionDiagnostic::capture(
+                "move_destination_to_backup",
+                started,
+                &error,
+                staging_dir,
+                destination_dir,
+                &backup_path,
+            );
+            promotion_error(
                 format!(
                     "moving existing destination to backup {}",
                     backup_path.display()
                 ),
                 destination_dir,
                 error,
+                diagnostic,
             )
         })?;
-        Some(backup_path)
+        Some(&backup_path)
     } else {
         None
     };
 
-    if let Err(error) = std::fs::rename(staging_dir, destination_dir) {
+    if let Err(error) = rename(staging_dir, destination_dir) {
+        // Observe the failing boundary before rollback or cleanup alters any path.
+        let mut diagnostic = DirectoryPromotionDiagnostic::capture(
+            "promote_staging",
+            started,
+            &error,
+            staging_dir,
+            destination_dir,
+            &backup_path,
+        );
         if let Some(backup) = &backup_dir {
-            let _ = std::fs::rename(backup, destination_dir);
+            diagnostic.recovery.push(PromotionRecoveryAttempt::capture(
+                "restore_backup",
+                rename(backup, destination_dir),
+            ));
         }
-        let _ = std::fs::remove_dir_all(staging_dir);
-        return Err(Error::io_context(
+        diagnostic.recovery.push(PromotionRecoveryAttempt::capture(
+            "remove_staging",
+            remove_staging(staging_dir),
+        ));
+        return Err(promotion_error(
             format!("promoting staging directory {}", staging_dir.display()),
             destination_dir,
             error,
+            diagnostic,
         ));
     }
 
     if let Some(backup) = backup_dir {
         // Promotion has committed. Keep the owner marker if cleanup fails so
         // the next promotion can retry without reporting this install as failed.
-        if remove_backup(&backup).is_ok() {
-            let _ = std::fs::remove_file(backup.with_extension("owner"));
+        match remove_backup(backup) {
+            Ok(()) => {
+                if let Err(error) = std::fs::remove_file(backup.with_extension("owner")) {
+                    let mut diagnostic = DirectoryPromotionDiagnostic::capture(
+                        "remove_backup_marker",
+                        started,
+                        &error,
+                        staging_dir,
+                        destination_dir,
+                        backup,
+                    );
+                    diagnostic.committed = true;
+                    return Ok(Some(diagnostic));
+                }
+            }
+            Err(error) => {
+                let mut diagnostic = DirectoryPromotionDiagnostic::capture(
+                    "remove_backup",
+                    started,
+                    &error,
+                    staging_dir,
+                    destination_dir,
+                    backup,
+                );
+                diagnostic.committed = true;
+                return Ok(Some(diagnostic));
+            }
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+fn promotion_error(
+    operation: String,
+    path: &Path,
+    source: std::io::Error,
+    diagnostic: DirectoryPromotionDiagnostic,
+) -> Error {
+    Error::IoContext {
+        operation,
+        path: path.to_path_buf(),
+        source,
+        promotion: Some(Box::new(diagnostic)),
+    }
+}
+
+fn attach_promotion_diagnostic(
+    error: Error,
+    context: &Path,
+    phase: &'static str,
+    started: Instant,
+    staging: &Path,
+    destination: &Path,
+    backup: &Path,
+) -> Error {
+    let (operation, path, source) = match error {
+        Error::Io(source) => (phase.replace('_', " "), context.to_path_buf(), source),
+        Error::IoContext {
+            operation,
+            path,
+            source,
+            ..
+        } => (operation, path, source),
+        // Invalid ownership and other typed contract failures are not native I/O errors.
+        other => return other,
+    };
+    let diagnostic = DirectoryPromotionDiagnostic::capture(
+        phase,
+        started,
+        &source,
+        staging,
+        destination,
+        backup,
+    );
+    promotion_error(operation, &path, source, diagnostic)
 }
 
 /// Held across staging and promotion, after the operation's path checks.
@@ -222,6 +372,26 @@ mod diagnostic_tests {
     use super::*;
 
     #[test]
+    fn backup_owner_write_failure_keeps_the_destination_and_reports_its_phase() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("destination");
+        let staging = root.path().join("staging");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::create_dir(&staging).unwrap();
+        std::fs::write(destination.join("old"), b"original").unwrap();
+        let backup = promotion_backup_path(&destination).unwrap();
+        std::fs::create_dir(backup.with_extension("owner")).unwrap();
+        let error = replace_directory(&staging, &destination).unwrap_err();
+        let report = error.diagnostic_report();
+        assert_eq!(report["code"], "directory_promotion_failed");
+        assert_eq!(report["details"]["phase"], "write_backup_owner");
+        assert_eq!(report["details"]["destination"]["exists"], true);
+        assert_eq!(report["details"]["staging"]["exists"], true);
+        assert_eq!(report["details"]["backup"]["exists"], false);
+        assert_eq!(std::fs::read(destination.join("old")).unwrap(), b"original");
+    }
+
+    #[test]
     fn promotion_failure_names_both_paths_and_restores_existing_destination() {
         let root = tempfile::tempdir().unwrap();
         let destination = root.path().join("destination");
@@ -235,5 +405,103 @@ mod diagnostic_tests {
         assert!(message.contains(&destination.display().to_string()));
         assert_eq!(std::fs::read(destination.join("old")).unwrap(), b"original");
         assert!(matches!(error, Error::IoContext { .. }));
+        let report = error.diagnostic_report();
+        assert_eq!(report["code"], "directory_promotion_failed");
+        let details = &report["details"];
+        assert_eq!(details["phase"], "promote_staging");
+        assert_eq!(details["staging"]["exists"], false);
+        assert_eq!(details["destination"]["exists"], false);
+        assert_eq!(details["backup"]["exists"], true);
+        assert_eq!(details["recovery"][0]["operation"], "restore_backup");
+        assert_eq!(details["recovery"][0]["succeeded"], true);
+        assert_eq!(details["recovery"][1]["operation"], "remove_staging");
+        assert_eq!(details["recovery"][1]["succeeded"], false);
+        assert!(details["observed_at"].as_str().unwrap().ends_with('Z'));
+    }
+
+    #[test]
+    fn promotion_retains_primary_rollback_and_cleanup_failures_and_original_state() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("destination");
+        let staging = root.path().join("staging");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::create_dir(&staging).unwrap();
+        std::fs::write(destination.join("old"), b"original").unwrap();
+        std::fs::write(staging.join("new"), b"replacement").unwrap();
+        let backup = promotion_backup_path(&destination).unwrap();
+        let error = replace_directory_with_operations(
+            &staging,
+            &destination,
+            |from, to| {
+                if from == staging {
+                    Err(std::io::Error::from_raw_os_error(5))
+                } else if from == backup {
+                    Err(std::io::Error::from_raw_os_error(13))
+                } else {
+                    std::fs::rename(from, to)
+                }
+            },
+            |_| Err(std::io::Error::from_raw_os_error(32)),
+            |backup| std::fs::remove_dir_all(backup),
+        )
+        .unwrap_err();
+        let Error::IoContext {
+            source,
+            promotion: Some(details),
+            ..
+        } = error
+        else {
+            panic!("expected native promotion diagnostics");
+        };
+        assert_eq!(source.raw_os_error(), Some(5));
+        assert_eq!(details.primary_error.raw_os_error, Some(5));
+        assert_eq!(details.staging.exists, Some(true));
+        assert_eq!(details.staging.read_only, Some(false));
+        assert_eq!(details.destination.exists, Some(false));
+        assert_eq!(details.backup.exists, Some(true));
+        assert_eq!(
+            details.recovery[0].error.as_ref().unwrap().raw_os_error,
+            Some(13)
+        );
+        assert_eq!(
+            details.recovery[1].error.as_ref().unwrap().raw_os_error,
+            Some(32)
+        );
+        assert_eq!(std::fs::read(backup.join("old")).unwrap(), b"original");
+        assert!(is_owned_promotion_backup(&backup));
+        // The existing recovery policy still restores this retained backup.
+        recover_directory_promotion(&destination).unwrap();
+        assert_eq!(std::fs::read(destination.join("old")).unwrap(), b"original");
+    }
+
+    #[test]
+    fn committed_backup_cleanup_failure_returns_a_warning_without_rollback() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("destination");
+        let staging = root.path().join("staging");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::create_dir(&staging).unwrap();
+        std::fs::write(destination.join("old"), b"original").unwrap();
+        std::fs::write(staging.join("new"), b"replacement").unwrap();
+        let warning = replace_directory_with_operations(
+            &staging,
+            &destination,
+            |from, to| std::fs::rename(from, to),
+            |staging| std::fs::remove_dir_all(staging),
+            |_| Err(std::io::Error::from_raw_os_error(5)),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(warning.committed);
+        assert_eq!(warning.phase, "remove_backup");
+        assert_eq!(warning.primary_error.raw_os_error, Some(5));
+        assert_eq!(warning.destination.exists, Some(true));
+        assert_eq!(warning.backup.exists, Some(true));
+        assert!(warning.recovery.is_empty());
+        assert_eq!(
+            std::fs::read(destination.join("new")).unwrap(),
+            b"replacement"
+        );
+        recover_directory_promotion(&destination).unwrap();
     }
 }

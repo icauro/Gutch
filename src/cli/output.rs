@@ -107,6 +107,7 @@ pub(crate) fn finish(result: &crate::Result<()>) -> crate::Result<()> {
                 }
                 value["ok"] = serde_json::json!(false);
                 value["error"] = serde_json::json!(error.to_string());
+                value["error_details"] = error.diagnostic_report();
             }
             if !state.events.is_empty() {
                 value = serde_json::json!({"summary": value, "events": state.events});

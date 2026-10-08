@@ -145,12 +145,7 @@ where
     let output_result = output::finish(&command_result);
     let command_result = command_result.and(output_result);
     if let (Err(error), Some(path)) = (&command_result, error_json_out) {
-        let details = match error {
-            crate::Error::PathValidation(failure) => {
-                serde_json::json!({"code": "filename_constraints", "message": error.to_string(), "details": failure})
-            }
-            _ => serde_json::json!({"code": "operation_failed", "message": error.to_string()}),
-        };
+        let details = error.diagnostic_report();
         if let Err(export_error) = reporting::ensure_parent_directory(&path)
             .and_then(|_| crate::filesystem::write_json(&path, &details))
         {

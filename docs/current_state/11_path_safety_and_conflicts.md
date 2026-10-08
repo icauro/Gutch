@@ -62,8 +62,15 @@ Installation promotion uses a destination lock and an owned, deterministic
 backup that a subsequent reconstruction or repair can restore.
 
 Once directory promotion or repository metadata publication commits, failure to
-remove obsolete content does not change the successful result. A retained owned
-directory backup is excluded from snapshot listings and its removal is retried
+remove obsolete content does not change the successful result.
+
+A directory promotion cleanup failure emits a warning with structured diagnostics
+on stderr, including `committed: true`. It does not change the exit status or
+the selected success result. Normal successful promotion emits no diagnostic
+warning. Failure diagnostics and JSON export are documented in
+[CLI integration](10_cli_and_app_integration.md).
+
+A retained owned directory backup is excluded from snapshot listings and its removal is retried
 before the next promotion. Old metadata generations are retried on the next
 publication; undeleted orphan artifacts remain eligible for repository cleanup.
 These leftovers can temporarily consume disk space. Ownership checks and
