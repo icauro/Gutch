@@ -66,7 +66,9 @@ fn visit_repo_artifacts(
             }
             if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
                 visit(
-                    crate::repo::artifacts::ArtifactRef::Bundle { id: bundle_id },
+                    crate::repo::artifacts::ArtifactRef::Bundle {
+                        id: bundle_id.into(),
+                    },
                     entry,
                 )?;
             }

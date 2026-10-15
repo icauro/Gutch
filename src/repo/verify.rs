@@ -163,7 +163,7 @@ fn verify_snapshot_artifacts_cached(
         let path = artifact.local_path(repo_paths)?;
         if !path.exists() {
             if let ArtifactRef::Bundle { id } = artifact {
-                missing_bundles.push(id.clone());
+                missing_bundles.push(id.to_string());
             }
             missing_artifacts.push(artifact.id().to_string());
             continue;

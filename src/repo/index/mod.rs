@@ -61,7 +61,7 @@ pub fn required_bundle_ids(
         crate::repo::artifacts::required_artifacts(snapshot_manifest, chunk_index)?
             .into_iter()
             .filter_map(|artifact| match artifact {
-                crate::repo::artifacts::ArtifactRef::Bundle { id } => Some(id),
+                crate::repo::artifacts::ArtifactRef::Bundle { id } => Some(id.to_string()),
                 crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => None,
             })
             .collect(),

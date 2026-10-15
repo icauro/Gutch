@@ -761,3 +761,32 @@ Tests cover gaps, backward writes, file switches, capacity, large-write bypass,
 direct/buffered transitions, typed cancellation, failed final flushes and hash
 forwarding only after successful writes. Evidence:
 `tests/.artifacts/research_optimization_pass/round18_report.md`.
+
+## Shared artifact identities and derived plan sets, October 2026
+
+Internal bundle references retain shared identifier storage from the repository
+index. Cloning references no longer copies bundle ID text. Loose-chunk references
+retain their existing representation; provider inputs and reported IDs remain
+strings. This uses the existing dependency without changing package versions.
+Reconstruction also derives its required-artifact set and bundle count once from
+the artifact-job map, removing duplicate per-chunk set updates.
+
+On warm-cache Windows reconstruction with four workers, 21 alternating pairs
+measured these changes against the previous implementation:
+
+| Small fixture | Baseline | Combined changes | Reduction |
+|---|---:|---:|---:|
+| Four files, 64 MiB, 1 KiB chunks | 154.32 ms | 144.47 ms | 6.4% |
+| 64 identical files, 64 MiB logical, 835 unique 1 KiB chunks | 180.07 ms | 172.10 ms | 4.4% |
+
+The set-derivation change alone measured 3.2%/3.3% reductions respectively.
+A separate 41-pair comparison against that version confirmed another 3.1%
+from shared bundle IDs. A 21-pair loose-storage check over 1,000 files stayed
+flat. Default-profile screens varied; no broad default speedup is claimed.
+Every restored tree matched independent SHA-256 expectations. Seven separate
+process-memory pairs changed peak working set from 82.57 to 81.75 MiB; no
+process-memory benefit is claimed from this small difference.
+
+Required-set regressions cover source-only copying, mixed source/loose reuse,
+repeated bundled references, and cached versus missing artifacts. Evidence:
+`tests/.artifacts/research_optimization_pass/round19_report.md`.

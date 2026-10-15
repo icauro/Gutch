@@ -261,7 +261,7 @@ fn check_snapshot_manifests(
             .iter()
             .filter(|bundle_id| {
                 !available_artifacts.contains(&crate::repo::artifacts::ArtifactRef::Bundle {
-                    id: (*bundle_id).clone(),
+                    id: bundle_id.as_str().into(),
                 })
             })
             .count();

@@ -78,8 +78,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         Vec<usize>,
     > = HashMap::new();
     let mut missing_artifact_counts = Vec::with_capacity(snapshot_manifest.file_count());
-    let mut bundle_artifacts = HashSet::new();
-    let mut required_artifacts = HashSet::new();
     let mut reused_source_chunk_count = 0usize;
     let source_files_by_path = verified_source
         .map(|source| {
@@ -183,9 +181,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             }
             let artifact =
                 crate::repo::artifacts::ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry);
-            if let crate::repo::artifacts::ArtifactRef::Bundle { .. } = &artifact {
-                bundle_artifacts.insert(artifact.clone());
-            }
             let job_index = if let Some(&job_index) = artifact_job_indices.get(&artifact) {
                 job_index
             } else {
@@ -225,7 +220,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 file_index,
                 file_offset,
             });
-            required_artifacts.insert(artifact.clone());
             if !existing_artifacts.contains(&artifact) {
                 missing_artifact_dependencies.insert(artifact.clone());
             }
@@ -278,12 +272,18 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         (_, ReconstructJob::SourceChunk(_)) => std::cmp::Ordering::Greater,
         _ => std::cmp::Ordering::Equal,
     });
+    // The job map already owns one entry for each artifact the plan will use.
+    let required_artifacts: HashSet<_> = artifact_job_indices.into_keys().collect();
+    let required_bundle_count = required_artifacts
+        .iter()
+        .filter(|artifact| matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. }))
+        .count();
     Ok(ReconstructPipelinePlan {
         files,
         jobs,
         missing_artifact_to_file_indices,
         missing_artifact_counts,
-        required_bundle_count: bundle_artifacts.len(),
+        required_bundle_count,
         required_artifact_count: required_artifacts.len(),
         required_artifacts,
         required_chunk_count: snapshot_manifest

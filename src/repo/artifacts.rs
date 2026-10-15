@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 /// layer resolves bundle URLs at its provider-specific boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ArtifactRef {
-    Bundle { id: String },
+    // Many chunks share a bundle, so retain the index's shared identifier storage.
+    Bundle { id: smol_str::SmolStr },
     LooseChunk { hash: String },
 }
 
@@ -23,7 +24,7 @@ impl ArtifactRef {
     pub(crate) fn from_chunk_entry(chunk_hash: &ChunkHash, entry: &ChunkIndexEntry) -> Self {
         match entry.storage_mode {
             ArtifactStorageMode::Bundled => Self::Bundle {
-                id: entry.bundle_id.to_string(),
+                id: entry.bundle_id.clone(),
             },
             ArtifactStorageMode::LooseChunks => Self::LooseChunk {
                 hash: chunk_hash.to_hex(),

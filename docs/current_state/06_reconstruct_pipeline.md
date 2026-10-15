@@ -51,6 +51,12 @@ artifact-major execution view:
 - Every selected chunk records all target file indexes and offsets, so one
   decoded chunk can be written to several files.
 
+The artifact-job map owns the distinct artifact identities for the plan. The
+required-artifact set and bundle count are derived once from that map, including
+cached artifacts and excluding source-only jobs. Bundle references retain the
+repository index's shared ID storage; provider IDs and reported IDs remain text.
+Every chunk reference still receives its index lookup and size validation.
+
 During planning, temporary target lists use the existing job and chunk insertion
 positions as vector indexes. Copy/source jobs keep empty slots in that layout.
 Target ranges are flattened before jobs or chunks are sorted, preserving every

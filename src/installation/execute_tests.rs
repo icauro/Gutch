@@ -167,6 +167,8 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
     .unwrap();
 
     assert_eq!(plan.required_bundle_count, 0);
+    assert_eq!(plan.required_artifact_count, 0);
+    assert!(plan.required_artifacts.is_empty());
     assert_eq!(plan.reused_source_chunk_count, 1);
     assert!(matches!(
         plan.jobs[0],
@@ -378,6 +380,9 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     )
     .unwrap();
     assert_eq!(plan.jobs.len(), 2);
+    assert_eq!(plan.required_bundle_count, 0);
+    assert_eq!(plan.required_artifact_count, 1);
+    assert_eq!(plan.required_artifacts, existing_artifacts);
     assert!(
         plan.jobs
             .iter()
@@ -477,6 +482,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
 
     assert_eq!(plan.required_bundle_count, 0);
     assert_eq!(plan.required_artifact_count, 1);
+    assert_eq!(plan.required_artifacts, existing_artifacts);
     let result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
             publication: super::super::publish::Publication::ReplaceDirectory,
@@ -551,7 +557,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         .map(|entry| (entry.chunk_hash, entry.compressed_size))
         .collect::<HashMap<_, _>>();
     let bundle = crate::repo::artifacts::ArtifactRef::Bundle {
-        id: bundle_id.clone(),
+        id: bundle_id.clone().into(),
     };
     let bundle_path = bundle.local_path(&repo_paths).unwrap();
     std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
@@ -723,7 +729,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         )
         .unwrap();
         let artifact = crate::repo::artifacts::ArtifactRef::Bundle {
-            id: bundle_id.clone(),
+            id: bundle_id.clone().into(),
         };
         let artifact_path = artifact.local_path(&repo_paths).unwrap();
         std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
@@ -943,7 +949,7 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                 .unwrap();
                 let size = reader.entries()[0].compressed_size;
                 (
-                    crate::repo::artifacts::ArtifactRef::Bundle { id },
+                    crate::repo::artifacts::ArtifactRef::Bundle { id: id.into() },
                     encoded,
                     size,
                 )
@@ -1127,7 +1133,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     for first_bundle_cached in [false, true] {
         let existing = if first_bundle_cached {
             HashSet::from([crate::repo::artifacts::ArtifactRef::Bundle {
-                id: first_bundle.clone(),
+                id: first_bundle.clone().into(),
             }])
         } else {
             HashSet::new()
@@ -1144,6 +1150,16 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         )
         .unwrap();
         assert_eq!(plan.required_bundle_count, 2);
+        assert_eq!(plan.required_artifact_count, 2);
+        let artifact_ids = plan
+            .required_artifacts
+            .iter()
+            .map(|artifact| artifact.id())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            artifact_ids,
+            HashSet::from([first_bundle.as_str(), second_bundle.as_str()])
+        );
         assert_eq!(plan.reused_source_chunk_count, 3);
         assert_eq!(
             plan.missing_artifact_counts,
