@@ -103,8 +103,8 @@ full encoded bundle identity, and writes verified bytes to every recorded target
 may be decoded while advancing the stream but are not retained as output.
 
 Loose-chunk storage reads one compressed artifact for its one requested chunk,
-validates the stored size and decoded raw hash, and writes that chunk to all of
-its target offsets. Both storage modes use the same job graph, staging rules,
+validates the complete encoded size recorded on the artifact job and the decoded
+raw hash, and writes that chunk to all of its target offsets. Both storage modes use the same job graph, staging rules,
 chunk verification, file dependency counters, and final file verification.
 
 Each artifact worker coalesces consecutive single-target ranges in one lazy

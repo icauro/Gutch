@@ -188,6 +188,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 jobs.push(ReconstructJob::Artifact(ReconstructArtifactJob {
                     artifact: artifact.clone(),
                     artifact_path: artifact.local_path(repo_paths)?,
+                    encoded_size: entry.artifact_size,
                     chunks: Vec::new(),
                     targets: Vec::new(),
                 }));
@@ -206,7 +207,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 artifact_job.chunks.push(ReconstructArtifactChunk {
                     chunk_hash: hash,
                     raw_size: chunk_ref.raw_size,
-                    compressed_size: entry.compressed_size,
                     target_range: 0..0,
                 });
                 position

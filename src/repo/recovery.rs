@@ -69,7 +69,6 @@ pub fn rebuild_index(
                                         ordinal as u32,
                                         shared_id.clone(),
                                         chunk.raw_size,
-                                        chunk.compressed_size,
                                         ArtifactStorageMode::Bundled,
                                     ),
                                 )
@@ -98,7 +97,6 @@ pub fn rebuild_index(
                                 0,
                                 hash.as_str().into(),
                                 raw,
-                                size,
                                 ArtifactStorageMode::LooseChunks,
                             ),
                         )])

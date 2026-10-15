@@ -976,3 +976,34 @@ artifact order and chunk ordinals differ. It checks exact rounded shares and the
 unchanged loose-artifact size. Existing sorted-key, malformed-reference, truncation,
 trailing-byte and shared-artifact checks remain in place.
 Evidence: `tests/.artifacts/research_optimization_pass/round27_report.md`.
+
+The capture-owned estimates below supersede this reader accounting pass.
+
+
+## Physical index entries and capture estimates, October 2026
+
+Runtime index entries now retain physical metadata without a per-chunk encoded
+size estimate. Capture derives its reuse estimates from bundle sizes and indexed
+raw totals when needed. Installation records complete encoded size on the artifact
+job; chunks retain raw content expectations. Loose-artifact length verification
+continues to compare the actual file length with the index declaration before
+reading payloads. Index callers and fixtures supply physical artifact sizes.
+
+On the four-file 64 MiB / 1 KiB-chunk fixture, an initial 41-pair Windows status
+comparison reduced median latency 2.2%; a separate 41-pair confirmation reduced
+31.78 to 31.27 ms (1.6%). Capture and reconstruction controls did not establish a
+consistent latency change. Full status/verification JSON matched baseline, and
+every reconstructed tree matched independent SHA-256 expectations.
+
+Final native process-memory checks included high-water reads after child exit.
+Forty-one status pairs reduced median peak commit from 11.38 to 11.20 MiB (1.6%).
+Twenty-one repeated-capture pairs reduced 24.30 to 23.93 MiB (1.5%). Earlier polling
+comparisons varied; no broader memory or throughput bound is claimed. Six
+fixture/codec comparisons retained identical snapshot IDs and bundle, blueprint
+and index bytes.
+
+Accounting regressions now live with capture and cover weighted rounding, partial
+indexes, missing bundles and loose artifacts. Installation coverage includes an
+incorrect declared loose size and confirms that failed artifacts do not publish
+precomputed file hashes. Artifact and ordinal validation remain in the index owner.
+Evidence: `tests/.artifacts/research_optimization_pass/round28_report.md`.

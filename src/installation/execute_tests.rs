@@ -13,7 +13,7 @@ use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::progress::FetchTransferProgress;
 use std::collections::BTreeMap;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 #[test]
@@ -101,10 +101,9 @@ fn bundled_chunk_index() -> crate::repo::index::ChunkIndex {
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             test_hash(b"game"),
             crate::repo::index::ChunkIndexEntry::new(
-                0,
+                4,
                 0,
                 ("bundle-a".to_string()).into(),
-                4,
                 4,
                 crate::artifact::profiles::ArtifactStorageMode::Bundled,
             ),
@@ -270,10 +269,9 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             snapshot_only_chunk_hash,
             crate::repo::index::ChunkIndexEntry::new(
-                0,
+                4,
                 0,
                 ("bundle-b".to_string()).into(),
-                4,
                 4,
                 crate::artifact::profiles::ArtifactStorageMode::Bundled,
             ),
@@ -358,11 +356,10 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             replacement_chunk_hash.clone(),
             crate::repo::index::ChunkIndexEntry::new(
-                0,
+                std::fs::metadata(&replacement_path).unwrap().len() as u32,
                 0,
                 (replacement_chunk_hash.clone()).into(),
                 4,
-                std::fs::metadata(&replacement_path).unwrap().len() as u32,
                 crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
@@ -459,11 +456,10 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
         entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
             chunk_hash.clone(),
             crate::repo::index::ChunkIndexEntry::new(
-                0,
+                std::fs::metadata(&chunk_path).unwrap().len() as u32,
                 0,
                 (chunk_hash.clone()).into(),
                 4,
-                std::fs::metadata(&chunk_path).unwrap().len() as u32,
                 crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
@@ -546,16 +542,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         third.to_vec(),
     );
     let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
-    let bundle_reader = crate::artifact::bundle::BundleReader::open(
-        std::io::Cursor::new(bundle_bytes.as_slice()),
-        &compression_profile,
-    )
-    .unwrap();
-    let compressed_sizes = bundle_reader
-        .entries()
-        .iter()
-        .map(|entry| (entry.chunk_hash, entry.compressed_size))
-        .collect::<HashMap<_, _>>();
+    let bundle_size = bundle_bytes.len() as u32;
     let bundle = crate::repo::artifacts::ArtifactRef::Bundle {
         id: bundle_id.clone().into(),
     };
@@ -606,36 +593,30 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             (
                 first_hash,
                 crate::repo::index::ChunkIndexEntry::new(
-                    0,
+                    bundle_size,
                     0,
                     (bundle_id.clone()).into(),
                     4,
-                    compressed_sizes
-                        [&crate::artifact::hash::ChunkHash::parse_hex(&test_hash(first)).unwrap()],
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
             (
                 second_hash,
                 crate::repo::index::ChunkIndexEntry::new(
-                    0,
+                    bundle_size,
                     0,
                     (bundle_id.clone()).into(),
                     4,
-                    compressed_sizes
-                        [&crate::artifact::hash::ChunkHash::parse_hex(&test_hash(second)).unwrap()],
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
             (
                 third_hash,
                 crate::repo::index::ChunkIndexEntry::new(
-                    0,
+                    bundle_size,
                     0,
                     bundle_id.into(),
                     4,
-                    compressed_sizes
-                        [&crate::artifact::hash::ChunkHash::parse_hex(&test_hash(third)).unwrap()],
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
@@ -723,11 +704,6 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         let mut builder = crate::artifact::bundle::BundleBuilder::new(compression.clone());
         builder.add_chunk(hash, bytes.to_vec());
         let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
-        let reader = crate::artifact::bundle::BundleReader::open(
-            std::io::Cursor::new(bundle_bytes.as_slice()),
-            &compression,
-        )
-        .unwrap();
         let artifact = crate::repo::artifacts::ArtifactRef::Bundle {
             id: bundle_id.clone().into(),
         };
@@ -737,11 +713,10 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         chunk_entries.insert(
             hash.to_hex(),
             crate::repo::index::ChunkIndexEntry::new(
-                0,
+                bundle_bytes.len() as u32,
                 0,
                 bundle_id.into(),
                 bytes.len() as u32,
-                reader.entries()[0].compressed_size,
                 crate::artifact::profiles::ArtifactStorageMode::Bundled,
             ),
         );
@@ -874,11 +849,10 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         entries: crate::test_util::chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
             crate::repo::index::ChunkIndexEntry::new(
-                0,
+                compressed_size as u32,
                 0,
                 (chunk_hash.clone()).into(),
                 4,
-                compressed_size as u32,
                 crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
@@ -935,41 +909,40 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
     let hash = ChunkHash::from_blake3(blake3::hash(bytes));
     let profile = crate::artifact::profiles::CompressionProfile::default();
     for bundled in [false, true] {
-        for (corrupt, fail_output) in [(false, false), (true, false), (false, true)] {
+        for (corrupt, fail_output, wrong_size) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            if bundled && wrong_size {
+                continue;
+            }
             let directory = tempfile::tempdir().unwrap();
             let artifact_path = directory.path().join("artifact");
-            let (artifact, mut encoded, compressed_size) = if bundled {
+            let (artifact, mut encoded) = if bundled {
                 let mut builder = crate::artifact::bundle::BundleBuilder::new(profile.clone());
                 builder.add_chunk(hash, bytes.to_vec());
                 let (id, encoded) = builder.build_with_id().unwrap();
-                let reader = crate::artifact::bundle::BundleReader::open(
-                    std::io::Cursor::new(&encoded),
-                    &profile,
-                )
-                .unwrap();
-                let size = reader.entries()[0].compressed_size;
                 (
                     crate::repo::artifacts::ArtifactRef::Bundle { id: id.into() },
                     encoded,
-                    size,
                 )
             } else {
                 let mut encoded = Vec::new();
                 crate::artifact::loose::write_loose_chunk(&mut encoded, hash, bytes, &profile)
                     .unwrap();
-                let size = encoded.len() as u32;
                 (
                     crate::repo::artifacts::ArtifactRef::LooseChunk {
                         hash: hash.to_hex(),
                     },
                     encoded,
-                    size,
                 )
             };
             if corrupt {
                 *encoded.last_mut().unwrap() ^= 1;
             }
-            std::fs::write(&artifact_path, encoded).unwrap();
+            std::fs::write(&artifact_path, &encoded).unwrap();
             // Shared whole-file targets, a prefix, a suffix, and a differing full hash.
             let files = [
                 (4, hash),
@@ -1004,11 +977,11 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
             let target_count = if fail_output { 1 } else { 5 };
             let job = ReconstructJob::Artifact(ReconstructArtifactJob {
                 artifact,
+                encoded_size: encoded.len() as u32 + u32::from(wrong_size),
                 artifact_path,
                 chunks: vec![ReconstructArtifactChunk {
                     chunk_hash: hash,
                     raw_size: 4,
-                    compressed_size,
                     target_range: 0..target_count,
                 }],
                 targets: (0..target_count)
@@ -1031,14 +1004,14 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
             });
             assert_eq!(
                 result.is_err(),
-                corrupt || fail_output,
-                "bundled={bundled}, corrupt={corrupt}, fail_output={fail_output}"
+                corrupt || fail_output || wrong_size,
+                "bundled={bundled}, corrupt={corrupt}, fail_output={fail_output}, wrong_size={wrong_size}"
             );
             let forwarded = hashes
                 .iter()
                 .map(|slot| *slot.lock().unwrap())
                 .collect::<Vec<_>>();
-            if corrupt || fail_output {
+            if corrupt || fail_output || wrong_size {
                 assert_eq!(forwarded, vec![None; 5]);
             } else {
                 assert_eq!(forwarded, vec![Some(hash), Some(hash), None, None, None]);
@@ -1123,7 +1096,6 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
                     ordinal,
                     bundle.as_str().into(),
                     4,
-                    64,
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             )

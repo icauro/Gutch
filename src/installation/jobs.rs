@@ -61,6 +61,8 @@ pub(crate) enum ReconstructJob {
 pub(crate) struct ReconstructArtifactJob {
     pub(crate) artifact: crate::repo::artifacts::ArtifactRef,
     pub(crate) artifact_path: PathBuf,
+    /// Complete encoded length declared by the index, including artifact framing.
+    pub(crate) encoded_size: u32,
     pub(crate) chunks: Vec<ReconstructArtifactChunk>,
     pub(crate) targets: Vec<ReconstructTarget>,
 }
@@ -69,7 +71,6 @@ pub(crate) struct ReconstructArtifactJob {
 pub(crate) struct ReconstructArtifactChunk {
     pub(crate) chunk_hash: crate::artifact::hash::ChunkHash,
     pub(crate) raw_size: u32,
-    pub(crate) compressed_size: u32,
     pub(crate) target_range: std::ops::Range<usize>,
 }
 

@@ -239,10 +239,9 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             (
                 chunk_a.clone(),
                 crate::repo::index::ChunkIndexEntry::new(
-                    0,
+                    4,
                     0,
                     test_hash("bundle-a").into(),
-                    4,
                     4,
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
@@ -250,10 +249,9 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             (
                 chunk_b.clone(),
                 crate::repo::index::ChunkIndexEntry::new(
-                    0,
+                    4,
                     0,
                     test_hash("bundle-b").into(),
-                    4,
                     4,
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),

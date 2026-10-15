@@ -22,7 +22,6 @@ pub struct ChunkIndexEntry {
     pub artifact: Arc<IndexedArtifact>,
     pub chunk_ordinal: u32,
     pub raw_size: u32,
-    pub compressed_size: u32,
 }
 impl std::ops::Deref for ChunkIndexEntry {
     type Target = IndexedArtifact;
@@ -36,7 +35,6 @@ impl ChunkIndexEntry {
         chunk_ordinal: u32,
         bundle_id: smol_str::SmolStr,
         raw_size: u32,
-        compressed_size: u32,
         storage_mode: ArtifactStorageMode,
     ) -> Self {
         Self {
@@ -47,7 +45,6 @@ impl ChunkIndexEntry {
             }),
             chunk_ordinal,
             raw_size,
-            compressed_size,
         }
     }
 }

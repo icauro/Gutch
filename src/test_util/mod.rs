@@ -154,13 +154,8 @@ pub fn recreate_dir(path: &std::path::Path) {
 pub(crate) fn chunk_entries(
     mut entries: std::collections::BTreeMap<String, crate::repo::index::ChunkIndexEntry>,
 ) -> crate::repo::index::ChunkIndexEntries {
-    let mut sizes = std::collections::HashMap::new();
-    for entry in entries.values() {
-        *sizes.entry(entry.bundle_id.clone()).or_insert(0u32) += entry.compressed_size;
-    }
     let mut ordinals = std::collections::HashMap::new();
     for entry in entries.values_mut() {
-        std::sync::Arc::make_mut(&mut entry.artifact).artifact_size = sizes[&entry.bundle_id];
         let ordinal = ordinals.entry(entry.bundle_id.clone()).or_insert(0u32);
         entry.chunk_ordinal = *ordinal;
         *ordinal += 1;
@@ -206,7 +201,6 @@ pub fn index_manifest(
                     chunk.raw_size,
                     0,
                     chunk.chunk_hash.to_hex().into(),
-                    chunk.raw_size,
                     chunk.raw_size,
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),

@@ -38,9 +38,13 @@ and repair are presets. `visit_installation_plan` streams change descriptions
 from the same classification and job-planning functions.
 
 Capture owns the derived state used to reuse existing chunks and previous file
-manifests. Repository code owns persisted indexes and their codecs. Tag
-normalization belongs to the tag model and is shared by API operations and CLI
-parsing; engine operations do not depend on CLI helpers.
+manifests, including proportional encoded-byte estimates. Repository code owns
+persisted indexes and their codecs. Runtime chunk-index entries retain physical
+artifact references, encoded artifact sizes, chunk ordinals and raw chunk sizes.
+Installation carries the complete encoded size once per artifact job and raw
+content expectations per chunk. Tag normalization belongs to the tag model and
+is shared by API operations and CLI parsing; engine operations do not depend on
+CLI helpers.
 
 Local installation and combined fetch share source verification and reconstruction
 preparation. Their callers retain repository coordination and destination guards

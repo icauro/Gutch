@@ -142,6 +142,15 @@ pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
     pool: &rayon::ThreadPool,
     available_bundle_ids: &HashSet<String>,
 ) -> Result<std::collections::HashMap<ChunkHash, u64>> {
+    // Attribute encoded bytes across every indexed chunk, not just the current source's chunks.
+    let mut raw_bytes_by_bundle = std::collections::HashMap::new();
+    for (_, entry) in &chunk_index.entries {
+        if entry.storage_mode == ArtifactStorageMode::Bundled {
+            *raw_bytes_by_bundle
+                .entry(entry.bundle_id.as_str())
+                .or_insert(0u64) += u64::from(entry.raw_size);
+        }
+    }
     let available_sizes = pool.install(|| {
         chunk_index
             .entries
@@ -155,7 +164,16 @@ pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
                         chunk_path(paths, &chunk_hash.to_hex())?.is_file()
                     }
                 };
-                Ok(path_exists.then(|| (*chunk_hash, u64::from(entry.compressed_size))))
+                Ok(path_exists.then(|| {
+                    let encoded_size_estimate = match entry.storage_mode {
+                        ArtifactStorageMode::Bundled => {
+                            u64::from(entry.artifact_size) * u64::from(entry.raw_size)
+                                / raw_bytes_by_bundle[entry.bundle_id.as_str()]
+                        }
+                        ArtifactStorageMode::LooseChunks => u64::from(entry.artifact_size),
+                    };
+                    (*chunk_hash, encoded_size_estimate)
+                }))
             })
             .collect::<Result<Vec<_>>>()
     })?;
@@ -178,7 +196,6 @@ pub(crate) fn add_built_bundles_to_chunk_index(
                     ordinal as u32,
                     shared_bundle_id.clone(),
                     chunk.raw_size,
-                    chunk.compressed_size,
                     ArtifactStorageMode::Bundled,
                 ),
             ));
@@ -202,11 +219,103 @@ pub(crate) fn add_built_loose_chunks_to_chunk_index(
                 0,
                 chunk_hash.into(),
                 crate::artifact::format::size_u32(chunk.raw_size)?,
-                crate::artifact::format::size_u32(chunk.compressed_size)?,
                 ArtifactStorageMode::LooseChunks,
             ),
         ));
     }
     chunk_index.entries.extend(updates);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ArtifactStorageMode::{Bundled, LooseChunks};
+
+    #[test]
+    fn available_estimates_share_bundle_bytes_and_keep_loose_sizes() {
+        let hash_for = |byte| ChunkHash::from_bytes([byte; 32]);
+        let root = tempfile::tempdir().unwrap();
+        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let bytes = b"data";
+        let loose_hash = ChunkHash::from_blake3(blake3::hash(bytes));
+        let encoded = crate::test_util::loose_bytes(bytes, &Default::default());
+        let loose_size = encoded.len() as u32;
+        let loose_id = loose_hash.to_hex().into();
+        let loose_path = chunk_path(&paths, &loose_hash.to_hex()).unwrap();
+        std::fs::create_dir_all(loose_path.parent().unwrap()).unwrap();
+        std::fs::write(&loose_path, encoded).unwrap();
+        let bundle_a = smol_str::SmolStr::new("a1".repeat(32));
+        let bundle_b = smol_str::SmolStr::new("b2".repeat(32));
+        let rows = [
+            (hash_for(1), bundle_a.clone(), 101, 1, 10, Bundled),
+            (loose_hash, loose_id, loose_size, 0, 4, LooseChunks),
+            (hash_for(3), bundle_b.clone(), 73, 0, 3, Bundled),
+            (hash_for(4), bundle_a.clone(), 101, 0, 20, Bundled),
+            (hash_for(5), bundle_b.clone(), 73, 1, 5, Bundled),
+        ];
+        let entries = rows
+            .into_iter()
+            .map(|(hash, id, size, ordinal, raw, mode)| {
+                (
+                    hash,
+                    crate::repo::index::ChunkIndexEntry::new(size, ordinal, id, raw, mode),
+                )
+            })
+            .collect();
+        let index = crate::repo::index::ChunkIndex {
+            format_version: "1".into(),
+            entries,
+        };
+        let pool = crate::runtime::build_thread_pool(1, "capture-test").unwrap();
+        let available = HashSet::from([bundle_a.to_string(), bundle_b.to_string()]);
+        let estimates = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
+            &index, &paths, &pool, &available,
+        )
+        .unwrap();
+        for (hash, size) in [
+            (hash_for(1), 33),
+            (loose_hash, u64::from(loose_size)),
+            (hash_for(3), 27),
+            (hash_for(4), 67),
+            (hash_for(5), 45),
+        ] {
+            assert_eq!(estimates.get(&hash), Some(&size));
+        }
+
+        let partial = crate::repo::index::ChunkIndex {
+            format_version: "1".into(),
+            entries: index
+                .entries
+                .iter()
+                .filter(|(hash, _)| **hash != hash_for(4))
+                .map(|(hash, entry)| (*hash, entry.clone()))
+                .collect(),
+        };
+        let partial_estimates = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
+            &partial, &paths, &pool, &available,
+        )
+        .unwrap();
+        assert_eq!(partial_estimates[&hash_for(1)], 101);
+        let only_loose = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
+            &index,
+            &paths,
+            &pool,
+            &HashSet::new(),
+        )
+        .unwrap();
+        assert_eq!(only_loose.len(), 1);
+        assert_eq!(only_loose[&loose_hash], u64::from(loose_size));
+        std::fs::remove_file(loose_path).unwrap();
+        assert!(
+            available_chunk_sizes_from_index_with_pool_and_bundle_ids(
+                &index,
+                &paths,
+                &pool,
+                &HashSet::new(),
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
 }

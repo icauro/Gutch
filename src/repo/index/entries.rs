@@ -140,7 +140,6 @@ mod tests {
                             u32::from(key),
                             "ab".repeat(32).into(),
                             16,
-                            64,
                             crate::artifact::profiles::ArtifactStorageMode::Bundled,
                         ),
                     )

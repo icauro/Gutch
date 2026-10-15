@@ -162,16 +162,13 @@ fn reconstruct_artifact_job(
                                 index
                             ))
                         })?;
-                    if chunk.raw_size != entry.raw_size
-                    {
+                    if chunk.raw_size != entry.raw_size {
                         return Err(Error::reconstruct(format!(
-                            "bundle chunk '{}' size mismatch in '{}': expected raw {}, compressed {}; table has raw {}, compressed {}",
+                            "bundle chunk '{}' size mismatch in '{}': expected raw {}, table has raw {}",
                             entry.chunk_hash,
                             job.artifact.id(),
                             chunk.raw_size,
-                            chunk.compressed_size,
                             entry.raw_size,
-                            entry.compressed_size
                         )));
                     }
                     let hash_started_at = ProfileInstant::detailed(control.profiler());
@@ -218,10 +215,10 @@ fn reconstruct_artifact_job(
                 )));
             }
             let chunk = &job.chunks[0];
-            if compressed_bytes != u64::from(chunk.compressed_size) {
+            if compressed_bytes != u64::from(job.encoded_size) {
                 return Err(Error::reconstruct(format!(
                     "loose artifact '{}' has compressed size {}, expected {}",
-                    hash, compressed_bytes, chunk.compressed_size
+                    hash, compressed_bytes, job.encoded_size
                 )));
             }
             let (bytes, read_metrics) = crate::artifact::loose::read_loose_chunk_with_metrics(

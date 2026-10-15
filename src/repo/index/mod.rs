@@ -118,7 +118,6 @@ fn read_bundle_index_entries(
                     ordinal as u32,
                     shared_bundle_id.clone(),
                     chunk.raw_size,
-                    chunk.compressed_size,
                     ArtifactStorageMode::Bundled,
                 ),
             )
@@ -176,9 +175,9 @@ mod cache_merge_tests {
                     ArtifactStorageMode::LooseChunks => (chunk_hash.to_hex(), chunk_hash.to_hex()),
                 };
                 let local_entry =
-                    ChunkIndexEntry::new(128, 0, local_bundle_id.into(), 16, 128, storage_mode);
+                    ChunkIndexEntry::new(128, 0, local_bundle_id.into(), 16, storage_mode);
                 let remote_entry =
-                    ChunkIndexEntry::new(256, 0, remote_bundle_id.into(), 16, 256, storage_mode);
+                    ChunkIndexEntry::new(256, 0, remote_bundle_id.into(), 16, storage_mode);
                 let mut local = empty_chunk_index();
                 local.entries.insert(chunk_hash, local_entry.clone());
                 write_chunk_index(&paths, &local).unwrap();

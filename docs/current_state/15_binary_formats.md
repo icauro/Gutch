@@ -141,9 +141,12 @@ slices directly into rows in wire order, without intermediate column vectors.
 The index-owned bulk constructor rejects duplicate or descending keys without
 sorting or dropping rows. Entries share immutable artifact identity, encoded
 size and storage-mode records. Incremental updates merge sorted rows and reuse
-matching artifact records. Compressed-byte accounting reuses the validated
-artifact-row column to index per-bundle raw totals directly. These rounded-down
-per-chunk estimates are not stored or used for integrity.
+matching artifact records. Runtime index entries contain physical artifact
+references, chunk ordinals and raw chunk sizes; they do not carry proportional
+encoded-size estimates. Capture derives those rounded-down estimates when loading
+reuse state, using each artifact's encoded size and all indexed raw bytes for that
+bundle. Loose-artifact estimates equal their complete encoded size. Raw-total and
+ordinal validation remain part of index decoding.
 
 ## Bundle
 

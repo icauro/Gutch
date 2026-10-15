@@ -271,22 +271,20 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
             (
                 test_hash("chunk-a"),
                 crate::repo::index::ChunkIndexEntry::new(
-                    0,
+                    100,
                     0,
                     (test_hash("bundle-1")).into(),
                     100,
-                    50,
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
             (
                 test_hash("chunk-b"),
                 crate::repo::index::ChunkIndexEntry::new(
-                    0,
+                    100,
                     0,
                     (test_hash("bundle-1")).into(),
                     100,
-                    50,
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,
                 ),
             ),
@@ -416,11 +414,10 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         entries: crate::test_util::chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
             crate::repo::index::ChunkIndexEntry::new(
-                0,
+                compressed_bytes.len() as u32,
                 0,
                 (chunk_hash).into(),
                 raw_bytes.len() as u32,
-                compressed_bytes.len() as u32,
                 crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
             ),
         )])),
@@ -506,33 +503,30 @@ fn chunk_index_write_and_load_roundtrip() {
     entries.insert(
         test_hash("chunk-a"),
         crate::repo::index::ChunkIndexEntry::new(
-            0,
+            80,
             0,
             (test_hash("bundle-1")).into(),
             100,
-            40,
             crate::artifact::profiles::ArtifactStorageMode::Bundled,
         ),
     );
     entries.insert(
         test_hash("chunk-b"),
         crate::repo::index::ChunkIndexEntry::new(
-            0,
+            80,
             0,
             (test_hash("bundle-1")).into(),
             100,
-            40,
             crate::artifact::profiles::ArtifactStorageMode::Bundled,
         ),
     );
     entries.insert(
         test_hash("chunk-c"),
         crate::repo::index::ChunkIndexEntry::new(
-            0,
+            40,
             0,
             (test_hash("bundle-2")).into(),
             100,
-            40,
             crate::artifact::profiles::ArtifactStorageMode::Bundled,
         ),
     );
