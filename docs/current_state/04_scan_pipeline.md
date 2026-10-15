@@ -124,9 +124,9 @@ retried by halving the budget.
 
 ## Chunk and bundle locality
 
-New chunks are first considered by content hash for compression probing. Before
-bundle assignment, they are ordered by file-locality segment, file content
-hash, file offset, and chunk hash. This keeps chunks from the same source-file
+When sizing requires a compression probe, new chunks are first considered by
+content hash. Before bundle assignment, they are ordered by file-locality segment,
+file content hash, file offset, and chunk hash. This keeps chunks from the same source-file
 region close together when the bundle sizing policy groups them. Existing repo
 chunks remain addressable through the chunk map and are not needlessly repacked
 just to match a later locality order.
@@ -204,6 +204,14 @@ It does not vary with estimated total snapshot size. The compression probe
 estimates the raw capacity needed to approach that target; the final encoded
 size check enforces the maximum and splits oversized groups.
 
+The raw-capacity floor is the preferred bundle size, capped by the 256 MiB raw
+bundle limit. When all unique new chunk bytes fit within that floor, planning
+skips the compression probe and its hash sort: the estimate cannot change the
+single planned group. Locality sorting still runs, using the floor as raw
+capacity. Encoding still rereads and hash-checks source ranges, checks the final
+encoded size including framing, and splits when necessary. Larger inputs retain
+the normal sample and capacity estimate. Existing repo chunks are not repacked.
+
 The probe and bundle writer share the streaming encoder, including codec level,
 Zstd window log 27, pledged input size, and frame finalization. The probe counts
 encoded bytes without retaining compressed output and adds header, chunk-table,
@@ -216,5 +224,5 @@ actual bundles use file locality and can have a different compression ratio.
 For uncompressed bundles, compression-ratio planning uses selected chunk lengths
 and exact bundle metadata overhead. It does not load sample payloads. The sample
 selection and estimated ratio are unchanged; reported probe-read bytes are zero.
-Compressed codecs still probe actual data. Packing continues to load and verify
+For larger inputs, compressed codecs probe actual data. Packing loads and verifies
 every selected source range, even when the size estimate needed no reads.

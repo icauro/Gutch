@@ -54,6 +54,11 @@ impl BundleSizingPolicy {
     fn encoded_target_size(&self) -> u64 {
         self.preferred_size.min(self.max_size)
     }
+
+    fn minimum_raw_capacity(&self) -> u64 {
+        self.preferred_size
+            .min(crate::artifact::format::MAX_RAW_BUNDLE_SIZE)
+    }
 }
 
 #[cfg(test)]
@@ -123,7 +128,7 @@ fn estimate_bundle_raw_capacity(
 ) -> u64 {
     let normalized_ratio = compression_ratio.max(0.01);
     ((compressed_target_bytes as f64 / normalized_ratio).ceil() as u64)
-        .max(bundle_policy.preferred_size)
+        .max(bundle_policy.minimum_raw_capacity())
         .min(crate::artifact::format::MAX_RAW_BUNDLE_SIZE)
 }
 
@@ -157,7 +162,12 @@ fn plan_bundle_compressed_groups(
     }
 
     let sort_bytes: u64 = chunks.iter().map(|(_, payload)| payload.raw_size()).sum();
-    let hash_sort_duration = {
+    // Capacity never drops below the preferred raw size (up to the raw bundle cap).
+    // Below that bound the probe cannot change grouping; encoded limits still apply.
+    let one_raw_group = sort_bytes <= bundle_policy.minimum_raw_capacity();
+    let hash_sort_duration = if one_raw_group {
+        std::time::Duration::ZERO
+    } else {
         let _sort_span = control
             .profile_span_with_args("capture.plan_artifact_groups.sort_chunks_for_probe", || {
                 capture_bytes_trace_args("chunk_count", chunks.len(), sort_bytes)
@@ -166,7 +176,9 @@ fn plan_bundle_compressed_groups(
         pool.install(|| chunks.par_sort_unstable_by(|left, right| left.0.cmp(&right.0)));
         sort_start.elapsed()
     };
-    let (bundle_compression_ratio, probe_raw_bytes, probe_duration) = {
+    let (bundle_compression_ratio, probe_raw_bytes, probe_duration) = if one_raw_group {
+        (1.0, 0, std::time::Duration::ZERO)
+    } else {
         let _probe_span = control.profile_span_with_args(
             "capture.plan_artifact_groups.estimate_compression_ratio",
             || {

@@ -186,8 +186,36 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
     assert_eq!(exact.len(), 1);
     assert_eq!(exact[0].bundle_size, 216);
     drop(exact);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    let placements = planned
+        .iter()
+        .map(|(hash, payload)| {
+            (
+                *hash,
+                ChunkPlacementKey {
+                    file_content_hash: payload.hash,
+                    file_offset: payload.offset,
+                },
+            )
+        })
+        .collect();
+    let plan = plan_bundle_compressed_groups(
+        planned.clone(),
+        &placements,
+        &profile,
+        &crate::artifact::profiles::BundleSizingProfile::default(),
+        BundleSizingPolicy::new(215, 64),
+        &pool,
+        &control,
+    )
+    .unwrap();
+    assert_eq!(plan.groups.len(), 1);
+    assert_eq!(plan.probe_raw_bytes, 0);
     let split =
-        build_bounded_bundle_groups(planned.clone(), 215, &profile, &staging, &control).unwrap();
+        build_bundled_chunks(plan, &profile, &staging, &pool, &control, 512 * 1024 * 1024).unwrap();
     assert_eq!(split.len(), 2);
     assert!(
         split
@@ -342,4 +370,181 @@ fn capture_result_slots_join_workers_before_returning_an_error() {
     );
     assert!(result.is_err());
     assert_eq!(completed.load(std::sync::atomic::Ordering::Relaxed), 32);
+}
+
+#[test]
+fn single_raw_group_skips_probe_but_keeps_placement_and_source_checks() {
+    use crate::artifact::profiles::{BundleSizingProfile, CompressionKind, CompressionProfile};
+    let directory = tempfile::tempdir().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
+    let chunks = [
+        b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    ]
+    .iter()
+    .map(|bytes| {
+        let hash = ChunkHash::from_blake3(blake3::hash(*bytes));
+        (
+            hash,
+            ChunkPayload {
+                source: std::sync::Arc::new(directory.path().join("missing")),
+                offset: 0,
+                size: 32,
+                hash,
+            },
+        )
+    })
+    .collect::<Vec<_>>();
+    let placements = chunks
+        .iter()
+        .enumerate()
+        .map(|(index, (hash, _))| {
+            (
+                *hash,
+                ChunkPlacementKey {
+                    file_content_hash: *hash,
+                    file_offset: index as u64 * 32,
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let bundle_profile = BundleSizingProfile::default();
+    let control = crate::progress::GutchOperationControl::default();
+    for codec in [
+        CompressionKind::None,
+        CompressionKind::Zstd,
+        CompressionKind::Lz4,
+    ] {
+        let profile = CompressionProfile::for_algorithm(codec, None);
+        // The payload equals the raw floor; planning must not open the missing source.
+        let plan = plan_bundle_compressed_groups(
+            chunks.clone(),
+            &placements,
+            &profile,
+            &bundle_profile,
+            BundleSizingPolicy::new(215, 64),
+            &pool,
+            &control,
+        )
+        .unwrap();
+        assert_eq!(plan.groups.len(), 1);
+        assert_eq!(plan.groups[0].len(), 2);
+        assert_eq!(plan.probe_raw_bytes, 0);
+        assert_eq!(plan.encoded_limit, 215);
+        let expected_order = plan.groups[0]
+            .iter()
+            .map(|(hash, _)| *hash)
+            .collect::<Vec<_>>();
+        let mut reversed = chunks.clone();
+        reversed.reverse();
+        let reversed_plan = plan_bundle_compressed_groups(
+            reversed,
+            &placements,
+            &profile,
+            &bundle_profile,
+            BundleSizingPolicy::new(215, 64),
+            &pool,
+            &control,
+        )
+        .unwrap();
+        assert_eq!(
+            expected_order,
+            reversed_plan.groups[0]
+                .iter()
+                .map(|(hash, _)| *hash)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            build_bundle_compressed_group(
+                plan.groups.into_iter().next().unwrap(),
+                &profile,
+                directory.path(),
+                &control
+            )
+            .is_err()
+        );
+        assert!(
+            plan_bundle_compressed_groups(
+                chunks.clone(),
+                &HashMap::new(),
+                &profile,
+                &bundle_profile,
+                BundleSizingPolicy::new(215, 64),
+                &pool,
+                &control
+            )
+            .is_err()
+        );
+        // One byte above the floor still uses the normal sizing/probe path.
+        let above_floor = plan_bundle_compressed_groups(
+            chunks.clone(),
+            &placements,
+            &profile,
+            &bundle_profile,
+            BundleSizingPolicy::new(215, 63),
+            &pool,
+            &control,
+        );
+        if codec == CompressionKind::None {
+            assert_eq!(above_floor.unwrap().groups.len(), 2);
+        } else {
+            assert!(
+                above_floor.is_err(),
+                "compressed probe must open the source above the floor"
+            );
+        }
+    }
+}
+
+#[test]
+fn source_change_after_single_group_planning_fails_encoding() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("source");
+    std::fs::write(&source, b"before").unwrap();
+    let hash = ChunkHash::from_blake3(blake3::hash(b"before"));
+    let chunks = vec![(
+        hash,
+        ChunkPayload {
+            source: std::sync::Arc::new(source.clone()),
+            offset: 0,
+            size: 6,
+            hash,
+        },
+    )];
+    let placements = HashMap::from([(
+        hash,
+        ChunkPlacementKey {
+            file_content_hash: hash,
+            file_offset: 0,
+        },
+    )]);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    let profile = crate::artifact::profiles::CompressionProfile::default();
+    let control = crate::progress::GutchOperationControl::default();
+    let plan = plan_bundle_compressed_groups(
+        chunks,
+        &placements,
+        &profile,
+        &crate::artifact::profiles::BundleSizingProfile::default(),
+        BundleSizingPolicy::default(),
+        &pool,
+        &control,
+    )
+    .unwrap();
+    std::fs::write(source, b"after!").unwrap();
+    assert!(
+        build_bundle_compressed_group(
+            plan.groups.into_iter().next().unwrap(),
+            &profile,
+            directory.path(),
+            &control
+        )
+        .is_err()
+    );
 }
