@@ -953,3 +953,26 @@ capacity were also tested and discarded after comparisons failed to establish
 consistent benefits. Regression tests cover raw, mildly and strongly compressed
 groups, maximum decoded-length declarations, corruption and existing framing bounds.
 Evidence: `tests/.artifacts/research_optimization_pass/round26_report.md`.
+
+
+## Index accounting by artifact row, October 2026
+
+Index decoding reuses each validated numeric artifact row to calculate its chunk's
+share of encoded bytes. It no longer builds a bundle-ID tree and searches that
+tree for every bundled chunk. The checked row constructor preserves wire order,
+so the borrowed artifact-row column remains aligned with the owned entries.
+All artifact/ordinal/raw-size validation and integer rounding remain unchanged.
+
+On the four-file 64 MiB / 1 KiB-chunk fixture, a 41-pair Windows repository-status
+confirmation reduced median command time from 37.99 to 36.45 ms (4.1%). An initial
+41-pair screen measured a 2.2% reduction. Complete status and repository verification
+JSON matched on every timed invocation. Memory remained essentially flat over 21
+separate process-memory pairs. Verification, unchanged capture and reconstruction
+controls varied; no broader latency or memory improvement is claimed. Every restored
+tree matched independent SHA-256 expectations.
+
+A five-row regression interleaves loose storage with two bundles whose hash order,
+artifact order and chunk ordinals differ. It checks exact rounded shares and the
+unchanged loose-artifact size. Existing sorted-key, malformed-reference, truncation,
+trailing-byte and shared-artifact checks remain in place.
+Evidence: `tests/.artifacts/research_optimization_pass/round27_report.md`.

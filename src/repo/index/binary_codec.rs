@@ -61,7 +61,8 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
     let row_count = chunk_count as usize;
     // The 44-byte row preflight bounds all four column splits, including their products.
     let (mut chunk_hashes, remaining_columns) = reader.inner.split_at(row_count * 32);
-    let (mut artifact_table_rows, remaining_columns) = remaining_columns.split_at(row_count * 4);
+    let (artifact_table_row_column, remaining_columns) = remaining_columns.split_at(row_count * 4);
+    let mut artifact_table_rows = artifact_table_row_column;
     // Loose chunks have no artifact-table row: their identity is the chunk hash,
     // and this column carries encoded size instead of a bundle ordinal.
     let (mut chunk_ordinals_or_artifact_sizes, remaining_columns) =
@@ -123,16 +124,15 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
         return Err(Error::manifest("chunk index contains trailing bytes"));
     }
     let mut entries = crate::repo::index::ChunkIndexEntries::from_sorted_rows(rows)?;
-    let raw_bytes_by_bundle_id: BTreeMap<_, _> = artifacts
-        .iter()
-        .zip(bundle_raw_byte_totals)
-        .map(|(record, raw)| (record.bundle_id.as_str(), raw))
-        .collect();
+    // The checked constructor preserves wire order, so the artifact-row column
+    // still aligns with entries and its validated row IDs index the totals directly.
+    let mut artifact_table_rows = artifact_table_row_column;
     // Encoded bytes are shared by a bundle. Attribute an approximate share to
     // each chunk for accounting; this value is not stored or used for integrity.
     for entry in entries.values_mut() {
-        if entry.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled {
-            let bundle_raw_bytes = raw_bytes_by_bundle_id[entry.bundle_id.as_str()];
+        let artifact_table_row = read_u32(&mut artifact_table_rows)?;
+        if artifact_table_row != LOOSE_CHUNK_ARTIFACT_ROW {
+            let bundle_raw_bytes = bundle_raw_byte_totals[artifact_table_row as usize];
             entry.compressed_size = crate::artifact::format::size_u32(
                 u64::from(entry.artifact_size) * u64::from(entry.raw_size) / bundle_raw_bytes,
             )?;
@@ -252,6 +252,54 @@ pub(crate) fn write_chunk_index_binary(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accounting_uses_each_rows_bundle_with_loose_rows_interleaved() {
+        use crate::artifact::profiles::ArtifactStorageMode::{Bundled, LooseChunks};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("index");
+        let bundle_a = smol_str::SmolStr::new("a1".repeat(32));
+        let bundle_b = smol_str::SmolStr::new("b2".repeat(32));
+        let loose = ChunkHash::from_bytes([2; 32]);
+        let rows = [
+            (1, bundle_a.clone(), 101, 1, 10, Bundled),
+            (2, loose.to_hex().into(), 60, 0, 4, LooseChunks),
+            (3, bundle_b.clone(), 73, 0, 3, Bundled),
+            (4, bundle_a, 101, 0, 20, Bundled),
+            (5, bundle_b, 73, 1, 5, Bundled),
+        ];
+        let entries = rows
+            .into_iter()
+            .map(
+                |(hash_byte, artifact_id, artifact_size, ordinal, raw_size, storage_mode)| {
+                    (
+                        ChunkHash::from_bytes([hash_byte; 32]),
+                        crate::repo::index::ChunkIndexEntry::new(
+                            artifact_size,
+                            ordinal,
+                            artifact_id,
+                            raw_size,
+                            0,
+                            storage_mode,
+                        ),
+                    )
+                },
+            )
+            .collect();
+        let index = crate::repo::index::ChunkIndex {
+            format_version: crate::artifact::format::FORMAT_VERSION.into(),
+            entries,
+        };
+        write_chunk_index_binary(&path, &index).unwrap();
+        let restored = load_chunk_index_binary(&path).unwrap();
+        for (hash_byte, expected_size) in [(1, 33), (2, 60), (3, 27), (4, 67), (5, 45)] {
+            let hash = ChunkHash::from_bytes([hash_byte; 32]);
+            assert_eq!(
+                restored.entries.get_hash(&hash).unwrap().compressed_size,
+                expected_size
+            );
+        }
+    }
 
     #[test]
     fn mixed_storage_roundtrip_is_deterministic_and_shares_artifacts() {

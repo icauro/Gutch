@@ -137,11 +137,13 @@ equivalent mapping encodes identically regardless of regeneration time.
 
 The runtime index retains sorted binary keys and binary search. Binary decoding
 reserves the declared row count after length checks and reads the four column
-slices directly into rows in wire order, without intermediate column vectors. The index-owned bulk constructor rejects duplicate or descending
-keys without sorting or dropping rows. Entries share immutable artifact identity,
-encoded size and storage-mode records. Incremental
-updates merge sorted rows and reuse matching artifact records. Per-chunk compressed
-size estimates remain accounting values, not integrity evidence.
+slices directly into rows in wire order, without intermediate column vectors.
+The index-owned bulk constructor rejects duplicate or descending keys without
+sorting or dropping rows. Entries share immutable artifact identity, encoded
+size and storage-mode records. Incremental updates merge sorted rows and reuse
+matching artifact records. Compressed-byte accounting reuses the validated
+artifact-row column to index per-bundle raw totals directly. These rounded-down
+per-chunk estimates are not stored or used for integrity.
 
 ## Bundle
 
