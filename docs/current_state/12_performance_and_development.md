@@ -638,3 +638,33 @@ loose-only, and mixed-storage snapshots. It failed before the fix with two requi
 bundles for a one-bundle capture. Six byte comparisons still matched bundles,
 blueprints and chunk indexes across None, Zstd and LZ4. Evidence:
 `tests/.artifacts/research_optimization_pass/round12_report.md`.
+
+## Compression probe source reuse, October 2026
+
+Hash-ordered compression samples can repeatedly switch between source files.
+The probe now retains up to eight source readers in opening order, closing the
+oldest before opening another. Sample order, source hash verification, codec
+settings and final artifact bytes remain unchanged. This cache belongs only to
+the probe; encoding workers keep their existing reader ownership.
+
+On Windows with four workers, 21 alternating warm-cache pairs measured fresh
+captures with 1 KiB chunk targets:
+
+| Input | Baseline | Bounded readers | Reduction |
+|---|---:|---:|---:|
+| Mixed, 36.5 MiB | 394.93 ms | 332.55 ms | 15.8% |
+| Four files, 64 MiB | 455.71 ms | 309.29 ms | 32.1% |
+
+An independent 21-pair run measured 14.4% and 31.6% reductions respectively.
+Default 128 KiB-profile changes ranged from -0.9% to +1.0%; no general default
+speedup is claimed. Three separate alternating memory pairs measured peak working
+set changes of +0.19 MiB (mixed) and +0.66 MiB (large). These are workload-specific
+results. The uncompressed and floor-fit planning paths still skip payload reads.
+
+A separate detailed profile reduced the compression-estimation span from 174 to
+34 ms on the four-file input. Later detail events reached the trace cap, so this
+profile supports the early-stage mechanism only; timing claims use unprofiled
+commands. Six comparisons matched bundle, blueprint and chunk-index bytes across
+None, Zstd and LZ4. Restored trees matched independent SHA-256 expectations.
+Regression tests cover sample order, source eviction, seeks and hash failures on
+reader reuse. Evidence: `tests/.artifacts/research_optimization_pass/round13_report.md`.

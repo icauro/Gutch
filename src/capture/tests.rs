@@ -564,3 +564,103 @@ fn streaming_bundle_admission_does_not_require_all_raw_chunks_at_once() {
     assert_eq!(result.snapshot_manifest.file_count(), 2);
     assert_eq!(result.bundles.len(), 1);
 }
+
+#[test]
+fn probe_readers_preserve_sample_order_across_hits_seeks_and_evictions() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut chunks = Vec::new();
+    let mut expected_bytes = HashMap::new();
+    for index in 0..12u8 {
+        let head = vec![index; 64];
+        let tail = vec![index + 32; 96];
+        let path = std::sync::Arc::new(directory.path().join(format!("{index}.bin")));
+        std::fs::write(path.as_ref(), [&head[..], &tail[..]].concat()).unwrap();
+        for (offset, bytes) in [(0, head), (64, tail)] {
+            let hash = ChunkHash::from_blake3(blake3::hash(&bytes));
+            chunks.push((
+                hash,
+                ChunkPayload {
+                    source: path.clone(),
+                    offset,
+                    size: bytes.len() as u64,
+                    hash,
+                },
+            ));
+            expected_bytes.insert(hash, bytes);
+        }
+    }
+    chunks.sort_unstable_by_key(|(hash, _)| *hash);
+    let total_bytes: u64 = expected_bytes
+        .values()
+        .map(|bytes| bytes.len() as u64)
+        .sum();
+    for codec in [
+        crate::artifact::profiles::CompressionKind::None,
+        crate::artifact::profiles::CompressionKind::Zstd,
+        crate::artifact::profiles::CompressionKind::Lz4,
+    ] {
+        let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(codec, None);
+        for target in [0, 1, 512, total_bytes, total_bytes + 1] {
+            let mut selected = Vec::new();
+            let mut raw_size = 0;
+            for (hash, _) in &chunks {
+                let bytes = &expected_bytes[hash];
+                selected.push(bytes.as_slice());
+                raw_size += bytes.len() as u64;
+                if raw_size >= target {
+                    break;
+                }
+            }
+            let expected_size = compress::compressed_size(&selected, &profile).unwrap()
+                + crate::artifact::bundle::encoded_metadata_size(selected.len() as u64);
+            let (ratio, read_bytes) =
+                estimate_bundle_compression_ratio_from_probe(&chunks, &profile, target).unwrap();
+            assert_eq!(ratio, expected_size as f64 / raw_size as f64);
+            assert_eq!(
+                read_bytes,
+                if codec == crate::artifact::profiles::CompressionKind::None {
+                    0
+                } else {
+                    raw_size
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn probe_reader_cache_hits_still_verify_source_hashes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = std::sync::Arc::new(directory.path().join("source"));
+    std::fs::write(path.as_ref(), b"abcDEF").unwrap();
+    let first_hash = ChunkHash::from_blake3(blake3::hash(b"abc"));
+    let wrong_hash = ChunkHash::from_blake3(blake3::hash(b"bad"));
+    let chunks = vec![
+        (
+            first_hash,
+            ChunkPayload {
+                source: path.clone(),
+                offset: 0,
+                size: 3,
+                hash: first_hash,
+            },
+        ),
+        (
+            wrong_hash,
+            ChunkPayload {
+                source: path,
+                offset: 3,
+                size: 3,
+                hash: wrong_hash,
+            },
+        ),
+    ];
+    for codec in [
+        crate::artifact::profiles::CompressionKind::Zstd,
+        crate::artifact::profiles::CompressionKind::Lz4,
+    ] {
+        let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(codec, None);
+        let error = estimate_bundle_compression_ratio_from_probe(&chunks, &profile, 6).unwrap_err();
+        assert!(error.to_string().contains("source changed during capture"));
+    }
+}

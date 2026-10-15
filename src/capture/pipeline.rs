@@ -2,7 +2,8 @@ use crate::profile::ProfileInstant;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rayon::ThreadPool;
 use rayon::prelude::*;
@@ -87,12 +88,30 @@ fn estimate_bundle_compression_ratio_from_probe(
     let mut probe_chunk_count = 0;
     let mut raw_probe_size: u64 = 0;
     let mut probe_payload = Vec::new();
-    let mut reader = ChunkPayloadReader::default();
+    const SOURCE_HANDLE_LIMIT: usize = 8;
+    let mut readers: Vec<(Arc<PathBuf>, ChunkPayloadReader)> = Vec::new();
     for (_, payload) in chunks {
         raw_probe_size += payload.raw_size();
         probe_chunk_count += 1;
         if !uncompressed {
-            probe_payload.push(reader.load(payload)?);
+            // Hash-order sampling can alternate files. Keep a bounded set of
+            // readers without changing sample order or skipping source hashes.
+            let reader_index = match readers
+                .iter()
+                .position(|(source, _)| source == &payload.source)
+            {
+                Some(index) => index,
+                None => {
+                    if readers.len() == SOURCE_HANDLE_LIMIT {
+                        // Release the evicted handle before opening its replacement.
+                        readers.remove(0);
+                    }
+                    let index = readers.len();
+                    readers.push((payload.source.clone(), ChunkPayloadReader::default()));
+                    index
+                }
+            };
+            probe_payload.push(readers[reader_index].1.load(payload)?);
         }
         if raw_probe_size >= probe_target_bytes {
             break;

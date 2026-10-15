@@ -179,8 +179,11 @@ released through the same operation-owned artifact lifecycle.
 - Encoding re-reads selected source ranges and verifies their chunk hashes.
 - Each bundle-loading job retains only its current source file handle, reusing
   it for consecutive chunks from the same path. Switching paths closes the old
-  handle; the job closes its reader before compression. Compression probes use
-  the same reader. Handles and seek positions are never shared between workers.
+  handle; the job closes its reader before compression. Compression probes retain
+  at most eight readers, evicting the earliest opened source before opening a
+  replacement. They preserve hash-order sampling and verify every loaded chunk,
+  including cache hits. All probe readers close when probing returns or fails.
+  Handles and seek positions are never shared between workers.
   Loose-chunk jobs still open one source for their single payload. Readers reuse
   their known cursor position for contiguous ranges; unknown positions after I/O
   errors, gaps, backward reads and nonzero offsets on new handles seek explicitly.
