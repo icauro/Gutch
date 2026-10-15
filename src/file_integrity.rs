@@ -28,7 +28,7 @@ pub(crate) enum FullFileHashMode {
 impl FullFileHashMode {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::Forwarded => "copy_forward",
+            Self::Forwarded => "forwarded",
             Self::Stream => "stream",
             Self::Mmap => "mmap",
             Self::MmapRayon => "mmap_rayon",

@@ -176,10 +176,16 @@ partial reconstruction. A successful replacement promotes the complete target
 tree, so source-only files and unrelated destination entries do not carry over
 to the new snapshot.
 
-For ordinary artifact and source-chunk jobs, the per-file verifier reads the
-completed output and checks size and full-file BLAKE3. A whole-file copy hashes
-while copying, so its completed hash can be forwarded to verification without a
-second full read. Large-file hash mode considers both the reconstruction worker
+Per-file verification always checks the completed output size and expected
+full-file BLAKE3. Whole-file copies hash while copying and forward that verified
+hash without a second content read. Artifact jobs can also forward a verified
+chunk hash when its target starts at offset zero, its raw size equals the file
+size, and its hash equals the expected full-file hash. Forwarding occurs only
+after the entire artifact job succeeds, including all writes and bundle identity
+checks. Partial-file chunks and differing full-file hashes retain the output
+read and hash check; source-chunk jobs also retain that check. The diagnostic
+hash mode for either forwarded case is `forwarded`.
+Large-file hash mode considers both the reconstruction worker
 count and the number of output files, so one large output can use the existing
 pool for parallel hashing. The exact threshold and modes are described in
 [`07_verify_pipeline.md`](07_verify_pipeline.md).

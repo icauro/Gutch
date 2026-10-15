@@ -20,10 +20,10 @@ mutate backend state.
 | 2. Prepare paths | Choose a complete filesystem inventory or a targeted expected-entry resolver. | Targeted manifest path resolution runs on the verify pool. |
 | 3. Validate containment | Canonicalize the root and check manifest paths and symlink-parent behavior. | Unsafe or invalid paths fail before file content work. |
 | 4. Prepare expected files | Collect expected file metadata and sort files by descending size, then path. | Preparation is deterministic. |
-| 5. Classify metadata | Check presence, entry type, read-only/executable properties, and size. | Non-file entries are classified before file lanes run. |
-| 6. Verify file bytes | Fast mode checks the full-file hash; Strict mode checks the full hash and each blueprint chunk hash. | Files run concurrently in deterministic largest-first serpentine lanes. |
+| 5. Classify metadata | Check presence, entry type, read-only/executable properties, and size. | Non-file entries are classified before file tasks run. |
+| 6. Verify file bytes | Fast mode checks the full-file hash; Strict mode checks the full hash and each blueprint chunk hash. | Files run through indexed parallel iteration with file-level work stealing. |
 | 7. Classify extras | In complete-inventory mode, report filesystem entries absent from the blueprint. | Extra detection is part of inventory preparation, not a second file pass. |
-| 8. Aggregate result | Merge issues and timing data and emit completion progress. | Results are restored to deterministic sorted order. |
+| 8. Aggregate result | Merge issues and timing data and emit completion progress. | Indexed collection preserves deterministic sorted result order. |
 
 ## Complete versus targeted verification
 
@@ -77,12 +77,11 @@ Targeted path resolution uses parallel iteration over manifest entries. Full
 inventory enumeration remains an ordered, no-follow filesystem walk because it
 must establish one complete view and extra-path set before file work begins.
 
-Prepared files are sorted largest-first. They are assigned to worker lanes in
-successive worker-width batches, reversing the direction of every other batch
-(the `largest_first_serpentine` schedule). This spreads large files across
-workers while keeping the assignment deterministic. Rayon workers process
-their own lane, then results are sorted back by prepared-file order before
-issues and timings are accumulated.
+Prepared files are sorted by descending size, then path. An indexed Rayon
+parallel iterator schedules individual files so idle workers can steal remaining
+work. Indexed result collection preserves the prepared-file order without a
+separate sort; completion order is concurrent. This is the
+`largest_first_work_stealing` diagnostic schedule.
 
 There is no parallel chunk-order read inside one Strict-mode file: that file's
 chunks must be consumed in order to validate coverage and the full-file hash.

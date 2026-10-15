@@ -917,3 +917,143 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         );
     }
 }
+
+#[test]
+fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
+    use crate::artifact::hash::ChunkHash;
+    use crate::installation::handles::{OutputHandleCache, SourceHandleCache};
+    use crate::installation::io::{ReconstructJobRequest, reconstruct_job};
+
+    let bytes = b"game";
+    let hash = ChunkHash::from_blake3(blake3::hash(bytes));
+    let profile = crate::artifact::profiles::CompressionProfile::default();
+    for bundled in [false, true] {
+        for corrupt in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let artifact_path = directory.path().join("artifact");
+            let (artifact, mut encoded, compressed_size) = if bundled {
+                let mut builder = crate::artifact::bundle::BundleBuilder::new(profile.clone());
+                builder.add_chunk(hash, bytes.to_vec());
+                let (id, encoded) = builder.build_with_id().unwrap();
+                let reader = crate::artifact::bundle::BundleReader::open(
+                    std::io::Cursor::new(&encoded),
+                    &profile,
+                )
+                .unwrap();
+                let size = reader.entries()[0].compressed_size;
+                (
+                    crate::repo::artifacts::ArtifactRef::Bundle { id },
+                    encoded,
+                    size,
+                )
+            } else {
+                let mut encoded = Vec::new();
+                crate::artifact::loose::write_loose_chunk(&mut encoded, hash, bytes, &profile)
+                    .unwrap();
+                let size = encoded.len() as u32;
+                (
+                    crate::repo::artifacts::ArtifactRef::LooseChunk {
+                        hash: hash.to_hex(),
+                    },
+                    encoded,
+                    size,
+                )
+            };
+            if corrupt {
+                *encoded.last_mut().unwrap() ^= 1;
+            }
+            std::fs::write(&artifact_path, encoded).unwrap();
+            // Shared whole-file targets, a prefix, a suffix, and a differing full hash.
+            let files = [
+                (4, hash),
+                (4, hash),
+                (8, hash),
+                (8, hash),
+                (4, ChunkHash::from_blake3(blake3::hash(b"else"))),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (size, full_file_hash))| ReconstructPipelineFile {
+                path: format!("file-{index}"),
+                size,
+                full_file_hash,
+            })
+            .collect::<Vec<_>>();
+            let paths = Arc::new(
+                files
+                    .iter()
+                    .map(|file| directory.path().join(&file.path))
+                    .collect::<Vec<_>>(),
+            );
+            let sizes = Arc::new(files.iter().map(|file| file.size).collect::<Vec<_>>());
+            let handles = OutputHandleCache::new(paths.clone(), sizes, &[1; 5], 4);
+            let hashes = (0..files.len())
+                .map(|_| Mutex::new(None))
+                .collect::<Vec<_>>();
+            let job = ReconstructJob::Artifact(ReconstructArtifactJob {
+                artifact,
+                artifact_path,
+                chunks: vec![ReconstructArtifactChunk {
+                    chunk_hash: hash,
+                    raw_size: 4,
+                    compressed_size,
+                    target_range: 0..5,
+                }],
+                targets: (0..5)
+                    .map(|file_index| ReconstructTarget {
+                        file_index,
+                        file_offset: if file_index == 3 { 4 } else { 0 },
+                    })
+                    .collect(),
+            });
+            let control = GutchOperationControl::default();
+            let result = reconstruct_job(ReconstructJobRequest {
+                job: &job,
+                file_plans: &files,
+                output_paths: &paths,
+                precomputed_file_hashes: &hashes,
+                output_handles: &handles,
+                source_handles: &SourceHandleCache::default(),
+                compression_profile: &profile,
+                control: &control,
+            });
+            assert_eq!(
+                result.is_err(),
+                corrupt,
+                "bundled={bundled}, corrupt={corrupt}"
+            );
+            let forwarded = hashes
+                .iter()
+                .map(|slot| *slot.lock().unwrap())
+                .collect::<Vec<_>>();
+            if corrupt {
+                assert_eq!(forwarded, vec![None; 5]);
+            } else {
+                assert_eq!(forwarded, vec![Some(hash), Some(hash), None, None, None]);
+                for index in [0, 1] {
+                    assert_eq!(std::fs::read(&paths[index]).unwrap(), bytes);
+                    verify_reconstructed_output_file(
+                        index,
+                        &files[index],
+                        &paths,
+                        &hashes,
+                        &control,
+                        4,
+                    )
+                    .unwrap();
+                }
+                // A forwarded hash never bypasses the final size check.
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&paths[0])
+                    .unwrap()
+                    .set_len(3)
+                    .unwrap();
+                assert!(
+                    verify_reconstructed_output_file(0, &files[0], &paths, &hashes, &control, 4)
+                        .is_err()
+                );
+            }
+        }
+    }
+}

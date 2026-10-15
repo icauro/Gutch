@@ -48,9 +48,30 @@ pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
     } = request;
     match job {
         ReconstructJob::Artifact(job) => {
-            reconstruct_artifact_job(job, output_handles, compression_profile, control).map_err(
-                |e| e.with_io_context("reading reconstruction artifact", &job.artifact_path),
-            )
+            let timings =
+                reconstruct_artifact_job(job, output_handles, compression_profile, control)
+                    .map_err(|e| {
+                        e.with_io_context("reading reconstruction artifact", &job.artifact_path)
+                    })?;
+            // Only successful artifact jobs establish hashes for their written bytes.
+            // A chunk spanning the whole file has the same BLAKE3 input as that file.
+            // Validated chunk coverage ensures that file has no other producers.
+            for chunk in &job.chunks {
+                for target in &job.targets[chunk.target_range.clone()] {
+                    let file = &file_plans[target.file_index];
+                    if target.file_offset == 0
+                        && u64::from(chunk.raw_size) == file.size
+                        && chunk.chunk_hash == file.full_file_hash
+                    {
+                        *precomputed_file_hashes[target.file_index]
+                            .lock()
+                            .map_err(|_| {
+                                Error::reconstruct("precomputed file hash is poisoned")
+                            })? = Some(chunk.chunk_hash);
+                    }
+                }
+            }
+            Ok(timings)
         }
         ReconstructJob::SourceChunk(job) => {
             reconstruct_source_chunk_job(job, file_plans, output_handles, source_handles, control)
