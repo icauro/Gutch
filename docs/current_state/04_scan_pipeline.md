@@ -116,7 +116,8 @@ present; failed RAM detection falls back to 512 MiB. Callers can override it wit
 The resolved byte budget is included in `RuntimePlan` and the detailed trace's
 `runtime.memory.budget` event. The caller reserves memory before dispatching
 encoding jobs, so pool workers do not block on memory admission. Jobs reserve
-raw input bytes plus 128 MiB for codec work. Result collection preserves input
+the largest raw chunk in a bundle (or the single loose chunk) plus 128 MiB for
+codec work. Result collection preserves input
 order regardless of completion order. This budget does not cap process RSS or
 change chunking, bundle grouping, or codec settings. A job exceeding the entire
 budget fails with its required and configured byte counts; allocations are not
@@ -152,11 +153,15 @@ making worker-time sums look like elapsed wall time.
 
 Capture retains chunk identities and source ranges instead of all source bytes.
 Duplicate chunks share one encoding plan. Payload memory scales with active file
-workers and artifact group sizes; inventory and chunk-reference metadata still
+workers and the largest chunk in each active encoding job; inventory and chunk-reference metadata still
 scale with the dataset. Encoding re-reads source ranges, trading additional reads
-for lower retained memory. Encoded bundle bytes stream directly to staged files.
+for lower retained memory. Each bundle source chunk is loaded, hash-checked,
+encoded, and released before the next is loaded. The artifact codec accepts
+ordered chunk descriptors and a loader; capture owns source handles and source
+validation. Encoded bundle bytes stream directly to staged files.
 Actual encoded size is checked against the preset maximum; oversized groups
-are split at chunk boundaries. Raw groups are capped at 256 MiB. Both bundles and loose chunks are staged on disk and
+are split at chunk boundaries. Raw groups are capped at 256 MiB without retaining that whole raw group.
+Both bundles and loose chunks are staged on disk and
 released through the same operation-owned artifact lifecycle.
 
 ## Failure boundaries

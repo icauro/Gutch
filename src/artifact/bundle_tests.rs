@@ -408,3 +408,130 @@ fn probe_encoded_size_matches_real_bundle_for_all_codecs() {
         }
     }
 }
+
+#[test]
+fn streamed_bundle_releases_each_loaded_chunk_before_requesting_the_next() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    struct TrackedBytes {
+        bytes: Vec<u8>,
+        live: Arc<AtomicUsize>,
+    }
+    impl AsRef<[u8]> for TrackedBytes {
+        fn as_ref(&self) -> &[u8] {
+            &self.bytes
+        }
+    }
+    impl Drop for TrackedBytes {
+        fn drop(&mut self) {
+            self.live.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    for codec in [
+        CompressionKind::None,
+        CompressionKind::Zstd,
+        CompressionKind::Lz4,
+    ] {
+        let profile = CompressionProfile::for_algorithm(codec, None);
+        let inputs = [
+            b"first".repeat(100_000),
+            b"small".to_vec(),
+            b"last".repeat(70_000),
+        ];
+        let descriptors = inputs
+            .iter()
+            .map(|bytes| {
+                (
+                    ChunkHash::from_blake3(blake3::hash(bytes)),
+                    bytes.len() as u64,
+                )
+            })
+            .collect::<Vec<_>>();
+        let directory = tempfile::tempdir().unwrap();
+        let live = Arc::new(AtomicUsize::new(0));
+        let mut next_index = 0;
+        let artifact =
+            write_bundle_to_staging(&descriptors, &profile, directory.path(), None, |index| {
+                assert_eq!(index, next_index);
+                next_index += 1;
+                assert_eq!(
+                    live.fetch_add(1, Ordering::SeqCst),
+                    0,
+                    "previous raw chunk is still retained"
+                );
+                Ok(TrackedBytes {
+                    bytes: inputs[index].clone(),
+                    live: live.clone(),
+                })
+            })
+            .unwrap();
+        assert_eq!(next_index, inputs.len());
+        assert_eq!(live.load(Ordering::SeqCst), 0);
+        let encoded = std::fs::read(&artifact.staged_path).unwrap();
+        let mut reader = read_bundle(&encoded, &profile).unwrap();
+        for ((hash, _), expected) in descriptors.iter().zip(&inputs) {
+            assert_eq!(
+                &reader.read_chunk_by_hash(&hash.to_string()).unwrap(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn streamed_bundle_discards_partial_staging_on_loader_failure_or_wrong_length() {
+    let first = b"first".to_vec();
+    let second = b"second".to_vec();
+    let descriptors = [&first, &second].map(|bytes| {
+        (
+            ChunkHash::from_blake3(blake3::hash(bytes)),
+            bytes.len() as u64,
+        )
+    });
+    for codec in [
+        CompressionKind::None,
+        CompressionKind::Zstd,
+        CompressionKind::Lz4,
+    ] {
+        let profile = CompressionProfile::for_algorithm(codec, None);
+        // Exercise failure after an earlier chunk has already entered the codec.
+        for wrong_length in [None, Some(0), Some(5), Some(7)] {
+            let directory = tempfile::tempdir().unwrap();
+            let result =
+                write_bundle_to_staging(&descriptors, &profile, directory.path(), None, |index| {
+                    if index == 0 {
+                        return Ok(first.clone());
+                    }
+                    match wrong_length {
+                        Some(size) => Ok(vec![0; size]),
+                        None => Err(crate::Error::bundle("injected source read failure")),
+                    }
+                });
+            assert!(result.is_err(), "{codec:?} {wrong_length:?}");
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn streamed_bundle_validates_descriptors_before_loading_payloads() {
+    let hash = ChunkHash::from_bytes([1; 32]);
+    for descriptors in [
+        vec![(hash, 0)],
+        vec![(hash, 1), (hash, 2)],
+        vec![(hash, format::MAX_RAW_CHUNK_SIZE + 1)],
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut loaded = false;
+        let result =
+            write_bundle_to_staging(&descriptors, &profile(), directory.path(), None, |_| {
+                loaded = true;
+                Ok(Vec::<u8>::new())
+            });
+        assert!(result.is_err());
+        assert!(!loaded);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}

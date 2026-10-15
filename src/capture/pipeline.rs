@@ -8,7 +8,7 @@ use rayon::ThreadPool;
 use rayon::prelude::*;
 
 use crate::Result;
-use crate::artifact::bundle::BundleBuilder;
+use crate::artifact::bundle::write_bundle_to_staging;
 use crate::artifact::compression as compress;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
@@ -410,10 +410,13 @@ fn build_bundled_chunks(
         control,
         memory_budget,
         |(_, bundle)| {
+            // Loading and encoding overlap: only the largest chunk is live,
+            // alongside the codec's own working-memory reservation.
             bundle
                 .iter()
                 .map(|(_, payload)| payload.raw_size())
-                .sum::<u64>()
+                .max()
+                .unwrap_or(0)
                 + crate::artifact::compression::ENCODE_WORKING_MEMORY_BYTES
         },
         move |(_bundle_index, planned_bundle), control| {
@@ -572,24 +575,28 @@ fn build_bundle_compressed_group(
             serde_json::json!(planned_bundle.len()),
         )])
     });
-    let mut builder = BundleBuilder::new(compression_profile.clone());
+    let descriptors = planned_bundle
+        .iter()
+        .map(|(hash, payload)| (*hash, payload.raw_size()))
+        .collect::<Vec<_>>();
     let mut payload_load = std::time::Duration::ZERO;
     let mut payload_load_bytes: u64 = 0;
-
-    let input_span = control.profile_span("capture.bundle.load_inputs");
     let mut reader = ChunkPayloadReader::default();
-    for (hash, payload) in planned_bundle {
-        control.checkpoint()?;
-        let load_start = ProfileInstant::detailed(control.profiler());
-        let bytes = reader.load(&payload)?;
-        payload_load += load_start.elapsed();
-        payload_load_bytes += bytes.len() as u64;
-        builder.add_chunk(hash, bytes);
-    }
-
-    drop(reader);
-    drop(input_span);
-    let built = builder.write_to_staging(artifact_staging_root, control.profiler())?;
+    let built = write_bundle_to_staging(
+        &descriptors,
+        compression_profile,
+        artifact_staging_root,
+        control.profiler(),
+        |index| {
+            control.checkpoint()?;
+            let _input_span = control.profile_span("capture.bundle.load_inputs");
+            let load_start = ProfileInstant::detailed(control.profiler());
+            let bytes = reader.load(&planned_bundle[index].1)?;
+            payload_load += load_start.elapsed();
+            payload_load_bytes += bytes.len() as u64;
+            Ok(bytes)
+        },
+    )?;
     Ok(BuiltBundleCompressedGroup {
         bundle_id: built.bundle_id,
         staged_file: StagedArtifactFile::new(built.staged_path),

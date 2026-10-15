@@ -547,3 +547,35 @@ Focused tests cover native-error preservation, an actual output-open failure,
 and a failed staging promotion that restores the old destination and reports
 both paths. No benchmark or large reconstruction was rerun. Logs are under
 `tests/.artifacts/io-diagnostics/`.
+
+
+## Streaming bundle capture, October 2026
+
+Bundle encoding now loads and verifies one source chunk at a time through an
+artifact-owned loader boundary. The raw group is no longer held until compression
+finishes. Admission reserves the largest chunk plus codec working memory;
+inventory, plans, codec buffers, and concurrent jobs still contribute to RSS.
+Source hash checks, staging cleanup, encoded-size splitting, and durable sync
+remain in place. Compression timing excludes loader time; its enclosing detailed
+span includes the nested input spans.
+
+On small Windows warm-cache datasets with four workers and default profiles,
+three alternating memory pairs measured these median process peak working sets:
+
+| Input | Baseline | Streaming capture | Reduction |
+|---|---:|---:|---:|
+| Mixed, 36.5 MiB | 76.36 MiB | 45.39 MiB | 40.6% |
+| Four large files, 64 MiB | 76.36 MiB | 45.70 MiB | 40.2% |
+
+Native process high-water counters were sampled about every 3 ms. Separate
+21-pair timing runs changed capture medians by -2.2% for 1,000 small files,
+-3.9% for mixed files, -0.9% for large files, and +1.2% for repeated-content
+fan-out. These small timing differences are workload-specific; the retained
+benefit is reduced payload memory, not a universal speedup.
+
+All reconstructed output trees matched independent SHA-256 expectations.
+Six comparisons also matched every encoded bundle byte and snapshot identity:
+small files at 128 KiB and large files at 1 KiB, each with None, Zstd, and LZ4.
+Regression tests cover chunk release order, input length errors, late loader
+failure cleanup, invalid descriptors, and admission below the whole raw-group
+size. Evidence: `tests/.artifacts/research_optimization_pass/round9_report.md`.

@@ -63,17 +63,20 @@ pub(crate) struct BundleReadMetrics {
     pub(crate) decompress: Duration,
 }
 
+#[cfg(test)]
 pub(crate) struct BundleBuilder {
     chunks: Vec<ChunkData>,
     pub(crate) profile: CompressionProfile,
 }
 
+#[cfg(test)]
 struct ChunkData {
     hash: ChunkHash,
     raw_size: u64,
-    raw: Option<Vec<u8>>,
+    raw: Vec<u8>,
 }
 
+#[cfg(test)]
 impl BundleBuilder {
     pub(crate) fn new(profile: CompressionProfile) -> Self {
         Self {
@@ -87,30 +90,25 @@ impl BundleBuilder {
         self.chunks.push(ChunkData {
             hash: chunk_hash,
             raw_size,
-            raw: Some(raw_data),
+            raw: raw_data,
         });
     }
 
-    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.chunks.is_empty()
     }
 
-    #[cfg(test)]
-    #[cfg(test)]
     pub(crate) fn chunk_count(&self) -> usize {
         self.chunks.len()
     }
 
     /// Test-only convenience. Production capture writes to a staged file.
-    #[cfg(test)]
     pub(crate) fn build(&self) -> Result<Vec<u8>> {
         let (_, bundle) = self.build_with_id()?;
         Ok(bundle)
     }
 
     /// Test-only convenience. Production capture writes to a staged file.
-    #[cfg(test)]
     pub(crate) fn build_with_id(&self) -> Result<(String, Vec<u8>)> {
         let staging = tempfile::tempdir()?;
         let artifact = self.write_to_staging(staging.path(), None)?;
@@ -125,173 +123,174 @@ impl BundleBuilder {
         staging_root: &Path,
         profiler: Option<&crate::profile::GutchProfiler>,
     ) -> Result<BundleBuildArtifact> {
-        if self.profile.compression_unit != CompressionUnit::Bundle {
-            return Err(crate::error::Error::InvalidBundle(
-                "gutch only supports bundle-compressed bundles".into(),
-            ));
-        }
-        crate::filesystem::create_dir_all(staging_root)?;
-
-        let temporary = tempfile::NamedTempFile::new_in(staging_root)?;
-        let capture = {
-            let mut file = temporary.reopen()?;
-            let capture = self.write_bundle(&mut file, profiler)?;
-            let _flush_span = profiler.map(|profiler| {
-                profiler.span_with_args("capture.bundle.flush", || {
-                    std::collections::BTreeMap::from([(
-                        "bundle_size_bytes".to_string(),
-                        serde_json::json!(capture.size),
-                    )])
-                })
-            });
-            file.flush()?;
-            drop(_flush_span);
-            let _sync_span = profiler.map(|profiler| {
-                profiler.span_with_args("capture.bundle.sync", || {
-                    std::collections::BTreeMap::from([(
-                        "bundle_size_bytes".to_string(),
-                        serde_json::json!(capture.size),
-                    )])
-                })
-            });
-            file.sync_all()?;
-            drop(_sync_span);
-            capture
-        };
-
-        let (_, staged_path) = temporary
-            .keep()
-            .map_err(|error| crate::error::Error::Io(error.error))?;
-
-        Ok(BundleBuildArtifact {
-            staged_path,
-            ..capture
-        })
-    }
-
-    fn write_bundle(
-        &self,
-        file: &mut File,
-        profiler: Option<&crate::profile::GutchProfiler>,
-    ) -> Result<BundleBuildArtifact> {
-        let chunk_count = u32::try_from(self.chunks.len()).map_err(|_| {
-            crate::error::Error::InvalidBundle("bundle contains too many chunks".into())
-        })?;
-        let mut hashing = HashingWriter::new(file);
-        hashing.write_all(BUNDLE_MAGIC)?;
-        hashing.write_all(&format::VERSION.to_le_bytes())?;
-        format::write_codec(&mut hashing, self.profile.compression)?;
-        hashing.write_all(&chunk_count.to_le_bytes())?;
-
-        let mut entries = Vec::with_capacity(self.chunks.len());
-        let mut raw_offset = 0u64;
-        for chunk in &self.chunks {
-            let raw = chunk.raw.as_ref().ok_or_else(|| {
-                crate::error::Error::InvalidBundle(
-                    "bundle-compressed chunks must retain raw bytes until bundle capture".into(),
-                )
-            })?;
-            if raw.as_slice().len() as u64 != chunk.raw_size {
-                return Err(crate::error::Error::InvalidBundle(
-                    "bundle chunk raw size changed before writing".into(),
-                ));
-            }
-            entries.push(BundleTableEntry {
-                chunk_hash: chunk.hash,
-                raw_size: format::size_u32(chunk.raw_size)?,
-                compressed_size: 0,
-                raw_offset: format::size_u32(raw_offset)?,
-            });
-            raw_offset = raw_offset.checked_add(chunk.raw_size).ok_or_else(|| {
-                crate::error::Error::InvalidBundle("bundle raw size overflow".into())
-            })?;
-        }
-
-        validate_bundle_entries(&entries, 0, 0)?;
-        let compression_started_at = ProfileInstant::detailed(profiler);
-        let _payload_span = profiler.map(|profiler| {
-            profiler.span_with_args("capture.bundle.encode_and_write", || {
-                std::collections::BTreeMap::from([(
-                    "chunk_count".to_string(),
-                    serde_json::json!(self.chunks.len()),
-                )])
-            })
-        });
-        let raw_segments: Vec<&[u8]> = self
+        let chunks = self
             .chunks
             .iter()
-            .map(|chunk| {
-                chunk
-                    .raw
-                    .as_ref()
-                    .expect("bundle entries validated above")
-                    .as_slice()
-            })
-            .collect();
-        let raw_size = self.chunks.iter().try_fold(0u64, |total, chunk| {
-            total.checked_add(chunk.raw_size).ok_or_else(|| {
-                crate::error::Error::InvalidBundle("bundle raw size overflow".into())
-            })
-        })?;
-        validate_profile(&self.profile)?;
-        if raw_size > format::MAX_RAW_BUNDLE_SIZE {
-            return Err(crate::Error::bundle("bundle exceeds raw size limit"));
-        }
-        crate::artifact::compression::encode_to_writer(
-            &mut hashing,
-            &self.profile,
-            raw_size,
-            |writer| {
-                for segment in &raw_segments {
-                    writer.write_all(segment)?;
-                }
-                Ok(())
-            },
-        )?;
-        let compression_time = compression_started_at.elapsed();
-        let payload_end = hashing.position()?;
-        let compressed_output_bytes =
-            payload_end.checked_sub(BUNDLE_HEADER_SIZE).ok_or_else(|| {
-                crate::error::Error::InvalidBundle("bundle payload position underflow".into())
-            })?;
-        assign_compressed_size_estimates(&mut entries, compressed_output_bytes)?;
-        drop(_payload_span);
-        let serialization_started_at = ProfileInstant::detailed(profiler);
-
-        let mut footer = Vec::with_capacity(4 + entries.len() * BUNDLE_TABLE_ENTRY_SIZE);
-        footer.extend_from_slice(&chunk_count.to_le_bytes());
-        write_bundle_table_entries(&mut footer, &entries)?;
-        let footer_length = u64::try_from(footer.len())
-            .map_err(|_| crate::error::Error::InvalidBundle("bundle footer is too large".into()))?;
-        hashing.write_all(&footer)?;
-        hashing.write_all(&format::size_u32(footer_length)?.to_le_bytes())?;
-        hashing.write_all(FOOTER_MAGIC)?;
-        let bytes_without_id = hashing.position()?;
-
-        let HashingWriter { file, hasher } = hashing;
-        let bundle_id = hash::hash_hex(&hasher.finalize());
-        file.write_all(hasher.finalize().as_bytes())?;
-        let bundle_size = bytes_without_id
-            .checked_add(BUNDLE_ID_SIZE)
-            .ok_or_else(|| crate::error::Error::InvalidBundle("bundle size overflow".into()))?;
-        format::size_u32(bundle_size)?;
-
-        Ok(BundleBuildArtifact {
-            bundle_id,
-            staged_path: PathBuf::new(),
-            size: bundle_size,
-            entries,
-            metrics: BundleBuildMetrics {
-                frame_compression: compression_time,
-                frame_input_bytes: raw_offset,
-                frame_output_bytes: compressed_output_bytes,
-                footer_serialization: serialization_started_at.elapsed(),
-                footer_serialization_bytes: bytes_without_id,
-            },
+            .map(|chunk| (chunk.hash, chunk.raw_size))
+            .collect::<Vec<_>>();
+        write_bundle_to_staging(&chunks, &self.profile, staging_root, profiler, |index| {
+            Ok(self.chunks[index].raw.as_slice())
         })
     }
 }
 
+/// Encode ordered chunks without retaining the complete raw payload.
+/// The loader is called once per descriptor; each chunk is released before loading the next.
+pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
+    chunks: &[(ChunkHash, u64)],
+    profile: &CompressionProfile,
+    staging_root: &Path,
+    profiler: Option<&crate::profile::GutchProfiler>,
+    mut load_chunk: impl FnMut(usize) -> Result<B>,
+) -> Result<BundleBuildArtifact> {
+    if profile.compression_unit != CompressionUnit::Bundle {
+        return Err(crate::error::Error::InvalidBundle(
+            "gutch only supports bundle-compressed bundles".into(),
+        ));
+    }
+    crate::filesystem::create_dir_all(staging_root)?;
+
+    let temporary = tempfile::NamedTempFile::new_in(staging_root)?;
+    let capture = {
+        let mut file = temporary.reopen()?;
+        let capture = write_bundle(chunks, profile, &mut file, profiler, &mut load_chunk)?;
+        let _flush_span = profiler.map(|profiler| {
+            profiler.span_with_args("capture.bundle.flush", || {
+                std::collections::BTreeMap::from([(
+                    "bundle_size_bytes".to_string(),
+                    serde_json::json!(capture.size),
+                )])
+            })
+        });
+        file.flush()?;
+        drop(_flush_span);
+        let _sync_span = profiler.map(|profiler| {
+            profiler.span_with_args("capture.bundle.sync", || {
+                std::collections::BTreeMap::from([(
+                    "bundle_size_bytes".to_string(),
+                    serde_json::json!(capture.size),
+                )])
+            })
+        });
+        file.sync_all()?;
+        drop(_sync_span);
+        capture
+    };
+
+    let (_, staged_path) = temporary
+        .keep()
+        .map_err(|error| crate::error::Error::Io(error.error))?;
+
+    Ok(BundleBuildArtifact {
+        staged_path,
+        ..capture
+    })
+}
+
+fn write_bundle<B: AsRef<[u8]>>(
+    chunks: &[(ChunkHash, u64)],
+    profile: &CompressionProfile,
+    file: &mut File,
+    profiler: Option<&crate::profile::GutchProfiler>,
+    load_chunk: &mut impl FnMut(usize) -> Result<B>,
+) -> Result<BundleBuildArtifact> {
+    let chunk_count = u32::try_from(chunks.len()).map_err(|_| {
+        crate::error::Error::InvalidBundle("bundle contains too many chunks".into())
+    })?;
+    let mut hashing = HashingWriter::new(file);
+    hashing.write_all(BUNDLE_MAGIC)?;
+    hashing.write_all(&format::VERSION.to_le_bytes())?;
+    format::write_codec(&mut hashing, profile.compression)?;
+    hashing.write_all(&chunk_count.to_le_bytes())?;
+
+    let mut entries = Vec::with_capacity(chunks.len());
+    let mut raw_offset = 0u64;
+    for &(chunk_hash, raw_size) in chunks {
+        entries.push(BundleTableEntry {
+            chunk_hash,
+            raw_size: format::size_u32(raw_size)?,
+            compressed_size: 0,
+            raw_offset: format::size_u32(raw_offset)?,
+        });
+        raw_offset = raw_offset
+            .checked_add(raw_size)
+            .ok_or_else(|| crate::error::Error::InvalidBundle("bundle raw size overflow".into()))?;
+    }
+
+    validate_bundle_entries(&entries, 0, 0)?;
+    let compression_started_at = ProfileInstant::detailed(profiler);
+    let _payload_span = profiler.map(|profiler| {
+        profiler.span_with_args("capture.bundle.encode_and_write", || {
+            std::collections::BTreeMap::from([(
+                "chunk_count".to_string(),
+                serde_json::json!(chunks.len()),
+            )])
+        })
+    });
+    let raw_size = raw_offset;
+    validate_profile(profile)?;
+    if raw_size > format::MAX_RAW_BUNDLE_SIZE {
+        return Err(crate::Error::bundle("bundle exceeds raw size limit"));
+    }
+    let mut input_load_time = Duration::ZERO;
+    crate::artifact::compression::encode_to_writer(&mut hashing, profile, raw_size, |writer| {
+        for (index, &(_, expected_size)) in chunks.iter().enumerate() {
+            let load_started = ProfileInstant::detailed(profiler);
+            let bytes = load_chunk(index)?;
+            input_load_time += load_started.elapsed();
+            let bytes = bytes.as_ref();
+            if bytes.len() as u64 != expected_size {
+                return Err(crate::Error::bundle(
+                    "bundle chunk raw size changed before writing",
+                ));
+            }
+            writer.write_all(bytes)?;
+        }
+        Ok(())
+    })?;
+    let compression_time = compression_started_at
+        .elapsed()
+        .saturating_sub(input_load_time);
+    let payload_end = hashing.position()?;
+    let compressed_output_bytes = payload_end.checked_sub(BUNDLE_HEADER_SIZE).ok_or_else(|| {
+        crate::error::Error::InvalidBundle("bundle payload position underflow".into())
+    })?;
+    assign_compressed_size_estimates(&mut entries, compressed_output_bytes)?;
+    drop(_payload_span);
+    let serialization_started_at = ProfileInstant::detailed(profiler);
+
+    let mut footer = Vec::with_capacity(4 + entries.len() * BUNDLE_TABLE_ENTRY_SIZE);
+    footer.extend_from_slice(&chunk_count.to_le_bytes());
+    write_bundle_table_entries(&mut footer, &entries)?;
+    let footer_length = u64::try_from(footer.len())
+        .map_err(|_| crate::error::Error::InvalidBundle("bundle footer is too large".into()))?;
+    hashing.write_all(&footer)?;
+    hashing.write_all(&format::size_u32(footer_length)?.to_le_bytes())?;
+    hashing.write_all(FOOTER_MAGIC)?;
+    let bytes_without_id = hashing.position()?;
+
+    let HashingWriter { file, hasher } = hashing;
+    let bundle_id = hash::hash_hex(&hasher.finalize());
+    file.write_all(hasher.finalize().as_bytes())?;
+    let bundle_size = bytes_without_id
+        .checked_add(BUNDLE_ID_SIZE)
+        .ok_or_else(|| crate::error::Error::InvalidBundle("bundle size overflow".into()))?;
+    format::size_u32(bundle_size)?;
+
+    Ok(BundleBuildArtifact {
+        bundle_id,
+        staged_path: PathBuf::new(),
+        size: bundle_size,
+        entries,
+        metrics: BundleBuildMetrics {
+            frame_compression: compression_time,
+            frame_input_bytes: raw_offset,
+            frame_output_bytes: compressed_output_bytes,
+            footer_serialization: serialization_started_at.elapsed(),
+            footer_serialization_bytes: bytes_without_id,
+        },
+    })
+}
 struct HashingWriter<'a> {
     file: &'a mut File,
     hasher: blake3::Hasher,
