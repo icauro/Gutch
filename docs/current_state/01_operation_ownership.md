@@ -91,6 +91,11 @@ Local reconstruction and repair continue to use the shared installation executor
 
 Repository artifact verification selects `RepoArtifactVerification::Structure`
 or `Identity`; these retain the CLI's `fast` and `strict` report labels.
+The verifier loads repository metadata, the index and committed snapshots directly.
+It decodes each blueprint once and retains that manifest through path and artifact
+checks. Snapshot selection limits payload checks; metadata identity and chunk
+references are still validated across all committed snapshots. Required artifacts
+are checked by their index paths, with verification results cached across snapshots.
 Installation verification independently selects full-file or additional chunk
 checks. A stored blueprint whose content-derived identity differs from its
 snapshot ID produces `SnapshotIntegrityMismatch`. Capture translates that

@@ -833,3 +833,35 @@ fixture with 1 KiB chunks reduced median status latency from 49.58 to 38.86 ms
 result JSON matched the baseline on every invocation. These measurements target
 metadata-heavy small-chunk workloads; no general throughput claim is made.
 Evidence: `tests/.artifacts/research_optimization_pass/round21_report.md`.
+
+
+## Direct repository verification, October 2026
+
+Integrity verification enumerates committed snapshots through repository inventory
+and loads the index once. Each loaded manifest flows through path validation and
+artifact verification. It no longer builds a presentation status report or reloads
+the same blueprint for separate checks. Repository reader protection and the shared
+artifact verification cache span the operation. Metadata identity and every chunk
+reference remain validated even for snapshots outside the requested payload scope.
+
+Warm-cache Windows command timings against the previous implementation:
+
+| Fixture | Pairs | Previous fast verify | Direct fast verify | Reduction |
+|---|---:|---:|---:|---:|
+| Four files, 64 MiB, 1 KiB chunks | 41 | 67.58 ms | 40.00 ms | 40.8% |
+| Four files, 64 MiB, default chunks | 41 | 16.19 ms | 14.40 ms | 11.1% |
+| 64 identical files, 64 MiB logical, 1 KiB chunks | 41 | 36.38 ms | 22.13 ms | 39.2% |
+| 1,000 loose artifacts, 4.13 MiB | 41 | 136.64 ms | 128.59 ms | 5.9% |
+
+Strict verification of the first fixture reduced 145.60 to 120.30 ms (17.4%)
+over 21 pairs. Complete result JSON matched the baseline on every timed invocation.
+Twenty-one separate process-memory pairs on fast verification reduced median peak
+working set from 22.08 to 20.02 MiB and peak commit from 15.32 to 14.43 MiB.
+These are workload-specific Windows observations, not general throughput bounds.
+
+Focused regressions cover snapshot selection, missing unselected payloads,
+unselected missing/size-mismatched index references, unselected blueprint identity,
+empty repositories and unknown selections. Borrowed metadata/blueprint publication
+prototypes were discarded after timing confirmations and memory checks showed no
+material benefit. Evidence: `tests/.artifacts/research_optimization_pass/round22_report.md`
+and `tests/.artifacts/research_optimization_pass/round23_report.md`.

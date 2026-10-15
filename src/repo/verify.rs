@@ -5,9 +5,10 @@ use std::path::Path;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle;
+use crate::manifest::SnapshotManifest;
 use crate::repo::artifacts::ArtifactRef;
 
-use super::read_repo_status;
+use super::inventory::list_repo_snapshot_ids;
 use crate::repo::index::load_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
@@ -64,51 +65,39 @@ pub fn verify_gutch_repo_artifacts(
 ) -> Result<RepoArtifactVerifyResult> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::read(&operation_root, || {
-        let check = read_repo_status(repo_root)?;
-        if !check.is_repo {
-            return Err(Error::manifest(format!(
-                "no gutch repo found at {}",
-                repo_root.display()
-            )));
-        }
-
         let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
-
-        let selected_snapshots: Vec<_> = check
-            .snapshots
-            .iter()
-            .filter(|snapshot| {
-                snapshot_id
-                    .map(|id| id == snapshot.snapshot_id)
-                    .unwrap_or(true)
-            })
-            .collect();
-
-        if let Some(id) = snapshot_id
-            && selected_snapshots.is_empty()
-        {
-            return Err(Error::manifest(format!("snapshot not found in repo: {id}")));
-        }
+        let constraints = repo_manifest.constraints.clone().unwrap_or_default();
+        let compression_profile = repo_manifest.compression_profile();
 
         let mut snapshots = Vec::new();
         let mut verified = std::collections::HashMap::new();
-        for snapshot in selected_snapshots {
-            let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
+        for stored_snapshot_id in list_repo_snapshot_ids(&repo_paths)? {
+            let manifest = load_snapshot_manifest(&repo_paths, &stored_snapshot_id)?;
+            if snapshot_id.is_some_and(|id| id != stored_snapshot_id) {
+                // Snapshot selection narrows payload checks, not repository metadata validation.
+                crate::repo::artifacts::required_artifacts(&manifest, &chunk_index)?;
+                continue;
+            }
             crate::filesystem::constraints::validate_paths(
-                &repo_manifest.constraints.clone().unwrap_or_default(),
+                &constraints,
                 manifest.entries.iter().map(|entry| entry.path()),
                 "verify",
-                Some(&snapshot.snapshot_id),
+                Some(&stored_snapshot_id),
             )?;
             snapshots.push(verify_snapshot_artifacts_cached(
                 &repo_paths,
                 &chunk_index,
-                &repo_manifest.compression_profile(),
-                &snapshot.snapshot_id,
+                &compression_profile,
+                &manifest,
                 mode,
                 &mut verified,
             )?);
+        }
+        if let Some(id) = snapshot_id
+            && snapshots.is_empty()
+        {
+            return Err(Error::manifest(format!("snapshot not found in repo: {id}")));
         }
         let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
         let ok = snapshots_ok == snapshots.len();
@@ -130,11 +119,12 @@ pub(crate) fn verify_snapshot_artifacts(
     snapshot_id: &str,
     mode: RepoArtifactVerification,
 ) -> Result<SnapshotArtifactVerifyResult> {
+    let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     verify_snapshot_artifacts_cached(
         repo_paths,
         chunk_index,
         compression_profile,
-        snapshot_id,
+        &manifest,
         mode,
         &mut std::collections::HashMap::new(),
     )
@@ -144,13 +134,12 @@ fn verify_snapshot_artifacts_cached(
     repo_paths: &GutchRepoPaths,
     chunk_index: &crate::repo::index::ChunkIndex,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
-    snapshot_id: &str,
+    snapshot_manifest: &SnapshotManifest,
     mode: RepoArtifactVerification,
     verified: &mut std::collections::HashMap<ArtifactRef, std::result::Result<(), String>>,
 ) -> Result<SnapshotArtifactVerifyResult> {
-    let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let required_artifacts =
-        crate::repo::artifacts::required_artifacts(&snapshot_manifest, chunk_index)?;
+        crate::repo::artifacts::required_artifacts(snapshot_manifest, chunk_index)?;
     let required_bundle_count = required_artifacts
         .iter()
         .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
@@ -210,7 +199,7 @@ fn verify_snapshot_artifacts_cached(
     let ok = check_passed && corrupt_artifacts.is_empty();
 
     Ok(SnapshotArtifactVerifyResult {
-        snapshot_id: snapshot_id.to_string(),
+        snapshot_id: snapshot_manifest.snapshot_id.clone(),
         ok,
         check_passed,
         required_bundle_count,
@@ -242,6 +231,125 @@ fn verify_bundle_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn save_test_snapshot(paths: &GutchRepoPaths, path: &str, bytes: &[u8]) -> SnapshotManifest {
+        let hash = crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes));
+        let mut manifest = SnapshotManifest::new(String::new(), Default::default());
+        manifest.push_file(crate::manifest::FileManifest {
+            path: path.into(),
+            size: bytes.len() as u64,
+            executable: false,
+            read_only: false,
+            full_file_hash: hash.to_hex(),
+            chunks: if bytes.is_empty() {
+                Vec::new()
+            } else {
+                vec![crate::manifest::ChunkRef {
+                    chunk_hash: hash,
+                    raw_size: bytes.len() as u32,
+                }]
+            },
+        });
+        manifest.snapshot_id =
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+        crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(paths, &manifest)
+            .unwrap();
+        manifest
+    }
+
+    #[test]
+    fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = GutchRepoPaths::from_repo_root(root.path());
+        crate::repo::paths::ensure_gutch_repo_layout(&paths, "selection").unwrap();
+        let selected = save_test_snapshot(&paths, "empty", b"");
+        let unselected = save_test_snapshot(&paths, "missing", b"unavailable payload");
+        crate::test_util::index_manifest(&paths, &unselected);
+
+        for mode in [
+            RepoArtifactVerification::Structure,
+            RepoArtifactVerification::Identity,
+        ] {
+            let result =
+                verify_gutch_repo_artifacts(root.path(), Some(&selected.snapshot_id), mode)
+                    .unwrap();
+            assert!(result.ok);
+            assert_eq!(result.snapshot_count, 1);
+            assert_eq!(result.snapshots[0].snapshot_id, selected.snapshot_id);
+            assert_eq!(result.snapshots[0].required_artifact_count, 0);
+            let all = verify_gutch_repo_artifacts(root.path(), None, mode).unwrap();
+            assert!(!all.ok);
+            assert_eq!(all.snapshot_count, 2);
+            assert_eq!(all.snapshots_ok, 1);
+            let missing = all
+                .snapshots
+                .iter()
+                .find(|item| item.snapshot_id == unselected.snapshot_id)
+                .unwrap();
+            assert_eq!(missing.missing_bundle_count, 1);
+            assert_eq!(missing.missing_artifact_count, 1);
+        }
+
+        let mut index = load_chunk_index(&paths).unwrap();
+        let chunk = unselected.files().next().unwrap().chunks[0].chunk_hash;
+        let mut entry = index.entries.get_hash(&chunk).unwrap().clone();
+        entry.raw_size += 1;
+        index.entries.insert(chunk, entry);
+        crate::repo::index::write_chunk_index(&paths, &index).unwrap();
+        let error = verify_gutch_repo_artifacts(
+            root.path(),
+            Some(&selected.snapshot_id),
+            RepoArtifactVerification::Structure,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("chunk index size disagrees"));
+
+        crate::repo::index::write_chunk_index(&paths, &crate::repo::index::empty_chunk_index())
+            .unwrap();
+        let error = verify_gutch_repo_artifacts(
+            root.path(),
+            Some(&selected.snapshot_id),
+            RepoArtifactVerification::Structure,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("missing chunk index entry"));
+
+        crate::test_util::index_manifest(&paths, &unselected);
+        let mut invalid = unselected;
+        let crate::manifest::SnapshotEntry::File(file) = &mut invalid.entries[0] else {
+            panic!("expected the fixture's file entry");
+        };
+        file.full_file_hash = blake3::hash(b"different content").to_hex().to_string();
+        crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, &invalid)
+            .unwrap();
+        let error = verify_gutch_repo_artifacts(
+            root.path(),
+            Some(&selected.snapshot_id),
+            RepoArtifactVerification::Structure,
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::SnapshotIntegrityMismatch { .. }));
+    }
+
+    #[test]
+    fn empty_repository_succeeds_but_unknown_snapshot_is_an_error() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = GutchRepoPaths::from_repo_root(root.path());
+        crate::repo::paths::ensure_gutch_repo_layout(&paths, "empty").unwrap();
+        let result =
+            verify_gutch_repo_artifacts(root.path(), None, RepoArtifactVerification::Structure)
+                .unwrap();
+        assert!(result.ok);
+        assert_eq!(result.snapshot_count, 0);
+        let unknown = "a".repeat(64);
+        let error = verify_gutch_repo_artifacts(
+            root.path(),
+            Some(&unknown),
+            RepoArtifactVerification::Structure,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("snapshot not found in repo"));
+    }
 
     #[test]
     fn structural_verification_does_not_claim_content_addressed_identity() {
