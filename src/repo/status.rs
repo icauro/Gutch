@@ -12,7 +12,6 @@ use crate::Result;
 use crate::manifest;
 use crate::manifest::REPO_METADATA_FILE;
 use crate::repo::index::load_chunk_index;
-use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
@@ -256,14 +255,18 @@ fn check_snapshot_manifests(
             .map(|bytes| crate::artifact::hash::hash_hex(&blake3::hash(&bytes)));
         let required_artifacts =
             crate::repo::artifacts::required_artifacts(&manifest, &chunk_index)?;
-        let required_bundle_ids = required_bundle_ids(&manifest, &chunk_index)?;
-        let missing_bundle_count = required_bundle_ids
+        let required_bundle_count = required_artifacts
             .iter()
-            .filter(|bundle_id| {
-                !available_artifacts.contains(&crate::repo::artifacts::ArtifactRef::Bundle {
-                    id: bundle_id.as_str().into(),
-                })
+            .filter(|artifact| {
+                matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. })
             })
+            .count();
+        let missing_bundle_count = required_artifacts
+            .iter()
+            .filter(|artifact| {
+                matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. })
+            })
+            .filter(|artifact| !available_artifacts.contains(*artifact))
             .count();
         let missing_artifact_count = required_artifacts
             .iter()
@@ -283,7 +286,7 @@ fn check_snapshot_manifests(
             os: summary.os,
             arch: summary.arch,
             file_count: manifest.file_count(),
-            required_bundle_count: required_bundle_ids.len(),
+            required_bundle_count,
             required_artifact_count: required_artifacts.len(),
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),

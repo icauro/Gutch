@@ -9,7 +9,6 @@ use crate::repo::artifacts::ArtifactRef;
 
 use super::read_repo_status;
 use crate::repo::index::load_chunk_index;
-use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
@@ -152,7 +151,10 @@ fn verify_snapshot_artifacts_cached(
     let snapshot_manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let required_artifacts =
         crate::repo::artifacts::required_artifacts(&snapshot_manifest, chunk_index)?;
-    let required_bundles = required_bundle_ids(&snapshot_manifest, chunk_index)?;
+    let required_bundle_count = required_artifacts
+        .iter()
+        .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
+        .count();
 
     let mut missing_bundles = Vec::new();
     let mut missing_artifacts = Vec::new();
@@ -211,7 +213,7 @@ fn verify_snapshot_artifacts_cached(
         snapshot_id: snapshot_id.to_string(),
         ok,
         check_passed,
-        required_bundle_count: required_bundles.len(),
+        required_bundle_count,
         required_artifact_count: required_artifacts.len(),
         missing_bundle_count: missing_bundles.len(),
         missing_bundles,

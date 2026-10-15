@@ -816,3 +816,20 @@ A second prototype reserved duplicate-ordinal set capacity. Its incremental
 so it was discarded. Tests cover empty/singleton imports, strict ordering,
 duplicates and an encoded index with descending keys. Evidence:
 `tests/.artifacts/research_optimization_pass/round20_report.md`.
+
+
+## Reuse validated artifact requirements, October 2026
+
+Repository status and artifact verification count required bundles from their
+already validated artifact sets. They no longer walk every manifest chunk and
+query the index a second time solely to construct bundle IDs. Validation still
+checks every chunk reference and raw size before any counts are returned.
+Loose chunks contribute to artifact counts but not bundle counts; repeated
+references to one bundle count once, including when that bundle is missing.
+
+On warm-cache Windows runs, 41 alternating pairs over the four-file 64 MiB
+fixture with 1 KiB chunks reduced median status latency from 49.58 to 38.86 ms
+(21.6%) and fast repository verification from 90.66 to 70.89 ms (21.8%). Entire
+result JSON matched the baseline on every invocation. These measurements target
+metadata-heavy small-chunk workloads; no general throughput claim is made.
+Evidence: `tests/.artifacts/research_optimization_pass/round21_report.md`.
