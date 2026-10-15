@@ -72,18 +72,11 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
     let chunk_raw_sizes: Vec<_> = (0..chunk_count)
         .map(|_| read_u32(&mut reader))
         .collect::<Result<_>>()?;
-    let mut entries = crate::repo::index::ChunkIndexEntries::new();
+    let mut rows = Vec::with_capacity(chunk_count as usize);
     let mut bundle_raw_byte_totals = vec![0u64; artifacts.len()];
     let mut seen_bundle_chunk_ordinals = std::collections::HashSet::new();
-    let mut previous_chunk_hash = None;
     for row in 0..chunk_count as usize {
         let chunk_hash = chunk_hashes[row];
-        if previous_chunk_hash.is_some_and(|value| chunk_hash <= value) {
-            return Err(Error::manifest(
-                "chunk index keys must be unique and sorted",
-            ));
-        }
-        previous_chunk_hash = Some(chunk_hash);
         let artifact_table_row = artifact_table_rows[row];
         let chunk_ordinal_or_artifact_size = chunk_ordinals_or_artifact_sizes[row];
         let raw_size = u64::from(chunk_raw_sizes[row]);
@@ -120,7 +113,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
                 .ok_or_else(|| Error::manifest("indexed bundle exceeds raw size limit"))?;
             (record.clone(), chunk_ordinal_or_artifact_size)
         };
-        entries.insert(
+        rows.push((
             chunk_hash,
             crate::repo::index::ChunkIndexEntry {
                 compressed_size: record.artifact_size,
@@ -128,11 +121,12 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
                 chunk_ordinal,
                 raw_size: chunk_raw_sizes[row],
             },
-        );
+        ));
     }
     if reader.remaining != 0 {
         return Err(Error::manifest("chunk index contains trailing bytes"));
     }
+    let mut entries = crate::repo::index::ChunkIndexEntries::from_sorted_rows(rows)?;
     let raw_bytes_by_bundle_id: BTreeMap<_, _> = artifacts
         .iter()
         .zip(bundle_raw_byte_totals)
@@ -342,6 +336,16 @@ mod tests {
             )
             .is_err()
         );
+        let mut unsorted = groups.clone();
+        let first_hash = unsorted[1][4..36].to_vec();
+        let second_hash = unsorted[1][36..68].to_vec();
+        unsorted[1][4..36].copy_from_slice(&second_hash);
+        unsorted[1][36..68].copy_from_slice(&first_hash);
+        let error = load_chunk_index_binary_from_bytes(
+            &crate::artifact::metadata::encode(CHUNK_INDEX_BINARY_MAGIC, &unsorted).unwrap(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("unique and sorted"));
         let restored = load_chunk_index_binary(&path).unwrap();
         assert_eq!(restored.entries.len(), 3);
         let entries: Vec<_> = restored.entries.values().collect();

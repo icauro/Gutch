@@ -17,6 +17,16 @@ impl ChunkIndexEntries {
             }
         }
     }
+    /// Keep the decoder's row allocation without sorting or dropping invalid duplicates.
+    pub(super) fn from_sorted_rows(rows: Vec<(ChunkHash, ChunkIndexEntry)>) -> crate::Result<Self> {
+        if rows.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+            return Err(crate::Error::manifest(
+                "chunk index keys must be unique and sorted",
+            ));
+        }
+        Ok(Self(rows))
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -111,5 +121,43 @@ impl FromIterator<(ChunkHash, ChunkIndexEntry)> for ChunkIndexEntries {
         let mut entries = Self(rows);
         entries.share_artifacts();
         entries
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decoded_rows_require_strict_order_without_repairing_input() {
+        let rows = |keys: &[u8]| {
+            keys.iter()
+                .map(|&key| {
+                    (
+                        ChunkHash::from_bytes([key; 32]),
+                        ChunkIndexEntry::new(
+                            128,
+                            u32::from(key),
+                            "ab".repeat(32).into(),
+                            16,
+                            64,
+                            crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        for keys in [vec![], vec![1], vec![0, 1, 2]] {
+            let entries = ChunkIndexEntries::from_sorted_rows(rows(&keys)).unwrap();
+            let expected = keys
+                .into_iter()
+                .map(|key| ChunkHash::from_bytes([key; 32]))
+                .collect::<Vec<_>>();
+            assert_eq!(entries.keys().copied().collect::<Vec<_>>(), expected);
+        }
+        for keys in [vec![1, 1], vec![2, 1], vec![0, 2, 1]] {
+            let error = ChunkIndexEntries::from_sorted_rows(rows(&keys)).unwrap_err();
+            assert!(error.to_string().contains("unique and sorted"));
+        }
     }
 }

@@ -127,8 +127,11 @@ at most 16 MiB. References, duplicate bundle ordinals and aggregate raw bundle
 sizes are validated. No timestamp or per-artifact padding is serialized, so an
 equivalent mapping encodes identically regardless of regeneration time.
 
-The runtime index retains sorted binary keys and binary search. Entries share
-immutable artifact identity, encoded size and storage-mode records. Incremental
+The runtime index retains sorted binary keys and binary search. Binary decoding
+reserves the declared row count after length checks and builds rows directly in
+wire order. The index-owned bulk constructor rejects duplicate or descending
+keys without sorting or dropping rows. Entries share immutable artifact identity,
+encoded size and storage-mode records. Incremental
 updates merge sorted rows and reuse matching artifact records. Per-chunk compressed
 size estimates remain accounting values, not integrity evidence.
 

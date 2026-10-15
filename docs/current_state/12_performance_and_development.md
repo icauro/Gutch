@@ -790,3 +790,29 @@ process-memory benefit is claimed from this small difference.
 Required-set regressions cover source-only copying, mixed source/loose reuse,
 repeated bundled references, and cached versus missing artifacts. Evidence:
 `tests/.artifacts/research_optimization_pass/round19_report.md`.
+
+## Direct index-row decoding, October 2026
+
+The binary reader builds index rows in one preallocated vector instead of using
+a binary-search insertion for each row. A checked constructor enforces strict
+key order. Duplicate/descending keys remain errors; artifact/ordinal/size checks
+and shared artifact records remain part of decoding. General index mutations
+retain their existing behavior.
+
+On Windows with warm caches, 41 alternating unprofiled repository-status pairs
+on the four-file 64 MiB / 1 KiB-chunk fixture reduced median latency from
+52.64 to 46.63 ms (11.4%). Complete status JSON matched the baseline on every
+run. A separate 21-pair unchanged-capture comparison reduced 166.65 to 157.76 ms
+(5.3%). Reconstruction confirmation measured a 6.0% reduction over 21 pairs;
+default-profile screens were near flat. These are workload-specific observations.
+
+Twenty-one separate process-memory pairs on the status command reduced peak
+commit charge from 16.37 to 14.59 MiB (10.9%); peak working set stayed essentially
+flat. Native high-water counters were sampled about every 3 ms. No broad RSS or
+cross-platform memory bound is claimed.
+
+A second prototype reserved duplicate-ordinal set capacity. Its incremental
+41-pair reconstruction check was near flat and memory differences were small,
+so it was discarded. Tests cover empty/singleton imports, strict ordering,
+duplicates and an encoded index with descending keys. Evidence:
+`tests/.artifacts/research_optimization_pass/round20_report.md`.
