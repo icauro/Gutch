@@ -317,3 +317,29 @@ fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
         build_bundle_compressed_group(chunks, &profile, temp.path(), &Default::default()).is_err()
     );
 }
+
+#[test]
+fn capture_result_slots_join_workers_before_returning_an_error() {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let completed = std::sync::atomic::AtomicUsize::new(0);
+    let result = super::run_parallel_chunk_work(
+        (0..32).collect(),
+        &pool,
+        &crate::progress::GutchOperationControl::default(),
+        4,
+        |_| 1,
+        |index, _| {
+            completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if index == 3 {
+                Err(crate::Error::manifest("worker failed"))
+            } else {
+                Ok(index)
+            }
+        },
+    );
+    assert!(result.is_err());
+    assert_eq!(completed.load(std::sync::atomic::Ordering::Relaxed), 32);
+}

@@ -347,17 +347,16 @@ where
         BTreeMap::from([("budget_bytes".into(), serde_json::json!(memory_budget))])
     });
     let memory = std::sync::Arc::new(crate::runtime::MemoryBudget::new(memory_budget));
-    let results = (0..work_items.len())
-        .map(|_| std::sync::Mutex::new(None))
-        .collect::<Vec<_>>();
+    let mut results = (0..work_items.len()).map(|_| None).collect::<Vec<_>>();
+    // Each scoped worker exclusively borrows its result slot until the scope joins.
     // in_place_scope keeps admission on the caller, not on a Rayon worker.
     pool.in_place_scope(|scope| -> Result<()> {
-        for (item, slot) in work_items.into_iter().zip(&results) {
+        for (item, slot) in work_items.into_iter().zip(&mut results) {
             let permit = memory.acquire(working_bytes(&item), control)?;
             let work = &work;
             scope.spawn(move |_| {
                 let result = control.checkpoint().and_then(|_| work(item, control));
-                *slot.lock().expect("capture result slot") = Some(result);
+                *slot = Some(result);
                 drop(permit);
             });
         }
@@ -365,11 +364,7 @@ where
     })?;
     results
         .into_iter()
-        .map(|slot| {
-            slot.into_inner()
-                .expect("capture result slot")
-                .expect("joined capture worker")
-        })
+        .map(|slot| slot.expect("joined capture worker"))
         .collect()
 }
 

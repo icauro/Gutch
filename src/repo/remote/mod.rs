@@ -75,6 +75,7 @@ fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &str) -> Res
     Ok(())
 }
 
+#[cfg(test)]
 fn verify_remote_bundle(bundle_id: &str, bytes: &[u8]) -> Result<()> {
     crate::artifact::bundle::verify_bundle_identity_bytes(bundle_id, bytes)
 }

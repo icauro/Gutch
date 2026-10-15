@@ -45,6 +45,19 @@ Codec working-memory reservations are named estimates shared by the encoding
 and reconstruction schedulers. Encoding and decoding retain distinct estimates;
 the admission budget is not a bound on total process resident memory.
 
+Capture workers write to exclusively borrowed result slots within a joined scope.
+Results retain input order without a mutex per artifact. Memory admission stays
+on the caller, and admitted workers finish before a worker or admission error
+returns to the operation.
+
+Repository pull indexes the provider's snapshot descriptors once and reuses that
+lookup for metadata and bundle-source resolution. Bundle bodies stream directly
+to a same-directory temporary file, retain the 256 MiB per-artifact transfer
+limit, and pass content-identity verification before atomic publication. A
+provider-owned byte body is borrowed during staging rather than cloned. Metadata
+bodies remain bounded in-memory inputs for decoding. Failed transfers or identity
+checks preserve existing cached bundle contents.
+
 Artifact transfer concurrency is independent from reconstruction `jobs`.
 Standalone fetch and unified `installation reconstruct --fetch` share a bounded
 scheduler with dependency-aware priorities. The default is fixed concurrency

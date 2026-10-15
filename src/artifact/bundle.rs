@@ -647,6 +647,7 @@ impl<R: Read + Seek> BundleReader<R> {
 /// bytes before the trailing 32-byte binary ID must equal the expected ID, and
 /// the trailing bytes must repeat it. Shared by local verification and
 /// remote download so both reject the same identity failures.
+#[cfg(test)]
 pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Result<()> {
     let expected_hash = ChunkHash::parse_hex(bundle_id)?;
     let id_size = BUNDLE_ID_SIZE as usize;

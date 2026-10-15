@@ -20,7 +20,6 @@ use super::provider::RemoteSnapshot;
 use super::provider::RepoPullPlan;
 use super::provider::RepoPullStats;
 use super::verify_remote_artifact;
-use super::verify_remote_bundle;
 use crate::Error;
 use crate::Result;
 use crate::progress::GutchOperation;
@@ -33,6 +32,7 @@ use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 pub(super) fn compute_pull_plan(
@@ -187,30 +187,55 @@ fn source_bytes(
     maximum_bytes: u64,
     control: &GutchOperationControl,
 ) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    write_source(source, client, maximum_bytes, control, &mut bytes)?;
+    Ok(bytes)
+}
+
+fn write_source(
+    source: &RemoteArtifactSource,
+    client: &crate::transfer::http::DownloadClient,
+    maximum_bytes: u64,
+    control: &GutchOperationControl,
+    output: &mut impl Write,
+) -> Result<()> {
     control.checkpoint()?;
     match source {
         RemoteArtifactSource::Bytes(bytes) => {
             if bytes.len() as u64 > maximum_bytes {
                 return Err(Error::manifest("remote artifact exceeded the allowed size"));
             }
-            Ok(bytes.clone())
+            output.write_all(bytes)?;
+            Ok(())
         }
-        RemoteArtifactSource::Url(url) => {
-            let mut bytes = Vec::new();
-            crate::transfer::http::download_url_streaming(
-                client,
-                url,
-                control,
-                Some(maximum_bytes),
-                |_| Ok(()),
-                |chunk| {
-                    bytes.extend_from_slice(chunk);
-                    Ok(())
-                },
-            )?;
-            Ok(bytes)
-        }
+        RemoteArtifactSource::Url(url) => crate::transfer::http::download_url_streaming(
+            client,
+            url,
+            control,
+            Some(maximum_bytes),
+            |_| Ok(()),
+            |chunk| {
+                output.write_all(chunk)?;
+                Ok(())
+            },
+        ),
     }
+}
+
+fn download_and_publish_bundle(
+    source: &RemoteArtifactSource,
+    client: &crate::transfer::http::DownloadClient,
+    bundle_id: &str,
+    path: &Path,
+    control: &GutchOperationControl,
+) -> Result<()> {
+    control.checkpoint()?;
+    crate::filesystem::write_atomic_with(path, |file| {
+        write_source(source, client, MAX_REMOTE_BINARY_BYTES, control, file)?;
+        // Keep verification inside the atomic writer: failure leaves the previous
+        // cached artifact in place and drops only the owned temporary file.
+        crate::artifact::bundle::verify_bundle_identity_reader(file, bundle_id)
+    })
 }
 
 fn write_remote_snapshot_artifacts(
@@ -346,21 +371,12 @@ pub(super) fn bundle_source_requests(
 fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
     repo_paths: &GutchRepoPaths,
     repository: &RemoteRepository,
-    snapshots: &[RemoteSnapshot],
-    snapshot_id: &str,
+    snapshot: &RemoteSnapshot,
     provider: &P,
     download_client: &crate::transfer::http::DownloadClient,
     control: &GutchOperationControl,
 ) -> Result<()> {
-    let snapshot = snapshots
-        .iter()
-        .find(|snapshot| snapshot.snapshot_id == snapshot_id)
-        .ok_or_else(|| {
-            Error::manifest(format!(
-                "remote snapshot '{}' disappeared during pull",
-                snapshot_id
-            ))
-        })?;
+    let snapshot_id = snapshot.snapshot_id.as_str();
     let sources = provider.snapshot_sources(repository, snapshot)?;
     let metadata_bytes = source_bytes(
         &sources.metadata,
@@ -441,6 +457,13 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             false,
         );
         let snapshots = provider.list_snapshots(&repository)?;
+        let mut snapshots_by_id = HashMap::with_capacity(snapshots.len());
+        for snapshot in &snapshots {
+            // Match the former linear lookup's first occurrence if a provider repeats an ID.
+            snapshots_by_id
+                .entry(snapshot.snapshot_id.as_str())
+                .or_insert(snapshot);
+        }
         let plan = compute_pull_plan(&repo, &repo_paths, &repository, &snapshots, policy)?;
         control.checkpoint()?;
         let download_client = crate::transfer::http::build_download_client()?;
@@ -548,11 +571,15 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 Some(snapshot_id.clone()),
                 false,
             );
+            let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
+                Error::manifest(format!(
+                    "remote snapshot '{snapshot_id}' disappeared during pull"
+                ))
+            })?;
             download_and_publish_snapshot(
                 &repo_paths,
                 &repository,
-                &snapshots,
-                snapshot_id,
+                snapshot,
                 provider,
                 &download_client,
                 &control,
@@ -588,15 +615,12 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             bundle_ids: missing_for_snapshot,
         } in bundle_source_requests(&bundles_by_snapshot, &missing_bundles)
         {
-            let snapshot = snapshots
-                .iter()
-                .find(|snapshot| snapshot.snapshot_id == snapshot_id)
-                .ok_or_else(|| {
-                    Error::manifest(format!(
-                        "remote snapshot '{}' disappeared during bundle resolution",
-                        snapshot_id
-                    ))
-                })?;
+            let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
+                Error::manifest(format!(
+                    "remote snapshot '{}' disappeared during bundle resolution",
+                    snapshot_id
+                ))
+            })?;
             let expected_for_request: HashSet<&str> =
                 missing_for_snapshot.iter().map(String::as_str).collect();
             record_bundle_sources(
@@ -626,10 +650,14 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 Some(bundle_id.clone()),
                 false,
             );
-            let bytes = source_bytes(source, &download_client, MAX_REMOTE_BINARY_BYTES, &control)?;
-            verify_remote_bundle(bundle_id, &bytes)?;
             let bundle_path = crate::repo::paths::bundle_path(&repo_paths, bundle_id)?;
-            crate::filesystem::write(&bundle_path, &bytes)?;
+            download_and_publish_bundle(
+                source,
+                &download_client,
+                bundle_id,
+                &bundle_path,
+                &control,
+            )?;
             bundle_downloaded += 1;
         }
         stats.bundle_downloaded_count = bundle_downloaded;
@@ -712,5 +740,96 @@ mod constraint_tests {
             write_remote_snapshot_artifacts(&paths, &id, &manifest, None, &bytes).unwrap_err();
         assert!(matches!(error, Error::PathValidation(_)));
         assert!(!paths.snapshots_root.join(id).exists());
+    }
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+
+    fn bundle_source() -> (String, RemoteArtifactSource) {
+        let bytes = b"remote bundle payload".repeat(100);
+        let hash = crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(&bytes));
+        let mut builder = crate::artifact::bundle::BundleBuilder::new(Default::default());
+        builder.add_chunk(hash, bytes);
+        let (id, bytes) = builder.build_with_id().unwrap();
+        (id, RemoteArtifactSource::Bytes(bytes))
+    }
+
+    #[test]
+    fn streamed_bundle_is_verified_before_replacing_cached_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("bundle");
+        let client = crate::transfer::http::build_download_client().unwrap();
+        let control = GutchOperationControl::default();
+        let (id, source) = bundle_source();
+        download_and_publish_bundle(&source, &client, &id, &destination, &control).unwrap();
+        let healthy = std::fs::read(&destination).unwrap();
+        let RemoteArtifactSource::Bytes(mut damaged) = source else {
+            unreachable!()
+        };
+        damaged[0] ^= 1;
+        assert!(
+            download_and_publish_bundle(
+                &RemoteArtifactSource::Bytes(damaged),
+                &client,
+                &id,
+                &destination,
+                &control,
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), healthy);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn bounded_source_rejects_oversized_bytes_before_writing() {
+        let client = crate::transfer::http::build_download_client().unwrap();
+        let source = RemoteArtifactSource::Bytes(vec![1, 2, 3]);
+        let mut output = Vec::new();
+        assert!(
+            write_source(
+                &source,
+                &client,
+                2,
+                &GutchOperationControl::default(),
+                &mut output
+            )
+            .is_err()
+        );
+        assert!(output.is_empty());
+        write_source(
+            &source,
+            &client,
+            3,
+            &GutchOperationControl::default(),
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(output, [1, 2, 3]);
+    }
+
+    #[test]
+    fn cancelled_bundle_publication_keeps_the_existing_cache() {
+        #[derive(Debug)]
+        struct Cancelled;
+        impl crate::progress::GutchCancellationHook for Cancelled {
+            fn is_cancelled(&self) -> bool {
+                true
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("bundle");
+        std::fs::write(&destination, b"previous").unwrap();
+        let client = crate::transfer::http::build_download_client().unwrap();
+        let control =
+            GutchOperationControl::default().with_cancellation(std::sync::Arc::new(Cancelled));
+        let (id, source) = bundle_source();
+        assert!(
+            download_and_publish_bundle(&source, &client, &id, &destination, &control).is_err()
+        );
+        assert_eq!(std::fs::read(destination).unwrap(), b"previous");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 }
