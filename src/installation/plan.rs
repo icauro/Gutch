@@ -65,7 +65,8 @@ pub(crate) fn build_reconstruct_pipeline_plan(
     let mut jobs = Vec::new();
     let mut chunk_positions: HashMap<(usize, crate::artifact::hash::ChunkHash), usize> =
         HashMap::new();
-    let mut chunk_targets: HashMap<(usize, usize), Vec<ReconstructTarget>> = HashMap::new();
+    // Jobs and their chunks already have dense indices; targets use the same layout.
+    let mut chunk_targets: Vec<Vec<Vec<ReconstructTarget>>> = Vec::new();
     let mut artifact_job_indices: HashMap<crate::repo::artifacts::ArtifactRef, usize> =
         HashMap::new();
     let mut source_chunk_job_indices: HashMap<
@@ -195,6 +196,8 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                     chunks: Vec::new(),
                     targets: Vec::new(),
                 }));
+                // Copy/source jobs keep empty slots so artifact slots retain job indices.
+                chunk_targets.resize_with(jobs.len(), Vec::new);
                 artifact_job_indices.insert(artifact.clone(), job_index);
                 job_index
             };
@@ -204,6 +207,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             let hash = chunk_ref.chunk_hash;
             let position = *chunk_positions.entry((job_index, hash)).or_insert_with(|| {
                 let position = artifact_job.chunks.len();
+                chunk_targets[job_index].push(Vec::new());
                 artifact_job.chunks.push(ReconstructArtifactChunk {
                     chunk_hash: hash,
                     raw_size: chunk_ref.raw_size,
@@ -217,13 +221,10 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                     "inconsistent chunk sizes in reconstruction plan",
                 ));
             }
-            chunk_targets
-                .entry((job_index, position))
-                .or_default()
-                .push(ReconstructTarget {
-                    file_index,
-                    file_offset,
-                });
+            chunk_targets[job_index][position].push(ReconstructTarget {
+                file_index,
+                file_offset,
+            });
             required_artifacts.insert(artifact.clone());
             if !existing_artifacts.contains(&artifact) {
                 missing_artifact_dependencies.insert(artifact.clone());
@@ -257,15 +258,13 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         });
     }
 
+    // Resolve ranges before jobs and chunks are sorted: slots use insertion order.
     for (job_index, job) in jobs.iter_mut().enumerate() {
         if let ReconstructJob::Artifact(job) = job {
             for (position, chunk) in job.chunks.iter_mut().enumerate() {
                 let start = job.targets.len();
-                job.targets.extend(
-                    chunk_targets
-                        .remove(&(job_index, position))
-                        .unwrap_or_default(),
-                );
+                job.targets
+                    .extend(std::mem::take(&mut chunk_targets[job_index][position]));
                 chunk.target_range = start..job.targets.len();
             }
             job.chunks.sort_by_key(|chunk| chunk.chunk_hash);

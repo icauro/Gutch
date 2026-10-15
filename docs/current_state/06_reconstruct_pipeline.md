@@ -51,6 +51,11 @@ artifact-major execution view:
 - Every selected chunk records all target file indexes and offsets, so one
   decoded chunk can be written to several files.
 
+During planning, temporary target lists use the existing job and chunk insertion
+positions as vector indexes. Copy/source jobs keep empty slots in that layout.
+Target ranges are flattened before jobs or chunks are sorted, preserving every
+file index and offset. Content identities still use their existing lookup maps.
+
 The reconstruction pool has the runtime-planned worker count. The dispatcher
 starts all jobs that are ready from local artifacts or verified source data.
 Each job completion decrements the dependency count for its target files. A

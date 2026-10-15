@@ -713,3 +713,25 @@ short bundle IDs without replacing the existing index. Two other experiments,
 empty-update short-circuiting and sorted-vector batch updates, were discarded
 after longer comparisons failed to show useful latency or memory improvements.
 Evidence: `tests/.artifacts/research_optimization_pass/round15_report.md`.
+
+## Indexed reconstruction target lists, October 2026
+
+Reconstruction planning stores temporary target lists at their existing job and
+chunk insertion positions instead of hashing those numeric positions. Copy/source
+jobs keep empty slots. Ranges are flattened before sorting jobs or chunks; the
+runtime job graph and content-identity lookup maps remain unchanged.
+
+On the four-file 64 MiB repository with 1 KiB chunks, four workers and warm
+Windows caches, 21 alternating unprofiled pairs reduced median reconstruction
+from 270.82 to 248.88 ms (8.1%). An independent seven-pair screen measured 6.9%.
+Restored trees matched independent SHA-256 expectations after every operation.
+Default 128 KiB-profile results were smaller and mixed; 41-pair confirmation
+changed tiny/mixed medians by -0.1%/-0.6%. No general default speedup is claimed.
+Seven separate process-memory pairs measured 77.59 to 78.30 MiB peak working set;
+this change is retained for latency, with no demonstrated process-memory benefit.
+
+A focused regression checks repeated chunks at multiple offsets and files,
+multiple chunks per artifact, intervening copy/source jobs, and cached/missing
+artifact dependencies. All target ranges are checked against explicit expected
+file indexes and offsets. Evidence:
+`tests/.artifacts/research_optimization_pass/round16_report.md`.

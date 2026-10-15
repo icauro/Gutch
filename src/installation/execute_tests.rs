@@ -1058,3 +1058,129 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
         }
     }
 }
+
+#[test]
+fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
+    let directory = tempfile::tempdir().unwrap();
+    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(directory.path());
+    let chunk_hash =
+        |bytes: &[u8]| crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes));
+    let make_file = |path: &str, pieces: &[&[u8]]| FileManifest {
+        path: path.into(),
+        size: pieces.iter().map(|piece| piece.len() as u64).sum(),
+        executable: false,
+        read_only: false,
+        full_file_hash: test_hash(&pieces.concat()),
+        chunks: pieces
+            .iter()
+            .map(|piece| ChunkRef {
+                chunk_hash: chunk_hash(piece),
+                raw_size: piece.len() as u32,
+            })
+            .collect(),
+    };
+    let copied = make_file("copied.bin", &[b"copy"]);
+    let copied_later = make_file("copied-later.bin", &[b"late"]);
+    let mut source = SnapshotManifest::new(test_hash(b"source"), SnapshotTagSet::default());
+    source.push_file(copied.clone());
+    source.push_file(copied_later.clone());
+    source.push_file(make_file("source-chunk.bin", &[b"same"]));
+    let mut snapshot = SnapshotManifest::new(test_hash(b"target"), SnapshotTagSet::default());
+    snapshot.push_file(copied);
+    snapshot.push_file(make_file(
+        "mixed.bin",
+        &[b"same", b"newA", b"newB", b"newA"],
+    ));
+    snapshot.push_file(make_file("following.bin", &[b"newB", b"newA"]));
+    snapshot.push_file(copied_later);
+    snapshot.push_file(make_file("last.bin", &[b"newC"]));
+    let first_bundle = test_hash(b"first bundle");
+    let second_bundle = test_hash(b"second bundle");
+    let index = crate::repo::index::ChunkIndex {
+        format_version: crate::artifact::format::FORMAT_VERSION.into(),
+        entries: [
+            (b"newA", &first_bundle, 0),
+            (b"newB", &first_bundle, 1),
+            (b"newC", &second_bundle, 0),
+        ]
+        .into_iter()
+        .map(|(bytes, bundle, ordinal)| {
+            (
+                chunk_hash(bytes),
+                crate::repo::index::ChunkIndexEntry::new(
+                    128,
+                    ordinal,
+                    bundle.as_str().into(),
+                    4,
+                    64,
+                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                ),
+            )
+        })
+        .collect(),
+    };
+    for first_bundle_cached in [false, true] {
+        let existing = if first_bundle_cached {
+            HashSet::from([crate::repo::artifacts::ArtifactRef::Bundle {
+                id: first_bundle.clone(),
+            }])
+        } else {
+            HashSet::new()
+        };
+        let plan = build_reconstruct_pipeline_plan(
+            &snapshot,
+            &index,
+            &repo_paths,
+            &existing,
+            Some(SnapshotReconstructSource {
+                snapshot_manifest: &source,
+                destination_dir: directory.path(),
+            }),
+        )
+        .unwrap();
+        assert_eq!(plan.required_bundle_count, 2);
+        assert_eq!(plan.reused_source_chunk_count, 3);
+        assert_eq!(
+            plan.missing_artifact_counts,
+            if first_bundle_cached {
+                vec![0, 0, 0, 0, 1]
+            } else {
+                vec![0, 1, 1, 0, 1]
+            }
+        );
+        assert_eq!(
+            plan.jobs
+                .iter()
+                .filter(|job| matches!(job, ReconstructJob::CopySourceFile { .. }))
+                .count(),
+            2
+        );
+        assert_eq!(
+            plan.jobs
+                .iter()
+                .filter(|job| matches!(job, ReconstructJob::SourceChunk(_)))
+                .count(),
+            1
+        );
+        let mut targets = BTreeMap::new();
+        for job in &plan.jobs {
+            if let ReconstructJob::Artifact(job) = job {
+                for chunk in &job.chunks {
+                    let positions = job.targets[chunk.target_range.clone()]
+                        .iter()
+                        .map(|target| (target.file_index, target.file_offset))
+                        .collect::<Vec<_>>();
+                    assert!(targets.insert(chunk.chunk_hash, positions).is_none());
+                }
+            }
+        }
+        assert_eq!(
+            targets,
+            BTreeMap::from([
+                (chunk_hash(b"newA"), vec![(1, 4), (1, 12), (2, 4)]),
+                (chunk_hash(b"newB"), vec![(1, 8), (2, 0)]),
+                (chunk_hash(b"newC"), vec![(4, 0)]),
+            ])
+        );
+    }
+}
