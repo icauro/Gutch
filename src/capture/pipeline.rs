@@ -648,11 +648,6 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     config.control.checkpoint()?;
     let _operation_span = config.control.profile_span("capture.build_snapshot");
     let total_start = ProfileInstant::start(config.control.profiler());
-    let compression_profile = config.compression_profile.clone();
-    let artifact_staging_root = config
-        .artifact_staging_root
-        .clone()
-        .unwrap_or_else(std::env::temp_dir);
     let mut timings = BuildTimings {
         storage_mode: config.storage_mode,
         ..BuildTimings::default()
@@ -670,10 +665,6 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
         .unwrap_or(&empty_existing_chunk_locations);
     let existing_chunk_locations_by_hash =
         parse_existing_chunk_locations(existing_chunk_locations)?;
-    let empty_existing_bundle_ids = HashSet::new();
-    let existing_bundle_ids = config
-        .existing_bundle_ids
-        .unwrap_or(&empty_existing_bundle_ids);
 
     let scan_chunk_start = ProfileInstant::start(config.control.profiler());
     let crate::capture::scan::ScannedChunks {
@@ -698,6 +689,89 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     };
     timings.scan_chunk_wall = scan_chunk_start.elapsed();
 
+    let DeduplicatedChunks {
+        mut total_compressed,
+        chunks_to_compress,
+    } = plan_deduplicated_chunks(
+        config,
+        &snapshot_entries,
+        unique_chunks,
+        &existing_chunk_locations_by_hash,
+        &mut timings,
+    )?;
+
+    timings.compression_input_bytes = chunks_to_compress
+        .iter()
+        .map(|(_, payload)| payload.raw_size())
+        .sum();
+
+    let (bundles, loose_chunks) = build_capture_artifacts(
+        config,
+        build_pool,
+        chunks_to_compress,
+        &chunk_placements,
+        runtime_plan.memory_budget_bytes,
+        &mut timings,
+        &mut total_compressed,
+    )?;
+    timings.total_compressed_bytes = total_compressed;
+    timings.artifact_output_bytes = bundles.iter().map(|b| b.size).sum::<u64>()
+        + loose_chunks
+            .iter()
+            .map(|chunk| chunk.compressed_size)
+            .sum::<u64>();
+
+    let manifest_finalize_start = ProfileInstant::start(config.control.profiler());
+    let snapshot_manifest = {
+        let _manifest_span = config
+            .control
+            .profile_span("capture.build_snapshot_manifest");
+        {
+            let _sort_span = config
+                .control
+                .profile_span_with_args("capture.build_snapshot_manifest.sort_entries", || {
+                    capture_bytes_trace_args("entry_count", snapshot_entries.len(), 0)
+                });
+            snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
+        }
+        let _construct_span = config
+            .control
+            .profile_span("capture.build_snapshot_manifest.construct");
+        let mut snapshot_manifest = SnapshotManifest::new(
+            crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot_entries),
+            config.snapshot_tags.clone(),
+        );
+        snapshot_manifest.chunker = config.chunk_profile.chunker;
+        snapshot_manifest.total_logical_size = total_logical_size;
+        snapshot_manifest.total_compressed_size_estimate = total_compressed;
+        snapshot_manifest.entries = snapshot_entries;
+        snapshot_manifest
+    };
+    timings.manifest_finalize_wall = manifest_finalize_start.elapsed();
+    timings.total = total_start.elapsed();
+
+    Ok((
+        BuildResult {
+            snapshot_manifest,
+            bundles,
+            loose_chunks,
+        },
+        timings,
+    ))
+}
+
+struct DeduplicatedChunks {
+    total_compressed: u64,
+    chunks_to_compress: Vec<ChunkPayloadEntry>,
+}
+
+fn plan_deduplicated_chunks(
+    config: &BuildConfig<'_>,
+    snapshot_entries: &[manifest::SnapshotEntry],
+    unique_chunks: HashMap<ChunkHash, ChunkPayload>,
+    existing_chunk_locations_by_hash: &HashMap<ChunkHash, ExistingChunkLocation>,
+    timings: &mut BuildTimings,
+) -> Result<DeduplicatedChunks> {
     let dedupe_plan_start = ProfileInstant::start(config.control.profiler());
     let mut total_compressed: u64 = 0;
     let mut compressed_estimate_seen: HashSet<ChunkHash> = HashSet::new();
@@ -710,12 +784,12 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             let _existing_refs_span = config
                 .control
                 .profile_span("capture.plan_deduplicated_chunks.account_existing_chunks");
-            for fm in snapshot_entries
+            for file_manifest in snapshot_entries
                 .iter()
                 .filter_map(manifest::SnapshotEntry::as_file)
             {
                 config.control.checkpoint()?;
-                for chunk_ref in &fm.chunks {
+                for chunk_ref in &file_manifest.chunks {
                     config.control.checkpoint()?;
                     let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
                     if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
@@ -731,7 +805,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             let _new_chunks_span = config
                 .control
                 .profile_span("capture.plan_deduplicated_chunks.select_new_chunks");
-            let t = ProfileInstant::start(config.control.profiler());
+            let dedupe_lookup_started_at = ProfileInstant::start(config.control.profiler());
             for (hash, payload) in unique_chunks {
                 let raw_size = payload.raw_size();
                 config.control.checkpoint()?;
@@ -746,7 +820,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
                     chunks_to_compress.push((hash, payload));
                 }
             }
-            timings.dedupe_lookup += t.elapsed();
+            timings.dedupe_lookup += dedupe_lookup_started_at.elapsed();
         }
         config
             .control
@@ -766,11 +840,30 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             });
     }
     timings.dedupe_plan_wall = dedupe_plan_start.elapsed();
+    Ok(DeduplicatedChunks {
+        total_compressed,
+        chunks_to_compress,
+    })
+}
 
-    timings.compression_input_bytes = chunks_to_compress
-        .iter()
-        .map(|(_, payload)| payload.raw_size())
-        .sum();
+fn build_capture_artifacts(
+    config: &BuildConfig<'_>,
+    build_pool: &ThreadPool,
+    chunks_to_compress: Vec<ChunkPayloadEntry>,
+    chunk_placements: &HashMap<ChunkHash, ChunkPlacementKey>,
+    memory_budget_bytes: u64,
+    timings: &mut BuildTimings,
+    total_compressed: &mut u64,
+) -> Result<(Vec<BuiltBundle>, Vec<BuiltLooseChunk>)> {
+    let compression_profile = config.compression_profile.clone();
+    let artifact_staging_root = config
+        .artifact_staging_root
+        .clone()
+        .unwrap_or_else(std::env::temp_dir);
+    let empty_existing_bundle_ids = HashSet::new();
+    let existing_bundle_ids = config
+        .existing_bundle_ids
+        .unwrap_or(&empty_existing_bundle_ids);
 
     let artifact_encode_start = ProfileInstant::start(config.control.profiler());
     let (bundles, loose_chunks) = {
@@ -796,7 +889,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
                     let _plan_span = config.control.profile_span("capture.plan_artifact_groups");
                     plan_bundle_compressed_groups(
                         chunks_to_compress,
-                        &chunk_placements,
+                        chunk_placements,
                         &compression_profile,
                         &config.bundle_profile,
                         bundle_size_policy,
@@ -818,18 +911,18 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
                         &artifact_staging_root,
                         build_pool,
                         &config.control,
-                        runtime_plan.memory_budget_bytes,
+                        memory_budget_bytes,
                     )?
                 };
 
                 for built_bundle in built_bundle_groups {
                     config.control.checkpoint()?;
-                    timings.bundle_compressed_payload_load += built_bundle.payload_load;
-                    timings.bundle_compressed_payload_load_bytes += built_bundle.payload_load_bytes;
+                    timings.artifact_payload_load += built_bundle.payload_load;
+                    timings.artifact_payload_load_bytes += built_bundle.payload_load_bytes;
                     if !existing_bundle_ids.contains(&built_bundle.bundle_id) {
                         record_bundle_compressed_bundle_metrics(
-                            &mut timings,
-                            &mut total_compressed,
+                            timings,
+                            total_compressed,
                             built_bundle.bundle_size,
                             built_bundle.bundle_metrics,
                         );
@@ -854,16 +947,16 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
                         &compression_profile,
                         build_pool,
                         &config.control,
-                        runtime_plan.memory_budget_bytes,
+                        memory_budget_bytes,
                     )?
                 };
 
                 for built_chunk in built_chunks {
                     config.control.checkpoint()?;
-                    timings.bundle_compressed_payload_load += built_chunk.payload_load;
-                    timings.bundle_compressed_payload_load_bytes += built_chunk.payload_load_bytes;
+                    timings.artifact_payload_load += built_chunk.payload_load;
+                    timings.artifact_payload_load_bytes += built_chunk.payload_load_bytes;
                     timings.compression_output_bytes += built_chunk.chunk.compressed_size;
-                    total_compressed += built_chunk.chunk.compressed_size;
+                    *total_compressed += built_chunk.chunk.compressed_size;
                     loose_chunks.push(built_chunk.chunk);
                 }
             }
@@ -872,50 +965,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     };
 
     timings.artifact_encode_wall = artifact_encode_start.elapsed();
-    timings.total_compressed_bytes = total_compressed;
-    timings.artifact_output_bytes = bundles.iter().map(|b| b.size).sum::<u64>()
-        + loose_chunks
-            .iter()
-            .map(|chunk| chunk.compressed_size)
-            .sum::<u64>();
-
-    let manifest_finalize_start = ProfileInstant::start(config.control.profiler());
-    let vm = {
-        let _manifest_span = config
-            .control
-            .profile_span("capture.build_snapshot_manifest");
-        {
-            let _sort_span = config
-                .control
-                .profile_span_with_args("capture.build_snapshot_manifest.sort_entries", || {
-                    capture_bytes_trace_args("entry_count", snapshot_entries.len(), 0)
-                });
-            snapshot_entries.sort_by(|a, b| a.path().cmp(b.path()));
-        }
-        let _construct_span = config
-            .control
-            .profile_span("capture.build_snapshot_manifest.construct");
-        let mut vm = SnapshotManifest::new(
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot_entries),
-            config.snapshot_tags.clone(),
-        );
-        vm.chunker = config.chunk_profile.chunker;
-        vm.total_logical_size = total_logical_size;
-        vm.total_compressed_size_estimate = total_compressed;
-        vm.entries = snapshot_entries;
-        vm
-    };
-    timings.manifest_finalize_wall = manifest_finalize_start.elapsed();
-    timings.total = total_start.elapsed();
-
-    Ok((
-        BuildResult {
-            snapshot_manifest: vm,
-            bundles,
-            loose_chunks,
-        },
-        timings,
-    ))
+    Ok((bundles, loose_chunks))
 }
 
 fn parse_existing_chunk_locations(

@@ -1,4 +1,4 @@
-use super::adaptive::AdaptiveTransferState;
+use super::adaptive::{AdaptiveTransferState, TransferObservation};
 use super::artifact_download::download_pending_artifact;
 use super::progress::FetchTransferProgress;
 use std::cmp::Ordering;
@@ -43,6 +43,10 @@ pub(crate) struct ArtifactPriority {
 }
 
 impl ArtifactPriority {
+    // The max-heap favors artifacts that can finish the most file bytes now,
+    // then those closest to making more files ready, then the broadest reuse.
+    // near_ready_score sums file bytes / missing artifacts for files needing more
+    // than one artifact. Larger values win at every comparison level.
     fn compare(self, other: Self) -> Ordering {
         self.ready_file_bytes
             .cmp(&other.ready_file_bytes)
@@ -361,14 +365,14 @@ fn run_adaptive_transfer_controller(
                 )
             })
             .unwrap_or((false, 0));
-        let Some(new_target) = controller.observe(
-            Instant::now(),
-            transfer_progress.transferred_bytes(),
-            transfer_progress.retry_count(),
-            transfer_progress.downstream_backpressure(),
+        let Some(new_target) = controller.observe(TransferObservation {
+            now: Instant::now(),
+            transferred_bytes: transfer_progress.transferred_bytes(),
+            retry_count: transfer_progress.retry_count(),
+            downstream_backpressure: transfer_progress.downstream_backpressure(),
             has_queued_work,
             active_workers,
-        ) else {
+        }) else {
             continue;
         };
         shared

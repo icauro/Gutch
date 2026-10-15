@@ -22,6 +22,10 @@ use super::gear::update;
 #[path = "jc_gear.rs"]
 mod table;
 
+// Fixed masks reproduce Plakar chunk boundaries; changing either changes artifact identity.
+const PLAKAR_CUT_MASK: u64 = 0x590003570000;
+const PLAKAR_JUMP_MASK: u64 = 0x590003560000;
+
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Parameters {
     Plakar,
@@ -42,7 +46,7 @@ impl JumpChunker {
         assert!(target.is_power_of_two() && target >= 64);
         assert!(0 < min && min < target && target < max);
         let (cut_mask, jump_mask) = match parameters {
-            Parameters::Plakar => (0x590003570000, 0x590003560000),
+            Parameters::Plakar => (PLAKAR_CUT_MASK, PLAKAR_JUMP_MASK),
             #[cfg(test)]
             Parameters::PaperScaled => {
                 let bits = target.ilog2() - 1;

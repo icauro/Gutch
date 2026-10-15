@@ -101,54 +101,16 @@ pub(super) fn run_reconstruction_jobs(
     );
     let (artifact_job_indices, artifact_scheduler) = {
         let _artifacts_span = control.profile_span("installation.reconstruct.prepare.artifacts");
-        let pending_artifacts = pending_artifact_downloads
-            .iter()
-            .map(|download| download.artifact.clone())
-            .collect::<HashSet<_>>();
-        let mut artifact_job_indices = HashMap::new();
-        for (job_index, job) in jobs.iter().enumerate() {
-            let ReconstructJob::Artifact(job) = job else {
-                continue;
-            };
-            artifact_job_indices.insert(job.artifact.clone(), job_index);
-            if !existing_artifacts.contains(&job.artifact)
-                && !pending_artifacts.contains(&job.artifact)
-            {
-                return Err(Error::reconstruct(format!(
-                    "required artifact '{}' is neither local nor scheduled for download",
-                    job.artifact.id()
-                )));
-            }
-            if existing_artifacts.contains(&job.artifact) && !job.artifact_path.is_file() {
-                return Err(Error::reconstruct(format!(
-                    "required artifact '{}' is not available at {}",
-                    job.artifact.id(),
-                    job.artifact_path.display()
-                )));
-            }
-        }
-        let artifact_scheduler = if pending_artifact_downloads.is_empty() {
-            None
-        } else {
-            let Some(download_client) = download_client else {
-                return Err(Error::reconstruct(
-                    "bundled reconstruction requires a download client for pending bundles",
-                ));
-            };
-            let Some(transfer_progress) = transfer_progress else {
-                return Err(Error::reconstruct(
-                    "bundled reconstruction requires transfer progress for pending bundles",
-                ));
-            };
-            Some(ArtifactDownloadScheduler::new(
-                pending_artifact_downloads,
-                artifact_priorities,
-                transfer_policy,
-                download_client,
-                control,
-                Arc::clone(transfer_progress),
-            )?)
-        };
+        let artifact_job_indices =
+            validate_artifact_jobs(&jobs, existing_artifacts, pending_artifact_downloads)?;
+        let artifact_scheduler = start_artifact_downloads(
+            pending_artifact_downloads,
+            artifact_priorities,
+            transfer_policy,
+            download_client,
+            control,
+            transfer_progress,
+        )?;
         (artifact_job_indices, artifact_scheduler)
     };
     let artifact_worker_count = artifact_scheduler
@@ -359,23 +321,10 @@ pub(super) fn run_reconstruction_jobs(
             }
         }
 
-        // Admit only runnable jobs, leaving pool threads free instead of blocking them
-        // on memory. Verification can proceed while larger artifact jobs wait.
-        while pipeline_error.is_none() && work_queue.in_flight < runtime_plan.worker_count {
-            match work_queue.admit_next(&jobs, &work_context.memory) {
-                Ok(Some(admitted)) => {
-                    spawn_reconstruct_work(
-                        pool,
-                        admitted.work,
-                        &work_context,
-                        &event_tx,
-                        admitted.permit,
-                        admitted.queued_at,
-                    );
-                }
-                Ok(None) => break,
-                Err(error) => pipeline_error = Some(error),
-            }
+        if pipeline_error.is_none()
+            && let Err(error) = dispatch_ready_work(pool, &mut work_queue, &work_context, &event_tx)
+        {
+            pipeline_error = Some(error);
         }
         if pipeline_error.is_some() {
             break;
@@ -491,26 +440,13 @@ pub(super) fn run_reconstruction_jobs(
             }
         }
     }
-    if pipeline_error.is_some()
-        && let Some(scheduler) = artifact_scheduler.as_ref()
-    {
-        scheduler.cancel();
-    }
-    if let Some(scheduler) = artifact_scheduler {
-        scheduler.join()?;
-    }
-    // Queued work has never started and emits no completion event.
-    work_queue.ready.clear();
-    while pipeline_error.is_some() && work_queue.in_flight > 0 {
-        let event = {
-            let _wait_span = control.profile_span("installation.coordinator.drain_workers");
-            event_rx.recv()
-        };
-        match event {
-            Ok(_) => work_queue.complete(),
-            Err(_) => break,
-        }
-    }
+    finish_pipeline_workers(
+        artifact_scheduler,
+        &mut work_queue,
+        &event_rx,
+        control,
+        pipeline_error.is_some(),
+    )?;
     if let Some(error) = pipeline_error {
         return Err(error);
     }
@@ -563,6 +499,132 @@ pub(super) fn run_reconstruction_jobs(
     verify_timings.verify_files_wall = verify_elapsed;
     verify_timings.total = verify_elapsed;
     Ok((reconstruct_timings, verify_timings))
+}
+
+fn validate_artifact_jobs(
+    jobs: &[ReconstructJob],
+    existing_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
+    pending_downloads: &[PendingArtifactDownload],
+) -> Result<HashMap<crate::repo::artifacts::ArtifactRef, usize>> {
+    let pending_artifacts = pending_downloads
+        .iter()
+        .map(|download| download.artifact.clone())
+        .collect::<HashSet<_>>();
+    let mut artifact_job_indices = HashMap::new();
+    for (job_index, job) in jobs.iter().enumerate() {
+        let ReconstructJob::Artifact(job) = job else {
+            continue;
+        };
+        artifact_job_indices.insert(job.artifact.clone(), job_index);
+        if !existing_artifacts.contains(&job.artifact) && !pending_artifacts.contains(&job.artifact)
+        {
+            return Err(Error::reconstruct(format!(
+                "required artifact '{}' is neither local nor scheduled for download",
+                job.artifact.id()
+            )));
+        }
+        if existing_artifacts.contains(&job.artifact) && !job.artifact_path.is_file() {
+            return Err(Error::reconstruct(format!(
+                "required artifact '{}' is not available at {}",
+                job.artifact.id(),
+                job.artifact_path.display()
+            )));
+        }
+    }
+    Ok(artifact_job_indices)
+}
+
+fn start_artifact_downloads(
+    pending_artifact_downloads: &[PendingArtifactDownload],
+    artifact_priorities: HashMap<
+        crate::repo::artifacts::ArtifactRef,
+        crate::transfer::download::ArtifactPriority,
+    >,
+    transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
+    download_client: Option<&crate::transfer::http::DownloadClient>,
+    control: &GutchOperationControl,
+    transfer_progress: Option<&Arc<FetchTransferProgress>>,
+) -> Result<Option<ArtifactDownloadScheduler>> {
+    let scheduler = if pending_artifact_downloads.is_empty() {
+        None
+    } else {
+        let Some(download_client) = download_client else {
+            return Err(Error::reconstruct(
+                "bundled reconstruction requires a download client for pending bundles",
+            ));
+        };
+        let Some(transfer_progress) = transfer_progress else {
+            return Err(Error::reconstruct(
+                "bundled reconstruction requires transfer progress for pending bundles",
+            ));
+        };
+        Some(ArtifactDownloadScheduler::new(
+            pending_artifact_downloads,
+            artifact_priorities,
+            transfer_policy,
+            download_client,
+            control,
+            Arc::clone(transfer_progress),
+        )?)
+    };
+    Ok(scheduler)
+}
+
+fn dispatch_ready_work(
+    pool: &ThreadPool,
+    work_queue: &mut ReconstructionWorkQueue,
+    work_context: &Arc<ReconstructWorkContext>,
+    event_tx: &mpsc::Sender<ReconstructJobEvent>,
+) -> Result<()> {
+    // Admit only runnable jobs, leaving pool threads free instead of blocking them
+    // on memory. Verification can proceed while larger artifact jobs wait.
+    while work_queue.in_flight < work_context.reconstruct_worker_count {
+        match work_queue.admit_next(&work_context.jobs, &work_context.memory) {
+            Ok(Some(admitted)) => {
+                spawn_reconstruct_work(
+                    pool,
+                    admitted.work,
+                    work_context,
+                    event_tx,
+                    admitted.permit,
+                    admitted.queued_at,
+                );
+            }
+            Ok(None) => break,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn finish_pipeline_workers(
+    artifact_scheduler: Option<ArtifactDownloadScheduler>,
+    work_queue: &mut ReconstructionWorkQueue,
+    event_rx: &mpsc::Receiver<ReconstructJobEvent>,
+    control: &GutchOperationControl,
+    failed: bool,
+) -> Result<()> {
+    // Publication can follow return immediately. Keep download shutdown before
+    // reconstruction draining, and wait only for work that was dispatched.
+    if failed && let Some(scheduler) = artifact_scheduler.as_ref() {
+        scheduler.cancel();
+    }
+    if let Some(scheduler) = artifact_scheduler {
+        scheduler.join()?;
+    }
+    // Queued work has never started and emits no completion event.
+    work_queue.ready.clear();
+    while failed && work_queue.in_flight > 0 {
+        let event = {
+            let _wait_span = control.profile_span("installation.coordinator.drain_workers");
+            event_rx.recv()
+        };
+        match event {
+            Ok(_) => work_queue.complete(),
+            Err(_) => break,
+        }
+    }
+    Ok(())
 }
 
 fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {

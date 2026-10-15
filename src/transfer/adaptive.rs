@@ -7,6 +7,15 @@ pub(super) const ADAPTIVE_MAX_REGRESSION: f64 = 0.90;
 pub(super) const ADAPTIVE_STABLE_WINDOWS: usize = 2;
 pub(super) const ADAPTIVE_COOLDOWN_WINDOWS: usize = 2;
 
+pub(super) struct TransferObservation {
+    pub(super) now: Instant,
+    pub(super) transferred_bytes: u64,
+    pub(super) retry_count: usize,
+    pub(super) downstream_backpressure: bool,
+    pub(super) has_queued_work: bool,
+    pub(super) active_workers: usize,
+}
+
 pub(super) struct AdaptiveTransferState {
     target: usize,
     maximum: usize,
@@ -42,15 +51,15 @@ impl AdaptiveTransferState {
         }
     }
 
-    pub(super) fn observe(
-        &mut self,
-        now: Instant,
-        transferred_bytes: u64,
-        retry_count: usize,
-        downstream_backpressure: bool,
-        has_queued_work: bool,
-        active_workers: usize,
-    ) -> Option<usize> {
+    pub(super) fn observe(&mut self, observation: TransferObservation) -> Option<usize> {
+        let TransferObservation {
+            now,
+            transferred_bytes,
+            retry_count,
+            downstream_backpressure,
+            has_queued_work,
+            active_workers,
+        } = observation;
         let elapsed = now.saturating_duration_since(self.previous_sample_at);
         if elapsed < ADAPTIVE_SAMPLE_INTERVAL {
             return None;
@@ -165,14 +174,14 @@ impl AdaptiveTransferState {
 mod tests {
     use super::*;
     fn observe_rate(state: &mut AdaptiveTransferState, rate: u64) -> Option<usize> {
-        state.observe(
-            state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
-            state.previous_bytes + rate * 2,
-            0,
-            false,
-            true,
-            state.target,
-        )
+        state.observe(TransferObservation {
+            now: state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+            transferred_bytes: state.previous_bytes + rate * 2,
+            retry_count: 0,
+            downstream_backpressure: false,
+            has_queued_work: true,
+            active_workers: state.target,
+        })
     }
 
     #[test]
@@ -248,26 +257,26 @@ mod tests {
         let mut state = AdaptiveTransferState::new(4, 16);
         for (retries, pressure, expected) in [(1, false, 3), (1, true, 2), (2, false, 1)] {
             assert_eq!(
-                state.observe(
-                    state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
-                    state.previous_bytes + 100,
-                    retries,
-                    pressure,
-                    true,
-                    state.target,
-                ),
+                state.observe(TransferObservation {
+                    now: state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                    transferred_bytes: state.previous_bytes + 100,
+                    retry_count: retries,
+                    downstream_backpressure: pressure,
+                    has_queued_work: true,
+                    active_workers: state.target,
+                }),
                 Some(expected)
             );
         }
         assert_eq!(
-            state.observe(
-                state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
-                state.previous_bytes + 100,
-                3,
-                true,
-                true,
-                state.target,
-            ),
+            state.observe(TransferObservation {
+                now: state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                transferred_bytes: state.previous_bytes + 100,
+                retry_count: 3,
+                downstream_backpressure: true,
+                has_queued_work: true,
+                active_workers: state.target,
+            }),
             None
         );
         assert_eq!(state.target, 1);
@@ -277,26 +286,26 @@ mod tests {
     fn adaptive_does_not_probe_a_draining_queue_or_short_observation() {
         let mut state = AdaptiveTransferState::new(4, 16);
         assert_eq!(
-            state.observe(
-                state.previous_sample_at + Duration::from_secs(1),
-                100,
-                0,
-                false,
-                true,
-                4
-            ),
+            state.observe(TransferObservation {
+                now: state.previous_sample_at + Duration::from_secs(1),
+                transferred_bytes: 100,
+                retry_count: 0,
+                downstream_backpressure: false,
+                has_queued_work: true,
+                active_workers: 4,
+            }),
             None
         );
         for _ in 0..30 {
             assert_eq!(
-                state.observe(
-                    state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
-                    state.previous_bytes + 100,
-                    0,
-                    false,
-                    false,
-                    4,
-                ),
+                state.observe(TransferObservation {
+                    now: state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                    transferred_bytes: state.previous_bytes + 100,
+                    retry_count: 0,
+                    downstream_backpressure: false,
+                    has_queued_work: false,
+                    active_workers: 4,
+                }),
                 None
             );
         }
@@ -311,14 +320,14 @@ mod tests {
         assert_eq!(state.target, 5);
         for _ in 0..10 {
             assert_eq!(
-                state.observe(
-                    state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
-                    state.previous_bytes + 200,
-                    0,
-                    false,
-                    true,
-                    4,
-                ),
+                state.observe(TransferObservation {
+                    now: state.previous_sample_at + ADAPTIVE_SAMPLE_INTERVAL,
+                    transferred_bytes: state.previous_bytes + 200,
+                    retry_count: 0,
+                    downstream_backpressure: false,
+                    has_queued_work: true,
+                    active_workers: 4,
+                }),
                 None
             );
         }

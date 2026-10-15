@@ -274,7 +274,9 @@ impl RemoteProgress {
 
 #[cfg(test)]
 mod tests {
-    use super::pull::{bundle_source_requests, compute_pull_plan, record_bundle_sources};
+    use super::pull::{
+        SnapshotBundleIds, bundle_source_requests, compute_pull_plan, record_bundle_sources,
+    };
     use super::push::summarize_snapshot_tags_from_values;
     use super::*;
 
@@ -716,19 +718,28 @@ mod tests {
     fn bundle_source_requests_deduplicate_shared_bundles() {
         let requests = bundle_source_requests(
             &[
-                ("snapshot-a".to_string(), vec!["shared".to_string()]),
-                (
-                    "snapshot-b".to_string(),
-                    vec!["shared".to_string(), "unique".to_string()],
-                ),
+                SnapshotBundleIds {
+                    snapshot_id: "snapshot-a".to_string(),
+                    bundle_ids: vec!["shared".to_string()],
+                },
+                SnapshotBundleIds {
+                    snapshot_id: "snapshot-b".to_string(),
+                    bundle_ids: vec!["shared".to_string(), "unique".to_string()],
+                },
             ],
             &["shared".to_string(), "unique".to_string()],
         );
         assert_eq!(
             requests,
             vec![
-                ("snapshot-a".to_string(), vec!["shared".to_string()]),
-                ("snapshot-b".to_string(), vec!["unique".to_string()]),
+                SnapshotBundleIds {
+                    snapshot_id: "snapshot-a".to_string(),
+                    bundle_ids: vec!["shared".to_string()]
+                },
+                SnapshotBundleIds {
+                    snapshot_id: "snapshot-b".to_string(),
+                    bundle_ids: vec!["unique".to_string()]
+                },
             ]
         );
     }

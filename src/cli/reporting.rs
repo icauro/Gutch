@@ -426,11 +426,11 @@ pub(crate) fn build_timings_summary(
                     total_compressed_bytes: timings.total_compressed_bytes,
                     artifact_output_bytes: timings.artifact_output_bytes,
                     payload_load_worker_seconds: detailed
-                        .then_some(secs(timings.bundle_compressed_payload_load)),
-                    payload_load_bytes: timings.bundle_compressed_payload_load_bytes,
+                        .then_some(secs(timings.artifact_payload_load)),
+                    payload_load_bytes: timings.artifact_payload_load_bytes,
                     payload_load_mib_per_second: detailed.then_some(mib_per_s(
-                        timings.bundle_compressed_payload_load_bytes,
-                        timings.bundle_compressed_payload_load,
+                        timings.artifact_payload_load_bytes,
+                        timings.artifact_payload_load,
                     )),
                     bundle_sort_worker_seconds: (bundled
                         .then(|| secs(timings.bundle_compressed_sort)))

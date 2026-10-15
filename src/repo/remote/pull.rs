@@ -207,9 +207,15 @@ pub fn plan_pull_with_provider<P: RemoteRepositoryReader + ?Sized>(
     plan_pull(repo_root, &repository, &snapshots, policy)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct SnapshotBundleIds {
+    pub(super) snapshot_id: String,
+    pub(super) bundle_ids: Vec<String>,
+}
+
 pub(super) fn required_bundle_ids_by_snapshot(
     repo_paths: &GutchRepoPaths,
-) -> Result<Vec<(String, Vec<String>)>> {
+) -> Result<Vec<SnapshotBundleIds>> {
     let chunk_index = load_chunk_index(repo_paths)?;
     let mut by_snapshot = Vec::new();
     if !repo_paths.snapshots_root.exists() {
@@ -221,7 +227,10 @@ pub(super) fn required_bundle_ids_by_snapshot(
             .into_iter()
             .collect();
         ids.sort();
-        by_snapshot.push((snapshot_id, ids));
+        by_snapshot.push(SnapshotBundleIds {
+            snapshot_id,
+            bundle_ids: ids,
+        });
     }
     Ok(by_snapshot)
 }
@@ -269,12 +278,16 @@ pub(super) fn record_bundle_sources(
 }
 
 pub(super) fn bundle_source_requests(
-    bundles_by_snapshot: &[(String, Vec<String>)],
+    bundles_by_snapshot: &[SnapshotBundleIds],
     missing_bundles: &[String],
-) -> Vec<(String, Vec<String>)> {
+) -> Vec<SnapshotBundleIds> {
     let mut unresolved: HashSet<&str> = missing_bundles.iter().map(String::as_str).collect();
     let mut requests = Vec::new();
-    for (snapshot_id, bundle_ids) in bundles_by_snapshot {
+    for SnapshotBundleIds {
+        snapshot_id,
+        bundle_ids,
+    } in bundles_by_snapshot
+    {
         let missing_for_snapshot: Vec<String> = bundle_ids
             .iter()
             .filter(|bundle_id| unresolved.contains(bundle_id.as_str()))
@@ -286,9 +299,82 @@ pub(super) fn bundle_source_requests(
         for bundle_id in &missing_for_snapshot {
             unresolved.remove(bundle_id.as_str());
         }
-        requests.push((snapshot_id.clone(), missing_for_snapshot));
+        requests.push(SnapshotBundleIds {
+            snapshot_id: snapshot_id.clone(),
+            bundle_ids: missing_for_snapshot,
+        });
     }
     requests
+}
+
+fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
+    repo_paths: &GutchRepoPaths,
+    repository: &RemoteRepository,
+    snapshots: &[RemoteSnapshot],
+    snapshot_id: &str,
+    provider: &P,
+    download_client: &crate::transfer::http::DownloadClient,
+    control: &GutchOperationControl,
+) -> Result<()> {
+    let snapshot = snapshots
+        .iter()
+        .find(|snapshot| snapshot.snapshot_id == snapshot_id)
+        .ok_or_else(|| {
+            Error::manifest(format!(
+                "remote snapshot '{}' disappeared during pull",
+                snapshot_id
+            ))
+        })?;
+    let sources = provider.snapshot_sources(repository, snapshot)?;
+    let metadata_bytes = source_bytes(
+        &sources.metadata,
+        download_client,
+        MAX_REMOTE_JSON_BYTES,
+        control,
+    )?;
+    verify_remote_artifact(
+        &metadata_bytes,
+        &snapshot.metadata_hash_b3,
+        "snapshot metadata",
+    )?;
+    let metadata = crate::repo::snapshot_manifests::snapshot_manifest_from_download(
+        snapshot_id,
+        &metadata_bytes,
+    )?;
+    let product_metadata = if let Some(source) = sources.product_metadata {
+        let product_metadata_bytes =
+            source_bytes(&source, download_client, MAX_REMOTE_JSON_BYTES, control)?;
+        verify_remote_artifact(
+            &product_metadata_bytes,
+            &snapshot.product_metadata_hash_b3,
+            "snapshot product metadata",
+        )?;
+        let product_metadata: crate::manifest::SnapshotProductMetadata =
+            crate::filesystem::from_json_bytes(&product_metadata_bytes)?;
+        product_metadata.validate_structure()?;
+        Some(product_metadata)
+    } else {
+        None
+    };
+    let blueprint_bytes = source_bytes(
+        &sources.blueprint,
+        download_client,
+        MAX_REMOTE_BINARY_BYTES,
+        control,
+    )?;
+    verify_remote_artifact(
+        &blueprint_bytes,
+        &snapshot.blueprint_hash_b3,
+        "snapshot blueprint",
+    )?;
+    write_remote_snapshot_artifacts(
+        repo_paths,
+        snapshot_id,
+        &metadata,
+        product_metadata.as_ref(),
+        &blueprint_bytes,
+    )?;
+    Ok(())
 }
 
 pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
@@ -408,9 +494,12 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             for (hash, entry) in load_chunk_index(&repo_paths)?.entries {
                 let artifact =
                     crate::repo::artifacts::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
-                if artifact.local_path(&repo_paths)?.is_file()
-                    || chunk_index.entries.get_hash(&hash).is_none()
-                {
+                let artifact_is_cached = artifact.local_path(&repo_paths)?.is_file();
+                let preserve_local_entry =
+                    artifact_is_cached || chunk_index.entries.get_hash(&hash).is_none();
+                // Keep cached locations usable and retain local-only chunks for snapshots
+                // kept by the conflict policy. Remote locations replace only shared, uncached chunks.
+                if preserve_local_entry {
                     chunk_index.entries.insert(hash, entry);
                 }
             }
@@ -434,63 +523,14 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 Some(snapshot_id.clone()),
                 false,
             );
-            let snapshot = snapshots
-                .iter()
-                .find(|snapshot| snapshot.snapshot_id == *snapshot_id)
-                .ok_or_else(|| {
-                    Error::manifest(format!(
-                        "remote snapshot '{}' disappeared during pull",
-                        snapshot_id
-                    ))
-                })?;
-            let sources = provider.snapshot_sources(&repository, snapshot)?;
-            let metadata_bytes = source_bytes(
-                &sources.metadata,
-                &download_client,
-                MAX_REMOTE_JSON_BYTES,
-                &control,
-            )?;
-            verify_remote_artifact(
-                &metadata_bytes,
-                &snapshot.metadata_hash_b3,
-                "snapshot metadata",
-            )?;
-            let metadata = crate::repo::snapshot_manifests::snapshot_manifest_from_download(
-                snapshot_id,
-                &metadata_bytes,
-            )?;
-            let product_metadata = if let Some(source) = sources.product_metadata {
-                let product_metadata_bytes =
-                    source_bytes(&source, &download_client, MAX_REMOTE_JSON_BYTES, &control)?;
-                verify_remote_artifact(
-                    &product_metadata_bytes,
-                    &snapshot.product_metadata_hash_b3,
-                    "snapshot product metadata",
-                )?;
-                let product_metadata: crate::manifest::SnapshotProductMetadata =
-                    crate::filesystem::from_json_bytes(&product_metadata_bytes)?;
-                product_metadata.validate_structure()?;
-                Some(product_metadata)
-            } else {
-                None
-            };
-            let blueprint_bytes = source_bytes(
-                &sources.blueprint,
-                &download_client,
-                MAX_REMOTE_BINARY_BYTES,
-                &control,
-            )?;
-            verify_remote_artifact(
-                &blueprint_bytes,
-                &snapshot.blueprint_hash_b3,
-                "snapshot blueprint",
-            )?;
-            write_remote_snapshot_artifacts(
+            download_and_publish_snapshot(
                 &repo_paths,
+                &repository,
+                &snapshots,
                 snapshot_id,
-                &metadata,
-                product_metadata.as_ref(),
-                &blueprint_bytes,
+                provider,
+                &download_client,
+                &control,
             )?;
             stats.snapshot_downloaded_count += 1;
         }
@@ -507,7 +547,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         let bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
         let required_set: HashSet<String> = bundles_by_snapshot
             .iter()
-            .flat_map(|(_, ids)| ids.iter())
+            .flat_map(|snapshot| snapshot.bundle_ids.iter())
             .cloned()
             .collect();
         let mut missing_bundles = Vec::new();
@@ -518,8 +558,10 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         }
         missing_bundles.sort();
         let mut bundle_sources = HashMap::new();
-        for (snapshot_id, missing_for_snapshot) in
-            bundle_source_requests(&bundles_by_snapshot, &missing_bundles)
+        for SnapshotBundleIds {
+            snapshot_id,
+            bundle_ids: missing_for_snapshot,
+        } in bundle_source_requests(&bundles_by_snapshot, &missing_bundles)
         {
             let snapshot = snapshots
                 .iter()
