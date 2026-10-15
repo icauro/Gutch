@@ -98,7 +98,10 @@ impl ReconstructJob {
     pub(crate) fn memory_reservation_bytes(&self) -> u64 {
         const SOURCE_COPY_BUFFER_BYTES: u64 = 1024 * 1024;
         match self {
-            Self::Artifact(_) => crate::artifact::compression::DECODE_WORKING_MEMORY_BYTES,
+            Self::Artifact(_) => {
+                crate::artifact::compression::DECODE_WORKING_MEMORY_BYTES
+                    + super::handles::ARTIFACT_OUTPUT_BUFFER_BYTES as u64
+            }
             Self::SourceChunk(chunk) => u64::from(chunk.raw_size) + SOURCE_COPY_BUFFER_BYTES,
             Self::CopySourceFile { .. } => SOURCE_COPY_BUFFER_BYTES,
         }

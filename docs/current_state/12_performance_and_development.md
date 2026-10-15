@@ -735,3 +735,29 @@ multiple chunks per artifact, intervening copy/source jobs, and cached/missing
 artifact dependencies. All target ranges are checked against explicit expected
 file indexes and offsets. Evidence:
 `tests/.artifacts/research_optimization_pass/round16_report.md`.
+
+## Coalesced reconstruction writes, October 2026
+
+Artifact workers combine consecutive verified single-target ranges in one lazy
+64 KiB output buffer. Large ranges and multi-target chunks use direct positional
+writes. Every artifact job explicitly flushes before success or hash forwarding;
+cancellation and flush errors abort the job without writes during destruction.
+Memory admission includes the extra 64 KiB per artifact job.
+
+On the four-file 64 MiB repository with 1 KiB chunks, four workers and warm
+Windows caches, 21 alternating unprofiled pairs reduced median reconstruction
+from 266.30 to 161.03 ms (39.5%). An earlier version buffering fanout as well
+measured 37.2% in a separate 21-pair run; the final version avoids those copies.
+Every restored tree matched independent SHA-256 expectations.
+
+Default 128 KiB-profile confirmation changed tiny/mixed/large/fanout medians by
+-0.4%/-0.9%/-2.2%/+0.6%; no general default speedup is claimed. A 41-pair
+high-fanout check (835 unique chunks across 64 identical files) changed the median
+by +0.6%. Seven separate high-chunk-count memory pairs measured peak working set
+80.93 to 82.08 MiB, so no process-memory reduction is claimed. These are local
+workload-specific measurements, not cross-platform guarantees.
+
+Tests cover gaps, backward writes, file switches, capacity, large-write bypass,
+direct/buffered transitions, typed cancellation, failed final flushes and hash
+forwarding only after successful writes. Evidence:
+`tests/.artifacts/research_optimization_pass/round18_report.md`.

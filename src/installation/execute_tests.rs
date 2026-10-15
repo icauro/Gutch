@@ -402,7 +402,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
             source_destination_dir: Some(source_root.clone()),
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(2),
-                memory_budget_bytes: std::num::NonZeroU64::new(136 * 1024 * 1024),
+                memory_budget_bytes: std::num::NonZeroU64::new(137 * 1024 * 1024),
             },
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
@@ -663,7 +663,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             source_destination_dir: None,
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(2),
-                memory_budget_bytes: std::num::NonZeroU64::new(136 * 1024 * 1024),
+                memory_budget_bytes: std::num::NonZeroU64::new(137 * 1024 * 1024),
             },
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
@@ -929,7 +929,7 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
     let hash = ChunkHash::from_blake3(blake3::hash(bytes));
     let profile = crate::artifact::profiles::CompressionProfile::default();
     for bundled in [false, true] {
-        for corrupt in [false, true] {
+        for (corrupt, fail_output) in [(false, false), (true, false), (false, true)] {
             let directory = tempfile::tempdir().unwrap();
             let artifact_path = directory.path().join("artifact");
             let (artifact, mut encoded, compressed_size) = if bundled {
@@ -986,11 +986,16 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                     .map(|file| directory.path().join(&file.path))
                     .collect::<Vec<_>>(),
             );
+            if fail_output {
+                // The final target stays buffered until artifact completion.
+                std::fs::create_dir(&paths[0]).unwrap();
+            }
             let sizes = Arc::new(files.iter().map(|file| file.size).collect::<Vec<_>>());
             let handles = OutputHandleCache::new(paths.clone(), sizes, &[1; 5], 4);
             let hashes = (0..files.len())
                 .map(|_| Mutex::new(None))
                 .collect::<Vec<_>>();
+            let target_count = if fail_output { 1 } else { 5 };
             let job = ReconstructJob::Artifact(ReconstructArtifactJob {
                 artifact,
                 artifact_path,
@@ -998,9 +1003,9 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                     chunk_hash: hash,
                     raw_size: 4,
                     compressed_size,
-                    target_range: 0..5,
+                    target_range: 0..target_count,
                 }],
-                targets: (0..5)
+                targets: (0..target_count)
                     .map(|file_index| ReconstructTarget {
                         file_index,
                         file_offset: if file_index == 3 { 4 } else { 0 },
@@ -1020,14 +1025,14 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
             });
             assert_eq!(
                 result.is_err(),
-                corrupt,
-                "bundled={bundled}, corrupt={corrupt}"
+                corrupt || fail_output,
+                "bundled={bundled}, corrupt={corrupt}, fail_output={fail_output}"
             );
             let forwarded = hashes
                 .iter()
                 .map(|slot| *slot.lock().unwrap())
                 .collect::<Vec<_>>();
-            if corrupt {
+            if corrupt || fail_output {
                 assert_eq!(forwarded, vec![None; 5]);
             } else {
                 assert_eq!(forwarded, vec![Some(hash), Some(hash), None, None, None]);

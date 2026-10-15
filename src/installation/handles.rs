@@ -1,4 +1,4 @@
-//! Bounded file handles and platform-specific positioned writes.
+//! Bounded file handles, buffered output ranges, and platform-specific positioned writes.
 use crate::progress::GutchOperationControl;
 use crate::{Error, Result};
 use std::collections::{HashMap, VecDeque};
@@ -8,6 +8,114 @@ use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+pub(super) const ARTIFACT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
+
+/// One artifact worker owns this buffer. Success requires an explicit flush;
+/// failed or cancelled jobs discard buffered bytes instead of writing on drop.
+pub(super) struct ArtifactOutputWriter<'a> {
+    outputs: &'a OutputHandleCache,
+    handles: HashMap<usize, Arc<File>>,
+    control: &'a GutchOperationControl,
+    // The range fields are meaningful only while bytes is nonempty.
+    file_index: usize,
+    offset: u64,
+    bytes: Vec<u8>,
+}
+
+impl<'a> ArtifactOutputWriter<'a> {
+    pub(super) fn new(outputs: &'a OutputHandleCache, control: &'a GutchOperationControl) -> Self {
+        Self {
+            outputs,
+            handles: HashMap::new(),
+            control,
+            file_index: 0,
+            offset: 0,
+            bytes: Vec::new(),
+        }
+    }
+
+    pub(super) fn write(&mut self, file_index: usize, offset: u64, bytes: &[u8]) -> Result<()> {
+        self.control.checkpoint()?;
+        if !self.bytes.is_empty()
+            && (self.file_index != file_index
+                || self.offset.checked_add(self.bytes.len() as u64) != Some(offset)
+                || self.bytes.len() + bytes.len() > ARTIFACT_OUTPUT_BUFFER_BYTES)
+        {
+            self.flush()?;
+        }
+        if bytes.len() >= ARTIFACT_OUTPUT_BUFFER_BYTES {
+            return Self::write_range(
+                self.outputs,
+                &mut self.handles,
+                self.control,
+                file_index,
+                offset,
+                bytes,
+            );
+        }
+        if self.bytes.is_empty() {
+            self.file_index = file_index;
+            self.offset = offset;
+            if self.bytes.capacity() == 0 {
+                self.bytes.reserve_exact(ARTIFACT_OUTPUT_BUFFER_BYTES);
+            }
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    pub(super) fn write_unbuffered(
+        &mut self,
+        file_index: usize,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<()> {
+        self.flush()?;
+        Self::write_range(
+            self.outputs,
+            &mut self.handles,
+            self.control,
+            file_index,
+            offset,
+            bytes,
+        )
+    }
+
+    pub(super) fn flush(&mut self) -> Result<()> {
+        if self.bytes.is_empty() {
+            return Ok(());
+        }
+        Self::write_range(
+            self.outputs,
+            &mut self.handles,
+            self.control,
+            self.file_index,
+            self.offset,
+            &self.bytes,
+        )?;
+        self.bytes.clear();
+        Ok(())
+    }
+
+    fn write_range(
+        outputs: &OutputHandleCache,
+        handles: &mut HashMap<usize, Arc<File>>,
+        control: &GutchOperationControl,
+        file_index: usize,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<()> {
+        control.checkpoint()?;
+        let output = cached_target_handle(outputs, handles, file_index)?;
+        write_file_at(&output, offset, bytes, control).map_err(|error| {
+            error.with_io_context(
+                "writing reconstructed range",
+                outputs.output_path(file_index),
+            )
+        })
+    }
+}
 
 pub(super) struct OutputHandleCache {
     output_paths: Arc<Vec<PathBuf>>,
@@ -295,6 +403,95 @@ pub(super) fn write_file_at(
 mod output_handle_tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn buffered_output_preserves_contiguous_ranges_gaps_switches_and_backward_writes() {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = Arc::new(vec![
+            directory.path().join("first"),
+            directory.path().join("second"),
+        ]);
+        let cache = OutputHandleCache::new(paths.clone(), Arc::new(vec![16, 8]), &[1, 1], 1);
+        let control = GutchOperationControl::default();
+        let mut writer = ArtifactOutputWriter::new(&cache, &control);
+        writer.write(0, 0, b"ab").unwrap();
+        writer.write(0, 2, b"cd").unwrap();
+        assert!(!paths[0].exists());
+        writer.write(0, 8, b"gap").unwrap();
+        writer.write(0, 1, b"X").unwrap();
+        writer.write_unbuffered(1, 2, b"other").unwrap();
+        writer.write(0, 2, b"YZ").unwrap();
+        writer.flush().unwrap();
+        writer.flush().unwrap();
+        let mut first = vec![0; 16];
+        first[..4].copy_from_slice(b"aXYZ");
+        first[8..11].copy_from_slice(b"gap");
+        let mut second = vec![0; 8];
+        second[2..7].copy_from_slice(b"other");
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), first);
+        assert_eq!(std::fs::read(&paths[1]).unwrap(), second);
+    }
+
+    #[test]
+    fn buffered_output_bounds_capacity_and_bypasses_large_ranges() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("output");
+        let cache = OutputHandleCache::new(
+            Arc::new(vec![path.clone()]),
+            Arc::new(vec![ARTIFACT_OUTPUT_BUFFER_BYTES as u64 + 2]),
+            &[1],
+            1,
+        );
+        let control = GutchOperationControl::default();
+        let mut writer = ArtifactOutputWriter::new(&cache, &control);
+        let large = vec![7; ARTIFACT_OUTPUT_BUFFER_BYTES + 1];
+        writer.write(0, 0, &large).unwrap();
+        assert_eq!(writer.bytes.capacity(), 0);
+        let prefix = vec![1; ARTIFACT_OUTPUT_BUFFER_BYTES - 1];
+        writer.write(0, 0, &prefix).unwrap();
+        let allocated_capacity = writer.bytes.capacity();
+        writer.write(0, prefix.len() as u64, &[2, 3]).unwrap();
+        assert_eq!(writer.bytes.len(), 2);
+        assert_eq!(writer.bytes.capacity(), allocated_capacity);
+        writer.flush().unwrap();
+        let mut expected = prefix;
+        expected.extend_from_slice(&[2, 3, 0]);
+        assert_eq!(std::fs::read(path).unwrap(), expected);
+    }
+
+    #[test]
+    fn buffered_output_propagates_flush_errors_and_discards_pending_bytes_on_drop() {
+        #[derive(Debug)]
+        struct Cancellation(std::sync::atomic::AtomicBool);
+        impl crate::progress::GutchCancellationHook for Cancellation {
+            fn is_cancelled(&self) -> bool {
+                self.0.load(std::sync::atomic::Ordering::Relaxed)
+            }
+        }
+        for cancel in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("missing-parent/output");
+            let cache =
+                OutputHandleCache::new(Arc::new(vec![path.clone()]), Arc::new(vec![8]), &[1], 1);
+            let cancellation = Arc::new(Cancellation(std::sync::atomic::AtomicBool::new(false)));
+            let control = GutchOperationControl::default().with_cancellation(cancellation.clone());
+            let mut writer = ArtifactOutputWriter::new(&cache, &control);
+            writer.write(0, 0, b"data").unwrap();
+            cancellation
+                .0
+                .store(cancel, std::sync::atomic::Ordering::Relaxed);
+            let error = writer.flush().unwrap_err();
+            if cancel {
+                assert!(matches!(error, Error::Cancelled));
+            } else {
+                assert!(matches!(error, Error::IoContext { .. }));
+            }
+            // A later successful open must not cause drop to retry a failed flush.
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            drop(writer);
+            assert!(!path.exists());
+        }
+    }
 
     #[test]
     fn output_open_failure_identifies_operation_path_and_native_source() {

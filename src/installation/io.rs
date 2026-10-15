@@ -1,3 +1,4 @@
+use super::handles::ArtifactOutputWriter;
 use super::handles::{OutputHandleCache, SourceHandleCache, cached_target_handle, write_file_at};
 use super::types::SnapshotReconstructSource;
 use crate::profile::ProfileInstant;
@@ -8,7 +9,6 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -112,7 +112,7 @@ fn reconstruct_artifact_job(
         .map_err(|e| Error::io_context("reading artifact metadata", &job.artifact_path, e))?
         .len();
     let mut timings = ReconstructTimings::default();
-    let mut target_handles = HashMap::new();
+    let mut output_writer = ArtifactOutputWriter::new(output_handles, control);
 
     match &job.artifact {
         crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
@@ -144,9 +144,9 @@ fn reconstruct_artifact_job(
                 )));
             }
             // Bundle jobs are parallelized by the outer reconstruction pool.
-            // Each worker reads one bundle once and streams decoded chunks
-            // directly into verification and positional fan-out. At most one
-            // required chunk is retained while the next range is decoded.
+            // Each worker reads a bundle once and verifies selected chunks before
+            // positional fan-out. The decoder retains one chunk; the output writer
+            // may retain one additional bounded range for coalescing.
 
             let read_metrics = reader.stream_bundle_chunks_with_profiler(
                 profiler,
@@ -191,8 +191,7 @@ fn reconstruct_artifact_job(
                         chunk,
                         &job.targets[chunk.target_range.clone()],
                         bytes,
-                        output_handles,
-                        &mut target_handles,
+                        &mut output_writer,
                         control,
                         &mut timings,
                     )?;
@@ -244,13 +243,18 @@ fn reconstruct_artifact_job(
                 chunk,
                 &job.targets[chunk.target_range.clone()],
                 &bytes,
-                output_handles,
-                &mut target_handles,
+                &mut output_writer,
                 control,
                 &mut timings,
             )?;
         }
     }
+    // A terminal success must never expose output ranges still held in memory.
+    let flush_started_at = ProfileInstant::detailed(control.profiler());
+    output_writer.flush()?;
+    let flush_elapsed = flush_started_at.elapsed();
+    timings.file_write += flush_elapsed;
+    timings.file_rebuild += flush_elapsed;
     Ok(timings)
 }
 
@@ -423,8 +427,7 @@ fn write_reconstruct_targets(
     chunk: &ReconstructArtifactChunk,
     targets: &[ReconstructTarget],
     bytes: &[u8],
-    output_handles: &OutputHandleCache,
-    target_handles: &mut HashMap<usize, Arc<File>>,
+    output_writer: &mut ArtifactOutputWriter<'_>,
     control: &GutchOperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {
@@ -440,13 +443,12 @@ fn write_reconstruct_targets(
     for target in targets {
         control.checkpoint()?;
         let write_started_at = ProfileInstant::detailed(control.profiler());
-        let output = cached_target_handle(output_handles, target_handles, target.file_index)?;
-        write_file_at(&output, target.file_offset, bytes, control).map_err(|e| {
-            e.with_io_context(
-                "writing reconstructed range",
-                output_handles.output_path(target.file_index),
-            )
-        })?;
+        if targets.len() == 1 {
+            output_writer.write(target.file_index, target.file_offset, bytes)?;
+        } else {
+            // Cross-file fanout cannot combine adjacent writes; avoid copying each target.
+            output_writer.write_unbuffered(target.file_index, target.file_offset, bytes)?;
+        }
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings

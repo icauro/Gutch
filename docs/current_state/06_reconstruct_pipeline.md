@@ -101,12 +101,23 @@ validates the stored size and decoded raw hash, and writes that chunk to all of
 its target offsets. Both storage modes use the same job graph, staging rules,
 chunk verification, file dependency counters, and final file verification.
 
+Each artifact worker coalesces consecutive single-target ranges in one lazy
+64 KiB output buffer. File switches, offset gaps/backward movement and capacity
+limits flush pending bytes. Ranges at least 64 KiB and chunks with multiple
+targets write directly after flushing any pending range, avoiding repeated
+fanout copies. Every chunk is verified before buffering. An explicit final
+flush completes before job success, file readiness or whole-file hash forwarding;
+flush failures propagate. Cancellation/error drops private pending bytes without
+writing during destruction. Positional writes and worker-local handles remain
+with the handle/I/O owner, independently of decoding and scheduling.
+
 Artifact work uses the automatic/explicit working-memory budget policy described
 for [capture](04_scan_pipeline.md#parallelization-and-resource-limits). The
 coordinator admits jobs only when both a worker slot and their memory reservation
 are available. Waiting jobs stay queued; eligible verification and smaller jobs
 can proceed. Artifact jobs reserve 136 MiB for the bounded decoder window and
-chunk buffer. Source-copy work
+chunk buffer, plus 64 KiB for coalesced output. A budget exactly equal to the old
+136 MiB reservation therefore needs another 64 KiB. Source-copy work
 reserves only its I/O buffer. This limits admitted artifact work, not total
 process RSS, which also includes indexes, worker stacks, and other allocations.
 
