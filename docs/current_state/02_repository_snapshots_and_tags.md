@@ -28,7 +28,10 @@ The source-folder association is also device-local, but lives in the shared
 Gutch configuration rather than either repo metadata document.
 
 `chunk_map.gtcbin` is the repo-wide chunk index. It begins with 16-byte zero-padded `GUTCH_INDEX`
-and carries its binary format version.
+and carries its binary format version. The writer validates and decodes each
+distinct bundle ID once, using canonical hexadecimal ordering for the artifact
+table. Every chunk entry still receives size and storage-mode checks, and the
+completed encoded index passes the reader's invariants before atomic publication.
 
 Bundle files are sharded under the first two lowercase hexadecimal characters
 of their 64-character content hash. The shard is derived from the bundle ID;

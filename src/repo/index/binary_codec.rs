@@ -184,11 +184,15 @@ pub(crate) fn write_chunk_index_binary(
             ));
         }
         if entry.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled {
-            let id = ChunkHash::parse_hex(&entry.bundle_id)?;
-            if let Some(size) = artifacts.insert(id, entry.artifact_size)
-                && size != entry.artifact_size
-            {
-                return Err(Error::manifest("inconsistent indexed artifact sizes"));
+            let id = entry.bundle_id.as_str();
+            if let Some((_, size)) = artifacts.get(id) {
+                if *size != entry.artifact_size {
+                    return Err(Error::manifest("inconsistent indexed artifact sizes"));
+                }
+            } else {
+                // Canonical hex sorts in the same order as its binary hash.
+                // Validate and decode each distinct artifact identity once.
+                artifacts.insert(id, (ChunkHash::parse_hex(id)?, entry.artifact_size));
             }
         }
     }
@@ -204,10 +208,10 @@ pub(crate) fn write_chunk_index_binary(
         .collect();
     let mut artifact_group = Vec::new();
     write_u32(&mut artifact_group, artifact_count)?;
-    for id in artifacts.keys() {
+    for (id, _) in artifacts.values() {
         write_chunk_hash(&mut artifact_group, *id)?;
     }
-    for size in artifacts.values() {
+    for (_, size) in artifacts.values() {
         write_u32(&mut artifact_group, *size)?;
     }
     let mut chunk_group = Vec::new();
@@ -223,7 +227,7 @@ pub(crate) fn write_chunk_index_binary(
             &mut chunk_group,
             match entry.storage_mode {
                 crate::artifact::profiles::ArtifactStorageMode::Bundled => {
-                    artifact_rows[&ChunkHash::parse_hex(&entry.bundle_id)?]
+                    artifact_rows[entry.bundle_id.as_str()]
                 }
                 crate::artifact::profiles::ArtifactStorageMode::LooseChunks => {
                     LOOSE_CHUNK_ARTIFACT_ROW
@@ -359,5 +363,44 @@ mod tests {
         index.entries.values_mut().last().unwrap().chunk_ordinal = 1;
         assert!(write_chunk_index_binary(&path, &index).is_err());
         assert_eq!(first, std::fs::read(&path).unwrap());
+    }
+
+    #[test]
+    fn writer_rejects_conflicting_sizes_and_noncanonical_artifact_ids_before_publication() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("index");
+        let index = crate::repo::index::ChunkIndex {
+            format_version: crate::artifact::format::FORMAT_VERSION.into(),
+            entries: (0..2u8)
+                .map(|ordinal| {
+                    (
+                        ChunkHash::from_bytes([ordinal; 32]),
+                        crate::repo::index::ChunkIndexEntry::new(
+                            128,
+                            u32::from(ordinal),
+                            "ab".repeat(32).into(),
+                            16,
+                            64,
+                            crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                        ),
+                    )
+                })
+                .collect(),
+        };
+        write_chunk_index_binary(&path, &index).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let mut inconsistent = index.clone();
+        let last = inconsistent.entries.values_mut().last().unwrap();
+        std::sync::Arc::make_mut(&mut last.artifact).artifact_size += 1;
+        assert!(write_chunk_index_binary(&path, &inconsistent).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+
+        for invalid_id in ["AB".repeat(32), "xx".repeat(32), "ab".repeat(31)] {
+            let mut invalid = index.clone();
+            let last = invalid.entries.values_mut().last().unwrap();
+            std::sync::Arc::make_mut(&mut last.artifact).bundle_id = invalid_id.into();
+            assert!(write_chunk_index_binary(&path, &invalid).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+        }
     }
 }

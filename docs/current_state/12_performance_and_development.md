@@ -692,3 +692,24 @@ Six comparisons matched bundle, blueprint and chunk-index bytes across
 None, Zstd and LZ4; restored files matched independent SHA-256 expectations.
 Errors while producing sample bytes propagate instead of returning partial
 compressed sizes. Evidence: `tests/.artifacts/research_optimization_pass/round14_report.md`.
+
+## Distinct bundle IDs during index writing, October 2026
+
+The chunk-index writer keeps borrowed canonical bundle IDs in its artifact table
+and decodes each distinct ID once. Chunk-reference serialization uses those
+validated table keys. Per-entry size checks and the final encoded-index reader
+validation still run before atomic publication; on-disk bytes are unchanged.
+
+On the four-file 64 MiB input with 1 KiB chunk targets, four workers and warm
+Windows caches, 21 alternating summary-profile pairs reduced the median
+index-writing span from 26.24 to 23.15 ms (11.8%). No profile events were dropped.
+A separate 41-pair unprofiled comparison changed whole capture from 295.49 to
+292.48 ms (1.0%); this does not establish a broad capture speedup. Default-profile
+screening was mixed. The demonstrated benefit is confined to index writing.
+
+Six comparisons matched bundle, blueprint and chunk-index bytes across
+None, Zstd and LZ4. Tests also reject inconsistent sizes, uppercase, non-hex and
+short bundle IDs without replacing the existing index. Two other experiments,
+empty-update short-circuiting and sorted-vector batch updates, were discarded
+after longer comparisons failed to show useful latency or memory improvements.
+Evidence: `tests/.artifacts/research_optimization_pass/round15_report.md`.
