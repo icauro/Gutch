@@ -925,3 +925,31 @@ Regression coverage truncates index groups at every byte and rejects trailing
 data. Blueprint coverage mixes distinct explicit sequences with implicit/empty
 files, interleaved directories and symlinks, and truncated chunk columns.
 Evidence: `tests/.artifacts/research_optimization_pass/round25_report.md`.
+
+
+## Bound metadata output reservations, October 2026
+
+Metadata Zstd decoding reserves the declared output length only when the complete
+group fits within twice the actual encoded input. Highly compressed groups start
+with the existing incremental allocation path. This avoids repeated growth for
+hash-heavy columns without allocating large buffers from decoded declarations
+alone. Decoded-size, stream-read and window limits remain authoritative.
+
+On the four-file 64 MiB / 1 KiB-chunk fixture, 21 alternating Windows process-memory
+pairs reduced median peak commit from 13.08 to 11.38 MiB (13.0%). Peak working set
+was near flat. Forty-one unprofiled status pairs reduced 32.70 to 31.93 ms (2.4%);
+21 reconstruction pairs reduced 137.77 to 134.39 ms (2.4%). Every status/verification
+result matched baseline JSON, and every reconstructed tree matched independent
+SHA-256 expectations. Default and loose-storage verification controls were near flat.
+
+An initial partial-reservation prototype increased peak commit on the repeated-file
+fixture from 8.45 to 11.52 MiB. Reserving only whole groups removed that regression:
+the final 21-pair control stayed near baseline at 8.39 to 8.44 MiB. Six fixture/codec
+comparisons retained identical bundle, blueprint and index bytes and snapshot IDs.
+These are workload-specific observations, not general memory or throughput bounds.
+
+Single-buffer envelope assembly, encoded-file buffer sizing, and explicit path
+capacity were also tested and discarded after comparisons failed to establish
+consistent benefits. Regression tests cover raw, mildly and strongly compressed
+groups, maximum decoded-length declarations, corruption and existing framing bounds.
+Evidence: `tests/.artifacts/research_optimization_pass/round26_report.md`.

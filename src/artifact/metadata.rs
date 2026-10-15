@@ -112,7 +112,14 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
             ZSTD_CODEC => {
                 let mut decoder = zstd::stream::read::Decoder::new(encoded)?;
                 decoder.window_log_max(28)?;
-                let mut output = Vec::new();
+                // Reserve a whole group only when bounded by twice the actual input.
+                // A partial hint can waste capacity when highly compressed groups grow.
+                let initial_capacity = if decoded_size <= encoded_size * 2 {
+                    decoded_size
+                } else {
+                    0
+                };
+                let mut output = Vec::with_capacity(initial_capacity);
                 decoder
                     .take(decoded_size as u64 + 1)
                     .read_to_end(&mut output)?;
@@ -157,6 +164,28 @@ mod tests {
     }
 
     #[test]
+    fn roundtrips_mild_strong_and_raw_compression_groups() {
+        let mut mild = Vec::new();
+        for index in 0..256u32 {
+            let hash = blake3::hash(&index.to_le_bytes());
+            mild.extend_from_slice(hash.as_bytes());
+            mild.extend_from_slice(hash.as_bytes());
+        }
+        let groups = vec![mild, vec![0; 16384], vec![1, 2, 3]];
+        let encoded = encode(MAGIC, &groups).unwrap();
+        assert_eq!(encoded[FIXED_HEADER_BYTES + 3], ZSTD_CODEC);
+        assert_eq!(
+            encoded[FIXED_HEADER_BYTES + DESCRIPTOR_BYTES + 3],
+            ZSTD_CODEC
+        );
+        assert_eq!(
+            encoded[FIXED_HEADER_BYTES + 2 * DESCRIPTOR_BYTES + 3],
+            RAW_CODEC
+        );
+        assert_eq!(decode(&encoded, MAGIC, groups.len()).unwrap(), groups);
+    }
+
+    #[test]
     fn framing_and_decoded_bounds_are_enforced_before_materialization() {
         let groups = vec![vec![0; 4096], vec![1, 2, 3]];
         let valid = encode(MAGIC, &groups).unwrap();
@@ -172,7 +201,11 @@ mod tests {
             resign(&mut invalid, 2);
             assert!(decode(&invalid, MAGIC, 2).is_err(), "descriptor {offset}");
         }
-        for declared in [1u32, (MAX_METADATA_BYTES + 1) as u32] {
+        for declared in [
+            1u32,
+            MAX_METADATA_BYTES as u32,
+            (MAX_METADATA_BYTES + 1) as u32,
+        ] {
             let mut invalid = valid.clone();
             invalid[32..36].copy_from_slice(&declared.to_le_bytes());
             resign(&mut invalid, 2);

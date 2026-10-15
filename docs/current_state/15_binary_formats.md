@@ -54,6 +54,11 @@ optional groups: discarding an extension and later rewriting the object would
 lose data. Self-contained hashes detect corruption; they do not authenticate an
 attacker-supplied object. Remote callers supply the trusted whole-object digest.
 Current operations decode and validate all groups before using the result.
+
+Zstd groups initially reserve their full decoded length only when it fits within
+twice the encoded input bytes. Highly compressed groups grow from actual output;
+a partial input-based reservation can overshoot when it grows. The decoded-length
+check, bounded read and window limit apply to both allocation paths.
 Index row columns and blueprint chunk hash/size columns are borrowed from those
 decoded buffers while owned models are constructed. Length preflights bound all
 column splits; no unaligned casts or borrowed data escape the decoder.
