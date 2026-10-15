@@ -87,52 +87,51 @@ fn estimate_bundle_compression_ratio_from_probe(
         compression_profile.compression == crate::artifact::profiles::CompressionKind::None;
     let mut probe_chunk_count = 0;
     let mut raw_probe_size: u64 = 0;
-    let mut probe_payload = Vec::new();
-    const SOURCE_HANDLE_LIMIT: usize = 8;
-    let mut readers: Vec<(Arc<PathBuf>, ChunkPayloadReader)> = Vec::new();
     for (_, payload) in chunks {
         raw_probe_size += payload.raw_size();
         probe_chunk_count += 1;
-        if !uncompressed {
-            // Hash-order sampling can alternate files. Keep a bounded set of
-            // readers without changing sample order or skipping source hashes.
-            let reader_index = match readers
-                .iter()
-                .position(|(source, _)| source == &payload.source)
-            {
-                Some(index) => index,
-                None => {
-                    if readers.len() == SOURCE_HANDLE_LIMIT {
-                        // Release the evicted handle before opening its replacement.
-                        readers.remove(0);
-                    }
-                    let index = readers.len();
-                    readers.push((payload.source.clone(), ChunkPayloadReader::default()));
-                    index
-                }
-            };
-            probe_payload.push(readers[reader_index].1.load(payload)?);
-        }
         if raw_probe_size >= probe_target_bytes {
             break;
         }
     }
-
     if raw_probe_size == 0 {
         return Ok((1.0, 0));
     }
 
     let encoded_payload_size = if uncompressed {
         compress::validate_profile(compression_profile)?;
-        // No codec framing: the payload length is already exact. Actual packing
-        // still reads and verifies every chunk against its scan-time hash.
+        // Actual packing still reads and verifies every source chunk.
         raw_probe_size
     } else {
-        let segments: Vec<&[u8]> = probe_payload.iter().map(Vec::as_slice).collect();
-        compress::compressed_size(&segments, compression_profile)?
+        compress::compressed_size_from_stream(compression_profile, raw_probe_size, |writer| {
+            const SOURCE_HANDLE_LIMIT: usize = 8;
+            let mut readers: Vec<(Arc<PathBuf>, ChunkPayloadReader)> = Vec::new();
+            for (_, payload) in &chunks[..probe_chunk_count] {
+                // Preserve hash-order sampling while reusing source handles.
+                let reader_index = match readers
+                    .iter()
+                    .position(|(source, _)| source == &payload.source)
+                {
+                    Some(index) => index,
+                    None => {
+                        if readers.len() == SOURCE_HANDLE_LIMIT {
+                            // Close the old handle before opening its replacement.
+                            readers.remove(0);
+                        }
+                        let index = readers.len();
+                        readers.push((payload.source.clone(), ChunkPayloadReader::default()));
+                        index
+                    }
+                };
+                // Release each verified chunk before loading the next one.
+                let bytes = readers[reader_index].1.load(payload)?;
+                writer.write_all(&bytes)?;
+            }
+            Ok(())
+        })?
     };
-    let encoded_size =
-        encoded_payload_size + crate::artifact::bundle::encoded_metadata_size(probe_chunk_count);
+    let encoded_size = encoded_payload_size
+        + crate::artifact::bundle::encoded_metadata_size(probe_chunk_count as u64);
     Ok((
         (encoded_size as f64 / raw_probe_size as f64).max(0.01),
         if uncompressed { 0 } else { raw_probe_size },

@@ -668,3 +668,27 @@ commands. Six comparisons matched bundle, blueprint and chunk-index bytes across
 None, Zstd and LZ4. Restored trees matched independent SHA-256 expectations.
 Regression tests cover sample order, source eviction, seeks and hash failures on
 reader reuse. Evidence: `tests/.artifacts/research_optimization_pass/round13_report.md`.
+
+## Streaming compression samples, October 2026
+
+Compression probing now determines its sample length before reading payloads,
+then sends each verified chunk directly to the existing streaming encoder.
+Raw sample retention falls from the complete sample to one chunk. Source-reader
+limits, sample order, pledged size, codec finalization and artifact bytes stay
+unchanged. Compression still owns only codec mechanics; capture owns source I/O.
+
+On Windows with 1 KiB chunk targets and one worker, seven alternating process
+memory pairs measured median peak working sets of 36.58 to 29.72 MiB (18.7%
+lower) on mixed 36.5 MiB input, and 39.34 to 35.42 MiB (10.0% lower) on the
+four-file 64 MiB input. Native process high-water counters were sampled about
+every 3 ms in runs separate from latency measurements. Four-worker savings were
+smaller: roughly 0.5 to 0.7 MiB in three pairs, with encoding buffers dominating.
+These observations are workload-specific, not total-process memory bounds.
+
+Twenty-one alternating timing pairs showed near-flat 1 KiB capture times:
+changes of -1.8%/-0.2% with one worker and -2.3%/-0.8% with four workers for
+mixed/large inputs respectively. The retained benefit is lower memory use.
+Six comparisons matched bundle, blueprint and chunk-index bytes across
+None, Zstd and LZ4; restored files matched independent SHA-256 expectations.
+Errors while producing sample bytes propagate instead of returning partial
+compressed sizes. Evidence: `tests/.artifacts/research_optimization_pass/round14_report.md`.

@@ -163,7 +163,11 @@ pub(crate) fn encode_to_writer(
 }
 
 /// Count the exact codec output without retaining compressed bytes.
-pub(crate) fn compressed_size(segments: &[&[u8]], profile: &CompressionProfile) -> Result<u64> {
+pub(crate) fn compressed_size_from_stream(
+    profile: &CompressionProfile,
+    raw_size: u64,
+    write_raw: impl FnOnce(&mut dyn Write) -> Result<()>,
+) -> Result<u64> {
     struct ByteCounter(u64);
     impl Write for ByteCounter {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -175,14 +179,19 @@ pub(crate) fn compressed_size(segments: &[&[u8]], profile: &CompressionProfile) 
         }
     }
     let mut output = ByteCounter(0);
+    encode_to_writer(&mut output, profile, raw_size, write_raw)?;
+    Ok(output.0)
+}
+
+#[cfg(test)]
+pub(crate) fn compressed_size(segments: &[&[u8]], profile: &CompressionProfile) -> Result<u64> {
     let raw_size = segments.iter().map(|segment| segment.len() as u64).sum();
-    encode_to_writer(&mut output, profile, raw_size, |writer| {
+    compressed_size_from_stream(profile, raw_size, |writer| {
         for segment in segments {
             writer.write_all(segment)?;
         }
         Ok(())
-    })?;
-    Ok(output.0)
+    })
 }
 
 #[cfg(test)]

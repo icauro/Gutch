@@ -227,7 +227,10 @@ encoded size including framing, and splits when necessary. Larger inputs retain
 the normal sample and capacity estimate. Existing repo chunks are not repacked.
 
 The probe and bundle writer share the streaming encoder, including codec level,
-Zstd window log 27, pledged input size, and frame finalization. The probe counts
+Zstd window log 27, pledged input size, and frame finalization. The probe first
+selects the hash-ordered prefix from chunk lengths, then loads, verifies and writes
+one chunk at a time to the encoder. It retains at most one raw chunk rather than
+the entire sample, in addition to codec working memory and source readers. It counts
 encoded bytes without retaining compressed output and adds header, chunk-table,
 trailer, and identity overhead using the bundle format's constants. For identical
 chunk bytes, order, and boundaries, its estimated encoded size matches a real bundle.
