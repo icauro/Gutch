@@ -1,8 +1,13 @@
+use crate::artifact::bundle::BundleTableEntry;
+use crate::artifact::bundle::{BundleReader, verify_bundle_identity_reader};
+use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::GutchRepoPaths;
 use crate::{Error, Result};
+use std::fs::File;
 use std::path::{Path, PathBuf};
+
 /// A persisted artifact that can satisfy one or more logical chunks.
 ///
 /// Bundles and loose chunks differ only at this boundary. Snapshot planning,
@@ -69,10 +74,6 @@ pub(crate) fn required_artifacts(
         .collect()
 }
 
-use crate::artifact::bundle::BundleTableEntry;
-use crate::artifact::bundle::{BundleReader, verify_bundle_identity_reader};
-use crate::artifact::hash::ChunkHash;
-use std::fs::File;
 pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Result<()> {
     let expected_hash = ChunkHash::parse_hex(bundle_id)?;
     let path_id = crate::repo::paths::bundle_id_from_bundle_path(path).ok_or_else(|| {

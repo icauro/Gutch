@@ -52,6 +52,9 @@ pub use crate::manifest::SnapshotTagSet;
 pub use crate::manifest::StructuredVersion;
 pub use crate::manifest::SymlinkManifest;
 pub use crate::manifest::constraints::{FilesystemTarget, RepositoryConstraints};
+pub use crate::manifest::constraints::{
+    SnapshotTagConstraints, SnapshotTagRule, SnapshotTagValueFormat,
+};
 pub use crate::manifest::gutch_repo::ArtifactProfile;
 pub use crate::manifest::gutch_repo::GutchRepoManifest;
 pub use crate::manifest::launch::ResolvedLaunchAction;
@@ -82,6 +85,7 @@ pub use crate::capture::sources::ResolvedCaptureSource;
 pub use crate::capture::sources::capture_snapshots;
 pub use crate::capture::sources::plan_snapshot_captures;
 pub use crate::capture::sources::resolve_capture_sources;
+pub use crate::snapshot::source_config::initialize_source_config;
 
 // Installation
 pub use crate::installation::InstallationCorruptionPlan;
@@ -133,6 +137,7 @@ pub use crate::repo::init_policy::RepoInitRisk;
 pub use crate::repo::init_policy::assess_repo_init_path;
 pub use crate::repo::init_policy::initialize_repo;
 pub use crate::repo::paths::GutchRepoPaths;
+pub use crate::repo::read::{load_gutch_repo_manifest, load_snapshot_manifest};
 pub use crate::repo::recovery::IndexRebuildResult;
 pub use crate::repo::recovery::rebuild_index;
 pub use crate::repo::remote::PullConflictPolicy;
@@ -168,6 +173,7 @@ pub use crate::repo::snapshot_manifests::validate_snapshot_product_metadata_for_
 pub use crate::repo::snapshots::RetagSnapshotResult;
 pub use crate::repo::snapshots::delete_repo_snapshot_and_cleanup;
 pub use crate::repo::snapshots::retag_snapshot_by_id;
+pub use crate::repo::snapshots::{plan_snapshot_tag_updates, retag_snapshots};
 pub use crate::repo::status::RepoSnapshotStatus;
 pub use crate::repo::status::RepoStatus;
 pub use crate::repo::status::SourceSnapshotOperationCandidate;
@@ -202,13 +208,3 @@ pub use crate::config::GutchConfig;
 pub use crate::config::TrackedRepo;
 pub use crate::config::load_config;
 pub use crate::config::save_config;
-
-pub use crate::repo::read::{load_gutch_repo_manifest, load_snapshot_manifest};
-
-pub use crate::snapshot::source_config::initialize_source_config;
-
-pub use crate::manifest::constraints::{
-    SnapshotTagConstraints, SnapshotTagRule, SnapshotTagValueFormat,
-};
-
-pub use crate::repo::snapshots::{plan_snapshot_tag_updates, retag_snapshots};

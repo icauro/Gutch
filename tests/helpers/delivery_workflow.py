@@ -1,4 +1,5 @@
 """Shared correctness operations for HTTP and S3 delivery scenarios."""
+
 from tests.datasets.generate import delivery
 from .delivery import fetch_arguments
 from .filesystem import repository_inventory as inventory
@@ -24,7 +25,16 @@ def exercise_delivery(case, data, repo, snapshot, url):
     case.command(*arguments)
     assert inventory(cache) == cached_before
     combined = case.payload / "combined"
-    case.stats(*fetch_arguments(case, case.payload / "combined-repo", snapshot, repo, url, destination=combined))
+    case.stats(
+        *fetch_arguments(
+            case,
+            case.payload / "combined-repo",
+            snapshot,
+            repo,
+            url,
+            destination=combined,
+        )
+    )
     case.compare(data, combined, "combined-fetch")
     (combined / "part-0.bin").write_bytes(b"corrupt")
     case.repair(case.payload / "combined-repo", snapshot, combined)

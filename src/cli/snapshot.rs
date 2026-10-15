@@ -20,7 +20,7 @@ fn capture_stats_from_engine_result(
     repo_root: &str,
     input_path: &str,
     repository: &crate::api::GutchRepoManifest,
-    explicit_tags: &crate::manifest::SnapshotTagSet,
+    explicit_tags: &crate::api::SnapshotTagSet,
     storage_mode_cli: String,
     result: &crate::api::SnapshotCaptureResult,
     mode: crate::profile::GutchProfileMode,

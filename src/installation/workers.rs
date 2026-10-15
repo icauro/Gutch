@@ -1,6 +1,6 @@
 use super::handles::{OutputHandleCache, SourceHandleCache};
 use super::io::{ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file};
-use super::jobs::*;
+use super::jobs::{ReconstructJob, ReconstructPipelineFile};
 use super::types::ReconstructTimings;
 use crate::profile::ProfileInstant;
 use crate::progress::GutchOperationControl;
@@ -78,6 +78,33 @@ pub(super) struct ReconstructWorkContext {
     pub(super) compression_profile: Arc<crate::artifact::profiles::CompressionProfile>,
     pub(super) control: GutchOperationControl,
     pub(super) reconstruct_worker_count: usize,
+}
+
+pub(super) fn dispatch_ready_work(
+    pool: &ThreadPool,
+    work_queue: &mut ReconstructionWorkQueue,
+    work_context: &Arc<ReconstructWorkContext>,
+    event_tx: &mpsc::Sender<ReconstructJobEvent>,
+) -> Result<()> {
+    // Admit only runnable jobs, leaving pool threads free instead of blocking them
+    // on memory. Verification can proceed while larger artifact jobs wait.
+    while work_queue.in_flight < work_context.reconstruct_worker_count {
+        match work_queue.admit_next(&work_context.jobs, &work_context.memory) {
+            Ok(Some(admitted)) => {
+                spawn_reconstruct_work(
+                    pool,
+                    admitted.work,
+                    work_context,
+                    event_tx,
+                    admitted.permit,
+                    admitted.queued_at,
+                );
+            }
+            Ok(None) => break,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn spawn_reconstruct_work(

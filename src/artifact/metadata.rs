@@ -2,7 +2,9 @@
 //! callers still need the externally trusted artifact digest for authenticity.
 use std::io::Read;
 
-use crate::artifact::binary_io::*;
+use crate::artifact::binary_io::{
+    read_exact_array, read_u8, read_u16, read_u32, write_u16, write_u32,
+};
 use crate::{Error, Result};
 
 pub(crate) const MAX_METADATA_BYTES: usize = 256 * 1024 * 1024;

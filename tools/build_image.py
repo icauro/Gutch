@@ -1,4 +1,5 @@
 """Build the standalone Linux image from an explicit source inventory."""
+
 import argparse
 import shutil
 import tempfile
@@ -8,11 +9,26 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATHS = (
-    "Cargo.toml", "Cargo.lock", "pyproject.toml", "uv.lock", ".cargo", "gutch.py",
-    "src", "gutch-cli/Cargo.toml", "gutch-cli/src", "tools",
-    "tests/public_api.rs", "tests/installation_plan.rs", "tests/__init__.py",
-    "tests/run.py", "tests/repository_suite.py", "tests/helpers", "tests/scenarios",
-    "tests/datasets", "tests/harness_tests", "tests/benchmarks",
+    "Cargo.toml",
+    "Cargo.lock",
+    "pyproject.toml",
+    "uv.lock",
+    ".cargo",
+    "gutch.py",
+    "src",
+    "gutch-cli/Cargo.toml",
+    "gutch-cli/src",
+    "tools",
+    "tests/public_api.rs",
+    "tests/installation_plan.rs",
+    "tests/__init__.py",
+    "tests/run.py",
+    "tests/repository_suite.py",
+    "tests/helpers",
+    "tests/scenarios",
+    "tests/datasets",
+    "tests/harness_tests",
+    "tests/benchmarks",
 )
 EXCLUDED_PARTS = {"__pycache__", ".artifacts", ".builds", "bin", ".pytest_cache"}
 
@@ -23,45 +39,70 @@ def source_files(root=ROOT):
         candidates = path.rglob("*") if path.is_dir() else [path]
         for candidate in candidates:
             relative = candidate.relative_to(root)
-            if (candidate.is_file() and not EXCLUDED_PARTS.intersection(relative.parts)
-                    and candidate.name != "config.yml"):
+            if (
+                candidate.is_file()
+                and not EXCLUDED_PARTS.intersection(relative.parts)
+                and candidate.name != "config.yml"
+            ):
                 yield candidate, relative
 
 
 def benchmark_dependency_files():
     """Bundle the explicitly installed suite, never search sibling checkouts."""
     import importlib.util
+
     spec = importlib.util.find_spec("comparison_benchmark_suite")
     if spec is None or spec.origin is None:
         return
     root = Path(spec.origin).parent
     from itertools import chain
-    candidates = chain(root.glob("*.py"), *( (root / name).rglob("*")
-                       for name in ("support", "scheduling", "tools", "fixtures")))
+
+    candidates = chain(
+        root.glob("*.py"),
+        *(
+            (root / name).rglob("*")
+            for name in ("support", "scheduling", "tools", "fixtures")
+        ),
+    )
     for path in candidates:
         relative = path.relative_to(root)
-        if (path.is_file() and not EXCLUDED_PARTS.intersection(relative.parts)
-                and path.suffix in {".py", ".yaml"}):
+        if (
+            path.is_file()
+            and not EXCLUDED_PARTS.intersection(relative.parts)
+            and path.suffix in {".py", ".yaml"}
+        ):
             yield path, Path("comparison_benchmark_suite") / relative
 
 
 def build_image(tag):
     intermediate = ROOT / ".builds/intermediate"
     intermediate.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="linux-source-", dir=intermediate) as directory:
+    with tempfile.TemporaryDirectory(
+        prefix="linux-source-", dir=intermediate
+    ) as directory:
         context = Path(directory).resolve()
         assert context.is_relative_to(intermediate.resolve())
         total = 0
         from itertools import chain
+
         for path, relative in chain(source_files(), benchmark_dependency_files()):
             destination = context / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, destination)
             total += path.stat().st_size
         print(f"Gutch Linux build context: {total / 1048576:.2f} MiB", flush=True)
-        subprocess.run(["docker", "build", "-t", tag, "-f",
-                        str(context / "tools/docker/Dockerfile"), str(context)], check=True)
-
+        subprocess.run(
+            [
+                "docker",
+                "build",
+                "-t",
+                tag,
+                "-f",
+                str(context / "tools/docker/Dockerfile"),
+                str(context),
+            ],
+            check=True,
+        )
 
 
 if __name__ == "__main__":

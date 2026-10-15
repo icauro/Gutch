@@ -1,3 +1,5 @@
+//! Repository layouts, guarded persistence, artifact indexes, recovery, and synchronization.
+
 pub(crate) mod artifacts;
 pub(crate) mod cleanup;
 pub(crate) mod coordination;

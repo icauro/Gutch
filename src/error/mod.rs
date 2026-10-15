@@ -1,3 +1,5 @@
+//! Engine failures shared by operations and embedding hosts.
+
 use std::path::PathBuf;
 
 pub type Result<T> = std::result::Result<T, Error>;

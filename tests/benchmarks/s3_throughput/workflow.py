@@ -144,7 +144,9 @@ def _list_objects(client: S3Client, bucket: str, prefix: str) -> list[dict[str, 
             return objects
         continuation_token = response.get("NextContinuationToken")
         if not isinstance(continuation_token, str) or not continuation_token:
-            raise RuntimeError("S3 object listing was truncated without a continuation token")
+            raise RuntimeError(
+                "S3 object listing was truncated without a continuation token"
+            )
 
 
 def run_delete(target: StorageTarget, *, prefix: str) -> int:
@@ -167,7 +169,9 @@ def run_delete(target: StorageTarget, *, prefix: str) -> int:
     return deleted
 
 
-def _list_multipart_uploads(client: S3Client, bucket: str, prefix: str | None) -> list[dict[str, Any]]:
+def _list_multipart_uploads(
+    client: S3Client, bucket: str, prefix: str | None
+) -> list[dict[str, Any]]:
     uploads: list[dict[str, Any]] = []
     key_marker: str | None = None
     upload_id_marker: str | None = None
@@ -186,7 +190,9 @@ def _list_multipart_uploads(client: S3Client, bucket: str, prefix: str | None) -
         key_marker = response.get("NextKeyMarker")
         upload_id_marker = response.get("NextUploadIdMarker")
         if not isinstance(key_marker, str) or not isinstance(upload_id_marker, str):
-            raise RuntimeError("S3 multipart listing was truncated without continuation markers")
+            raise RuntimeError(
+                "S3 multipart listing was truncated without continuation markers"
+            )
 
 
 def run_abort_multipart_uploads(target: StorageTarget, *, prefix: str | None) -> int:

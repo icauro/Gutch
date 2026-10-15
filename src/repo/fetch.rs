@@ -362,16 +362,7 @@ pub(crate) fn prepare_snapshot_fetch(
     } else {
         crate::repo::index::load_chunk_index(&repo_paths)?
     };
-    // Retain cached mappings whose artifacts are available, plus local-only entries.
-    for (hash, entry) in crate::repo::index::load_chunk_index(&repo_paths)?.entries {
-        let artifact =
-            crate::repo::artifacts::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
-        if artifact.local_path(&repo_paths)?.is_file()
-            || chunk_index.entries.get_hash(&hash).is_none()
-        {
-            chunk_index.entries.insert(hash, entry);
-        }
-    }
+    crate::repo::index::preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
     request.control.checkpoint()?;
     let compression_profile = repo_manifest.compression_profile();
     let required_artifacts =

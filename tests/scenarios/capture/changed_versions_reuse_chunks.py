@@ -2,6 +2,7 @@
 
 Expected: Snapshot IDs differ, chunks are reused, and both versions match their inputs.
 """
+
 from tests.datasets.generate import basic
 
 
@@ -15,4 +16,6 @@ def run(case):
     for label, stats, version in [("v1", first, 1), ("v2", second, 2)]:
         destination = case.payload / f"install-{label}"
         case.reconstruct(repo, stats["snapshot_id"], destination)
-        case.compare(basic(case.payload / f"expected-{label}", version), destination, label)
+        case.compare(
+            basic(case.payload / f"expected-{label}", version), destination, label
+        )

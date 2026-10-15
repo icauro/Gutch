@@ -3,6 +3,7 @@
 Expected: The operation fails and installed content remains unchanged; unsupported hosts
 explicitly skip.
 """
+
 import unittest
 from tests.datasets.generate import basic
 from tests.helpers.filesystem import inventory
@@ -21,6 +22,17 @@ def run(case):
     except OSError as error:
         raise unittest.SkipTest(f"directory links unavailable: {error}") from error
     before = inventory(destination)
-    case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
-                 "--destination", destination, "--staging-dir", alias, success=False)
+    case.command(
+        "installation",
+        "reconstruct",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+        "--staging-dir",
+        alias,
+        success=False,
+    )
     assert inventory(destination) == before

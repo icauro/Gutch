@@ -2,6 +2,7 @@
 
 Expected: Both committed snapshots remain reconstructible with their exact original contents.
 """
+
 import json
 from tests.helpers.cli import start_process, REPOSITORY
 from tests.datasets.generate import basic
@@ -15,9 +16,26 @@ def run(case):
     try:
         for i, data in enumerate(datasets):
             stats = case.root / f"capture-{i}.json"
-            process = start_process([str(case.executable), "snapshot", "capture", "--repo", str(repo),
-                "--source", str(data.root), "--yes", "--jobs", "2", "--json", "--output", str(stats)],
-                REPOSITORY, case.environment, log_path=case.log("concurrent-capture"))
+            process = start_process(
+                [
+                    str(case.executable),
+                    "snapshot",
+                    "capture",
+                    "--repo",
+                    str(repo),
+                    "--source",
+                    str(data.root),
+                    "--yes",
+                    "--jobs",
+                    "2",
+                    "--json",
+                    "--output",
+                    str(stats),
+                ],
+                REPOSITORY,
+                case.environment,
+                log_path=case.log("concurrent-capture"),
+            )
             processes.append((process, stats, data))
         for i, (process, stats, data) in enumerate(processes):
             assert process.wait(timeout=5) == 0

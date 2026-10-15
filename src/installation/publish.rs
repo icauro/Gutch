@@ -1,4 +1,23 @@
 //! Installation publication policies. Selective publication is retryable, not a multi-file atomic commit.
+use super::plan::InstallationChanges;
+use super::types::SnapshotRepairResult;
+use crate::Error;
+use crate::Result;
+use crate::installation::entries::finalize_snapshot_entries;
+use crate::installation::inspect::RepairClassification;
+use crate::installation::inspect::RepairIssue;
+use crate::installation::inspect::RepairIssueKind;
+use crate::installation::inspect::VerifyRequest;
+use crate::installation::inspect::classify_expected_entries_with_marker_namespace_and_pool;
+use crate::manifest::SnapshotEntry;
+use crate::manifest::snapshot::SnapshotManifest;
+use crate::runtime::RuntimeResourceHints;
+use rayon::ThreadPool;
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+
 pub(crate) enum Publication<'a> {
     ReplaceDirectory,
     Selective {
@@ -8,28 +27,6 @@ pub(crate) enum Publication<'a> {
     },
 }
 
-use crate::Error;
-use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
-
-use rayon::ThreadPool;
-
-use crate::Result;
-use crate::installation::inspect::RepairClassification;
-use crate::installation::inspect::RepairIssue;
-use crate::installation::inspect::RepairIssueKind;
-use crate::installation::inspect::VerifyRequest;
-use crate::installation::inspect::classify_expected_entries_with_marker_namespace_and_pool;
-use crate::manifest::SnapshotEntry;
-use crate::manifest::snapshot::SnapshotManifest;
-use crate::runtime::RuntimeResourceHints;
-
-use super::types::SnapshotRepairResult;
-use crate::installation::entries::finalize_snapshot_entries;
-
-use super::plan::InstallationChanges;
 fn manifest_paths_set(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
     snapshot_manifest
         .entries

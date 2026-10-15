@@ -1,8 +1,11 @@
-use crate::artifact::profiles::*;
+use crate::artifact::profiles::{
+    ArtifactStorageMode, BundleSizingPreset, BundleSizingProfile, ChunkSizingPreset,
+    ChunkSizingProfile, Chunker, CompressionKind, CompressionProfile,
+};
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::*;
+use super::{CONTENT_REPO_FORMAT, PUBLIC_METADATA_FORMAT_VERSION};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

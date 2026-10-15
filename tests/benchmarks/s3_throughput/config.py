@@ -78,7 +78,9 @@ def load_storage_scenario(path: Path) -> StorageScenario:
     object_count = int(prepare.get("object_count", 16))
     upload_concurrency = int(prepare.get("upload_concurrency", 4))
     download_concurrency = int(download.get("default_args", {}).get("concurrency", 16))
-    download_runs = int(prepare.get("download_runs", download.get("default_args", {}).get("runs", 1)))
+    download_runs = int(
+        prepare.get("download_runs", download.get("default_args", {}).get("runs", 1))
+    )
     if min(object_count, upload_concurrency, download_concurrency, download_runs) < 1:
         raise ValueError("storage workload counts must be positive")
     size_bytes = _size_bytes(prepare.get("size", "8MiB"))

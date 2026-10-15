@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import random
-import re
 import shutil
 import subprocess
 import sys
@@ -65,6 +64,8 @@ CORPUS_ROOT = TESTS_ROOT / "datasets/corpus"
 TEST_DATASET_ROOT = TESTS_ROOT / "datasets"
 TEST_DATASET_SOURCE_ROOT = TESTS_ROOT / ".artifacts/datasets/products"
 DEFAULT_TEST_DATASET_ROOT = TEST_DATASET_SOURCE_ROOT
+
+
 @dataclass(frozen=True)
 class IntRange:
     minimum: int
@@ -76,7 +77,9 @@ class IntRange:
     def capped_choose(self, rng: random.Random, maximum: int, label: str) -> int:
         capped_maximum = min(self.maximum, maximum)
         if self.minimum > capped_maximum:
-            raise ValueError(f"{label} minimum {self.minimum} exceeds the available {maximum}")
+            raise ValueError(
+                f"{label} minimum {self.minimum} exceeds the available {maximum}"
+            )
         return rng.randint(self.minimum, capped_maximum)
 
     def validate(self, label: str, *, allow_zero: bool = True) -> None:
@@ -152,7 +155,9 @@ class GenerationRanges:
         self.unicode_files.validate("Unicode files")
         self.mixed_case_files.validate("mixed-case files")
         if self.path_depth.maximum > 8:
-            raise ValueError("path depth maximum must be <= 8 for cross-platform path safety")
+            raise ValueError(
+                "path depth maximum must be <= 8 for cross-platform path safety"
+            )
         if self.patches_per_file.minimum > self.changed_bytes_per_file.maximum:
             raise ValueError(
                 "patches-per-file minimum cannot exceed changed-bytes maximum"
@@ -190,7 +195,9 @@ class GenerationRanges:
             + self.moved_files.minimum
         )
         if minimum_required_files > self.file_count.maximum:
-            raise ValueError("minimum per-version operations exceed the maximum file count")
+            raise ValueError(
+                "minimum per-version operations exceed the maximum file count"
+            )
 
     def to_json(self) -> dict[str, list[int]]:
         return {
@@ -203,7 +210,9 @@ class GenerationRanges:
         product_bounds = raw.get("product_size_bytes")
         if not isinstance(product_bounds, list) or len(product_bounds) != 2:
             raise ValueError("fixture metadata is missing range product_size_bytes")
-        default_size_mb = max(1, (int(product_bounds[1]) + 1024 * 1024 - 1) // (1024 * 1024))
+        default_size_mb = max(
+            1, (int(product_bounds[1]) + 1024 * 1024 - 1) // (1024 * 1024)
+        )
         defaults = cls.defaults_for_size_mb(default_size_mb)
         values: dict[str, IntRange] = {}
         for field_name in cls.__dataclass_fields__:
@@ -275,7 +284,9 @@ def _version_label(version_index: int) -> str:
     return f"{version_index}.0.0"
 
 
-def _snapshot_dir_name(version_label: str, platform: str, architecture: str, tier: str) -> str:
+def _snapshot_dir_name(
+    version_label: str, platform: str, architecture: str, tier: str
+) -> str:
     return f"{version_label}-{platform}-{architecture}-{tier}"
 
 
@@ -296,7 +307,9 @@ def _load_fixture_metadata(fixture_dir: Path) -> dict | None:
         return None
 
 
-def _write_json(path: Path, value: object, *, modified_at_ns: int | None = None) -> None:
+def _write_json(
+    path: Path, value: object, *, modified_at_ns: int | None = None
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(value, indent=2, sort_keys=True) + "\n",
@@ -333,7 +346,9 @@ def _save_entries_manifest(
 def _load_entries_manifest(fixture_dir: Path, version_label: str) -> list[_FileEntry]:
     manifest_path = _base_manifest_path(fixture_dir, version_label)
     if not manifest_path.is_file():
-        raise RuntimeError(f"Missing version manifest for {version_label}: {manifest_path}")
+        raise RuntimeError(
+            f"Missing version manifest for {version_label}: {manifest_path}"
+        )
     raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise RuntimeError(f"Invalid version manifest shape for {version_label}")
@@ -422,7 +437,9 @@ def _random_relative_path(
         depth = depth_range.choose(rng)
         if filename is not None and (unicode_name or mixed_case) and depth == 0:
             continue
-        resolved_extension = extension or rng.choice(_BINARY_EXTENSIONS + _TEXT_EXTENSIONS)
+        resolved_extension = extension or rng.choice(
+            _BINARY_EXTENSIONS + _TEXT_EXTENSIONS
+        )
         if length_range is not None:
             desired_length = length_range.choose(rng)
             if filename is not None:
@@ -505,9 +522,7 @@ def _safe_long_path_range(
         key=len,
     )
     available = (
-        _MAX_SAFE_ABSOLUTE_PATH_LENGTH
-        - len(str(fixture_dir / longest_target_name))
-        - 1
+        _MAX_SAFE_ABSOLUTE_PATH_LENGTH - len(str(fixture_dir / longest_target_name)) - 1
     )
     maximum = min(ranges.relative_path_length.maximum, available)
     if ranges.long_path_files.minimum and maximum < ranges.relative_path_length.minimum:
@@ -519,11 +534,15 @@ def _safe_long_path_range(
     return IntRange(ranges.relative_path_length.minimum, maximum)
 
 
-def _allocate_sizes(total_bytes: int, count: int, size_range: IntRange, rng: random.Random) -> list[int]:
+def _allocate_sizes(
+    total_bytes: int, count: int, size_range: IntRange, rng: random.Random
+) -> list[int]:
     minimum_total = count * size_range.minimum
     maximum_total = count * size_range.maximum
     if not minimum_total <= total_bytes <= maximum_total:
-        raise ValueError("selected total size cannot be allocated across the selected file count")
+        raise ValueError(
+            "selected total size cannot be allocated across the selected file count"
+        )
     sizes = [size_range.minimum] * count
     remaining = total_bytes - minimum_total
     available_indexes = list(range(count))
@@ -549,8 +568,12 @@ def _initial_entries(
     feasible_counts = [
         count
         for count in range(ranges.file_count.minimum, ranges.file_count.maximum + 1)
-        if max(ranges.product_size_bytes.minimum, count * ranges.file_size_bytes.minimum)
-        <= min(ranges.product_size_bytes.maximum, count * ranges.file_size_bytes.maximum)
+        if max(
+            ranges.product_size_bytes.minimum, count * ranges.file_size_bytes.minimum
+        )
+        <= min(
+            ranges.product_size_bytes.maximum, count * ranges.file_size_bytes.maximum
+        )
     ]
     file_count = rng.choice(feasible_counts)
     minimum_total = max(
@@ -658,7 +681,9 @@ def _assign_entry_metadata(
     executable_indexes = set(
         rng.sample(
             indexes,
-            ranges.executable_files.capped_choose(rng, len(entries), "executable files"),
+            ranges.executable_files.capped_choose(
+                rng, len(entries), "executable files"
+            ),
         )
     )
     assigned: list[_FileEntry] = []
@@ -709,7 +734,9 @@ def _remove_tree(root: Path) -> None:
 
 def _install_launch_test_executable(base_dir: Path, *, modified_at_ns: int) -> None:
     if os.name == "nt":
-        source = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "where.exe"
+        source = (
+            Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "where.exe"
+        )
         destination = base_dir / "LaunchTest.exe"
     else:
         source = Path("/bin/true")
@@ -743,7 +770,9 @@ def _materialize_tier_snapshot(
     tier: str,
     timestamp_base_seconds: int,
 ) -> Path:
-    snapshot_dir = fixture_dir / _snapshot_dir_name(version_label, platform, architecture, tier)
+    snapshot_dir = fixture_dir / _snapshot_dir_name(
+        version_label, platform, architecture, tier
+    )
     _remove_tree(snapshot_dir)
     _copy_tree_with_file_links(base_dir, snapshot_dir)
     access_info_path = snapshot_dir / "metadata" / "access.json"
@@ -779,9 +808,7 @@ def _materialize_tier_snapshot(
 def _blake3_file_hex(path: Path) -> str:
     executable = shutil.which("b3sum")
     if executable is None:
-        raise RuntimeError(
-            "--emit-test-manifest requires the b3sum executable on PATH"
-        )
+        raise RuntimeError("--emit-test-manifest requires the b3sum executable on PATH")
     result = subprocess.run(
         [executable, "--no-names", str(path)],
         capture_output=True,
@@ -809,31 +836,38 @@ def _write_test_manifest(
             relative_path = path.relative_to(snapshot_dir).as_posix()
             if path.is_symlink():
                 raw_target = Path(os.readlink(path))
-                target_path = (path.parent / raw_target).resolve(strict=False).relative_to(
-                    snapshot_dir.resolve()
-                ).as_posix()
-                entries.append({
-                    "entry_type": "symlink",
-                    "path": relative_path,
-                    "target_path": target_path,
-                })
+                target_path = (
+                    (path.parent / raw_target)
+                    .resolve(strict=False)
+                    .relative_to(snapshot_dir.resolve())
+                    .as_posix()
+                )
+                entries.append(
+                    {
+                        "entry_type": "symlink",
+                        "path": relative_path,
+                        "target_path": target_path,
+                    }
+                )
             elif path.is_dir():
-                entries.append({
-                    "entry_type": "directory",
-                    "path": relative_path,
-                    "read_only": not bool(path.stat().st_mode & 0o222),
-                })
+                entries.append(
+                    {
+                        "entry_type": "directory",
+                        "path": relative_path,
+                        "read_only": not bool(path.stat().st_mode & 0o222),
+                    }
+                )
             elif path.is_file():
                 mode = path.stat().st_mode
                 entries.append(
                     {
-                    "entry_type": "file",
-                    "path": path.relative_to(snapshot_dir).as_posix(),
-                    "size_bytes": path.stat().st_size,
-                    "blake3": _blake3_file_hex(path),
-                    "executable": os.name != "nt" and bool(mode & 0o111),
-                    "read_only": not bool(mode & 0o222),
-                }
+                        "entry_type": "file",
+                        "path": path.relative_to(snapshot_dir).as_posix(),
+                        "size_bytes": path.stat().st_size,
+                        "blake3": _blake3_file_hex(path),
+                        "executable": os.name != "nt" and bool(mode & 0o111),
+                        "read_only": not bool(mode & 0o222),
+                    }
                 )
         snapshots.append(
             {
@@ -883,8 +917,12 @@ def _choose_add_remove_plan(
 ) -> tuple[set[str], int, int]:
     plans = [
         (removed_count, added_count)
-        for removed_count in range(ranges.removed_files.minimum, ranges.removed_files.maximum + 1)
-        for added_count in range(ranges.added_files.minimum, ranges.added_files.maximum + 1)
+        for removed_count in range(
+            ranges.removed_files.minimum, ranges.removed_files.maximum + 1
+        )
+        for added_count in range(
+            ranges.added_files.minimum, ranges.added_files.maximum + 1
+        )
         if removed_count <= len(previous_entries)
         and len(previous_entries) - removed_count
         >= ranges.changed_files.minimum
@@ -898,18 +936,26 @@ def _choose_add_remove_plan(
     for removed_count, added_count in plans:
         for _ in range(100):
             removed = set(
-                rng.sample([entry.relative_path for entry in previous_entries], removed_count)
+                rng.sample(
+                    [entry.relative_path for entry in previous_entries], removed_count
+                )
             )
             retained_entries = [
-                entry for entry in previous_entries if entry.relative_path not in removed
+                entry
+                for entry in previous_entries
+                if entry.relative_path not in removed
             ]
             minimum_patchable_size = max(
                 ranges.patches_per_file.minimum,
                 ranges.changed_bytes_per_file.minimum,
             )
-            if sum(
-                entry.size_bytes >= minimum_patchable_size for entry in retained_entries
-            ) < ranges.changed_files.minimum:
+            if (
+                sum(
+                    entry.size_bytes >= minimum_patchable_size
+                    for entry in retained_entries
+                )
+                < ranges.changed_files.minimum
+            ):
                 continue
             retained_paths = [entry.relative_path for entry in retained_entries]
             feature_deficits = [
@@ -953,7 +999,9 @@ def _choose_add_remove_plan(
     )
 
 
-def _random_composition(total: int, parts: int, minimum_each: int, rng: random.Random) -> list[int]:
+def _random_composition(
+    total: int, parts: int, minimum_each: int, rng: random.Random
+) -> list[int]:
     remaining = total - parts * minimum_each
     if parts == 1:
         return [total]
@@ -966,7 +1014,9 @@ def _random_composition(total: int, parts: int, minimum_each: int, rng: random.R
     return values
 
 
-def _patches_for_entry(entry: _FileEntry, ranges: GenerationRanges, rng: random.Random) -> list[_BytePatch]:
+def _patches_for_entry(
+    entry: _FileEntry, ranges: GenerationRanges, rng: random.Random
+) -> list[_BytePatch]:
     patch_count = ranges.patches_per_file.capped_choose(
         rng,
         min(entry.size_bytes, ranges.changed_bytes_per_file.maximum),
@@ -980,12 +1030,16 @@ def _patches_for_entry(entry: _FileEntry, ranges: GenerationRanges, rng: random.
         )
     changed_bytes = rng.randint(minimum_changed, maximum_changed)
     lengths = _random_composition(changed_bytes, patch_count, 1, rng)
-    gaps = _random_composition(entry.size_bytes - changed_bytes, patch_count + 1, 0, rng)
+    gaps = _random_composition(
+        entry.size_bytes - changed_bytes, patch_count + 1, 0, rng
+    )
     patches: list[_BytePatch] = []
     offset = gaps[0]
     for index, length in enumerate(lengths):
         replacement_seed = rng.getrandbits(63)
-        replacement = _deterministic_bytes(length, replacement_seed, text=not entry.is_binary)
+        replacement = _deterministic_bytes(
+            length, replacement_seed, text=not entry.is_binary
+        )
         patches.append(_BytePatch(entry.relative_path, offset, replacement))
         offset += length + gaps[index + 1]
     return patches
@@ -1008,18 +1062,28 @@ def _derive_next_version(
         ranges.changed_bytes_per_file.minimum,
     )
     patchable_entries = [
-        entry for entry in retained_entries if entry.size_bytes >= minimum_patchable_size
+        entry
+        for entry in retained_entries
+        if entry.size_bytes >= minimum_patchable_size
     ]
     operation_counts = [
         (changed_count, renamed_count, moved_count)
-        for changed_count in range(ranges.changed_files.minimum, ranges.changed_files.maximum + 1)
-        for renamed_count in range(ranges.renamed_files.minimum, ranges.renamed_files.maximum + 1)
-        for moved_count in range(ranges.moved_files.minimum, ranges.moved_files.maximum + 1)
+        for changed_count in range(
+            ranges.changed_files.minimum, ranges.changed_files.maximum + 1
+        )
+        for renamed_count in range(
+            ranges.renamed_files.minimum, ranges.renamed_files.maximum + 1
+        )
+        for moved_count in range(
+            ranges.moved_files.minimum, ranges.moved_files.maximum + 1
+        )
         if changed_count <= len(patchable_entries)
         and changed_count + renamed_count + moved_count <= len(retained_entries)
     ]
     if not operation_counts:
-        raise ValueError("operation ranges require more retained files than are available")
+        raise ValueError(
+            "operation ranges require more retained files than are available"
+        )
     changed_count, renamed_count, moved_count = rng.choice(operation_counts)
     changed_entries = rng.sample(patchable_entries, changed_count)
     changed_paths = {entry.relative_path for entry in changed_entries}
@@ -1068,8 +1132,7 @@ def _derive_next_version(
         old_path = entry.relative_path
         paths.remove(old_path)
         preserve_long_path = (
-            long_path_range is not None
-            and len(old_path) >= long_path_range.minimum
+            long_path_range is not None and len(old_path) >= long_path_range.minimum
         )
         move_depth_range = ranges.path_depth
         if _has_unicode(old_path) or _has_mixed_case(old_path):
@@ -1083,7 +1146,9 @@ def _derive_next_version(
             paths,
             extension=Path(old_path).suffix,
             filename=Path(old_path).name,
-            length_range=IntRange(len(old_path), len(old_path)) if preserve_long_path else None,
+            length_range=IntRange(len(old_path), len(old_path))
+            if preserve_long_path
+            else None,
             unicode_name=_has_unicode(old_path),
             mixed_case=_has_mixed_case(old_path),
         )
@@ -1097,12 +1162,16 @@ def _derive_next_version(
     ]
 
     retained_size = sum(entry.size_bytes for entry in retained_entries)
-    added_sizes = _allocate_sizes(
-        target_total_size - retained_size,
-        added_count,
-        ranges.file_size_bytes,
-        rng,
-    ) if added_count else []
+    added_sizes = (
+        _allocate_sizes(
+            target_total_size - retained_size,
+            added_count,
+            ranges.file_size_bytes,
+            rng,
+        )
+        if added_count
+        else []
+    )
     added_entries: list[_FileEntry] = []
     final_file_count = len(retained_entries) + added_count
     added_indexes = list(range(added_count))
@@ -1177,7 +1246,11 @@ def _replacement_bytes(existing: bytes, proposed: bytes, *, text: bool) -> bytes
     alphabet = _TEXT_BYTES if text else bytes(range(256))
     for index, existing_byte in enumerate(existing):
         if output[index] == existing_byte:
-            replacement_index = (alphabet.index(existing_byte) + 1) % len(alphabet) if existing_byte in alphabet else 0
+            replacement_index = (
+                (alphabet.index(existing_byte) + 1) % len(alphabet)
+                if existing_byte in alphabet
+                else 0
+            )
             output[index] = alphabet[replacement_index]
     return bytes(output)
 
@@ -1195,7 +1268,9 @@ def _build_next_version(
     _make_tree_writable(next_base_dir)
     for removed_path in changes.removed_paths:
         (next_base_dir / removed_path).unlink()
-    entries_by_original_path = {entry.relative_path: entry for entry in previous_entries}
+    entries_by_original_path = {
+        entry.relative_path: entry for entry in previous_entries
+    }
     for old_path, new_path in changes.relocated_paths.items():
         destination = next_base_dir / new_path
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1208,7 +1283,9 @@ def _build_next_version(
             existing = handle.read(len(patch.replacement))
             handle.seek(patch.offset)
             handle.write(
-                _replacement_bytes(existing, patch.replacement, text=not entry.is_binary)
+                _replacement_bytes(
+                    existing, patch.replacement, text=not entry.is_binary
+                )
             )
     for entry in changes.added_entries:
         _write_entry(next_base_dir / entry.relative_path, entry)
@@ -1240,13 +1317,17 @@ def write_fixture(
     fixture_dir.mkdir(parents=True, exist_ok=True)
 
     metadata = _load_fixture_metadata(fixture_dir) or {}
-    existing_versions = int(metadata.get("latest_version", 0)) or _detect_existing_version_count(fixture_dir)
+    existing_versions = int(
+        metadata.get("latest_version", 0)
+    ) or _detect_existing_version_count(fixture_dir)
     if existing_versions:
         stored_ranges = metadata.get("ranges")
         if isinstance(stored_ranges, dict):
             persisted_ranges = GenerationRanges.from_json(stored_ranges)
             if ranges is not None and ranges != persisted_ranges:
-                raise ValueError("cannot change generation ranges while appending versions")
+                raise ValueError(
+                    "cannot change generation ranges while appending versions"
+                )
             ranges = persisted_ranges
         if "seed" in metadata:
             persisted_seed = int(metadata["seed"])
@@ -1285,14 +1366,14 @@ def write_fixture(
             )
         return FixtureResult(fixture_dir, [], [], existing_versions, seed)
 
-    long_path_range = _safe_long_path_range(
-        fixture_dir, ranges, target_total_versions
-    )
+    long_path_range = _safe_long_path_range(fixture_dir, ranges, target_total_versions)
     timestamp_base_seconds = _timestamp_base_seconds(seed)
     captured_snapshot_dirs: list[Path] = []
     created_version_labels: list[str] = []
     if existing_versions:
-        previous_entries = _load_entries_manifest(fixture_dir, _version_label(existing_versions))
+        previous_entries = _load_entries_manifest(
+            fixture_dir, _version_label(existing_versions)
+        )
     else:
         previous_entries = []
 
@@ -1314,7 +1395,9 @@ def write_fixture(
                 ),
             )
         else:
-            previous_base_dir = _base_version_dir(fixture_dir, _version_label(version_index - 1))
+            previous_base_dir = _base_version_dir(
+                fixture_dir, _version_label(version_index - 1)
+            )
             changes = _derive_next_version(
                 previous_entries, ranges, version_rng, long_path_range
             )
@@ -1431,7 +1514,9 @@ def _write_source_config(
                     "tags": [
                         f"version={version_label}",
                         f"os={platform}",
-                        "arch=x86_64" if architecture == "x86" else f"arch={architecture}",
+                        "arch=x86_64"
+                        if architecture == "x86"
+                        else f"arch={architecture}",
                     ],
                 }
             )
@@ -1484,7 +1569,9 @@ def _parse_args() -> argparse.Namespace:
     _add_range_arguments(parser, "file_size_bytes", argument_name="file-size-bytes")
     _add_range_arguments(parser, "changed_files")
     _add_range_arguments(parser, "patches_per_file")
-    _add_range_arguments(parser, "changed_bytes_per_file", argument_name="changed-bytes")
+    _add_range_arguments(
+        parser, "changed_bytes_per_file", argument_name="changed-bytes"
+    )
     _add_range_arguments(parser, "added_files")
     _add_range_arguments(parser, "removed_files")
     _add_range_arguments(parser, "renamed_files")
@@ -1527,7 +1614,9 @@ def _resolve_range(args: argparse.Namespace, name: str, default: IntRange) -> In
     return IntRange(int(resolved_minimum), int(resolved_maximum))
 
 
-def _ranges_from_args(args: argparse.Namespace, default_size_mb: int) -> GenerationRanges:
+def _ranges_from_args(
+    args: argparse.Namespace, default_size_mb: int
+) -> GenerationRanges:
     if args.size_mb > 0:
         product_size_mb = IntRange(args.size_mb, args.size_mb)
     else:
@@ -1544,9 +1633,13 @@ def _ranges_from_args(args: argparse.Namespace, default_size_mb: int) -> Generat
         ),
         file_count=_resolve_range(args, "file_count", defaults.file_count),
         path_depth=_resolve_range(args, "path_depth", defaults.path_depth),
-        file_size_bytes=_resolve_range(args, "file_size_bytes", defaults.file_size_bytes),
+        file_size_bytes=_resolve_range(
+            args, "file_size_bytes", defaults.file_size_bytes
+        ),
         changed_files=_resolve_range(args, "changed_files", defaults.changed_files),
-        patches_per_file=_resolve_range(args, "patches_per_file", defaults.patches_per_file),
+        patches_per_file=_resolve_range(
+            args, "patches_per_file", defaults.patches_per_file
+        ),
         changed_bytes_per_file=_resolve_range(
             args, "changed_bytes_per_file", defaults.changed_bytes_per_file
         ),
@@ -1554,7 +1647,9 @@ def _ranges_from_args(args: argparse.Namespace, default_size_mb: int) -> Generat
         removed_files=_resolve_range(args, "removed_files", defaults.removed_files),
         renamed_files=_resolve_range(args, "renamed_files", defaults.renamed_files),
         moved_files=_resolve_range(args, "moved_files", defaults.moved_files),
-        long_path_files=_resolve_range(args, "long_path_files", defaults.long_path_files),
+        long_path_files=_resolve_range(
+            args, "long_path_files", defaults.long_path_files
+        ),
         relative_path_length=_resolve_range(
             args, "relative_path_length", defaults.relative_path_length
         ),
@@ -1575,14 +1670,18 @@ def _ranges_from_args(args: argparse.Namespace, default_size_mb: int) -> Generat
 def main() -> int:
     try:
         if len(sys.argv) > 1 and sys.argv[1] in {"list", "prepare"}:
-            parser = argparse.ArgumentParser(description="List cases or prepare disposable source data")
+            parser = argparse.ArgumentParser(
+                description="List cases or prepare disposable source data"
+            )
             parser.add_argument("action", choices=("list", "prepare"))
             parser.add_argument("case", nargs="?", choices=case_names())
             args = parser.parse_args()
             if args.action == "list":
                 for name in case_names():
                     definition = load_case(name)
-                    print(f"{name}: {definition['source']['kind']}; repositories: {', '.join(definition['repositories'])}")
+                    print(
+                        f"{name}: {definition['source']['kind']}; repositories: {', '.join(definition['repositories'])}"
+                    )
             else:
                 if not args.case:
                     parser.error("prepare requires a case name")
@@ -1592,12 +1691,27 @@ def main() -> int:
         fixtures_root = Path(args.path or DEFAULT_TEST_DATASET_ROOT).resolve()
         if args.append_versions < 0:
             raise ValueError("append-versions must be >= 0")
-        existing = _load_fixture_metadata(fixtures_root / args.name) if args.name else None
-        ranges = None if existing and not args.force else _ranges_from_args(args, max(1, args.size_mb or 4))
-        mock_results = [write_fixture(root=fixtures_root, name=args.name or "generated",
-            total_versions=args.versions or 2, append_versions=args.append_versions,
-            force=args.force, ranges=ranges, seed=args.seed,
-            emit_test_manifest=args.emit_test_manifest, public_source_only=args.public_source_only)]
+        existing = (
+            _load_fixture_metadata(fixtures_root / args.name) if args.name else None
+        )
+        ranges = (
+            None
+            if existing and not args.force
+            else _ranges_from_args(args, max(1, args.size_mb or 4))
+        )
+        mock_results = [
+            write_fixture(
+                root=fixtures_root,
+                name=args.name or "generated",
+                total_versions=args.versions or 2,
+                append_versions=args.append_versions,
+                force=args.force,
+                ranges=ranges,
+                seed=args.seed,
+                emit_test_manifest=args.emit_test_manifest,
+                public_source_only=args.public_source_only,
+            )
+        ]
         for result in mock_results:
             print(f"=== {result.fixture_dir.name} ===")
             print(f"    Path: {result.fixture_dir}")
@@ -1622,12 +1736,17 @@ class Dataset:
         for parent in [path, *path.parents]:
             if parent == self.root:
                 break
-            self.expected.setdefault(parent.relative_to(self.root).as_posix(), {"kind": "directory", "read_only": False})
+            self.expected.setdefault(
+                parent.relative_to(self.root).as_posix(),
+                {"kind": "directory", "read_only": False},
+            )
         if read_only:
             path.chmod(0o555)
             self.expected[relative]["read_only"] = True
 
-    def file(self, relative: str, data: bytes, *, read_only=False, executable=False) -> None:
+    def file(
+        self, relative: str, data: bytes, *, read_only=False, executable=False
+    ) -> None:
         path = self.root / relative
         if path.parent != self.root:
             self.directory(path.parent.relative_to(self.root).as_posix())
@@ -1636,10 +1755,18 @@ class Dataset:
         if path.exists():
             path.chmod(0o600)
         path.write_bytes(data)
-        path.chmod((0o555 if executable else 0o444) if read_only else (0o755 if executable else 0o644))
-        self.expected[relative] = {"kind": "file", "size": len(data),
-            "sha256": hashlib.sha256(data).hexdigest(), "read_only": read_only,
-            "executable": executable and os.name != "nt"}
+        path.chmod(
+            (0o555 if executable else 0o444)
+            if read_only
+            else (0o755 if executable else 0o644)
+        )
+        self.expected[relative] = {
+            "kind": "file",
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "read_only": read_only,
+            "executable": executable and os.name != "nt",
+        }
 
     def link(self, relative: str, target: str) -> None:
         try:
@@ -1650,7 +1777,10 @@ class Dataset:
 
     def save_expectation(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"schema_version": 1, "entries": self.expected}, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps({"schema_version": 1, "entries": self.expected}, indent=2),
+            encoding="utf-8",
+        )
 
 
 def basic(root: Path, version: int = 1) -> Dataset:
@@ -1671,7 +1801,10 @@ def metadata(root: Path, *, links=False) -> Dataset:
     data.file("readonly.txt", b"preserve attributes", read_only=True)
     data.file("launch.sh", b"#!/bin/sh\nexit 0\n", executable=True)
     data.directory("readonly-directory", read_only=True)
-    data.file("/".join(["long-directory-name-" * 2] * 3) + "/MixedCase.txt", b"long nested path")
+    data.file(
+        "/".join(["long-directory-name-" * 2] * 3) + "/MixedCase.txt",
+        b"long nested path",
+    )
     if links:
         data.link("shared-link", "data/shared.bin")
     return data
@@ -1680,7 +1813,19 @@ def metadata(root: Path, *, links=False) -> Dataset:
 def boundaries(root: Path) -> Dataset:
     data = Dataset(root)
     generator = random.Random(923)
-    for size in (0, 1, 32767, 32768, 32769, 131071, 131072, 131073, 524287, 524288, 524289):
+    for size in (
+        0,
+        1,
+        32767,
+        32768,
+        32769,
+        131071,
+        131072,
+        131073,
+        524287,
+        524288,
+        524289,
+    ):
         data.file(f"size-{size}.bin", generator.randbytes(size))
     data.file("repeated.bin", b"repeat" * 100_000)
     return data
@@ -1697,7 +1842,13 @@ def delivery(root: Path) -> Dataset:
 
 def generated(root: Path, seed: int, version: int = 1) -> Dataset:
     """The default small lifecycle input uses the same fuzz-driven generator."""
-    return fuzzed(root, str(seed).encode(), profile="version_changes", version=version, max_bytes=262144)
+    return fuzzed(
+        root,
+        str(seed).encode(),
+        profile="version_changes",
+        version=version,
+        max_bytes=262144,
+    )
 
 
 GENERATOR_VERSION = 2
@@ -1705,10 +1856,18 @@ GENERATOR_VERSION = 2
 # These are input alphabets, not normalization rules. Keep generated code points intact.
 NAME_ALPHABETS = (
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-    "éàöñøßÆČŁ", "абвгдежзийклмнопрстуфхцчшщэюя", "ابتثجحخدذرزسشصضطظعغفقكلمنهوي",
-    "אבגדהוזחטיכלמנסעפצקרשת", "日本東京漢字語数据文件", "αβγδεζηθικλμνξοπρστυφχψω",
-    "हिन्दीभाषाफाइल", "한국어파일이름", "\U0001f680\U0001f600\U0001f9ea\U0001f30d",
-    " _-.,;!@#$%&()+={}[]'", "e\u0301a\u0308", "\u200b\u200d\u2067\u2069",
+    "éàöñøßÆČŁ",
+    "абвгдежзийклмнопрстуфхцчшщэюя",
+    "ابتثجحخدذرزسشصضطظعغفقكلمنهوي",
+    "אבגדהוזחטיכלמנסעפצקרשת",
+    "日本東京漢字語数据文件",
+    "αβγδεζηθικλμνξοπρστυφχψω",
+    "हिन्दीभाषाफाइल",
+    "한국어파일이름",
+    "\U0001f680\U0001f600\U0001f9ea\U0001f30d",
+    " _-.,;!@#$%&()+={}[]'",
+    "e\u0301a\u0308",
+    "\u200b\u200d\u2067\u2069",
 )
 
 
@@ -1720,32 +1879,60 @@ def random_filename(rng, index):
         points = []
         while len(points) < 8:
             character = chr(rng.randrange(0x110000))
-            if ord(character) >= 160 and not 0xD800 <= ord(character) <= 0xDFFF and character not in '/\\<>:"|?*':
+            if (
+                ord(character) >= 160
+                and not 0xD800 <= ord(character) <= 0xDFFF
+                and character not in '/\\<>:"|?*'
+            ):
                 points.append(character)
         alphabet += "".join(points)
     body = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 24)))
     return f"n{index}-{body}.dat"
 
 
-FUZZ_PROFILES = ("empty_and_tiny", "chunk_boundaries", "duplicates", "compressible",
-                "random_content", "unicode", "nested_paths", "attributes", "version_changes", "many_small_files")
+FUZZ_PROFILES = (
+    "empty_and_tiny",
+    "chunk_boundaries",
+    "duplicates",
+    "compressible",
+    "random_content",
+    "unicode",
+    "nested_paths",
+    "attributes",
+    "version_changes",
+    "many_small_files",
+)
 
 
-def fuzzed(root: Path, input_bytes: bytes, *, profile="random_content", version=1,
-           max_bytes=1024 * 1024) -> Dataset:
+def fuzzed(
+    root: Path,
+    input_bytes: bytes,
+    *,
+    profile="random_content",
+    version=1,
+    max_bytes=1024 * 1024,
+) -> Dataset:
     """Turn arbitrary fuzzer bytes into a bounded, reproducible source tree."""
-    if profile not in FUZZ_PROFILES or not 128 <= max_bytes <= 4 * 1024 * 1024 or not 1 <= version <= 100:
-        raise ValueError("invalid fuzz profile, byte budget (128..4 MiB), or version (1..100)")
+    if (
+        profile not in FUZZ_PROFILES
+        or not 128 <= max_bytes <= 4 * 1024 * 1024
+        or not 1 <= version <= 100
+    ):
+        raise ValueError(
+            "invalid fuzz profile, byte budget (128..4 MiB), or version (1..100)"
+        )
     if root.exists() and any(root.iterdir()):
         raise ValueError("fuzz generation requires an empty destination")
     rng = random.Random(int.from_bytes(hashlib.sha256(input_bytes).digest(), "big"))
     data = Dataset(root)
     remaining = max_bytes
+
     def emit(name, content, **attributes):
         nonlocal remaining
         content = content[:remaining]
         data.file(name, content, **attributes)
         remaining -= len(content)
+
     data.directory("empty")
     emit("version.txt", f"{version}\n".encode())
     emit("empty.bin", b"")
@@ -1777,24 +1964,44 @@ def fuzzed(root: Path, input_bytes: bytes, *, profile="random_content", version=
         data.directory("readonly-directory", read_only=True)
     elif profile == "many_small_files":
         for index in range(100):
-            emit(f"group-{index % 5}/file-{index}.bin", rng.randbytes(rng.randrange(2049)))
+            emit(
+                f"group-{index % 5}/file-{index}.bin",
+                rng.randbytes(rng.randrange(2049)),
+            )
     else:
         emit("random.bin", rng.randbytes(remaining // 2))
     remaining += reserved
-    name_rng = random.Random(int.from_bytes(hashlib.sha256(input_bytes + b"names-v2").digest(), "big"))
+    name_rng = random.Random(
+        int.from_bytes(hashlib.sha256(input_bytes + b"names-v2").digest(), "big")
+    )
     # Guaranteed representative scripts plus random combinations in every case.
     for index, alphabet in enumerate(NAME_ALPHABETS):
-        emit(f"names/n{index}-{alphabet}.txt" if index not in (10,) else "names/n10-punctuation !@#$%&()+={}[]'.txt",
-             name_rng.randbytes(name_rng.randrange(65)),
-             read_only=index % 4 == 0, executable=index % 4 == 1)
+        emit(
+            f"names/n{index}-{alphabet}.txt"
+            if index not in (10,)
+            else "names/n10-punctuation !@#$%&()+={}[]'.txt",
+            name_rng.randbytes(name_rng.randrange(65)),
+            read_only=index % 4 == 0,
+            executable=index % 4 == 1,
+        )
     for index in range(name_rng.randint(12, 28)):
         depth = name_rng.randint(0, 5)
-        parents = [f"d{level}-" + random_filename(name_rng, index) for level in range(depth)]
+        parents = [
+            f"d{level}-" + random_filename(name_rng, index) for level in range(depth)
+        ]
         name = "/".join(["random", *parents, random_filename(name_rng, index)])
-        emit(name, name_rng.randbytes(name_rng.choice((0, 1, 31, 127, 1023, 4097))),
-             read_only=name_rng.randrange(4) == 0, executable=name_rng.randrange(4) == 0)
+        emit(
+            name,
+            name_rng.randbytes(name_rng.choice((0, 1, 31, 127, 1023, 4097))),
+            read_only=name_rng.randrange(4) == 0,
+            executable=name_rng.randrange(4) == 0,
+        )
     # Metadata-only changes, type replacements and case changes are explicit transitions.
-    emit("permission-change.txt", b"same bytes across versions", read_only=version % 2 == 0)
+    emit(
+        "permission-change.txt",
+        b"same bytes across versions",
+        read_only=version % 2 == 0,
+    )
     if version % 2:
         emit("type-change", b"file becomes directory")
     else:
@@ -1802,9 +2009,16 @@ def fuzzed(root: Path, input_bytes: bytes, *, profile="random_content", version=
     emit("Case-change.txt" if version % 2 else "case-change.txt", b"case-only rename")
 
     # Different versions exercise insertion, deletion, renaming, moves and stable tails.
-    rng.seed(int.from_bytes(hashlib.sha256(input_bytes + str(version).encode()).digest(), "big"))
+    rng.seed(
+        int.from_bytes(
+            hashlib.sha256(input_bytes + str(version).encode()).digest(), "big"
+        )
+    )
     offset = rng.randrange(len(shared)) if shared else 0
-    emit("changing.bin", shared[:offset] + rng.randbytes(version * 13) + shared[offset + version:])
+    emit(
+        "changing.bin",
+        shared[:offset] + rng.randbytes(version * 13) + shared[offset + version :],
+    )
     emit("old.txt" if version == 1 else "moved/new.txt", b"identical renamed content")
     emit("removed.txt" if version == 1 else "added.txt", rng.randbytes(17))
     return data
@@ -1817,7 +2031,9 @@ def case_names():
 def load_case(name):
     if name not in case_names():
         raise ValueError(f"unknown dataset case: {name}")
-    definition = json.loads((CORPUS_ROOT / name / "case.json").read_text(encoding="utf-8"))
+    definition = json.loads(
+        (CORPUS_ROOT / name / "case.json").read_text(encoding="utf-8")
+    )
     if definition.get("schema_version") != 1:
         raise ValueError(f"unsupported dataset schema: {name}")
     return definition
@@ -1830,18 +2046,30 @@ def prepare_case_source(name):
     target = TESTS_ROOT / ".artifacts/datasets" / name / "source"
     if settings["kind"] == "blender":
         from .prepare_blender import prepare_blender_product
-        prepare_blender_product(recipe_path=CORPUS_ROOT / name / "case.json", product_dir=target,
-            versions=settings["selected_versions"], platforms=settings["selected_platforms"],
-            cache_dir=target.parent / "archives")
+
+        prepare_blender_product(
+            recipe_path=CORPUS_ROOT / name / "case.json",
+            product_dir=target,
+            versions=settings["selected_versions"],
+            platforms=settings["selected_platforms"],
+            cache_dir=target.parent / "archives",
+        )
     elif settings["kind"] == "generated":
         if settings["generator_version"] != GENERATOR_VERSION:
             raise ValueError("corpus requires a different generator version")
         if not target.exists():
             for version in range(1, settings["versions"] + 1):
-                fuzzed(target / f"v{version}", bytes.fromhex(settings["input_hex"]),
-                       profile=settings["profile"], version=version, max_bytes=settings["max_bytes_per_version"])
+                fuzzed(
+                    target / f"v{version}",
+                    bytes.fromhex(settings["input_hex"]),
+                    profile=settings["profile"],
+                    version=version,
+                    max_bytes=settings["max_bytes_per_version"],
+                )
     else:
-        raise ValueError(f"case {name} preserves a historical repository without regenerable source")
+        raise ValueError(
+            f"case {name} preserves a historical repository without regenerable source"
+        )
     if (CORPUS_ROOT / name / "expected.json").exists():
         validate_case_source(name, target)
     return target
@@ -1849,7 +2077,9 @@ def prepare_case_source(name):
 
 def validate_case_source(name, target):
     """Check prepared inputs against frozen source inventories, independent of Gutch."""
-    expected = json.loads((CORPUS_ROOT / name / "expected.json").read_text(encoding="utf-8"))
+    expected = json.loads(
+        (CORPUS_ROOT / name / "expected.json").read_text(encoding="utf-8")
+    )
     for version, specification in expected.items():
         root = target / version
         for relative, entry in specification["entries"].items():
@@ -1863,11 +2093,15 @@ def validate_case_source(name, target):
                     raise ValueError(f"source differs from frozen inventory: {path}")
             elif entry["kind"] == "directory" and not path.is_dir():
                 raise ValueError(f"missing source directory: {path}")
+
         def fail(error):
             raise error
-        actual = {str((Path(directory) / name).relative_to(root)).replace("\\", "/")
-                  for directory, directories, files in os.walk(root, onerror=fail)
-                  for name in directories + files}
+
+        actual = {
+            str((Path(directory) / name).relative_to(root)).replace("\\", "/")
+            for directory, directories, files in os.walk(root, onerror=fail)
+            for name in directories + files
+        }
         if actual != specification["entries"].keys():
             raise ValueError(f"source paths differ from frozen inventory: {root}")
     return target
@@ -1877,7 +2111,9 @@ def prepared_source(name):
     load_case(name)
     target = TESTS_ROOT / ".artifacts/datasets" / name / "source"
     if not target.is_dir():
-        raise ValueError(f"missing prepared source; run: python gutch.py dataset prepare {name}")
+        raise ValueError(
+            f"missing prepared source; run: python gutch.py dataset prepare {name}"
+        )
     return validate_case_source(name, target)
 
 

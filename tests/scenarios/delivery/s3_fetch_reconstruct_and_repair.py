@@ -4,6 +4,7 @@ repair, then corrupt a remote artifact and retry after restoring it.
 Expected: Delivery and repair match the source; remote corruption preserves the installation
 and retry succeeds after the artifact is restored.
 """
+
 import json
 from tests.helpers.delivery import publish_to_s3, s3_client, fetch_arguments
 from tests.helpers.filesystem import inventory
@@ -19,12 +20,21 @@ def run(case):
     client = s3_client()
     bucket = json.loads((case.root / "s3.json").read_text())["bucket"]
     key = artifact.relative_to(repo).as_posix()
-    client.put_object(Bucket=bucket, Key=key, Body=bytes(byte ^ 0xFF for byte in original))
+    client.put_object(
+        Bucket=bucket, Key=key, Body=bytes(byte ^ 0xFF for byte in original)
+    )
     destination = case.payload / "preserved-installation"
     destination.mkdir()
     (destination / "keep.txt").write_bytes(b"existing content")
     before = inventory(destination)
-    arguments = fetch_arguments(case, case.payload / "corrupt-cache", snapshot, repo, url, destination=destination)
+    arguments = fetch_arguments(
+        case,
+        case.payload / "corrupt-cache",
+        snapshot,
+        repo,
+        url,
+        destination=destination,
+    )
     case.command(*arguments, success=False)
     assert inventory(destination) == before
     client.put_object(Bucket=bucket, Key=key, Body=original)

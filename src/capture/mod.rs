@@ -1,3 +1,5 @@
+//! Capture source discovery, stable scanning, reuse planning, and snapshot publication.
+
 mod build;
 pub(crate) mod configured_sources;
 pub(crate) mod contracts;

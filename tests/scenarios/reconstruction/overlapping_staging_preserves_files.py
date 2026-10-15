@@ -4,6 +4,7 @@ parent.
 Expected: Overlap fails without mutation; disjoint staging works and preserves preexisting
 files.
 """
+
 from tests.datasets.generate import basic
 from tests.helpers.filesystem import inventory
 
@@ -15,12 +16,27 @@ def run(case):
     destination = case.payload / "installation" / "content"
     destination.mkdir(parents=True)
     (destination / "keep.txt").write_bytes(b"installed")
-    for staging in (destination, destination.parent, destination / "child", destination / ".." / "content"):
+    for staging in (
+        destination,
+        destination.parent,
+        destination / "child",
+        destination / ".." / "content",
+    ):
         before = inventory(destination.parent)
         for command in [("installation", "reconstruct"), ("installation", "repair")]:
-            case.command(*command, "--repo", repo, "--snapshot", snapshot,
-                "--destination", destination, "--staging-dir", staging,
-                *(["--yes"] if command[1] == "repair" else []), success=False)
+            case.command(
+                *command,
+                "--repo",
+                repo,
+                "--snapshot",
+                snapshot,
+                "--destination",
+                destination,
+                "--staging-dir",
+                staging,
+                *(["--yes"] if command[1] == "repair" else []),
+                success=False,
+            )
             assert inventory(destination.parent) == before
     staging = case.payload / "work"
     staging.mkdir()

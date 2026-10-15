@@ -4,6 +4,7 @@ cache.
 Expected: Fetch fails without changing cached bytes and the previously cached snapshot remains
 usable.
 """
+
 from tests.helpers.delivery import DeliveryServer, fetch_arguments
 from tests.helpers.filesystem import repository_inventory as inventory
 from tests.helpers.delivery_workflow import published

@@ -3,6 +3,7 @@
 Expected: Invalid names reject operations without modifying existing payloads;
 clearing constraints and fetching a compatible constrained repository succeed.
 """
+
 import json
 import os
 from tests.helpers.filesystem import inventory, repository_inventory
@@ -21,8 +22,18 @@ def run(case):
     snapshot = case.capture(repo, source)["snapshot_id"]
     error_path = case.root / "constraint-error.json"
     before = repository_inventory(repo)
-    case.command("repo", "constraints", "set", "--repo", repo, "--filesystem", target,
-                 "--error-json-out", error_path, success=False)
+    case.command(
+        "repo",
+        "constraints",
+        "set",
+        "--repo",
+        repo,
+        "--filesystem",
+        target,
+        "--error-json-out",
+        error_path,
+        success=False,
+    )
     assert repository_inventory(repo) == before
     failure = json.loads(error_path.read_text(encoding="utf-8"))
     assert failure["code"] == "filename_constraints"
@@ -31,12 +42,27 @@ def run(case):
     assert failure["details"]["violations"][0]["target"] == target
 
     constrained = case.init("constrained")
-    case.command("repo", "constraints", "set", "--repo", constrained, "--filesystem", target)
+    case.command(
+        "repo", "constraints", "set", "--repo", constrained, "--filesystem", target
+    )
     before = repository_inventory(constrained)
-    case.command("snapshot", "capture", "--repo", constrained, "--source", source,
-                 "--yes", "--error-json-out", error_path, success=False)
+    case.command(
+        "snapshot",
+        "capture",
+        "--repo",
+        constrained,
+        "--source",
+        source,
+        "--yes",
+        "--error-json-out",
+        error_path,
+        success=False,
+    )
     assert repository_inventory(constrained) == before
-    assert json.loads(error_path.read_text(encoding="utf-8"))["details"]["operation"] == "capture"
+    assert (
+        json.loads(error_path.read_text(encoding="utf-8"))["details"]["operation"]
+        == "capture"
+    )
 
     # External metadata editing cannot bypass verification or restoration checks.
     metadata_path = repo / "repo_metadata.json"
@@ -45,9 +71,16 @@ def run(case):
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     with DeliveryServer(repo) as server:
         cache = case.payload / "rejected-cache"
-        case.command(*fetch_arguments(case, cache, snapshot, repo, server.url),
-                     "--error-json-out", error_path, success=False)
-        assert json.loads(error_path.read_text(encoding="utf-8"))["details"]["operation"] == "fetch"
+        case.command(
+            *fetch_arguments(case, cache, snapshot, repo, server.url),
+            "--error-json-out",
+            error_path,
+            success=False,
+        )
+        assert (
+            json.loads(error_path.read_text(encoding="utf-8"))["details"]["operation"]
+            == "fetch"
+        )
         assert not (cache / "repo_metadata.json").exists()
         assert not list((cache / "snapshots").glob("*/snapshot_metadata.json"))
     case.command("repo", "verify", "--repo", repo, success=False)
@@ -55,8 +88,17 @@ def run(case):
     destination.mkdir()
     (destination / "keep.txt").write_text("keep", encoding="utf-8")
     before = inventory(destination)
-    case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
-                 "--destination", destination, success=False)
+    case.command(
+        "installation",
+        "reconstruct",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+        success=False,
+    )
     assert inventory(destination) == before
     case.command("repo", "constraints", "clear", "--repo", repo)
     case.command("repo", "verify", "--repo", repo)
@@ -70,5 +112,9 @@ def run(case):
     safe_snapshot = case.capture(constrained, safe_source)["snapshot_id"]
     with DeliveryServer(constrained) as server:
         cache = case.payload / "accepted-cache"
-        case.command(*fetch_arguments(case, cache, safe_snapshot, constrained, server.url))
-        assert json.loads((cache / "repo_metadata.json").read_text(encoding="utf-8"))["constraints"]["targets"] == [target]
+        case.command(
+            *fetch_arguments(case, cache, safe_snapshot, constrained, server.url)
+        )
+        assert json.loads((cache / "repo_metadata.json").read_text(encoding="utf-8"))[
+            "constraints"
+        ]["targets"] == [target]

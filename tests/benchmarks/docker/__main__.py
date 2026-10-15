@@ -37,7 +37,10 @@ def _fixtures() -> list[ContainerFixture]:
     for path in sorted(FIXTURE_ROOT.glob("*.yaml")):
         values = load_scenario(path).values
         execution = values.get("execution", {})
-        if not isinstance(execution, dict) or execution.get("default_host") != "container":
+        if (
+            not isinstance(execution, dict)
+            or execution.get("default_host") != "container"
+        ):
             continue
         try:
             fixture = load_fixture(path)
@@ -108,7 +111,9 @@ def _run_interactive(config_path: Path | None = None) -> int:
             f"Fixture defaults ({fixture.transfer_concurrency}/{fixture.transfer_max_concurrency})",
             "Single-worker diagnostic (1/1)",
         )
-        profile = _prompt_choice("Transfer profile (workers/max-workers):", profile_choices)
+        profile = _prompt_choice(
+            "Transfer profile (workers/max-workers):", profile_choices
+        )
         if profile is None:
             return 0
         diagnostic = profile == profile_choices[1]

@@ -4,6 +4,7 @@ twice.
 Expected: Verification classifies the damage; repair restores input and removes extras only when
 requested.
 """
+
 import json
 from tests.datasets.generate import metadata
 
@@ -24,24 +25,56 @@ def run(case):
     assert result["missing_file_count"] >= 1
     assert result["corrupt_file_count"] >= 2
     assert result["extra_file_count"] == 1
-    case.command("installation", "preview", "--json-lines", "--repo", repo, "--snapshot", snapshot,
-                 "--destination", destination)
+    case.command(
+        "installation",
+        "preview",
+        "--json-lines",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+    )
     preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
-    events = [json.loads(line) for line in preview.read_text().splitlines() if line.startswith("{")]
-    actions = {event["path"]: event["action"] for event in events if event["kind"] == "entry"}
+    events = [
+        json.loads(line)
+        for line in preview.read_text().splitlines()
+        if line.startswith("{")
+    ]
+    actions = {
+        event["path"]: event["action"] for event in events if event["kind"] == "entry"
+    }
     assert actions["data/shared.bin"] == "replace"
     assert actions["old.txt"] == "add"
     assert actions["extra.txt"] == "preserveExtra"
     assert actions["readonly.txt"] == "updateMetadata"
     assert events[-1]["kind"] == "summary"
     assert (destination / "data/shared.bin").read_bytes() == b"truncated"
-    case.command("installation", "preview", "--json-lines", "--repo", repo, "--snapshot", snapshot,
-                 "--destination", destination, "--metadata-only")
+    case.command(
+        "installation",
+        "preview",
+        "--json-lines",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+        "--metadata-only",
+    )
     metadata_preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
-    metadata_events = [json.loads(line) for line in metadata_preview.read_text(encoding="utf-8").splitlines()
-                       if line.startswith("{")]
+    metadata_events = [
+        json.loads(line)
+        for line in metadata_preview.read_text(encoding="utf-8").splitlines()
+        if line.startswith("{")
+    ]
     assert not metadata_events[-1]["summary"]["contentInspected"]
-    assert all(not event["content_verified"] for event in metadata_events if event["kind"] == "entry")
+    assert all(
+        not event["content_verified"]
+        for event in metadata_events
+        if event["kind"] == "entry"
+    )
     case.repair(repo, snapshot, destination)
     assert (destination / "extra.txt").read_bytes() == b"user content"
     (destination / "extra.txt").unlink()

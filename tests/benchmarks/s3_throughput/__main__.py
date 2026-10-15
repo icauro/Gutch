@@ -60,17 +60,23 @@ def _run_interactive() -> int:
     if not scenarios:
         raise RuntimeError(f"No storage fixtures found in {FIXTURE_ROOT}")
     print("Storage benchmark interactive mode")
-    choices = tuple(f"{scenario.name}: {scenario.description}" for scenario in scenarios)
+    choices = tuple(
+        f"{scenario.name}: {scenario.description}" for scenario in scenarios
+    )
     selected = _prompt_choice("Available storage fixtures:", choices)
     if selected is None:
         return 0
     scenario = scenarios[choices.index(selected)]
-    workload = _prompt_choice("Storage action:", ("prepare", "download", "delete", "abort-multipart"))
+    workload = _prompt_choice(
+        "Storage action:", ("prepare", "download", "delete", "abort-multipart")
+    )
     if workload is None:
         return 0
     target = _prompt("Target name (blank for all enabled targets)") or None
     work_dir = _optional_path("Work directory")
-    output_dir = _optional_path("Download output directory") if workload == "download" else None
+    output_dir = (
+        _optional_path("Download output directory") if workload == "download" else None
+    )
     prefix = None
     if workload == "delete":
         prefix = _prompt("Prefix (blank for scenario default)") or None

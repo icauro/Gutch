@@ -183,10 +183,15 @@ pub(crate) fn scan_source_inventory(
     worker_count: usize,
     worker_pool: &ThreadPool,
 ) -> Result<SourceInventory> {
+    enum MetadataEntryKind {
+        Directory,
+        Symlink,
+    }
+
     struct MetadataEntry {
         path: PathBuf,
         normalized_relative: String,
-        kind: u8,
+        kind: MetadataEntryKind,
         metadata: std::fs::Metadata,
     }
 
@@ -224,9 +229,9 @@ pub(crate) fn scan_source_inventory(
                 continue;
             }
             let kind = if entry.file_type().is_dir() {
-                0u8
+                MetadataEntryKind::Directory
             } else if entry.file_type().is_symlink() {
-                1u8
+                MetadataEntryKind::Symlink
             } else {
                 return Err(Error::manifest(format!(
                     "unsupported filesystem object '{}'",
@@ -244,18 +249,17 @@ pub(crate) fn scan_source_inventory(
     let build_entry = |entry: &MetadataEntry| -> Result<SnapshotEntry> {
         control.checkpoint()?;
         match entry.kind {
-            0 => Ok(SnapshotEntry::Directory(DirectoryManifest {
+            MetadataEntryKind::Directory => Ok(SnapshotEntry::Directory(DirectoryManifest {
                 path: entry.normalized_relative.clone(),
                 read_only: entry.metadata.permissions().readonly(),
             })),
-            1 => {
+            MetadataEntryKind::Symlink => {
                 let raw_target = std::fs::read_link(&entry.path)?;
                 Ok(SnapshotEntry::Symlink(SymlinkManifest {
                     path: entry.normalized_relative.clone(),
                     target_path: normalize_link_target(&entry.path, &raw_target, root)?,
                 }))
             }
-            _ => Err(Error::manifest("unsupported filesystem object")),
         }
     };
     let metadata_entries = if worker_count <= 1 {

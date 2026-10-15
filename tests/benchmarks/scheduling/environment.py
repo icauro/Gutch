@@ -9,7 +9,9 @@ from tests.benchmarks.benchmark_config import DEFAULT_CONFIG_PATH, load_benchmar
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_PATH
 
 
-def load_benchmark_environment(path: Path | None = None, *, overwrite: bool = False) -> Path:
+def load_benchmark_environment(
+    path: Path | None = None, *, overwrite: bool = False
+) -> Path:
     """Load benchmark YAML environment values without consulting repository config."""
     config = load_benchmark_config(path)
     for name, value in config.environment.items():

@@ -1,3 +1,5 @@
+//! CLI-local tracked repositories and configuration persistence.
+
 use std::path::Path;
 
 use serde::Deserialize;

@@ -1,4 +1,5 @@
 """Standalone sources exclude host tooling and mutable build inputs."""
+
 import ast
 import re
 import tomllib
@@ -14,25 +15,40 @@ def test_source_inventory_excludes_private_configuration_and_artifacts():
     assert files
     for path, relative in files:
         assert path.resolve().is_relative_to(ROOT)
-        assert not {".artifacts", ".builds", ".venv", "bin"}.intersection(relative.parts)
+        assert not {".artifacts", ".builds", ".venv", "bin"}.intersection(
+            relative.parts
+        )
         assert relative.name != "config.yml"
         if path.suffix != ".py":
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            names = [node.module or ""] if isinstance(node, ast.ImportFrom) else (
-                [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
-            assert not any(name.startswith(("scripts.", "tests.common", "gutch_repo.")) for name in names), relative
+            names = (
+                [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else (
+                    [alias.name for alias in node.names]
+                    if isinstance(node, ast.Import)
+                    else []
+                )
+            )
+            assert not any(
+                name.startswith(("scripts.", "tests.common", "gutch_repo."))
+                for name in names
+            ), relative
 
 
 def test_network_reservation_retries_a_concurrent_overlap(monkeypatch):
     import tools.services as fixture
+
     monkeypatch.setattr(fixture.subprocess, "check_output", lambda *args, **kwargs: "")
     attempts = []
 
     def reserve(command, **kwargs):
         attempts.append(command)
-        return SimpleNamespace(returncode=1 if len(attempts) == 1 else 0,
-                               stderr="Pool overlaps with other one on this address space")
+        return SimpleNamespace(
+            returncode=1 if len(attempts) == 1 else 0,
+            stderr="Pool overlaps with other one on this address space",
+        )
 
     monkeypatch.setattr(fixture.subprocess, "run", reserve)
     services = Services()
@@ -48,15 +64,35 @@ def test_consumer_names_stay_in_the_integration_example():
     example = ROOT / "docs/current_state/hostapp_integration_example.md"
     candidates = {path for path, _ in source_files()}
     candidates.update((ROOT / "docs").rglob("*.md"))
-    candidates.update(ROOT / name for name in ("README.md", "usage.md", "AGENTS.md", "index.md", "tests/benchmarks/README.md", "tests/benchmarks/.gitignore"))
+    candidates.update(
+        ROOT / name
+        for name in (
+            "README.md",
+            "usage.md",
+            "AGENTS.md",
+            "index.md",
+            "tests/benchmarks/README.md",
+            "tests/benchmarks/.gitignore",
+        )
+    )
     for path in sorted(candidates):
-        if not path.is_file() or path == example or path.resolve() == Path(__file__).resolve():
+        if (
+            not path.is_file()
+            or path == example
+            or path.resolve() == Path(__file__).resolve()
+        ):
             continue
-        if path.suffix not in {".py", ".rs", ".md", ".toml", ".yml", ".yaml", ".example"} and path.name != ".gitignore":
+        if (
+            path.suffix
+            not in {".py", ".rs", ".md", ".toml", ".yml", ".yaml", ".example"}
+            and path.name != ".gitignore"
+        ):
             continue
         content = path.read_text(encoding="utf-8")
         if path.suffix == ".md":
-            content = content.replace("hostapp_integration_example.md", "consumer_example.md")
+            content = content.replace(
+                "hostapp_integration_example.md", "consumer_example.md"
+            )
         assert not forbidden.search(content), path.relative_to(ROOT)
 
 
@@ -66,7 +102,11 @@ def test_local_cargo_dependencies_stay_inside_the_project():
         for section in ("dependencies", "dev-dependencies", "build-dependencies"):
             for dependency in configuration.get(section, {}).values():
                 if isinstance(dependency, dict) and "path" in dependency:
-                    assert (manifest.parent / dependency["path"]).resolve().is_relative_to(ROOT)
+                    assert (
+                        (manifest.parent / dependency["path"])
+                        .resolve()
+                        .is_relative_to(ROOT)
+                    )
 
 
 def test_reconstruction_requires_explicit_storage(monkeypatch):
@@ -74,11 +114,21 @@ def test_reconstruction_requires_explicit_storage(monkeypatch):
     from comparison_benchmark_suite.scheduling.config import load_scenario
     from tests.benchmarks.comparison.cli import _s3_settings
     import pytest
+
     for name in list(os.environ):
         if name.startswith("GUTCH_S3_"):
             monkeypatch.delenv(name)
-    fixture = load_scenario(ROOT / "tests/benchmarks/comparison/fixtures/14_gutch_reconstruction_storage_paths.yaml")
-    args = SimpleNamespace(bucket=None, endpoint=None, region=None, access_key_id=None, secret_access_key=None)
+    fixture = load_scenario(
+        ROOT
+        / "tests/benchmarks/comparison/fixtures/14_gutch_reconstruction_storage_paths.yaml"
+    )
+    args = SimpleNamespace(
+        bucket=None,
+        endpoint=None,
+        region=None,
+        access_key_id=None,
+        secret_access_key=None,
+    )
     with pytest.raises(ValueError, match="GUTCH_S3_BUCKET_NAME"):
         _s3_settings(args, fixture.values["storage"])
     monkeypatch.setenv("GUTCH_S3_BUCKET_NAME", "custom-benchmark-bucket")
@@ -91,7 +141,9 @@ def test_reconstruction_requires_explicit_storage(monkeypatch):
 def production_source(source):
     """Remove test-gated items, retaining production code before and after them."""
     # Blank comments and strings for brace matching; keep offsets into the source.
-    literals = re.compile(r'r(#+)".*?"\1|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])\'|//[^\n]*|/\*.*?\*/', re.S)
+    literals = re.compile(
+        r'r(#+)".*?"\1|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])\'|//[^\n]*|/\*.*?\*/', re.S
+    )
     masked = literals.sub(lambda match: " " * len(match[0]), source)
     ranges = []
     for attribute in re.finditer(r"#\[cfg\(test\)\]", masked):
@@ -125,7 +177,7 @@ def implementation_sources(directory):
 
 
 def test_source_scanner_keeps_production_after_test_only_items():
-    source = '''#[cfg(test)]
+    source = """#[cfg(test)]
 use std::io::{Cursor, Read};
 use crate::manifest::CompressionKind;
 #[cfg(test)]
@@ -134,7 +186,7 @@ mod external_tests;
 #[cfg(test)]
 mod tests { fn example() { let text = r#"}"#; } }
 use crate::repo::coordination;
-'''
+"""
     production = production_source(source)
     assert "CompressionKind" in production
     assert "crate::repo::coordination" in production
@@ -143,11 +195,11 @@ use crate::repo::coordination;
 
 
 def test_source_scanner_keeps_production_after_test_only_function():
-    source = '''impl Codec {
+    source = """impl Codec {
 #[cfg(test)]
 fn decode_test() { let text = "{"; }
 fn encode() { crate::repo::coordination::write(); }
-}'''
+}"""
     production = production_source(source)
     assert "fn decode_test" not in production
     assert "crate::repo::coordination::write" in production
@@ -155,11 +207,15 @@ fn encode() { crate::repo::coordination::write(); }
 
 def test_repository_persistence_does_not_depend_on_capture_or_installation():
     for path, source in implementation_sources("repo"):
-        assert not re.search(r"crate::(?:capture|installation)::", source), path.relative_to(ROOT)
+        assert not re.search(r"crate::(?:capture|installation)::", source), (
+            path.relative_to(ROOT)
+        )
 
 
 def test_transfer_does_not_orchestrate_repository_or_installation_workflows():
-    forbidden = re.compile(r"crate::(?:capture|installation)::|crate::repo::(?:coordination|paths|snapshot_manifests|fetch)::")
+    forbidden = re.compile(
+        r"crate::(?:capture|installation)::|crate::repo::(?:coordination|paths|snapshot_manifests|fetch)::"
+    )
     for path, source in implementation_sources("transfer"):
         # ArtifactRef is the existing descriptor shared with the repository;
         # acquiring locks, reading snapshot metadata and publication belong to workflows.
@@ -168,7 +224,9 @@ def test_transfer_does_not_orchestrate_repository_or_installation_workflows():
 
 def test_artifact_codecs_do_not_depend_on_repository_workflows():
     for path, source in implementation_sources("artifact"):
-        assert not re.search(r"crate::(?:repo|capture|installation|manifest)::", source), path.relative_to(ROOT)
+        assert not re.search(
+            r"crate::(?:repo|capture|installation|manifest)::", source
+        ), path.relative_to(ROOT)
 
 
 def test_public_api_only_reexports_owner_operations_and_contracts():

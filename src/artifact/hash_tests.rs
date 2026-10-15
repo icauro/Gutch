@@ -29,7 +29,10 @@ fn test_chunk_hash_byte_roundtrip() {
     assert_eq!(hash, reparsed);
     let expected = blake3::hash(b"hello").to_hex().to_string();
     assert_eq!(hash.to_string(), expected);
-    assert_eq!(serde_json::to_string(&hash).unwrap(), format!("\"{expected}\""));
+    assert_eq!(
+        serde_json::to_string(&hash).unwrap(),
+        format!("\"{expected}\"")
+    );
 }
 
 #[test]

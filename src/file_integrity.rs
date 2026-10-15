@@ -93,9 +93,7 @@ fn hash_file_streaming(
 }
 
 /// Reuses bounded scratch storage for sequential file and artifact hashing.
-pub(crate) fn with_hash_read_buffer<T>(
-    hash: impl FnOnce(&mut [u8]) -> Result<T>,
-) -> Result<T> {
+pub(crate) fn with_hash_read_buffer<T>(hash: impl FnOnce(&mut [u8]) -> Result<T>) -> Result<T> {
     STREAM_BUFFER.with(|buffer| hash(&mut buffer.borrow_mut()))
 }
 
@@ -108,7 +106,8 @@ pub(crate) fn verify_full_file_integrity(
     control: &GutchOperationControl,
 ) -> Result<FullFileIntegrityResult> {
     control.checkpoint()?;
-    let mode = select_full_file_hash_mode(file_size, precomputed_hash.is_some(), concurrent_file_count);
+    let mode =
+        select_full_file_hash_mode(file_size, precomputed_hash.is_some(), concurrent_file_count);
     let mut read_elapsed = Duration::ZERO;
     let mut hash_elapsed = Duration::ZERO;
 

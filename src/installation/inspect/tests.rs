@@ -310,7 +310,10 @@ fn verify_with_hints_records_runtime_plan() {
         &manifest,
         &dir,
         VerifyMode::Fast,
-        &crate::runtime::RuntimeResourceHints { jobs: Some(1), ..Default::default() },
+        &crate::runtime::RuntimeResourceHints {
+            jobs: Some(1),
+            ..Default::default()
+        },
     )
     .unwrap();
 

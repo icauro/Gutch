@@ -1,4 +1,5 @@
 """Owned artifact deletion and bounded retention shared by test consumers."""
+
 import json
 import os
 from pathlib import Path
@@ -23,8 +24,12 @@ def remove_owned(path: Path, owner: Path) -> None:
         target.unlink()
         return
     for directory, directories, files in os.walk(target, followlinks=False):
-        directories[:] = [name for name in directories
-                          if not (Path(directory) / name).is_symlink() and not (Path(directory) / name).is_junction()]
+        directories[:] = [
+            name
+            for name in directories
+            if not (Path(directory) / name).is_symlink()
+            and not (Path(directory) / name).is_junction()
+        ]
         for name in directories + files:
             child = Path(directory) / name
             if not child.is_symlink() and not child.is_junction():
@@ -33,7 +38,9 @@ def remove_owned(path: Path, owner: Path) -> None:
     shutil.rmtree(target)
 
 
-def compact_success(root: Path, *, keep=False, reports=("run.json", "summary.md")) -> None:
+def compact_success(
+    root: Path, *, keep=False, reports=("run.json", "summary.md")
+) -> None:
     """Called by the owning supervisor only after all workers/services have stopped."""
     if keep:
         return
@@ -52,8 +59,11 @@ def prune_successful_runs(parent: Path, *, retain=20) -> list[Path]:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if (record.get("status") == "passed" and record.get("cleanup_complete") is True
-                and not record.get("keep_artifacts", False)):
+        if (
+            record.get("status") == "passed"
+            and record.get("cleanup_complete") is True
+            and not record.get("keep_artifacts", False)
+        ):
             eligible.append(path.parent)
     eligible.sort(key=lambda path: (path.stat().st_mtime_ns, path.name), reverse=True)
     removed = []

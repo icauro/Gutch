@@ -16,7 +16,11 @@ from comparison_benchmark_suite.tools.models import LaneResult
 from tests.benchmarks.comparison.report import print_fixture_report
 from tests.benchmarks.support.reconstruction import run_reconstruction_storage
 from tests.benchmarks.support.s3 import S3Settings
-from tests.benchmarks.comparison.s3_cycle import S3CycleOptions, load_s3_cycle, run_s3_cycle
+from tests.benchmarks.comparison.s3_cycle import (
+    S3CycleOptions,
+    load_s3_cycle,
+    run_s3_cycle,
+)
 from tests.benchmarks.comparison.workflow import run_fixture
 
 
@@ -26,25 +30,36 @@ def _repo_root() -> Path:
 
 def _add_product_arguments(parser):
     from tests.datasets.generate import case_names
+
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--product", type=Path)
-    selection.add_argument("--dataset", choices=case_names(),
-                           help="Use a prepared corpus source without downloading or rebuilding repositories")
+    selection.add_argument(
+        "--dataset",
+        choices=case_names(),
+        help="Use a prepared corpus source without downloading or rebuilding repositories",
+    )
 
 
 def _selected_product(args):
     if getattr(args, "dataset", None):
         from tests.datasets.generate import prepared_source
+
         return prepared_source(args.dataset)
     return args.product.resolve()
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--fixture", default="07_gutch_default_trace_with_corrupt_repair")
+    parser.add_argument(
+        "--fixture", default="07_gutch_default_trace_with_corrupt_repair"
+    )
     _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config (default: tests/benchmarks/config.yml)")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Benchmark YAML config (default: tests/benchmarks/config.yml)",
+    )
     parser.add_argument("--keep-artifacts", action="store_true")
 
 
@@ -82,9 +97,16 @@ def run_command(args: argparse.Namespace) -> int:
     if not product.is_dir():
         raise SystemExit(f"product directory does not exist: {product}")
     repo_root = _repo_root()
-    fixture = FixtureCatalog(Path(__file__).resolve().parent / "fixtures").resolve(args.fixture)
-    executable = resolve_gutch_executable(repo_root, args.gutch_exe.resolve() if args.gutch_exe else None)
-    artifacts = args.artifacts_root or load_benchmark_config(getattr(args, "config", None)).artifacts_root
+    fixture = FixtureCatalog(Path(__file__).resolve().parent / "fixtures").resolve(
+        args.fixture
+    )
+    executable = resolve_gutch_executable(
+        repo_root, args.gutch_exe.resolve() if args.gutch_exe else None
+    )
+    artifacts = (
+        args.artifacts_root
+        or load_benchmark_config(getattr(args, "config", None)).artifacts_root
+    )
     run_fixture(
         fixture,
         product,
@@ -102,7 +124,11 @@ def add_reconstruction_storage_arguments(parser: argparse.ArgumentParser) -> Non
     _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths and S3 credentials")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Benchmark YAML config with paths and S3 credentials",
+    )
     parser.add_argument("--s3-prefix")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
@@ -119,11 +145,15 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
     if not product.is_dir():
         raise SystemExit(f"product directory does not exist: {product}")
     repo_root = _repo_root()
-    executable = resolve_gutch_executable(repo_root, args.gutch_exe.resolve() if args.gutch_exe else None)
+    executable = resolve_gutch_executable(
+        repo_root, args.gutch_exe.resolve() if args.gutch_exe else None
+    )
     fixture_path = Path(__file__).resolve().parent / "fixtures" / f"{args.fixture}.yaml"
     scenario = load_scenario(fixture_path)
     if scenario.values.get("runner") != "gutch-reconstruction-storage":
-        raise SystemExit(f"fixture {args.fixture!r} is not a reconstruction-storage fixture")
+        raise SystemExit(
+            f"fixture {args.fixture!r} is not a reconstruction-storage fixture"
+        )
     config_path = getattr(args, "config", None)
     config = load_benchmark_config(config_path)
     environment_path = load_benchmark_environment(config_path)
@@ -137,10 +167,21 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
     _wait_seconds(scenario.values, "lane_wait_seconds")
     step_wait_seconds = _wait_seconds(scenario.values, "step_wait_seconds")
     settings = _s3_settings(args, scenario.values.get("storage"))
-    transfer_concurrency = args.transfer_concurrency if args.transfer_concurrency is not None else scenario.values.get('transfer', {}).get('concurrency', 4)
-    upload_concurrency = args.upload_concurrency if args.upload_concurrency is not None else scenario.values.get('storage', {}).get('upload_concurrency', 8)
-    if any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in (transfer_concurrency, upload_concurrency)):
-        raise SystemExit('concurrency values must be positive integers')
+    transfer_concurrency = (
+        args.transfer_concurrency
+        if args.transfer_concurrency is not None
+        else scenario.values.get("transfer", {}).get("concurrency", 4)
+    )
+    upload_concurrency = (
+        args.upload_concurrency
+        if args.upload_concurrency is not None
+        else scenario.values.get("storage", {}).get("upload_concurrency", 8)
+    )
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 1
+        for value in (transfer_concurrency, upload_concurrency)
+    ):
+        raise SystemExit("concurrency values must be positive integers")
     result = run_reconstruction_storage(
         product,
         GutchCli(executable, profile_mode=scenario.values.get("profile_mode", "off")),
@@ -161,13 +202,19 @@ def run_reconstruction_storage_command(args: argparse.Namespace) -> int:
 
 def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings:
     values = storage if isinstance(storage, dict) else {}
-    env_prefix = getattr(args, "s3_prefix", None) or str(values.get("env_prefix", "GUTCH_S3")).strip() or "GUTCH_S3"
+    env_prefix = (
+        getattr(args, "s3_prefix", None)
+        or str(values.get("env_prefix", "GUTCH_S3")).strip()
+        or "GUTCH_S3"
+    )
     access_key_env = str(values.get("access_key_env", "")).strip()
     secret_key_env = str(values.get("secret_key_env", "")).strip()
 
     def fixture_secret(environment_name: str, default_name: str) -> str:
         if environment_name:
-            return os.environ.get(environment_name, "") or str(values.get(default_name, ""))
+            return os.environ.get(environment_name, "") or str(
+                values.get(default_name, "")
+            )
         return str(values.get(default_name, ""))
 
     defaults = {
@@ -187,7 +234,9 @@ def _s3_settings(args: argparse.Namespace, storage: object = None) -> S3Settings
         secret_key=args.secret_access_key or "",
     )
     if not settings.bucket:
-        raise ValueError("S3 benchmarks require --bucket or GUTCH_S3_BUCKET_NAME in benchmark configuration")
+        raise ValueError(
+            "S3 benchmarks require --bucket or GUTCH_S3_BUCKET_NAME in benchmark configuration"
+        )
     return settings
 
 
@@ -196,7 +245,11 @@ def add_s3_cycle_arguments(parser: argparse.ArgumentParser) -> None:
     _add_product_arguments(parser)
     parser.add_argument("--gutch-exe", type=Path)
     parser.add_argument("--artifacts-root", type=Path)
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths and S3 credentials")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Benchmark YAML config with paths and S3 credentials",
+    )
     parser.add_argument("--s3-prefix")
     parser.add_argument("--bucket")
     parser.add_argument("--endpoint")
@@ -223,16 +276,31 @@ def run_s3_cycle_command(args: argparse.Namespace) -> int:
     scenario_values = load_scenario(fixture_path).values
     options = S3CycleOptions(
         prefix_root=args.prefix_root or defaults.prefix_root,
-        transfer_concurrency=args.transfer_concurrency if args.transfer_concurrency is not None else defaults.transfer_concurrency,
-        transfer_max_concurrency=args.transfer_max_concurrency if args.transfer_max_concurrency is not None else defaults.transfer_max_concurrency,
-        upload_concurrency=args.upload_concurrency if args.upload_concurrency is not None else defaults.upload_concurrency,
+        transfer_concurrency=args.transfer_concurrency
+        if args.transfer_concurrency is not None
+        else defaults.transfer_concurrency,
+        transfer_max_concurrency=args.transfer_max_concurrency
+        if args.transfer_max_concurrency is not None
+        else defaults.transfer_max_concurrency,
+        upload_concurrency=args.upload_concurrency
+        if args.upload_concurrency is not None
+        else defaults.upload_concurrency,
     )
-    if min(options.transfer_concurrency, options.transfer_max_concurrency, options.upload_concurrency) < 1:
+    if (
+        min(
+            options.transfer_concurrency,
+            options.transfer_max_concurrency,
+            options.upload_concurrency,
+        )
+        < 1
+    ):
         raise SystemExit("concurrency values must be positive")
     if options.transfer_concurrency > options.transfer_max_concurrency:
         raise SystemExit("transfer concurrency exceeds transfer max concurrency")
     repo_root = _repo_root()
-    executable = resolve_gutch_executable(repo_root, args.gutch_exe.resolve() if args.gutch_exe else None)
+    executable = resolve_gutch_executable(
+        repo_root, args.gutch_exe.resolve() if args.gutch_exe else None
+    )
     result = run_s3_cycle(
         fixture,
         product,

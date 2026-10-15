@@ -27,9 +27,13 @@ use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::progress::FetchTransferProgress;
 
 use super::handles::{OutputHandleCache, SourceHandleCache};
-use super::jobs::*;
-use super::plan::*;
-use super::workers::*;
+use super::jobs::{ReconstructJob, ReconstructPipelineFile, ReconstructPipelinePlan};
+use super::plan::build_artifact_priorities;
+
+use super::workers::{
+    ReconstructJobEvent, ReconstructWorkContext, ReconstructWorkItem, ReconstructionWorkQueue,
+    dispatch_ready_work,
+};
 pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) pipeline_plan: ReconstructPipelinePlan,
     pub(super) output_paths: Arc<Vec<PathBuf>>,
@@ -568,33 +572,6 @@ fn start_artifact_downloads(
         )?)
     };
     Ok(scheduler)
-}
-
-fn dispatch_ready_work(
-    pool: &ThreadPool,
-    work_queue: &mut ReconstructionWorkQueue,
-    work_context: &Arc<ReconstructWorkContext>,
-    event_tx: &mpsc::Sender<ReconstructJobEvent>,
-) -> Result<()> {
-    // Admit only runnable jobs, leaving pool threads free instead of blocking them
-    // on memory. Verification can proceed while larger artifact jobs wait.
-    while work_queue.in_flight < work_context.reconstruct_worker_count {
-        match work_queue.admit_next(&work_context.jobs, &work_context.memory) {
-            Ok(Some(admitted)) => {
-                spawn_reconstruct_work(
-                    pool,
-                    admitted.work,
-                    work_context,
-                    event_tx,
-                    admitted.permit,
-                    admitted.queued_at,
-                );
-            }
-            Ok(None) => break,
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
 }
 
 fn finish_pipeline_workers(

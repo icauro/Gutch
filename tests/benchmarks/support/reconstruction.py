@@ -8,8 +8,15 @@ from typing import Any
 
 from comparison_benchmark_suite.support.artifacts import RunLayout, create_run_dir
 from comparison_benchmark_suite.support.command import CommandRunner
-from comparison_benchmark_suite.support.filesystem import compare_directories, scan_tree, validate_output
-from comparison_benchmark_suite.support.traces import combine_labeled_traces, open_trace_in_perfetto
+from comparison_benchmark_suite.support.filesystem import (
+    compare_directories,
+    scan_tree,
+    validate_output,
+)
+from comparison_benchmark_suite.support.traces import (
+    combine_labeled_traces,
+    open_trace_in_perfetto,
+)
 from comparison_benchmark_suite.support.commands import GutchCli
 from comparison_benchmark_suite.support.models import GutchProfile
 from tests.benchmarks.support.s3 import (
@@ -20,7 +27,11 @@ from tests.benchmarks.support.s3 import (
     metadata_urls,
     publish_repository,
 )
-from comparison_benchmark_suite.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from comparison_benchmark_suite.support.gutch import (
+    GutchOperations,
+    snapshot_id as _snapshot_id,
+    verification_seconds as _verify_seconds,
+)
 
 
 def run_reconstruction_storage(
@@ -41,9 +52,11 @@ def run_reconstruction_storage(
     on_run_complete: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     profile = profile or GutchProfile("reconstruction-storage")
-    run_root = create_run_dir(artifacts_root, run_label or product.name, "reconstruction_storage")
+    run_root = create_run_dir(
+        artifacts_root, run_label or product.name, "reconstruction_storage"
+    )
     layout = RunLayout(run_root)
-    layout.write_manifest('running')
+    layout.write_manifest("running")
     try:
         lane = layout.lane("s3-reconstruction")
         commands = CommandRunner(step_wait_seconds=step_wait_seconds)
@@ -81,13 +94,20 @@ def run_reconstruction_storage(
             "local filesystem",
         )
 
-        validate_output(product, local_destination, lane.stats / "validate-local-restored.json")
+        validate_output(
+            product, local_destination, lane.stats / "validate-local-restored.json"
+        )
         client = make_client(settings)
         prefix = f"gutch/reconstruction-benchmark/{run_root.name}/{uuid4().hex}"
         from tests.benchmarks.support.s3 import delete_published_prefix
-        layout.cleanup_actions.append(lambda: delete_published_prefix(client, settings, prefix))
+
+        layout.cleanup_actions.append(
+            lambda: delete_published_prefix(client, settings, prefix)
+        )
         layout.write_manifest("running", published_prefix=prefix)
-        upload = publish_repository(client, settings, repo, prefix, workers=upload_concurrency)
+        upload = publish_repository(
+            client, settings, repo, prefix, workers=upload_concurrency
+        )
         manifest = lane.root / "artifact-urls.json"
         make_artifact_url_manifest(client, settings, repo, prefix, manifest)
         urls = metadata_urls(client, settings, repo, prefix, snapshot_id)
@@ -114,7 +134,9 @@ def run_reconstruction_storage(
             lane.traces / "fetched-reconstruct" / "trace.json",
             "S3 fetched repository",
         )
-        validate_output(product, fetched_destination, lane.stats / "validate-fetched-restored.json")
+        validate_output(
+            product, fetched_destination, lane.stats / "validate-fetched-restored.json"
+        )
         full_result = None
         full_stats: dict[str, Any] | None = None
         if include_fetch_reconstruct:
@@ -133,9 +155,15 @@ def run_reconstruction_storage(
                 ),
                 description="S3 fetch-reconstruct",
             )
-            full_stats = json.loads((lane.stats / "fetch-reconstruct.json").read_text(encoding="utf-8"))
+            full_stats = json.loads(
+                (lane.stats / "fetch-reconstruct.json").read_text(encoding="utf-8")
+            )
         if include_fetch_reconstruct:
-            validate_output(product, full_destination, lane.stats / "validate-fetch-reconstruct-restored.json")
+            validate_output(
+                product,
+                full_destination,
+                lane.stats / "validate-fetch-reconstruct-restored.json",
+            )
         corrupt_seconds = 0.0
         repair_seconds = 0.0
         recovery_traces: dict[str, list[str]] = {"corrupt": [], "repair": []}
@@ -145,7 +173,9 @@ def run_reconstruction_storage(
                 ("fetched", fetched_repo, fetched_destination),
             ]
             if include_fetch_reconstruct:
-                recovery_targets.append(("fetch-reconstruct", full_repo, full_destination))
+                recovery_targets.append(
+                    ("fetch-reconstruct", full_repo, full_destination)
+                )
             for label, fetched_path, destination in recovery_targets:
                 recovery = local.corrupt_and_repair(
                     lane,
@@ -158,8 +188,17 @@ def run_reconstruction_storage(
                 repair_seconds += float(recovery["repair"])
                 recovery_traces["corrupt"].extend(recovery["corrupt_traces"])  # type: ignore[arg-type]
                 recovery_traces["repair"].extend(recovery["repair_traces"])  # type: ignore[arg-type]
-        for name, destination in [("local", local_destination), ("fetched", fetched_destination)] + ([("fetch-reconstruct", full_destination)] if include_fetch_reconstruct else []):
-            validate_output(product, destination, lane.stats / f"validate-{name}-final.json")
+        for name, destination in [
+            ("local", local_destination),
+            ("fetched", fetched_destination),
+        ] + (
+            [("fetch-reconstruct", full_destination)]
+            if include_fetch_reconstruct
+            else []
+        ):
+            validate_output(
+                product, destination, lane.stats / f"validate-{name}-final.json"
+            )
         traces = {
             "capture": [str(capture_trace)],
             "reconstruct": [
@@ -170,13 +209,17 @@ def run_reconstruction_storage(
             **recovery_traces,
         }
         if include_fetch_reconstruct:
-            traces["fetch_reconstruct"] = [str(lane.traces / "fetch-reconstruct" / "trace.json")]
+            traces["fetch_reconstruct"] = [
+                str(lane.traces / "fetch-reconstruct" / "trace.json")
+            ]
         differences = {
             "local": compare_directories(product, local_destination),
             "fetched": compare_directories(product, fetched_destination),
         }
         if include_fetch_reconstruct:
-            differences["fetch_reconstruct"] = compare_directories(product, full_destination)
+            differences["fetch_reconstruct"] = compare_directories(
+                product, full_destination
+            )
         timings: dict[str, float] = {
             "capture": capture_elapsed,
             "local_reconstruct": local_elapsed,
@@ -206,19 +249,27 @@ def run_reconstruction_storage(
             "repository": scan_tree(repo).__dict__,
             "differences": differences,
         }
-        (run_root / "results.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (run_root / "results.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         if on_run_complete is not None:
             on_run_complete(result)
         combined_trace = run_root / "trace.json"
         combine_labeled_traces(
-            [("s3-reconstruction", Path(trace)) for paths in traces.values() for trace in paths],
+            [
+                ("s3-reconstruction", Path(trace))
+                for paths in traces.values()
+                for trace in paths
+            ],
             combined_trace,
         )
         print(f"Wrote benchmark results: {run_root / 'results.json'}")
-        layout.write_manifest('passed', cleanup_complete=False)
+        layout.write_manifest("passed", cleanup_complete=False)
         layout.finish(keep=keep_artifacts)
         if open_perfetto:
-            trace_events = json.loads(combined_trace.read_text(encoding="utf-8")).get("traceEvents", [])
+            trace_events = json.loads(combined_trace.read_text(encoding="utf-8")).get(
+                "traceEvents", []
+            )
             if trace_events:
                 print(f"Opening Perfetto trace: {combined_trace}")
                 open_trace_in_perfetto(combined_trace, print)
@@ -226,5 +277,8 @@ def run_reconstruction_storage(
                 print("No benchmark Perfetto trace was produced to open.")
         return result
     except BaseException as error:
-        layout.write_manifest('cancelled' if isinstance(error, KeyboardInterrupt) else 'failed', error=str(error))
+        layout.write_manifest(
+            "cancelled" if isinstance(error, KeyboardInterrupt) else "failed",
+            error=str(error),
+        )
         raise

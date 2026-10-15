@@ -1,3 +1,5 @@
+//! Operation control, cancellation, progress events, and bounded live feedback.
+
 mod feedback;
 pub use feedback::{GutchLiveFeedback, GutchThroughput};
 use std::sync::Arc;

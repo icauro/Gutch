@@ -1,3 +1,5 @@
+//! File and tree inspection; metadata checks remain distinct from content verification.
+
 mod content;
 mod inventory;
 mod non_files;

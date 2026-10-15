@@ -160,17 +160,17 @@ fn scan_with_boundary<C: ChunkBoundary>(
 
     loop {
         control.checkpoint()?;
-        let t = ProfileInstant::detailed(control.profiler());
+        let boundary_scan_started_at = ProfileInstant::detailed(control.profiler());
         let next_chunk = chunker.next(control);
-        boundary_scan += t.elapsed();
+        boundary_scan += boundary_scan_started_at.elapsed();
 
         let Some(chunk) = next_chunk? else {
             break;
         };
 
-        let t = ProfileInstant::detailed(control.profiler());
+        let file_hash_started_at = ProfileInstant::detailed(control.profiler());
         full_file_hash.update(chunk.data);
-        full_file_hash_duration += t.elapsed();
+        full_file_hash_duration += file_hash_started_at.elapsed();
 
         file_size += chunk.data.len() as u64;
         boundary_scan_bytes += chunk.data.len() as u64;

@@ -49,18 +49,28 @@ def _environment(values: object, path: Path) -> dict[str, str]:
     environment: dict[str, str] = {}
     for name, value in raw_environment.items():
         if not isinstance(name, str) or not _ENV_NAME_PATTERN.fullmatch(name):
-            raise ValueError(f"benchmark environment names must be valid shell names: {path}")
+            raise ValueError(
+                f"benchmark environment names must be valid shell names: {path}"
+            )
         if not isinstance(value, str):
             raise ValueError(f"benchmark environment values must be strings: {path}")
         environment[name] = value
     return environment
 
 
-def _string_tuple(values: object, name: str, path: Path, default: tuple[str, ...]) -> tuple[str, ...]:
+def _string_tuple(
+    values: object, name: str, path: Path, default: tuple[str, ...]
+) -> tuple[str, ...]:
     if values is None:
         return default
-    if not isinstance(values, list) or not values or any(not isinstance(value, str) or not value.strip() for value in values):
-        raise ValueError(f"benchmark config {name} must be a non-empty string list: {path}")
+    if (
+        not isinstance(values, list)
+        or not values
+        or any(not isinstance(value, str) or not value.strip() for value in values)
+    ):
+        raise ValueError(
+            f"benchmark config {name} must be a non-empty string list: {path}"
+        )
     return tuple(value.strip() for value in values)
 
 

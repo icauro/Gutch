@@ -1,6 +1,8 @@
 use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
+use crate::cli::command_support::prompt_yes_no;
 use crate::cli::reporting::ensure_parent_directory;
+use std::path::Path;
 
 pub(crate) fn run(
     command: RepoCommands,
@@ -234,9 +236,6 @@ pub(crate) fn run(
 
     Ok(())
 }
-
-use crate::cli::command_support::prompt_yes_no;
-use std::path::Path;
 
 pub(crate) fn init_repo(
     path: &Path,

@@ -8,7 +8,9 @@ use crate::artifact::hash::ChunkHash;
 
 use crate::artifact::format::CHUNK_INDEX_MAGIC as CHUNK_INDEX_BINARY_MAGIC;
 
-use crate::artifact::binary_io::*;
+use crate::artifact::binary_io::{
+    BinaryReader, read_chunk_hash, read_u32, write_chunk_hash, write_u32,
+};
 
 const LOOSE_CHUNK_ARTIFACT_ROW: u32 = u32::MAX;
 

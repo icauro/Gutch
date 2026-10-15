@@ -1,3 +1,5 @@
+//! Generic CLI parsing, command adapters, progress presentation, and reporting.
+
 pub(crate) mod arguments;
 pub(crate) mod bundle;
 pub(crate) mod command_support;
@@ -80,7 +82,7 @@ where
 
 pub fn run_from_args_with_remote_provider<I, T>(
     args: I,
-    remote_provider: Option<&dyn crate::repo::remote::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn crate::api::RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()>
 where
     I: IntoIterator<Item = T>,
@@ -95,7 +97,7 @@ where
 /// present the same commands under their own executable name.
 pub fn run_from_args_with_remote_provider_named<I, T>(
     args: I,
-    remote_provider: Option<&dyn crate::repo::remote::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn crate::api::RemoteRepositoryCommandProvider>,
     bin_name: &str,
 ) -> crate::Result<()>
 where

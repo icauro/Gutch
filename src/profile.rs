@@ -687,14 +687,19 @@ mod tests {
         drop(recorder);
         let directory = tempfile::tempdir().unwrap();
         p.finish(directory.path(), true).unwrap();
-        let trace: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(directory.path().join("trace.json")).unwrap(),
-        )
-        .unwrap();
-        assert!(trace["traceEvents"].as_array().unwrap().iter().any(|event| {
-            event["name"] == "profile.recording_incomplete"
-                && event["args"]["dropped_events"].as_u64().unwrap() > 0
-        }));
+        let trace: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(directory.path().join("trace.json")).unwrap())
+                .unwrap();
+        assert!(
+            trace["traceEvents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| {
+                    event["name"] == "profile.recording_incomplete"
+                        && event["args"]["dropped_events"].as_u64().unwrap() > 0
+                })
+        );
     }
     #[test]
     fn consecutive_jobs_are_recorded_without_time_sampling() {
@@ -705,7 +710,12 @@ mod tests {
         }
         let summary = profiler.summary();
         assert_eq!(summary.spans.len(), 2);
-        assert!(summary.spans.iter().all(|span| span.count == 512 && !span.sampled));
+        assert!(
+            summary
+                .spans
+                .iter()
+                .all(|span| span.count == 512 && !span.sampled)
+        );
         assert_eq!(summary.suppressed_events, 0);
         assert_eq!(summary.dropped_events, 0);
         let recorder = profiler.recorder().unwrap();

@@ -1,16 +1,25 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::path::PathBuf;
-
+use super::io::build_source_chunk_locations;
+use super::jobs::{
+    ReconstructArtifactChunk, ReconstructArtifactJob, ReconstructJob, ReconstructPipelineFile,
+    ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget,
+};
 use super::types::SnapshotReconstructSource;
 use crate::Error;
 use crate::Result;
+use crate::installation::inspect::RepairClassification;
+use crate::installation::inspect::VerifyRequest;
+use crate::installation::inspect::classify_directory_with_marker_namespace_and_pool;
+use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::ArtifactPriority;
 use crate::transfer::download::PendingArtifactDownload;
+use rayon::ThreadPool;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::Path;
+use std::path::PathBuf;
 
-use super::io::*;
-use super::jobs::*;
 pub(crate) fn build_artifact_priorities(
     pipeline_plan: &ReconstructPipelinePlan,
     pending_artifact_downloads: &[PendingArtifactDownload],
@@ -282,16 +291,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         reused_source_chunk_count,
     })
 }
-
-use std::path::Path;
-
-use rayon::ThreadPool;
-
-use crate::installation::inspect::RepairClassification;
-use crate::installation::inspect::VerifyRequest;
-use crate::installation::inspect::classify_directory_with_marker_namespace_and_pool;
-use crate::manifest::SnapshotEntry;
-use crate::runtime::RuntimeResourceHints;
 
 pub(crate) struct InstallationChanges {
     pub(crate) metadata_updates: Vec<SnapshotEntry>,

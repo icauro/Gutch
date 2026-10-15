@@ -1,4 +1,40 @@
-use super::*;
+use super::ArtifactDecision;
+use super::MAX_REMOTE_BINARY_BYTES;
+use super::MAX_REMOTE_JSON_BYTES;
+use super::RemoteProgress;
+use super::decide_artifact;
+use super::hashes_differ;
+use super::link::bound_remote_repo_id;
+use super::local_chunk_map_hash_b3;
+use super::local_file_mtime;
+use super::local_repo_metadata_hash_b3;
+use super::local_snapshot_blueprint_hash_b3;
+use super::local_snapshot_metadata_hash_b3;
+use super::local_snapshot_product_metadata_hash_b3;
+use super::provider::PullConflictPolicy;
+use super::provider::RemoteArtifactSource;
+use super::provider::RemoteBundleSource;
+use super::provider::RemoteRepository;
+use super::provider::RemoteRepositoryReader;
+use super::provider::RemoteSnapshot;
+use super::provider::RepoPullPlan;
+use super::provider::RepoPullStats;
+use super::verify_remote_artifact;
+use super::verify_remote_bundle;
+use crate::Error;
+use crate::Result;
+use crate::progress::GutchOperation;
+use crate::progress::GutchOperationControl;
+use crate::progress::GutchProgressPhase;
+use crate::repo::index::load_chunk_index;
+use crate::repo::index::required_bundle_ids;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::Path;
+use std::path::PathBuf;
 pub(super) fn compute_pull_plan(
     repo_root: &Path,
     repo_paths: &GutchRepoPaths,
@@ -491,18 +527,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
             let mut chunk_index =
                 crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&bytes)?;
-            for (hash, entry) in load_chunk_index(&repo_paths)?.entries {
-                let artifact =
-                    crate::repo::artifacts::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
-                let artifact_is_cached = artifact.local_path(&repo_paths)?.is_file();
-                let preserve_local_entry =
-                    artifact_is_cached || chunk_index.entries.get_hash(&hash).is_none();
-                // Keep cached locations usable and retain local-only chunks for snapshots
-                // kept by the conflict policy. Remote locations replace only shared, uncached chunks.
-                if preserve_local_entry {
-                    chunk_index.entries.insert(hash, entry);
-                }
-            }
+            crate::repo::index::preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
             crate::repo::index::write_chunk_index(&repo_paths, &chunk_index)?;
             stats.chunk_map_downloaded = true;
         }

@@ -2,6 +2,7 @@
 
 Expected: Previews preserve source/repository/installation content; retired syntax fails.
 """
+
 import json
 import os
 
@@ -18,59 +19,182 @@ def run(case):
     before = repository_inventory(repo)
     relative_repo = os.path.relpath(repo, REPOSITORY)
     relative_source = os.path.relpath(source, REPOSITORY)
-    plans = case.stats("snapshot", "capture", "--repo", relative_repo,
-                       "--source", relative_source, "--dry-run")
+    plans = case.stats(
+        "snapshot",
+        "capture",
+        "--repo",
+        relative_repo,
+        "--source",
+        relative_source,
+        "--dry-run",
+    )
     assert len(plans) == 1
     assert repository_inventory(repo) == before
     assert sorted(p.name for p in source.iterdir()) == ["empty", "readme"]
-    case.command("snapshot", "capture", "--repo", repo, "--source", source,
-                 "--chunk-preset", "4MiB", "--bundle-preset", "4MiB", "--yes", success=False)
+    case.command(
+        "snapshot",
+        "capture",
+        "--repo",
+        repo,
+        "--source",
+        source,
+        "--chunk-preset",
+        "4MiB",
+        "--bundle-preset",
+        "4MiB",
+        "--yes",
+        success=False,
+    )
     assert repository_inventory(repo) == before
     for retired in ["chunk_512B", "3KiB", "8MiB"]:
-        case.command("snapshot", "capture", "--repo", repo, "--source", source,
-                     "--chunk-preset", retired, "--yes", success=False)
+        case.command(
+            "snapshot",
+            "capture",
+            "--repo",
+            repo,
+            "--source",
+            source,
+            "--chunk-preset",
+            retired,
+            "--yes",
+            success=False,
+        )
     assert repository_inventory(repo) == before
-    case.command("repo", "rename", "--repo", repo, "--name", "invalid/name", "--dry-run", success=False)
+    case.command(
+        "repo",
+        "rename",
+        "--repo",
+        repo,
+        "--name",
+        "invalid/name",
+        "--dry-run",
+        success=False,
+    )
     case.stats("repo", "rename", "--repo", repo, "--name", "Preview name", "--dry-run")
-    case.stats("repo", "constraints", "set", "--repo", repo, "--filesystem", "windows-ntfs", "--dry-run")
+    case.stats(
+        "repo",
+        "constraints",
+        "set",
+        "--repo",
+        repo,
+        "--filesystem",
+        "windows-ntfs",
+        "--dry-run",
+    )
     assert repository_inventory(repo) == before
     capture = case.capture(repo, source, "--chunk-preset", "512B")
-    assert capture["repo_name"] == json.loads((repo / "repo_metadata.json").read_text())["repository_name"]
+    assert (
+        capture["repo_name"]
+        == json.loads((repo / "repo_metadata.json").read_text())["repository_name"]
+    )
     assert "product_id" not in capture and "remote_repo_id" not in capture
     snapshot = capture["snapshot_id"]
     measurement = case.stats("snapshot", "measure", "--source", source)
     assert measurement["file_count"] == 2
     assert measurement["logical_bytes"] == len(b"release")
     captured = repository_inventory(repo)
-    case.stats("snapshot", "delete", "--repo", repo, "--snapshot", snapshot, "--dry-run", "--yes")
-    case.stats("snapshot", "tags", "replace", "--repo", repo, "--snapshot", snapshot, "--tag", "version=2.0.0", "--dry-run", "--yes")
+    case.stats(
+        "snapshot",
+        "delete",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--dry-run",
+        "--yes",
+    )
+    case.stats(
+        "snapshot",
+        "tags",
+        "replace",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--tag",
+        "version=2.0.0",
+        "--dry-run",
+        "--yes",
+    )
     case.stats("repo", "index", "rebuild", "--repo", repo, "--apply", "--dry-run")
     assert repository_inventory(repo) == captured
     destination = case.payload / "installed"
-    preview = case.stats("installation", "reconstruct", "--repo", repo,
-                         "--snapshot", snapshot, "--destination", destination, "--dry-run")
+    preview = case.stats(
+        "installation",
+        "reconstruct",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+        "--dry-run",
+    )
     assert preview["summary"]["entryCount"] == 2
     assert not destination.exists()
-    case.command("installation", "reconstruct", "--repo", repo, "--snapshot", snapshot,
-                 "--destination", destination, "--staging-dir", destination, "--dry-run", success=False)
+    case.command(
+        "installation",
+        "reconstruct",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+        "--staging-dir",
+        destination,
+        "--dry-run",
+        success=False,
+    )
     assert not destination.exists()
     case.reconstruct(repo, snapshot, destination)
     (destination / "extra").write_bytes(b"keep")
-    case.stats("installation", "repair", "--repo", repo, "--snapshot", snapshot,
-               "--destination", destination, "--remove-extra-files", "--dry-run")
+    case.stats(
+        "installation",
+        "repair",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+        "--remove-extra-files",
+        "--dry-run",
+    )
     assert (destination / "extra").read_bytes() == b"keep"
     events = case.payload / "preview.jsonl"
-    case.command("installation", "preview", "--repo", repo, "--snapshot", snapshot,
-                 "--destination", destination, "--json-lines", "--output", events)
-    records = [json.loads(line) for line in events.read_text(encoding="utf-8").splitlines()]
+    case.command(
+        "installation",
+        "preview",
+        "--repo",
+        repo,
+        "--snapshot",
+        snapshot,
+        "--destination",
+        destination,
+        "--json-lines",
+        "--output",
+        events,
+    )
+    records = [
+        json.loads(line) for line in events.read_text(encoding="utf-8").splitlines()
+    ]
     assert records[-1]["kind"] == "summary"
     assert any(record.get("path") == "extra" for record in records)
-    for arguments in [("repo", "name", "set"), ("repo", "bind"),
-                      ("repo", "sources", "capture"), ("installation", "corrupt")]:
+    for arguments in [
+        ("repo", "name", "set"),
+        ("repo", "bind"),
+        ("repo", "sources", "capture"),
+        ("installation", "corrupt"),
+    ]:
         case.command(*arguments, success=False)
-    case.command("repo", "remote", "bind", "--repo", repo, "--remote-repo-id", "actual-remote-id")
+    case.command(
+        "repo", "remote", "bind", "--repo", repo, "--remote-repo-id", "actual-remote-id"
+    )
     bound_capture = case.capture(repo, source, "--chunk-preset", "512B")
     assert bound_capture["remote_repo_id"] == "actual-remote-id"
     assert bound_capture["repo_name"] == capture["repo_name"]
     assert "product_id" not in bound_capture
-    case.checks.append("relative-paths-json-lines-dry-run-preset-validation-and-capture-identities")
+    case.checks.append(
+        "relative-paths-json-lines-dry-run-preset-validation-and-capture-identities"
+    )

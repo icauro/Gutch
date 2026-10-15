@@ -30,7 +30,9 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parents[2]
 DEFAULT_PRODUCTS_ROOT = load_benchmark_config().product_root
 S3_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "15_gutch_s3_cold_publication_cycle.yaml"
-RECONSTRUCTION_FIXTURE_PATH = PACKAGE_ROOT / "fixtures" / "14_gutch_reconstruction_storage_paths.yaml"
+RECONSTRUCTION_FIXTURE_PATH = (
+    PACKAGE_ROOT / "fixtures" / "14_gutch_reconstruction_storage_paths.yaml"
+)
 
 
 @dataclass(frozen=True)
@@ -48,10 +50,14 @@ def _print_fixtures() -> None:
 def _interactive_fixtures() -> list[InteractiveFixture]:
     entries = [
         InteractiveFixture("gutch", fixture.name, fixture.description)
-        for fixture in FixtureCatalog(Path(__file__).resolve().parent / "fixtures").list()
+        for fixture in FixtureCatalog(
+            Path(__file__).resolve().parent / "fixtures"
+        ).list()
     ]
     s3_fixture, _ = load_s3_cycle(S3_FIXTURE_PATH)
-    entries.append(InteractiveFixture("s3-cycle", s3_fixture.name, s3_fixture.description))
+    entries.append(
+        InteractiveFixture("s3-cycle", s3_fixture.name, s3_fixture.description)
+    )
     reconstruction = load_scenario(RECONSTRUCTION_FIXTURE_PATH)
     entries.append(
         InteractiveFixture(
@@ -130,7 +136,9 @@ def _ensure_gutch_executable(configured: Path | None = None) -> Path:
     return resolve_gutch_executable(REPO_ROOT, explicit)
 
 
-def _run_interactive_fixture(fixture: InteractiveFixture, executable: Path) -> int | None:
+def _run_interactive_fixture(
+    fixture: InteractiveFixture, executable: Path
+) -> int | None:
     product = _prompt_product()
     if product is None:
         return None
@@ -204,7 +212,9 @@ def _run_explicit(arguments: list[str]) -> int:
         _print_fixtures()
         return 0
     if arguments[0] == "reconstruction-storage":
-        parser = argparse.ArgumentParser(prog="tests.benchmarks.comparison reconstruction-storage")
+        parser = argparse.ArgumentParser(
+            prog="tests.benchmarks.comparison reconstruction-storage"
+        )
         add_reconstruction_storage_arguments(parser)
         parsed = parser.parse_args(arguments[1:])
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
@@ -216,9 +226,7 @@ def _run_explicit(arguments: list[str]) -> int:
         parsed.gutch_exe = _ensure_gutch_executable(parsed.gutch_exe)
         return run_s3_cycle_command(parsed)
     if arguments[0] == "docker":
-        parser = argparse.ArgumentParser(
-            prog="tests.benchmarks.comparison docker"
-        )
+        parser = argparse.ArgumentParser(prog="tests.benchmarks.comparison docker")
         parser.add_argument("--fixture", default="15_gutch_s3_cold_publication_cycle")
         parser.add_argument("--config", type=Path)
         parser.add_argument("--artifacts-root", type=Path)

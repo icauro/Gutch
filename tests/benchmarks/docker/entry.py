@@ -30,8 +30,13 @@ def _extract_package(package_path: Path, destination: Path) -> None:
     with zipfile.ZipFile(package_path) as package:
         for member in package.infolist():
             member_path = (destination / member.filename).resolve()
-            if destination.resolve() not in member_path.parents and member_path != destination.resolve():
-                raise RuntimeError(f"benchmark package contains unsafe path: {member.filename}")
+            if (
+                destination.resolve() not in member_path.parents
+                and member_path != destination.resolve()
+            ):
+                raise RuntimeError(
+                    f"benchmark package contains unsafe path: {member.filename}"
+                )
         package.extractall(destination)
 
 
@@ -42,7 +47,9 @@ def _new_run_root(artifacts_root: Path, before: set[Path]) -> Path:
         if path.is_dir() and path not in before and (path / "results.json").is_file()
     ]
     if len(candidates) != 1:
-        raise RuntimeError(f"could not identify exactly one container benchmark run under {artifacts_root}")
+        raise RuntimeError(
+            f"could not identify exactly one container benchmark run under {artifacts_root}"
+        )
     return candidates[0]
 
 
@@ -58,7 +65,10 @@ def main() -> int:
     parser.add_argument("--keep-artifacts", action="store_true")
     args = parser.parse_args()
 
-    if platform.system() != "Linux" or platform.machine().lower() not in {"x86_64", "amd64"}:
+    if platform.system() != "Linux" or platform.machine().lower() not in {
+        "x86_64",
+        "amd64",
+    }:
         raise RuntimeError("container Gutch benchmark requires Linux x86_64")
 
     workspace = args.workspace.resolve()
@@ -85,15 +95,18 @@ def main() -> int:
     _emit_progress("preparation", "benchmark configuration loaded")
     binary_path = args.binary.resolve()
     if not binary_path.is_file():
-        raise FileNotFoundError(f"uploaded Linux gutch-cli was not found: {binary_path}")
+        raise FileNotFoundError(
+            f"uploaded Linux gutch-cli was not found: {binary_path}"
+        )
     binary_path.chmod(binary_path.stat().st_mode | 0o111)
-
 
     dataset_root = Path("/tmp/gutch-benchmark/dataset") / CONTAINER_DATASET_DIRECTORY
     product = dataset_root / "Blender"
     recipe_path = code_root / "tests/datasets/corpus/blender/case.json"
     if config.blender_platforms != ("linux-x64",):
-        raise RuntimeError("container Gutch benchmark requires dataset.blender_platforms: [linux-x64]")
+        raise RuntimeError(
+            "container Gutch benchmark requires dataset.blender_platforms: [linux-x64]"
+        )
     prepare_blender_product(
         recipe_path=recipe_path,
         product_dir=product,
@@ -106,7 +119,6 @@ def main() -> int:
 
     fixture_path = (
         code_root
-
         / "tests/benchmarks"
         / "comparison"
         / "fixtures"
@@ -116,7 +128,10 @@ def main() -> int:
     options = None
     if fixture.runner == "gutch-s3":
         fixture, options = load_s3_cycle(fixture_path)
-        if args.transfer_concurrency is not None or args.transfer_max_concurrency is not None:
+        if (
+            args.transfer_concurrency is not None
+            or args.transfer_max_concurrency is not None
+        ):
             transfer_concurrency = (
                 args.transfer_concurrency
                 if args.transfer_concurrency is not None
@@ -128,20 +143,30 @@ def main() -> int:
                 else options.transfer_max_concurrency
             )
             if transfer_concurrency < 1 or transfer_max_concurrency < 1:
-                raise ValueError("container transfer concurrency values must be positive")
+                raise ValueError(
+                    "container transfer concurrency values must be positive"
+                )
             if transfer_concurrency > transfer_max_concurrency:
-                raise ValueError("container transfer concurrency exceeds max-concurrency")
+                raise ValueError(
+                    "container transfer concurrency exceeds max-concurrency"
+                )
             options = replace(
                 options,
                 transfer_concurrency=transfer_concurrency,
                 transfer_max_concurrency=transfer_max_concurrency,
             )
     elif fixture.runner != "gutch-fixture":
-        raise ValueError(f"fixture {fixture.name!r} is not a supported container Gutch fixture")
+        raise ValueError(
+            f"fixture {fixture.name!r} is not a supported container Gutch fixture"
+        )
     # Perfetto is opened by the local orchestrator after the trace is downloaded.
     fixture = replace(fixture, open_perfetto=False)
     artifacts_root = workspace / "artifacts"
-    before = {path for path in artifacts_root.iterdir()} if artifacts_root.is_dir() else set()
+    before = (
+        {path for path in artifacts_root.iterdir()}
+        if artifacts_root.is_dir()
+        else set()
+    )
     settings = S3Settings.from_environment("GUTCH_S3")
     run_root: Path | None = None
     _emit_progress(
@@ -179,10 +204,14 @@ def main() -> int:
     _emit_progress("complete", f"benchmark results ready: {run_root.name}")
     print_fixture_report(fixture, product, results)
 
-    evidence_path = workspace / 'evidence.zip'
-    with zipfile.ZipFile(evidence_path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in run_root.rglob('*'):
-            if path.is_file() and (args.keep_artifacts or 'payload' not in path.relative_to(run_root).parts):
+    evidence_path = workspace / "evidence.zip"
+    with zipfile.ZipFile(
+        evidence_path, "w", compression=zipfile.ZIP_DEFLATED
+    ) as archive:
+        for path in run_root.rglob("*"):
+            if path.is_file() and (
+                args.keep_artifacts or "payload" not in path.relative_to(run_root).parts
+            ):
                 archive.write(path, path.relative_to(run_root).as_posix())
     manifest = {
         "evidence_path": str(evidence_path),

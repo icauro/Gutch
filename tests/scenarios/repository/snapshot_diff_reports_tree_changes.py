@@ -4,6 +4,7 @@ itself, then compare with payload artifacts and the index unavailable.
 Expected: Sorted logical byte deltas preserve empty, same-size, type and metadata changes;
 unchanged files are omitted, comparison needs only manifests and never changes the trees.
 """
+
 import json
 
 
@@ -31,18 +32,41 @@ def run(case):
     second = case.capture(repo, after)["snapshot_id"]
 
     def diff(source, target, *, json_output=True, success=True):
-        case.command("snapshot", "diff", "--repo", repo, "--from", source, "--to", target,
-                     *(["--json"] if json_output else []), success=success)
-        output = (case.root / "commands" / f"{case.sequence:03d}-snapshot.log").read_text(encoding="utf-8")
+        case.command(
+            "snapshot",
+            "diff",
+            "--repo",
+            repo,
+            "--from",
+            source,
+            "--to",
+            target,
+            *(["--json"] if json_output else []),
+            success=success,
+        )
+        output = (
+            case.root / "commands" / f"{case.sequence:03d}-snapshot.log"
+        ).read_text(encoding="utf-8")
         return json.loads(output) if json_output and success else output
 
-    expected = [("added-日本語", "added", 5), ("empty-added", "added", 0),
-                ("empty-removed", "removed", 0), ("grow", "modified", 3),
-                ("permissions", "metadata", 0), ("removed", "removed", -3),
-                ("same-size", "modified", 0), ("type", "modified", -2)]
+    expected = [
+        ("added-日本語", "added", 5),
+        ("empty-added", "added", 0),
+        ("empty-removed", "removed", 0),
+        ("grow", "modified", 3),
+        ("permissions", "metadata", 0),
+        ("removed", "removed", -3),
+        ("same-size", "modified", 0),
+        ("type", "modified", -2),
+    ]
     result = diff(first, second)
-    assert result == {"changes": [dict(path=path, change=change, delta_bytes=delta)
-                                  for path, change, delta in expected], "delta_bytes": 3}
+    assert result == {
+        "changes": [
+            dict(path=path, change=change, delta_bytes=delta)
+            for path, change, delta in expected
+        ],
+        "delta_bytes": 3,
+    }
     readable = diff(first, second, json_output=False)
     for path, change, delta in expected:
         line = next(line for line in readable.splitlines() if f'"{path}"' in line)
@@ -50,9 +74,16 @@ def run(case):
     assert "8 changes; total +3 B" in readable
     reverse = diff(second, first)
     assert reverse["delta_bytes"] == -3
-    inverse = {"added": "removed", "removed": "added", "modified": "modified", "metadata": "metadata"}
-    assert reverse["changes"] == [dict(path=path, change=inverse[change], delta_bytes=-delta)
-                                   for path, change, delta in expected]
+    inverse = {
+        "added": "removed",
+        "removed": "added",
+        "modified": "modified",
+        "metadata": "metadata",
+    }
+    assert reverse["changes"] == [
+        dict(path=path, change=inverse[change], delta_bytes=-delta)
+        for path, change, delta in expected
+    ]
     assert diff(first, first) == {"changes": [], "delta_bytes": 0}
     # Move only this case's generated artifacts aside; a tree diff must not read them.
     for name in ("bundles", "chunks", "chunk_map.gtcbin"):

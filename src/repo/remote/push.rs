@@ -1,4 +1,51 @@
-use super::*;
+use super::RemoteProgress;
+use super::hashes_differ;
+use super::link::linked_remote_repo_id;
+use super::local_chunk_map_hash_b3;
+use super::local_repo_metadata_hash_b3;
+use super::local_snapshot_blueprint_hash_b3;
+use super::local_snapshot_metadata_hash_b3;
+use super::local_snapshot_product_metadata_hash_b3;
+use super::provider::RemoteRepository;
+use super::provider::RemoteRepositoryProvider;
+use super::provider::RemoteRepositoryReader;
+use super::provider::RemoteRepositoryWriter;
+use super::provider::RemoteSnapshot;
+use super::provider::RepoPushPlan;
+use super::provider::RepoPushSnapshotChange;
+use super::provider::RepoPushStats;
+use super::pull::local_bundle_paths;
+use crate::Error;
+use crate::Result;
+use crate::manifest::SnapshotTagSet;
+use crate::progress::GutchOperation;
+use crate::progress::GutchOperationControl;
+use crate::progress::GutchProgressPhase;
+use crate::repo::RepoStatus;
+use crate::repo::index::load_chunk_index;
+use crate::repo::index::required_bundle_ids;
+use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::summarize_snapshot_tags;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::Path;
+use std::path::PathBuf;
+
+#[derive(Debug)]
+struct LocalSyncSnapshot {
+    snapshot_id: String,
+    version: String,
+    os: String,
+    arch: String,
+    tags: Vec<String>,
+    snapshot_metadata_hash_b3: String,
+    snapshot_product_metadata_hash_b3: String,
+    snapshot_blueprint_hash_b3: String,
+}
+
 pub fn plan_push_with_provider<P: RemoteRepositoryReader + ?Sized>(
     repo_root: &Path,
     provider: &P,

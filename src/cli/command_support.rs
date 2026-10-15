@@ -175,9 +175,9 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     snapshot_id: &str,
 ) -> crate::api::Result<(
     crate::api::GutchRepoPaths,
-    crate::manifest::gutch_repo::GutchRepoManifest,
+    crate::api::GutchRepoManifest,
     PathBuf,
-    crate::manifest::snapshot::SnapshotManifest,
+    crate::api::SnapshotManifest,
 )> {
     let (repo_paths, repo_manifest) = crate::api::load_gutch_repo_manifest(repo_root)?;
     let manifest_path = crate::api::snapshot_metadata_path(&repo_paths, snapshot_id)?;

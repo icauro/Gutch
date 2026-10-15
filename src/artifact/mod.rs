@@ -1,3 +1,5 @@
+//! Repository-independent chunking, packaging profiles, compression, and artifact codecs.
+
 pub(crate) mod bundle;
 pub(crate) mod chunk;
 pub(crate) mod compression;

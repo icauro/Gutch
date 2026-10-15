@@ -123,7 +123,8 @@ pub(crate) fn validate_proposed_snapshot_tags(
     for id in super::inventory::list_repo_snapshot_ids(&paths)? {
         let path = super::snapshot_manifests::snapshot_metadata_path(&paths, &id)?;
         let json = crate::filesystem::read_to_string(&path)?;
-        let snapshot = super::snapshot_manifests::load_snapshot_metadata_from_json_text(&id, &json)?;
+        let snapshot =
+            super::snapshot_manifests::load_snapshot_metadata_from_json_text(&id, &json)?;
         let tags = replacements.get(&id).unwrap_or(&snapshot.snapshot_tags);
         if let Err(error) = constraints.validate_snapshot_tags(tags, &id) {
             violations.push(error.to_string());

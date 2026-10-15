@@ -7,7 +7,12 @@ from pathlib import Path
 from tests.benchmarks.scheduling.environment import load_benchmark_environment
 from tests.benchmarks.benchmark_config import load_benchmark_config
 from tests.benchmarks.s3_throughput.config import load_storage_scenario
-from tests.benchmarks.s3_throughput.workflow import run_abort_multipart_uploads, run_delete, run_download, run_prepare
+from tests.benchmarks.s3_throughput.workflow import (
+    run_abort_multipart_uploads,
+    run_delete,
+    run_download,
+    run_prepare,
+)
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
@@ -78,17 +83,31 @@ def run_command(args: argparse.Namespace) -> int:
             )
     output = work_dir / f"{scenario.name}-{args.action}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(results, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(output)
     return 0
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fixture", default="s3_object_storage_8mib")
-    parser.add_argument("--action", choices=("prepare", "download", "delete", "abort-multipart"), required=True)
+    parser.add_argument(
+        "--action",
+        choices=("prepare", "download", "delete", "abort-multipart"),
+        required=True,
+    )
     parser.add_argument("--filesystem")
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--prefix")
-    parser.add_argument("--yes", action="store_true", help="Confirm destructive delete or abort-multipart actions")
-    parser.add_argument("--config", type=Path, help="Benchmark YAML config with paths and S3 credentials")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm destructive delete or abort-multipart actions",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Benchmark YAML config with paths and S3 credentials",
+    )

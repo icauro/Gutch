@@ -1,3 +1,5 @@
+//! Worker plans and memory admission for capture and installation operations.
+
 use rayon::ThreadPool;
 use serde::Deserialize;
 use serde::Serialize;
@@ -28,19 +30,29 @@ impl MemoryBudget {
     fn validate_request(&self, bytes: u64) -> Result<()> {
         if bytes > self.limit {
             return Err(Error::manifest(format!(
-                "job requires {bytes} bytes but memory budget is {} bytes; increase the memory budget", self.limit
+                "job requires {bytes} bytes but memory budget is {} bytes; increase the memory budget",
+                self.limit
             )));
         }
         Ok(())
     }
-    pub(crate) fn try_acquire(self: &std::sync::Arc<Self>, bytes: u64) -> Result<Option<MemoryPermit>> {
+    pub(crate) fn try_acquire(
+        self: &std::sync::Arc<Self>,
+        bytes: u64,
+    ) -> Result<Option<MemoryPermit>> {
         self.validate_request(bytes)?;
-        let mut available = self.available.lock().map_err(|_| Error::manifest("memory budget poisoned"))?;
+        let mut available = self
+            .available
+            .lock()
+            .map_err(|_| Error::manifest("memory budget poisoned"))?;
         if *available < bytes {
             return Ok(None);
         }
         *available -= bytes;
-        Ok(Some(MemoryPermit { budget: self.clone(), bytes }))
+        Ok(Some(MemoryPermit {
+            budget: self.clone(),
+            bytes,
+        }))
     }
     pub(crate) fn acquire(
         self: &std::sync::Arc<Self>,
@@ -53,8 +65,7 @@ impl MemoryBudget {
             .lock()
             .map_err(|_| Error::manifest("memory budget poisoned"))?;
         // Keep one measured wait across cancellation polling, not one slice per timeout.
-        let waiting = (*available < bytes)
-            .then(|| control.profile_span("runtime.memory.wait"));
+        let waiting = (*available < bytes).then(|| control.profile_span("runtime.memory.wait"));
         while *available < bytes {
             control.checkpoint()?;
             available = self
@@ -119,7 +130,9 @@ pub(crate) fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
 
     RuntimePlan {
         worker_count,
-        memory_budget_bytes: hints.memory_budget_bytes.map(std::num::NonZeroU64::get)
+        memory_budget_bytes: hints
+            .memory_budget_bytes
+            .map(std::num::NonZeroU64::get)
             .unwrap_or_else(automatic_memory_budget),
     }
 }
@@ -155,7 +168,8 @@ mod tests {
         assert_eq!(budget_from_limits(16 * 1024, Some(32 * 1024)), 4 * 1024);
         assert_eq!(budget_from_limits(0, None), FALLBACK_MEMORY_BUDGET_BYTES);
         let hints = RuntimeResourceHints {
-            memory_budget_bytes: std::num::NonZeroU64::new(123), ..Default::default()
+            memory_budget_bytes: std::num::NonZeroU64::new(123),
+            ..Default::default()
         };
         assert_eq!(plan_runtime(&hints).memory_budget_bytes, 123);
     }
@@ -183,8 +197,8 @@ mod tests {
         let profiler = std::sync::Arc::new(crate::profile::GutchProfiler::new(
             crate::profile::GutchProfileMode::Detailed,
         ));
-        let control = crate::progress::GutchOperationControl::default()
-            .with_profiler(profiler.clone());
+        let control =
+            crate::progress::GutchOperationControl::default().with_profiler(profiler.clone());
         let permit = budget
             .acquire(FALLBACK_MEMORY_BUDGET_BYTES, &control)
             .unwrap();
@@ -200,8 +214,11 @@ mod tests {
             assert!(waiter.join().unwrap());
         });
         let summary = profiler.summary();
-        let waits: Vec<_> = summary.spans.iter()
-            .filter(|span| span.name == "runtime.memory.wait").collect();
+        let waits: Vec<_> = summary
+            .spans
+            .iter()
+            .filter(|span| span.name == "runtime.memory.wait")
+            .collect();
         assert_eq!(waits.len(), 1);
         assert_eq!(waits[0].count, 1);
         drop(permit);
@@ -234,10 +251,16 @@ mod tests {
             .map(|value| value.get())
             .unwrap_or(1)
             .max(1);
-        let plan = plan_runtime(&RuntimeResourceHints { jobs: Some(logical_workers.saturating_add(8)), ..Default::default() });
+        let plan = plan_runtime(&RuntimeResourceHints {
+            jobs: Some(logical_workers.saturating_add(8)),
+            ..Default::default()
+        });
         assert_eq!(plan.worker_count, logical_workers);
 
-        let plan = plan_runtime(&RuntimeResourceHints { jobs: Some(1), ..Default::default() });
+        let plan = plan_runtime(&RuntimeResourceHints {
+            jobs: Some(1),
+            ..Default::default()
+        });
         assert_eq!(plan.worker_count, 1);
     }
 }

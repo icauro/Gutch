@@ -11,7 +11,7 @@ import zipfile
 import yaml
 
 from tests.benchmarks.benchmark_config import BenchmarkConfig, load_benchmark_config
-from comparison_benchmark_suite.support.artifacts import safe_component, create_run_dir
+from comparison_benchmark_suite.support.artifacts import create_run_dir
 from comparison_benchmark_suite.support.traces import open_trace_in_perfetto
 from tests.benchmarks.comparison.config import load_fixture
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
@@ -33,20 +33,28 @@ def _package_sources(destination: Path) -> None:
                 continue
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
         from tools.build_image import benchmark_dependency_files
+
         for path, relative in benchmark_dependency_files():
             package.write(path, relative.as_posix())
         package.write(REPOSITORY_ROOT / "tests/__init__.py", "tests/__init__.py")
         for name in ("__init__.py", "artifacts.py"):
             package.write(REPOSITORY_ROOT / "tools" / name, "tools/" + name)
-        package.write(REPOSITORY_ROOT / "tests/datasets/__init__.py", "tests/datasets/__init__.py")
-        package.write(REPOSITORY_ROOT / "tests/datasets/prepare_blender.py", "tests/datasets/prepare_blender.py")
+        package.write(
+            REPOSITORY_ROOT / "tests/datasets/__init__.py", "tests/datasets/__init__.py"
+        )
+        package.write(
+            REPOSITORY_ROOT / "tests/datasets/prepare_blender.py",
+            "tests/datasets/prepare_blender.py",
+        )
         dataset_script = REPOSITORY_ROOT / "tests/datasets/generate.py"
         package.write(dataset_script, "tests/datasets/generate.py")
         recipe = REPOSITORY_ROOT / "tests/datasets/corpus/blender/case.json"
         package.write(recipe, "tests/datasets/corpus/blender/case.json")
 
 
-def _runtime_config(config: BenchmarkConfig, path: Path, container_workspace: str) -> None:
+def _runtime_config(
+    config: BenchmarkConfig, path: Path, container_workspace: str
+) -> None:
     values = yaml.safe_load(config.path.read_text(encoding="utf-8")) or {}
     values["local"] = {
         "product_root": f"/tmp/gutch-benchmark/dataset/{CONTAINER_DATASET_DIRECTORY}/Blender",
@@ -93,20 +101,38 @@ def _run_docker_benchmark(
     if fixture_spec.runner == "gutch-s3":
         load_s3_cycle(fixture_path)
     elif fixture_spec.runner != "gutch-fixture":
-        raise ValueError(f"fixture {fixture!r} is not a supported container Gutch fixture")
+        raise ValueError(
+            f"fixture {fixture!r} is not a supported container Gutch fixture"
+        )
     target = DockerTarget.start(config, REPOSITORY_ROOT)
     try:
-        return _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurrency,
-                                  transfer_max_concurrency, keep_artifacts)
+        return _execute_benchmark(
+            target,
+            config,
+            fixture,
+            artifacts_root,
+            transfer_concurrency,
+            transfer_max_concurrency,
+            keep_artifacts,
+        )
     finally:
         target.close()
 
 
-def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurrency,
-                       transfer_max_concurrency, keep_artifacts):
+def _execute_benchmark(
+    target,
+    config,
+    fixture,
+    artifacts_root,
+    transfer_concurrency,
+    transfer_max_concurrency,
+    keep_artifacts,
+):
     launcher = DockerLauncher(target)
     workspace = target.workspace
-    local_root = create_run_dir((artifacts_root or config.artifacts_root) / "container", "linux", fixture)
+    local_root = create_run_dir(
+        (artifacts_root or config.artifacts_root) / "container", "linux", fixture
+    )
     local_root.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="gutch-docker-") as temporary:
@@ -124,11 +150,25 @@ def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurr
             ["mkdir", "-p", workspace],
             description="create container benchmark workspace",
         )
-        launcher.upload(package_path, container_package, description="upload benchmark package")
-        launcher.upload(runtime_config_path, container_config, description="upload benchmark config")
-        launcher.upload(CONTAINER_ENTRY, container_entry, description="upload container benchmark runner")
-        launcher.run(["cp", "/gutch/.builds/compiler-cache/cargo/release/gutch-cli", container_binary],
-                     description="copy Docker-built Linux gutch-cli")
+        launcher.upload(
+            package_path, container_package, description="upload benchmark package"
+        )
+        launcher.upload(
+            runtime_config_path, container_config, description="upload benchmark config"
+        )
+        launcher.upload(
+            CONTAINER_ENTRY,
+            container_entry,
+            description="upload container benchmark runner",
+        )
+        launcher.run(
+            [
+                "cp",
+                "/gutch/.builds/compiler-cache/cargo/release/gutch-cli",
+                container_binary,
+            ],
+            description="copy Docker-built Linux gutch-cli",
+        )
         command = [
             "python3",
             container_entry,
@@ -146,18 +186,29 @@ def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurr
         if transfer_concurrency is not None:
             command.extend(["--transfer-concurrency", str(transfer_concurrency)])
         if transfer_max_concurrency is not None:
-            command.extend(["--transfer-max-concurrency", str(transfer_max_concurrency)])
+            command.extend(
+                ["--transfer-max-concurrency", str(transfer_max_concurrency)]
+            )
         if keep_artifacts:
             command.append("--keep-artifacts")
         try:
-            launcher.run(command, description=f"run container Gutch fixture {fixture}",
-                         on_output=_print_container_output)
+            launcher.run(
+                command,
+                description=f"run container Gutch fixture {fixture}",
+                on_output=_print_container_output,
+            )
         except BaseException:
             try:
-                launcher.download(workspace, local_root / "failed-container",
-                                  description="preserve failed benchmark evidence")
+                launcher.download(
+                    workspace,
+                    local_root / "failed-container",
+                    description="preserve failed benchmark evidence",
+                )
             except Exception as error:
-                print(f"Could not export failed benchmark evidence: {error}", file=sys.stderr)
+                print(
+                    f"Could not export failed benchmark evidence: {error}",
+                    file=sys.stderr,
+                )
             raise
 
         manifest_path = local_root / "container-result.json"
@@ -169,10 +220,22 @@ def _execute_benchmark(target, config, fixture, artifacts_root, transfer_concurr
             description="download container benchmark manifest",
         )
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        launcher.download(manifest["results_path"], results_path, description="download container results")
-        launcher.download(manifest["trace_path"], trace_path, description="download container Perfetto trace")
+        launcher.download(
+            manifest["results_path"],
+            results_path,
+            description="download container results",
+        )
+        launcher.download(
+            manifest["trace_path"],
+            trace_path,
+            description="download container Perfetto trace",
+        )
         evidence_path = local_root / "evidence.zip"
-        launcher.download(manifest["evidence_path"], evidence_path, description="download complete benchmark evidence")
+        launcher.download(
+            manifest["evidence_path"],
+            evidence_path,
+            description="download complete benchmark evidence",
+        )
         with zipfile.ZipFile(evidence_path) as archive:
             for member in archive.infolist():
                 target_path = (local_root / member.filename).resolve()
@@ -190,7 +253,6 @@ def load_benchmark_fixture_open_perfetto(fixture: str) -> bool:
     fixture_path = BENCHMARK_ROOT / "comparison" / "fixtures" / f"{fixture}.yaml"
     values = yaml.safe_load(fixture_path.read_text(encoding="utf-8")) or {}
     return bool(values.get("open_perfetto", False))
-
 
 
 def run_docker_benchmark(**kwargs):

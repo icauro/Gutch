@@ -41,13 +41,20 @@ def _binary_is_current(candidate: Path, repo_root: Path) -> bool:
 def resolve_gutch_executable(repo_root: Path, explicit: Path | None = None) -> Path:
     if explicit is not None:
         if not explicit.exists():
-            raise FileNotFoundError(f"configured Gutch executable does not exist: {explicit}")
+            raise FileNotFoundError(
+                f"configured Gutch executable does not exist: {explicit}"
+            )
         return explicit
     executable_name = "gutch-cli.exe" if os.name == "nt" else "gutch-cli"
     candidates: list[Path | None] = []
     candidates.extend(
         [
-            repo_root / ".builds" / "compiler-cache" / "cargo" / "release" / executable_name,
+            repo_root
+            / ".builds"
+            / "compiler-cache"
+            / "cargo"
+            / "release"
+            / executable_name,
             repo_root / "target" / "release" / executable_name,
             repo_root / "tests/benchmarks" / "comparison" / "bin" / executable_name,
         ]

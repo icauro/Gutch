@@ -1,4 +1,5 @@
 """One repository lifecycle, exercised against generated, frozen or selected inputs."""
+
 import copy
 import json
 import os
@@ -7,7 +8,12 @@ import random
 import shutil
 
 from tests.datasets.generate import generated, GENERATOR_VERSION
-from tests.helpers.filesystem import assert_tree, inventory, repository_inventory, write_json
+from tests.helpers.filesystem import (
+    assert_tree,
+    inventory,
+    repository_inventory,
+    write_json,
+)
 
 
 def copy_repository(source, destination):
@@ -16,8 +22,10 @@ def copy_repository(source, destination):
         raise ValueError(f"Not a repository: {source}")
     if destination.resolve().is_relative_to(source):
         raise ValueError("Repository input must not contain the test output directory")
+
     def reject(error):
         raise error
+
     for directory, directories, files in os.walk(source, onerror=reject):
         for name in directories + files:
             path = Path(directory) / name
@@ -25,13 +33,29 @@ def copy_repository(source, destination):
                 raise ValueError(f"Repository input contains a filesystem link: {path}")
     before = repository_inventory(source)
     shutil.copytree(source, destination)
-    if repository_inventory(source) != before or repository_inventory(destination) != before:
-        raise ValueError("Repository changed while being copied; select an idle repository")
+    if (
+        repository_inventory(source) != before
+        or repository_inventory(destination) != before
+    ):
+        raise ValueError(
+            "Repository changed while being copied; select an idle repository"
+        )
 
 
-def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
-                  storage="bundled", compression="zstd", mutations=0, sequence=None):
+def run_lifecycle(
+    case,
+    *,
+    source=None,
+    expected=None,
+    seed=123,
+    steps=4,
+    storage="bundled",
+    compression="zstd",
+    mutations=0,
+    sequence=None,
+):
     operations = []
+
     def record(operation, **details):
         operations.append({"operation": operation, **details})
         write_json(case.root / "operations.json", operations)
@@ -51,8 +75,14 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         replay_path = case.root / "replay.json"
         if replay_path.is_file():
             replay = json.loads(replay_path.read_text(encoding="utf-8"))
-            replay.setdefault("options", {}).update(repo=str(retained), seed=seed, steps=steps,
-                storage=storage, compression=compression, mutations=mutations)
+            replay.setdefault("options", {}).update(
+                repo=str(retained),
+                seed=seed,
+                steps=steps,
+                storage=storage,
+                compression=compression,
+                mutations=mutations,
+            )
             if expected is not None:
                 expected_path = case.root / "inputs/expected.json"
                 write_json(expected_path, expected)
@@ -62,33 +92,53 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         repo = case.init()
         expected = {}
     trusted = expected is not None
-    case.details = {"oracle": "independent-inventory" if trusted else "initial-reconstruction-consistency",
-                    "seed": seed, "steps": steps, "storage": storage, "compression": compression,
-                    "parser_mutations": mutations, "generator_version": GENERATOR_VERSION}
+    case.details = {
+        "oracle": "independent-inventory"
+        if trusted
+        else "initial-reconstruction-consistency",
+        "seed": seed,
+        "steps": steps,
+        "storage": storage,
+        "compression": compression,
+        "parser_mutations": mutations,
+        "generator_version": GENERATOR_VERSION,
+    }
     model = expected if trusted else {}
     record("open", oracle=case.details["oracle"], seed=seed)
 
     def listed():
         path = case.root / "listed.json"
         case.command("snapshot", "list", "--repo", repo, "--json", "--output", path)
-        return {item["snapshotId"] for item in json.loads(path.read_text(encoding="utf-8"))}
+        return {
+            item["snapshotId"] for item in json.loads(path.read_text(encoding="utf-8"))
+        }
 
     def check_all(label):
         record("check", phase=label, snapshots=sorted(model))
-        assert listed() == set(model), "snapshot list differs from the expected repository state"
+        assert listed() == set(model), (
+            "snapshot list differs from the expected repository state"
+        )
         report = case.root / "verify.json"
-        case.command("repo", "verify", "--repo", repo, "--strict", "--json", "--output", report)
+        case.command(
+            "repo", "verify", "--repo", repo, "--strict", "--json", "--output", report
+        )
         assert json.loads(report.read_text(encoding="utf-8"))["ok"]
         for snapshot, specification in model.items():
             destination = case.payload / "restored" / snapshot
             case.reconstruct(repo, snapshot, destination)
-            assert_tree(specification["entries"], destination, case.root / "comparisons" / f"{label}-{snapshot}.json")
+            assert_tree(
+                specification["entries"],
+                destination,
+                case.root / "comparisons" / f"{label}-{snapshot}.json",
+            )
             assert case.verify(repo, snapshot, destination)["verification_passed"]
         case.checks.append(label)
 
     original_ids = listed()
     if trusted:
-        assert original_ids == set(model), "expected inventories must cover exactly the input snapshots"
+        assert original_ids == set(model), (
+            "expected inventories must cover exactly the input snapshots"
+        )
     else:
         for snapshot in sorted(original_ids):
             destination = case.payload / "baseline" / snapshot
@@ -99,21 +149,35 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
 
     version = 0
     added = []
+
     def capture():
         nonlocal version
         for _ in range(len(model) + 1):
             version += 1
             data = generated(case.payload / f"source-{version}", seed, version)
             record("capture", version=version, storage=storage, compression=compression)
-            result = case.capture(repo, data.root, "--storage-mode", storage, "--compression-algorithm", compression)
+            result = case.capture(
+                repo,
+                data.root,
+                "--storage-mode",
+                storage,
+                "--compression-algorithm",
+                compression,
+            )
             snapshot = result["snapshot_id"]
             if snapshot not in model:
                 break
-            assert model[snapshot]["entries"] == data.expected, "recapture identity aliases different content"
+            assert model[snapshot]["entries"] == data.expected, (
+                "recapture identity aliases different content"
+            )
         else:
-            raise AssertionError("distinct generated versions did not produce a new snapshot")
+            raise AssertionError(
+                "distinct generated versions did not produce a new snapshot"
+            )
         if added:
-            assert result["reused_chunk_count"] > 0, "generated versions did not share chunks"
+            assert result["reused_chunk_count"] > 0, (
+                "generated versions did not share chunks"
+            )
         model[snapshot] = {"entries": data.expected}
         added.append(snapshot)
         write_json(case.root / "expected.json", model)
@@ -129,19 +193,43 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         intact = path.read_bytes()
         path.write_bytes(b"invalid chunk map")
         before = repository_inventory(repo)
-        case.command("snapshot", "delete", "--repo", repo, "--snapshot", second, "--yes", success=False)
+        case.command(
+            "snapshot",
+            "delete",
+            "--repo",
+            repo,
+            "--snapshot",
+            second,
+            "--yes",
+            success=False,
+        )
         after = repository_inventory(repo)
-        differences = {name: {"before": before.get(name), "after": after.get(name)}
-                       for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+        differences = {
+            name: {"before": before.get(name), "after": after.get(name)}
+            for name in before.keys() | after.keys()
+            if before.get(name) != after.get(name)
+        }
         write_json(case.root / "rejected-mutation.json", differences)
-        assert not differences, f"rejected deletion changed repository data: {differences}"
+        assert not differences, (
+            f"rejected deletion changed repository data: {differences}"
+        )
         path.write_bytes(intact)
 
     def rebuild():
         record("rebuild-index")
         (repo / "chunk_map.gtcbin").unlink()
         report = case.root / "rebuild.json"
-        case.command("repo", "index", "rebuild", "--repo", repo, "--apply", "--json", "--output", report)
+        case.command(
+            "repo",
+            "index",
+            "rebuild",
+            "--repo",
+            repo,
+            "--apply",
+            "--json",
+            "--output",
+            report,
+        )
         assert json.loads(report.read_text(encoding="utf-8"))["published"]
 
     def repair():
@@ -149,14 +237,33 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
         record("repair", snapshot=snapshot)
         destination = case.payload / "repair"
         case.reconstruct(repo, snapshot, destination)
-        assert_tree(model[snapshot]["entries"], destination, case.root / "repair-before.json")
-        filename = next(name for name, entry in model[snapshot]["entries"].items() if entry["kind"] == "file")
+        assert_tree(
+            model[snapshot]["entries"], destination, case.root / "repair-before.json"
+        )
+        filename = next(
+            name
+            for name, entry in model[snapshot]["entries"].items()
+            if entry["kind"] == "file"
+        )
         (destination / filename).chmod(0o644)
         (destination / filename).write_bytes(b"damaged installation")
-        assert not case.verify(repo, snapshot, destination, success=False)["verification_passed"]
-        case.command("installation", "preview", "--repo", repo, "--snapshot", snapshot, "--destination", destination)
+        assert not case.verify(repo, snapshot, destination, success=False)[
+            "verification_passed"
+        ]
+        case.command(
+            "installation",
+            "preview",
+            "--repo",
+            repo,
+            "--snapshot",
+            snapshot,
+            "--destination",
+            destination,
+        )
         case.repair(repo, snapshot, destination)
-        assert_tree(model[snapshot]["entries"], destination, case.root / "repair-after.json")
+        assert_tree(
+            model[snapshot]["entries"], destination, case.root / "repair-after.json"
+        )
 
     rejected_mutation()
     check_all("rejected-mutation")
@@ -169,20 +276,37 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
     repair()
     generator = random.Random(seed)
     deletion_generator = random.Random(seed ^ 0xDE1E7E)
+
     def delete_added():
-        candidates = [snapshot for snapshot in added if snapshot in model and snapshot != second]
+        candidates = [
+            snapshot for snapshot in added if snapshot in model and snapshot != second
+        ]
         if not candidates:
             capture()
-            candidates = [snapshot for snapshot in added if snapshot in model and snapshot != second]
+            candidates = [
+                snapshot
+                for snapshot in added
+                if snapshot in model and snapshot != second
+            ]
         snapshot = deletion_generator.choice(candidates)
         record("delete", snapshot=snapshot)
-        case.command("snapshot", "delete", "--repo", repo, "--snapshot", snapshot, "--yes")
+        case.command(
+            "snapshot", "delete", "--repo", repo, "--snapshot", snapshot, "--yes"
+        )
         del model[snapshot]
-    actions = {"capture": capture, "rebuild": rebuild, "repair": repair,
-               "reject": rejected_mutation, "delete": delete_added}
+
+    actions = {
+        "capture": capture,
+        "rebuild": rebuild,
+        "repair": repair,
+        "reject": rejected_mutation,
+        "delete": delete_added,
+    }
     selected = []
     for step in range(len(sequence) if sequence is not None else steps):
-        name = sequence[step] if sequence is not None else generator.choice(tuple(actions))
+        name = (
+            sequence[step] if sequence is not None else generator.choice(tuple(actions))
+        )
         selected.append(name)
         write_json(case.root / "sequence.json", selected)
         record("sequence-action", name=name)
@@ -191,22 +315,35 @@ def run_lifecycle(case, *, source=None, expected=None, seed=123, steps=4,
     if mutations:
         exercise_malformed_inputs(case, repo, seed, mutations, record)
         check_all("after-parser-mutations")
-    write_json(case.root / "lifecycle.json", {"seed": seed, "steps": steps,
-               "oracle": "independent-inventory" if trusted else "initial-reconstruction-consistency",
-               "operations": operations, "snapshots": sorted(model)})
+    write_json(
+        case.root / "lifecycle.json",
+        {
+            "seed": seed,
+            "steps": steps,
+            "oracle": "independent-inventory"
+            if trusted
+            else "initial-reconstruction-consistency",
+            "operations": operations,
+            "snapshots": sorted(model),
+        },
+    )
 
 
 def exercise_malformed_inputs(case, repo, seed, count, record):
     """Seeded parser mutation testing, not coverage-guided fuzzing."""
-    candidates = [repo / "chunk_map.gtcbin", *sorted(repo.glob("snapshots/*/snapshot_blueprint.gtcbin")),
-                  *sorted(repo.glob("bundles/*/*")), *sorted(repo.glob("chunks/*/*"))]
+    candidates = [
+        repo / "chunk_map.gtcbin",
+        *sorted(repo.glob("snapshots/*/snapshot_blueprint.gtcbin")),
+        *sorted(repo.glob("bundles/*/*")),
+        *sorted(repo.glob("chunks/*/*")),
+    ]
     generator = random.Random(seed)
     for index in range(count):
         path = generator.choice(candidates)
         original = path.read_bytes()
         mutated = bytearray(original)
         if generator.randrange(2) and mutated:
-            mutated = mutated[:generator.randrange(len(mutated))]
+            mutated = mutated[: generator.randrange(len(mutated))]
         elif mutated:
             mutated[generator.randrange(len(mutated))] ^= 1 << generator.randrange(8)
         record("parser-mutation", index=index, path=path.relative_to(repo).as_posix())

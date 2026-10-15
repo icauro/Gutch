@@ -1,4 +1,5 @@
 """Download and extract pinned Blender inputs; never rebuild frozen repositories."""
+
 from __future__ import annotations
 import hashlib
 import json
@@ -68,13 +69,17 @@ def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> No
                 parts = _blender_archive_parts(info.filename)
                 destination = target_root.joinpath(*parts)
                 if not destination.resolve().is_relative_to(target_root):
-                    raise RuntimeError(f"refusing archive entry escaping root: {info.filename!r}")
+                    raise RuntimeError(
+                        f"refusing archive entry escaping root: {info.filename!r}"
+                    )
                 if info.is_dir():
                     destination.mkdir(parents=True, exist_ok=True)
                     continue
                 mode = (info.external_attr >> 16) & 0o170000
                 if mode == 0o120000:
-                    raise RuntimeError(f"refusing symlink archive entry: {info.filename!r}")
+                    raise RuntimeError(
+                        f"refusing symlink archive entry: {info.filename!r}"
+                    )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info) as source, destination.open("wb") as output:
                     shutil.copyfileobj(source, output)
@@ -92,7 +97,9 @@ def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> No
             parts = _blender_archive_parts(member.name)
             destination = target_root.joinpath(*parts)
             if not destination.resolve().is_relative_to(target_root):
-                raise RuntimeError(f"refusing archive entry escaping root: {member.name!r}")
+                raise RuntimeError(
+                    f"refusing archive entry escaping root: {member.name!r}"
+                )
             if member.isdir():
                 destination.mkdir(parents=True, exist_ok=True)
                 continue
@@ -104,10 +111,14 @@ def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> No
                     or re.match(r"^[A-Za-z]:", link_name)
                     or "\x00" in link_name
                 ):
-                    raise RuntimeError(f"refusing unsafe archive symlink: {member.name!r}")
+                    raise RuntimeError(
+                        f"refusing unsafe archive symlink: {member.name!r}"
+                    )
                 link_target = (destination.parent / link_name).resolve(strict=False)
                 if not link_target.is_relative_to(target_root):
-                    raise RuntimeError(f"refusing archive symlink escaping root: {member.name!r}")
+                    raise RuntimeError(
+                        f"refusing archive symlink escaping root: {member.name!r}"
+                    )
                 symlinks.append((destination, link_name, link_target))
                 symlink_targets[destination] = link_target
                 continue
@@ -120,12 +131,15 @@ def _extract_blender_archive_safely(archive_path: Path, target_root: Path) -> No
             with source, destination.open("wb") as output:
                 shutil.copyfileobj(source, output)
             destination.chmod(member.mode & 0o777)
+
     def resolve_materialized_target(path: Path) -> Path:
         seen: set[Path] = set()
         current = path
         while current in symlink_targets:
             if current in seen:
-                raise RuntimeError(f"cannot materialize cyclic Blender symlink: {current!s}")
+                raise RuntimeError(
+                    f"cannot materialize cyclic Blender symlink: {current!s}"
+                )
             seen.add(current)
             current = symlink_targets[current]
         return current
@@ -152,7 +166,9 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _download_blender_asset(asset: BlenderAsset, destination: Path, base_url: str) -> None:
+def _download_blender_asset(
+    asset: BlenderAsset, destination: Path, base_url: str
+) -> None:
     major, minor, _ = asset.version.split(".")
     series_url = f"{base_url.rstrip('/')}/Blender{major}.{minor}/{asset.archive_name}"
     temporary_path = destination.with_name(f".{destination.name}.{os.getpid()}.part")
@@ -162,7 +178,10 @@ def _download_blender_asset(asset: BlenderAsset, destination: Path, base_url: st
         headers={"User-Agent": "gutch-test-data/1"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response, temporary_path.open("wb") as output:
+        with (
+            urllib.request.urlopen(request, timeout=120) as response,
+            temporary_path.open("wb") as output,
+        ):
             while chunk := response.read(1024 * 1024):
                 output.write(chunk)
         if _sha256_file(temporary_path) != asset.sha256:
@@ -185,7 +204,9 @@ def _load_blender_assets(recipe_path: Path) -> tuple[str, list[BlenderAsset]]:
         recipe = recipe["source"]
     base_url = recipe.get("base_url")
     if not isinstance(base_url, str) or not base_url.strip():
-        raise ValueError(f"Blender recipe base_url must be a non-empty string: {recipe_path}")
+        raise ValueError(
+            f"Blender recipe base_url must be a non-empty string: {recipe_path}"
+        )
     versions = recipe.get("versions")
     if not isinstance(versions, list) or not versions:
         raise ValueError(f"Blender recipe must define versions: {recipe_path}")
@@ -193,7 +214,9 @@ def _load_blender_assets(recipe_path: Path) -> tuple[str, list[BlenderAsset]]:
     assets: list[BlenderAsset] = []
     for version_entry in versions:
         if not isinstance(version_entry, dict):
-            raise ValueError(f"Blender recipe version entries must be objects: {recipe_path}")
+            raise ValueError(
+                f"Blender recipe version entries must be objects: {recipe_path}"
+            )
         version = version_entry.get("version")
         raw_assets = version_entry.get("assets")
         if not isinstance(version, str) or not BLENDER_VERSION_RE.fullmatch(version):
@@ -202,20 +225,28 @@ def _load_blender_assets(recipe_path: Path) -> tuple[str, list[BlenderAsset]]:
             raise ValueError(f"Blender version {version} has no assets")
         for raw_asset in raw_assets:
             if not isinstance(raw_asset, dict):
-                raise ValueError(f"Blender asset entries must be objects: {recipe_path}")
+                raise ValueError(
+                    f"Blender asset entries must be objects: {recipe_path}"
+                )
             platform = raw_asset.get("platform")
             archive_name = raw_asset.get("archive")
             sha256 = raw_asset.get("sha256")
             expected_suffix = BLENDER_ARCHIVE_SUFFIXES.get(str(platform))
             expected_name = f"blender-{version}-{platform}{expected_suffix or ''}"
             if platform not in BLENDER_SUPPORTED_PLATFORMS:
-                raise ValueError(f"unsupported Blender platform in recipe: {platform!r}")
+                raise ValueError(
+                    f"unsupported Blender platform in recipe: {platform!r}"
+                )
             if archive_name != expected_name:
                 raise ValueError(
                     f"Blender archive must be {expected_name!r}, got {archive_name!r}"
                 )
-            if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
-                raise ValueError(f"Blender asset {archive_name} must have a SHA-256 digest")
+            if not isinstance(sha256, str) or not re.fullmatch(
+                r"[0-9a-fA-F]{64}", sha256
+            ):
+                raise ValueError(
+                    f"Blender asset {archive_name} must have a SHA-256 digest"
+                )
             assets.append(BlenderAsset(version, platform, archive_name, sha256.lower()))
     return base_url.rstrip("/"), assets
 
@@ -226,14 +257,23 @@ def _select_blender_assets(
     platforms: list[str] | None,
 ) -> list[BlenderAsset]:
     available_versions = {asset.version for asset in assets}
-    selected_versions = versions or sorted(available_versions, key=lambda value: tuple(int(part) for part in value.split(".")))
+    selected_versions = versions or sorted(
+        available_versions,
+        key=lambda value: tuple(int(part) for part in value.split(".")),
+    )
     unknown_versions = sorted(set(selected_versions) - available_versions)
     if unknown_versions:
-        raise ValueError(f"Blender recipe has no pinned versions: {', '.join(unknown_versions)}")
+        raise ValueError(
+            f"Blender recipe has no pinned versions: {', '.join(unknown_versions)}"
+        )
     selected_platforms = platforms or list(BLENDER_DEFAULT_PLATFORMS)
-    unknown_platforms = sorted(set(selected_platforms) - set(BLENDER_SUPPORTED_PLATFORMS))
+    unknown_platforms = sorted(
+        set(selected_platforms) - set(BLENDER_SUPPORTED_PLATFORMS)
+    )
     if unknown_platforms:
-        raise ValueError(f"unsupported Blender platforms: {', '.join(unknown_platforms)}")
+        raise ValueError(
+            f"unsupported Blender platforms: {', '.join(unknown_platforms)}"
+        )
     selected = [
         asset
         for asset in assets
@@ -243,7 +283,10 @@ def _select_blender_assets(
         f"{version}/{platform}"
         for version in selected_versions
         for platform in selected_platforms
-        if not any(asset.version == version and asset.platform == platform for asset in selected)
+        if not any(
+            asset.version == version and asset.platform == platform
+            for asset in selected
+        )
     ]
     if missing:
         raise ValueError(f"Blender recipe has no pinned assets: {', '.join(missing)}")
@@ -262,7 +305,9 @@ def _blender_folder_tags(folder_name: str) -> dict[str, str] | None:
     return {"version": version, "os": operating_system, "arch": "x86_64"}
 
 
-def _write_blender_source_config(product_dir: Path, target_dirs: tuple[Path, ...]) -> None:
+def _write_blender_source_config(
+    product_dir: Path, target_dirs: tuple[Path, ...]
+) -> None:
     snapshots = []
     for target_dir in target_dirs:
         tags = _blender_folder_tags(target_dir.name)
@@ -332,12 +377,18 @@ def prepare_blender_product(
     for asset in selected_assets:
         archive_path = cache_dir / asset.archive_name
         if not archive_path.is_file() or _sha256_file(archive_path) != asset.sha256:
-            print(f"Downloading Blender {asset.version} {asset.platform}: {asset.archive_name}")
+            print(
+                f"Downloading Blender {asset.version} {asset.platform}: {asset.archive_name}"
+            )
             try:
                 _download_blender_asset(asset, archive_path, base_url)
             except urllib.error.HTTPError:
                 # Mirror bytes still have to match the independently pinned digest.
-                _download_blender_asset(asset, archive_path, "https://ftp.nluug.nl/pub/graphics/blender/release")
+                _download_blender_asset(
+                    asset,
+                    archive_path,
+                    "https://ftp.nluug.nl/pub/graphics/blender/release",
+                )
         target_dir = product_dir / asset.folder_name
         if not target_dir.is_dir():
             staging_dir = product_dir / f".{asset.folder_name}.{os.getpid()}.part"

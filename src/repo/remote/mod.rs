@@ -4,29 +4,17 @@
 //! artifact transfer. Gutch owns the comparison rules, local repo
 //! mutations, progress, cancellation, and synchronization order.
 
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::path::Path;
-use std::path::PathBuf;
 
 use crate::Error;
 use crate::Result;
-use crate::manifest::SnapshotTagSet;
 use crate::progress::GutchOperation;
 use crate::progress::GutchOperationControl;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
-use crate::repo::RepoStatus;
-use crate::repo::index::load_chunk_index;
-use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::GutchRepoPaths;
-use crate::repo::paths::load_gutch_repo_manifest;
-use crate::repo::paths::write_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
-use crate::repo::summarize_snapshot_tags;
-use crate::repo::tag_references::advisory_tag_references;
 
 pub(crate) const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_REMOTE_BINARY_BYTES: u64 = 256 * 1024 * 1024;
@@ -36,10 +24,8 @@ mod provider;
 mod pull;
 mod push;
 pub use link::bind_remote_repo;
-use link::bound_remote_repo_id;
 pub use link::create_remote_repo;
 pub use link::inspect_repo_tag_references;
-pub(crate) use link::linked_remote_repo_id;
 pub use link::list_remote_repositories;
 pub use link::unbind_remote_repo;
 pub use provider::PullConflictPolicy;
@@ -59,7 +45,6 @@ pub use provider::RepoPullStats;
 pub use provider::RepoPushPlan;
 pub use provider::RepoPushSnapshotChange;
 pub use provider::RepoPushStats;
-use pull::local_bundle_paths;
 pub use pull::plan_pull_with_provider;
 pub use pull::pull_repo;
 pub use push::plan_push_with_provider;
@@ -69,18 +54,6 @@ enum ArtifactDecision {
     Identical,
     Fetch,
     KeepLocalNewer,
-}
-
-#[derive(Debug)]
-struct LocalSyncSnapshot {
-    snapshot_id: String,
-    version: String,
-    os: String,
-    arch: String,
-    tags: Vec<String>,
-    snapshot_metadata_hash_b3: String,
-    snapshot_product_metadata_hash_b3: String,
-    snapshot_blueprint_hash_b3: String,
 }
 
 fn repo_file_hash(bytes: &[u8]) -> String {
@@ -274,6 +247,10 @@ impl RemoteProgress {
 
 #[cfg(test)]
 mod tests {
+    use super::link::linked_remote_repo_id;
+    use super::pull::local_bundle_paths;
+    use std::collections::{HashMap, HashSet};
+
     use super::pull::{
         SnapshotBundleIds, bundle_source_requests, compute_pull_plan, record_bundle_sources,
     };

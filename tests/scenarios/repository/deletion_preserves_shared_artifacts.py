@@ -4,6 +4,7 @@ normally.
 Expected: Broken indexes prevent mutation; the surviving snapshot remains usable and final
 deletion removes bundles.
 """
+
 from tests.datasets.generate import basic
 from tests.helpers.filesystem import repository_inventory as inventory
 
@@ -23,7 +24,16 @@ def run(case):
         if invalid is not None:
             index.write_bytes(invalid)
         before = inventory(repo)
-        case.command("snapshot", "delete", "--repo", repo, "--snapshot", first, "--yes", success=False)
+        case.command(
+            "snapshot",
+            "delete",
+            "--repo",
+            repo,
+            "--snapshot",
+            first,
+            "--yes",
+            success=False,
+        )
         assert inventory(repo) == before
     index.write_bytes(original)
     case.command("snapshot", "delete", "--repo", repo, "--snapshot", first, "--yes")

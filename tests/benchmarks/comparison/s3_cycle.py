@@ -13,9 +13,16 @@ from comparison_benchmark_suite.scheduling.config import load_scenario
 from comparison_benchmark_suite.support.filesystem import remove_tree, scan_tree
 from comparison_benchmark_suite.support.commands import GutchCli
 from tests.benchmarks.comparison.config import load_fixture
-from comparison_benchmark_suite.scheduling.dataset import DatasetSelection, select_sources
+from comparison_benchmark_suite.scheduling.dataset import (
+    DatasetSelection,
+    select_sources,
+)
 from comparison_benchmark_suite.scheduling.runner import execute_cases
-from comparison_benchmark_suite.tools.models import FixtureSpec, GutchProfile, LaneResult
+from comparison_benchmark_suite.tools.models import (
+    FixtureSpec,
+    GutchProfile,
+    LaneResult,
+)
 from tests.benchmarks.support.s3 import (
     S3Settings,
     fetch_command,
@@ -24,7 +31,11 @@ from tests.benchmarks.support.s3 import (
     metadata_urls,
     publish_repository,
 )
-from comparison_benchmark_suite.support.gutch import GutchOperations, snapshot_id as _snapshot_id, verification_seconds as _verify_seconds
+from comparison_benchmark_suite.support.gutch import (
+    GutchOperations,
+    snapshot_id as _snapshot_id,
+    verification_seconds as _verify_seconds,
+)
 
 
 @dataclass(frozen=True)
@@ -52,20 +63,29 @@ def load_s3_cycle(path: Path) -> tuple[FixtureSpec, S3CycleOptions]:
     )
     if not options.prefix_root:
         raise ValueError("S3 fixture prefix_root must not be empty")
-    if min(
-        options.transfer_concurrency,
-        options.transfer_max_concurrency,
-        options.upload_concurrency,
-    ) < 1:
+    if (
+        min(
+            options.transfer_concurrency,
+            options.transfer_max_concurrency,
+            options.upload_concurrency,
+        )
+        < 1
+    ):
         raise ValueError("S3 fixture concurrency values must be positive")
     if options.transfer_concurrency > options.transfer_max_concurrency:
         raise ValueError("S3 fixture transfer concurrency exceeds max_concurrency")
     return fixture, options
 
 
-def _source_entries(product: Path, snapshot_limit: int | None = None) -> list[tuple[Path, str]]:
+def _source_entries(
+    product: Path, snapshot_limit: int | None = None
+) -> list[tuple[Path, str]]:
     directories = select_sources(product, snapshot_limit)
-    return [(path, path.name) for path in directories] if directories else [(product, product.name)]
+    return (
+        [(path, path.name) for path in directories]
+        if directories
+        else [(product, product.name)]
+    )
 
 
 def _fetch_profile(
@@ -102,7 +122,11 @@ def _fetch_profile(
         ],
         description=f"{label} fetch-reconstruct",
     )
-    return result.elapsed_seconds, json.loads(stats_path.read_text(encoding="utf-8")), trace_path
+    return (
+        result.elapsed_seconds,
+        json.loads(stats_path.read_text(encoding="utf-8")),
+        trace_path,
+    )
 
 
 def run_s3_cycle(
@@ -126,13 +150,21 @@ def run_s3_cycle(
     options = options or S3CycleOptions()
     run_root = create_run_dir(artifacts_root, product.name, fixture.name)
     layout = RunLayout(run_root)
-    commands = CommandRunner(step_wait_seconds=fixture.step_wait_seconds, on_step=on_step, memory_profile=fixture.profile_mode == "detailed")
+    commands = CommandRunner(
+        step_wait_seconds=fixture.step_wait_seconds,
+        on_step=on_step,
+        memory_profile=fixture.profile_mode == "detailed",
+    )
     cli = GutchCli(cli.executable, profile_mode=fixture.profile_mode)
     local = GutchOperations(cli, commands)
     client = make_client(settings)
     entries = _source_entries(product, fixture.snapshot_limit)
-    selection = DatasetSelection.resolve(product, fixture.snapshot_limit,
-        whole_product=len(entries) == 1 and entries[0][0] == product)
+    selection = DatasetSelection.resolve(
+        product,
+        fixture.snapshot_limit,
+        whole_product=len(entries) == 1 and entries[0][0] == product,
+    )
+
     def execute_lane(lane_spec):
         lane = layout.lane(lane_spec.label)
         repo = lane.payload / "published-repo"
@@ -167,9 +199,17 @@ def run_s3_cycle(
             traces["capture"].append(str(trace_path))
         from uuid import uuid4
         from tests.benchmarks.support.s3 import delete_published_prefix
-        prefix = f"{options.prefix_root}/{run_root.name}/{lane_spec.label}/{uuid4().hex}"
-        layout.cleanup_actions.append(lambda prefix=prefix: delete_published_prefix(client, settings, prefix))
-        layout.write_json(lane.root / "publication.json", {"bucket": settings.bucket, "prefix": prefix})
+
+        prefix = (
+            f"{options.prefix_root}/{run_root.name}/{lane_spec.label}/{uuid4().hex}"
+        )
+        layout.cleanup_actions.append(
+            lambda prefix=prefix: delete_published_prefix(client, settings, prefix)
+        )
+        layout.write_json(
+            lane.root / "publication.json",
+            {"bucket": settings.bucket, "prefix": prefix},
+        )
         if on_step is not None:
             on_step(f"{lane_spec.label} publishing repository to S3")
         upload_started = time.perf_counter()
@@ -211,12 +251,19 @@ def run_s3_cycle(
             )
             fetch_seconds += elapsed
             measured_verify_seconds = _verify_seconds(stats)
-            verify_seconds = (verify_seconds + measured_verify_seconds
-                              if verify_seconds is not None and measured_verify_seconds is not None else None)
+            verify_seconds = (
+                verify_seconds + measured_verify_seconds
+                if verify_seconds is not None and measured_verify_seconds is not None
+                else None
+            )
             traces["fetch_reconstruct"].append(str(trace_path))
             fetch_records.append((name, snapshot_id, fetched_repo, destination))
-            source = next(source for source, source_name in entries if source_name == name)
-            selection.validate(source, destination, lane.stats / f"validate-restored-{index:03d}.json")
+            source = next(
+                source for source, source_name in entries if source_name == name
+            )
+            selection.validate(
+                source, destination, lane.stats / f"validate-restored-{index:03d}.json"
+            )
         corrupt_seconds = 0.0
         repair_seconds = 0.0
         if fixture.corrupt_repair:
@@ -235,7 +282,11 @@ def run_s3_cycle(
             differences = []
             for source, source_name in entries:
                 destination = output / source_name if len(entries) > 1 else output
-                selection.validate(source, destination, lane.stats / f"validate-final-{source.name}.json")
+                selection.validate(
+                    source,
+                    destination,
+                    lane.stats / f"validate-final-{source.name}.json",
+                )
         repo_stats = scan_tree(repo)
         result = LaneResult(
             lane_spec.label,
@@ -262,8 +313,22 @@ def run_s3_cycle(
                 "differences": differences,
             },
         )
-        result.metadata.update(selection.metadata(), configuration=__import__('dataclasses').asdict(lane_spec))
-        result.metrics.update(input_bytes=selection.input_bytes, input_files=selection.input_files)
+        result.metadata.update(
+            selection.metadata(),
+            configuration=__import__("dataclasses").asdict(lane_spec),
+        )
+        result.metrics.update(
+            input_bytes=selection.input_bytes, input_files=selection.input_files
+        )
         return result
-    return execute_cases(fixture, layout, commands, execute_lane, executable=cli.executable,
-        keep_artifacts=keep_artifacts, on_lane_complete=on_lane_complete, on_run_complete=on_run_complete)
+
+    return execute_cases(
+        fixture,
+        layout,
+        commands,
+        execute_lane,
+        executable=cli.executable,
+        keep_artifacts=keep_artifacts,
+        on_lane_complete=on_lane_complete,
+        on_run_complete=on_run_complete,
+    )

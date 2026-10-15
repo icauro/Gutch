@@ -1,3 +1,5 @@
+//! Installation inspection, planning, reconstruction, repair, and publication.
+
 pub(crate) mod apply;
 mod corrupt;
 mod entries;

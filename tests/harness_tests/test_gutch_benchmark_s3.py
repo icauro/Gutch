@@ -27,12 +27,18 @@ class GutchBenchmarkS3Tests(unittest.TestCase):
             (repo / "repo_metadata.json").write_text("{}", encoding="utf-8")
             manifest = repo.parent / "artifact-urls.json"
             client = _FakeS3Client()
-            settings = S3Settings("bucket", "http://127.0.0.1:9634", "auto", "key", "secret")
+            settings = S3Settings(
+                "bucket", "http://127.0.0.1:9634", "auto", "key", "secret"
+            )
 
-            urls = make_artifact_url_manifest(client, settings, repo, "prefix", manifest)
+            urls = make_artifact_url_manifest(
+                client, settings, repo, "prefix", manifest
+            )
 
             self.assertEqual(set(urls), {"bundle-id", "chunk-id"})
-            self.assertEqual(set(json.loads(manifest.read_text(encoding="utf-8"))), set(urls))
+            self.assertEqual(
+                set(json.loads(manifest.read_text(encoding="utf-8"))), set(urls)
+            )
 
 
 if __name__ == "__main__":

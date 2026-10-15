@@ -3,6 +3,7 @@ failure.
 
 Expected: Failed downloads preserve the prior installation and retries produce exact output.
 """
+
 from tests.helpers.delivery import DeliveryServer, fetch_arguments
 from tests.helpers.filesystem import inventory
 from tests.helpers.delivery_workflow import published
@@ -18,7 +19,14 @@ def run(case):
             destination.mkdir()
             (destination / "keep.txt").write_bytes(b"prior content")
             before = inventory(destination)
-            args = fetch_arguments(case, case.payload / f"cache-{fault}", snapshot, repo, server.url, destination=destination)
+            args = fetch_arguments(
+                case,
+                case.payload / f"cache-{fault}",
+                snapshot,
+                repo,
+                server.url,
+                destination=destination,
+            )
             case.command(*args, success=False)
             assert inventory(destination) == before
             server.faults.clear()
@@ -27,6 +35,15 @@ def run(case):
         server.requests.clear()
         server.faults[artifact] = "retry_once"
         destination = case.payload / "retry-once"
-        case.stats(*fetch_arguments(case, case.payload / "retry-repo", snapshot, repo, server.url, destination=destination))
+        case.stats(
+            *fetch_arguments(
+                case,
+                case.payload / "retry-repo",
+                snapshot,
+                repo,
+                server.url,
+                destination=destination,
+            )
+        )
         assert server.requests[artifact] >= 2
         case.compare(data, destination, "transient-retry")

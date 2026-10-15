@@ -1,3 +1,5 @@
+//! Repository and snapshot schemas, structural validation, tags, and runtime metadata.
+
 pub(crate) mod blueprint_codec;
 pub(crate) mod blueprint_columns;
 pub(crate) mod constraints;

@@ -238,37 +238,8 @@ fn execute_repo_snapshot_capture(
         // The content-derived ID already exists. Compare metadata without
         // mutating anything: identical metadata returns unchanged, differing
         // metadata returns a typed conflict for an explicit update.
-        let mut differences = Vec::new();
-        if existing_manifest.snapshot_tags != result.snapshot_manifest.snapshot_tags {
-            differences.push(MetadataFieldDifference {
-                field: String::from("snapshot_tags"),
-                existing: existing_manifest
-                    .snapshot_tags
-                    .to_canonical_strings()
-                    .join(" "),
-                requested: result
-                    .snapshot_manifest
-                    .snapshot_tags
-                    .to_canonical_strings()
-                    .join(" "),
-            });
-        }
-        if existing_manifest.product_metadata != result.snapshot_manifest.product_metadata {
-            differences.push(MetadataFieldDifference {
-                field: String::from("product_metadata"),
-                existing: metadata_display_value(existing_manifest.product_metadata.as_ref()),
-                requested: metadata_display_value(
-                    result.snapshot_manifest.product_metadata.as_ref(),
-                ),
-            });
-        }
-        if existing_manifest.launch != result.snapshot_manifest.launch {
-            differences.push(MetadataFieldDifference {
-                field: String::from("launch"),
-                existing: metadata_display_value(existing_manifest.launch.as_ref()),
-                requested: metadata_display_value(result.snapshot_manifest.launch.as_ref()),
-            });
-        }
+        let differences =
+            capture_metadata_differences(&existing_manifest, &result.snapshot_manifest);
         if !differences.is_empty() {
             return Err(crate::Error::SnapshotCaptureConflict {
                 outcome: SnapshotCaptureOutcome::MetadataConflict {
@@ -376,6 +347,41 @@ fn execute_repo_snapshot_capture(
     };
     capture_result.emit_done(request.control.progress());
     Ok(capture_result)
+}
+
+fn capture_metadata_differences(
+    existing_manifest: &crate::manifest::SnapshotManifest,
+    requested_manifest: &crate::manifest::SnapshotManifest,
+) -> Vec<MetadataFieldDifference> {
+    let mut differences = Vec::new();
+    if existing_manifest.snapshot_tags != requested_manifest.snapshot_tags {
+        differences.push(MetadataFieldDifference {
+            field: String::from("snapshot_tags"),
+            existing: existing_manifest
+                .snapshot_tags
+                .to_canonical_strings()
+                .join(" "),
+            requested: requested_manifest
+                .snapshot_tags
+                .to_canonical_strings()
+                .join(" "),
+        });
+    }
+    if existing_manifest.product_metadata != requested_manifest.product_metadata {
+        differences.push(MetadataFieldDifference {
+            field: String::from("product_metadata"),
+            existing: metadata_display_value(existing_manifest.product_metadata.as_ref()),
+            requested: metadata_display_value(requested_manifest.product_metadata.as_ref()),
+        });
+    }
+    if existing_manifest.launch != requested_manifest.launch {
+        differences.push(MetadataFieldDifference {
+            field: String::from("launch"),
+            existing: metadata_display_value(existing_manifest.launch.as_ref()),
+            requested: metadata_display_value(requested_manifest.launch.as_ref()),
+        });
+    }
+    differences
 }
 
 impl SnapshotCaptureResult {

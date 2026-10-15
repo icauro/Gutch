@@ -11,20 +11,23 @@ import unittest
 import unicodedata
 import zipfile
 from pathlib import Path
-from unittest import mock
 
 from tests.datasets.generate import (
     DEFAULT_SEED,
     GenerationRanges,
     IntRange,
-    METADATA_FILE_NAME,
     TEST_MANIFEST_FILE_NAME,
     _blake3_file_hex,
     _timestamp_base_seconds,
     write_fixture,
 )
 
-from tests.datasets.prepare_blender import _extract_blender_archive_safely, _load_blender_assets, _select_blender_assets, prepare_blender_product
+from tests.datasets.prepare_blender import (
+    _extract_blender_archive_safely,
+    _load_blender_assets,
+    _select_blender_assets,
+    prepare_blender_product,
+)
 
 
 def _ranges() -> GenerationRanges:
@@ -91,18 +94,28 @@ class GutchMockProductCreateTests(unittest.TestCase):
                 self.assertGreaterEqual(total_size, ranges.product_size_bytes.minimum)
                 self.assertLessEqual(total_size, ranges.product_size_bytes.maximum)
                 for entry in entries:
-                    self.assertGreaterEqual(int(entry["size_bytes"]), ranges.file_size_bytes.minimum)
-                    self.assertLessEqual(int(entry["size_bytes"]), ranges.file_size_bytes.maximum)
+                    self.assertGreaterEqual(
+                        int(entry["size_bytes"]), ranges.file_size_bytes.minimum
+                    )
+                    self.assertLessEqual(
+                        int(entry["size_bytes"]), ranges.file_size_bytes.maximum
+                    )
                     depth = len(Path(str(entry["relative_path"])).parts) - 1
                     self.assertGreaterEqual(depth, ranges.path_depth.minimum)
                     self.assertLessEqual(depth, ranges.path_depth.maximum)
                 paths = [str(entry["relative_path"]) for entry in entries]
                 self.assertGreaterEqual(
-                    sum(len(path) >= ranges.relative_path_length.minimum for path in paths),
+                    sum(
+                        len(path) >= ranges.relative_path_length.minimum
+                        for path in paths
+                    ),
                     ranges.long_path_files.minimum,
                 )
                 self.assertGreaterEqual(
-                    sum(any(ord(character) > 127 for character in path) for path in paths),
+                    sum(
+                        any(ord(character) > 127 for character in path)
+                        for path in paths
+                    ),
                     ranges.unicode_files.minimum,
                 )
                 self.assertGreaterEqual(
@@ -124,7 +137,10 @@ class GutchMockProductCreateTests(unittest.TestCase):
 
     def test_seed_reproduces_layout_and_content(self) -> None:
         ranges = _ranges()
-        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+        with (
+            tempfile.TemporaryDirectory() as first,
+            tempfile.TemporaryDirectory() as second,
+        ):
             first_result = write_fixture(
                 root=Path(first),
                 name="same",
@@ -151,7 +167,10 @@ class GutchMockProductCreateTests(unittest.TestCase):
 
     def test_default_seed_reproduces_complete_fixture(self) -> None:
         ranges = _ranges()
-        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+        with (
+            tempfile.TemporaryDirectory() as first,
+            tempfile.TemporaryDirectory() as second,
+        ):
             first_result = write_fixture(
                 root=Path(first),
                 name="default-seed",
@@ -192,7 +211,9 @@ class GutchMockProductCreateTests(unittest.TestCase):
             )
 
             manifest = json.loads(
-                (result.fixture_dir / TEST_MANIFEST_FILE_NAME).read_text(encoding="utf-8")
+                (result.fixture_dir / TEST_MANIFEST_FILE_NAME).read_text(
+                    encoding="utf-8"
+                )
             )
             self.assertEqual(manifest["schema_version"], 1)
             self.assertEqual(manifest["generator"]["seed"], 424242)
@@ -219,7 +240,9 @@ class GutchMockProductCreateTests(unittest.TestCase):
 
         self.assertEqual(base_url, "https://download.blender.org/release")
         self.assertEqual(len(assets), 4)
-        selected = _select_blender_assets(assets, ["5.2.0", "5.2.1"], ["windows-x64", "linux-x64"])
+        selected = _select_blender_assets(
+            assets, ["5.2.0", "5.2.1"], ["windows-x64", "linux-x64"]
+        )
         self.assertEqual(
             [(asset.version, asset.platform) for asset in selected],
             [
@@ -231,7 +254,9 @@ class GutchMockProductCreateTests(unittest.TestCase):
         )
         self.assertTrue(all(len(asset.sha256) == 64 for asset in selected))
 
-    def test_blender_product_reuses_pinned_archive_and_writes_source_config(self) -> None:
+    def test_blender_product_reuses_pinned_archive_and_writes_source_config(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             recipe_path = root / "blender.json"
@@ -273,7 +298,9 @@ class GutchMockProductCreateTests(unittest.TestCase):
             self.assertEqual(result.target_dirs, (target,))
             self.assertEqual((target / "blender.exe").read_bytes(), b"blender")
             source_config = json.loads(
-                (result.product_dir / ".gutch_source_config.json").read_text(encoding="utf-8")
+                (result.product_dir / ".gutch_source_config.json").read_text(
+                    encoding="utf-8"
+                )
             )
             self.assertEqual(
                 source_config["explicit_ingestion_rules"]["snapshots"][0]["tags"],
@@ -311,7 +338,9 @@ class GutchMockProductCreateTests(unittest.TestCase):
                 payload,
             )
             self.assertEqual(
-                (root / "target" / "blender-5.0.0-linux-x64" / "blender-link").read_bytes(),
+                (
+                    root / "target" / "blender-5.0.0-linux-x64" / "blender-link"
+                ).read_bytes(),
                 payload,
             )
 
@@ -348,12 +377,17 @@ class GutchMockProductCreateTests(unittest.TestCase):
             )
             first_root = result.fixture_dir / ".mock-base" / "1.0.0"
             second_root = result.fixture_dir / ".mock-base" / "2.0.0"
-            paths = [str(entry["relative_path"]) for entry in _entries(result.fixture_dir, "1.0.0")]
+            paths = [
+                str(entry["relative_path"])
+                for entry in _entries(result.fixture_dir, "1.0.0")
+            ]
             changed_byte_counts = []
             for relative_path in paths:
                 first_bytes = (first_root / relative_path).read_bytes()
                 second_bytes = (second_root / relative_path).read_bytes()
-                changed_count = sum(left != right for left, right in zip(first_bytes, second_bytes))
+                changed_count = sum(
+                    left != right for left, right in zip(first_bytes, second_bytes)
+                )
                 if changed_count:
                     changed_byte_counts.append(changed_count)
 
@@ -395,7 +429,10 @@ class GutchMockProductCreateTests(unittest.TestCase):
             paths = [str(entry["relative_path"]) for entry in entries]
 
             self.assertEqual(sum(len(path) >= 140 for path in paths), 2)
-            self.assertEqual(sum(any(ord(character) > 127 for character in path) for path in paths), 3)
+            self.assertEqual(
+                sum(any(ord(character) > 127 for character in path) for path in paths),
+                3,
+            )
             self.assertEqual(
                 sum(
                     any(character.islower() for character in path)
@@ -417,8 +454,15 @@ class GutchMockProductCreateTests(unittest.TestCase):
                 age_seconds = (timestamp_base_ns - modified_at_ns) / 1_000_000_000
                 self.assertGreaterEqual(age_seconds, 99)
                 self.assertLessEqual(age_seconds, 200)
-                target_path = result.fixture_dir / ".mock-base" / "1.0.0" / str(entry["relative_path"])
-                self.assertLessEqual(abs(target_path.stat().st_mtime_ns - modified_at_ns), 1_000_000_000)
+                target_path = (
+                    result.fixture_dir
+                    / ".mock-base"
+                    / "1.0.0"
+                    / str(entry["relative_path"])
+                )
+                self.assertLessEqual(
+                    abs(target_path.stat().st_mtime_ns - modified_at_ns), 1_000_000_000
+                )
 
             for snapshot_dir in result.captured_snapshot_dirs:
                 for relative_path in paths:
@@ -426,7 +470,10 @@ class GutchMockProductCreateTests(unittest.TestCase):
 
     def test_appending_reuses_seed_and_ranges(self) -> None:
         ranges = _ranges()
-        with tempfile.TemporaryDirectory() as appended, tempfile.TemporaryDirectory() as complete:
+        with (
+            tempfile.TemporaryDirectory() as appended,
+            tempfile.TemporaryDirectory() as complete,
+        ):
             appended_result = write_fixture(
                 root=Path(appended),
                 name="fixture",

@@ -56,25 +56,36 @@ class S3Client(Protocol):
     def delete_bucket(self, **kwargs: Any) -> Any: ...
     def list_multipart_uploads(self, **kwargs: Any) -> dict[str, Any]: ...
     def abort_multipart_upload(self, **kwargs: Any) -> Any: ...
-    def generate_presigned_url(self, client_method: str, Params: dict[str, str], ExpiresIn: int) -> str: ...
+    def generate_presigned_url(
+        self, client_method: str, Params: dict[str, str], ExpiresIn: int
+    ) -> str: ...
 
 
-def delete_published_prefix(client: S3Client, settings: S3Settings, prefix: str) -> None:
+def delete_published_prefix(
+    client: S3Client, settings: S3Settings, prefix: str
+) -> None:
     """Remove a run's newly allocated UUID namespace, never a bucket or caller prefix."""
     import re
+
     if not re.fullmatch(r".+/[0-9a-f]{32}", prefix):
         raise ValueError("cleanup requires a run-owned UUID prefix")
     prefix = prefix.rstrip("/") + "/"
     while True:
-        objects = client.list_objects_v2(Bucket=settings.bucket, Prefix=prefix, MaxKeys=1000).get("Contents", [])
+        objects = client.list_objects_v2(
+            Bucket=settings.bucket, Prefix=prefix, MaxKeys=1000
+        ).get("Contents", [])
         if not objects:
             return
         keys = [item["Key"] for item in objects]
         if not all(key.startswith(prefix) for key in keys):
             raise ValueError("storage returned an object outside the owned prefix")
-        result = client.delete_objects(Bucket=settings.bucket, Delete={"Objects": [{"Key": key} for key in keys]})
+        result = client.delete_objects(
+            Bucket=settings.bucket, Delete={"Objects": [{"Key": key} for key in keys]}
+        )
         if result.get("Errors"):
-            raise RuntimeError(f"S3 cleanup failed for prefix {prefix}: {result['Errors']}")
+            raise RuntimeError(
+                f"S3 cleanup failed for prefix {prefix}: {result['Errors']}"
+            )
 
 
 def make_client(settings: S3Settings) -> S3Client:
@@ -124,7 +135,9 @@ def publish_repository(
     files = repository_files(repo)
 
     def upload(path: Path) -> int:
-        client.upload_file(str(path), settings.bucket, s3_key(prefix, path.relative_to(repo)))
+        client.upload_file(
+            str(path), settings.bucket, s3_key(prefix, path.relative_to(repo))
+        )
         return path.stat().st_size
 
     with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
@@ -158,7 +171,9 @@ def make_artifact_url_manifest(
             ExpiresIn=expires_seconds,
         )
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(urls, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(urls, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return urls
 
 
@@ -187,7 +202,10 @@ def metadata_urls(
             raise FileNotFoundError(f"missing repository metadata: {path}")
         urls[name] = client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": settings.bucket, "Key": s3_key(prefix, path.relative_to(repo))},
+            Params={
+                "Bucket": settings.bucket,
+                "Key": s3_key(prefix, path.relative_to(repo)),
+            },
             ExpiresIn=expires_seconds,
         )
     return urls
@@ -207,7 +225,11 @@ def fetch_command(
     stats_path: Path | None = None,
     trace_path: Path | None = None,
 ) -> list[str | Path]:
-    operation = ["installation", "reconstruct", "--fetch"] if destination is not None else ["snapshot", "fetch"]
+    operation = (
+        ["installation", "reconstruct", "--fetch"]
+        if destination is not None
+        else ["snapshot", "fetch"]
+    )
     command = cli.command(
         *operation,
         "--repo",
@@ -234,9 +256,20 @@ def fetch_command(
     if destination is not None:
         if stats_path is None:
             raise ValueError("reconstruction with --fetch requires stats_path")
-        command.extend(["--destination", destination, *GutchCli.runtime_args(profile), "--json", "--output", stats_path])
+        command.extend(
+            [
+                "--destination",
+                destination,
+                *GutchCli.runtime_args(profile),
+                "--json",
+                "--output",
+                stats_path,
+            ]
+        )
     if trace_path is not None and cli.profile_mode != "off":
-        command.extend(["--profile", cli.profile_mode, "--profile-dir", trace_path.parent])
+        command.extend(
+            ["--profile", cli.profile_mode, "--profile-dir", trace_path.parent]
+        )
     product_metadata = urls.get("product_metadata_url")
     if product_metadata:
         command.extend(["--product-metadata-url", product_metadata])

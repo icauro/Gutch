@@ -1,4 +1,5 @@
 """Independent raw wire fixtures for testing validly framed hostile metadata."""
+
 import struct
 from blake3 import blake3
 

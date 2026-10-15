@@ -1,8 +1,17 @@
+use crate::cli::command_support::InstallationVerifyStats;
+use crate::cli::command_support::SnapshotReconstructStats;
 use crate::cli::command_support::{
     InstallationCorruptStats, InstallationRepairStats, write_report,
 };
 use crate::cli::progress::CliProgressSink;
+use crate::cli::reporting::optional_output_paths;
+use crate::cli::reporting::print_profile_summary;
+use crate::cli::reporting::ratio_pct;
+use crate::cli::reporting::reconstruct_timings_summary;
+use crate::cli::reporting::verify_timings_summary;
 use crate::cli::verbose_output_enabled;
+use std::path::PathBuf;
+
 pub(crate) struct ReconstructCommand {
     pub(crate) repo: std::path::PathBuf,
     pub(crate) snapshot_id: String,
@@ -356,16 +365,6 @@ pub(crate) fn run_installation(
         ),
     }
 }
-
-use std::path::PathBuf;
-
-use crate::cli::command_support::InstallationVerifyStats;
-use crate::cli::command_support::SnapshotReconstructStats;
-use crate::cli::reporting::optional_output_paths;
-use crate::cli::reporting::print_profile_summary;
-use crate::cli::reporting::ratio_pct;
-use crate::cli::reporting::reconstruct_timings_summary;
-use crate::cli::reporting::verify_timings_summary;
 
 pub(crate) struct VerifyCommand {
     pub(crate) repo: PathBuf,

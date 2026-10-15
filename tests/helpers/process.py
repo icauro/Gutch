@@ -1,7 +1,7 @@
 """Terminate owned commands without leaving child processes behind."""
+
 import os
 import signal
-import subprocess
 
 
 def stop_process(process):
@@ -9,6 +9,7 @@ def stop_process(process):
         return
     if os.name == "nt":
         import psutil
+
         parent = psutil.Process(process.pid)
         children = parent.children(recursive=True)
         for child in reversed(children):

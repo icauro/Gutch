@@ -1,4 +1,5 @@
 """Controlled child behavior for testing the scenario supervisor, never a suite scenario."""
+
 import os
 import sys
 import time
@@ -15,7 +16,11 @@ def run(case):
     if behavior == "skip":
         raise unittest.SkipTest("intentional skip")
     if behavior == "timeout":
-        child = start_process([sys.executable, "-c", "import time; time.sleep(60)"],
-                              case.root, {}, log_path=case.root / "child.log")
+        child = start_process(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            case.root,
+            {},
+            log_path=case.root / "child.log",
+        )
         (case.root / "child.pid").write_text(str(child.pid))
         time.sleep(60)

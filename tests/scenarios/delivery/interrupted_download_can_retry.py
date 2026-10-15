@@ -2,6 +2,7 @@
 
 Expected: The old installation survives interruption and the retry reconstructs exact content.
 """
+
 from tests.helpers.process import stop_process
 from tests.helpers.cli import start_process
 from tests.helpers.cli import REPOSITORY
@@ -19,10 +20,24 @@ def run(case):
         destination.mkdir()
         (destination / "keep.txt").write_bytes(b"prior content")
         before = inventory(destination)
-        args = fetch_arguments(case, case.payload / "cache-repo", snapshot, repo, server.url, destination=destination)
-        process = start_process([str(case.executable), *map(str, args)], REPOSITORY, case.environment, log_path=case.log("interrupted"))
+        args = fetch_arguments(
+            case,
+            case.payload / "cache-repo",
+            snapshot,
+            repo,
+            server.url,
+            destination=destination,
+        )
+        process = start_process(
+            [str(case.executable), *map(str, args)],
+            REPOSITORY,
+            case.environment,
+            log_path=case.log("interrupted"),
+        )
         try:
-            assert server.request_started.wait(30), "download did not reach interruption barrier"
+            assert server.request_started.wait(30), (
+                "download did not reach interruption barrier"
+            )
         finally:
             stop_process(process)
             server.release_request.set()

@@ -2,6 +2,7 @@
 
 Expected: Paths, content hashes and supported attributes match the recorded source inventories.
 """
+
 import shutil
 from tests.datasets.generate import case_names, load_case
 from tests.helpers.cli import Case
