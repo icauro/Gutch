@@ -36,7 +36,11 @@ fn file_representation(file: &FileManifest) -> u8 {
         0 => FILE_EMPTY,
         // Validation ensures the sole chunk spans the file; matching hashes let
         // the reader recover the chunk entirely from the file size and hash.
-        1 if file.chunks[0].chunk_hash == file.full_file_hash => FILE_IMPLICIT_CHUNK,
+        1 if ChunkHash::parse_hex(&file.full_file_hash)
+            .is_ok_and(|hash| file.chunks[0].chunk_hash == hash) =>
+        {
+            FILE_IMPLICIT_CHUNK
+        }
         _ => FILE_EXPLICIT_CHUNKS,
     }
 }
@@ -211,7 +215,7 @@ fn encode_chunk_sequences(files: &[&FileManifest]) -> Result<Vec<u8>> {
     }
     for file in &files_with_explicit_chunks {
         for chunk in &file.chunks {
-            write_chunk_hash(&mut chunks, ChunkHash::parse_hex(&chunk.chunk_hash)?)?;
+            write_chunk_hash(&mut chunks, chunk.chunk_hash)?;
         }
     }
     for file in &files_with_explicit_chunks {
@@ -472,7 +476,7 @@ fn reconstruct_entries(
                         if size > 0 && size <= crate::artifact::format::MAX_RAW_CHUNK_SIZE =>
                     {
                         vec![ChunkRef {
-                            chunk_hash: hash.clone(),
+                            chunk_hash: file_content_hashes[file_row],
                             raw_size: size as u32,
                         }]
                     }
@@ -483,7 +487,7 @@ fn reconstruct_entries(
                         explicit_chunk_sequence_row += 1;
                         chunk_sequence_range
                             .map(|index| ChunkRef {
-                                chunk_hash: chunk_hashes[index].to_hex(),
+                                chunk_hash: chunk_hashes[index],
                                 raw_size: chunk_sizes[index],
                             })
                             .collect()
@@ -531,7 +535,7 @@ mod tests {
             read_only: true,
             full_file_hash: blake3::hash(b"x").to_hex().to_string(),
             chunks: vec![ChunkRef {
-                chunk_hash: blake3::hash(b"x").to_hex().to_string(),
+                chunk_hash: ChunkHash::from_blake3(blake3::hash(b"x")),
                 raw_size: 1,
             }],
         })];

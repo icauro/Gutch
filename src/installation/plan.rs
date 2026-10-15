@@ -68,7 +68,10 @@ pub(crate) fn build_reconstruct_pipeline_plan(
     let mut chunk_targets: HashMap<(usize, usize), Vec<ReconstructTarget>> = HashMap::new();
     let mut artifact_job_indices: HashMap<crate::repo::artifacts::ArtifactRef, usize> =
         HashMap::new();
-    let mut source_chunk_job_indices: HashMap<(PathBuf, u64, u32, String), usize> = HashMap::new();
+    let mut source_chunk_job_indices: HashMap<
+        (PathBuf, u64, u32, crate::artifact::hash::ChunkHash),
+        usize,
+    > = HashMap::new();
     let mut missing_artifact_to_file_indices: HashMap<
         crate::repo::artifacts::ArtifactRef,
         Vec<usize>,
@@ -130,7 +133,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                     source_chunk.path.clone(),
                     source_chunk.offset,
                     chunk_ref.raw_size,
-                    chunk_ref.chunk_hash.clone(),
+                    chunk_ref.chunk_hash,
                 );
                 let source_job_index =
                     if let Some(&job_index) = source_chunk_job_indices.get(&source_key) {
@@ -138,7 +141,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                     } else {
                         let job_index = jobs.len();
                         jobs.push(ReconstructJob::SourceChunk(ReconstructSourceChunkJob {
-                            chunk_hash: chunk_ref.chunk_hash.clone(),
+                            chunk_hash: chunk_ref.chunk_hash,
                             raw_size: chunk_ref.raw_size,
                             source_path: source_chunk.path.clone(),
                             source_offset: source_chunk.offset,
@@ -164,7 +167,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             }
             let entry = chunk_index
                 .entries
-                .get(&chunk_ref.chunk_hash)
+                .get_hash(&chunk_ref.chunk_hash)
                 .ok_or_else(|| {
                     Error::manifest(format!(
                         "missing chunk index entry for required chunk '{}'",
@@ -198,7 +201,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             let ReconstructJob::Artifact(artifact_job) = &mut jobs[job_index] else {
                 unreachable!("artifact job index points to another job kind");
             };
-            let hash = crate::artifact::hash::ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+            let hash = chunk_ref.chunk_hash;
             let position = *chunk_positions.entry((job_index, hash)).or_insert_with(|| {
                 let position = artifact_job.chunks.len();
                 artifact_job.chunks.push(ReconstructArtifactChunk {

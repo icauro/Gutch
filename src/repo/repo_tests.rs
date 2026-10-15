@@ -56,7 +56,8 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
             read_only: false,
             full_file_hash: test_hash(content_label),
             chunks: vec![crate::manifest::ChunkRef {
-                chunk_hash: test_hash(content_label),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash(content_label))
+                    .unwrap(),
                 raw_size: 9,
             }],
         });
@@ -251,11 +252,13 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
         full_file_hash: "hash".into(),
         chunks: vec![
             manifest::ChunkRef {
-                chunk_hash: test_hash("chunk-a"),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("chunk-a"))
+                    .unwrap(),
                 raw_size: 100,
             },
             manifest::ChunkRef {
-                chunk_hash: test_hash("chunk-b"),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("chunk-b"))
+                    .unwrap(),
                 raw_size: 100,
             },
         ],
@@ -319,7 +322,8 @@ fn check_gutch_repo_reports_snapshots() {
         read_only: false,
         full_file_hash: test_hash("game.exe"),
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: test_hash("game.exe"),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("game.exe"))
+                .unwrap(),
             raw_size: 42,
         }],
     });
@@ -398,7 +402,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         read_only: false,
         full_file_hash: chunk_hash.clone(),
         chunks: vec![manifest::ChunkRef {
-            chunk_hash: chunk_hash.clone(),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_hash).unwrap(),
             raw_size: raw_bytes.len() as u32,
         }],
     });
@@ -654,7 +658,8 @@ fn inspect_repo_shows_snapshot_tags() {
         read_only: false,
         full_file_hash: test_hash("game.bin"),
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: test_hash("game.bin"),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("game.bin"))
+                .unwrap(),
             raw_size: 100,
         }],
     });
@@ -693,11 +698,11 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         full_file_hash: test_hash("game.exe"),
         chunks: vec![
             manifest::ChunkRef {
-                chunk_hash: chunk_one.clone(),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_one).unwrap(),
                 raw_size: 100,
             },
             manifest::ChunkRef {
-                chunk_hash: chunk_two.clone(),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_two).unwrap(),
                 raw_size: 200,
             },
         ],
@@ -727,11 +732,11 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         manifest.files().next().unwrap().full_file_hash
     );
     assert_eq!(
-        loaded.files().next().unwrap().chunks[0].chunk_hash,
+        loaded.files().next().unwrap().chunks[0].chunk_hash.to_hex(),
         chunk_one
     );
     assert_eq!(
-        loaded.files().next().unwrap().chunks[1].chunk_hash,
+        loaded.files().next().unwrap().chunks[1].chunk_hash.to_hex(),
         chunk_two
     );
 

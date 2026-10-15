@@ -332,7 +332,8 @@ mod tests {
             read_only: false,
             full_file_hash: test_hash("game.exe"),
             chunks: vec![crate::manifest::ChunkRef {
-                chunk_hash: test_hash("game.exe"),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("game.exe"))
+                    .unwrap(),
                 raw_size: 12,
             }],
         }]);

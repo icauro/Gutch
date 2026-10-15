@@ -201,11 +201,11 @@ pub fn index_manifest(
         .flat_map(|file| &file.chunks)
         .map(|chunk| {
             (
-                crate::artifact::hash::ChunkHash::parse_hex(&chunk.chunk_hash).unwrap(),
+                chunk.chunk_hash,
                 crate::repo::index::ChunkIndexEntry::new(
                     chunk.raw_size,
                     0,
-                    chunk.chunk_hash.as_str().into(),
+                    chunk.chunk_hash.to_hex().into(),
                     chunk.raw_size,
                     chunk.raw_size,
                     crate::artifact::profiles::ArtifactStorageMode::Bundled,

@@ -33,9 +33,13 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
             &crate::file_integrity::hash_file(new_source.join("game.exe").as_path()).unwrap(),
         ),
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::hash_hex(
-                &crate::file_integrity::hash_file(new_source.join("game.exe").as_path()).unwrap(),
-            ),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                &crate::artifact::hash::hash_hex(
+                    &crate::file_integrity::hash_file(new_source.join("game.exe").as_path())
+                        .unwrap(),
+                ),
+            )
+            .unwrap(),
             raw_size: 11,
         }],
     }];

@@ -36,8 +36,7 @@ pub(crate) fn preserve_local_chunk_locations(
     incoming: &mut ChunkIndex,
 ) -> Result<()> {
     for (hash, entry) in load_chunk_index(paths)?.entries {
-        let artifact =
-            crate::repo::artifacts::ArtifactRef::from_chunk_entry(&hash.to_hex(), &entry);
+        let artifact = crate::repo::artifacts::ArtifactRef::from_chunk_entry(&hash, &entry);
         let artifact_is_cached = artifact.local_path(paths)?.is_file();
         let preserve_local_entry = artifact_is_cached || incoming.entries.get_hash(&hash).is_none();
         if preserve_local_entry {
@@ -47,20 +46,10 @@ pub(crate) fn preserve_local_chunk_locations(
     Ok(())
 }
 
-pub fn required_chunk_hashes(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
+pub fn required_chunk_hashes(snapshot_manifest: &SnapshotManifest) -> HashSet<ChunkHash> {
     snapshot_manifest
         .files()
-        .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash.as_str()))
-        .collect()
-}
-
-pub fn required_chunk_hashes_typed(
-    snapshot_manifest: &SnapshotManifest,
-) -> Result<HashSet<ChunkHash>> {
-    snapshot_manifest
-        .files()
-        .flat_map(|file| file.chunks.iter())
-        .map(|chunk| ChunkHash::parse_hex(&chunk.chunk_hash))
+        .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash))
         .collect()
 }
 
@@ -195,7 +184,7 @@ mod cache_merge_tests {
                 write_chunk_index(&paths, &local).unwrap();
                 if cached {
                     let artifact = crate::repo::artifacts::ArtifactRef::from_chunk_entry(
-                        &chunk_hash.to_hex(),
+                        &chunk_hash,
                         &local_entry,
                     );
                     let path = artifact.local_path(&paths).unwrap();

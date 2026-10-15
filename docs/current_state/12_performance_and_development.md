@@ -579,3 +579,35 @@ small files at 128 KiB and large files at 1 KiB, each with None, Zstd, and LZ4.
 Regression tests cover chunk release order, input length errors, late loader
 failure cleanup, invalid descriptors, and admission below the whole raw-group
 size. Evidence: `tests/.artifacts/research_optimization_pass/round9_report.md`.
+
+
+## Typed manifest chunk identities, October 2026
+
+Manifest chunk references retain binary `ChunkHash` values instead of separately
+allocated hexadecimal strings. Binary decoding constructs those values directly;
+JSON decoding validates canonical text at the boundary. Index lookups and source
+reuse plans use the typed values. Verification borrows the manifest's chunk slice
+instead of allocating and parsing another chunk list.
+
+On Windows warm-cache captures with four workers and 1 KiB chunk targets,
+21 alternating pairs on small deterministic inputs measured:
+
+| Input | Baseline capture | Typed chunks | Reduction |
+|---|---:|---:|---:|
+| Mixed, 36.5 MiB | 444.57 ms | 397.08 ms | 10.7% |
+| Four files, 64 MiB | 578.93 ms | 489.48 ms | 15.5% |
+
+On the same 64 MiB repository, 21 pairs reduced verification from
+39.60 to 26.72 ms (32.5%) and reconstruction from
+322.22 to 262.62 ms (18.5%). Default 128 KiB-profile capture
+changes ranged from -1.5% to +0.7%; the demonstrated gain is on high chunk counts.
+
+Three alternating process-memory pairs measured peak working set reductions from
+63.42 to 60.43 MiB for mixed capture and 67.89 to 63.15 MiB for large capture.
+Native high-water counters were sampled about every 3 ms, independently of timing.
+These are workload-specific observations, not cross-platform guarantees.
+
+Reconstructed trees matched independent SHA-256 expectations. Six comparisons
+also matched bundle and blueprint bytes across None, Zstd and LZ4 at 128 KiB and
+1 KiB presets. JSON tests preserve canonical text and reject malformed or
+uppercase hashes. Evidence: `tests/.artifacts/research_optimization_pass/round11_report.md`.

@@ -67,7 +67,6 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
         if let SnapshotEntry::File(file) = entry {
             crate::artifact::hash::ChunkHash::parse_hex(&file.full_file_hash)?;
             for chunk in &file.chunks {
-                crate::artifact::hash::ChunkHash::parse_hex(&chunk.chunk_hash)?;
                 if chunk.raw_size == 0
                     || u64::from(chunk.raw_size) > crate::artifact::format::MAX_RAW_CHUNK_SIZE
                 {
@@ -115,7 +114,7 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkRef {
-    pub chunk_hash: String,
+    pub chunk_hash: crate::artifact::hash::ChunkHash,
     pub raw_size: u32,
 }
 

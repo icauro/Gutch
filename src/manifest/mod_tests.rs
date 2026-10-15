@@ -7,14 +7,14 @@ fn test_file_manifest_serialization() {
         size: 12345,
         executable: true,
         read_only: false,
-        full_file_hash: "abc123".to_string(),
+        full_file_hash: "01".repeat(32),
         chunks: vec![
             ChunkRef {
-                chunk_hash: "def456".to_string(),
+                chunk_hash: crate::artifact::hash::ChunkHash::from_bytes([2; 32]),
                 raw_size: 8192,
             },
             ChunkRef {
-                chunk_hash: "ghi789".to_string(),
+                chunk_hash: crate::artifact::hash::ChunkHash::from_bytes([3; 32]),
                 raw_size: 4153,
             },
         ],
@@ -59,4 +59,28 @@ fn test_structured_version_accepts_generic_revision_and_omits_zero() {
             .canonical_string(),
         "1.2.3"
     );
+}
+
+#[test]
+fn chunk_reference_json_preserves_canonical_hex_and_rejects_invalid_hashes() {
+    let expected = serde_json::json!({"chunk_hash": "ab".repeat(32), "raw_size": 123});
+    let chunk: ChunkRef = serde_json::from_value(expected.clone()).unwrap();
+    assert_eq!(chunk.chunk_hash.as_bytes(), &[0xab; 32]);
+    assert_eq!(chunk.raw_size, 123);
+    assert_eq!(serde_json::to_value(&chunk).unwrap(), expected);
+    for invalid in [
+        String::new(),
+        "a".repeat(63),
+        "a".repeat(65),
+        "AB".repeat(32),
+        "gg".repeat(32),
+        "é".repeat(32),
+    ] {
+        assert!(
+            serde_json::from_value::<ChunkRef>(serde_json::json!({
+                "chunk_hash": invalid, "raw_size": 123,
+            }))
+            .is_err()
+        );
+    }
 }

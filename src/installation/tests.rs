@@ -131,7 +131,8 @@ fn resolved_snapshot_state_uses_product_runtime() {
         read_only: false,
         full_file_hash: test_hash("Game.exe"),
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: test_hash("Game.exe"),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("Game.exe"))
+                .unwrap(),
             raw_size: 1,
         }],
     });
@@ -270,7 +271,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             read_only: false,
             full_file_hash: test_hash("game"),
             chunks: vec![manifest::ChunkRef {
-                chunk_hash: chunk_a,
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_a).unwrap(),
                 raw_size: 4,
             }],
         },
@@ -281,7 +282,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             read_only: false,
             full_file_hash: test_hash("data"),
             chunks: vec![manifest::ChunkRef {
-                chunk_hash: chunk_b,
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_b).unwrap(),
                 raw_size: 4,
             }],
         },

@@ -187,11 +187,12 @@ fn verify_file_streaming(
     let mut chunk_buffer = Vec::new();
     let mut chunk_offset = 0u64;
 
-    for chunk_ref in &typed_file.chunks {
+    for chunk_ref in typed_file.chunks {
+        let raw_size = u64::from(chunk_ref.raw_size);
         control.checkpoint()?;
         let chunk_size = chunk_ref.raw_size as usize;
         let start = chunk_offset;
-        let end = start + chunk_ref.raw_size;
+        let end = start + raw_size;
         chunk_offset = end;
 
         if end > file_manifest.size {
@@ -211,20 +212,20 @@ fn verify_file_streaming(
         let chunk_read_started = ProfileInstant::detailed(control.profiler());
         reader.read_exact(&mut chunk_buffer)?;
         timings.file_read += chunk_read_started.elapsed();
-        timings.file_read_bytes += chunk_ref.raw_size;
+        timings.file_read_bytes += raw_size;
 
         let file_hash_update_started = ProfileInstant::detailed(control.profiler());
         full_file_hasher.update(&chunk_buffer);
         timings.file_hash += file_hash_update_started.elapsed();
-        timings.file_hash_bytes += chunk_ref.raw_size;
+        timings.file_hash_bytes += raw_size;
 
         if verify_mode.checks_chunk_hashes() {
             let chunk_hash_started = ProfileInstant::detailed(control.profiler());
             let chunk_hash_actual =
                 ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(&chunk_buffer));
             timings.chunk_hash += chunk_hash_started.elapsed();
-            timings.chunk_hash_bytes += chunk_ref.raw_size;
-            if chunk_hash_actual != chunk_ref.hash {
+            timings.chunk_hash_bytes += raw_size;
+            if chunk_hash_actual != chunk_ref.chunk_hash {
                 issues.push(RepairIssue {
                     kind: RepairIssueKind::Corrupt,
                     path: file_manifest.path.clone(),
@@ -232,7 +233,7 @@ fn verify_file_streaming(
                         "chunk hash mismatch in {} at offset {}: expected {}, got {}",
                         file_manifest.path,
                         start,
-                        chunk_ref.hash_hex,
+                        chunk_ref.chunk_hash,
                         chunk_hash_actual.to_hex()
                     ),
                 });

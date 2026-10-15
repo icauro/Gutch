@@ -250,7 +250,7 @@ fn execute_repo_snapshot_capture(
         }
         if crate::repo::index::required_chunk_hashes(&existing_manifest)
             .iter()
-            .all(|hash| reuse_state.chunk_locations.contains_key(*hash))
+            .all(|hash| reuse_state.chunk_locations.contains_key(&hash.to_hex()))
         {
             let required_chunk_count =
                 crate::repo::index::required_chunk_hashes(&existing_manifest).len();
@@ -302,8 +302,7 @@ fn execute_repo_snapshot_capture(
         reuse_state,
         build_pool,
     )?;
-    let required_chunks =
-        crate::repo::index::required_chunk_hashes_typed(&result.snapshot_manifest)?;
+    let required_chunks = crate::repo::index::required_chunk_hashes(&result.snapshot_manifest);
     let required_chunk_count = required_chunks.len();
     let required_bundle_count = count_required_bundles_for_build(
         &result.snapshot_manifest,
@@ -444,10 +443,7 @@ fn count_required_bundles_for_build(
         })
         .collect::<HashMap<_, _>>();
     let mut required_bundle_ids = HashSet::new();
-    let Ok(required_chunks) = crate::repo::index::required_chunk_hashes_typed(snapshot_manifest)
-    else {
-        return generated_bundles.len();
-    };
+    let required_chunks = crate::repo::index::required_chunk_hashes(snapshot_manifest);
     for chunk_hash in required_chunks {
         if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
             && existing.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled

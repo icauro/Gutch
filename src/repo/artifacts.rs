@@ -20,13 +20,13 @@ pub(crate) enum ArtifactRef {
 }
 
 impl ArtifactRef {
-    pub(crate) fn from_chunk_entry(chunk_hash: &str, entry: &ChunkIndexEntry) -> Self {
+    pub(crate) fn from_chunk_entry(chunk_hash: &ChunkHash, entry: &ChunkIndexEntry) -> Self {
         match entry.storage_mode {
             ArtifactStorageMode::Bundled => Self::Bundle {
                 id: entry.bundle_id.to_string(),
             },
             ArtifactStorageMode::LooseChunks => Self::LooseChunk {
-                hash: chunk_hash.to_string(),
+                hash: chunk_hash.to_hex(),
             },
         }
     }
@@ -56,7 +56,7 @@ pub(crate) fn required_artifacts(
         .map(|chunk_ref| {
             let entry = chunk_index
                 .entries
-                .get(&chunk_ref.chunk_hash)
+                .get_hash(&chunk_ref.chunk_hash)
                 .ok_or_else(|| {
                     Error::manifest(format!(
                         "missing chunk index entry for required chunk '{}'",

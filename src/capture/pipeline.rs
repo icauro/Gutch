@@ -805,7 +805,7 @@ fn plan_deduplicated_chunks(
                 config.control.checkpoint()?;
                 for chunk_ref in &file_manifest.chunks {
                     config.control.checkpoint()?;
-                    let chunk_hash = ChunkHash::parse_hex(&chunk_ref.chunk_hash)?;
+                    let chunk_hash = chunk_ref.chunk_hash;
                     if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
                         && compressed_estimate_seen.insert(chunk_hash)
                     {

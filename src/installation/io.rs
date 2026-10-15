@@ -286,12 +286,12 @@ fn reconstruct_source_chunk_job(
     let read_elapsed = read_started_at.elapsed();
     let hash_started_at = ProfileInstant::detailed(control.profiler());
     let actual_hash =
-        { crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(&bytes)) };
+        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(&bytes));
     let hash_elapsed = hash_started_at.elapsed();
     if actual_hash != job.chunk_hash {
         return Err(Error::HashMismatch {
-            expected: job.chunk_hash.clone(),
-            actual: actual_hash,
+            expected: job.chunk_hash.to_hex(),
+            actual: actual_hash.to_hex(),
         });
     }
 
@@ -574,7 +574,7 @@ fn full_hash_trace_args(
 
 pub(super) fn build_source_chunk_locations(
     source: SnapshotReconstructSource<'_>,
-) -> Result<HashMap<String, SourceChunkLocation>> {
+) -> Result<HashMap<crate::artifact::hash::ChunkHash, SourceChunkLocation>> {
     let mut chunk_locations = HashMap::new();
     for file_manifest in source.snapshot_manifest.files() {
         let typed_file = crate::manifest::typed::typed_file_manifest(file_manifest)?;
@@ -584,14 +584,15 @@ pub(super) fn build_source_chunk_locations(
         )?;
         let mut offset = 0u64;
         for chunk_ref in typed_file.chunks {
+            let raw_size = u64::from(chunk_ref.raw_size);
             chunk_locations
-                .entry(chunk_ref.hash_hex.to_string())
+                .entry(chunk_ref.chunk_hash)
                 .or_insert_with(|| SourceChunkLocation {
                     path: source_path.clone(),
                     offset,
-                    raw_size: chunk_ref.raw_size,
+                    raw_size,
                 });
-            offset = offset.checked_add(chunk_ref.raw_size).ok_or_else(|| {
+            offset = offset.checked_add(raw_size).ok_or_else(|| {
                 Error::manifest(format!(
                     "source file '{}' chunk sizes overflow u64",
                     file_manifest.path

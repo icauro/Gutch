@@ -138,11 +138,11 @@ pub fn rebuild_index(
             let mut affected = false;
             for chunk in manifest.files().flat_map(|file| &file.chunks) {
                 if !entries
-                    .get(&chunk.chunk_hash)
+                    .get(&chunk.chunk_hash.to_hex())
                     .is_some_and(|entry| entry.raw_size == chunk.raw_size)
                 {
                     affected = true;
-                    result.missing_chunks.push(chunk.chunk_hash.clone());
+                    result.missing_chunks.push(chunk.chunk_hash.to_hex());
                 }
             }
             if affected {

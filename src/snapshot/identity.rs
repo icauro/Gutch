@@ -124,7 +124,7 @@ mod tests {
         ]);
         let mut repacked = file.clone();
         repacked.chunks = vec![ChunkRef {
-            chunk_hash: "a".repeat(64),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&"a".repeat(64)).unwrap(),
             raw_size: 4,
         }];
         assert_eq!(

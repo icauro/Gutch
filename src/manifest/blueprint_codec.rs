@@ -94,7 +94,10 @@ mod snapshot_blueprint_tests {
                     full_file_hash: "01".repeat(32),
                     chunks: vec![
                         manifest::ChunkRef {
-                            chunk_hash: "02".repeat(32),
+                            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                                &"02".repeat(32)
+                            )
+                            .unwrap(),
                             raw_size: 4 * 1024 * 1024
                         };
                         1024

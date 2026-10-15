@@ -85,15 +85,21 @@ fn verify_contiguous_chunks_detects_corruption() {
         full_file_hash: file_hash,
         chunks: vec![
             crate::manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
-                    chunk_a_data,
-                )),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                    &crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                        chunk_a_data,
+                    )),
+                )
+                .unwrap(),
                 raw_size: chunk_a_data.len() as u32,
             },
             crate::manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
-                    chunk_b_data,
-                )),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                    &crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                        chunk_b_data,
+                    )),
+                )
+                .unwrap(),
                 raw_size: chunk_b_data.len() as u32,
             },
         ],
@@ -129,7 +135,10 @@ fn verify_contiguous_chunks_single_chunk() {
         read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                &crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
+            )
+            .unwrap(),
             raw_size: data.len() as u32,
         }],
     });
@@ -156,7 +165,10 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
         read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                &crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
+            )
+            .unwrap(),
             raw_size: data.len() as u32,
         }],
     });
@@ -226,15 +238,21 @@ fn verify_strict_mode_checks_chunk_hashing() {
         full_file_hash: file_hash,
         chunks: vec![
             crate::manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
-                    chunk_b_data,
-                )),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                    &crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                        chunk_b_data,
+                    )),
+                )
+                .unwrap(),
                 raw_size: chunk_a_data.len() as u32,
             },
             crate::manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
-                    chunk_a_data,
-                )),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                    &crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                        chunk_a_data,
+                    )),
+                )
+                .unwrap(),
                 raw_size: chunk_b_data.len() as u32,
             },
         ],
@@ -301,7 +319,10 @@ fn verify_with_hints_records_runtime_plan() {
         read_only: false,
         full_file_hash: file_hash,
         chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
+                &crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(data)),
+            )
+            .unwrap(),
             raw_size: data.len() as u32,
         }],
     });

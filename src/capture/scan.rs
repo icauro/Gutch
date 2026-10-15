@@ -412,10 +412,8 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
                 && candidate.chunks.len() == chunk_scan.chunks.len()
                 && candidate.chunks.iter().zip(&chunk_scan.chunks).all(|(old, new)| {
                     u64::from(old.raw_size) == new.size
-                        && ChunkHash::parse_hex(&old.chunk_hash).is_ok_and(|hash| {
-                            hash == ChunkHash::from_blake3(new.hash)
-                                && options.existing_chunk_locations.contains_key(&hash)
-                        })
+                        && old.chunk_hash == ChunkHash::from_blake3(new.hash)
+                        && options.existing_chunk_locations.contains_key(&old.chunk_hash)
                 })
         })
     };
@@ -448,7 +446,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
             let chunk_hash = ChunkHash::from_blake3(cr.hash);
             let raw_size = cr.size;
             chunk_refs.push(ChunkRef {
-                chunk_hash: chunk_hash.to_hex(),
+                chunk_hash,
                 raw_size: crate::artifact::format::size_u32(raw_size)?,
             });
             if !options.existing_chunk_locations.contains_key(&chunk_hash) {

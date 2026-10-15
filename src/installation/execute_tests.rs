@@ -87,7 +87,7 @@ fn snapshot_manifest_with_chunk(
         read_only: false,
         full_file_hash: full_file_hash.to_string(),
         chunks: vec![ChunkRef {
-            chunk_hash,
+            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_hash).unwrap(),
             raw_size: 4,
         }],
     });
@@ -127,11 +127,12 @@ fn snapshot_manifest_with_two_chunks(
         full_file_hash: full_file_hash.to_string(),
         chunks: vec![
             ChunkRef {
-                chunk_hash: first_chunk_hash,
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&first_chunk_hash).unwrap(),
                 raw_size: 4,
             },
             ChunkRef {
-                chunk_hash: second_chunk_hash,
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&second_chunk_hash)
+                    .unwrap(),
                 raw_size: 4,
             },
         ],
@@ -566,11 +567,11 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         full_file_hash: test_hash(b"11112222"),
         chunks: vec![
             ChunkRef {
-                chunk_hash: first_hash.clone(),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&first_hash).unwrap(),
                 raw_size: 4,
             },
             ChunkRef {
-                chunk_hash: second_hash.clone(),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&second_hash).unwrap(),
                 raw_size: 4,
             },
         ],
@@ -583,11 +584,11 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         full_file_hash: test_hash(b"33331111"),
         chunks: vec![
             ChunkRef {
-                chunk_hash: third_hash.clone(),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&third_hash).unwrap(),
                 raw_size: 4,
             },
             ChunkRef {
-                chunk_hash: first_hash.clone(),
+                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&first_hash).unwrap(),
                 raw_size: 4,
             },
         ],
@@ -739,7 +740,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
             ),
         );
         chunk_refs.push(ChunkRef {
-            chunk_hash: hash.to_hex(),
+            chunk_hash: hash,
             raw_size: bytes.len() as u32,
         });
         existing_artifacts.insert(artifact);

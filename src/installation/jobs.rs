@@ -75,7 +75,7 @@ pub(crate) struct ReconstructArtifactChunk {
 
 #[derive(Clone)]
 pub(crate) struct ReconstructSourceChunkJob {
-    pub(crate) chunk_hash: String,
+    pub(crate) chunk_hash: crate::artifact::hash::ChunkHash,
     pub(crate) raw_size: u32,
     pub(crate) source_path: PathBuf,
     pub(crate) source_offset: u64,
