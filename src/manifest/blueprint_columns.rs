@@ -402,16 +402,16 @@ fn decode_entry_metadata(bytes: &[u8], entry_count: usize) -> Result<EntryMetada
     })
 }
 
-struct ChunkSequences {
+struct ChunkSequences<'a> {
     chunk_sequence_offsets: Vec<u32>,
-    chunk_hashes: Vec<ChunkHash>,
-    chunk_sizes: Vec<u32>,
+    chunk_hashes: &'a [u8],
+    chunk_sizes: &'a [u8],
 }
 
 fn decode_chunk_sequences(
     bytes: &[u8],
     explicit_chunk_sequence_count: usize,
-) -> Result<ChunkSequences> {
+) -> Result<ChunkSequences<'_>> {
     let mut chunks = reader(bytes);
     chunks.require_records(explicit_chunk_sequence_count as u64 + 1, 4)?;
     let chunk_sequence_offsets: Vec<_> = (0..=explicit_chunk_sequence_count)
@@ -429,13 +429,9 @@ fn decode_chunk_sequences(
     {
         return Err(Error::manifest("invalid chunk sequence offsets"));
     }
-    let chunk_hashes: Vec<_> = (0..chunk_count)
-        .map(|_| read_chunk_hash(&mut chunks))
-        .collect::<Result<_>>()?;
-    let chunk_sizes: Vec<_> = (0..chunk_count)
-        .map(|_| read_u32(&mut chunks))
-        .collect::<Result<_>>()?;
-    require_column_end(&chunks)?;
+    // The exact column-length check above bounds this split. Keep the decoded
+    // group's bytes borrowed until reconstruction materializes each file's chunks.
+    let (chunk_hashes, chunk_sizes) = chunks.inner.split_at(chunk_count * 32);
     Ok(ChunkSequences {
         chunk_sequence_offsets,
         chunk_hashes,
@@ -446,7 +442,7 @@ fn decode_chunk_sequences(
 fn reconstruct_entries(
     entry_paths: &[String],
     metadata: EntryMetadata,
-    chunks: ChunkSequences,
+    chunks: ChunkSequences<'_>,
 ) -> Result<Vec<SnapshotEntry>> {
     let EntryMetadata {
         entry_kinds,
@@ -458,8 +454,8 @@ fn reconstruct_entries(
     } = metadata;
     let ChunkSequences {
         chunk_sequence_offsets,
-        chunk_hashes,
-        chunk_sizes,
+        mut chunk_hashes,
+        mut chunk_sizes,
     } = chunks;
     let entry_count = entry_paths.len();
     let mut entries = Vec::with_capacity(entry_count);
@@ -481,16 +477,18 @@ fn reconstruct_entries(
                         }]
                     }
                     FILE_EXPLICIT_CHUNKS if size > 0 => {
-                        let chunk_sequence_range =
-                            chunk_sequence_offsets[explicit_chunk_sequence_row] as usize
-                                ..chunk_sequence_offsets[explicit_chunk_sequence_row + 1] as usize;
+                        let chunk_count = (chunk_sequence_offsets[explicit_chunk_sequence_row + 1]
+                            - chunk_sequence_offsets[explicit_chunk_sequence_row])
+                            as usize;
                         explicit_chunk_sequence_row += 1;
-                        chunk_sequence_range
-                            .map(|index| ChunkRef {
-                                chunk_hash: chunk_hashes[index],
-                                raw_size: chunk_sizes[index],
-                            })
-                            .collect()
+                        let mut file_chunks = Vec::with_capacity(chunk_count);
+                        for _ in 0..chunk_count {
+                            file_chunks.push(ChunkRef {
+                                chunk_hash: read_chunk_hash(&mut chunk_hashes)?,
+                                raw_size: read_u32(&mut chunk_sizes)?,
+                            });
+                        }
+                        file_chunks
                     }
                     _ => return Err(Error::manifest("invalid file representation")),
                 };
@@ -525,6 +523,54 @@ fn reconstruct_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_file_representations_preserve_separate_chunk_sequences() {
+        let files: [(&str, &[&[u8]]); 4] = [
+            ("a-multi", &[b"ab", b"cde", b"f"]),
+            ("b-single", &[b"one"]),
+            ("c-empty", &[]),
+            ("d-multi", &[b"gh", b"ijk"]),
+        ];
+        let mut entries = Vec::new();
+        for (path, parts) in files {
+            let bytes = parts.concat();
+            entries.push(SnapshotEntry::File(FileManifest {
+                path: path.into(),
+                size: bytes.len() as u64,
+                executable: true,
+                read_only: false,
+                full_file_hash: blake3::hash(&bytes).to_hex().to_string(),
+                chunks: parts
+                    .iter()
+                    .map(|part| ChunkRef {
+                        chunk_hash: ChunkHash::from_blake3(blake3::hash(part)),
+                        raw_size: part.len() as u32,
+                    })
+                    .collect(),
+            }));
+        }
+        entries.push(SnapshotEntry::Directory(DirectoryManifest {
+            path: "b-directory".into(),
+            read_only: true,
+        }));
+        entries.push(SnapshotEntry::Symlink(SymlinkManifest {
+            path: "c-link".into(),
+            target_path: "a-multi".into(),
+        }));
+        entries.sort_by(|left, right| left.path().cmp(right.path()));
+        let groups = encode(&entries).unwrap();
+        let restored = decode(&groups).unwrap();
+        assert_eq!(
+            serde_json::to_value(&restored).unwrap(),
+            serde_json::to_value(&entries).unwrap()
+        );
+        for length in 0..groups[2].len() {
+            let mut truncated = groups.clone();
+            truncated[2].truncate(length);
+            assert!(decode(&truncated).is_err(), "chunk group length {length}");
+        }
+    }
 
     #[test]
     fn rejects_invalid_topology_flags_spans_and_representations() {

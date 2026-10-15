@@ -58,28 +58,24 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
     };
     let chunk_count = read_u32(&mut reader)?;
     reader.require_records(u64::from(chunk_count), 44)?;
-    let chunk_hashes: Vec<_> = (0..chunk_count)
-        .map(|_| read_chunk_hash(&mut reader))
-        .collect::<Result<_>>()?;
-    let artifact_table_rows: Vec<_> = (0..chunk_count)
-        .map(|_| read_u32(&mut reader))
-        .collect::<Result<_>>()?;
+    let row_count = chunk_count as usize;
+    // The 44-byte row preflight bounds all four column splits, including their products.
+    let (mut chunk_hashes, remaining_columns) = reader.inner.split_at(row_count * 32);
+    let (mut artifact_table_rows, remaining_columns) = remaining_columns.split_at(row_count * 4);
     // Loose chunks have no artifact-table row: their identity is the chunk hash,
     // and this column carries encoded size instead of a bundle ordinal.
-    let chunk_ordinals_or_artifact_sizes: Vec<_> = (0..chunk_count)
-        .map(|_| read_u32(&mut reader))
-        .collect::<Result<_>>()?;
-    let chunk_raw_sizes: Vec<_> = (0..chunk_count)
-        .map(|_| read_u32(&mut reader))
-        .collect::<Result<_>>()?;
-    let mut rows = Vec::with_capacity(chunk_count as usize);
+    let (mut chunk_ordinals_or_artifact_sizes, remaining_columns) =
+        remaining_columns.split_at(row_count * 4);
+    let (mut chunk_raw_sizes, trailing_bytes) = remaining_columns.split_at(row_count * 4);
+    let mut rows = Vec::with_capacity(row_count);
     let mut bundle_raw_byte_totals = vec![0u64; artifacts.len()];
     let mut seen_bundle_chunk_ordinals = std::collections::HashSet::new();
-    for row in 0..chunk_count as usize {
-        let chunk_hash = chunk_hashes[row];
-        let artifact_table_row = artifact_table_rows[row];
-        let chunk_ordinal_or_artifact_size = chunk_ordinals_or_artifact_sizes[row];
-        let raw_size = u64::from(chunk_raw_sizes[row]);
+    for _ in 0..row_count {
+        let chunk_hash = read_chunk_hash(&mut chunk_hashes)?;
+        let artifact_table_row = read_u32(&mut artifact_table_rows)?;
+        let chunk_ordinal_or_artifact_size = read_u32(&mut chunk_ordinals_or_artifact_sizes)?;
+        let chunk_raw_size = read_u32(&mut chunk_raw_sizes)?;
+        let raw_size = u64::from(chunk_raw_size);
         if raw_size == 0 || raw_size > crate::artifact::format::MAX_RAW_CHUNK_SIZE {
             return Err(Error::manifest("invalid index chunk size"));
         }
@@ -119,11 +115,11 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
                 compressed_size: record.artifact_size,
                 artifact: record,
                 chunk_ordinal,
-                raw_size: chunk_raw_sizes[row],
+                raw_size: chunk_raw_size,
             },
         ));
     }
-    if reader.remaining != 0 {
+    if !trailing_bytes.is_empty() {
         return Err(Error::manifest("chunk index contains trailing bytes"));
     }
     let mut entries = crate::repo::index::ChunkIndexEntries::from_sorted_rows(rows)?;
@@ -307,6 +303,20 @@ mod tests {
         let first = std::fs::read(&path).unwrap();
         let groups =
             crate::artifact::metadata::decode(&first, CHUNK_INDEX_BINARY_MAGIC, 2).unwrap();
+        for group in 0..groups.len() {
+            for length in 0..groups[group].len() {
+                let mut truncated = groups.clone();
+                truncated[group].truncate(length);
+                assert!(
+                    read_chunk_index_binary(&truncated).is_err(),
+                    "group {group}, length {length}"
+                );
+            }
+        }
+        let mut trailing = groups.clone();
+        trailing[1].push(0);
+        let error = read_chunk_index_binary(&trailing).unwrap_err();
+        assert!(error.to_string().contains("trailing bytes"));
         for (group, offset, value) in [
             (0, 36, 0u32),
             (1, 100, u32::MAX - 1),

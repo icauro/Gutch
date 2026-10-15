@@ -891,3 +891,37 @@ Two additional prototypes were discarded: collecting unchanged-capture required
 IDs once, and directly building the availability map. Their incremental latency
 checks did not hold up in confirmation, including 81 pairs for the latter.
 Evidence: `tests/.artifacts/research_optimization_pass/round24_report.md`.
+
+
+## Borrow decoded metadata columns, October 2026
+
+Index decoding reads its four fixed-width columns directly from the validated
+decoded group instead of first copying them into vectors. Blueprint decoding
+borrows explicit chunk hash/size columns and materializes each file's final
+chunk records as it visits that file. The returned models still own their data.
+Envelope decompression, bounds, key ordering, artifact/ordinal checks, chunk
+coverage and final manifest validation remain in their existing owners.
+
+Warm-cache Windows command medians on the four-file 64 MiB / 1 KiB-chunk fixture:
+
+| Operation | Alternating pairs | Baseline | Borrowed columns | Reduction |
+|---|---:|---:|---:|---:|
+| Repository status | 41 | 37.85 ms | 34.81 ms | 8.0% |
+| Fast repository verification | 21 | 42.89 ms | 41.05 ms | 4.3% |
+| Strict repository verification | 21 | 130.82 ms | 127.55 ms | 2.5% |
+| Reconstruction | 21 | 142.02 ms | 137.62 ms | 3.1% |
+
+Index borrowing alone reduced status latency 5.3%; a separate 41-pair comparison
+confirmed another 2.8% from blueprint borrowing. Complete status and repository
+verification JSON matched on every timed invocation; every reconstructed tree
+matched independent SHA-256 expectations. Default-profile and repeated-capture
+controls were near flat; no broad throughput gain is claimed.
+
+Twenty-one separate process-memory pairs on repository status reduced median
+peak working set from 20.22 to 18.23 MiB (9.8%) and peak commit from 14.50 to
+13.05 MiB (10.0%). These are workload-specific Windows observations.
+
+Regression coverage truncates index groups at every byte and rejects trailing
+data. Blueprint coverage mixes distinct explicit sequences with implicit/empty
+files, interleaved directories and symlinks, and truncated chunk columns.
+Evidence: `tests/.artifacts/research_optimization_pass/round25_report.md`.

@@ -54,6 +54,9 @@ optional groups: discarding an extension and later rewriting the object would
 lose data. Self-contained hashes detect corruption; they do not authenticate an
 attacker-supplied object. Remote callers supply the trusted whole-object digest.
 Current operations decode and validate all groups before using the result.
+Index row columns and blueprint chunk hash/size columns are borrowed from those
+decoded buffers while owned models are constructed. Length preflights bound all
+column splits; no unaligned casts or borrowed data escape the decoder.
 
 ## Snapshot blueprint
 
@@ -128,8 +131,8 @@ sizes are validated. No timestamp or per-artifact padding is serialized, so an
 equivalent mapping encodes identically regardless of regeneration time.
 
 The runtime index retains sorted binary keys and binary search. Binary decoding
-reserves the declared row count after length checks and builds rows directly in
-wire order. The index-owned bulk constructor rejects duplicate or descending
+reserves the declared row count after length checks and reads the four column
+slices directly into rows in wire order, without intermediate column vectors. The index-owned bulk constructor rejects duplicate or descending
 keys without sorting or dropping rows. Entries share immutable artifact identity,
 encoded size and storage-mode records. Incremental
 updates merge sorted rows and reuse matching artifact records. Per-chunk compressed
