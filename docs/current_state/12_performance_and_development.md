@@ -8,11 +8,13 @@ Scope: Gutch component current state
 
 Full verification first builds a rooted, no-follow filesystem inventory that
 combines safe traversal, expected-entry metadata checks, and extra-file
-detection. It then sorts expected files by descending size and assigns each
-successive worker-width batch in alternating directions. This keeps large
-files spread across workers while preserving deterministic scheduling and
-result ordering. Targeted post-repair verification continues to resolve only
-the affected entries.
+detection. It then sorts expected files by descending size, with path as the
+tie-breaker, and verifies them through an indexed Rayon parallel iterator.
+Scheduling uses one file per Rayon task so idle workers can steal remaining
+work instead of waiting on fixed file batches.
+The [indexed collection contract](https://docs.rs/rayon/1.12.0/rayon/iter/trait.IndexedParallelIterator.html)
+preserves result ordering; completion ordering is concurrent. Targeted
+post-repair verification continues to resolve only the affected entries.
 
 Build, reconstruction, and verification use the same runtime worker policy.
 When no worker count is supplied, Gutch uses physical CPU count capped by the

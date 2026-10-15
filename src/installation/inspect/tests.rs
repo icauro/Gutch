@@ -377,15 +377,50 @@ fn verify_inventory_supports_symlinked_parent_inside_root() {
 }
 
 #[test]
-fn serpentine_worker_lanes_alternate_direction_each_round() {
-    let assignments = (0..9)
-        .map(|sorted_index| serpentine_worker_index(sorted_index, 3))
-        .collect::<Vec<_>>();
-
-    assert_eq!(assignments, vec![0, 1, 2, 2, 1, 0, 0, 1, 2]);
-}
-
-#[test]
-fn serpentine_worker_lane_supports_one_worker() {
-    assert!((0..8).all(|sorted_index| serpentine_worker_index(sorted_index, 1) == 0));
+fn parallel_verification_preserves_issue_order_across_worker_counts() {
+    let dir = test_util::temp_path("gutch_verify_parallel_issue_order");
+    test_util::recreate_dir(&dir);
+    let mut manifest = empty_manifest();
+    // Include equal-sized entries and reverse manifest order to exercise both sort keys.
+    for (name, size) in [("z.bin", 32), ("b.bin", 64), ("a.bin", 64), ("c.bin", 128)] {
+        let expected = vec![1_u8; size];
+        std::fs::write(dir.join(name), vec![2_u8; size]).unwrap();
+        manifest.push_file(crate::manifest::FileManifest {
+            path: name.into(),
+            size: size as u64,
+            executable: false,
+            read_only: false,
+            full_file_hash: crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(
+                &expected,
+            )),
+            chunks: Vec::new(),
+        });
+    }
+    let mut expected_messages = None;
+    for workers in [1, 2, 4] {
+        let (classification, _) = classify_directory(VerifyRequest {
+            snapshot_manifest: &manifest,
+            dir: &dir,
+            mode: VerifyMode::Fast,
+            runtime_hints: &RuntimeResourceHints {
+                jobs: Some(workers),
+                ..Default::default()
+            },
+            control: GutchOperationControl::default(),
+        })
+        .unwrap();
+        let paths = classification
+            .corrupt_files
+            .iter()
+            .map(|issue| issue.path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(paths, ["c.bin", "a.bin", "b.bin", "z.bin"]);
+        let messages = classification.into_messages();
+        if let Some(expected) = &expected_messages {
+            assert_eq!(&messages, expected);
+        } else {
+            expected_messages = Some(messages);
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }

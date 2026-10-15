@@ -267,12 +267,6 @@ fn classify_inner(
     }
     let verify_files_start = ProfileInstant::start(opts.control.profiler());
     let per_file_results = {
-        let worker_count = runtime_plan.worker_count.max(1);
-        let mut worker_lanes = (0..worker_count).map(|_| Vec::new()).collect::<Vec<_>>();
-        for (sorted_index, prepared_file) in prepared_files.iter().enumerate() {
-            worker_lanes[serpentine_worker_index(sorted_index, worker_count)]
-                .push((sorted_index, prepared_file));
-        }
         let _file_span =
             opts.control
                 .profile_span_with_args(marker_name(marker_namespace, "files"), || {
@@ -283,45 +277,42 @@ fn classify_inner(
                         ),
                         (
                             "scheduling".to_string(),
-                            serde_json::json!("largest_first_serpentine"),
+                            serde_json::json!("largest_first_work_stealing"),
                         ),
-                        ("worker_count".to_string(), serde_json::json!(worker_count)),
+                        (
+                            "worker_count".to_string(),
+                            serde_json::json!(runtime_plan.worker_count),
+                        ),
                     ])
                 });
-        let mut results = verify_pool
-            .broadcast(|context| {
-                worker_lanes[context.index()]
-                    .iter()
-                    .map(|(sorted_index, prepared_file)| {
-                        opts.control.checkpoint()?;
-                        let result = verify_manifest_file(
-                            prepared_file,
-                            opts.mode,
-                            opts.control,
-                            runtime_plan.worker_count.min(prepared_files.len()),
-                            marker_namespace,
-                        );
-                        let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
-                        emit_verify_progress(
-                            opts.control.progress(),
-                            current,
-                            snapshot_manifest.file_count(),
-                            false,
-                        );
-                        Ok((*sorted_index, result))
-                    })
-                    .collect::<Result<Vec<_>>>()
-            })
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        results.sort_unstable_by_key(|(sorted_index, _)| *sorted_index);
-        results
+        // Indexed collection preserves size/path order while idle workers steal work.
+        verify_pool.install(|| {
+            prepared_files
+                .par_iter()
+                // Let another worker take the next file even when adjacent sizes differ.
+                .with_max_len(1)
+                .map(|prepared_file| {
+                    opts.control.checkpoint()?;
+                    let result = verify_manifest_file(
+                        prepared_file,
+                        opts.mode,
+                        opts.control,
+                        runtime_plan.worker_count.min(prepared_files.len()),
+                        marker_namespace,
+                    );
+                    let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
+                    emit_verify_progress(
+                        opts.control.progress(),
+                        current,
+                        snapshot_manifest.file_count(),
+                        false,
+                    );
+                    result
+                })
+                .collect::<Vec<_>>()
+        })
     };
-
-    for (_, result) in per_file_results {
+    for result in per_file_results {
         let (issues, file_timings) = result?;
         accumulate_timings(&mut timings, &file_timings);
         for issue in issues {
@@ -354,17 +345,6 @@ fn classify_inner(
         true,
     );
     Ok((classification, timings))
-}
-
-fn serpentine_worker_index(sorted_index: usize, worker_count: usize) -> usize {
-    let worker_count = worker_count.max(1);
-    let round = sorted_index / worker_count;
-    let offset = sorted_index % worker_count;
-    if round.is_multiple_of(2) {
-        offset
-    } else {
-        worker_count - 1 - offset
-    }
 }
 
 pub(crate) fn classify_directory(
