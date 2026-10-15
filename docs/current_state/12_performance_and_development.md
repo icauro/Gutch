@@ -611,3 +611,30 @@ Reconstructed trees matched independent SHA-256 expectations. Six comparisons
 also matched bundle and blueprint bytes across None, Zstd and LZ4 at 128 KiB and
 1 KiB presets. JSON tests preserve canonical text and reject malformed or
 uppercase hashes. Evidence: `tests/.artifacts/research_optimization_pass/round11_report.md`.
+
+
+## Capture accounting and reuse-cache follow-up, October 2026
+
+Capture counts required bundles in the artifact set validated before publishing
+the snapshot. This fixes fresh captures counting generated bundles twice. The operation-local dedupe cache
+retains typed hashes and encoded byte estimates; artifact locations stay in the
+index. Build stages borrow this cache without cloning or reparsing its keys.
+
+For the existing four-file 64 MiB input with 1 KiB chunk targets, 21 alternating
+warm-cache Windows pairs measured an unchanged recapture as follows:
+
+- Median command time: 235.44 to 170.23 ms (27.7% reduction).
+- Median peak working set: 45.78 to 34.66 MiB (24.3% reduction), from three separate alternating memory pairs.
+
+Fresh-capture confirmation at 1 KiB targets reduced mixed-input time by 7.4%
+and large-input time by 9.0%. Default-profile timings varied across short runs;
+a 21-pair large-input confirmation changed the median by -2.2%. No default-profile
+speedup is claimed. Fresh-capture peak working sets were essentially unchanged.
+Native process high-water counters were sampled about every 3 ms independently
+of timing. These are workload-specific results, not global memory bounds.
+
+A regression covers fresh, unchanged, partially reused, historical/unreferenced,
+loose-only, and mixed-storage snapshots. It failed before the fix with two required
+bundles for a one-bundle capture. Six byte comparisons still matched bundles,
+blueprints and chunk indexes across None, Zstd and LZ4. Evidence:
+`tests/.artifacts/research_optimization_pass/round12_report.md`.

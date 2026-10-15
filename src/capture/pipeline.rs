@@ -25,7 +25,6 @@ use crate::capture::types::BuiltBundle;
 use crate::capture::types::BuiltLooseChunk;
 use crate::capture::types::ChunkPayload;
 use crate::capture::types::ChunkPayloadReader;
-use crate::capture::types::ExistingChunkLocation;
 use crate::capture::types::StagedArtifactFile;
 use crate::manifest;
 use crate::manifest::SnapshotTagSet;
@@ -673,12 +672,10 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
     let previous_file_manifests = config
         .previous_file_manifests
         .unwrap_or(&empty_previous_file_manifests);
-    let empty_existing_chunk_locations = HashMap::new();
-    let existing_chunk_locations = config
-        .existing_chunk_locations
-        .unwrap_or(&empty_existing_chunk_locations);
-    let existing_chunk_locations_by_hash =
-        parse_existing_chunk_locations(existing_chunk_locations)?;
+    let empty_available_chunk_sizes = HashMap::new();
+    let available_chunk_sizes = config
+        .available_chunk_sizes
+        .unwrap_or(&empty_available_chunk_sizes);
 
     let scan_chunk_start = ProfileInstant::start(config.control.profiler());
     let crate::capture::scan::ScannedChunks {
@@ -693,7 +690,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
             ScanDirectoryOptions {
                 previous_file_manifests,
                 chunking_profile: &config.chunk_profile,
-                existing_chunk_locations: &existing_chunk_locations_by_hash,
+                available_chunk_sizes,
                 worker_count: runtime_plan.worker_count,
                 worker_pool: build_pool,
                 control: config.control.clone(),
@@ -710,7 +707,7 @@ pub(crate) fn build_with_config_timed_on_pool_with_inventory(
         config,
         &snapshot_entries,
         unique_chunks,
-        &existing_chunk_locations_by_hash,
+        available_chunk_sizes,
         &mut timings,
     )?;
 
@@ -783,7 +780,7 @@ fn plan_deduplicated_chunks(
     config: &BuildConfig<'_>,
     snapshot_entries: &[manifest::SnapshotEntry],
     unique_chunks: HashMap<ChunkHash, ChunkPayload>,
-    existing_chunk_locations_by_hash: &HashMap<ChunkHash, ExistingChunkLocation>,
+    available_chunk_sizes: &HashMap<ChunkHash, u64>,
     timings: &mut BuildTimings,
 ) -> Result<DeduplicatedChunks> {
     let dedupe_plan_start = ProfileInstant::start(config.control.profiler());
@@ -806,10 +803,10 @@ fn plan_deduplicated_chunks(
                 for chunk_ref in &file_manifest.chunks {
                     config.control.checkpoint()?;
                     let chunk_hash = chunk_ref.chunk_hash;
-                    if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
+                    if let Some(&compressed_size) = available_chunk_sizes.get(&chunk_hash)
                         && compressed_estimate_seen.insert(chunk_hash)
                     {
-                        total_compressed += existing.compressed_size;
+                        total_compressed += compressed_size;
                     }
                 }
             }
@@ -826,9 +823,9 @@ fn plan_deduplicated_chunks(
 
                 timings.dedupe_lookup_bytes += raw_size;
 
-                if let Some(existing) = existing_chunk_locations_by_hash.get(&hash) {
+                if let Some(&compressed_size) = available_chunk_sizes.get(&hash) {
                     if compressed_estimate_seen.insert(hash) {
-                        total_compressed += existing.compressed_size;
+                        total_compressed += compressed_size;
                     }
                 } else {
                     chunks_to_compress.push((hash, payload));
@@ -980,13 +977,4 @@ fn build_capture_artifacts(
 
     timings.artifact_encode_wall = artifact_encode_start.elapsed();
     Ok((bundles, loose_chunks))
-}
-
-fn parse_existing_chunk_locations(
-    existing_chunk_locations: &HashMap<String, ExistingChunkLocation>,
-) -> Result<HashMap<ChunkHash, ExistingChunkLocation>> {
-    existing_chunk_locations
-        .iter()
-        .map(|(chunk_hash, location)| Ok((ChunkHash::parse_hex(chunk_hash)?, location.clone())))
-        .collect()
 }

@@ -123,6 +123,12 @@ change chunking, bundle grouping, or codec settings. A job exceeding the entire
 budget fails with its required and configured byte counts; allocations are not
 retried by halving the budget.
 
+Capture's operation-local availability cache maps typed chunk hashes to encoded
+byte estimates. It includes only chunks whose local artifacts are available.
+Build workers borrow that cache directly. The repository chunk index owns artifact
+locations and storage kinds; capture does not duplicate those fields or rebuild
+a text-keyed location map to report required bundles.
+
 ## Chunk and bundle locality
 
 When sizing requires a compression probe, new chunks are first considered by

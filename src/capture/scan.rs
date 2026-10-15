@@ -11,7 +11,6 @@ use crate::artifact::hash::ChunkHash;
 use crate::capture::progress::BuildProgressTracker;
 use crate::capture::types::BuildTimings;
 use crate::capture::types::ChunkPayload;
-use crate::capture::types::ExistingChunkLocation;
 use crate::manifest;
 use crate::manifest::ChunkRef;
 use crate::manifest::DirectoryManifest;
@@ -43,7 +42,7 @@ pub(crate) struct ChunkPlacementKey {
 pub(crate) struct ScanDirectoryOptions<'a> {
     pub previous_file_manifests: &'a HashMap<String, Vec<FileManifest>>,
     pub chunking_profile: &'a crate::artifact::profiles::ChunkSizingProfile,
-    pub existing_chunk_locations: &'a HashMap<ChunkHash, ExistingChunkLocation>,
+    pub available_chunk_sizes: &'a HashMap<ChunkHash, u64>,
     pub worker_count: usize,
     pub worker_pool: &'a ThreadPool,
     pub control: crate::progress::GutchOperationControl,
@@ -413,7 +412,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
                 && candidate.chunks.iter().zip(&chunk_scan.chunks).all(|(old, new)| {
                     u64::from(old.raw_size) == new.size
                         && old.chunk_hash == ChunkHash::from_blake3(new.hash)
-                        && options.existing_chunk_locations.contains_key(&old.chunk_hash)
+                        && options.available_chunk_sizes.contains_key(&old.chunk_hash)
                 })
         })
     };
@@ -449,7 +448,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
                 chunk_hash,
                 raw_size: crate::artifact::format::size_u32(raw_size)?,
             });
-            if !options.existing_chunk_locations.contains_key(&chunk_hash) {
+            if !options.available_chunk_sizes.contains_key(&chunk_hash) {
                 let payload = ChunkPayload {
                     source: source.clone(),
                     offset: cr.offset,
@@ -650,7 +649,7 @@ mod tests {
                 ScanDirectoryOptions {
                     previous_file_manifests: &HashMap::new(),
                     chunking_profile: &crate::artifact::profiles::ChunkSizingProfile::default(),
-                    existing_chunk_locations: &HashMap::new(),
+                    available_chunk_sizes: &HashMap::new(),
                     worker_count: workers,
                     worker_pool: &pool,
                     control: crate::progress::GutchOperationControl::default(),

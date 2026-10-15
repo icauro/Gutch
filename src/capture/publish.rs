@@ -106,13 +106,14 @@ fn capture_artifact_write_trace_args(
 
 /// The caller holds the repository write lock. Publish immutable artifacts,
 /// the additive index, then snapshot metadata as the commit marker.
+/// Returns the manifest path and the distinct bundle count from the validated artifact set.
 pub(super) fn publish_snapshot_artifacts(
     control: &crate::progress::GutchOperationControl,
     repo_paths: &crate::repo::paths::GutchRepoPaths,
     result: &super::types::BuildResult,
     reuse_state: &mut super::reuse::CaptureReuseState,
     build_pool: &rayon::ThreadPool,
-) -> Result<std::path::PathBuf> {
+) -> Result<(std::path::PathBuf, usize)> {
     // Snapshot publication below persists the captured snapshot. The snapshot
     // manifest is published last as the commit marker: immutable bundles and
     // loose chunks go first, then the additive chunk index, then the snapshot
@@ -157,26 +158,15 @@ pub(super) fn publish_snapshot_artifacts(
     for bundle in &result.bundles {
         reuse_state.bundle_ids.insert(bundle.bundle_id.clone());
         for chunk in &bundle.entries {
-            reuse_state.chunk_locations.insert(
-                chunk.chunk_hash.to_hex(),
-                crate::capture::types::ExistingChunkLocation {
-                    bundle_id: bundle.bundle_id.clone(),
-                    compressed_size: u64::from(chunk.compressed_size),
-                    storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
-                },
-            );
+            reuse_state
+                .available_chunk_sizes
+                .insert(chunk.chunk_hash, u64::from(chunk.compressed_size));
         }
     }
     for chunk in &result.loose_chunks {
-        let chunk_hash = chunk.chunk_hash.to_string();
-        reuse_state.chunk_locations.insert(
-            chunk_hash.clone(),
-            crate::capture::types::ExistingChunkLocation {
-                bundle_id: chunk_hash,
-                compressed_size: chunk.compressed_size,
-                storage_mode: crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
-            },
-        );
+        reuse_state
+            .available_chunk_sizes
+            .insert(chunk.chunk_hash, chunk.compressed_size);
     }
     for file in result.snapshot_manifest.files() {
         let candidates = reuse_state
@@ -193,6 +183,7 @@ pub(super) fn publish_snapshot_artifacts(
         control.profile_span("capture.publish_snapshot.write_chunk_index");
     crate::repo::index::write_chunk_index(repo_paths, &reuse_state.chunk_index)?;
     drop(_chunk_index_write_span);
+    let mut required_bundle_count = 0;
     for artifact in crate::repo::artifacts::required_artifacts(
         &result.snapshot_manifest,
         &reuse_state.chunk_index,
@@ -203,6 +194,12 @@ pub(super) fn publish_snapshot_artifacts(
                 artifact.id()
             )));
         }
+        if matches!(
+            &artifact,
+            crate::repo::artifacts::ArtifactRef::Bundle { .. }
+        ) {
+            required_bundle_count += 1;
+        }
     }
     let _manifest_write_span =
         control.profile_span("capture.publish_snapshot.write_snapshot_manifest");
@@ -211,5 +208,5 @@ pub(super) fn publish_snapshot_artifacts(
         &result.snapshot_manifest,
     )?;
     drop(_manifest_write_span);
-    Ok(manifest_path)
+    Ok((manifest_path, required_bundle_count))
 }

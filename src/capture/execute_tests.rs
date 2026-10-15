@@ -522,3 +522,70 @@ fn failed_artifact_write_publishes_no_snapshot() {
     assert_eq!(status.snapshots[0].snapshot_id, first.snapshot_id);
     test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
 }
+
+#[test]
+fn capture_bundle_counts_include_each_referenced_bundle_once() {
+    use crate::artifact::profiles::ArtifactStorageMode;
+    for storage_mode in [
+        ArtifactStorageMode::Bundled,
+        ArtifactStorageMode::LooseChunks,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let (repo_root, source_dir) = test_repo_with_source(&temp, "source", b"first file");
+        let capture = |mode| {
+            capture_snapshot(SnapshotCaptureRequest {
+                repo_root: repo_root.clone(),
+                source_dir: source_dir.clone(),
+                explicit_tags: test_tags(),
+                chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
+                chunker: crate::artifact::profiles::Chunker::FastCdc,
+                bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
+                compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
+                compression_level: None,
+                storage_mode: mode,
+                runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+                control: Default::default(),
+            })
+            .unwrap()
+        };
+        let bundled = usize::from(storage_mode == ArtifactStorageMode::Bundled);
+        let first = capture(storage_mode);
+        assert_eq!(first.generated_bundle_count, bundled);
+        assert_eq!(
+            first.required_bundle_count, bundled,
+            "fresh capture double-counted new bundles"
+        );
+        assert_eq!(first.reused_chunk_count, 0);
+        let repeated = capture(storage_mode);
+        assert_eq!(repeated.snapshot_id, first.snapshot_id);
+        assert_eq!(repeated.generated_bundle_count, 0);
+        assert_eq!(repeated.required_bundle_count, bundled);
+        assert_eq!(repeated.reused_chunk_count, repeated.required_chunk_count);
+
+        std::fs::write(source_dir.join("extra.dat"), b"second unique file").unwrap();
+        let extended = capture(storage_mode);
+        assert_eq!(extended.generated_bundle_count, bundled);
+        assert_eq!(extended.required_bundle_count, 2 * bundled);
+        assert_eq!(extended.reused_chunk_count, 1);
+        assert_eq!(extended.new_chunk_count, 1);
+
+        // Historical bundles remain in the repository, but this snapshot no longer references them.
+        std::fs::remove_file(source_dir.join("game.exe")).unwrap();
+        std::fs::write(source_dir.join("extra.dat"), b"third unique file").unwrap();
+        let replaced = capture(storage_mode);
+        assert_eq!(replaced.generated_bundle_count, bundled);
+        assert_eq!(replaced.required_bundle_count, bundled);
+        assert_eq!(replaced.reused_chunk_count, 0);
+        std::fs::write(source_dir.join("mixed.dat"), b"fourth unique file").unwrap();
+        let other_mode = if storage_mode == ArtifactStorageMode::Bundled {
+            ArtifactStorageMode::LooseChunks
+        } else {
+            ArtifactStorageMode::Bundled
+        };
+        let mixed = capture(other_mode);
+        assert_eq!(mixed.required_bundle_count, 1);
+        assert_eq!(mixed.generated_bundle_count, 1 - bundled);
+        assert_eq!(mixed.reused_chunk_count, 1);
+        assert_eq!(mixed.new_chunk_count, 1);
+    }
+}

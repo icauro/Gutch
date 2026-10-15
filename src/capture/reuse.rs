@@ -17,8 +17,9 @@ use std::path::{Path, PathBuf};
 pub struct CaptureReuseState {
     pub bundle_ids: HashSet<String>,
     pub chunk_index: crate::repo::index::ChunkIndex,
-    pub chunk_locations:
-        std::collections::HashMap<String, crate::capture::types::ExistingChunkLocation>,
+    /// Encoded byte estimates for chunks with usable local artifacts.
+    /// Artifact locations remain authoritative in chunk_index.
+    pub available_chunk_sizes: std::collections::HashMap<ChunkHash, u64>,
     pub previous_file_manifests: std::collections::HashMap<String, Vec<FileManifest>>,
 }
 
@@ -27,7 +28,7 @@ impl Default for CaptureReuseState {
         Self {
             bundle_ids: HashSet::new(),
             chunk_index: empty_chunk_index(),
-            chunk_locations: std::collections::HashMap::new(),
+            available_chunk_sizes: std::collections::HashMap::new(),
             previous_file_manifests: std::collections::HashMap::new(),
         }
     }
@@ -68,9 +69,10 @@ pub fn load_capture_reuse_state(
     } else {
         chunk_index
     };
-    let _locations_span = control
-        .profile_span("capture.prepare_source.load_existing_store_state.check_chunk_locations");
-    state.chunk_locations = existing_chunk_locations_from_index_with_pool_and_bundle_ids(
+    let _locations_span = control.profile_span(
+        "capture.prepare_source.load_existing_store_state.check_available_chunk_sizes",
+    );
+    state.available_chunk_sizes = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
         &state.chunk_index,
         paths,
         pool,
@@ -134,13 +136,13 @@ fn add_previous_file_manifests(
     }
 }
 
-pub(crate) fn existing_chunk_locations_from_index_with_pool_and_bundle_ids(
+pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
     chunk_index: &crate::repo::index::ChunkIndex,
     paths: &GutchRepoPaths,
     pool: &rayon::ThreadPool,
     available_bundle_ids: &HashSet<String>,
-) -> Result<std::collections::HashMap<String, crate::capture::types::ExistingChunkLocation>> {
-    let locations = pool.install(|| {
+) -> Result<std::collections::HashMap<ChunkHash, u64>> {
+    let available_sizes = pool.install(|| {
         chunk_index
             .entries
             .iter()
@@ -153,21 +155,12 @@ pub(crate) fn existing_chunk_locations_from_index_with_pool_and_bundle_ids(
                         chunk_path(paths, &chunk_hash.to_hex())?.is_file()
                     }
                 };
-                Ok(path_exists.then(|| {
-                    (
-                        chunk_hash.to_hex(),
-                        crate::capture::types::ExistingChunkLocation {
-                            bundle_id: entry.bundle_id.to_string(),
-                            compressed_size: u64::from(entry.compressed_size),
-                            storage_mode: entry.storage_mode,
-                        },
-                    )
-                }))
+                Ok(path_exists.then(|| (*chunk_hash, u64::from(entry.compressed_size))))
             })
             .collect::<Result<Vec<_>>>()
     })?;
 
-    Ok(locations.into_iter().flatten().collect())
+    Ok(available_sizes.into_iter().flatten().collect())
 }
 
 pub(crate) fn add_built_bundles_to_chunk_index(

@@ -21,7 +21,7 @@ use crate::runtime::RuntimeResourceHints;
 #[derive(Debug, Clone)]
 pub struct BuildConfig<'a> {
     pub(crate) snapshot_tags: SnapshotTagSet,
-    pub(crate) existing_chunk_locations: Option<&'a HashMap<String, ExistingChunkLocation>>,
+    pub(crate) available_chunk_sizes: Option<&'a HashMap<ChunkHash, u64>>,
     pub(crate) existing_bundle_ids: Option<&'a HashSet<String>>,
     pub(crate) previous_file_manifests: Option<&'a HashMap<String, Vec<FileManifest>>>,
     pub(crate) chunk_profile: ChunkSizingProfile,
@@ -37,7 +37,7 @@ impl<'a> BuildConfig<'a> {
     pub fn for_snapshot(snapshot_tags: &SnapshotTagSet) -> BuildConfig<'a> {
         BuildConfig {
             snapshot_tags: snapshot_tags.clone(),
-            existing_chunk_locations: None,
+            available_chunk_sizes: None,
             existing_bundle_ids: None,
             previous_file_manifests: None,
             chunk_profile: ChunkSizingProfile::default(),
@@ -55,11 +55,8 @@ impl<'a> BuildConfig<'a> {
         self
     }
 
-    pub(crate) fn with_existing_chunks(
-        mut self,
-        locations: &'a HashMap<String, ExistingChunkLocation>,
-    ) -> Self {
-        self.existing_chunk_locations = Some(locations);
+    pub(crate) fn with_existing_chunks(mut self, sizes: &'a HashMap<ChunkHash, u64>) -> Self {
+        self.available_chunk_sizes = Some(sizes);
         self
     }
 
@@ -164,13 +161,6 @@ pub struct BuiltLooseChunk {
     pub(crate) staged_file: StagedArtifactFile,
     pub raw_size: u64,
     pub compressed_size: u64,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ExistingChunkLocation {
-    pub bundle_id: String,
-    pub compressed_size: u64,
-    pub storage_mode: ArtifactStorageMode,
 }
 
 /// A scanned source range, loaded only while encoding its artifact.

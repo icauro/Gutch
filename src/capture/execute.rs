@@ -1,13 +1,11 @@
 use super::contracts::{
     MetadataFieldDifference, SnapshotCaptureOutcome, SnapshotCaptureRequest, SnapshotCaptureResult,
 };
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::artifact::hash::ChunkHash;
 use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::load_capture_reuse_state;
 use crate::capture::scan::SourceInventory;
@@ -158,7 +156,7 @@ fn execute_repo_snapshot_capture(
             std::collections::BTreeMap::from([
                 (
                     "existing_chunk_location_count".to_string(),
-                    serde_json::json!(reuse_state.chunk_locations.len()),
+                    serde_json::json!(reuse_state.available_chunk_sizes.len()),
                 ),
                 (
                     "previous_file_manifest_path_count".to_string(),
@@ -168,10 +166,10 @@ fn execute_repo_snapshot_capture(
         },
     );
     let existing_chunk_ids = reuse_state
-        .chunk_locations
+        .available_chunk_sizes
         .keys()
-        .map(|chunk_hash| ChunkHash::parse_hex(chunk_hash))
-        .collect::<Result<HashSet<_>>>()?;
+        .copied()
+        .collect::<HashSet<_>>();
     drop(_existing_chunks_span);
 
     let _config_span =
@@ -185,7 +183,7 @@ fn execute_repo_snapshot_capture(
                     ),
                     (
                         "existing_chunk_location_count".to_string(),
-                        serde_json::json!(reuse_state.chunk_locations.len()),
+                        serde_json::json!(reuse_state.available_chunk_sizes.len()),
                     ),
                     (
                         "previous_file_manifest_path_count".to_string(),
@@ -194,7 +192,7 @@ fn execute_repo_snapshot_capture(
                 ])
             });
     let mut build_config = crate::capture::types::BuildConfig::for_snapshot(&normalized_tags)
-        .with_existing_chunks(&reuse_state.chunk_locations)
+        .with_existing_chunks(&reuse_state.available_chunk_sizes)
         .with_existing_bundles(&reuse_state.bundle_ids)
         .with_previous_manifests(&reuse_state.previous_file_manifests)
         .with_chunk_profile(request.chunk_profile)
@@ -250,7 +248,7 @@ fn execute_repo_snapshot_capture(
         }
         if crate::repo::index::required_chunk_hashes(&existing_manifest)
             .iter()
-            .all(|hash| reuse_state.chunk_locations.contains_key(&hash.to_hex()))
+            .all(|hash| reuse_state.available_chunk_sizes.contains_key(hash))
         {
             let required_chunk_count =
                 crate::repo::index::required_chunk_hashes(&existing_manifest).len();
@@ -295,7 +293,7 @@ fn execute_repo_snapshot_capture(
         result.snapshot_manifest.total_compressed_size_estimate = rebuilt_estimate;
     }
 
-    let manifest_path = super::publish::publish_snapshot_artifacts(
+    let (manifest_path, required_bundle_count) = super::publish::publish_snapshot_artifacts(
         &request.control,
         &repo_paths,
         &result,
@@ -304,11 +302,6 @@ fn execute_repo_snapshot_capture(
     )?;
     let required_chunks = crate::repo::index::required_chunk_hashes(&result.snapshot_manifest);
     let required_chunk_count = required_chunks.len();
-    let required_bundle_count = count_required_bundles_for_build(
-        &result.snapshot_manifest,
-        &reuse_state.chunk_locations,
-        &result.bundles,
-    );
     let reused_chunk_count = required_chunks
         .iter()
         .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
@@ -427,31 +420,6 @@ fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
         "input path does not exist or is unsupported: {}",
         path.display()
     )))
-}
-
-fn count_required_bundles_for_build(
-    snapshot_manifest: &crate::manifest::snapshot::SnapshotManifest,
-    existing_chunk_locations: &HashMap<String, crate::capture::types::ExistingChunkLocation>,
-    generated_bundles: &[crate::capture::types::BuiltBundle],
-) -> usize {
-    let existing_chunk_locations_by_hash = existing_chunk_locations
-        .iter()
-        .filter_map(|(chunk_hash, location)| {
-            ChunkHash::parse_hex(chunk_hash)
-                .ok()
-                .map(|chunk_hash| (chunk_hash, location))
-        })
-        .collect::<HashMap<_, _>>();
-    let mut required_bundle_ids = HashSet::new();
-    let required_chunks = crate::repo::index::required_chunk_hashes(snapshot_manifest);
-    for chunk_hash in required_chunks {
-        if let Some(existing) = existing_chunk_locations_by_hash.get(&chunk_hash)
-            && existing.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled
-        {
-            required_bundle_ids.insert(existing.bundle_id.clone());
-        }
-    }
-    required_bundle_ids.len() + generated_bundles.len()
 }
 
 struct PreparedInputPath {
