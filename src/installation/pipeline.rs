@@ -239,7 +239,7 @@ pub(super) fn run_reconstruction_jobs(
                 control,
             )?;
             work_queue.ready.push_back((
-                ReconstructWorkItem::VerifyFile(file_index),
+                ReconstructWorkItem::VerifyFiles(vec![file_index]),
                 ProfileInstant::detailed(control.profiler()),
             ));
             verification_queued[file_index] = true;
@@ -392,16 +392,19 @@ pub(super) fn run_reconstruction_jobs(
                         // Verify while the completed file may still be cached, overlapping
                         // hashing with remaining writes. All its producers have finished.
                         work_queue.ready.push_front((
-                            ReconstructWorkItem::VerifyFile(file_index),
+                            ReconstructWorkItem::VerifyFiles(vec![file_index]),
                             ProfileInstant::detailed(control.profiler()),
                         ));
                         verification_queued[file_index] = true;
                     }
                 }
             }
-            Ok(ReconstructJobEvent::Verified(file_verification)) => {
+            Ok(ReconstructJobEvent::Verified {
+                file_count,
+                timings: file_verification,
+            }) => {
                 work_queue.complete();
-                completed_file_count += 1;
+                completed_file_count += file_count;
                 if verify_finished_at.is_none() && completed_file_count == file_plans.len() {
                     verify_finished_at = Some(ProfileInstant::start(control.profiler()));
                 }

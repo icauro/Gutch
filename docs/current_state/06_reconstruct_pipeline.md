@@ -35,7 +35,7 @@ before notification; failure drains dispatched work before staging cleanup.
 | 5. Dispatch ready work | Run local artifact jobs, source-chunk jobs, and source-file copies. | Independent jobs start immediately; files wait only on their own dependency count. |
 | 6. Fetch missing remote artifacts | Download missing bundles through the transfer scheduler and emit `Ready` only after an atomic local write completes. | In unified fetch-reconstruct, download and decode overlap. |
 | 7. Decode and fan out | Read each artifact, verify selected raw chunks, and positional-write bytes to all target files. | Artifact jobs run concurrently; a bundle is read once per artifact job. |
-| 8. Verify completed files | Enqueue a file verification job when all producing jobs for that file finish. | Unrelated files continue while another file is waiting on an artifact. |
+| 8. Verify completed files | Enqueue each file check when all producing jobs for that file finish; admit adjacent ready checks in bounded batches. | Unrelated files continue while another file is waiting on an artifact. |
 | 9. Finalize and promote | Apply file, directory, and symlink metadata, then publish through the selected directory or selective-entry policy. | Promotion is gated on successful reconstruction and verification; directory replacement removes the old tree; selective repair handles extras separately. |
 
 ## Job graph and parallelization
@@ -59,6 +59,16 @@ the scheduler gives these newly completed files priority over queued producing
 jobs. This overlaps hashing with remaining reconstruction and can read recently
 written pages from the filesystem cache. Empty-file checks need no such priority.
 Verification never starts while a producer for that file is still running.
+
+Verification admission groups adjacent ready checks into one worker task, up to
+32 files and 1 MiB of expected file bytes. A file larger than that byte limit
+runs alone. Groups stop at queued producing jobs; batching does not change
+artifact readiness or move checks across those jobs. Every file retains its
+own cancellation checkpoints, fresh output-size query, and full-file hash
+validation. One terminal event reports the batch's verified file count and
+summed bytes/timings; progress advances by that count. Failure or cancellation
+stops the batch, and worker context and memory permits are released before its
+terminal event. The coordinator drains dispatched batches before cleanup.
 
 The coordinator tracks ready work separately from dispatched work. Memory
 admission can skip a temporarily blocked producer and run a ready verification.
