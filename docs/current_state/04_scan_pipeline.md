@@ -243,3 +243,11 @@ and exact bundle metadata overhead. It does not load sample payloads. The sample
 selection and estimated ratio are unchanged; reported probe-read bytes are zero.
 For larger inputs, compressed codecs probe actual data. Packing loads and verifies
 every selected source range, even when the size estimate needed no reads.
+
+
+## Reuse accounting and publication
+
+Capture counts distinct required chunks and reused chunks against the availability
+map before publication adds newly built artifacts to that map. The temporary
+required-chunk set is consumed before publication. Capture does not retain another
+copy of all previously available chunk IDs just to compute these counts.

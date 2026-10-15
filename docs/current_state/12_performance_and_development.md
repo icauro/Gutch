@@ -865,3 +865,29 @@ empty repositories and unknown selections. Borrowed metadata/blueprint publicati
 prototypes were discarded after timing confirmations and memory checks showed no
 material benefit. Evidence: `tests/.artifacts/research_optimization_pass/round22_report.md`
 and `tests/.artifacts/research_optimization_pass/round23_report.md`.
+
+
+## Capture reuse accounting memory, October 2026
+
+Capture computes reuse counts before publishing updates to its availability map.
+This removes the full copy of previously available chunk IDs, while preserving
+new/reused counts across fresh, unchanged, modified and mixed-storage captures.
+The temporary distinct-required-chunk set is consumed before publication.
+
+On Windows, 21 alternating process-memory pairs for repeated capture of the
+four-file 64 MiB / 1 KiB-chunk fixture reduced median peak working set from
+34.57 to 32.50 MiB (6.0%) and peak commit from 28.48 to 26.39 MiB (7.3%).
+An earlier independent 21-pair comparison also saved about 2 MiB of peak commit.
+Fresh-capture process memory stayed essentially flat over 21 pairs.
+
+Command timing differences were within noise: 41 repeated-capture pairs and
+21 fresh-capture pairs did not establish a speed change. No latency gain is
+claimed. Six fixture/codec comparisons preserved identical artifact, blueprint
+and index bytes and snapshot IDs; restored trees matched independent SHA-256
+expectations. Existing correctness coverage checks reuse/new counts through
+extensions, replacements, missing artifacts and mixed storage modes.
+
+Two additional prototypes were discarded: collecting unchanged-capture required
+IDs once, and directly building the availability map. Their incremental latency
+checks did not hold up in confirmation, including 81 pairs for the latter.
+Evidence: `tests/.artifacts/research_optimization_pass/round24_report.md`.

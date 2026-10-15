@@ -1,7 +1,6 @@
 use super::contracts::{
     MetadataFieldDifference, SnapshotCaptureOutcome, SnapshotCaptureRequest, SnapshotCaptureResult,
 };
-use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -150,28 +149,6 @@ fn execute_repo_snapshot_capture(
         .validate_snapshot_tags(&normalized_tags, &request.source_dir.display().to_string())?;
     drop(_identity_span);
 
-    let _existing_chunks_span = request.control.profile_span_with_args(
-        "capture.prepare_source.collect_existing_chunk_ids",
-        || {
-            std::collections::BTreeMap::from([
-                (
-                    "existing_chunk_location_count".to_string(),
-                    serde_json::json!(reuse_state.available_chunk_sizes.len()),
-                ),
-                (
-                    "previous_file_manifest_path_count".to_string(),
-                    serde_json::json!(reuse_state.previous_file_manifests.len()),
-                ),
-            ])
-        },
-    );
-    let existing_chunk_ids = reuse_state
-        .available_chunk_sizes
-        .keys()
-        .copied()
-        .collect::<HashSet<_>>();
-    drop(_existing_chunks_span);
-
     let _config_span =
         request
             .control
@@ -293,6 +270,14 @@ fn execute_repo_snapshot_capture(
         result.snapshot_manifest.total_compressed_size_estimate = rebuilt_estimate;
     }
 
+    // Publication adds newly built chunks to reuse state. Count against the pre-publication state.
+    let required_chunks = crate::repo::index::required_chunk_hashes(&result.snapshot_manifest);
+    let required_chunk_count = required_chunks.len();
+    let reused_chunk_count = required_chunks
+        .into_iter()
+        .filter(|chunk_id| reuse_state.available_chunk_sizes.contains_key(chunk_id))
+        .count();
+
     let (manifest_path, required_bundle_count) = super::publish::publish_snapshot_artifacts(
         &request.control,
         &repo_paths,
@@ -300,12 +285,6 @@ fn execute_repo_snapshot_capture(
         reuse_state,
         build_pool,
     )?;
-    let required_chunks = crate::repo::index::required_chunk_hashes(&result.snapshot_manifest);
-    let required_chunk_count = required_chunks.len();
-    let reused_chunk_count = required_chunks
-        .iter()
-        .filter(|chunk_id| existing_chunk_ids.contains(*chunk_id))
-        .count();
 
     let capture_result = SnapshotCaptureResult {
         repo_root: repo_paths.repo_root,
