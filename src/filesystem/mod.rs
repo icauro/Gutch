@@ -66,6 +66,18 @@ pub(crate) fn create_dir_all(path: &Path) -> Result<(), Error> {
     std::fs::create_dir_all(path).map_err(|e| Error::io_context("creating directory tree", path, e))
 }
 
+/// Set or clear the read-only flag. On Unix, clearing restores only the owner
+/// write bit; `Permissions::set_readonly(false)` would make the entry world-writable.
+pub(crate) fn set_read_only(permissions: &mut std::fs::Permissions, read_only: bool) {
+    #[cfg(unix)]
+    if !read_only {
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(permissions.mode() | 0o200);
+        return;
+    }
+    permissions.set_readonly(read_only);
+}
+
 /// Remove a file.
 pub(crate) fn remove_file(path: &Path) -> Result<(), Error> {
     Ok(std::fs::remove_file(path)?)

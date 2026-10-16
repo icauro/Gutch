@@ -300,7 +300,7 @@ fn promote_repaired_files(
             &directory.path,
         )?;
         let mut permissions = fs::metadata(&dest)?.permissions();
-        permissions.set_readonly(directory.read_only);
+        crate::filesystem::set_read_only(&mut permissions, directory.read_only);
         fs::set_permissions(dest, permissions)?;
     }
     Ok(())

@@ -112,7 +112,7 @@ fn add_file(root: &Path, relative: &str, content: &[u8]) -> Result<()> {
 fn set_read_only(root: &Path, relative: &str, read_only: bool) -> Result<()> {
     let path = resolve(root, relative)?;
     let mut permissions = fs::symlink_metadata(&path)?.permissions();
-    permissions.set_readonly(read_only);
+    crate::filesystem::set_read_only(&mut permissions, read_only);
     fs::set_permissions(path, permissions)?;
     Ok(())
 }

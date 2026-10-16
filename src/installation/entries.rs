@@ -95,10 +95,11 @@ fn create_snapshot_directories(
         }
     }
     for entry in &snapshot_manifest.entries {
-        let crate::manifest::SnapshotEntry::File(file) = entry else {
+        // Files and symlinks may rely on implicit parent directories.
+        if matches!(entry, crate::manifest::SnapshotEntry::Directory(_)) {
             continue;
-        };
-        let parent = file.path.rsplit_once('/').map(|(parent, _)| parent);
+        }
+        let parent = entry.path().rsplit_once('/').map(|(parent, _)| parent);
         if let Some(parent) = parent {
             add_manifest_directory_prefixes(&mut directories, parent);
         }
@@ -337,7 +338,7 @@ pub(super) fn finalize_snapshot_entries(
                     .map_err(|e| Error::io_context("reading directory permissions", &path, e))?
                     .permissions();
                 if permissions.readonly() != directory.read_only {
-                    permissions.set_readonly(directory.read_only);
+                    crate::filesystem::set_read_only(&mut permissions, directory.read_only);
                     std::fs::set_permissions(&path, permissions)
                         .map_err(|e| Error::io_context("setting entry permissions", &path, e))?;
                 }
@@ -496,7 +497,7 @@ pub(super) fn apply_entry_permissions(
     #[cfg(not(unix))]
     let _ = executable;
     if permissions.readonly() != read_only {
-        permissions.set_readonly(read_only);
+        crate::filesystem::set_read_only(&mut permissions, read_only);
     }
     if permissions != original {
         std::fs::set_permissions(path, permissions)

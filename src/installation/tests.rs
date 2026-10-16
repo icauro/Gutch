@@ -348,3 +348,32 @@ fn repair_restores_manifest_file_attributes() {
     }
     crate::filesystem::remove_dir_all(&destination).unwrap();
 }
+
+#[test]
+fn symlink_in_implicit_directory_gets_its_parent_created() {
+    let mut manifest = test_snapshot_manifest(vec![("target.txt", b"")]);
+    manifest.entries.push(manifest::SnapshotEntry::Symlink(
+        manifest::SymlinkManifest {
+            path: "nested/link".to_string(),
+            target_path: "target.txt".to_string(),
+        },
+    ));
+    let output = tempfile::tempdir().unwrap();
+    crate::installation::entries::prepare_snapshot_entries(
+        &manifest,
+        output.path(),
+        &crate::progress::GutchOperationControl::default(),
+        None,
+    )
+    .unwrap();
+    assert!(output.path().join("nested").is_dir());
+}
+
+#[cfg(unix)]
+#[test]
+fn clearing_read_only_restores_only_the_owner_write_bit() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::Permissions::from_mode(0o444);
+    crate::filesystem::set_read_only(&mut permissions, false);
+    assert_eq!(permissions.mode() & 0o777, 0o644);
+}
