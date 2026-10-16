@@ -80,7 +80,15 @@ pub(crate) struct ReconstructSourceChunkJob {
     pub(crate) raw_size: u32,
     pub(crate) source_path: Arc<PathBuf>,
     pub(crate) source_offset: u64,
-    pub(crate) targets: Vec<ReconstructTarget>,
+    // Every source job starts with one target; keep it inline to avoid a per-chunk allocation.
+    pub(crate) first_target: ReconstructTarget,
+    pub(crate) additional_targets: Vec<ReconstructTarget>,
+}
+
+impl ReconstructSourceChunkJob {
+    pub(crate) fn targets(&self) -> impl Iterator<Item = &ReconstructTarget> {
+        std::iter::once(&self.first_target).chain(self.additional_targets.iter())
+    }
 }
 
 #[derive(Clone)]

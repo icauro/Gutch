@@ -1194,3 +1194,30 @@ first-location selection among duplicate source candidates, distinct source
 hashes sharing path storage, exact offsets and every target range. A wrong raw
 size on an already-seen hash must fail instead of reusing its cached job.
 Evidence: `tests/.artifacts/research_optimization_pass/round36_report.md`.
+
+
+## Inline first source destination, October 2026
+
+Source-chunk jobs now store their mandatory first destination directly, with a
+vector only for additional destinations. This avoids a target allocation for
+single-destination jobs without adding a dependency or changing artifact formats.
+Repeated destinations preserve insertion order through one shared iterator used
+by writing, scheduling and preview byte accounting.
+
+Separate 21-pair Windows native checks on the four-file 64 MiB / 53,822-chunk
+fixture reduced median peak committed memory from 35,782,656 to 31,731,712 bytes
+(11.3%) when all files were renamed and every chunk reused from source. With
+only one renamed file, peak commit fell from 17,416,192 to 16,715,776 bytes (4.0%).
+Peak working sets remained near 74 MiB; no working-set reduction is claimed.
+All 84 final post-exit high-water queries succeeded and restored trees matched
+independent SHA-256 expectations.
+
+Timing evidence was mixed. The seven-pair full-source screen was 3.0% faster;
+a 41-pair comparison was 0.8% slower (paired interval +0.3% to +1.3%). A separate
+41-pair confirmation had a paired median change of +0.1%, with an interval of
+-1.0% to +1.4%. Its ratio of separate medians was 1.1% faster. No runtime gain or
+consistent runtime regression is established across runs. Partial-reuse and
+no-source paired intervals crossed zero; whole-copy was slightly favorable in
+the larger run. Retention is based on the lower measured peak commit, not speed.
+These results concern this host and fixture, not general throughput or a global
+memory bound. Evidence: `tests/.artifacts/research_optimization_pass/round37_report.md`.

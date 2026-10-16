@@ -267,7 +267,10 @@ fn reconstruct_source_chunk_job(
         control.profile_span_with_args("installation.source_chunk.read_verify_and_write", || {
             std::collections::BTreeMap::from([
                 ("size_bytes".into(), serde_json::json!(job.raw_size)),
-                ("target_count".into(), serde_json::json!(job.targets.len())),
+                (
+                    "target_count".into(),
+                    serde_json::json!(job.targets().count()),
+                ),
             ])
         });
 
@@ -305,7 +308,7 @@ fn reconstruct_source_chunk_job(
     };
     let mut target_handles = HashMap::new();
     let rebuild_started_at = ProfileInstant::detailed(control.profiler());
-    for target in &job.targets {
+    for target in job.targets() {
         control.checkpoint()?;
 
         let write_started_at = ProfileInstant::detailed(control.profiler());

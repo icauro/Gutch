@@ -177,28 +177,27 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 .filter(|source_chunk| source_chunk.raw_size == u64::from(chunk_ref.raw_size))
             {
                 let source_key = chunk_ref.chunk_hash;
-                let source_job_index =
-                    if let Some(&job_index) = source_chunk_job_indices.get(&source_key) {
-                        job_index
-                    } else {
-                        let job_index = jobs.len();
-                        jobs.push(ReconstructJob::SourceChunk(ReconstructSourceChunkJob {
-                            chunk_hash: chunk_ref.chunk_hash,
-                            raw_size: chunk_ref.raw_size,
-                            source_path: source_chunk.path.clone(),
-                            source_offset: source_chunk.offset,
-                            targets: Vec::new(),
-                        }));
-                        source_chunk_job_indices.insert(source_key, job_index);
-                        job_index
-                    };
-                let ReconstructJob::SourceChunk(source_job) = &mut jobs[source_job_index] else {
-                    unreachable!("source chunk job index points to another job kind");
-                };
-                source_job.targets.push(ReconstructTarget {
+                let target = ReconstructTarget {
                     file_index,
                     file_offset,
-                });
+                };
+                if let Some(&job_index) = source_chunk_job_indices.get(&source_key) {
+                    let ReconstructJob::SourceChunk(source_job) = &mut jobs[job_index] else {
+                        unreachable!("source chunk job index points to another job kind");
+                    };
+                    source_job.additional_targets.push(target);
+                } else {
+                    let job_index = jobs.len();
+                    jobs.push(ReconstructJob::SourceChunk(ReconstructSourceChunkJob {
+                        chunk_hash: chunk_ref.chunk_hash,
+                        raw_size: chunk_ref.raw_size,
+                        source_path: source_chunk.path.clone(),
+                        source_offset: source_chunk.offset,
+                        first_target: target,
+                        additional_targets: Vec::new(),
+                    }));
+                    source_chunk_job_indices.insert(source_key, job_index);
+                }
                 reused_source_chunk_count += 1;
                 file_offset = file_offset
                     .checked_add(u64::from(chunk_ref.raw_size))

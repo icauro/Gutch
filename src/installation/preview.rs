@@ -204,7 +204,7 @@ pub fn visit_installation_plan(
             .iter()
             .map(|job| match job {
                 super::jobs::ReconstructJob::SourceChunk(job) => {
-                    u64::from(job.raw_size) * job.targets.len() as u64
+                    u64::from(job.raw_size) * job.targets().count() as u64
                 }
                 super::jobs::ReconstructJob::CopySourceFile { file_index, .. } => {
                     jobs.files[*file_index].size

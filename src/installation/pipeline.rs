@@ -619,8 +619,7 @@ fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {
             })
             .collect::<Vec<_>>(),
         ReconstructJob::SourceChunk(job) => job
-            .targets
-            .iter()
+            .targets()
             .map(|target| target.file_index)
             .collect::<Vec<_>>(),
         ReconstructJob::CopySourceFile { file_index, .. } => vec![*file_index],

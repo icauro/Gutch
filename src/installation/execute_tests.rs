@@ -1206,8 +1206,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         assert_eq!(next_source_job.source_offset, 8);
         assert_eq!(
             next_source_job
-                .targets
-                .iter()
+                .targets()
                 .map(|target| (target.file_index, target.file_offset))
                 .collect::<Vec<_>>(),
             [(1, 16), (2, 12)]
@@ -1219,8 +1218,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         assert_eq!(source_job.raw_size, 4);
         assert_eq!(
             source_job
-                .targets
-                .iter()
+                .targets()
                 .map(|target| (target.file_index, target.file_offset))
                 .collect::<Vec<_>>(),
             [(1, 0), (1, 12), (2, 0), (2, 8)]
