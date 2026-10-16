@@ -573,6 +573,7 @@ fn full_hash_trace_args(
 
 pub(super) fn build_source_chunk_locations(
     source: SnapshotReconstructSource<'_>,
+    required_chunks: Option<&std::collections::HashSet<crate::artifact::hash::ChunkHash>>,
 ) -> Result<HashMap<crate::artifact::hash::ChunkHash, SourceChunkLocation>> {
     let mut chunk_locations = HashMap::new();
     for file_manifest in source.snapshot_manifest.files() {
@@ -584,13 +585,16 @@ pub(super) fn build_source_chunk_locations(
         let mut offset = 0u64;
         for chunk_ref in typed_file.chunks {
             let raw_size = u64::from(chunk_ref.raw_size);
-            chunk_locations
-                .entry(chunk_ref.chunk_hash)
-                .or_insert_with(|| SourceChunkLocation {
-                    path: source_path.clone(),
-                    offset,
-                    raw_size,
-                });
+            if required_chunks.is_none_or(|required| required.contains(&chunk_ref.chunk_hash)) {
+                chunk_locations
+                    .entry(chunk_ref.chunk_hash)
+                    .or_insert_with(|| SourceChunkLocation {
+                        path: source_path.clone(),
+                        offset,
+                        raw_size,
+                    });
+            }
+            // Excluded chunks still occupy bytes before a later selected chunk.
             offset = offset.checked_add(raw_size).ok_or_else(|| {
                 Error::manifest(format!(
                     "source file '{}' chunk sizes overflow u64",

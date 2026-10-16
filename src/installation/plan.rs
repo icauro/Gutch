@@ -1,16 +1,17 @@
 use super::io::build_source_chunk_locations;
 use super::jobs::{
     ReconstructArtifactChunk, ReconstructArtifactJob, ReconstructJob, ReconstructPipelineFile,
-    ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget,
+    ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget, SourceChunkLocation,
 };
 use super::types::SnapshotReconstructSource;
 use crate::Error;
 use crate::Result;
+use crate::artifact::hash::ChunkHash;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory_with_marker_namespace_and_pool;
-use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::manifest::{FileManifest, SnapshotEntry};
 use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::ArtifactPriority;
 use crate::transfer::download::PendingArtifactDownload;
@@ -54,6 +55,43 @@ pub(crate) fn build_artifact_priorities(
         .collect()
 }
 
+fn can_copy_source_file(file: &FileManifest, source_files: &HashMap<&str, &FileManifest>) -> bool {
+    source_files.get(file.path.as_str()).is_some_and(|source| {
+        source.full_file_hash == file.full_file_hash && source.size == file.size
+    })
+}
+
+fn build_source_locations_for_target(
+    source: SnapshotReconstructSource<'_>,
+    target: &SnapshotManifest,
+    source_files: &HashMap<&str, &FileManifest>,
+) -> Result<HashMap<ChunkHash, SourceChunkLocation>> {
+    let required_chunk_count: usize = target
+        .files()
+        .filter(|file| !can_copy_source_file(file, source_files))
+        .map(|file| file.chunks.len())
+        .sum();
+    let source_chunk_count: usize = source
+        .snapshot_manifest
+        .files()
+        .map(|file| file.chunks.len())
+        .sum();
+    // Do not allocate a filter whose reference bound is as large as the source
+    // input. Full-source reuse keeps the direct index path.
+    let required_chunks = if required_chunk_count < source_chunk_count {
+        Some(
+            target
+                .files()
+                .filter(|file| !can_copy_source_file(file, source_files))
+                .flat_map(|file| file.chunks.iter().map(|chunk| chunk.chunk_hash))
+                .collect::<HashSet<_>>(),
+        )
+    } else {
+        None
+    };
+    build_source_chunk_locations(source, required_chunks.as_ref())
+}
+
 pub(crate) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &crate::repo::index::ChunkIndex,
@@ -92,10 +130,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
     let mut source_chunk_locations = None;
 
     for file_manifest in snapshot_manifest.files() {
-        if let Some(source_file) = source_files_by_path.get(file_manifest.path.as_str())
-            && source_file.full_file_hash == file_manifest.full_file_hash
-            && source_file.size == file_manifest.size
-        {
+        if can_copy_source_file(file_manifest, &source_files_by_path) {
             let source_root = verified_source.expect("source files map only exists with source");
             let file_index = files.len();
             let source_path = crate::filesystem::paths::resolve_manifest_relative_path(
@@ -119,11 +154,17 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         }
 
         // Whole-file copies need no chunk-location index. A partial reuse still
-        // indexes every verified source file, including those copied above.
+        // searches every verified source file, including those copied above.
         if source_chunk_locations.is_none() {
             source_chunk_locations = Some(
                 verified_source
-                    .map(build_source_chunk_locations)
+                    .map(|source| {
+                        build_source_locations_for_target(
+                            source,
+                            snapshot_manifest,
+                            &source_files_by_path,
+                        )
+                    })
                     .transpose()?
                     .unwrap_or_default(),
             );

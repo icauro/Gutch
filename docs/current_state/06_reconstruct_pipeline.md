@@ -148,9 +148,11 @@ A damaged reuse source contributes only files that passed verification. Healthy
 files remain eligible for whole-file or chunk reuse; chunks inside damaged files
 are not salvaged. Reused bytes are validated again while staging.
 The planner builds source chunk locations only when a target file cannot be copied
-whole. If needed, that index includes every verified source file, including files
-already selected for whole-file copying. Source verification still runs first;
-only the derived chunk-location index is deferred.
+whole. It searches every verified source file, including files already selected
+for whole-file copying. If the non-copy targets contain fewer chunk references
+than the source, the index retains only hashes those targets require; otherwise
+it retains the full source index. Source offsets include excluded chunks.
+Source verification still runs before this derived index is built.
 
 Source-chunk jobs are deduplicated by source path, offset, raw size, and hash.
 Source handles are cached (up to 64 entries), and source jobs are ordered by

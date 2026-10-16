@@ -1104,8 +1104,8 @@ coverage remains. Evidence:
 
 Reconstruction planning first selects matching whole-file copies. It builds the
 source chunk-location index only when a target file cannot be copied whole.
-When needed, the index still includes every verified source file, including a
-file already selected for copying: another changed target can reuse its chunks.
+When needed, source indexing still searches every verified source file, including
+a file already selected for copying: another changed target can reuse its chunks.
 Source verification, copy-time hashing, staged-file checks and publication remain
 unchanged. The lazy index is local to one plan.
 
@@ -1127,3 +1127,36 @@ The no-source reconstruction control was also inconclusive. No general update or
 partial-reuse speedup is claimed. The strengthened planner regression confirms
 that a changed file can reuse chunks from a file already copied whole.
 Evidence: `tests/.artifacts/research_optimization_pass/round34_report.md`.
+
+
+## Limit source chunk locations to partial targets, October 2026
+
+When target files that need chunk work have fewer chunk references than the
+verified source, planning retains only source locations for those target hashes.
+Otherwise it keeps the direct full-source index path without allocating a hash
+filter. This is a reference-count bound, not a distinct-chunk count. Whole-file
+copy eligibility has one shared predicate for job selection and filter selection;
+a named preparation helper keeps this work outside the main file/job loop.
+
+Every verified source file is searched, including files already selected for
+whole copying. Excluded chunks still advance the physical source offset. Source
+eligibility, verification and reused-byte hashing remain unchanged.
+
+On Windows, a four-file 64 MiB / 53,822-chunk fixture renamed one file: three files
+copied whole, while the renamed file reused source chunks. An initial guarded
+41-pair comparison reduced median reconstruction 193.93 to 186.88 ms (3.6%).
+The final build, after separating the preparation helper, reduced 211.18 to
+198.79 ms over 41 pairs (5.9%); paired median change was -6.4%, with a bootstrap
+interval of -8.4% to -4.8%. Every output matched independent source SHA-256 maps.
+
+Separate 21-pair native checks reduced median peak commit from 32.55 to 23.30 MiB
+(28.4%). Peak working set stayed near 75 MiB; no working-set reduction is claimed.
+All 84 final post-exit high-water queries across partial/full-source controls
+succeeded with nonzero data. Full-source control peak commit remained near flat.
+
+All-files-renamed, whole-copy and no-source timing controls did not establish
+consistent changes. These results concern partial reuse with a smaller target
+working set, not general update throughput. The strengthened regression selects
+a middle chunk after an excluded prefix from a source file already copied whole,
+and checks the exact source path and byte offset. Evidence:
+`tests/.artifacts/research_optimization_pass/round35_report.md`.
