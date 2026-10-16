@@ -377,3 +377,42 @@ fn clearing_read_only_restores_only_the_owner_write_bit() {
     crate::filesystem::set_read_only(&mut permissions, false);
     assert_eq!(permissions.mode() & 0o777, 0o644);
 }
+
+#[test]
+fn repair_restores_files_inside_read_only_directories() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("destination");
+    let data_directory = destination.join("data");
+    std::fs::create_dir_all(&data_directory).unwrap();
+    let mut permissions = std::fs::metadata(&data_directory).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&data_directory, permissions).unwrap();
+    let mut manifest = test_snapshot_manifest(vec![("data/game.dat", b"")]);
+    manifest.entries.push(manifest::SnapshotEntry::Directory(
+        manifest::DirectoryManifest {
+            path: "data".to_string(),
+            read_only: true,
+        },
+    ));
+    manifest.snapshot_id =
+        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    write_repair_test_repo(root.path(), &manifest);
+
+    repair_installation(crate::installation::InstallationRepairRequest {
+        repo_path: root.path().to_path_buf(),
+        snapshot_id: manifest.snapshot_id,
+        destination_dir: destination.clone(),
+        staging_dir: None,
+        remove_added_files: true,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: crate::progress::GutchOperationControl::default(),
+    })
+    .unwrap();
+
+    assert!(data_directory.join("game.dat").is_file());
+    let permissions = std::fs::metadata(&data_directory).unwrap().permissions();
+    assert!(permissions.readonly());
+    let mut permissions = permissions;
+    crate::filesystem::set_read_only(&mut permissions, false);
+    std::fs::set_permissions(&data_directory, permissions).unwrap();
+}

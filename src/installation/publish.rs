@@ -253,6 +253,7 @@ fn promote_repaired_files(
         })
         .collect::<Vec<_>>();
     directories.sort_by_key(|directory| directory.path.matches('/').count());
+    let reopened_ancestors = reopen_read_only_directories(repaired_manifest, destination_dir)?;
     for directory in &directories {
         let dest = crate::filesystem::paths::resolve_manifest_relative_path(
             destination_dir,
@@ -303,7 +304,54 @@ fn promote_repaired_files(
         crate::filesystem::set_read_only(&mut permissions, directory.read_only);
         fs::set_permissions(dest, permissions)?;
     }
+    for path in reopened_ancestors {
+        let mut permissions = fs::metadata(&path)?.permissions();
+        crate::filesystem::set_read_only(&mut permissions, true);
+        fs::set_permissions(path, permissions)?;
+    }
     Ok(())
+}
+
+/// Unix forbids adding or removing entries in a read-only directory, so promotion
+/// makes the affected existing directories writable first. Repaired directories get
+/// their manifest permissions afterwards; the returned unchanged ancestors are
+/// restored by the caller. A failed promotion leaves them writable, which a retry
+/// reclassifies as a read-only mismatch.
+fn reopen_read_only_directories(
+    repaired_manifest: &SnapshotManifest,
+    destination_dir: &Path,
+) -> Result<Vec<PathBuf>> {
+    let repaired_directories: HashSet<&str> = repaired_manifest
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry, SnapshotEntry::Directory(_)))
+        .map(SnapshotEntry::path)
+        .collect();
+    let mut directories = std::collections::BTreeSet::new();
+    for entry in &repaired_manifest.entries {
+        for (offset, _) in entry.path().match_indices('/') {
+            directories.insert(&entry.path()[..offset]);
+        }
+    }
+    directories.extend(repaired_directories.iter().copied());
+    let mut reopened_ancestors = Vec::new();
+    for directory in directories {
+        let path =
+            crate::filesystem::paths::resolve_manifest_relative_path(destination_dir, directory)?;
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.file_type().is_dir() || !metadata.permissions().readonly() {
+            continue;
+        }
+        let mut permissions = metadata.permissions();
+        crate::filesystem::set_read_only(&mut permissions, false);
+        fs::set_permissions(&path, permissions)?;
+        if !repaired_directories.contains(directory) {
+            reopened_ancestors.push(path);
+        }
+    }
+    Ok(reopened_ancestors)
 }
 
 fn remove_existing_entry(path: &Path) -> Result<()> {
