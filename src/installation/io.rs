@@ -74,7 +74,7 @@ pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
             Ok(timings)
         }
         ReconstructJob::SourceChunk(job) => {
-            reconstruct_source_chunk_job(job, file_plans, output_handles, source_handles, control)
+            reconstruct_source_chunk_job(job, output_handles, source_handles, control)
         }
         ReconstructJob::CopySourceFile {
             file_index,
@@ -257,7 +257,6 @@ fn reconstruct_artifact_job(
 
 fn reconstruct_source_chunk_job(
     job: &ReconstructSourceChunkJob,
-    _file_plans: &[ReconstructPipelineFile],
     output_handles: &OutputHandleCache,
     source_handles: &SourceHandleCache,
     control: &GutchOperationControl,
@@ -288,9 +287,88 @@ fn reconstruct_source_chunk_job(
         source_handles.read_range(&job.source_path, job.source_offset, &mut bytes)?;
     }
     let read_elapsed = read_started_at.elapsed();
+    verify_and_write_source_chunk(job, &bytes, read_elapsed, output_handles, control)
+}
+
+// Workers admit a nonempty source-only group of at most 64 KiB. That buffer
+// fits within the existing 1 MiB source-I/O reservation, including when chunks
+// are smaller than the combined read. Never read across excluded source ranges.
+pub(super) fn reconstruct_source_chunk_batch(
+    jobs: &[ReconstructJob],
+    output_handles: &OutputHandleCache,
+    source_handles: &SourceHandleCache,
+    control: &GutchOperationControl,
+) -> Result<Vec<ReconstructTimings>> {
+    let ReconstructJob::SourceChunk(first) = &jobs[0] else {
+        unreachable!("only source chunks are batched");
+    };
+    let mut end = first.source_offset;
+    for job in jobs {
+        let ReconstructJob::SourceChunk(chunk) = job else {
+            unreachable!("only source chunks are batched");
+        };
+        if chunk.source_path != first.source_path || chunk.source_offset != end {
+            return jobs
+                .iter()
+                .map(|job| {
+                    let ReconstructJob::SourceChunk(chunk) = job else {
+                        unreachable!("only source chunks are batched");
+                    };
+                    reconstruct_source_chunk_job(chunk, output_handles, source_handles, control)
+                })
+                .collect();
+        }
+        end = end
+            .checked_add(u64::from(chunk.raw_size))
+            .ok_or_else(|| Error::reconstruct("source batch offset overflows u64"))?;
+    }
+    control.checkpoint()?;
+    let size = usize::try_from(end - first.source_offset)
+        .map_err(|_| Error::reconstruct("source batch is too large for this platform"))?;
+    let mut bytes = vec![0; size];
+    let read_started_at = ProfileInstant::detailed(control.profiler());
+    {
+        let _read_span = control.profile_span("installation.source_batch.read");
+        source_handles.read_range(&first.source_path, first.source_offset, &mut bytes)?;
+    }
+    let read_elapsed = read_started_at.elapsed();
+    // Charge the shared read once; per-chunk byte and hash counts stay unchanged.
+    let mut timings = Vec::with_capacity(jobs.len());
+    let mut start = 0;
+    for (index, job) in jobs.iter().enumerate() {
+        let ReconstructJob::SourceChunk(chunk) = job else {
+            unreachable!("only source chunks are batched");
+        };
+        if index != 0 {
+            control.checkpoint()?;
+        }
+        let end = start + chunk.raw_size as usize;
+        timings.push(verify_and_write_source_chunk(
+            chunk,
+            &bytes[start..end],
+            if index == 0 {
+                read_elapsed
+            } else {
+                Duration::ZERO
+            },
+            output_handles,
+            control,
+        )?);
+        start = end;
+    }
+    Ok(timings)
+}
+
+fn verify_and_write_source_chunk(
+    job: &ReconstructSourceChunkJob,
+    bytes: &[u8],
+    read_elapsed: Duration,
+    output_handles: &OutputHandleCache,
+    control: &GutchOperationControl,
+) -> Result<ReconstructTimings> {
     let hash_started_at = ProfileInstant::detailed(control.profiler());
     let actual_hash =
-        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(&bytes));
+        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(bytes));
     let hash_elapsed = hash_started_at.elapsed();
     if actual_hash != job.chunk_hash {
         return Err(Error::HashMismatch {
@@ -313,7 +391,7 @@ fn reconstruct_source_chunk_job(
 
         let write_started_at = ProfileInstant::detailed(control.profiler());
         let output = cached_target_handle(output_handles, &mut target_handles, target.file_index)?;
-        write_file_at(&output, target.file_offset, &bytes, control).map_err(|e| {
+        write_file_at(&output, target.file_offset, bytes, control).map_err(|e| {
             e.with_io_context(
                 "writing reused source range",
                 output_handles.output_path(target.file_index),

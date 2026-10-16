@@ -1253,3 +1253,37 @@ claimed. Worker tests cover count/byte/reservation limits, source paths, work
 boundaries and unqueued index gaps, success counts/timings, hash mismatch,
 cancellation, stopping later writes and resource release before the one terminal
 event. Evidence: `tests/.artifacts/research_optimization_pass/round40_report.md`.
+
+
+## Combined reads inside source-worker batches, October 2026
+
+An admitted source group with contiguous offsets now uses one exact-range read
+and one shared byte buffer, bounded by the existing 64 KiB group limit. Every
+chunk is still hashed against its own expected identity before its targets are
+written. Gapped groups keep separate chunk reads; there is no read-ahead across
+excluded ranges or cache of chunk bytes between worker tasks. The existing
+1 MiB source-I/O reservation covers this buffer. Single jobs keep their read path.
+Source I/O owns both paths and the shared hash/write implementation; workers
+retain admission, dispatch, resource release and the single terminal event.
+
+On Windows with four workers and four 16 MiB files / 53,822 source references,
+a 41-pair prototype comparison reduced full-source reconstruction from 345.76 to
+311.24 ms (10.0%). After removing an unused file-plan argument, the final build
+reduced 337.13 to 303.05 ms over 21 pairs (10.1%); paired median change was -8.4%,
+with an interval of -10.2% to -6.2%. Partial reuse reduced 147.33 to 138.95 ms
+(5.7%); paired median change was -5.2%, interval -6.5% to -4.4%. Every restored
+tree matched independent SHA-256 expectations. These gains are additional to
+bounded worker batching, which is present in the baseline.
+
+Whole-copy, larger-chunk, source-fanout, artifact-only and artifact-fanout paired
+intervals crossed zero. Separate native checks showed peak commit near flat;
+all 84 final post-exit queries succeeded. No general throughput or memory gain
+is claimed. A positioned-read alternative was screened and discarded first.
+
+A combined read failure writes none of that group's ranges. Later hash failure
+or cancellation stops before later writes; worker tests also cover the gapped
+fallback and one-event resource-release ordering. Read time is charged once to
+the first chunk record, preserving aggregate timings and per-chunk byte counts.
+Combined reads have an `installation.source_batch.read` trace span; chunk byte
+hash/write timings remain per job. Evidence:
+`tests/.artifacts/research_optimization_pass/round42_report.md`.

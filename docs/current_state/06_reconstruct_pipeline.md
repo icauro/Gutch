@@ -81,9 +81,12 @@ Source-chunk admission groups adjacent ready jobs from the same source path into
 one sequential worker task, up to 32 jobs and 64 KiB of source bytes. A larger
 chunk runs alone. A group stops at another work kind, another source path, a
 nonadjacent job index, or a chunk needing a larger memory reservation than its
-first job. The first permit covers each sequential chunk; buffers are released
-between chunks. Each chunk still checks cancellation, reads and hashes its own
-source bytes, then writes its targets. Success sends one terminal event containing
+first job. The existing source-I/O reservation covers the group. When its source
+offsets are contiguous, one exact-range read fills a buffer of at most 64 KiB;
+each chunk hashes its own slice before writing its targets. Groups containing
+gaps retain individual chunk reads, without reading excluded source ranges.
+The shared buffer lives only for that worker task. Each chunk retains its own
+cancellation check before hashing/writing. Success sends one terminal event containing
 all completed job indexes and per-job timings. The coordinator advances progress
 by the job count and decrements every original producer/file dependency. A failed
 or cancelled group stops immediately; it cannot make its files verification-ready.

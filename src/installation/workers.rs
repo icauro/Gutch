@@ -205,19 +205,29 @@ pub(super) fn spawn_reconstruct_work(
                 });
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
             ReconstructWorkItem::Jobs(job_indices) => {
-                let mut timings = Vec::with_capacity(job_indices.len());
-                for job_index in job_indices.clone() {
-                    timings.push(reconstruct_job(super::io::ReconstructJobRequest {
-                        job: &context.jobs[job_index],
-                        file_plans: &context.file_plans,
-                        output_paths: &context.output_paths,
-                        precomputed_file_hashes: &context.precomputed_file_hashes,
-                        output_handles: &context.output_handles,
-                        source_handles: &context.source_handles,
-                        compression_profile: &context.compression_profile,
-                        control: &context.control,
-                    })?);
-                }
+                let timings = if job_indices.len() > 1 {
+                    super::io::reconstruct_source_chunk_batch(
+                        &context.jobs[job_indices.clone()],
+                        &context.output_handles,
+                        &context.source_handles,
+                        &context.control,
+                    )?
+                } else {
+                    let mut timings = Vec::with_capacity(job_indices.len());
+                    for job_index in job_indices.clone() {
+                        timings.push(reconstruct_job(super::io::ReconstructJobRequest {
+                            job: &context.jobs[job_index],
+                            file_plans: &context.file_plans,
+                            output_paths: &context.output_paths,
+                            precomputed_file_hashes: &context.precomputed_file_hashes,
+                            output_handles: &context.output_handles,
+                            source_handles: &context.source_handles,
+                            compression_profile: &context.compression_profile,
+                            control: &context.control,
+                        })?);
+                    }
+                    timings
+                };
                 Ok(ReconstructJobEvent::Completed {
                     job_indices,
                     timings,
@@ -632,21 +642,28 @@ mod tests {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
             }
         }
-        for outcome in ["success", "hash_failure", "cancel"] {
+        for outcome in ["success", "gaps", "short_read", "hash_failure", "cancel"] {
             let cancel = outcome == "cancel";
             let root = tempfile::tempdir().unwrap();
             let source = Arc::new(root.path().join("source"));
-            std::fs::write(
-                source.as_ref(),
-                if outcome == "success" {
-                    b"datadatadata"
-                } else {
-                    b"databad!data"
-                },
-            )
-            .unwrap();
+            let source_bytes: &[u8] = match outcome {
+                "success" => b"datadatadata",
+                "gaps" => b"data----data----data",
+                "short_read" => b"data",
+                _ => b"databad!data",
+            };
+            std::fs::write(source.as_ref(), source_bytes).unwrap();
             let jobs = (0..3)
-                .map(|index| source_job(&source, index * 4, 4))
+                .map(|index| {
+                    let mut job = source_job(&source, index * 4, 4);
+                    if outcome == "gaps" {
+                        let ReconstructJob::SourceChunk(chunk) = &mut job else {
+                            unreachable!()
+                        };
+                        chunk.source_offset = index * 8;
+                    }
+                    job
+                })
                 .collect::<Vec<_>>();
             let files = verification_files(&[12]);
             let output = root.path().join("output");
@@ -698,7 +715,7 @@ mod tests {
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .unwrap();
             match outcome {
-                "success" => {
+                "success" | "gaps" => {
                     let ReconstructJobEvent::Completed {
                         job_indices,
                         timings,
@@ -720,6 +737,12 @@ mod tests {
                         12
                     );
                 }
+                "short_read" => {
+                    let ReconstructJobEvent::Failed(Error::IoContext { source, .. }) = event else {
+                        panic!("expected source read failure")
+                    };
+                    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+                }
                 "cancel" => assert!(matches!(
                     event,
                     ReconstructJobEvent::Failed(Error::Cancelled)
@@ -732,14 +755,19 @@ mod tests {
             assert!(weak_context.upgrade().is_none());
             assert!(weak_handles.upgrade().is_none());
             assert!(memory.try_acquire(2 * 1024 * 1024).unwrap().is_some());
-            assert_eq!(
-                std::fs::read(&output).unwrap(),
-                if outcome == "success" {
+            if outcome == "short_read" {
+                assert!(
+                    !output.exists(),
+                    "failed combined read must not create output"
+                );
+            } else {
+                let expected: &[u8] = if matches!(outcome, "success" | "gaps") {
                     b"datadatadata"
                 } else {
                     b"data\0\0\0\0\0\0\0\0"
-                }
-            );
+                };
+                assert_eq!(std::fs::read(&output).unwrap(), expected);
+            }
             assert!(
                 receiver.try_recv().is_err(),
                 "a batch emits one terminal event"
