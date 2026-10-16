@@ -51,54 +51,13 @@ impl ReconstructionWorkQueue {
             };
             if let Some(permit) = memory.try_acquire(bytes)? {
                 let (mut work, queued_at) = self.ready.remove(index).expect("admitted queued work");
-                // Merge only adjacent ready verifications, never across a producing job.
-                if let ReconstructWorkItem::VerifyFiles(files) = &mut work {
-                    let mut bytes: u64 = files.iter().map(|&i| file_plans[i].size).sum();
-                    while let Some((ReconstructWorkItem::VerifyFiles(next), _)) =
-                        self.ready.get(index)
-                    {
-                        let next_bytes: u64 = next.iter().map(|&i| file_plans[i].size).sum();
-                        if files.len() + next.len() > MAX_VERIFICATION_BATCH_FILES
-                            || bytes.saturating_add(next_bytes) > MAX_VERIFICATION_BATCH_BYTES
-                        {
-                            break;
-                        }
-                        let (ReconstructWorkItem::VerifyFiles(next), _) =
-                            self.ready.remove(index).unwrap()
-                        else {
-                            unreachable!("next queued work is verification");
-                        };
-                        files.extend(next);
-                        bytes += next_bytes;
+                // The admitted item was at `index`, so its queue successors now start there.
+                match &mut work {
+                    ReconstructWorkItem::VerifyFiles(files) => {
+                        self.merge_adjacent_verifications(index, files, file_plans);
                     }
-                }
-                // Source buffers are used sequentially. Merge only jobs covered by the
-                // first permit, without crossing another work kind or source file.
-                if let ReconstructWorkItem::Jobs(indices) = &mut work
-                    && let ReconstructJob::SourceChunk(first) = &jobs[indices.start]
-                    && u64::from(first.raw_size) < MAX_SOURCE_BATCH_BYTES
-                {
-                    let mut source_bytes = u64::from(first.raw_size);
-                    while indices.len() < MAX_SOURCE_BATCH_JOBS {
-                        let Some((ReconstructWorkItem::Jobs(next), _)) = self.ready.get(index)
-                        else {
-                            break;
-                        };
-                        if next.start != indices.end || next.len() != 1 {
-                            break;
-                        }
-                        let ReconstructJob::SourceChunk(chunk) = &jobs[next.start] else {
-                            break;
-                        };
-                        if chunk.source_path != first.source_path
-                            || jobs[next.start].memory_reservation_bytes() > bytes
-                            || source_bytes + u64::from(chunk.raw_size) > MAX_SOURCE_BATCH_BYTES
-                        {
-                            break;
-                        }
-                        source_bytes += u64::from(chunk.raw_size);
-                        indices.end = next.end;
-                        self.ready.remove(index);
+                    ReconstructWorkItem::Jobs(indices) => {
+                        self.merge_contiguous_source_jobs(index, indices, jobs, bytes);
                     }
                 }
                 self.in_flight += 1;
@@ -110,6 +69,69 @@ impl ReconstructionWorkQueue {
             }
         }
         Ok(None)
+    }
+
+    /// Merges only adjacent ready verifications, never across a producing job.
+    fn merge_adjacent_verifications(
+        &mut self,
+        next_index: usize,
+        files: &mut Vec<usize>,
+        file_plans: &[ReconstructPipelineFile],
+    ) {
+        let total_size =
+            |indices: &[usize]| -> u64 { indices.iter().map(|&i| file_plans[i].size).sum() };
+        let mut batch_bytes = total_size(files);
+        while let Some((ReconstructWorkItem::VerifyFiles(next), _)) = self.ready.get(next_index) {
+            let next_bytes = total_size(next);
+            if files.len() + next.len() > MAX_VERIFICATION_BATCH_FILES
+                || batch_bytes.saturating_add(next_bytes) > MAX_VERIFICATION_BATCH_BYTES
+            {
+                break;
+            }
+            files.extend_from_slice(next);
+            batch_bytes += next_bytes;
+            self.ready.remove(next_index);
+        }
+    }
+
+    /// Source buffers are used sequentially, so one permit covers the batch. Merges
+    /// only consecutive jobs that read one contiguous range of the same source file,
+    /// each fitting the first job's permit, without crossing another work kind.
+    fn merge_contiguous_source_jobs(
+        &mut self,
+        next_index: usize,
+        indices: &mut std::ops::Range<usize>,
+        jobs: &[ReconstructJob],
+        permit_bytes: u64,
+    ) {
+        let ReconstructJob::SourceChunk(first) = &jobs[indices.start] else {
+            return;
+        };
+        let mut batch_bytes = u64::from(first.raw_size);
+        let mut source_end = first.source_offset + batch_bytes;
+        while batch_bytes < MAX_SOURCE_BATCH_BYTES && indices.len() < MAX_SOURCE_BATCH_JOBS {
+            let Some((ReconstructWorkItem::Jobs(next), _)) = self.ready.get(next_index) else {
+                break;
+            };
+            if next.start != indices.end || next.len() != 1 {
+                break;
+            }
+            let ReconstructJob::SourceChunk(chunk) = &jobs[next.start] else {
+                break;
+            };
+            let chunk_bytes = u64::from(chunk.raw_size);
+            if chunk.source_path != first.source_path
+                || chunk.source_offset != source_end
+                || jobs[next.start].memory_reservation_bytes() > permit_bytes
+                || batch_bytes + chunk_bytes > MAX_SOURCE_BATCH_BYTES
+            {
+                break;
+            }
+            batch_bytes += chunk_bytes;
+            source_end += chunk_bytes;
+            indices.end = next.end;
+            self.ready.remove(next_index);
+        }
     }
 
     pub(super) fn complete(&mut self) {
@@ -525,9 +547,14 @@ mod tests {
             (vec![4, 8, 4], vec![1, 2]),
         ] {
             let path = Arc::new(PathBuf::from("source"));
+            let mut offset = 0;
             let jobs = sizes
                 .iter()
-                .map(|&size| source_job(&path, 0, size))
+                .map(|&size| {
+                    let job = source_job(&path, offset, size);
+                    offset += u64::from(size);
+                    job
+                })
                 .collect::<Vec<_>>();
             let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
             let mut queue = ReconstructionWorkQueue::default();
@@ -616,6 +643,24 @@ mod tests {
         }
         assert!(queue.ready.is_empty());
 
+        // A gap in the source range ends the batch even for consecutive jobs.
+        let jobs = vec![
+            source_job(&first, 0, 4),
+            source_job(&first, 4, 4),
+            source_job(&first, 16, 4),
+        ];
+        for index in 0..jobs.len() {
+            queue.ready.push_back((
+                ReconstructWorkItem::Jobs(index..index + 1),
+                ProfileInstant::detailed(None),
+            ));
+        }
+        let admitted = queue.admit_next(&jobs, &files, &memory).unwrap().unwrap();
+        assert!(matches!(&admitted.work, ReconstructWorkItem::Jobs(indices) if indices == &(0..2)));
+        drop(admitted);
+        queue.complete();
+        queue.ready.clear();
+
         // An unqueued job between ready indexes must not enter the batch.
         let jobs = (0..3)
             .map(|index| source_job(&first, index * 4, 4))
@@ -644,7 +689,6 @@ mod tests {
         }
         for outcome in [
             "success",
-            "gaps",
             "short_read",
             "hash_failure",
             "cancel",
@@ -656,7 +700,6 @@ mod tests {
             let source = Arc::new(root.path().join("source"));
             let source_bytes: &[u8] = match outcome {
                 "success" | "flush_failure" | "fanout" => b"datadatadata",
-                "gaps" => b"data----data----data",
                 "short_read" => b"data",
                 _ => b"databad!data",
             };
@@ -674,12 +717,6 @@ mod tests {
                                 file_index: 1,
                                 file_offset: index * 4,
                             });
-                    }
-                    if outcome == "gaps" {
-                        let ReconstructJob::SourceChunk(chunk) = &mut job else {
-                            unreachable!()
-                        };
-                        chunk.source_offset = index * 8;
                     }
                     job
                 })
@@ -746,7 +783,7 @@ mod tests {
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .unwrap();
             match outcome {
-                "success" | "gaps" | "fanout" => {
+                "success" | "fanout" => {
                     let ReconstructJobEvent::Completed {
                         job_indices,
                         timings,
@@ -793,7 +830,7 @@ mod tests {
             assert!(weak_context.upgrade().is_none());
             assert!(weak_handles.upgrade().is_none());
             assert!(memory.try_acquire(2 * 1024 * 1024).unwrap().is_some());
-            if matches!(outcome, "success" | "gaps" | "fanout") {
+            if matches!(outcome, "success" | "fanout") {
                 assert_eq!(std::fs::read(&output).unwrap(), b"datadatadata");
                 if outcome == "fanout" {
                     assert_eq!(std::fs::read(&second_output).unwrap(), b"datadatadata");

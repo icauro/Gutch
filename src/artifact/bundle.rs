@@ -655,19 +655,13 @@ pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Res
             "bundle '{bundle_id}' is missing its content hash"
         )));
     }
-    let actual_hash = ChunkHash::from_blake3(blake3::hash(&bytes[..bytes.len() - id_size]));
-    if actual_hash != expected_hash {
-        return Err(crate::error::Error::HashMismatch {
-            expected: expected_hash.to_hex(),
-            actual: actual_hash.to_hex(),
-        });
-    }
-    if &bytes[bytes.len() - id_size..] != expected_hash.as_bytes() {
-        return Err(crate::error::Error::InvalidBundle(format!(
-            "bundle '{bundle_id}' has an inconsistent trailing content hash"
-        )));
-    }
-    Ok(())
+    let (content, trailing) = bytes.split_at(bytes.len() - id_size);
+    check_bundle_identity(
+        bundle_id,
+        expected_hash,
+        ChunkHash::from_blake3(blake3::hash(content)),
+        trailing,
+    )
 }
 
 /// Verifies complete bundle identity for a stored bundle file without
@@ -699,19 +693,96 @@ pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     })?;
     let mut trailing = [0u8; BUNDLE_ID_SIZE as usize];
     file.read_exact(&mut trailing)?;
-    let actual_hash = ChunkHash::from_blake3(hasher.finalize());
-    if actual_hash != expected_hash {
+    check_bundle_identity(
+        bundle_id,
+        expected_hash,
+        ChunkHash::from_blake3(hasher.finalize()),
+        &trailing,
+    )
+}
+
+/// The single bundle identity rule: the BLAKE3 of the pre-ID content must equal
+/// the expected ID, and the trailing 32 bytes must repeat it.
+fn check_bundle_identity(
+    bundle_id: &str,
+    expected_hash: ChunkHash,
+    content_hash: ChunkHash,
+    trailing: &[u8],
+) -> Result<()> {
+    if content_hash != expected_hash {
         return Err(crate::error::Error::HashMismatch {
             expected: expected_hash.to_hex(),
-            actual: actual_hash.to_hex(),
+            actual: content_hash.to_hex(),
         });
     }
-    if trailing.as_slice() != expected_hash.as_bytes() {
+    if trailing != expected_hash.as_bytes() {
         return Err(crate::error::Error::InvalidBundle(format!(
             "bundle '{bundle_id}' has an inconsistent trailing content hash"
         )));
     }
     Ok(())
+}
+
+/// Forwards bundle bytes to `output` while hashing them, so a streamed bundle is
+/// verified without reading it back. The last 32 bytes written are held back
+/// from the hash because they are the trailing ID, not content.
+pub(crate) struct BundleIdentityWriter<W> {
+    output: W,
+    hasher: blake3::Hasher,
+    tail: Vec<u8>,
+}
+
+impl<W: Write> BundleIdentityWriter<W> {
+    pub(crate) fn new(output: W) -> Self {
+        Self {
+            output,
+            hasher: blake3::Hasher::new(),
+            tail: Vec::with_capacity(2 * BUNDLE_ID_SIZE as usize),
+        }
+    }
+
+    /// Flushes the output and checks the streamed bytes against `bundle_id`.
+    pub(crate) fn finish(mut self, bundle_id: &str) -> Result<W> {
+        self.output.flush()?;
+        let expected_hash = ChunkHash::parse_hex(bundle_id)?;
+        if self.tail.len() < BUNDLE_ID_SIZE as usize {
+            return Err(crate::error::Error::InvalidBundle(format!(
+                "bundle '{bundle_id}' is missing its content hash"
+            )));
+        }
+        check_bundle_identity(
+            bundle_id,
+            expected_hash,
+            ChunkHash::from_blake3(self.hasher.finalize()),
+            &self.tail,
+        )?;
+        Ok(self.output)
+    }
+}
+
+impl<W: Write> Write for BundleIdentityWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let written = self.output.write(bytes)?;
+        let id_size = BUNDLE_ID_SIZE as usize;
+        let bytes = &bytes[..written];
+        if bytes.len() >= id_size {
+            // Everything before the new last 32 bytes is content.
+            self.hasher.update(&self.tail);
+            self.hasher.update(&bytes[..bytes.len() - id_size]);
+            self.tail.clear();
+            self.tail.extend_from_slice(&bytes[bytes.len() - id_size..]);
+        } else {
+            self.tail.extend_from_slice(bytes);
+            let excess = self.tail.len().saturating_sub(id_size);
+            self.hasher.update(&self.tail[..excess]);
+            self.tail.drain(..excess);
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.output.flush()
+    }
 }
 
 struct HashingReader<'a, R> {

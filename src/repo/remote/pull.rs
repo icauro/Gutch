@@ -231,10 +231,23 @@ fn download_and_publish_bundle(
 ) -> Result<()> {
     control.checkpoint()?;
     crate::filesystem::write_atomic_with(path, |file| {
-        write_source(source, client, MAX_REMOTE_BINARY_BYTES, control, file)?;
-        // Keep verification inside the atomic writer: failure leaves the previous
+        // Hash while streaming so the bundle is not read back from disk. Keep
+        // verification inside the atomic writer: failure leaves the previous
         // cached artifact in place and drops only the owned temporary file.
-        crate::artifact::bundle::verify_bundle_identity_reader(file, bundle_id)
+        let mut writer =
+            crate::artifact::bundle::BundleIdentityWriter::new(std::io::BufWriter::new(file));
+        write_source(
+            source,
+            client,
+            MAX_REMOTE_BINARY_BYTES,
+            control,
+            &mut writer,
+        )?;
+        writer
+            .finish(bundle_id)?
+            .into_inner()
+            .map_err(|error| Error::Io(error.into_error()))?;
+        Ok(())
     })
 }
 

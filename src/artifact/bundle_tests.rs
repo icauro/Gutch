@@ -308,6 +308,35 @@ fn test_bundle_identity_accepts_intact_file_and_bytes() {
 }
 
 #[test]
+fn streamed_identity_matches_whole_bundle_check_for_any_write_split() {
+    use std::io::Write;
+    let (bundle_id, bundle_data) = test_bundle_with_id();
+    let mut damaged_trailer = bundle_data.clone();
+    *damaged_trailer.last_mut().unwrap() ^= 1;
+    let mut damaged_content = bundle_data.clone();
+    damaged_content[0] ^= 1;
+    // Splits smaller and larger than the 32-byte ID exercise both tail paths.
+    for piece_size in [1, 7, 31, 32, 33, 4096, bundle_data.len()] {
+        for (bytes, valid) in [
+            (&bundle_data, true),
+            (&damaged_trailer, false),
+            (&damaged_content, false),
+            (&bundle_data[..20].to_vec(), false),
+        ] {
+            let mut writer = BundleIdentityWriter::new(Vec::new());
+            for piece in bytes.chunks(piece_size) {
+                writer.write_all(piece).unwrap();
+            }
+            let result = writer.finish(&bundle_id);
+            assert_eq!(result.is_ok(), valid, "piece size {piece_size}");
+            if let Ok(output) = result {
+                assert_eq!(&output, bytes);
+            }
+        }
+    }
+}
+
+#[test]
 fn invalid_download_is_not_promoted_over_a_valid_cached_bundle() {
     use std::io::Write;
     let temp = tempfile::tempdir().unwrap();

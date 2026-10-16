@@ -302,22 +302,14 @@ pub(super) fn reconstruct_source_chunk_batch(
     let ReconstructJob::SourceChunk(first) = &jobs[0] else {
         unreachable!("only source chunks are batched");
     };
+    // Admission batches only one contiguous range of one source file, so a
+    // single read covers every chunk; each chunk is still hash-verified below.
     let mut end = first.source_offset;
     for job in jobs {
         let ReconstructJob::SourceChunk(chunk) = job else {
             unreachable!("only source chunks are batched");
         };
-        if chunk.source_path != first.source_path || chunk.source_offset != end {
-            return jobs
-                .iter()
-                .map(|job| {
-                    let ReconstructJob::SourceChunk(chunk) = job else {
-                        unreachable!("only source chunks are batched");
-                    };
-                    reconstruct_source_chunk_job(chunk, output_handles, source_handles, control)
-                })
-                .collect();
-        }
+        debug_assert!(chunk.source_path == first.source_path && chunk.source_offset == end);
         end = end
             .checked_add(u64::from(chunk.raw_size))
             .ok_or_else(|| Error::reconstruct("source batch offset overflows u64"))?;
