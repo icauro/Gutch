@@ -1098,3 +1098,32 @@ shared files, worker/producer thresholds, and reuse of identical global file
 objects across jobs. Existing range, eviction, cancellation and failed-flush
 coverage remains. Evidence:
 `tests/.artifacts/research_optimization_pass/round33_report.md`.
+
+
+## Defer source chunk indexing for whole-file reuse, October 2026
+
+Reconstruction planning first selects matching whole-file copies. It builds the
+source chunk-location index only when a target file cannot be copied whole.
+When needed, the index still includes every verified source file, including a
+file already selected for copying: another changed target can reuse its chunks.
+Source verification, copy-time hashing, staged-file checks and publication remain
+unchanged. The lazy index is local to one plan.
+
+On Windows, a four-file 64 MiB source with 53,822 1 KiB-preset chunks was reused
+into a fresh destination. All four files used whole-file copying, with zero
+required artifacts. An initial 21-pair comparison reduced median reconstruction
+97.02 to 82.46 ms (15.0%). A separate 41-pair confirmation reduced 94.67 to
+81.16 ms (14.3%); paired median change was -13.4%, with a bootstrap interval of
+-15.0% to -12.6%. Every output matched independent source SHA-256 expectations.
+
+Separate 21-pair native memory checks reduced median peak commit from 23.00 to
+12.74 MiB (44.6%). Peak working set stayed near 73.4 MiB; no working-set reduction
+is claimed. All final post-exit high-water reads succeeded with nonzero data.
+
+A renamed-file control still built the source chunk index and reused chunks after
+three whole-file copies. Its timing results varied: a 41-pair analysis suggested
+a small slowdown, but an isolated 81-pair confirmation did not establish a change.
+The no-source reconstruction control was also inconclusive. No general update or
+partial-reuse speedup is claimed. The strengthened planner regression confirms
+that a changed file can reuse chunks from a file already copied whole.
+Evidence: `tests/.artifacts/research_optimization_pass/round34_report.md`.

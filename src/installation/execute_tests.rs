@@ -1068,12 +1068,12 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     let mut source = SnapshotManifest::new(test_hash(b"source"), SnapshotTagSet::default());
     source.push_file(copied.clone());
     source.push_file(copied_later.clone());
-    source.push_file(make_file("source-chunk.bin", &[b"same"]));
     let mut snapshot = SnapshotManifest::new(test_hash(b"target"), SnapshotTagSet::default());
     snapshot.push_file(copied);
+    // The changed file reuses a chunk from the file already planned as a whole copy.
     snapshot.push_file(make_file(
         "mixed.bin",
-        &[b"same", b"newA", b"newB", b"newA"],
+        &[b"copy", b"newA", b"newB", b"newA"],
     ));
     snapshot.push_file(make_file("following.bin", &[b"newB"]));
     snapshot.push_file(copied_later);

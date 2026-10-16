@@ -89,10 +89,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 .collect::<HashMap<_, _>>()
         })
         .unwrap_or_default();
-    let source_chunk_locations = verified_source
-        .map(build_source_chunk_locations)
-        .transpose()?
-        .unwrap_or_default();
+    let mut source_chunk_locations = None;
 
     for file_manifest in snapshot_manifest.files() {
         if let Some(source_file) = source_files_by_path.get(file_manifest.path.as_str())
@@ -121,6 +118,19 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             continue;
         }
 
+        // Whole-file copies need no chunk-location index. A partial reuse still
+        // indexes every verified source file, including those copied above.
+        if source_chunk_locations.is_none() {
+            source_chunk_locations = Some(
+                verified_source
+                    .map(build_source_chunk_locations)
+                    .transpose()?
+                    .unwrap_or_default(),
+            );
+        }
+        let source_chunk_locations = source_chunk_locations
+            .as_ref()
+            .expect("source chunk locations initialized above");
         let file_index = files.len();
         let mut file_offset = 0u64;
         for chunk_ref in &file_manifest.chunks {
