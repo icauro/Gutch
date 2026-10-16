@@ -121,6 +121,7 @@ impl StagedArtifactFile {
         Self { path }
     }
 
+    #[cfg(test)]
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.path
     }
@@ -128,6 +129,20 @@ impl StagedArtifactFile {
     pub(crate) fn promote_to(&self, destination: &std::path::Path) -> crate::Result<()> {
         std::fs::rename(&self.path, destination)?;
         Ok(())
+    }
+
+    /// Artifacts are content-addressed, so an existing destination already holds these bytes.
+    /// Replacing it would fail on Windows while another reader has the file open.
+    pub(crate) fn promote_unless_present(
+        &self,
+        destination: &std::path::Path,
+    ) -> crate::Result<()> {
+        if destination.exists() {
+            self.discard();
+            Ok(())
+        } else {
+            self.promote_to(destination)
+        }
     }
 
     pub(crate) fn discard(&self) {
@@ -149,11 +164,7 @@ pub struct BuiltBundle {
     pub(crate) entries: Vec<crate::artifact::bundle::BundleTableEntry>,
 }
 
-impl BuiltBundle {
-    pub(crate) fn discard_staged_file(&self) {
-        let _ = std::fs::remove_file(self.staged_file.path());
-    }
-}
+impl BuiltBundle {}
 
 #[derive(Debug)]
 pub struct BuiltLooseChunk {
@@ -266,4 +277,38 @@ pub struct BuildTimings {
     pub(crate) manifest_finalize_wall: Duration,
     pub(crate) total: Duration,
     pub(crate) runtime_plan: Option<RuntimePlan>,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn promotion_keeps_an_existing_artifact_and_discards_the_staged_copy() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("artifact");
+        std::fs::write(&destination, b"existing").unwrap();
+        let staged_path = temp.path().join("staged");
+        std::fs::write(&staged_path, b"staged").unwrap();
+
+        super::StagedArtifactFile::new(staged_path.clone())
+            .promote_unless_present(&destination)
+            .unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"existing");
+        assert!(!staged_path.exists());
+    }
+
+    #[test]
+    fn promotion_moves_the_staged_file_into_a_new_destination() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("artifact");
+        let staged_path = temp.path().join("staged");
+        std::fs::write(&staged_path, b"staged").unwrap();
+
+        super::StagedArtifactFile::new(staged_path.clone())
+            .promote_unless_present(&destination)
+            .unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"staged");
+        assert!(!staged_path.exists());
+    }
 }

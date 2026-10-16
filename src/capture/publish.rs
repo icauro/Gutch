@@ -36,12 +36,7 @@ fn write_bundles(
                 if let Some(parent) = bundle_path.parent() {
                     crate::filesystem::create_dir_all(parent)?;
                 }
-                if bundle_path.exists() {
-                    bundle.discard_staged_file();
-                } else {
-                    bundle.staged_file.promote_to(&bundle_path)?;
-                }
-                Ok(())
+                bundle.staged_file.promote_unless_present(&bundle_path)
             })
             .collect::<Result<Vec<_>>>()
     })?;
@@ -73,14 +68,7 @@ fn write_loose_chunks(
                 if let Some(parent) = chunk_path.parent() {
                     crate::filesystem::create_dir_all(parent)?;
                 }
-                // Chunks are content-addressed, so an existing file already holds these
-                // bytes; replacing it would fail on Windows while a reader has it open.
-                if chunk_path.exists() {
-                    chunk.staged_file.discard();
-                } else {
-                    chunk.staged_file.promote_to(&chunk_path)?;
-                }
-                Ok(())
+                chunk.staged_file.promote_unless_present(&chunk_path)
             })
             .collect::<Result<Vec<_>>>()
     })?;
