@@ -65,8 +65,14 @@ impl GutchConfig {
     }
 }
 
+// Only Windows paths are case-insensitive; elsewhere `/a/Game` and `/a/game` are distinct repos.
 fn repo_paths_match(left: &str, right: &str) -> bool {
-    left.trim().eq_ignore_ascii_case(right.trim())
+    let (left, right) = (left.trim(), right.trim());
+    if cfg!(windows) {
+        left.eq_ignore_ascii_case(right)
+    } else {
+        left == right
+    }
 }
 
 pub fn load_config(path: &Path) -> Result<GutchConfig, crate::Error> {
@@ -135,6 +141,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn set_repo_snapshot_sources_path_updates_existing_value() {
         let mut config = GutchConfig {
@@ -173,6 +180,20 @@ mod tests {
             config.repos[0].snapshot_sources_path,
             Some("D:\\Builds\\game-v2".to_string())
         );
+    }
+
+    #[test]
+    fn repo_path_case_matters_only_on_windows() {
+        let mut config = GutchConfig { repos: vec![] };
+        for path in ["/repos/Game", "/repos/game"] {
+            config.upsert_repo(TrackedRepo {
+                path: path.to_string(),
+                snapshot_sources_path: None,
+            });
+        }
+
+        let expected_repo_count = if cfg!(windows) { 1 } else { 2 };
+        assert_eq!(config.repos.len(), expected_repo_count);
     }
 
     #[test]
