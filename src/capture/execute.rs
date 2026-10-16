@@ -36,19 +36,7 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
     let operation_root = request.repo_root.to_path_buf();
     crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
-        let runtime_plan = crate::runtime::plan_runtime(&request.runtime_hints);
-        let _pool_span =
-            request
-                .control
-                .profile_span_with_args("capture.create_worker_pool", || {
-                    std::collections::BTreeMap::from([(
-                        "worker_count".to_string(),
-                        serde_json::json!(runtime_plan.worker_count),
-                    )])
-                });
-        let build_pool =
-            crate::runtime::build_thread_pool(runtime_plan.worker_count, "Capture worker")?;
-        drop(_pool_span);
+        let build_pool = build_capture_pool(&request.control, &request.runtime_hints)?;
 
         let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&request.repo_root);
         let _existing_state_span = request
@@ -147,6 +135,7 @@ fn execute_repo_snapshot_capture(
     let normalized_tags = request.explicit_tags.normalized()?;
     constraints
         .validate_snapshot_tags(&normalized_tags, &request.source_dir.display().to_string())?;
+    let tag_value = |key: &str| normalized_tags.get(key).unwrap_or_default().to_string();
     drop(_identity_span);
 
     let _config_span =
@@ -242,12 +231,9 @@ fn execute_repo_snapshot_capture(
                     snapshot_id: snapshot_id.clone(),
                 },
                 manifest_path: existing_manifest_path,
-                version_tag: normalized_tags
-                    .get("version")
-                    .unwrap_or_default()
-                    .to_string(),
-                os: normalized_tags.get("os").unwrap_or_default().to_string(),
-                arch: normalized_tags.get("arch").unwrap_or_default().to_string(),
+                version_tag: tag_value("version"),
+                os: tag_value("os"),
+                arch: tag_value("arch"),
                 file_count: existing_manifest.file_count(),
                 total_logical_size: existing_manifest.total_logical_size,
                 total_compressed_size_estimate: existing_manifest.total_compressed_size_estimate,
@@ -299,12 +285,9 @@ fn execute_repo_snapshot_capture(
             }
         },
         manifest_path,
-        version_tag: normalized_tags
-            .get("version")
-            .unwrap_or_default()
-            .to_string(),
-        os: normalized_tags.get("os").unwrap_or_default().to_string(),
-        arch: normalized_tags.get("arch").unwrap_or_default().to_string(),
+        version_tag: tag_value("version"),
+        os: tag_value("os"),
+        arch: tag_value("arch"),
         file_count: result.snapshot_manifest.file_count(),
         total_logical_size: result.snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: result.snapshot_manifest.total_compressed_size_estimate,
@@ -376,7 +359,24 @@ impl SnapshotCaptureResult {
     }
 }
 
-fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
+/// Builds the capture worker pool sized from `hints`, timed as one profile span.
+pub(super) fn build_capture_pool(
+    control: &crate::progress::GutchOperationControl,
+    hints: &crate::runtime::RuntimeResourceHints,
+) -> Result<rayon::ThreadPool> {
+    let runtime_plan = crate::runtime::plan_runtime(hints);
+    let _pool_span = control.profile_span_with_args("capture.create_worker_pool", || {
+        std::collections::BTreeMap::from([(
+            "worker_count".to_string(),
+            serde_json::json!(runtime_plan.worker_count),
+        )])
+    });
+    crate::runtime::build_thread_pool(runtime_plan.worker_count, "Capture worker")
+}
+
+/// Captures read a directory; a single input file is staged into a private
+/// temporary directory that lives as long as the returned value.
+pub(super) fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
     if path.is_dir() {
         return Ok(PreparedInputPath {
             dir: path.to_path_buf(),
@@ -401,8 +401,8 @@ fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
     )))
 }
 
-struct PreparedInputPath {
-    dir: PathBuf,
+pub(super) struct PreparedInputPath {
+    pub(super) dir: PathBuf,
     _tempdir: Option<tempfile::TempDir>,
 }
 

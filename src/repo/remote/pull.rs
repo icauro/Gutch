@@ -414,10 +414,9 @@ fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
             &snapshot.product_metadata_hash_b3,
             "snapshot product metadata",
         )?;
-        let product_metadata: crate::manifest::SnapshotProductMetadata =
-            crate::filesystem::from_json_bytes(&product_metadata_bytes)?;
-        product_metadata.validate_structure()?;
-        Some(product_metadata)
+        Some(crate::manifest::SnapshotProductMetadata::from_json_bytes(
+            &product_metadata_bytes,
+        )?)
     } else {
         None
     };

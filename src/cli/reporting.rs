@@ -62,18 +62,7 @@ fn print_table_border() {
 
 fn print_table_header(seconds_label: &str) {
     print_table_border();
-    let phase = fit_table_cell("phase", TABLE_PHASE_WIDTH);
-    let seconds = fit_table_cell(seconds_label, TABLE_SECONDS_WIDTH);
-    let bytes = fit_table_cell("bytes", TABLE_BYTES_WIDTH);
-    let throughput = fit_table_cell("throughput", TABLE_THROUGHPUT_WIDTH);
-    crate::cli::output::line(format_args!(
-        "  | {phase:<phase_width$} | {seconds:>seconds_width$} | {bytes:<bytes_width$} | {throughput:>throughput_width$} |",
-        phase_width = TABLE_PHASE_WIDTH,
-        seconds_width = TABLE_SECONDS_WIDTH,
-        bytes_width = TABLE_BYTES_WIDTH,
-        throughput_width = TABLE_THROUGHPUT_WIDTH,
-    ));
-    print_table_border();
+    print_table_cells("phase", seconds_label, "bytes", "throughput");
 }
 
 fn print_table_row(
@@ -83,18 +72,23 @@ fn print_table_row(
     bytes: Option<String>,
     throughput: Option<String>,
 ) {
-    let phase = fit_table_cell(
-        &format!("{}{}", "  ".repeat(level), phase),
-        TABLE_PHASE_WIDTH,
-    );
     let seconds = seconds
         .map(|value| format!("{value:.2} s"))
         .unwrap_or_else(|| "-".to_string());
-    let bytes = bytes.unwrap_or_else(|| "-".to_string());
-    let throughput = throughput.unwrap_or_else(|| "-".to_string());
-    let seconds = fit_table_cell(&seconds, TABLE_SECONDS_WIDTH);
-    let bytes = fit_table_cell(&bytes, TABLE_BYTES_WIDTH);
-    let throughput = fit_table_cell(&throughput, TABLE_THROUGHPUT_WIDTH);
+    print_table_cells(
+        &format!("{}{}", "  ".repeat(level), phase),
+        &seconds,
+        bytes.as_deref().unwrap_or("-"),
+        throughput.as_deref().unwrap_or("-"),
+    );
+}
+
+/// Prints one fitted table line followed by its border.
+fn print_table_cells(phase: &str, seconds: &str, bytes: &str, throughput: &str) {
+    let phase = fit_table_cell(phase, TABLE_PHASE_WIDTH);
+    let seconds = fit_table_cell(seconds, TABLE_SECONDS_WIDTH);
+    let bytes = fit_table_cell(bytes, TABLE_BYTES_WIDTH);
+    let throughput = fit_table_cell(throughput, TABLE_THROUGHPUT_WIDTH);
     crate::cli::output::line(format_args!(
         "  | {phase:<phase_width$} | {seconds:>seconds_width$} | {bytes:<bytes_width$} | {throughput:>throughput_width$} |",
         phase_width = TABLE_PHASE_WIDTH,

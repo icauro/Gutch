@@ -152,17 +152,10 @@ pub fn capture_snapshot_sources(
 
         let total_steps = plan.to_capture.len();
 
-        let runtime_plan =
-            crate::runtime::plan_runtime(&crate::runtime::RuntimeResourceHints::default());
-        let _pool_span = control.profile_span_with_args("capture.create_worker_pool", || {
-            std::collections::BTreeMap::from([(
-                "worker_count".to_string(),
-                serde_json::json!(runtime_plan.worker_count),
-            )])
-        });
-        let build_pool =
-            crate::runtime::build_thread_pool(runtime_plan.worker_count, "Capture worker")?;
-        drop(_pool_span);
+        let build_pool = crate::capture::execute::build_capture_pool(
+            control,
+            &crate::runtime::RuntimeResourceHints::default(),
+        )?;
 
         let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(repo_root);
         let _existing_state_span = control.profile_span_with_args(

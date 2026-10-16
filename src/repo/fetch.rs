@@ -250,10 +250,9 @@ pub(crate) fn prepare_snapshot_fetch(
                 detail: Some(request.snapshot_id.as_str()),
             }
             .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-            let product_metadata: crate::manifest::SnapshotProductMetadata =
-                crate::filesystem::from_json_bytes(&product_metadata_bytes)?;
-            product_metadata.validate_structure()?;
-            Some(product_metadata)
+            Some(crate::manifest::SnapshotProductMetadata::from_json_bytes(
+                &product_metadata_bytes,
+            )?)
         } else {
             None
         };

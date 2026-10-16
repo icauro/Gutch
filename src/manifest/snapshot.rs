@@ -56,6 +56,13 @@ pub struct SnapshotLaunchAction {
 }
 
 impl SnapshotProductMetadata {
+    /// Parses a product metadata document and rejects structurally invalid ones.
+    pub(crate) fn from_json_bytes(bytes: &[u8]) -> crate::Result<Self> {
+        let metadata: Self = crate::filesystem::from_json_bytes(bytes)?;
+        metadata.validate_structure()?;
+        Ok(metadata)
+    }
+
     pub fn validate_structure(&self) -> crate::Result<()> {
         if self.document_version != PUBLIC_METADATA_FORMAT_VERSION {
             return Err(crate::Error::manifest(
@@ -134,20 +141,7 @@ impl SnapshotProductMetadata {
                 &self.matching_host_variant(host_tags)?.launch_actions
             }
         };
-        Some(launch::ResolvedLaunchConfiguration {
-            primary: launch_actions
-                .first()
-                .map(|action| action.action_name.clone()),
-            actions: launch_actions
-                .iter()
-                .map(|action| launch::ResolvedLaunchAction {
-                    name: action.action_name.clone(),
-                    executable: action.executable_path.clone(),
-                    arguments: action.command_arguments.clone(),
-                    working_directory: action.working_directory_path.clone(),
-                })
-                .collect(),
-        })
+        Some(resolved_launch_configuration(launch_actions))
     }
 
     pub fn validate_for_snapshot(&self, snapshot: &SnapshotManifest) -> crate::Result<()> {
@@ -209,12 +203,10 @@ impl SnapshotProductMetadata {
     }
 }
 
-fn validate_snapshot_launch_actions_for_snapshot(
+fn resolved_launch_configuration(
     actions: &[SnapshotLaunchAction],
-    snapshot: &SnapshotManifest,
-    target_os: Option<&str>,
-) -> crate::Result<()> {
-    let configuration = launch::ResolvedLaunchConfiguration {
+) -> launch::ResolvedLaunchConfiguration {
+    launch::ResolvedLaunchConfiguration {
         primary: actions.first().map(|action| action.action_name.clone()),
         actions: actions
             .iter()
@@ -225,7 +217,15 @@ fn validate_snapshot_launch_actions_for_snapshot(
                 working_directory: action.working_directory_path.clone(),
             })
             .collect(),
-    };
+    }
+}
+
+fn validate_snapshot_launch_actions_for_snapshot(
+    actions: &[SnapshotLaunchAction],
+    snapshot: &SnapshotManifest,
+    target_os: Option<&str>,
+) -> crate::Result<()> {
+    let configuration = resolved_launch_configuration(actions);
     launch::validate_resolved_launch_for_snapshot_os(&configuration, snapshot, target_os)
 }
 

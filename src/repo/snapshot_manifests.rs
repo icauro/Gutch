@@ -154,10 +154,9 @@ pub(crate) fn load_snapshot_product_metadata(
     if !metadata_path.is_file() {
         return Ok(None);
     }
-    let metadata: SnapshotProductMetadata =
-        filesystem::from_json_str(&filesystem::read_to_string(&metadata_path)?)?;
-    metadata.validate_structure()?;
-    Ok(Some(metadata))
+    Ok(Some(SnapshotProductMetadata::from_json_bytes(
+        &filesystem::read(&metadata_path)?,
+    )?))
 }
 
 pub(crate) fn write_snapshot_product_metadata(
