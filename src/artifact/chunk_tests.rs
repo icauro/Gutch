@@ -244,3 +244,13 @@ fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
         }
     }
 }
+
+#[test]
+fn streaming_scan_rejects_source_that_differs_from_inventory_size() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("source");
+    std::fs::write(&path, vec![7u8; 3 * 1024 * 1024]).unwrap();
+    let profile = ChunkSizingProfile::default();
+    let stale_inventory_size = 2 * 1024 * 1024;
+    assert!(scan_file_chunks(&path, stale_inventory_size, &profile, &Default::default()).is_err());
+}

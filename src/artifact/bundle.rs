@@ -217,7 +217,7 @@ fn write_bundle<B: AsRef<[u8]>>(
             .ok_or_else(|| crate::error::Error::InvalidBundle("bundle raw size overflow".into()))?;
     }
 
-    validate_bundle_entries(&entries, 0, 0)?;
+    validate_bundle_entries(&entries)?;
     let compression_started_at = ProfileInstant::detailed(profiler);
     let _payload_span = profiler.map(|profiler| {
         profiler.span_with_args("capture.bundle.encode_and_write", || {
@@ -411,7 +411,7 @@ impl<R: Read + Seek> BundleReader<R> {
             ));
         }
         assign_compressed_size_estimates(&mut entries, footer_start - data_start)?;
-        validate_bundle_entries(&entries, data_start, footer_start)?;
+        validate_bundle_entries(&entries)?;
 
         #[cfg(test)]
         let chunk_index_by_hash = entries
@@ -888,11 +888,7 @@ fn assign_compressed_size_estimates(
     Ok(())
 }
 
-fn validate_bundle_entries(
-    entries: &[BundleTableEntry],
-    _data_start: u64,
-    _payload_end: u64,
-) -> Result<()> {
+fn validate_bundle_entries(entries: &[BundleTableEntry]) -> Result<()> {
     let mut total = 0u64;
     let mut hashes = std::collections::HashSet::with_capacity(entries.len());
     for entry in entries {

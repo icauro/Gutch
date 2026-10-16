@@ -184,6 +184,11 @@ fn scan_with_boundary<C: ChunkBoundary>(
         });
         hash_judgment_bytes += chunk.data.len() as u64;
     }
+    // Match the small-file path: a source that grew or shrank while it was read
+    // would otherwise be recorded with a size that differs from its inventory.
+    if file_size != inventory_size {
+        return Err(crate::Error::manifest("source size changed during capture"));
+    }
 
     Ok((
         ChunkFileScan {
