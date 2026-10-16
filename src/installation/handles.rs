@@ -9,11 +9,11 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub(super) const ARTIFACT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
+pub(super) const RECONSTRUCT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
 
-/// One artifact worker owns this buffer. Success requires an explicit flush;
-/// failed or cancelled jobs discard buffered bytes instead of writing on drop.
-pub(super) struct ArtifactOutputWriter<'a> {
+/// One reconstruction worker owns this buffer. Success requires an explicit flush;
+/// failed or cancelled work discards buffered bytes instead of writing on drop.
+pub(super) struct ReconstructionOutputWriter<'a> {
     outputs: &'a OutputHandleCache,
     handles: HashMap<usize, Arc<File>>,
     control: &'a GutchOperationControl,
@@ -23,7 +23,7 @@ pub(super) struct ArtifactOutputWriter<'a> {
     bytes: Vec<u8>,
 }
 
-impl<'a> ArtifactOutputWriter<'a> {
+impl<'a> ReconstructionOutputWriter<'a> {
     pub(super) fn new(outputs: &'a OutputHandleCache, control: &'a GutchOperationControl) -> Self {
         Self {
             outputs,
@@ -40,11 +40,11 @@ impl<'a> ArtifactOutputWriter<'a> {
         if !self.bytes.is_empty()
             && (self.file_index != file_index
                 || self.offset.checked_add(self.bytes.len() as u64) != Some(offset)
-                || self.bytes.len() + bytes.len() > ARTIFACT_OUTPUT_BUFFER_BYTES)
+                || self.bytes.len() + bytes.len() > RECONSTRUCT_OUTPUT_BUFFER_BYTES)
         {
             self.flush()?;
         }
-        if bytes.len() >= ARTIFACT_OUTPUT_BUFFER_BYTES {
+        if bytes.len() >= RECONSTRUCT_OUTPUT_BUFFER_BYTES {
             return Self::write_range(
                 self.outputs,
                 &mut self.handles,
@@ -58,7 +58,7 @@ impl<'a> ArtifactOutputWriter<'a> {
             self.file_index = file_index;
             self.offset = offset;
             if self.bytes.capacity() == 0 {
-                self.bytes.reserve_exact(ARTIFACT_OUTPUT_BUFFER_BYTES);
+                self.bytes.reserve_exact(RECONSTRUCT_OUTPUT_BUFFER_BYTES);
             }
         }
         self.bytes.extend_from_slice(bytes);
@@ -425,7 +425,7 @@ mod output_handle_tests {
         ]);
         let cache = OutputHandleCache::new(paths.clone(), Arc::new(vec![16, 8]), &[1, 1], 1);
         let control = GutchOperationControl::default();
-        let mut writer = ArtifactOutputWriter::new(&cache, &control);
+        let mut writer = ReconstructionOutputWriter::new(&cache, &control);
         writer.write(0, 0, b"ab").unwrap();
         writer.write(0, 2, b"cd").unwrap();
         assert!(!paths[0].exists());
@@ -450,16 +450,16 @@ mod output_handle_tests {
         let path = directory.path().join("output");
         let cache = OutputHandleCache::new(
             Arc::new(vec![path.clone()]),
-            Arc::new(vec![ARTIFACT_OUTPUT_BUFFER_BYTES as u64 + 2]),
+            Arc::new(vec![RECONSTRUCT_OUTPUT_BUFFER_BYTES as u64 + 2]),
             &[1],
             1,
         );
         let control = GutchOperationControl::default();
-        let mut writer = ArtifactOutputWriter::new(&cache, &control);
-        let large = vec![7; ARTIFACT_OUTPUT_BUFFER_BYTES + 1];
+        let mut writer = ReconstructionOutputWriter::new(&cache, &control);
+        let large = vec![7; RECONSTRUCT_OUTPUT_BUFFER_BYTES + 1];
         writer.write(0, 0, &large).unwrap();
         assert_eq!(writer.bytes.capacity(), 0);
-        let prefix = vec![1; ARTIFACT_OUTPUT_BUFFER_BYTES - 1];
+        let prefix = vec![1; RECONSTRUCT_OUTPUT_BUFFER_BYTES - 1];
         writer.write(0, 0, &prefix).unwrap();
         let allocated_capacity = writer.bytes.capacity();
         writer.write(0, prefix.len() as u64, &[2, 3]).unwrap();
@@ -487,7 +487,7 @@ mod output_handle_tests {
                 OutputHandleCache::new(Arc::new(vec![path.clone()]), Arc::new(vec![8]), &[1], 1);
             let cancellation = Arc::new(Cancellation(std::sync::atomic::AtomicBool::new(false)));
             let control = GutchOperationControl::default().with_cancellation(cancellation.clone());
-            let mut writer = ArtifactOutputWriter::new(&cache, &control);
+            let mut writer = ReconstructionOutputWriter::new(&cache, &control);
             writer.write(0, 0, b"data").unwrap();
             cancellation
                 .0

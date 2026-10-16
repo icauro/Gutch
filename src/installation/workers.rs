@@ -642,12 +642,20 @@ mod tests {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
             }
         }
-        for outcome in ["success", "gaps", "short_read", "hash_failure", "cancel"] {
+        for outcome in [
+            "success",
+            "gaps",
+            "short_read",
+            "hash_failure",
+            "cancel",
+            "flush_failure",
+            "fanout",
+        ] {
             let cancel = outcome == "cancel";
             let root = tempfile::tempdir().unwrap();
             let source = Arc::new(root.path().join("source"));
             let source_bytes: &[u8] = match outcome {
-                "success" => b"datadatadata",
+                "success" | "flush_failure" | "fanout" => b"datadatadata",
                 "gaps" => b"data----data----data",
                 "short_read" => b"data",
                 _ => b"databad!data",
@@ -656,6 +664,17 @@ mod tests {
             let jobs = (0..3)
                 .map(|index| {
                     let mut job = source_job(&source, index * 4, 4);
+                    if outcome == "fanout" {
+                        let ReconstructJob::SourceChunk(chunk) = &mut job else {
+                            unreachable!()
+                        };
+                        chunk
+                            .additional_targets
+                            .push(super::super::jobs::ReconstructTarget {
+                                file_index: 1,
+                                file_offset: index * 4,
+                            });
+                    }
                     if outcome == "gaps" {
                         let ReconstructJob::SourceChunk(chunk) = &mut job else {
                             unreachable!()
@@ -665,15 +684,25 @@ mod tests {
                     job
                 })
                 .collect::<Vec<_>>();
-            let files = verification_files(&[12]);
-            let output = root.path().join("output");
-            let paths = Arc::new(vec![output.clone()]);
+            let file_count = if outcome == "fanout" { 2 } else { 1 };
+            let files = verification_files(&vec![12; file_count]);
+            let output = if outcome == "flush_failure" {
+                root.path().join("missing/output")
+            } else {
+                root.path().join("output")
+            };
+            let second_output = root.path().join("second_output");
+            let paths = Arc::new(if outcome == "fanout" {
+                vec![output.clone(), second_output.clone()]
+            } else {
+                vec![output.clone()]
+            });
             let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
             let permit = memory.try_acquire(2 * 1024 * 1024).unwrap().unwrap();
             let handles = Arc::new(OutputHandleCache::new(
                 Arc::clone(&paths),
-                Arc::new(vec![12]),
-                &[3],
+                Arc::new(vec![12; file_count]),
+                &vec![3; file_count],
                 1,
             ));
             let weak_handles = Arc::downgrade(&handles);
@@ -690,7 +719,9 @@ mod tests {
                 jobs: Arc::new(jobs),
                 file_plans: Arc::new(files),
                 output_paths: paths,
-                precomputed_file_hashes: Arc::new(vec![Mutex::new(None)]),
+                precomputed_file_hashes: Arc::new(
+                    (0..file_count).map(|_| Mutex::new(None)).collect(),
+                ),
                 output_handles: handles,
                 compression_profile: Arc::new(Default::default()),
                 control,
@@ -715,7 +746,7 @@ mod tests {
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .unwrap();
             match outcome {
-                "success" | "gaps" => {
+                "success" | "gaps" | "fanout" => {
                     let ReconstructJobEvent::Completed {
                         job_indices,
                         timings,
@@ -734,7 +765,7 @@ mod tests {
                     );
                     assert_eq!(
                         timings.iter().map(|job| job.file_write_bytes).sum::<u64>(),
-                        12
+                        if outcome == "fanout" { 24 } else { 12 }
                     );
                 }
                 "short_read" => {
@@ -742,6 +773,13 @@ mod tests {
                         panic!("expected source read failure")
                     };
                     assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+                }
+                "flush_failure" => {
+                    let ReconstructJobEvent::Failed(Error::IoContext { source, .. }) = event else {
+                        panic!("expected final flush failure")
+                    };
+                    assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+                    std::fs::create_dir_all(output.parent().unwrap()).unwrap();
                 }
                 "cancel" => assert!(matches!(
                     event,
@@ -755,18 +793,16 @@ mod tests {
             assert!(weak_context.upgrade().is_none());
             assert!(weak_handles.upgrade().is_none());
             assert!(memory.try_acquire(2 * 1024 * 1024).unwrap().is_some());
-            if outcome == "short_read" {
+            if matches!(outcome, "success" | "gaps" | "fanout") {
+                assert_eq!(std::fs::read(&output).unwrap(), b"datadatadata");
+                if outcome == "fanout" {
+                    assert_eq!(std::fs::read(&second_output).unwrap(), b"datadatadata");
+                }
+            } else {
                 assert!(
                     !output.exists(),
-                    "failed combined read must not create output"
+                    "failed source batch must discard its pending range"
                 );
-            } else {
-                let expected: &[u8] = if matches!(outcome, "success" | "gaps") {
-                    b"datadatadata"
-                } else {
-                    b"data\0\0\0\0\0\0\0\0"
-                };
-                assert_eq!(std::fs::read(&output).unwrap(), expected);
             }
             assert!(
                 receiver.try_recv().is_err(),

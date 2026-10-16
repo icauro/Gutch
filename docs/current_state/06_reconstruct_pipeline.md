@@ -93,6 +93,16 @@ or cancelled group stops immediately; it cannot make its files verification-read
 Worker handles, context and the permit are released before the terminal event.
 Draining counts dispatched tasks, including groups, rather than constituent jobs.
 
+Contiguous source groups also use the artifact path's shared 64 KiB output-range
+writer. Adjacent single-destination ranges can be combined; file/offset changes
+flush the pending range, and multi-target chunks bypass byte buffering. Its local
+handle references live for the admitted worker task. The input and output buffers
+fit inside the existing 1 MiB source-I/O reservation. Single jobs and gapped source
+groups keep direct writes. Final flush must succeed before the completion event;
+its duration is charged once to the last chunk record. Failure or cancellation
+discards pending bytes without a destructor flush. Previously flushed verified
+ranges may remain in staging; an error prevents publication of failed work.
+
 Verification admission groups adjacent ready checks into one worker task, up to
 32 files and 1 MiB of expected file bytes. A file larger than that byte limit
 runs alone. Groups stop at queued producing jobs; batching does not change
@@ -188,7 +198,7 @@ worker. The cache stores handles, not decoded chunk bytes; a decoded chunk is
 verified and fanned out during its artifact job.
 
 On Windows, files of at least 64 MiB with multiple producing jobs use independent
-file objects in each job's local handle cache when multiple workers are enabled.
+file objects in each worker task's local handle cache when multiple workers are enabled.
 File sizes and producer counts come from the existing reconstruction plan; no
 extra scan or runtime benchmark selects this path. Creation and sizing remain
 centralized, and independent opens never truncate existing ranges. Other files

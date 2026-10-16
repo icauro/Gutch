@@ -1,4 +1,4 @@
-use super::handles::ArtifactOutputWriter;
+use super::handles::ReconstructionOutputWriter;
 use super::handles::{OutputHandleCache, SourceHandleCache, cached_target_handle, write_file_at};
 use super::types::SnapshotReconstructSource;
 use crate::profile::ProfileInstant;
@@ -112,7 +112,7 @@ fn reconstruct_artifact_job(
         .map_err(|e| Error::io_context("reading artifact metadata", &job.artifact_path, e))?
         .len();
     let mut timings = ReconstructTimings::default();
-    let mut output_writer = ArtifactOutputWriter::new(output_handles, control);
+    let mut output_writer = ReconstructionOutputWriter::new(output_handles, control);
 
     match &job.artifact {
         crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
@@ -287,12 +287,12 @@ fn reconstruct_source_chunk_job(
         source_handles.read_range(&job.source_path, job.source_offset, &mut bytes)?;
     }
     let read_elapsed = read_started_at.elapsed();
-    verify_and_write_source_chunk(job, &bytes, read_elapsed, output_handles, control)
+    verify_and_write_source_chunk(job, &bytes, read_elapsed, output_handles, control, None)
 }
 
 // Workers admit a nonempty source-only group of at most 64 KiB. That buffer
-// fits within the existing 1 MiB source-I/O reservation, including when chunks
-// are smaller than the combined read. Never read across excluded source ranges.
+// and the bounded output buffer fit within the existing 1 MiB source-I/O
+// reservation. Never read across excluded source ranges.
 pub(super) fn reconstruct_source_chunk_batch(
     jobs: &[ReconstructJob],
     output_handles: &OutputHandleCache,
@@ -334,6 +334,7 @@ pub(super) fn reconstruct_source_chunk_batch(
     let read_elapsed = read_started_at.elapsed();
     // Charge the shared read once; per-chunk byte and hash counts stay unchanged.
     let mut timings = Vec::with_capacity(jobs.len());
+    let mut output_writer = ReconstructionOutputWriter::new(output_handles, control);
     let mut start = 0;
     for (index, job) in jobs.iter().enumerate() {
         let ReconstructJob::SourceChunk(chunk) = job else {
@@ -353,9 +354,17 @@ pub(super) fn reconstruct_source_chunk_batch(
             },
             output_handles,
             control,
+            Some(&mut output_writer),
         )?);
         start = end;
     }
+    // File readiness must not precede writes still held in the private buffer.
+    let flush_started_at = ProfileInstant::detailed(control.profiler());
+    output_writer.flush()?;
+    let flush_elapsed = flush_started_at.elapsed();
+    let last = timings.last_mut().expect("source batch is nonempty");
+    last.file_write += flush_elapsed;
+    last.file_rebuild += flush_elapsed;
     Ok(timings)
 }
 
@@ -365,6 +374,7 @@ fn verify_and_write_source_chunk(
     read_elapsed: Duration,
     output_handles: &OutputHandleCache,
     control: &GutchOperationControl,
+    mut output_writer: Option<&mut ReconstructionOutputWriter<'_>>,
 ) -> Result<ReconstructTimings> {
     let hash_started_at = ProfileInstant::detailed(control.profiler());
     let actual_hash =
@@ -387,16 +397,24 @@ fn verify_and_write_source_chunk(
     let mut target_handles = HashMap::new();
     let rebuild_started_at = ProfileInstant::detailed(control.profiler());
     for target in job.targets() {
-        control.checkpoint()?;
-
         let write_started_at = ProfileInstant::detailed(control.profiler());
-        let output = cached_target_handle(output_handles, &mut target_handles, target.file_index)?;
-        write_file_at(&output, target.file_offset, bytes, control).map_err(|e| {
-            e.with_io_context(
-                "writing reused source range",
-                output_handles.output_path(target.file_index),
-            )
-        })?;
+        if let Some(writer) = output_writer.as_deref_mut() {
+            if job.additional_targets.is_empty() {
+                writer.write(target.file_index, target.file_offset, bytes)?;
+            } else {
+                writer.write_unbuffered(target.file_index, target.file_offset, bytes)?;
+            }
+        } else {
+            control.checkpoint()?;
+            let output =
+                cached_target_handle(output_handles, &mut target_handles, target.file_index)?;
+            write_file_at(&output, target.file_offset, bytes, control).map_err(|e| {
+                e.with_io_context(
+                    "writing reused source range",
+                    output_handles.output_path(target.file_index),
+                )
+            })?;
+        }
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
         timings.file_rebuild_bytes = timings
@@ -505,7 +523,7 @@ fn write_reconstruct_targets(
     chunk: &ReconstructArtifactChunk,
     targets: &[ReconstructTarget],
     bytes: &[u8],
-    output_writer: &mut ArtifactOutputWriter<'_>,
+    output_writer: &mut ReconstructionOutputWriter<'_>,
     control: &GutchOperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {

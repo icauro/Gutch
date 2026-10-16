@@ -109,7 +109,7 @@ impl ReconstructJob {
         match self {
             Self::Artifact(_) => {
                 crate::artifact::compression::DECODE_WORKING_MEMORY_BYTES
-                    + super::handles::ARTIFACT_OUTPUT_BUFFER_BYTES as u64
+                    + super::handles::RECONSTRUCT_OUTPUT_BUFFER_BYTES as u64
             }
             Self::SourceChunk(chunk) => u64::from(chunk.raw_size) + SOURCE_COPY_BUFFER_BYTES,
             Self::CopySourceFile { .. } => SOURCE_COPY_BUFFER_BYTES,

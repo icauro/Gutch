@@ -1287,3 +1287,35 @@ the first chunk record, preserving aggregate timings and per-chunk byte counts.
 Combined reads have an `installation.source_batch.read` trace span; chunk byte
 hash/write timings remain per job. Evidence:
 `tests/.artifacts/research_optimization_pass/round42_report.md`.
+
+
+## Shared bounded output for source batches, October 2026
+
+Contiguous source batches now reuse the existing artifact output-range writer.
+It combines adjacent verified single-destination writes in one 64 KiB buffer;
+fanout writes bypass byte buffering. The same worker-local handle policy serves
+both paths. The type is named `ReconstructionOutputWriter` to reflect these two
+users. Single source jobs and gapped groups retain direct writes. Combined input
+and output buffers fit within the existing source-I/O reservation.
+
+On Windows with four workers and the four-file 64 MiB / 53,822-reference fixture,
+41 alternating pairs reduced full-source reconstruction from 301.32 to 164.10 ms
+(45.5%). Paired median change was -45.1%, with an interval of -45.3% to -44.6%.
+Partial reuse reduced 141.24 to 106.96 ms (24.3%); paired median change was -24.4%,
+interval -25.3% to -23.8%. Baseline already includes bounded source-worker tasks
+and combined input reads. Every restored tree matched independent SHA-256 maps.
+
+Whole-copy, larger-chunk, source-fanout, artifact-only and artifact-fanout paired
+intervals crossed zero. Separate 21-pair native checks showed peak commit near
+flat, with all 84 final post-exit queries successful. No general reconstruction
+or memory gain is claimed.
+
+The source batch flushes before reporting success, charging final flush duration
+once to its last chunk record. Cancellation or a later hash mismatch may discard
+earlier verified bytes still pending in the private buffer. Already flushed
+verified ranges can remain in staging, but failure cannot publish the operation.
+The expanded worker test checks cross-file fanout, final-flush failure, no retry
+on drop, pending-byte discard, byte totals and resource release before one
+terminal event. Existing shared-writer tests cover gaps, target switches, large
+ranges and flush failures. Evidence:
+`tests/.artifacts/research_optimization_pass/round43_report.md`.
