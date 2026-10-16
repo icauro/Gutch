@@ -121,3 +121,15 @@ fn collect_comparable_files_nonexistent() {
     let result = collect_comparable_files(Path::new("/nonexistent/path/ever"));
     assert!(result.is_err());
 }
+
+#[test]
+fn directory_never_matches_a_single_file_with_the_same_entry_name() {
+    let root = tempfile::tempdir().unwrap();
+    let expected = root.path().join("expected");
+    std::fs::create_dir_all(&expected).unwrap();
+    std::fs::write(expected.join("a"), b"same").unwrap();
+    let actual = root.path().join("a");
+    std::fs::write(&actual, b"same").unwrap();
+
+    assert!(!compare_paths(&expected, &actual).unwrap().compare_passed);
+}

@@ -66,25 +66,24 @@ pub fn compare_paths(expected: &Path, actual: &Path) -> crate::Result<PathCompar
         seen_actual_relative_paths.insert(relative_path.clone());
     }
 
-    let mut extra_files = Vec::new();
-    if actual.is_dir() {
-        for actual_relative_path in actual_file_map.keys() {
-            if !seen_actual_relative_paths.contains(actual_relative_path)
-                && !expected_files.iter().any(|(expected_relative_path, _)| {
-                    expected_relative_path == actual_relative_path
-                })
-            {
-                extra_files.push(actual_relative_path.clone());
-            }
-        }
-    }
+    // Collect extras for every actual shape: a lone actual file whose name matches
+    // an entry of an expected directory must not pass as the whole tree.
+    let mut extra_files: Vec<String> = actual_file_map
+        .keys()
+        .filter(|actual_relative_path| !seen_actual_relative_paths.contains(*actual_relative_path))
+        .cloned()
+        .collect();
 
     extra_files.sort();
     mismatched_files.sort();
     missing_files.sort();
 
-    let compare_passed =
-        mismatched_files.is_empty() && missing_files.is_empty() && extra_files.is_empty();
+    // A directory never matches a single file, even when their entry names agree.
+    let root_kinds_match = expected.is_dir() == actual.is_dir();
+    let compare_passed = root_kinds_match
+        && mismatched_files.is_empty()
+        && missing_files.is_empty()
+        && extra_files.is_empty();
     Ok(PathComparisonResult {
         expected_path: expected.display().to_string(),
         actual_path: actual.display().to_string(),
