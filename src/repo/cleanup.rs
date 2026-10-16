@@ -129,7 +129,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
         control.checkpoint()?;
         if i % 50 == 0 || i == artifact_files.len() - 1 {
             let progress_current =
-                SCAN_BUNDLES_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / artifact_count;
+                LOAD_MANIFESTS_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / artifact_count;
             emit_progress(
                 control.progress(),
                 GutchProgressEvent {

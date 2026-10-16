@@ -79,8 +79,6 @@ pub fn fetch_snapshot_for_artifact_ids(
             &transfer_progress,
             &pending_artifact_downloads,
         )?;
-        transfer_progress.finish();
-        request.control.download_finished();
         publish_fetched_snapshot(&prepared)?;
         let transfer_stats = transfer_progress.stats(request.transfer_policy);
         let required_bundle_count = required_artifacts
