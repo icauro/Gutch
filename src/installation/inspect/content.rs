@@ -221,8 +221,7 @@ fn verify_file_streaming(
 
         if verify_mode.checks_chunk_hashes() {
             let chunk_hash_started = ProfileInstant::detailed(control.profiler());
-            let chunk_hash_actual =
-                ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(&chunk_buffer));
+            let chunk_hash_actual = crate::artifact::hash::ChunkHash::of(&chunk_buffer);
             timings.chunk_hash += chunk_hash_started.elapsed();
             timings.chunk_hash_bytes += raw_size;
             if chunk_hash_actual != chunk_ref.chunk_hash {

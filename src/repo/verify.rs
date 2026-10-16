@@ -233,7 +233,7 @@ mod tests {
     use super::*;
 
     fn save_test_snapshot(paths: &GutchRepoPaths, path: &str, bytes: &[u8]) -> SnapshotManifest {
-        let hash = crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes));
+        let hash = crate::artifact::hash::ChunkHash::of(bytes);
         let mut manifest = SnapshotManifest::new(String::new(), Default::default());
         manifest.push_file(crate::manifest::FileManifest {
             path: path.into(),
@@ -356,10 +356,7 @@ mod tests {
         let profile = crate::artifact::profiles::CompressionProfile::default();
         let mut builder = bundle::BundleBuilder::new(profile.clone());
         let bytes = b"verified bundle payload";
-        builder.add_chunk(
-            crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(bytes)),
-            bytes.to_vec(),
-        );
+        builder.add_chunk(crate::artifact::hash::ChunkHash::of(bytes), bytes.to_vec());
         let (bundle_id, encoded) = builder.build_with_id().unwrap();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("bundle");

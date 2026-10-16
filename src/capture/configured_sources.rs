@@ -276,7 +276,6 @@ impl GutchProgressSink for SnapshotSourcesCandidateProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::artifact::hash::hash_hex;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
     use crate::repo::paths::GutchRepoPaths;
@@ -288,7 +287,7 @@ mod tests {
     use std::time::SystemTime;
 
     fn test_hash(label: &str) -> String {
-        hash_hex(&crate::artifact::hash::hash_chunk(label.as_bytes()))
+        crate::artifact::hash::ChunkHash::of(label.as_bytes()).to_hex()
     }
 
     #[test]

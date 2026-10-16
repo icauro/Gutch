@@ -166,7 +166,7 @@ mod cache_merge_tests {
                 let directory = tempfile::tempdir().unwrap();
                 let paths = GutchRepoPaths::from_repo_root(directory.path());
                 crate::repo::paths::ensure_gutch_repo_layout(&paths, "merge").unwrap();
-                let chunk_hash = ChunkHash::from_blake3(blake3::hash(b"shared chunk"));
+                let chunk_hash = ChunkHash::of(b"shared chunk");
                 let (local_bundle_id, remote_bundle_id) = match storage_mode {
                     ArtifactStorageMode::Bundled => (
                         blake3::hash(b"local bundle").to_hex().to_string(),
@@ -194,7 +194,7 @@ mod cache_merge_tests {
                 if shared {
                     incoming.entries.insert(chunk_hash, remote_entry.clone());
                 }
-                let remote_only_hash = ChunkHash::from_blake3(blake3::hash(b"remote only chunk"));
+                let remote_only_hash = ChunkHash::of(b"remote only chunk");
                 incoming
                     .entries
                     .insert(remote_only_hash, remote_entry.clone());

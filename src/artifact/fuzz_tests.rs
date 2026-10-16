@@ -104,7 +104,7 @@ fn fuzz_blueprint_roundtrip() {
         let chunks = bytes
             .chunks(1 + usize::from(properties))
             .map(|chunk| ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(chunk)),
+                chunk_hash: crate::artifact::hash::ChunkHash::of(chunk),
                 raw_size: chunk.len() as u32,
             })
             .collect();

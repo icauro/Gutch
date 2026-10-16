@@ -24,7 +24,7 @@ fn test_hex_decode_invalid_length() {
 
 #[test]
 fn test_chunk_hash_byte_roundtrip() {
-    let hash = ChunkHash::from_blake3(hash_chunk(b"hello"));
+    let hash = ChunkHash::of(b"hello");
     let reparsed = ChunkHash::from_bytes(*hash.as_bytes());
     assert_eq!(hash, reparsed);
     let expected = blake3::hash(b"hello").to_hex().to_string();

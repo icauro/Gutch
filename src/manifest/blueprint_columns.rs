@@ -544,7 +544,7 @@ mod tests {
                 chunks: parts
                     .iter()
                     .map(|part| ChunkRef {
-                        chunk_hash: ChunkHash::from_blake3(blake3::hash(part)),
+                        chunk_hash: ChunkHash::of(part),
                         raw_size: part.len() as u32,
                     })
                     .collect(),
@@ -581,7 +581,7 @@ mod tests {
             read_only: true,
             full_file_hash: blake3::hash(b"x").to_hex().to_string(),
             chunks: vec![ChunkRef {
-                chunk_hash: ChunkHash::from_blake3(blake3::hash(b"x")),
+                chunk_hash: ChunkHash::of(b"x"),
                 raw_size: 1,
             }],
         })];

@@ -314,9 +314,7 @@ mod tests {
             .map(|i| ReconstructPipelineFile {
                 path: i.to_string(),
                 size: 4,
-                full_file_hash: crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(
-                    b"data",
-                )),
+                full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
             })
             .collect::<Vec<_>>();
         let mut queue = ReconstructionWorkQueue::default();
@@ -365,9 +363,7 @@ mod tests {
             .map(|(index, &size)| ReconstructPipelineFile {
                 path: index.to_string(),
                 size,
-                full_file_hash: crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(
-                    b"data",
-                )),
+                full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
             })
             .collect()
     }
@@ -526,7 +522,7 @@ mod tests {
 
     fn source_job(path: &Arc<PathBuf>, offset: u64, size: u32) -> ReconstructJob {
         ReconstructJob::SourceChunk(super::super::jobs::ReconstructSourceChunkJob {
-            chunk_hash: crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(b"data")),
+            chunk_hash: crate::artifact::hash::ChunkHash::of(b"data"),
             raw_size: size,
             source_path: Arc::clone(path),
             source_offset: offset,

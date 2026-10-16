@@ -65,9 +65,7 @@ pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
                     {
                         *precomputed_file_hashes[target.file_index]
                             .lock()
-                            .map_err(|_| {
-                                Error::reconstruct("precomputed file hash is poisoned")
-                            })? = Some(chunk.chunk_hash);
+                            .map_err(precomputed_hash_poisoned)? = Some(chunk.chunk_hash);
                     }
                 }
             }
@@ -173,7 +171,7 @@ fn reconstruct_artifact_job(
                     }
                     let hash_started_at = ProfileInstant::detailed(control.profiler());
                     let actual_hash =
-                        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(bytes));
+                        crate::artifact::hash::ChunkHash::of(bytes);
                     timings.chunk_verify += hash_started_at.elapsed();
                     timings.chunk_verify_bytes = timings
                         .chunk_verify_bytes
@@ -299,16 +297,18 @@ pub(super) fn reconstruct_source_chunk_batch(
     source_handles: &SourceHandleCache,
     control: &GutchOperationControl,
 ) -> Result<Vec<ReconstructTimings>> {
-    let ReconstructJob::SourceChunk(first) = &jobs[0] else {
-        unreachable!("only source chunks are batched");
-    };
+    let chunks: Vec<&ReconstructSourceChunkJob> = jobs
+        .iter()
+        .map(|job| match job {
+            ReconstructJob::SourceChunk(chunk) => chunk,
+            _ => unreachable!("only source chunks are batched"),
+        })
+        .collect();
+    let first = chunks[0];
     // Admission batches only one contiguous range of one source file, so a
     // single read covers every chunk; each chunk is still hash-verified below.
     let mut end = first.source_offset;
-    for job in jobs {
-        let ReconstructJob::SourceChunk(chunk) = job else {
-            unreachable!("only source chunks are batched");
-        };
+    for chunk in &chunks {
         debug_assert!(chunk.source_path == first.source_path && chunk.source_offset == end);
         end = end
             .checked_add(u64::from(chunk.raw_size))
@@ -325,13 +325,10 @@ pub(super) fn reconstruct_source_chunk_batch(
     }
     let read_elapsed = read_started_at.elapsed();
     // Charge the shared read once; per-chunk byte and hash counts stay unchanged.
-    let mut timings = Vec::with_capacity(jobs.len());
+    let mut timings = Vec::with_capacity(chunks.len());
     let mut output_writer = ReconstructionOutputWriter::new(output_handles, control);
     let mut start = 0;
-    for (index, job) in jobs.iter().enumerate() {
-        let ReconstructJob::SourceChunk(chunk) = job else {
-            unreachable!("only source chunks are batched");
-        };
+    for (index, chunk) in chunks.iter().enumerate() {
         if index != 0 {
             control.checkpoint()?;
         }
@@ -369,8 +366,7 @@ fn verify_and_write_source_chunk(
     mut output_writer: Option<&mut ReconstructionOutputWriter<'_>>,
 ) -> Result<ReconstructTimings> {
     let hash_started_at = ProfileInstant::detailed(control.profiler());
-    let actual_hash =
-        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(bytes));
+    let actual_hash = crate::artifact::hash::ChunkHash::of(bytes);
     let hash_elapsed = hash_started_at.elapsed();
     if actual_hash != job.chunk_hash {
         return Err(Error::HashMismatch {
@@ -505,9 +501,7 @@ fn copy_source_file_job(
             "source file job references unknown file {file_index}"
         ))
     })?;
-    *hash_slot
-        .lock()
-        .map_err(|_| Error::reconstruct("precomputed file hash is poisoned"))? = Some(actual_hash);
+    *hash_slot.lock().map_err(precomputed_hash_poisoned)? = Some(actual_hash);
     Ok(timings)
 }
 
@@ -599,7 +593,7 @@ pub(super) fn verify_reconstructed_output_file(
             Error::reconstruct(format!("verification references unknown file {file_index}"))
         })?
         .lock()
-        .map_err(|_| Error::reconstruct("precomputed file hash is poisoned"))?;
+        .map_err(precomputed_hash_poisoned)?;
     let concurrent_file_count = reconstruct_worker_count.min(output_paths.len());
     let hash_mode = crate::file_integrity::select_full_file_hash_mode(
         file_plan.size,
@@ -697,4 +691,8 @@ pub(super) fn build_source_chunk_locations(
         }
     }
     Ok(chunk_locations)
+}
+
+fn precomputed_hash_poisoned<T>(_: T) -> Error {
+    Error::reconstruct("precomputed file hash is poisoned")
 }

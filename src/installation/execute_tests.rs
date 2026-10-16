@@ -25,7 +25,7 @@ fn output_verification_uses_file_concurrency_without_misreporting_pool_size() {
     let file_plan = ReconstructPipelineFile {
         path: "large.bin".into(),
         size: bytes.len() as u64,
-        full_file_hash: crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(&bytes)),
+        full_file_hash: crate::artifact::hash::ChunkHash::of(&bytes),
     };
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(4)
@@ -529,18 +529,12 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let third_hash = test_hash(third);
     let compression_profile = crate::artifact::profiles::CompressionProfile::default();
     let mut builder = crate::artifact::bundle::BundleBuilder::new(compression_profile.clone());
+    builder.add_chunk(crate::artifact::hash::ChunkHash::of(first), first.to_vec());
     builder.add_chunk(
-        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(first)),
-        first.to_vec(),
-    );
-    builder.add_chunk(
-        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(second)),
+        crate::artifact::hash::ChunkHash::of(second),
         second.to_vec(),
     );
-    builder.add_chunk(
-        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(third)),
-        third.to_vec(),
-    );
+    builder.add_chunk(crate::artifact::hash::ChunkHash::of(third), third.to_vec());
     let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
     let bundle_size = bundle_bytes.len() as u32;
     let bundle = crate::repo::artifacts::ArtifactRef::Bundle {
@@ -700,7 +694,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     let mut existing_artifacts = HashSet::new();
     let mut chunk_refs = Vec::new();
     for bytes in [b"first".as_slice(), b"second".as_slice()] {
-        let hash = crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes));
+        let hash = crate::artifact::hash::ChunkHash::of(bytes);
         let mut builder = crate::artifact::bundle::BundleBuilder::new(compression.clone());
         builder.add_chunk(hash, bytes.to_vec());
         let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
@@ -906,7 +900,7 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
     use crate::installation::io::{ReconstructJobRequest, reconstruct_job};
 
     let bytes = b"game";
-    let hash = ChunkHash::from_blake3(blake3::hash(bytes));
+    let hash = ChunkHash::of(bytes);
     let profile = crate::artifact::profiles::CompressionProfile::default();
     for bundled in [false, true] {
         for (corrupt, fail_output, wrong_size) in [
@@ -949,7 +943,7 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                 (4, hash),
                 (8, hash),
                 (8, hash),
-                (4, ChunkHash::from_blake3(blake3::hash(b"else"))),
+                (4, ChunkHash::of(b"else")),
             ]
             .into_iter()
             .enumerate()
@@ -1047,8 +1041,7 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
 fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     let directory = tempfile::tempdir().unwrap();
     let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(directory.path());
-    let chunk_hash =
-        |bytes: &[u8]| crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes));
+    let chunk_hash = |bytes: &[u8]| crate::artifact::hash::ChunkHash::of(bytes);
     let make_file = |path: &str, pieces: &[&[u8]]| FileManifest {
         path: path.into(),
         size: pieces.iter().map(|piece| piece.len() as u64).sum(),
@@ -1271,7 +1264,7 @@ fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
     use crate::repo::artifacts::ArtifactRef;
     let workspace = tempfile::tempdir().unwrap();
     let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(workspace.path());
-    let hash = ChunkHash::from_blake3(blake3::hash(b"game"));
+    let hash = ChunkHash::of(b"game");
     for mode in [
         ArtifactStorageMode::Bundled,
         ArtifactStorageMode::LooseChunks,

@@ -145,7 +145,7 @@ fn source_range_payload_rejects_changes_between_scan_and_encoding() {
         source: std::sync::Arc::new(source.clone()),
         offset: 0,
         size: 6,
-        hash: ChunkHash::from_blake3(blake3::hash(b"before")),
+        hash: ChunkHash::of(b"before"),
     };
     assert_eq!(payload.load_bytes().unwrap(), b"before");
     std::fs::write(&source, b"after!").unwrap();
@@ -164,7 +164,7 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
     std::fs::create_dir(&staging).unwrap();
     let planned: Vec<_> = (0..2)
         .map(|index| {
-            let hash = ChunkHash::from_blake3(blake3::hash(&bytes[index * 32..(index + 1) * 32]));
+            let hash = ChunkHash::of(&bytes[index * 32..(index + 1) * 32]);
             (
                 hash,
                 ChunkPayload {
@@ -276,7 +276,7 @@ fn payload_reader_seeks_switches_sources_and_detects_mutation() {
         source: std::sync::Arc::new(path.to_path_buf()),
         offset,
         size: bytes.len() as u64,
-        hash: ChunkHash::from_blake3(blake3::hash(bytes)),
+        hash: ChunkHash::of(bytes),
     };
     let mut reader = ChunkPayloadReader::default();
     for payload in [
@@ -310,7 +310,7 @@ fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
     let chunks: Vec<_> = segments
         .iter()
         .map(|bytes| {
-            let hash = ChunkHash::from_blake3(blake3::hash(bytes));
+            let hash = ChunkHash::of(bytes);
             (
                 hash,
                 ChunkPayload {
@@ -386,7 +386,7 @@ fn single_raw_group_skips_probe_but_keeps_placement_and_source_checks() {
     ]
     .iter()
     .map(|bytes| {
-        let hash = ChunkHash::from_blake3(blake3::hash(*bytes));
+        let hash = ChunkHash::of(*bytes);
         (
             hash,
             ChunkPayload {
@@ -504,7 +504,7 @@ fn source_change_after_single_group_planning_fails_encoding() {
     let directory = tempfile::tempdir().unwrap();
     let source = directory.path().join("source");
     std::fs::write(&source, b"before").unwrap();
-    let hash = ChunkHash::from_blake3(blake3::hash(b"before"));
+    let hash = ChunkHash::of(b"before");
     let chunks = vec![(
         hash,
         ChunkPayload {
@@ -576,7 +576,7 @@ fn probe_readers_preserve_sample_order_across_hits_seeks_and_evictions() {
         let path = std::sync::Arc::new(directory.path().join(format!("{index}.bin")));
         std::fs::write(path.as_ref(), [&head[..], &tail[..]].concat()).unwrap();
         for (offset, bytes) in [(0, head), (64, tail)] {
-            let hash = ChunkHash::from_blake3(blake3::hash(&bytes));
+            let hash = ChunkHash::of(&bytes);
             chunks.push((
                 hash,
                 ChunkPayload {
@@ -633,8 +633,8 @@ fn probe_reader_cache_hits_still_verify_source_hashes() {
     let directory = tempfile::tempdir().unwrap();
     let path = std::sync::Arc::new(directory.path().join("source"));
     std::fs::write(path.as_ref(), b"abcDEF").unwrap();
-    let first_hash = ChunkHash::from_blake3(blake3::hash(b"abc"));
-    let wrong_hash = ChunkHash::from_blake3(blake3::hash(b"bad"));
+    let first_hash = ChunkHash::of(b"abc");
+    let wrong_hash = ChunkHash::of(b"bad");
     let chunks = vec![
         (
             first_hash,

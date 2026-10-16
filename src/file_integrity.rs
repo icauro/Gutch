@@ -208,7 +208,7 @@ mod tests {
             .unwrap();
         for size in [37, PARALLEL_FULL_HASH_MIN_BYTES as usize] {
             let mut bytes = vec![17; size];
-            let expected = ChunkHash::from_blake3(blake3::hash(&bytes));
+            let expected = ChunkHash::of(&bytes);
             std::fs::write(&path, &bytes).unwrap();
             for concurrent_files in [1, 4] {
                 pool.install(|| {

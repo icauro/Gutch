@@ -21,7 +21,6 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::artifact::hash::hash_hex;
 use crate::manifest;
 use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -37,7 +36,7 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::
 }
 
 fn test_hash(label: &str) -> String {
-    hash_hex(&crate::artifact::hash::hash_chunk(label.as_bytes()))
+    crate::artifact::hash::ChunkHash::of(label.as_bytes()).to_hex()
 }
 
 #[test]
@@ -581,8 +580,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let paths = GutchRepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    let chunk_hash =
-        crate::artifact::hash::ChunkHash::from_blake3(crate::artifact::hash::hash_chunk(b"hello"));
+    let chunk_hash = crate::artifact::hash::ChunkHash::of(b"hello");
     let mut builder = crate::artifact::bundle::BundleBuilder::new(
         crate::artifact::profiles::CompressionProfile::default(),
     );

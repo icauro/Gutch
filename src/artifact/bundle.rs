@@ -629,7 +629,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let hashes: Vec<_> = self.entries.iter().map(|entry| entry.chunk_hash).collect();
         let required = vec![true; hashes.len()];
         self.stream_bundle_chunks_with_profiler(None, &required, |index, bytes| {
-            let actual = ChunkHash::from_blake3(hash::hash_chunk(bytes));
+            let actual = ChunkHash::of(bytes);
             if actual != hashes[index] {
                 return Err(crate::Error::HashMismatch {
                     expected: hashes[index].to_hex(),
@@ -656,12 +656,7 @@ pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Res
         )));
     }
     let (content, trailing) = bytes.split_at(bytes.len() - id_size);
-    check_bundle_identity(
-        bundle_id,
-        expected_hash,
-        ChunkHash::from_blake3(blake3::hash(content)),
-        trailing,
-    )
+    check_bundle_identity(bundle_id, expected_hash, ChunkHash::of(content), trailing)
 }
 
 /// Verifies complete bundle identity for a stored bundle file without

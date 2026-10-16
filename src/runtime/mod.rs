@@ -41,10 +41,7 @@ impl MemoryBudget {
         bytes: u64,
     ) -> Result<Option<MemoryPermit>> {
         self.validate_request(bytes)?;
-        let mut available = self
-            .available
-            .lock()
-            .map_err(|_| Error::manifest("memory budget poisoned"))?;
+        let mut available = self.available.lock().map_err(memory_budget_poisoned)?;
         if *available < bytes {
             return Ok(None);
         }
@@ -60,10 +57,7 @@ impl MemoryBudget {
         control: &crate::progress::GutchOperationControl,
     ) -> Result<MemoryPermit> {
         self.validate_request(bytes)?;
-        let mut available = self
-            .available
-            .lock()
-            .map_err(|_| Error::manifest("memory budget poisoned"))?;
+        let mut available = self.available.lock().map_err(memory_budget_poisoned)?;
         // Keep one measured wait across cancellation polling, not one slice per timeout.
         let waiting = (*available < bytes).then(|| control.profile_span("runtime.memory.wait"));
         while *available < bytes {
@@ -71,7 +65,7 @@ impl MemoryBudget {
             available = self
                 .changed
                 .wait_timeout(available, std::time::Duration::from_millis(50))
-                .map_err(|_| Error::manifest("memory budget poisoned"))?
+                .map_err(memory_budget_poisoned)?
                 .0;
         }
         control.checkpoint()?;
@@ -155,6 +149,10 @@ fn budget_from_limits(total: u64, cgroup_limit: Option<u64>) -> u64 {
     } else {
         (total / 4).max(1)
     }
+}
+
+fn memory_budget_poisoned<T>(_: T) -> Error {
+    Error::manifest("memory budget poisoned")
 }
 
 #[cfg(test)]

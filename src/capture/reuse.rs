@@ -238,7 +238,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = GutchRepoPaths::from_repo_root(root.path());
         let bytes = b"data";
-        let loose_hash = ChunkHash::from_blake3(blake3::hash(bytes));
+        let loose_hash = ChunkHash::of(bytes);
         let encoded = crate::test_util::loose_bytes(bytes, &Default::default());
         let loose_size = encoded.len() as u32;
         let loose_id = loose_hash.to_hex().into();

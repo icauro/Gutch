@@ -4,7 +4,6 @@ use crate::repo::artifacts::verify_bundle_identity_file;
 fn profile() -> CompressionProfile {
     CompressionProfile::default()
 }
-use crate::artifact::hash;
 use crate::artifact::hash::ChunkHash;
 
 #[test]
@@ -12,8 +11,8 @@ fn test_build_and_read_bundle() {
     let chunk1_data = b"chunk one data for testing ".repeat(10);
     let chunk2_data = b"chunk two different data ".repeat(10);
 
-    let hash1 = ChunkHash::from_blake3(hash::hash_chunk(&chunk1_data));
-    let hash2 = ChunkHash::from_blake3(hash::hash_chunk(&chunk2_data));
+    let hash1 = ChunkHash::of(&chunk1_data);
+    let hash2 = ChunkHash::of(&chunk2_data);
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
     builder.add_chunk(hash1, chunk1_data.to_vec());
@@ -55,7 +54,7 @@ fn test_empty_lz4_bundle() {
 #[test]
 fn test_single_chunk_bundle() {
     let data = b"single chunk test data ".repeat(20);
-    let hash = ChunkHash::from_blake3(hash::hash_chunk(&data));
+    let hash = ChunkHash::of(&data);
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
     builder.add_chunk(hash, data.to_vec());
@@ -74,14 +73,8 @@ fn test_verify_bundle() {
     let chunk2 = b"verify test chunk two ".repeat(10);
 
     let mut builder = BundleBuilder::new(CompressionProfile::default());
-    builder.add_chunk(
-        ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
-        chunk1.to_vec(),
-    );
-    builder.add_chunk(
-        ChunkHash::from_blake3(hash::hash_chunk(&chunk2)),
-        chunk2.to_vec(),
-    );
+    builder.add_chunk(ChunkHash::of(&chunk1), chunk1.to_vec());
+    builder.add_chunk(ChunkHash::of(&chunk2), chunk2.to_vec());
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
@@ -99,14 +92,8 @@ fn test_build_and_read_bundle_compressed_payload() {
     };
 
     let mut builder = BundleBuilder::new(profile.clone());
-    builder.add_chunk(
-        ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
-        chunk1.to_vec(),
-    );
-    builder.add_chunk(
-        ChunkHash::from_blake3(hash::hash_chunk(&chunk2)),
-        chunk2.to_vec(),
-    );
+    builder.add_chunk(ChunkHash::of(&chunk1), chunk1.to_vec());
+    builder.add_chunk(ChunkHash::of(&chunk2), chunk2.to_vec());
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data, &profile).unwrap();
@@ -179,7 +166,7 @@ fn test_stream_bundle_chunks_only_delivers_required_chunks() {
     ];
     let hashes = chunks
         .iter()
-        .map(|chunk| ChunkHash::from_blake3(hash::hash_chunk(chunk)))
+        .map(|chunk| ChunkHash::of(chunk))
         .collect::<Vec<_>>();
     let profile = CompressionProfile {
         compression_unit: CompressionUnit::Bundle,
@@ -222,14 +209,8 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     let profile =
         CompressionProfile::for_algorithm(crate::artifact::profiles::CompressionKind::None, None);
     let mut builder = BundleBuilder::new(profile.clone());
-    builder.add_chunk(
-        ChunkHash::from_blake3(hash::hash_chunk(&chunk1)),
-        chunk1.clone(),
-    );
-    builder.add_chunk(
-        ChunkHash::from_blake3(hash::hash_chunk(&chunk2)),
-        chunk2.clone(),
-    );
+    builder.add_chunk(ChunkHash::of(&chunk1), chunk1.clone());
+    builder.add_chunk(ChunkHash::of(&chunk2), chunk2.clone());
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data, &profile).unwrap();
@@ -242,7 +223,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
 #[test]
 fn test_bundle_id_deterministic() {
     let data1 = b"deterministic test ".repeat(15);
-    let hash1 = ChunkHash::from_blake3(hash::hash_chunk(&data1));
+    let hash1 = ChunkHash::of(&data1);
 
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
     b1.add_chunk(hash1, data1.to_vec());
@@ -259,8 +240,8 @@ fn test_bundle_id_deterministic() {
 fn test_bundle_id_depends_on_final_bundle_bytes() {
     let d1 = b"chunk a ".repeat(10);
     let d2 = b"chunk b ".repeat(10);
-    let h1 = ChunkHash::from_blake3(hash::hash_chunk(&d1));
-    let h2 = ChunkHash::from_blake3(hash::hash_chunk(&d2));
+    let h1 = ChunkHash::of(&d1);
+    let h2 = ChunkHash::of(&d2);
 
     let mut b1 = BundleBuilder::new(CompressionProfile::default());
     b1.add_chunk(h1, d1.to_vec());
@@ -286,7 +267,7 @@ fn test_invalid_bundle_table() {
 
 fn test_bundle_with_id() -> (String, Vec<u8>) {
     let data = b"identity test chunk data ".repeat(20);
-    let hash = ChunkHash::from_blake3(hash::hash_chunk(&data));
+    let hash = ChunkHash::of(&data);
     let mut builder = BundleBuilder::new(CompressionProfile::default());
     builder.add_chunk(hash, data.to_vec());
     builder.build_with_id().unwrap()
@@ -427,7 +408,7 @@ fn probe_encoded_size_matches_real_bundle_for_all_codecs() {
                     .repeat(20_000)
                     .into_bytes();
                 raw.push(data.clone());
-                builder.add_chunk(ChunkHash::from_blake3(hash::hash_chunk(&data)), data);
+                builder.add_chunk(ChunkHash::of(&data), data);
             }
             let segments: Vec<&[u8]> = raw.iter().map(Vec::as_slice).collect();
             let expected = crate::artifact::compression::compressed_size(&segments, &profile)
@@ -471,12 +452,7 @@ fn streamed_bundle_releases_each_loaded_chunk_before_requesting_the_next() {
         ];
         let descriptors = inputs
             .iter()
-            .map(|bytes| {
-                (
-                    ChunkHash::from_blake3(blake3::hash(bytes)),
-                    bytes.len() as u64,
-                )
-            })
+            .map(|bytes| (ChunkHash::of(bytes), bytes.len() as u64))
             .collect::<Vec<_>>();
         let directory = tempfile::tempdir().unwrap();
         let live = Arc::new(AtomicUsize::new(0));
@@ -513,12 +489,7 @@ fn streamed_bundle_releases_each_loaded_chunk_before_requesting_the_next() {
 fn streamed_bundle_discards_partial_staging_on_loader_failure_or_wrong_length() {
     let first = b"first".to_vec();
     let second = b"second".to_vec();
-    let descriptors = [&first, &second].map(|bytes| {
-        (
-            ChunkHash::from_blake3(blake3::hash(bytes)),
-            bytes.len() as u64,
-        )
-    });
+    let descriptors = [&first, &second].map(|bytes| (ChunkHash::of(bytes), bytes.len() as u64));
     for codec in [
         CompressionKind::None,
         CompressionKind::Zstd,

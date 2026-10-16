@@ -762,7 +762,7 @@ mod streaming_tests {
 
     fn bundle_source() -> (String, RemoteArtifactSource) {
         let bytes = b"remote bundle payload".repeat(100);
-        let hash = crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(&bytes));
+        let hash = crate::artifact::hash::ChunkHash::of(&bytes);
         let mut builder = crate::artifact::bundle::BundleBuilder::new(Default::default());
         builder.add_chunk(hash, bytes);
         let (id, bytes) = builder.build_with_id().unwrap();

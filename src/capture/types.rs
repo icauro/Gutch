@@ -222,7 +222,7 @@ impl ChunkPayloadReader {
         file.read_exact(&mut bytes)?;
         self.position = payload.offset.checked_add(payload.size);
         // Reusing a handle never skips validation against the scan-time hash.
-        if ChunkHash::from_blake3(blake3::hash(&bytes)) != payload.hash {
+        if ChunkHash::of(&bytes) != payload.hash {
             return Err(crate::Error::manifest(format!(
                 "source changed during capture: {}",
                 payload.source.display()

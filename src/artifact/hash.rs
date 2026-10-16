@@ -8,6 +8,11 @@ impl ChunkHash {
         Self(*hash.as_bytes())
     }
 
+    /// Content identity of `data`: its BLAKE3 hash.
+    pub fn of(data: &[u8]) -> Self {
+        Self::from_blake3(hash_chunk(data))
+    }
+
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }

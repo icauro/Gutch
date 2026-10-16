@@ -178,7 +178,7 @@ pub(crate) fn loose_bytes(
     let mut encoded = Vec::new();
     crate::artifact::loose::write_loose_chunk(
         &mut encoded,
-        crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(bytes)),
+        crate::artifact::hash::ChunkHash::of(bytes),
         bytes,
         profile,
     )

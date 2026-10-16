@@ -87,8 +87,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     {
         let started_at = ProfileInstant::detailed(profiler);
 
-        let actual_hash =
-            crate::artifact::hash::hash_hex(&crate::artifact::hash::hash_chunk(&bytes));
+        let actual_hash = crate::artifact::hash::ChunkHash::of(&bytes).to_hex();
         if actual_hash != chunk_hash {
             return Err(Error::HashMismatch {
                 expected: chunk_hash.to_string(),
