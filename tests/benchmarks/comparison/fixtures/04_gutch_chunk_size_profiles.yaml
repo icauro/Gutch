@@ -5,26 +5,26 @@ description: Compare Gutch chunk sizing profiles.
 delete_artifacts: true
 open_perfetto: true
 lanes:
-  # - label: chunk-512KiB
-  #   tool: gutch
-  #   workload: individual
-  #   profile:
-  #     chunk: chunk_512KiB
-  #     bundle: bundle_8MiB
-  #     compression:
-  #       algorithm: zstd
-  #       level: 3
-  #     storage: bundled
-  # - label: chunk-256KiB
-  #   tool: gutch
-  #   workload: individual
-  #   profile:
-  #     chunk: chunk_256KiB
-  #     bundle: bundle_8MiB
-  #     compression:
-  #       algorithm: zstd
-  #       level: 3
-  #     storage: bundled
+  - label: chunk-512KiB
+    tool: gutch
+    workload: individual
+    profile:
+      chunk: chunk_512KiB
+      bundle: bundle_8MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: bundled
+  - label: chunk-256KiB
+    tool: gutch
+    workload: individual
+    profile:
+      chunk: chunk_256KiB
+      bundle: bundle_8MiB
+      compression:
+        algorithm: zstd
+        level: 3
+      storage: bundled
   - label: chunk-128KiB
     tool: gutch
     workload: individual
@@ -35,23 +35,23 @@ lanes:
         algorithm: zstd
         level: 3
       storage: bundled
-  - label: chunk-64KiB
-    tool: gutch
-    workload: individual
-    profile:
-      chunk: chunk_64KiB
-      bundle: bundle_8MiB
-      compression:
-        algorithm: zstd
-        level: 3
-      storage: bundled
-  - label: chunk-32KiB
-    tool: gutch
-    workload: individual
-    profile:
-      chunk: chunk_32KiB
-      bundle: bundle_8MiB
-      compression:
-        algorithm: zstd
-        level: 3
-      storage: bundled
+  # - label: chunk-64KiB
+  #   tool: gutch
+  #   workload: individual
+  #   profile:
+  #     chunk: chunk_64KiB
+  #     bundle: bundle_8MiB
+  #     compression:
+  #       algorithm: zstd
+  #       level: 3
+  #     storage: bundled
+  # - label: chunk-32KiB
+  #   tool: gutch
+  #   workload: individual
+  #   profile:
+  #     chunk: chunk_32KiB
+  #     bundle: bundle_8MiB
+  #     compression:
+  #       algorithm: zstd
+  #       level: 3
+  #     storage: bundled
