@@ -73,8 +73,13 @@ fn write_loose_chunks(
                 if let Some(parent) = chunk_path.parent() {
                     crate::filesystem::create_dir_all(parent)?;
                 }
-
-                chunk.staged_file.promote_to(&chunk_path)?;
+                // Chunks are content-addressed, so an existing file already holds these
+                // bytes; replacing it would fail on Windows while a reader has it open.
+                if chunk_path.exists() {
+                    chunk.staged_file.discard();
+                } else {
+                    chunk.staged_file.promote_to(&chunk_path)?;
+                }
                 Ok(())
             })
             .collect::<Result<Vec<_>>>()
