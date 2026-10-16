@@ -89,15 +89,23 @@ impl SnapshotProductMetadata {
                             "snapshot product metadata variant_id is invalid or duplicated",
                         ));
                     }
-                    if variant.host_tag_requirements.is_empty()
-                        || variant
-                            .host_tag_requirements
-                            .iter()
-                            .any(|tag| tag.trim().is_empty())
-                    {
+                    if variant.host_tag_requirements.is_empty() {
                         return Err(crate::Error::manifest(
                             "snapshot product metadata host_tag_requirements must not be empty",
                         ));
+                    }
+                    // Matching compares canonical `key=value` strings exactly, so a
+                    // non-canonical requirement would silently never match any host.
+                    for requirement in &variant.host_tag_requirements {
+                        let canonical = SnapshotTagSet::from_compact_strings(
+                            std::slice::from_ref(requirement),
+                        )?
+                        .to_canonical_strings();
+                        if canonical != [requirement.as_str()] {
+                            return Err(crate::Error::manifest(format!(
+                                "snapshot product metadata host tag requirement '{requirement}' must be canonical key=value"
+                            )));
+                        }
                     }
                     validate_runtime_actions(&variant.launch_actions, true)?;
                     validate_external_product_dependency_requirements(

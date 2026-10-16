@@ -60,7 +60,13 @@ pub(crate) fn validate_resolved_launch_for_snapshot_os(
             validate_launch_path(working_directory, true)?;
             if working_directory != "." {
                 let prefix = format!("{}/", working_directory.trim_end_matches('/'));
-                if !manifest_paths.iter().any(|path| path.starts_with(&prefix)) {
+                // An empty directory is a declared entry with no files beneath it.
+                let is_declared_directory = snapshot.entries.iter().any(|entry| {
+                    matches!(entry, super::SnapshotEntry::Directory(directory) if directory.path == working_directory)
+                });
+                if !is_declared_directory
+                    && !manifest_paths.iter().any(|path| path.starts_with(&prefix))
+                {
                     return Err(Error::manifest(format!(
                         "launch action '{}' working directory '{}' does not exist in the snapshot",
                         action.name, working_directory

@@ -91,3 +91,26 @@ fn host_variant_runtime_uses_launcher_host_tags() {
     assert_eq!(resolved.actions[0].executable, "Game.exe");
     assert!(metadata.validate_structure().is_ok());
 }
+
+#[test]
+fn host_variant_rejects_requirements_that_could_never_match() {
+    for requirement in ["OS=windows", "os = windows", "os"] {
+        let metadata = SnapshotProductMetadata {
+            document_version: PUBLIC_METADATA_FORMAT_VERSION.into(),
+            runtime: SnapshotRuntimeMetadata::HostVariants(SnapshotHostVariantRuntimeMetadata {
+                host_variants: vec![SnapshotHostVariant {
+                    variant_id: "windows".into(),
+                    host_tag_requirements: vec![requirement.into()],
+                    launch_actions: vec![SnapshotLaunchAction {
+                        action_name: "Play".into(),
+                        executable_path: "Game.exe".into(),
+                        command_arguments: Vec::new(),
+                        working_directory_path: None,
+                    }],
+                    external_dependencies: Vec::new(),
+                }],
+            }),
+        };
+        assert!(metadata.validate_structure().is_err(), "{requirement}");
+    }
+}

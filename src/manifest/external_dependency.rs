@@ -86,20 +86,15 @@ fn validate_version(field: &str, version: Option<&str>) -> Result<()> {
 }
 
 fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
-    let left = left
-        .split('.')
-        .map(|part| part.parse::<u64>().unwrap_or(0))
-        .collect::<Vec<_>>();
-    let right = right
-        .split('.')
-        .map(|part| part.parse::<u64>().unwrap_or(0))
-        .collect::<Vec<_>>();
+    // Components are validated digit strings of any length; compare them as
+    // decimal numbers without parsing, which could overflow.
+    let significant_digits = |part| str::trim_start_matches(part, '0');
+    let left = left.split('.').map(significant_digits).collect::<Vec<_>>();
+    let right = right.split('.').map(significant_digits).collect::<Vec<_>>();
     for index in 0..left.len().max(right.len()) {
-        match left
-            .get(index)
-            .unwrap_or(&0)
-            .cmp(right.get(index).unwrap_or(&0))
-        {
+        let left_part = left.get(index).copied().unwrap_or("");
+        let right_part = right.get(index).copied().unwrap_or("");
+        match (left_part.len(), left_part).cmp(&(right_part.len(), right_part)) {
             std::cmp::Ordering::Equal => {}
             ordering => return ordering,
         }
@@ -151,5 +146,13 @@ mod tests {
 
         assert!(validate_external_product_dependency_requirements(&[reversed]).is_err());
         assert!(validate_external_product_dependency_requirements(&[non_numeric]).is_err());
+    }
+
+    #[test]
+    fn compares_version_components_beyond_u64_range() {
+        let huge = "99999999999999999999999";
+        assert_eq!(compare_versions("1", huge), std::cmp::Ordering::Less);
+        assert_eq!(compare_versions("1.0.0", "01"), std::cmp::Ordering::Equal);
+        assert_eq!(compare_versions("1.10", "1.9"), std::cmp::Ordering::Greater);
     }
 }
