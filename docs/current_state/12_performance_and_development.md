@@ -1319,3 +1319,30 @@ on drop, pending-byte discard, byte totals and resource release before one
 terminal event. Existing shared-writer tests cover gaps, target switches, large
 ranges and flush failures. Evidence:
 `tests/.artifacts/research_optimization_pass/round43_report.md`.
+
+
+## Dense scheduled-job flags, October 2026
+
+Reconstruction scheduling now uses one boolean flag per immutable planned job
+index instead of a hash set. Initial queue construction sets ready flags, while
+downloaded readiness checks and sets the same flag before enqueueing. The existing
+enqueue count supplies cardinality. Flags are allocated at first use inside the
+initial-dispatch profile span, so measured dispatch work includes that allocation.
+
+A detailed-profile comparison on Windows with four workers and 53,822 source
+jobs reduced median initial dispatch from 3.15 to 1.76 ms over 15 alternating
+pairs (44.0%). Every restored tree matched independent SHA-256 expectations and
+no profile events were dropped. Earlier loop-only measurements also improved,
+but excluded the new flag allocation; the final figure includes it.
+
+Whole-operation trials were mixed: favorable partial-reuse measurements did not
+establish a consistent general gain, and the final 21-pair whole-copy, partial,
+full-source, larger-chunk, source-fanout and artifact-only/fanout intervals all
+crossed zero. Detailed profiling adds per-job queue timestamps, so this phase
+result must remain separate from unprofiled reconstruction throughput.
+
+Separate native trials showed peak commit near flat, with all 84 final post-exit
+queries successful. Retention is based on lower measured initial-dispatch work
+and direct membership storage for dense job indexes, not a claimed whole-process
+memory saving or general reconstruction speedup. Evidence:
+`tests/.artifacts/research_optimization_pass/round45_report.md`.

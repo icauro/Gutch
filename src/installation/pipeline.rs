@@ -181,7 +181,6 @@ pub(super) fn run_reconstruction_jobs(
 
     let mut completed_job_count = 0usize;
     let mut completed_file_count = 0usize;
-    let mut scheduled_job_indices = HashSet::new();
     let mut verification_queued = vec![false; file_plans.len()];
     let mut verify_started_at = None;
     let mut verify_finished_at = None;
@@ -207,8 +206,9 @@ pub(super) fn run_reconstruction_jobs(
             ));
         }
     };
-    {
+    let mut scheduled_jobs = {
         let _dispatch_span = control.profile_span("installation.reconstruct.dispatch.ready");
+        let mut scheduled_jobs = vec![false; jobs.len()];
         for (job_index, job) in jobs.iter().enumerate() {
             let ready = match job {
                 ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
@@ -219,12 +219,13 @@ pub(super) fn run_reconstruction_jobs(
                     ReconstructWorkItem::Jobs(job_index..job_index + 1),
                     ProfileInstant::detailed(control.profiler()),
                 ));
-                scheduled_job_indices.insert(job_index);
+                scheduled_jobs[job_index] = true;
 
                 enqueued_job_count += 1;
             }
         }
-    }
+        scheduled_jobs
+    };
     update_reconstruct_backpressure(
         transfer_progress,
         enqueued_job_count,
@@ -281,7 +282,8 @@ pub(super) fn run_reconstruction_jobs(
                             )));
                             break;
                         }
-                        if scheduled_job_indices.insert(job_index) {
+                        if !scheduled_jobs[job_index] {
+                            scheduled_jobs[job_index] = true;
                             let _dispatch_span = control
                                 .profile_span("installation.reconstruct.dispatch.downloaded");
                             work_queue.ready.push_back((
@@ -316,7 +318,7 @@ pub(super) fn run_reconstruction_jobs(
                     Err(mpsc::TryRecvError::Disconnected) => {
                         pipeline_error = Some(Error::reconstruct(format!(
                             "artifact download scheduler channel closed unexpectedly after scheduling {}/{} artifact jobs; {completed_download_worker_count}/{artifact_worker_count} workers reported completion",
-                            scheduled_job_indices.len(),
+                            enqueued_job_count,
                             artifact_job_indices.len(),
                         )));
                         break;

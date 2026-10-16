@@ -70,6 +70,10 @@ file index and offset. Content identities still use their existing lookup maps.
 
 The reconstruction pool has the runtime-planned worker count. The dispatcher
 starts all jobs that are ready from local artifacts or verified source data.
+Scheduled membership is one boolean flag per planned job index. Initial ready
+jobs set their flags during queue construction; downloaded readiness only queues
+an unset job, preventing duplicate dispatch. The existing enqueue count tracks
+how many distinct jobs were scheduled.
 Each job completion decrements the dependency count for its target files. A
 file is eligible for full-file verification only when its count reaches zero;
 the scheduler gives these newly completed files priority over queued producing
