@@ -121,6 +121,7 @@ pub(super) struct OutputHandleCache {
     output_paths: Arc<Vec<PathBuf>>,
     output_sizes: Arc<Vec<u64>>,
     independent_handles: Vec<bool>,
+    local_handle_limit: usize,
     state: Mutex<OutputHandleCacheState>,
 }
 
@@ -192,6 +193,7 @@ struct OutputHandleCacheState {
 }
 
 const LOCAL_OUTPUT_HANDLE_CACHE_LIMIT: usize = 8;
+const SMALL_SHARED_OUTPUT_HANDLE_CACHE_LIMIT: usize = 64;
 const INDEPENDENT_OUTPUT_MIN_BYTES: u64 = 64 * 1024 * 1024;
 
 impl OutputHandleCache {
@@ -208,7 +210,7 @@ impl OutputHandleCache {
         // These sizes and producer counts already exist for verification scheduling.
         // Independent Windows file objects help concurrent large-file writes, but
         // reopening tiny files costs more than it saves. No I/O probe is needed.
-        let independent_handles = output_sizes
+        let independent_handles: Vec<bool> = output_sizes
             .iter()
             .zip(producer_counts)
             .map(|(&size, &producers)| {
@@ -218,11 +220,21 @@ impl OutputHandleCache {
                     && size >= INDEPENDENT_OUTPUT_MIN_BYTES
             })
             .collect();
+        // A small fully shared plan already fits in the global cache. Keeping its
+        // references locally avoids repeated global lookups without opening more files.
+        let local_handle_limit = if output_paths.len() <= SMALL_SHARED_OUTPUT_HANDLE_CACHE_LIMIT
+            && !independent_handles.iter().any(|independent| *independent)
+        {
+            SMALL_SHARED_OUTPUT_HANDLE_CACHE_LIMIT
+        } else {
+            LOCAL_OUTPUT_HANDLE_CACHE_LIMIT
+        };
         let initialized_files = vec![false; output_paths.len()];
         Self {
             output_paths,
             output_sizes,
             independent_handles,
+            local_handle_limit,
             state: Mutex::new(OutputHandleCacheState {
                 handles: HashMap::new(),
                 lru: VecDeque::new(),
@@ -327,7 +339,7 @@ pub(super) fn cached_target_handle(
     } else {
         file
     };
-    if target_handles.len() >= LOCAL_OUTPUT_HANDLE_CACHE_LIMIT
+    if target_handles.len() >= output_handles.local_handle_limit
         && let Some(oldest_file_index) = target_handles.keys().next().copied()
     {
         target_handles.remove(&oldest_file_index);
@@ -554,6 +566,62 @@ mod output_handle_tests {
         drop(cache.get_or_open(1).unwrap());
         write_file_at(&cache.get_or_open(0).unwrap(), 0, b"head", &control).unwrap();
         assert_eq!(std::fs::read(&paths[0]).unwrap(), b"headtail");
+    }
+
+    #[test]
+    fn local_output_cache_expands_only_for_small_fully_shared_plans() {
+        let root = tempfile::tempdir().unwrap();
+        for (count, size, producers, workers, expected_limit) in [
+            (1, 8, 1, 1, 64),
+            (64, 8, 2, 4, 64),
+            (65, 8, 2, 4, 8),
+            (64, INDEPENDENT_OUTPUT_MIN_BYTES, 1, 4, 64),
+            (64, INDEPENDENT_OUTPUT_MIN_BYTES, 2, 1, 64),
+            (
+                64,
+                INDEPENDENT_OUTPUT_MIN_BYTES,
+                2,
+                4,
+                if cfg!(windows) { 8 } else { 64 },
+            ),
+        ] {
+            let paths = Arc::new(
+                (0..count)
+                    .map(|index| root.path().join(index.to_string()))
+                    .collect(),
+            );
+            let mut sizes = vec![8; count];
+            sizes[0] = size;
+            let cache =
+                OutputHandleCache::new(paths, Arc::new(sizes), &vec![producers; count], workers);
+            assert_eq!(cache.local_handle_limit, expected_limit);
+        }
+    }
+
+    #[test]
+    fn expanded_local_cache_reuses_global_file_objects_and_retains_the_large_plan_bound() {
+        let root = tempfile::tempdir().unwrap();
+        for count in [64, 65] {
+            let paths = Arc::new(
+                (0..count)
+                    .map(|index| root.path().join(format!("{count}-{index}")))
+                    .collect(),
+            );
+            let cache = OutputHandleCache::new(paths, Arc::new(vec![8; count]), &vec![2; count], 4);
+            let mut first_job = HashMap::new();
+            let mut second_job = HashMap::new();
+            for index in 0..count {
+                let first = cached_target_handle(&cache, &mut first_job, index).unwrap();
+                let second = cached_target_handle(&cache, &mut second_job, index).unwrap();
+                assert!(Arc::ptr_eq(&first, &second));
+                let global = cache.state.lock().unwrap();
+                assert!(Arc::ptr_eq(&first, &global.handles[&index]));
+            }
+            let expected_local = if count == 64 { 64 } else { 8 };
+            assert_eq!(first_job.len(), expected_local);
+            assert_eq!(second_job.len(), expected_local);
+            assert_eq!(cache.state.lock().unwrap().handles.len(), count);
+        }
     }
 
     #[test]

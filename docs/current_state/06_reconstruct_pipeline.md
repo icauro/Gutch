@@ -165,8 +165,11 @@ file objects in each job's local handle cache when multiple workers are enabled.
 File sizes and producer counts come from the existing reconstruction plan; no
 extra scan or runtime benchmark selects this path. Creation and sizing remain
 centralized, and independent opens never truncate existing ranges. Other files
-and platforms retain shared handles. Each active job keeps at most eight local
-handles, in addition to the bounded shared cache.
+and platforms retain shared handles. Plans with at most 64 output files and no
+independent handles retain up to 64 local references to the same file objects
+already held by the shared cache. Larger plans and plans using any independent
+handles retain the eight-entry local limit. The expanded shared-reference cache
+does not open additional file objects.
 
 ## Local, cached, and remote targets
 

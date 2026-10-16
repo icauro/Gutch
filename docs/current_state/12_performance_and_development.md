@@ -1068,3 +1068,33 @@ targets, two missing artifacts for one file, cached artifacts, canonical file-in
 order, and resetting markers between missing jobs. Existing bundled/loose repeated
 reference and wrong-size checks remain. Evidence:
 `tests/.artifacts/research_optimization_pass/round32_report.md`.
+
+
+## Keep small shared-output working sets local, October 2026
+
+A worker can retain up to 64 references when the complete plan has at most 64
+output files and every output uses shared handles. All references point to file
+objects already retained by the 256-entry global cache. This avoids repeated
+global mutex and LRU work when a small artifact fans out across many files.
+Plans with more output files or any independent handles retain the eight-entry
+local bound. Creation, sizing, positional writes and handle-release ordering stay
+with their existing owners; the policy performs no additional filesystem scan.
+
+On the 64-identical-file / 835-distinct-chunk Windows fixture, 41 alternating
+warm-cache pairs reduced reconstruction median from 165.90 to 162.14 ms (2.3%).
+A separate 41-pair confirmation reduced 166.74 to 161.16 ms (3.3%); its paired
+median change was -3.1%, with a bootstrap interval of -4.1% to -2.4%.
+Every reconstructed tree matched independent source SHA-256 expectations.
+
+The 1,000-file control did not establish a speed change. Unique-content results
+varied: an initial 41-pair paired analysis suggested a small slowdown, but an
+isolated 81-pair confirmation had a paired interval spanning zero. No consistent
+unique-content gain or regression is claimed. Separate 21-pair native memory
+checks per fixture kept median peak commit within 1% of baseline; no memory
+reduction is claimed. Counters included successful post-exit high-water reads.
+
+Regressions check the 64/65-file boundary, a single independent output among
+shared files, worker/producer thresholds, and reuse of identical global file
+objects across jobs. Existing range, eviction, cancellation and failed-flush
+coverage remains. Evidence:
+`tests/.artifacts/research_optimization_pass/round33_report.md`.
