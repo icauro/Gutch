@@ -17,53 +17,31 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 #[test]
-fn output_verification_uses_file_concurrency_without_misreporting_pool_size() {
+fn output_verification_checks_size_without_rereading_chunk_verified_bytes() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("large.bin");
-    let bytes = vec![37; crate::artifact::integrity::PARALLEL_FULL_HASH_MIN_BYTES as usize];
-    std::fs::write(&path, &bytes).unwrap();
+    let path = directory.path().join("file.bin");
     let file_plan = ReconstructPipelineFile {
-        path: "large.bin".into(),
-        size: bytes.len() as u64,
-        full_file_hash: crate::artifact::hash::ChunkHash::of(&bytes),
+        path: "file.bin".into(),
+        size: 4,
+        full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
     };
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
-    for (file_count, expected_mode) in [(1, "mmap_rayon"), (2, "mmap")] {
-        let profiler = Arc::new(crate::profile::GutchProfiler::new(
-            crate::profile::GutchProfileMode::Detailed,
+    let control = GutchOperationControl::default();
+    // Writers already hash-checked every chunk, so equal-size bytes pass here;
+    // explicit `verify` remains the check for damage after the write.
+    std::fs::write(&path, b"DATA").unwrap();
+    let verification = verify_reconstructed_output_file(&file_plan, &path, &control).unwrap();
+    assert_eq!(verification.bytes, 4);
+    for wrong_size in [&b"dat"[..], b"data!"] {
+        std::fs::write(&path, wrong_size).unwrap();
+        assert!(matches!(
+            verify_reconstructed_output_file(&file_plan, &path, &control),
+            Err(Error::Reconstruct(_))
         ));
-        let control = GutchOperationControl::default().with_profiler(profiler.clone());
-        let mut paths = vec![path.clone()];
-        if file_count == 2 {
-            paths.push(directory.path().join("another-planned-file"));
-        }
-        pool.install(|| {
-            verify_reconstructed_output_file(
-                0,
-                &file_plan,
-                &paths,
-                &[Mutex::new(None)],
-                &control,
-                4,
-            )
-        })
-        .unwrap();
-        let trace_path = directory.path().join("trace.json");
-        profiler.write_trace(&trace_path).unwrap();
-        let trace: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(trace_path).unwrap()).unwrap();
-        let event = trace["traceEvents"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|event| event["name"] == "installation.file.verify")
-            .unwrap();
-        assert_eq!(event["args"]["hash_mode"], expected_mode);
-        assert_eq!(event["args"]["configured_workers"], 4);
     }
+    assert!(
+        verify_reconstructed_output_file(&file_plan, &directory.path().join("missing"), &control)
+            .is_err()
+    );
 }
 
 fn test_hash(bytes: &[u8]) -> String {
@@ -894,7 +872,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
 }
 
 #[test]
-fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
+fn artifact_jobs_write_only_verified_chunks_to_every_target() {
     use crate::artifact::hash::ChunkHash;
     use crate::installation::handles::{OutputHandleCache, SourceHandleCache};
     use crate::installation::io::{ReconstructJobRequest, reconstruct_job};
@@ -965,9 +943,6 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
             }
             let sizes = Arc::new(files.iter().map(|file| file.size).collect::<Vec<_>>());
             let handles = OutputHandleCache::new(paths.clone(), sizes, &[1; 5], 4);
-            let hashes = (0..files.len())
-                .map(|_| Mutex::new(None))
-                .collect::<Vec<_>>();
             let target_count = if fail_output { 1 } else { 5 };
             let job = ReconstructJob::Artifact(ReconstructArtifactJob {
                 artifact,
@@ -990,7 +965,6 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                 job: &job,
                 file_plans: &files,
                 output_paths: &paths,
-                precomputed_file_hashes: &hashes,
                 output_handles: &handles,
                 source_handles: &SourceHandleCache::default(),
                 compression_profile: &profile,
@@ -1001,37 +975,12 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                 corrupt || fail_output || wrong_size,
                 "bundled={bundled}, corrupt={corrupt}, fail_output={fail_output}, wrong_size={wrong_size}"
             );
-            let forwarded = hashes
-                .iter()
-                .map(|slot| *slot.lock().unwrap())
-                .collect::<Vec<_>>();
-            if corrupt || fail_output || wrong_size {
-                assert_eq!(forwarded, vec![None; 5]);
-            } else {
-                assert_eq!(forwarded, vec![Some(hash), Some(hash), None, None, None]);
+            if !(corrupt || fail_output || wrong_size) {
                 for index in [0, 1] {
                     assert_eq!(std::fs::read(&paths[index]).unwrap(), bytes);
-                    verify_reconstructed_output_file(
-                        index,
-                        &files[index],
-                        &paths,
-                        &hashes,
-                        &control,
-                        4,
-                    )
-                    .unwrap();
+                    verify_reconstructed_output_file(&files[index], &paths[index], &control)
+                        .unwrap();
                 }
-                // A forwarded hash never bypasses the final size check.
-                std::fs::OpenOptions::new()
-                    .write(true)
-                    .open(&paths[0])
-                    .unwrap()
-                    .set_len(3)
-                    .unwrap();
-                assert!(
-                    verify_reconstructed_output_file(0, &files[0], &paths, &hashes, &control, 4)
-                        .is_err()
-                );
             }
         }
     }

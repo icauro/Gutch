@@ -9,7 +9,6 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::time::Duration;
 
 use super::jobs::ReconstructArtifactChunk;
@@ -28,7 +27,6 @@ pub(super) struct ReconstructJobRequest<'a> {
     pub(super) job: &'a ReconstructJob,
     pub(super) file_plans: &'a [ReconstructPipelineFile],
     pub(super) output_paths: &'a [PathBuf],
-    pub(super) precomputed_file_hashes: &'a [Mutex<Option<crate::artifact::hash::ChunkHash>>],
     pub(super) output_handles: &'a OutputHandleCache,
     pub(super) source_handles: &'a SourceHandleCache,
     pub(super) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
@@ -40,7 +38,6 @@ pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
         job,
         file_plans,
         output_paths,
-        precomputed_file_hashes,
         output_handles,
         source_handles,
         compression_profile,
@@ -48,28 +45,9 @@ pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
     } = request;
     match job {
         ReconstructJob::Artifact(job) => {
-            let timings =
-                reconstruct_artifact_job(job, output_handles, compression_profile, control)
-                    .map_err(|e| {
-                        e.with_io_context("reading reconstruction artifact", &job.artifact_path)
-                    })?;
-            // Only successful artifact jobs establish hashes for their written bytes.
-            // A chunk spanning the whole file has the same BLAKE3 input as that file.
-            // Validated chunk coverage ensures that file has no other producers.
-            for chunk in &job.chunks {
-                for target in &job.targets[chunk.target_range.clone()] {
-                    let file = &file_plans[target.file_index];
-                    if target.file_offset == 0
-                        && u64::from(chunk.raw_size) == file.size
-                        && chunk.chunk_hash == file.full_file_hash
-                    {
-                        *precomputed_file_hashes[target.file_index]
-                            .lock()
-                            .map_err(precomputed_hash_poisoned)? = Some(chunk.chunk_hash);
-                    }
-                }
-            }
-            Ok(timings)
+            reconstruct_artifact_job(job, output_handles, compression_profile, control).map_err(
+                |e| e.with_io_context("reading reconstruction artifact", &job.artifact_path),
+            )
         }
         ReconstructJob::SourceChunk(job) => {
             reconstruct_source_chunk_job(job, output_handles, source_handles, control)
@@ -77,14 +55,7 @@ pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
         ReconstructJob::CopySourceFile {
             file_index,
             source_path,
-        } => copy_source_file_job(
-            *file_index,
-            source_path,
-            file_plans,
-            output_paths,
-            precomputed_file_hashes,
-            control,
-        ),
+        } => copy_source_file_job(*file_index, source_path, file_plans, output_paths, control),
     }
 }
 
@@ -418,7 +389,6 @@ fn copy_source_file_job(
     source_path: &Path,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
-    precomputed_file_hashes: &[Mutex<Option<crate::artifact::hash::ChunkHash>>],
     control: &GutchOperationControl,
 ) -> Result<ReconstructTimings> {
     let file_plan = file_plans.get(file_index).ok_or_else(|| {
@@ -496,12 +466,6 @@ fn copy_source_file_job(
             actual: actual_hash.to_hex(),
         });
     }
-    let hash_slot = precomputed_file_hashes.get(file_index).ok_or_else(|| {
-        Error::reconstruct(format!(
-            "source file job references unknown file {file_index}"
-        ))
-    })?;
-    *hash_slot.lock().map_err(precomputed_hash_poisoned)? = Some(actual_hash);
     Ok(timings)
 }
 
@@ -577,31 +541,18 @@ pub(super) struct ReconstructedFileVerification {
     pub(super) bytes: u64,
 }
 
+// Every reconstruction writer hash-checks each chunk (or, for whole-file
+// copies, the full file) before writing it, and planning proves each file's
+// chunks tile it exactly. Rereading the output to hash it again would only
+// repeat that proof, so reconstruction checks just the size. Lost or damaged
+// writes after that point are what explicit `verify` detects.
 pub(super) fn verify_reconstructed_output_file(
-    file_index: usize,
     file_plan: &ReconstructPipelineFile,
-    output_paths: &[PathBuf],
-    precomputed_file_hashes: &[Mutex<Option<crate::artifact::hash::ChunkHash>>],
+    output_path: &Path,
     control: &GutchOperationControl,
-    reconstruct_worker_count: usize,
 ) -> Result<ReconstructedFileVerification> {
     control.checkpoint()?;
-
-    let precomputed_hash = *precomputed_file_hashes
-        .get(file_index)
-        .ok_or_else(|| {
-            Error::reconstruct(format!("verification references unknown file {file_index}"))
-        })?
-        .lock()
-        .map_err(precomputed_hash_poisoned)?;
-    let concurrent_file_count = reconstruct_worker_count.min(output_paths.len());
-    let hash_mode = crate::artifact::integrity::select_full_file_hash_mode(
-        file_plan.size,
-        precomputed_hash.is_some(),
-        concurrent_file_count,
-    );
     let started_at = ProfileInstant::detailed(control.profiler());
-    let output_path = &output_paths[file_index];
     let actual_size = std::fs::metadata(output_path)
         .map_err(|e| Error::io_context("reading reconstructed file metadata", output_path, e))?
         .len();
@@ -611,49 +562,10 @@ pub(super) fn verify_reconstructed_output_file(
             actual_size, file_plan.size, file_plan.path
         )));
     }
-    let _hash_span = if precomputed_hash.is_some() {
-        control
-            .profile_event_with_args("installation.reconstruct.file.full_hash.forwarded", || {
-                full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count)
-            });
-        None
-    } else {
-        control.profile_span_with_args("installation.file.verify", || {
-            full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count)
-        })
-    };
-    crate::artifact::integrity::verify_full_file_integrity(
-        output_path,
-        file_plan.size,
-        file_plan.full_file_hash,
-        precomputed_hash,
-        concurrent_file_count,
-        control,
-    )
-    .map_err(|e| e.with_io_context("verifying reconstructed file", output_path))?;
     Ok(ReconstructedFileVerification {
         elapsed: started_at.elapsed(),
         bytes: actual_size,
     })
-}
-
-fn full_hash_trace_args(
-    file_plan: &ReconstructPipelineFile,
-    hash_mode: &str,
-    reconstruct_worker_count: usize,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
-        ("size_bytes".to_string(), serde_json::json!(file_plan.size)),
-        ("hash_mode".to_string(), serde_json::json!(hash_mode)),
-        (
-            "hash_threshold_bytes".to_string(),
-            serde_json::json!(crate::artifact::integrity::PARALLEL_FULL_HASH_MIN_BYTES),
-        ),
-        (
-            "configured_workers".to_string(),
-            serde_json::json!(reconstruct_worker_count),
-        ),
-    ])
 }
 
 pub(super) fn build_source_chunk_locations(
@@ -691,8 +603,4 @@ pub(super) fn build_source_chunk_locations(
         }
     }
     Ok(chunk_locations)
-}
-
-fn precomputed_hash_poisoned<T>(_: T) -> Error {
-    Error::reconstruct("precomputed file hash is poisoned")
 }

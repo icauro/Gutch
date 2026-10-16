@@ -475,7 +475,6 @@ pub(crate) fn resolve_metadata_updates(
                         &path,
                         file.size,
                         crate::artifact::hash::ChunkHash::parse_hex(&file.full_file_hash)?,
-                        None,
                         1,
                         control,
                     ) {

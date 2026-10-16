@@ -5,7 +5,6 @@ use std::fs::OpenOptions;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -98,11 +97,6 @@ pub(super) fn run_reconstruction_jobs(
     let file_plans = Arc::new(pipeline_plan.files);
     let jobs = Arc::new(pipeline_plan.jobs);
     let output_sizes = Arc::new(file_plans.iter().map(|file| file.size).collect::<Vec<_>>());
-    let precomputed_file_hashes = Arc::new(
-        (0..file_plans.len())
-            .map(|_| Mutex::new(None))
-            .collect::<Vec<Mutex<Option<crate::artifact::hash::ChunkHash>>>>(),
-    );
     let (artifact_job_indices, artifact_scheduler) = {
         let _artifacts_span = control.profile_span("installation.reconstruct.prepare.artifacts");
         let artifact_job_indices =
@@ -168,7 +162,6 @@ pub(super) fn run_reconstruction_jobs(
         jobs: Arc::clone(&jobs),
         file_plans: Arc::clone(&file_plans),
         output_paths: Arc::clone(&output_paths),
-        precomputed_file_hashes,
         output_handles,
         compression_profile,
         control: control.clone(),

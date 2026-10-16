@@ -1354,7 +1354,7 @@ def test_run_fixture_waits_between_measured_lanes(tmp_path: Path, monkeypatch) -
     assert waits == [2.0]
 
 
-def test_gutch_profile_table_includes_hash_details(tmp_path: Path, capsys) -> None:
+def test_gutch_profile_table_lists_trace_spans(tmp_path: Path, capsys) -> None:
     trace = tmp_path / "trace.json"
     trace.write_text(
         json.dumps(
@@ -1391,8 +1391,7 @@ def test_gutch_profile_table_includes_hash_details(tmp_path: Path, capsys) -> No
 
     output = capsys.readouterr().out
     assert "Gutch Perfetto Profiles" in output
-    assert "Hash files" in output
-    assert "Reconstruct workers" in output
+    assert "installation.file.verify" in output
 
 
 def test_combined_trace_preserves_worker_activity_and_gaps(tmp_path: Path) -> None:

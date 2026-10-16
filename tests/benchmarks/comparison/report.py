@@ -280,59 +280,8 @@ def _aggregate_spans(paths: list[Path]) -> dict[str, tuple[int, float]]:
     return aggregates
 
 
-def _aggregate_hash_metrics(paths: list[Path]) -> dict[str, Any]:
-    count = 0
-    mib = 0.0
-    seconds = 0.0
-    modes: dict[str, int] = {}
-    workers: set[int] = set()
-    for path in paths:
-        for name, elapsed, args in _read_trace_spans(path):
-            if name != "installation.file.verify":
-                continue
-            size_mib = args.get("size_bytes", 0) / 1048576
-            if not isinstance(size_mib, (int, float)):
-                continue
-            count += 1
-            mib += float(size_mib)
-            seconds += elapsed
-            mode = args.get("hash_mode")
-            if isinstance(mode, str):
-                modes[mode] = modes.get(mode, 0) + 1
-            configured_workers = args.get("configured_workers")
-            if isinstance(configured_workers, int):
-                workers.add(configured_workers)
-    return {
-        "count": count,
-        "mib": mib,
-        "seconds": seconds,
-        "modes": modes,
-        "workers": workers,
-    }
-
-
-def _format_hash_modes(value: Any) -> str:
-    return (
-        "-"
-        if not isinstance(value, dict) or not value
-        else ", ".join(
-            f"{mode}={count}"
-            for mode, count in sorted(value.items())
-            if isinstance(mode, str) and isinstance(count, int)
-        )
-    )
-
-
-def _format_workers(value: Any) -> str:
-    return (
-        "-"
-        if not isinstance(value, set) or not value
-        else ", ".join(str(worker) for worker in sorted(value))
-    )
-
-
 def print_gutch_profile_table(results: list[LaneResult]) -> None:
-    """Print detailed Gutch trace spans and hash workload information."""
+    """Print detailed Gutch trace spans."""
     aggregates = [
         (result.label, _aggregate_spans(_trace_paths(result))) for result in results
     ]
@@ -358,59 +307,6 @@ def print_gutch_profile_table(results: list[LaneResult]) -> None:
         )
         for name in names
     ]
-    hash_metrics = [
-        (result.label, _aggregate_hash_metrics(_trace_paths(result)))
-        for result in results
-    ]
-    if any(int(metrics["count"]) > 0 for _, metrics in hash_metrics):
-        by_label = {label: metrics for label, metrics in hash_metrics}
-        rows.extend(
-            [
-                (
-                    "Hash files",
-                    [str(int(by_label[label]["count"])) for label, _ in aggregates],
-                ),
-                (
-                    "Hash bytes",
-                    [
-                        f"{float(by_label[label]['mib']):.2f} MiB"
-                        for label, _ in aggregates
-                    ],
-                ),
-                (
-                    "Hash time",
-                    [
-                        f"{float(by_label[label]['seconds']):.2f} s"
-                        for label, _ in aggregates
-                    ],
-                ),
-                (
-                    "Hash speed",
-                    [
-                        (
-                            f"{float(by_label[label]['mib']) / float(by_label[label]['seconds']):.1f} MiB/s"
-                            if float(by_label[label]["seconds"]) > 0
-                            else "-"
-                        )
-                        for label, _ in aggregates
-                    ],
-                ),
-                (
-                    "Hash modes",
-                    [
-                        _format_hash_modes(by_label[label]["modes"])
-                        for label, _ in aggregates
-                    ],
-                ),
-                (
-                    "Reconstruct workers",
-                    [
-                        _format_workers(by_label[label]["workers"])
-                        for label, _ in aggregates
-                    ],
-                ),
-            ]
-        )
     print()
     print("  Gutch Perfetto Profiles")
     print(

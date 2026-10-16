@@ -8,7 +8,7 @@ use crate::{Error, Result};
 use rayon::ThreadPool;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 // Bound both per-task metadata work and serial hashing before a worker yields.
 const MAX_VERIFICATION_BATCH_FILES: usize = 32;
 const MAX_VERIFICATION_BATCH_BYTES: u64 = 1024 * 1024;
@@ -157,7 +157,6 @@ pub(super) struct ReconstructWorkContext {
     pub(super) jobs: Arc<Vec<ReconstructJob>>,
     pub(super) file_plans: Arc<Vec<ReconstructPipelineFile>>,
     pub(super) output_paths: Arc<Vec<PathBuf>>,
-    pub(super) precomputed_file_hashes: Arc<Vec<Mutex<Option<crate::artifact::hash::ChunkHash>>>>,
     pub(super) output_handles: Arc<OutputHandleCache>,
     pub(super) compression_profile: Arc<crate::artifact::profiles::CompressionProfile>,
     pub(super) control: GutchOperationControl,
@@ -241,7 +240,6 @@ pub(super) fn spawn_reconstruct_work(
                             job: &context.jobs[job_index],
                             file_plans: &context.file_plans,
                             output_paths: &context.output_paths,
-                            precomputed_file_hashes: &context.precomputed_file_hashes,
                             output_handles: &context.output_handles,
                             source_handles: &context.source_handles,
                             compression_profile: &context.compression_profile,
@@ -262,12 +260,9 @@ pub(super) fn spawn_reconstruct_work(
                 };
                 for &file_index in &file_indices {
                     let file = verify_reconstructed_output_file(
-                        file_index,
                         &context.file_plans[file_index],
-                        &context.output_paths,
-                        &context.precomputed_file_hashes,
+                        &context.output_paths[file_index],
                         &context.control,
-                        context.reconstruct_worker_count,
                     )?;
                     timings.elapsed += file.elapsed;
                     timings.bytes = timings.bytes.saturating_add(file.bytes);
@@ -431,8 +426,8 @@ mod tests {
         struct CancelAfterFirstFile(std::sync::atomic::AtomicUsize);
         impl crate::progress::GutchCancellationHook for CancelAfterFirstFile {
             fn is_cancelled(&self) -> bool {
-                // A forwarded file checks twice; cancellation begins at the next file.
-                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
+                // Each file checks once; cancellation begins at the second file.
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 1
             }
         }
         for cancel in [false, true] {
@@ -445,8 +440,8 @@ mod tests {
                     .collect::<Vec<_>>(),
             );
             std::fs::write(&paths[0], b"data").unwrap();
-            std::fs::write(&paths[1], b"bad!").unwrap();
-            // The last file is absent: the first hash mismatch must stop the batch.
+            std::fs::write(&paths[1], b"bad").unwrap();
+            // The last file is absent: the first size mismatch must stop the batch.
             let memory = Arc::new(crate::runtime::MemoryBudget::new(4096));
             let permit = memory.try_acquire(4096).unwrap().unwrap();
             let handles = Arc::new(OutputHandleCache::new(
@@ -462,18 +457,12 @@ mod tests {
                     std::sync::atomic::AtomicUsize::new(0),
                 )));
             }
-            let first_hash = files[0].full_file_hash;
             let context = Arc::new(ReconstructWorkContext {
                 memory: memory.clone(),
                 source_handles: SourceHandleCache::default(),
                 jobs: Arc::new(Vec::new()),
                 file_plans: Arc::new(files),
                 output_paths: paths,
-                precomputed_file_hashes: Arc::new(
-                    (0..3)
-                        .map(|index| Mutex::new((cancel && index == 0).then_some(first_hash)))
-                        .collect(),
-                ),
                 output_handles: handles,
                 compression_profile: Arc::new(
                     crate::artifact::profiles::CompressionProfile::default(),
@@ -507,7 +496,7 @@ mod tests {
             } else {
                 assert!(matches!(
                     event,
-                    ReconstructJobEvent::Failed(Error::HashMismatch { .. })
+                    ReconstructJobEvent::Failed(Error::Reconstruct(_))
                 ));
             }
             assert!(weak_context.upgrade().is_none());
@@ -752,9 +741,6 @@ mod tests {
                 jobs: Arc::new(jobs),
                 file_plans: Arc::new(files),
                 output_paths: paths,
-                precomputed_file_hashes: Arc::new(
-                    (0..file_count).map(|_| Mutex::new(None)).collect(),
-                ),
                 output_handles: handles,
                 compression_profile: Arc::new(Default::default()),
                 control,

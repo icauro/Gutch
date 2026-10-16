@@ -160,7 +160,6 @@ fn verify_file_fast(
         &prepared_file.path,
         prepared_file.manifest.size,
         expected_full_hash,
-        None,
         concurrent_file_count,
         control,
     )?;

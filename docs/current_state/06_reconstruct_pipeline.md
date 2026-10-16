@@ -75,10 +75,9 @@ jobs set their flags during queue construction; downloaded readiness only queues
 an unset job, preventing duplicate dispatch. The existing enqueue count tracks
 how many distinct jobs were scheduled.
 Each job completion decrements the dependency count for its target files. A
-file is eligible for full-file verification only when its count reaches zero;
-the scheduler gives these newly completed files priority over queued producing
-jobs. This overlaps hashing with remaining reconstruction and can read recently
-written pages from the filesystem cache. Empty-file checks need no such priority.
+file is eligible for its final check only when its count reaches zero; the
+scheduler gives these newly completed files priority over queued producing
+jobs. Empty-file checks need no such priority.
 Verification never starts while a producer for that file is still running.
 
 Source-chunk admission groups adjacent ready jobs from the same source path into
@@ -111,8 +110,7 @@ Verification admission groups adjacent ready checks into one worker task, up to
 32 files and 1 MiB of expected file bytes. A file larger than that byte limit
 runs alone. Groups stop at queued producing jobs; batching does not change
 artifact readiness or move checks across those jobs. Every file retains its
-own cancellation checkpoints, fresh output-size query, and full-file hash
-validation. One terminal event reports the batch's verified file count and
+own cancellation checkpoint and fresh output-size query. One terminal event reports the batch's verified file count and
 summed bytes/timings; progress advances by that count. Failure or cancellation
 stops the batch, and worker context and memory permits are released before its
 terminal event. The coordinator drains dispatched batches before cleanup.
@@ -258,19 +256,17 @@ partial reconstruction. A successful replacement promotes the complete target
 tree, so source-only files and unrelated destination entries do not carry over
 to the new snapshot.
 
-Per-file verification always checks the completed output size and expected
-full-file BLAKE3. Whole-file copies hash while copying and forward that verified
-hash without a second content read. Artifact jobs can also forward a verified
-chunk hash when its target starts at offset zero, its raw size equals the file
-size, and its hash equals the expected full-file hash. Forwarding occurs only
-after the entire artifact job succeeds, including all writes and bundle identity
-checks. Partial-file chunks and differing full-file hashes retain the output
-read and hash check; source-chunk jobs also retain that check. The diagnostic
-hash mode for either forwarded case is `forwarded`.
-Large-file hash mode considers both the reconstruction worker
-count and the number of output files, so one large output can use the existing
-pool for parallel hashing. The exact threshold and modes are described in
-[`07_verify_pipeline.md`](07_verify_pipeline.md).
+Reconstruction does not reread its output to hash it. Every byte it writes was
+already checked before the write: artifact and source-chunk jobs compare each
+raw chunk's BLAKE3 before writing it to any target, and whole-file copies hash
+the full file while copying and compare it with the expected full-file hash.
+Planning proves that each file's chunk sizes add up to exactly its expected size,
+so verified chunks at their planned offsets reproduce the expected file. After
+all producing jobs for a file finish, its final check confirms only that the
+completed output has the expected size. Damage after a successful write, such
+as a storage fault, is outside this check; explicit verification
+([`07_verify_pipeline.md`](07_verify_pipeline.md)) reads and hashes the
+installed files.
 
 ## Timeline and diagnostic evidence
 

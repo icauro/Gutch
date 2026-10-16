@@ -19,21 +19,9 @@ thread_local! {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FullFileHashMode {
-    Forwarded,
     Stream,
     Mmap,
     MmapRayon,
-}
-
-impl FullFileHashMode {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Forwarded => "forwarded",
-            Self::Stream => "stream",
-            Self::Mmap => "mmap",
-            Self::MmapRayon => "mmap_rayon",
-        }
-    }
 }
 
 pub(crate) struct FullFileIntegrityResult {
@@ -46,12 +34,9 @@ pub(crate) struct FullFileIntegrityResult {
 // With one file, Rayon can use the same pool for its internal hash tree.
 pub(crate) fn select_full_file_hash_mode(
     file_size: u64,
-    has_precomputed_hash: bool,
     concurrent_file_count: usize,
 ) -> FullFileHashMode {
-    if has_precomputed_hash {
-        FullFileHashMode::Forwarded
-    } else if file_size < PARALLEL_FULL_HASH_MIN_BYTES {
+    if file_size < PARALLEL_FULL_HASH_MIN_BYTES {
         FullFileHashMode::Stream
     } else if concurrent_file_count <= 1 {
         FullFileHashMode::MmapRayon
@@ -101,43 +86,34 @@ pub(crate) fn verify_full_file_integrity(
     path: &Path,
     file_size: u64,
     expected_hash: ChunkHash,
-    precomputed_hash: Option<ChunkHash>,
     concurrent_file_count: usize,
     control: &GutchOperationControl,
 ) -> Result<FullFileIntegrityResult> {
     control.checkpoint()?;
-    let mode =
-        select_full_file_hash_mode(file_size, precomputed_hash.is_some(), concurrent_file_count);
+    let mode = select_full_file_hash_mode(file_size, concurrent_file_count);
     let mut read_elapsed = Duration::ZERO;
-    let mut hash_elapsed = Duration::ZERO;
+    let hash_elapsed;
 
-    let actual_hash = match (mode, precomputed_hash) {
-        (FullFileHashMode::Forwarded, Some(hash)) => hash,
-        (FullFileHashMode::MmapRayon, None) => {
+    let actual_hash = match mode {
+        FullFileHashMode::MmapRayon => {
             let hash_started_at = ProfileInstant::detailed(control.profiler());
             let mut hasher = blake3::Hasher::new();
             hasher.update_mmap_rayon(path)?;
             hash_elapsed = hash_started_at.elapsed();
             ChunkHash::from_blake3(hasher.finalize())
         }
-        (FullFileHashMode::Mmap, None) => {
+        FullFileHashMode::Mmap => {
             let hash_started_at = ProfileInstant::detailed(control.profiler());
             let mut hasher = blake3::Hasher::new();
             hasher.update_mmap(path)?;
             hash_elapsed = hash_started_at.elapsed();
             ChunkHash::from_blake3(hasher.finalize())
         }
-        (FullFileHashMode::Stream, None) => {
+        FullFileHashMode::Stream => {
             let (hash, measured_read, measured_hash) = hash_file_streaming(path, control)?;
             read_elapsed = measured_read;
             hash_elapsed = measured_hash;
             ChunkHash::from_blake3(hash)
-        }
-        (FullFileHashMode::Forwarded, None)
-        | (FullFileHashMode::Stream, Some(_))
-        | (FullFileHashMode::Mmap, Some(_))
-        | (FullFileHashMode::MmapRayon, Some(_)) => {
-            unreachable!("full-file hash mode must match precomputed hash availability")
         }
     };
 
@@ -216,7 +192,6 @@ mod tests {
                         &path,
                         size as u64,
                         expected,
-                        None,
                         concurrent_files,
                         &GutchOperationControl::default(),
                     )
@@ -231,7 +206,6 @@ mod tests {
                         &path,
                         size as u64,
                         expected,
-                        None,
                         concurrent_files,
                         &GutchOperationControl::default(),
                     )
@@ -244,19 +218,15 @@ mod tests {
     #[test]
     fn full_file_hash_mode_matches_reconstruction_policy() {
         assert_eq!(
-            select_full_file_hash_mode(1, true, 8),
-            FullFileHashMode::Forwarded
-        );
-        assert_eq!(
-            select_full_file_hash_mode(PARALLEL_FULL_HASH_MIN_BYTES - 1, false, 8),
+            select_full_file_hash_mode(PARALLEL_FULL_HASH_MIN_BYTES - 1, 8),
             FullFileHashMode::Stream
         );
         assert_eq!(
-            select_full_file_hash_mode(PARALLEL_FULL_HASH_MIN_BYTES, false, 8),
+            select_full_file_hash_mode(PARALLEL_FULL_HASH_MIN_BYTES, 8),
             FullFileHashMode::Mmap
         );
         assert_eq!(
-            select_full_file_hash_mode(PARALLEL_FULL_HASH_MIN_BYTES, false, 1),
+            select_full_file_hash_mode(PARALLEL_FULL_HASH_MIN_BYTES, 1),
             FullFileHashMode::MmapRayon
         );
     }
