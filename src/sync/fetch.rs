@@ -16,10 +16,10 @@ use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
 use crate::progress::emit_progress;
-use crate::repo::fetch_types::SnapshotFetchRequest;
-use crate::repo::fetch_types::SnapshotFetchResult;
 use crate::repo::paths::write_gutch_repo_manifest as write_repo_manifest;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
+use crate::sync::fetch_types::SnapshotFetchRequest;
+use crate::sync::fetch_types::SnapshotFetchResult;
 use crate::transfer::artifact_download::TransferDownloadRequest;
 use crate::transfer::download::ArtifactDownloadEvent;
 use crate::transfer::download::ArtifactDownloadScheduler;
@@ -35,8 +35,8 @@ pub(crate) struct PreparedSnapshotFetch {
     pub(crate) compression_profile: crate::artifact::profiles::CompressionProfile,
     pub(crate) snapshot_manifest: SnapshotManifest,
     pub(crate) chunk_index: crate::repo::index::ChunkIndex,
-    pub(crate) required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
-    pub(crate) existing_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub(crate) required_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
+    pub(crate) existing_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
     pub(crate) pending_artifact_downloads: Vec<PendingArtifactDownload>,
 }
 
@@ -84,7 +84,10 @@ pub fn fetch_snapshot_for_artifact_ids(
         let required_bundle_count = required_artifacts
             .iter()
             .filter(|artifact| {
-                matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. })
+                matches!(
+                    artifact,
+                    crate::artifact::reference::ArtifactRef::Bundle { .. }
+                )
             })
             .count();
         let downloaded_bundle_count = pending_artifact_downloads
@@ -92,7 +95,7 @@ pub fn fetch_snapshot_for_artifact_ids(
             .filter(|download| {
                 matches!(
                     download.artifact,
-                    crate::repo::artifacts::ArtifactRef::Bundle { .. }
+                    crate::artifact::reference::ArtifactRef::Bundle { .. }
                 )
             })
             .count();
@@ -279,7 +282,7 @@ pub(crate) fn prepare_snapshot_fetch(
     incoming_constraints
         .validate_snapshot_tags(&snapshot_manifest.snapshot_tags, &request.snapshot_id)?;
     crate::filesystem::constraints::validate_paths(
-        &incoming_constraints,
+        &incoming_constraints.targets,
         snapshot_manifest.entries.iter().map(|entry| entry.path()),
         "fetch",
         Some(&request.snapshot_id),
@@ -368,7 +371,7 @@ pub(crate) fn prepare_snapshot_fetch(
     for artifact in &required_artifacts {
         let path = artifact.local_path(&repo_paths)?;
         if path.is_file() {
-            if let crate::repo::artifacts::ArtifactRef::Bundle { id } = artifact {
+            if let crate::artifact::reference::ArtifactRef::Bundle { id } = artifact {
                 match crate::repo::artifacts::verify_bundle_identity_file(&path, id) {
                     Ok(()) => {}
                     Err(Error::InvalidBundle(_) | Error::HashMismatch { .. }) => {
@@ -411,8 +414,8 @@ pub(crate) fn prepare_snapshot_fetch(
 }
 
 fn build_pending_artifact_downloads(
-    required_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
-    existing_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
+    required_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
+    existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
     artifact_urls: &HashMap<String, String>,
     repo_paths: &crate::repo::paths::GutchRepoPaths,
 ) -> Result<Vec<PendingArtifactDownload>> {
@@ -451,7 +454,7 @@ fn build_pending_artifact_downloads(
 
 pub(crate) fn select_pending_artifact_downloads(
     pending_artifact_downloads: &[PendingArtifactDownload],
-    required_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
+    required_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
 ) -> Vec<PendingArtifactDownload> {
     pending_artifact_downloads
         .iter()

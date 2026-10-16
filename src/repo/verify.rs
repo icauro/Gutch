@@ -5,8 +5,8 @@ use std::path::Path;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle;
+use crate::artifact::reference::ArtifactRef;
 use crate::manifest::SnapshotManifest;
-use crate::repo::artifacts::ArtifactRef;
 
 use super::inventory::list_repo_snapshot_ids;
 use crate::repo::index::load_chunk_index;
@@ -80,7 +80,7 @@ pub fn verify_gutch_repo_artifacts(
                 continue;
             }
             crate::filesystem::constraints::validate_paths(
-                &constraints,
+                &constraints.targets,
                 manifest.entries.iter().map(|entry| entry.path()),
                 "verify",
                 Some(&stored_snapshot_id),

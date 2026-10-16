@@ -96,10 +96,10 @@ fn reconstruct_artifact_job(
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let artifact_span_name = match &job.artifact {
-        crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
+        crate::artifact::reference::ArtifactRef::Bundle { .. } => {
             "installation.bundle.decode_verify_and_write"
         }
-        crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => {
+        crate::artifact::reference::ArtifactRef::LooseChunk { .. } => {
             "installation.reconstruct.job.loose_chunk"
         }
     };
@@ -113,7 +113,7 @@ fn reconstruct_artifact_job(
     let mut output_writer = ReconstructionOutputWriter::new(output_handles, control);
 
     match &job.artifact {
-        crate::repo::artifacts::ArtifactRef::Bundle { .. } => {
+        crate::artifact::reference::ArtifactRef::Bundle { .. } => {
             let mut reader = crate::artifact::bundle::BundleReader::open(
                 File::open(&job.artifact_path).map_err(|e| {
                     Error::io_context("opening reconstruction artifact", &job.artifact_path, e)
@@ -203,7 +203,7 @@ fn reconstruct_artifact_job(
             timings.bundle_read_compressed_bytes = compressed_bytes;
             timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
         }
-        crate::repo::artifacts::ArtifactRef::LooseChunk { hash } => {
+        crate::artifact::reference::ArtifactRef::LooseChunk { hash } => {
             if job.chunks.len() != 1
                 || job.chunks[0].chunk_hash != crate::artifact::hash::ChunkHash::parse_hex(hash)?
             {
@@ -553,8 +553,8 @@ fn reconstruct_artifact_trace_args(
         (
             "artifact_kind".to_string(),
             serde_json::json!(match &job.artifact {
-                crate::repo::artifacts::ArtifactRef::Bundle { .. } => "bundle",
-                crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => "loose_chunk",
+                crate::artifact::reference::ArtifactRef::Bundle { .. } => "bundle",
+                crate::artifact::reference::ArtifactRef::LooseChunk { .. } => "loose_chunk",
             }),
         ),
         (
@@ -595,7 +595,7 @@ pub(super) fn verify_reconstructed_output_file(
         .lock()
         .map_err(precomputed_hash_poisoned)?;
     let concurrent_file_count = reconstruct_worker_count.min(output_paths.len());
-    let hash_mode = crate::file_integrity::select_full_file_hash_mode(
+    let hash_mode = crate::artifact::integrity::select_full_file_hash_mode(
         file_plan.size,
         precomputed_hash.is_some(),
         concurrent_file_count,
@@ -622,7 +622,7 @@ pub(super) fn verify_reconstructed_output_file(
             full_hash_trace_args(file_plan, hash_mode.as_str(), reconstruct_worker_count)
         })
     };
-    crate::file_integrity::verify_full_file_integrity(
+    crate::artifact::integrity::verify_full_file_integrity(
         output_path,
         file_plan.size,
         file_plan.full_file_hash,
@@ -647,7 +647,7 @@ fn full_hash_trace_args(
         ("hash_mode".to_string(), serde_json::json!(hash_mode)),
         (
             "hash_threshold_bytes".to_string(),
-            serde_json::json!(crate::file_integrity::PARALLEL_FULL_HASH_MIN_BYTES),
+            serde_json::json!(crate::artifact::integrity::PARALLEL_FULL_HASH_MIN_BYTES),
         ),
         (
             "configured_workers".to_string(),

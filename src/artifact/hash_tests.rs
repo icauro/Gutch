@@ -40,7 +40,7 @@ fn test_hash_file() {
     let dir = std::env::temp_dir();
     let path = dir.join("gutch_test_hash_file.tmp");
     std::fs::write(&path, b"test content").unwrap();
-    let hash = crate::file_integrity::hash_file(&path).unwrap();
+    let hash = crate::artifact::integrity::hash_file(&path).unwrap();
     let _ = std::fs::remove_file(&path);
     assert_eq!(hash, blake3::hash(b"test content"));
 }

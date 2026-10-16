@@ -202,7 +202,7 @@ fn local_snapshot_blueprint_hash_b3(
         return Ok(String::new());
     }
     Ok(crate::artifact::hash::hash_hex(
-        &crate::file_integrity::hash_file(&path)?,
+        &crate::artifact::integrity::hash_file(&path)?,
     ))
 }
 

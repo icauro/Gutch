@@ -12,7 +12,6 @@ mod capture;
 mod cli;
 mod config;
 mod error;
-mod file_integrity;
 mod filesystem;
 mod installation;
 mod manifest;
@@ -22,6 +21,7 @@ mod progress;
 mod repo;
 mod runtime;
 mod snapshot;
+mod sync;
 #[cfg(test)]
 mod test_util;
 mod transfer;

@@ -50,7 +50,7 @@ pub fn rebuild_index(
             let recovered = (|| -> Result<Vec<(String, ChunkIndexEntry)>> {
                 let size = crate::artifact::format::size_u32(std::fs::metadata(&path)?.len())?;
                 match &artifact {
-                    crate::repo::artifacts::ArtifactRef::Bundle { id } => {
+                    crate::artifact::reference::ArtifactRef::Bundle { id } => {
                         let mut reader = crate::artifact::bundle::BundleReader::open(
                             std::fs::File::open(&path)?,
                             &profile,
@@ -75,7 +75,7 @@ pub fn rebuild_index(
                             })
                             .collect())
                     }
-                    crate::repo::artifacts::ArtifactRef::LooseChunk { hash } => {
+                    crate::artifact::reference::ArtifactRef::LooseChunk { hash } => {
                         let (declared, raw, _) = crate::artifact::loose::read_loose_header(
                             &mut std::fs::File::open(&path)?,
                         )?;

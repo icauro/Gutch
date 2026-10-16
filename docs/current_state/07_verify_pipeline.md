@@ -138,7 +138,7 @@ operational reporting.
 
 The owning implementation is `src/installation/inspect/mod.rs` for inventory, path modes,
 lane scheduling, and classification, `src/installation/inspect/types.rs` for timing results,
-and `src/file_integrity.rs` for full-file hash-mode selection.
+and `src/artifact/integrity.rs` for full-file hash-mode selection.
 
 ## Related pages
 

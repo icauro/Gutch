@@ -78,7 +78,7 @@ particular host deployment provides.
 - Surface and scope: [API](../../src/api.rs), [CLI](../../src/cli/arguments.rs),
   [ownership](../../AGENTS.md).
 - Persistence and recovery: [capture](../../src/capture/execute.rs),
-  [remote operations](../../src/repo/remote/mod.rs), [bundles](../../src/artifact/bundle.rs),
+  [remote operations](../../src/sync/remote/mod.rs), [bundles](../../src/artifact/bundle.rs),
   [cleanup](../../src/repo/cleanup.rs), [path safety](11_path_safety_and_conflicts.md).
 - Verification and capture: [repository verifier](../../src/repo/verify.rs),
   [scanner](../../src/capture/scan.rs), [source ingestion](03_snapshot_source_ingestion.md).

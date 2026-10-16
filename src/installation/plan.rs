@@ -23,7 +23,7 @@ use std::path::Path;
 pub(crate) fn build_artifact_priorities(
     pipeline_plan: &ReconstructPipelinePlan,
     pending_artifact_downloads: &[PendingArtifactDownload],
-) -> HashMap<crate::repo::artifacts::ArtifactRef, ArtifactPriority> {
+) -> HashMap<crate::artifact::reference::ArtifactRef, ArtifactPriority> {
     pending_artifact_downloads
         .iter()
         .map(|download| {
@@ -95,7 +95,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &crate::repo::index::ChunkIndex,
     repo_paths: &crate::repo::paths::GutchRepoPaths,
-    existing_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
+    existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
     verified_source: Option<SnapshotReconstructSource<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
@@ -105,12 +105,12 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         HashMap::new();
     // Jobs and their chunks already have dense indices; targets use the same layout.
     let mut chunk_targets: Vec<Vec<Vec<ReconstructTarget>>> = Vec::new();
-    let mut artifact_job_indices: HashMap<crate::repo::artifacts::ArtifactRef, usize> =
+    let mut artifact_job_indices: HashMap<crate::artifact::reference::ArtifactRef, usize> =
         HashMap::new();
     // The source catalog fixes one location for each hash; size is checked before lookup.
     let mut source_chunk_job_indices: HashMap<ChunkHash, usize> = HashMap::new();
     let mut missing_artifact_to_file_indices: HashMap<
-        crate::repo::artifacts::ArtifactRef,
+        crate::artifact::reference::ArtifactRef,
         Vec<usize>,
     > = HashMap::new();
     let mut missing_artifact_counts = Vec::with_capacity(snapshot_manifest.file_count());
@@ -219,7 +219,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                                 chunk_ref.chunk_hash
                             ))
                         })?;
-                    let artifact = crate::repo::artifacts::ArtifactRef::from_chunk_entry(
+                    let artifact = crate::artifact::reference::ArtifactRef::from_chunk_entry(
                         &chunk_ref.chunk_hash,
                         entry,
                     );
@@ -332,7 +332,12 @@ pub(crate) fn build_reconstruct_pipeline_plan(
     let required_artifacts: HashSet<_> = artifact_job_indices.into_keys().collect();
     let required_bundle_count = required_artifacts
         .iter()
-        .filter(|artifact| matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. }))
+        .filter(|artifact| {
+            matches!(
+                artifact,
+                crate::artifact::reference::ArtifactRef::Bundle { .. }
+            )
+        })
         .count();
     Ok(ReconstructPipelinePlan {
         files,
@@ -358,7 +363,7 @@ pub(crate) struct InstallationChanges {
     pub(crate) corrupt_file_count: usize,
     pub(crate) extra_file_count: usize,
     pub(crate) needs_rebuild: bool,
-    pub(crate) required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub(crate) required_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
 }
 
 pub(crate) fn inspect_installation_changes(
@@ -466,7 +471,7 @@ pub(crate) fn resolve_metadata_updates(
                 if !metadata_differs {
                     false
                 } else {
-                    match crate::file_integrity::verify_full_file_integrity(
+                    match crate::artifact::integrity::verify_full_file_integrity(
                         &path,
                         file.size,
                         crate::artifact::hash::ChunkHash::parse_hex(&file.full_file_hash)?,

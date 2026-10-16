@@ -493,7 +493,7 @@ pub(crate) fn validate_source_inventory(
     constraints: &crate::manifest::constraints::RepositoryConstraints,
 ) -> Result<()> {
     crate::filesystem::constraints::validate_paths(
-        constraints,
+        &constraints.targets,
         inventory
             .metadata_entries
             .iter()

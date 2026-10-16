@@ -1,6 +1,5 @@
 //! Portable filename policies. These deliberately do not emulate volume-specific
 //! Unicode tables; destination validation remains authoritative for a real volume.
-use crate::manifest::constraints::{FilesystemTarget, RepositoryConstraints};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -89,13 +88,48 @@ pub(crate) fn windows_name_reason(name: &str) -> Option<&'static str> {
     None
 }
 
+/// Destination filesystem whose naming rules a repository may opt into.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum FilesystemTarget {
+    WindowsNtfs,
+    WindowsExfat,
+    LinuxExt4,
+    LinuxExt4Casefold,
+    LinuxBtrfs,
+    MacosApfs,
+    MacosApfsCaseSensitive,
+    IosApfs,
+    AndroidExt4,
+    AndroidF2fs,
+}
+
+impl FilesystemTarget {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WindowsNtfs => "windows-ntfs",
+            Self::WindowsExfat => "windows-exfat",
+            Self::LinuxExt4 => "linux-ext4",
+            Self::LinuxExt4Casefold => "linux-ext4-casefold",
+            Self::LinuxBtrfs => "linux-btrfs",
+            Self::MacosApfs => "macos-apfs",
+            Self::MacosApfsCaseSensitive => "macos-apfs-case-sensitive",
+            Self::IosApfs => "ios-apfs",
+            Self::AndroidExt4 => "android-ext4",
+            Self::AndroidF2fs => "android-f2fs",
+        }
+    }
+}
+
 pub(crate) fn validate_paths<'a>(
-    constraints: &RepositoryConstraints,
+    targets: &[FilesystemTarget],
     paths: impl Iterator<Item = &'a str>,
     operation: &str,
     snapshot_id: Option<&str>,
 ) -> Result<()> {
-    if constraints.targets.is_empty() {
+    if targets.is_empty() {
         for path in paths {
             super::paths::validate_manifest_relative_path(path, false)?;
         }
@@ -107,7 +141,7 @@ pub(crate) fn validate_paths<'a>(
         super::paths::validate_manifest_relative_path(path, false)?;
     }
     let mut violations = Vec::new();
-    for target in constraints.targets.iter().copied().collect::<BTreeSet<_>>() {
+    for target in targets.iter().copied().collect::<BTreeSet<_>>() {
         let uses_windows_naming = matches!(
             target,
             FilesystemTarget::WindowsNtfs | FilesystemTarget::WindowsExfat
@@ -240,16 +274,9 @@ pub(crate) fn validate_paths<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::constraints::RepositoryConstraints;
     fn check(target: FilesystemTarget, paths: &[&str]) -> Result<()> {
-        validate_paths(
-            &RepositoryConstraints {
-                targets: vec![target],
-                ..Default::default()
-            },
-            paths.iter().copied(),
-            "capture",
-            None,
-        )
+        validate_paths(&[target], paths.iter().copied(), "capture", None)
     }
     #[test]
     fn windows_rejects_names_and_directory_aliases_but_linux_accepts_them() {
@@ -300,24 +327,8 @@ mod tests {
         };
         assert_eq!(a, b);
 
-        assert!(
-            validate_paths(
-                &RepositoryConstraints::default(),
-                ["NUL.txt"].into_iter(),
-                "capture",
-                None
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_paths(
-                &RepositoryConstraints::default(),
-                ["../bad"].into_iter(),
-                "capture",
-                None
-            )
-            .is_err()
-        );
+        assert!(validate_paths(&[], ["NUL.txt"].into_iter(), "capture", None).is_ok());
+        assert!(validate_paths(&[], ["../bad"].into_iter(), "capture", None).is_err());
         assert!(
             serde_json::from_str::<RepositoryConstraints>(r#"{"targets":["windwos"]}"#).is_err()
         );

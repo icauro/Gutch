@@ -25,7 +25,7 @@ pub(crate) fn validate_existing_constraints(
     for id in super::inventory::list_repo_snapshot_ids(&paths)? {
         let manifest = super::snapshot_manifests::load_snapshot_manifest(&paths, &id)?;
         crate::filesystem::constraints::validate_paths(
-            constraints,
+            &constraints.targets,
             manifest.entries.iter().map(|entry| entry.path()),
             operation,
             Some(&id),

@@ -1,12 +1,12 @@
 use super::*;
 use crate::capture::plan::plan_snapshot_capture;
+use crate::capture::source_operations::build_source_snapshot_ops_candidate;
 use crate::manifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::snapshots::retag_snapshot_by_id;
-use crate::repo::status::build_source_snapshot_ops_candidate;
 use crate::snapshot::identity::compute_snapshot_id_from_entries;
 
 #[test]
@@ -30,12 +30,12 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
         executable: false,
         read_only: false,
         full_file_hash: crate::artifact::hash::hash_hex(
-            &crate::file_integrity::hash_file(new_source.join("game.exe").as_path()).unwrap(),
+            &crate::artifact::integrity::hash_file(new_source.join("game.exe").as_path()).unwrap(),
         ),
         chunks: vec![crate::manifest::ChunkRef {
             chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
                 &crate::artifact::hash::hash_hex(
-                    &crate::file_integrity::hash_file(new_source.join("game.exe").as_path())
+                    &crate::artifact::integrity::hash_file(new_source.join("game.exe").as_path())
                         .unwrap(),
                 ),
             )

@@ -251,7 +251,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
             &snapshot_manifest.snapshot_id,
         )?;
         crate::filesystem::constraints::validate_paths(
-            &constraints,
+            &constraints.targets,
             snapshot_manifest.entries.iter().map(|entry| entry.path()),
             "publish snapshot",
             Some(&snapshot_manifest.snapshot_id),

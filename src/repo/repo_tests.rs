@@ -16,15 +16,12 @@ use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshot
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
-use crate::repo::status::discover_source_snapshot_operations;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 
 use crate::manifest;
-use crate::manifest::gutch_repo::GutchRepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::repo::status::SourceSnapshotOperationDisposition;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
     let mut tags = manifest::SnapshotTagSet::default();
@@ -437,58 +434,6 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     assert!(verification.ok);
     assert_eq!(verification.snapshots[0].required_artifact_count, 1);
     assert_eq!(verification.snapshots[0].corrupt_artifact_count, 0);
-}
-
-#[test]
-fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
-    let root = std::env::temp_dir().join(format!(
-        "gutch_source_discover_test_{}_{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    ));
-    let repo_root = root.join("repo");
-    let source_root = root.join("source-snapshots");
-    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
-    let _ = std::fs::remove_dir_all(&root);
-
-    ensure_gutch_repo_layout(&repo_paths, "mods").unwrap();
-
-    let repo_manifest = GutchRepoManifest::new("mods".to_string());
-    std::fs::write(
-        &repo_paths.repo_metadata_path,
-        serde_json::to_string_pretty(&repo_manifest).unwrap(),
-    )
-    .unwrap();
-
-    std::fs::create_dir_all(source_root.join("ae2-v15.4.10-loader-fabric-mc-1.21")).unwrap();
-    std::fs::create_dir_all(source_root.join("not-a-snapshot-folder")).unwrap();
-
-    let candidates = discover_source_snapshot_operations(&repo_root, &source_root).unwrap();
-
-    assert_eq!(candidates.len(), 2);
-    // Folder names are not interpreted as tags.
-    assert_eq!(
-        candidates[0].folder_name,
-        "ae2-v15.4.10-loader-fabric-mc-1.21"
-    );
-    assert_eq!(candidates[0].version_tag, "");
-    assert_eq!(
-        candidates[0].disposition,
-        SourceSnapshotOperationDisposition::Unchanged
-    );
-    // Every discovered directory is a valid tagless source.
-    assert_eq!(candidates[1].folder_name, "not-a-snapshot-folder");
-    assert_eq!(
-        candidates[1].disposition,
-        SourceSnapshotOperationDisposition::Unchanged
-    );
-    assert!(
-        candidates
-            .iter()
-            .all(|candidate| candidate.snapshot_tags.is_empty())
-    );
-
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

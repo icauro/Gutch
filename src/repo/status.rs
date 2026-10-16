@@ -15,7 +15,6 @@ use crate::repo::index::load_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
-use crate::snapshot::identity::source_modified_at_from_directory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,33 +67,6 @@ pub struct RepoSnapshotStatus {
     pub file_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_readiness_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SourceSnapshotOperationCandidate {
-    pub path: String,
-    pub folder_name: String,
-    #[serde(default)]
-    pub source_modified_at: String,
-    pub version_tag: String,
-    pub os: String,
-    pub arch: String,
-    #[serde(rename = "tags")]
-    pub snapshot_tags: manifest::SnapshotTagSet,
-    #[serde(default)]
-    pub disposition: SourceSnapshotOperationDisposition,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceSnapshotOperationDisposition {
-    #[default]
-    Unchanged,
-    Capture,
-    Invalid,
 }
 
 pub fn read_repo_status(repo_root: &Path) -> Result<RepoStatus> {
@@ -157,60 +129,6 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     })
 }
 
-pub fn discover_source_snapshot_operations(
-    repo_root: &Path,
-    source_snapshots_root: &Path,
-) -> Result<Vec<SourceSnapshotOperationCandidate>> {
-    if !source_snapshots_root.exists() {
-        return Err(Error::manifest(format!(
-            "source snapshots path does not exist: {}",
-            source_snapshots_root.display()
-        )));
-    }
-    if !source_snapshots_root.is_dir() {
-        return Err(Error::manifest(format!(
-            "source snapshots path is not a directory: {}",
-            source_snapshots_root.display()
-        )));
-    }
-
-    load_gutch_repo_manifest(repo_root)?;
-    let config =
-        crate::snapshot::source_config::SourceConfig::load_or_default(source_snapshots_root)?;
-    let mut candidates = Vec::new();
-
-    for snapshot in config.discover_snapshot_sources(source_snapshots_root)? {
-        let explicit_tags = snapshot.config_tags.clone().unwrap_or_default();
-        match build_source_snapshot_ops_candidate(&snapshot.path, &explicit_tags) {
-            Ok(candidate) => candidates.push(candidate),
-            Err(err) => {
-                let folder_name = snapshot
-                    .path
-                    .file_name()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                if !folder_name.is_empty() {
-                    candidates.push(SourceSnapshotOperationCandidate {
-                        path: snapshot.path.display().to_string(),
-                        folder_name,
-                        source_modified_at: String::new(),
-                        version_tag: String::new(),
-                        os: String::new(),
-                        arch: String::new(),
-                        snapshot_tags: manifest::SnapshotTagSet::default(),
-                        disposition: SourceSnapshotOperationDisposition::Invalid,
-                        error: Some(err.to_string()),
-                    });
-                }
-            }
-        }
-    }
-
-    candidates.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(candidates)
-}
-
 fn empty_repo_check_status(repo_path: String, exists: bool, error: Option<String>) -> RepoStatus {
     RepoStatus {
         exists,
@@ -231,7 +149,7 @@ fn empty_repo_check_status(repo_path: String, exists: bool, error: Option<String
 fn check_snapshot_manifests(
     repo_paths: &GutchRepoPaths,
     snapshots_root: &Path,
-    available_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
+    available_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
 ) -> Result<Vec<RepoSnapshotStatus>> {
     if !snapshots_root.exists() {
         return Ok(Vec::new());
@@ -258,13 +176,19 @@ fn check_snapshot_manifests(
         let required_bundle_count = required_artifacts
             .iter()
             .filter(|artifact| {
-                matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. })
+                matches!(
+                    artifact,
+                    crate::artifact::reference::ArtifactRef::Bundle { .. }
+                )
             })
             .count();
         let missing_bundle_count = required_artifacts
             .iter()
             .filter(|artifact| {
-                matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. })
+                matches!(
+                    artifact,
+                    crate::artifact::reference::ArtifactRef::Bundle { .. }
+                )
             })
             .filter(|artifact| !available_artifacts.contains(*artifact))
             .count();
@@ -305,43 +229,4 @@ fn check_snapshot_manifests(
     snapshots.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
 
     Ok(snapshots)
-}
-
-pub(crate) fn build_source_snapshot_ops_candidate(
-    path: &Path,
-    explicit_tags: &manifest::SnapshotTagSet,
-) -> Result<SourceSnapshotOperationCandidate> {
-    let source_modified_at = source_modified_at_from_directory(path)?;
-    build_source_snapshot_ops_candidate_with_modified_at(path, explicit_tags, source_modified_at)
-}
-
-pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
-    path: &Path,
-    explicit_tags: &manifest::SnapshotTagSet,
-    source_modified_at: String,
-) -> Result<SourceSnapshotOperationCandidate> {
-    let normalized_tags = explicit_tags.normalized()?;
-
-    let folder_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            Error::manifest(format!("invalid source snapshot path: {}", path.display()))
-        })?
-        .to_string();
-
-    let summary = summarize_snapshot_tags(&normalized_tags);
-
-    Ok(SourceSnapshotOperationCandidate {
-        path: path.display().to_string(),
-        folder_name,
-        source_modified_at,
-        version_tag: summary.version_tag,
-        os: summary.os,
-        arch: summary.arch,
-        snapshot_tags: normalized_tags,
-        disposition: SourceSnapshotOperationDisposition::Unchanged,
-        error: None,
-    })
 }

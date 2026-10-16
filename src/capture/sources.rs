@@ -76,8 +76,8 @@ pub fn capture_snapshots(
 fn collect_capture_sources(
     source_root: Option<PathBuf>,
     explicit_dirs: Vec<PathBuf>,
-) -> crate::Result<Vec<crate::snapshot::source_config::ResolvedSourceSnapshot>> {
-    let mut sources: Vec<crate::snapshot::source_config::ResolvedSourceSnapshot> = Vec::new();
+) -> crate::Result<Vec<crate::capture::source_config::ResolvedSourceSnapshot>> {
+    let mut sources: Vec<crate::capture::source_config::ResolvedSourceSnapshot> = Vec::new();
     if let Some(source_root) = source_root {
         if !source_root.is_dir() {
             return Err(crate::Error::manifest(format!(
@@ -85,11 +85,11 @@ fn collect_capture_sources(
                 source_root.display()
             )));
         }
-        let config = crate::snapshot::source_config::SourceConfig::load_or_default(&source_root)?;
+        let config = crate::capture::source_config::SourceConfig::load_or_default(&source_root)?;
         sources.extend(config.discover_snapshot_sources(&source_root)?);
     }
     for dir in explicit_dirs {
-        sources.push(crate::snapshot::source_config::ResolvedSourceSnapshot {
+        sources.push(crate::capture::source_config::ResolvedSourceSnapshot {
             path: dir.clone(),
             relative_path: dir,
             config_tags: None,
@@ -120,7 +120,7 @@ fn resolve_single_source_config_tags(
             dir.display()
         ))
     })?;
-    let Some(config) = crate::snapshot::source_config::SourceConfig::load(parent)? else {
+    let Some(config) = crate::capture::source_config::SourceConfig::load(parent)? else {
         return Ok(None);
     };
     let Some(name) = dir.file_name().and_then(|value| value.to_str()) else {
@@ -130,14 +130,14 @@ fn resolve_single_source_config_tags(
         )));
     };
     match config.ingestion_mode {
-        crate::snapshot::source_config::IngestionMode::Auto => Ok(None),
-        crate::snapshot::source_config::IngestionMode::Explicit => {
+        crate::capture::source_config::IngestionMode::Auto => Ok(None),
+        crate::capture::source_config::IngestionMode::Explicit => {
             let entry = config
                 .explicit_ingestion_rules
                 .snapshots
                 .iter()
                 .find(|rule| {
-                    crate::snapshot::source_config::normalize_relative_path(&rule.path)
+                    crate::capture::source_config::normalize_relative_path(&rule.path)
                         .ok()
                         .as_deref()
                         == Some(name)

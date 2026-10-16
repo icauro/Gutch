@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 fn output_verification_uses_file_concurrency_without_misreporting_pool_size() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("large.bin");
-    let bytes = vec![37; crate::file_integrity::PARALLEL_FULL_HASH_MIN_BYTES as usize];
+    let bytes = vec![37; crate::artifact::integrity::PARALLEL_FULL_HASH_MIN_BYTES as usize];
     std::fs::write(&path, &bytes).unwrap();
     let file_plan = ReconstructPipelineFile {
         path: "large.bin".into(),
@@ -327,7 +327,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
         crate::artifact::profiles::CompressionKind::Zstd,
         Some(3),
     );
-    let replacement_artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
+    let replacement_artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
         hash: replacement_chunk_hash.clone(),
     };
     let replacement_path = replacement_artifact.local_path(&repo_paths).unwrap();
@@ -388,7 +388,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     assert!(plan.jobs.iter().any(|job| matches!(
         job,
         ReconstructJob::Artifact(ReconstructArtifactJob {
-            artifact: crate::repo::artifacts::ArtifactRef::LooseChunk { .. },
+            artifact: crate::artifact::reference::ArtifactRef::LooseChunk { .. },
             ..
         })
     )));
@@ -436,7 +436,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
 
     let chunk_hash = test_hash(b"game");
-    let artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
+    let artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
     };
     let chunk_path = artifact.local_path(&repo_paths).unwrap();
@@ -537,7 +537,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     builder.add_chunk(crate::artifact::hash::ChunkHash::of(third), third.to_vec());
     let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
     let bundle_size = bundle_bytes.len() as u32;
-    let bundle = crate::repo::artifacts::ArtifactRef::Bundle {
+    let bundle = crate::artifact::reference::ArtifactRef::Bundle {
         id: bundle_id.clone().into(),
     };
     let bundle_path = bundle.local_path(&repo_paths).unwrap();
@@ -629,7 +629,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     assert!(matches!(
         &plan.jobs[0],
         ReconstructJob::Artifact(job)
-            if matches!(job.artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. })
+            if matches!(job.artifact, crate::artifact::reference::ArtifactRef::Bundle { .. })
                 && job.chunks.len() == 3
     ));
 
@@ -698,7 +698,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         let mut builder = crate::artifact::bundle::BundleBuilder::new(compression.clone());
         builder.add_chunk(hash, bytes.to_vec());
         let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
-        let artifact = crate::repo::artifacts::ArtifactRef::Bundle {
+        let artifact = crate::artifact::reference::ArtifactRef::Bundle {
             id: bundle_id.clone().into(),
         };
         let artifact_path = artifact.local_path(&repo_paths).unwrap();
@@ -809,7 +809,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
     let compression = crate::artifact::profiles::CompressionProfile::default();
     let chunk_hash = test_hash(b"game");
-    let artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
+    let artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
     };
     let payload = crate::test_util::loose_bytes(b"game", &compression);
@@ -919,7 +919,7 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                 builder.add_chunk(hash, bytes.to_vec());
                 let (id, encoded) = builder.build_with_id().unwrap();
                 (
-                    crate::repo::artifacts::ArtifactRef::Bundle { id: id.into() },
+                    crate::artifact::reference::ArtifactRef::Bundle { id: id.into() },
                     encoded,
                 )
             } else {
@@ -927,7 +927,7 @@ fn artifact_hash_forwarding_requires_complete_file_and_successful_artifact() {
                 crate::artifact::loose::write_loose_chunk(&mut encoded, hash, bytes, &profile)
                     .unwrap();
                 (
-                    crate::repo::artifacts::ArtifactRef::LooseChunk {
+                    crate::artifact::reference::ArtifactRef::LooseChunk {
                         hash: hash.to_hex(),
                     },
                     encoded,
@@ -1101,7 +1101,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     };
     for first_bundle_cached in [false, true] {
         let existing = if first_bundle_cached {
-            HashSet::from([crate::repo::artifacts::ArtifactRef::Bundle {
+            HashSet::from([crate::artifact::reference::ArtifactRef::Bundle {
                 id: first_bundle.clone().into(),
             }])
         } else {
@@ -1130,10 +1130,10 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
             HashSet::from([first_bundle.as_str(), second_bundle.as_str()])
         );
         assert_eq!(plan.reused_source_chunk_count, 11);
-        let first_artifact = crate::repo::artifacts::ArtifactRef::Bundle {
+        let first_artifact = crate::artifact::reference::ArtifactRef::Bundle {
             id: first_bundle.as_str().into(),
         };
-        let second_artifact = crate::repo::artifacts::ArtifactRef::Bundle {
+        let second_artifact = crate::artifact::reference::ArtifactRef::Bundle {
             id: second_bundle.as_str().into(),
         };
         if first_bundle_cached {
@@ -1261,7 +1261,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
 fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
     use crate::artifact::hash::ChunkHash;
     use crate::artifact::profiles::ArtifactStorageMode;
-    use crate::repo::artifacts::ArtifactRef;
+    use crate::artifact::reference::ArtifactRef;
     let workspace = tempfile::tempdir().unwrap();
     let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(workspace.path());
     let hash = ChunkHash::of(b"game");

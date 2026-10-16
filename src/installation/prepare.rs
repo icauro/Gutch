@@ -18,7 +18,10 @@ pub(super) fn load_repo_snapshot_manifest(
     let snapshot_manifest =
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, snapshot_id)?;
     crate::filesystem::constraints::validate_paths(
-        &repo_manifest.constraints.clone().unwrap_or_default(),
+        repo_manifest
+            .constraints
+            .as_ref()
+            .map_or(&[], |constraints| constraints.targets.as_slice()),
         snapshot_manifest.entries.iter().map(|entry| entry.path()),
         "installation",
         Some(snapshot_id),
@@ -36,7 +39,7 @@ pub(crate) struct ReconstructionInputs<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub chunk_index: &'a crate::repo::index::ChunkIndex,
     pub repo_paths: &'a GutchRepoPaths,
-    pub existing_artifacts: &'a std::collections::HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub existing_artifacts: &'a std::collections::HashSet<crate::artifact::reference::ArtifactRef>,
     pub source: Option<super::types::SnapshotReconstructSource<'a>>,
     pub runtime_hints: &'a crate::runtime::RuntimeResourceHints,
     pub control: &'a crate::progress::GutchOperationControl,

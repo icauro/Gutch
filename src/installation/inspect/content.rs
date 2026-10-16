@@ -156,7 +156,7 @@ fn verify_file_fast(
     control: &GutchOperationControl,
 ) -> Result<Vec<RepairIssue>> {
     let expected_full_hash = ChunkHash::parse_hex(&prepared_file.manifest.full_file_hash)?;
-    let integrity = crate::file_integrity::verify_full_file_integrity(
+    let integrity = crate::artifact::integrity::verify_full_file_integrity(
         &prepared_file.path,
         prepared_file.manifest.size,
         expected_full_hash,

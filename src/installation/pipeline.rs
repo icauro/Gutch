@@ -40,7 +40,7 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) snapshot_id: &'a str,
     pub(super) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
     pub(super) runtime_hints: &'a RuntimeResourceHints,
-    pub(super) existing_artifacts: &'a HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub(super) existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
     pub(super) pending_artifact_downloads: &'a [PendingArtifactDownload],
     pub(super) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     pub(super) control: &'a GutchOperationControl,
@@ -516,9 +516,9 @@ pub(super) fn run_reconstruction_jobs(
 
 fn validate_artifact_jobs(
     jobs: &[ReconstructJob],
-    existing_artifacts: &HashSet<crate::repo::artifacts::ArtifactRef>,
+    existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
     pending_downloads: &[PendingArtifactDownload],
-) -> Result<HashMap<crate::repo::artifacts::ArtifactRef, usize>> {
+) -> Result<HashMap<crate::artifact::reference::ArtifactRef, usize>> {
     let pending_artifacts = pending_downloads
         .iter()
         .map(|download| download.artifact.clone())
@@ -550,7 +550,7 @@ fn validate_artifact_jobs(
 fn start_artifact_downloads(
     pending_artifact_downloads: &[PendingArtifactDownload],
     artifact_priorities: HashMap<
-        crate::repo::artifacts::ArtifactRef,
+        crate::artifact::reference::ArtifactRef,
         crate::transfer::download::ArtifactPriority,
     >,
     transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,

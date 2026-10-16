@@ -43,7 +43,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<Strin
 
 pub(crate) fn list_repo_artifact_paths(
     paths: &GutchRepoPaths,
-) -> Result<Vec<(crate::repo::artifacts::ArtifactRef, PathBuf)>> {
+) -> Result<Vec<(crate::artifact::reference::ArtifactRef, PathBuf)>> {
     let mut artifacts = Vec::new();
     visit_repo_artifacts(paths, |artifact, entry| {
         artifacts.push((artifact, entry.into_path()));
@@ -54,7 +54,7 @@ pub(crate) fn list_repo_artifact_paths(
 
 fn visit_repo_artifacts(
     paths: &GutchRepoPaths,
-    mut visit: impl FnMut(crate::repo::artifacts::ArtifactRef, walkdir::DirEntry) -> Result<()>,
+    mut visit: impl FnMut(crate::artifact::reference::ArtifactRef, walkdir::DirEntry) -> Result<()>,
 ) -> Result<()> {
     if paths.bundles_root.exists() {
         for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
@@ -66,7 +66,7 @@ fn visit_repo_artifacts(
             }
             if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
                 visit(
-                    crate::repo::artifacts::ArtifactRef::Bundle {
+                    crate::artifact::reference::ArtifactRef::Bundle {
                         id: bundle_id.into(),
                     },
                     entry,
@@ -86,7 +86,7 @@ fn visit_repo_artifacts(
                 continue;
             };
             if crate::artifact::hash::ChunkHash::parse_hex(hash).is_ok() {
-                let artifact = crate::repo::artifacts::ArtifactRef::LooseChunk {
+                let artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
                     hash: hash.to_string(),
                 };
                 visit(artifact, entry)?;
@@ -98,7 +98,7 @@ fn visit_repo_artifacts(
 
 #[derive(Default)]
 pub(crate) struct ArtifactInventory {
-    pub artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
     pub artifact_count: usize,
     pub artifact_bytes: u64,
     pub bundle_count: usize,
@@ -109,7 +109,10 @@ pub(crate) fn scan_artifact_inventory(paths: &GutchRepoPaths) -> Result<Artifact
     let mut inventory = ArtifactInventory::default();
     visit_repo_artifacts(paths, |artifact, entry| {
         let bytes = entry.metadata()?.len();
-        if matches!(artifact, crate::repo::artifacts::ArtifactRef::Bundle { .. }) {
+        if matches!(
+            artifact,
+            crate::artifact::reference::ArtifactRef::Bundle { .. }
+        ) {
             inventory.bundle_count += 1;
             inventory.bundle_bytes += bytes;
         }

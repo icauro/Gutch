@@ -27,7 +27,7 @@ const MAX_TRANSFER_CONCURRENCY: usize = 16;
 
 #[derive(Clone)]
 pub(crate) struct PendingArtifactDownload {
-    pub artifact: crate::repo::artifacts::ArtifactRef,
+    pub artifact: crate::artifact::reference::ArtifactRef,
     pub artifact_id: String,
     pub url: String,
     pub artifact_path: PathBuf,
@@ -56,7 +56,7 @@ impl ArtifactPriority {
 }
 
 pub(crate) enum ArtifactDownloadEvent {
-    Ready(crate::repo::artifacts::ArtifactRef),
+    Ready(crate::artifact::reference::ArtifactRef),
     Failed(Error),
     WorkerDone,
 }
@@ -124,7 +124,7 @@ pub(crate) struct ArtifactDownloadScheduler {
 impl ArtifactDownloadScheduler {
     pub(crate) fn new(
         pending: &[PendingArtifactDownload],
-        priorities: HashMap<crate::repo::artifacts::ArtifactRef, ArtifactPriority>,
+        priorities: HashMap<crate::artifact::reference::ArtifactRef, ArtifactPriority>,
         policy: TransferConcurrencyPolicy,
         download_client: &crate::transfer::http::DownloadClient,
         control: &GutchOperationControl,

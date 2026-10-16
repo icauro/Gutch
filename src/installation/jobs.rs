@@ -14,10 +14,10 @@ pub(crate) struct ReconstructPipelinePlan {
     pub(crate) files: Vec<ReconstructPipelineFile>,
     pub(crate) jobs: Vec<ReconstructJob>,
     pub(crate) missing_artifact_to_file_indices:
-        HashMap<crate::repo::artifacts::ArtifactRef, Vec<usize>>,
+        HashMap<crate::artifact::reference::ArtifactRef, Vec<usize>>,
     pub(crate) missing_artifact_counts: Vec<usize>,
     pub required_bundle_count: usize,
-    pub required_artifacts: HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub required_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
     pub required_artifact_count: usize,
     pub(crate) required_chunk_count: usize,
     pub(crate) reused_source_chunk_count: usize,
@@ -32,7 +32,7 @@ pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub staging_dir: Option<&'a Path>,
     pub source_destination_dir: Option<PathBuf>,
     pub runtime_hints: &'a RuntimeResourceHints,
-    pub existing_artifacts: &'a HashSet<crate::repo::artifacts::ArtifactRef>,
+    pub existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
     pub pending_artifact_downloads: &'a [PendingArtifactDownload],
     pub transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     pub control: &'a GutchOperationControl,
@@ -59,7 +59,7 @@ pub(crate) enum ReconstructJob {
 
 #[derive(Clone)]
 pub(crate) struct ReconstructArtifactJob {
-    pub(crate) artifact: crate::repo::artifacts::ArtifactRef,
+    pub(crate) artifact: crate::artifact::reference::ArtifactRef,
     pub(crate) artifact_path: PathBuf,
     /// Complete encoded length declared by the index, including artifact framing.
     pub(crate) encoded_size: u32,

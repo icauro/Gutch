@@ -55,7 +55,7 @@ impl<'a> TransferDownloadRequest<'a> {
     pub(crate) fn download_to_path(
         self,
         path: &Path,
-        artifact: &crate::repo::artifacts::ArtifactRef,
+        artifact: &crate::artifact::reference::ArtifactRef,
     ) -> Result<()> {
         self.control.checkpoint()?;
         crate::filesystem::write_atomic_with(path, |file| {
@@ -82,7 +82,7 @@ impl<'a> TransferDownloadRequest<'a> {
                     Ok(())
                 },
             )?;
-            if let crate::repo::artifacts::ArtifactRef::Bundle { id } = artifact {
+            if let crate::artifact::reference::ArtifactRef::Bundle { id } = artifact {
                 crate::artifact::bundle::verify_bundle_identity_reader(file, id)?;
             }
             reporter.finish();

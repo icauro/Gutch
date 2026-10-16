@@ -677,7 +677,7 @@ pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     })?;
     let mut hasher = blake3::Hasher::new();
     let mut remaining = content_len;
-    crate::file_integrity::with_hash_read_buffer(|buffer| {
+    crate::artifact::integrity::with_hash_read_buffer(|buffer| {
         while remaining > 0 {
             let take = remaining.min(buffer.len() as u64) as usize;
             file.read_exact(&mut buffer[..take])?;

@@ -5,11 +5,11 @@ use crate::installation::resolve_snapshot_state;
 use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
-use crate::repo::fetch;
-use crate::repo::fetch_types::SnapshotFetchRequest;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::GutchRepoPaths;
 use crate::runtime::RuntimeResourceHints;
+use crate::sync::fetch;
+use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::transfer::types::ArtifactDownload;
 use std::collections::HashSet;
 

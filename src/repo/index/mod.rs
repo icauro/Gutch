@@ -36,7 +36,7 @@ pub(crate) fn preserve_local_chunk_locations(
     incoming: &mut ChunkIndex,
 ) -> Result<()> {
     for (hash, entry) in load_chunk_index(paths)?.entries {
-        let artifact = crate::repo::artifacts::ArtifactRef::from_chunk_entry(&hash, &entry);
+        let artifact = crate::artifact::reference::ArtifactRef::from_chunk_entry(&hash, &entry);
         let artifact_is_cached = artifact.local_path(paths)?.is_file();
         let preserve_local_entry = artifact_is_cached || incoming.entries.get_hash(&hash).is_none();
         if preserve_local_entry {
@@ -61,8 +61,8 @@ pub fn required_bundle_ids(
         crate::repo::artifacts::required_artifacts(snapshot_manifest, chunk_index)?
             .into_iter()
             .filter_map(|artifact| match artifact {
-                crate::repo::artifacts::ArtifactRef::Bundle { id } => Some(id.to_string()),
-                crate::repo::artifacts::ArtifactRef::LooseChunk { .. } => None,
+                crate::artifact::reference::ArtifactRef::Bundle { id } => Some(id.to_string()),
+                crate::artifact::reference::ArtifactRef::LooseChunk { .. } => None,
             })
             .collect(),
     )
@@ -182,7 +182,7 @@ mod cache_merge_tests {
                 local.entries.insert(chunk_hash, local_entry.clone());
                 write_chunk_index(&paths, &local).unwrap();
                 if cached {
-                    let artifact = crate::repo::artifacts::ArtifactRef::from_chunk_entry(
+                    let artifact = crate::artifact::reference::ArtifactRef::from_chunk_entry(
                         &chunk_hash,
                         &local_entry,
                     );

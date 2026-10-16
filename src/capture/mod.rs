@@ -11,5 +11,7 @@ mod progress;
 mod publish;
 pub(crate) mod reuse;
 pub(crate) mod scan;
+pub(crate) mod source_config;
+pub(crate) mod source_operations;
 pub(crate) mod sources;
 pub(crate) mod types;

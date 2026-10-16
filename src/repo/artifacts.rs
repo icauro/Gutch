@@ -2,24 +2,14 @@ use crate::artifact::bundle::BundleTableEntry;
 use crate::artifact::bundle::{BundleReader, verify_bundle_identity_reader};
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::reference::ArtifactRef;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::GutchRepoPaths;
 use crate::{Error, Result};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-/// A persisted artifact that can satisfy one or more logical chunks.
-///
-/// Bundles and loose chunks differ only at this boundary. Snapshot planning,
-/// reconstruction, and verification operate on this type; the remote transfer
-/// layer resolves bundle URLs at its provider-specific boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum ArtifactRef {
-    // Many chunks share a bundle, so retain the index's shared identifier storage.
-    Bundle { id: smol_str::SmolStr },
-    LooseChunk { hash: String },
-}
-
+// Repository lookups for artifact references; the type itself is repository-independent.
 impl ArtifactRef {
     pub(crate) fn from_chunk_entry(chunk_hash: &ChunkHash, entry: &ChunkIndexEntry) -> Self {
         match entry.storage_mode {
@@ -29,13 +19,6 @@ impl ArtifactRef {
             ArtifactStorageMode::LooseChunks => Self::LooseChunk {
                 hash: chunk_hash.to_hex(),
             },
-        }
-    }
-
-    pub(crate) fn id(&self) -> &str {
-        match self {
-            Self::Bundle { id } => id,
-            Self::LooseChunk { hash } => hash,
         }
     }
 

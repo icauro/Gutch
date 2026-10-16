@@ -189,7 +189,7 @@ pub(super) fn publish_snapshot_artifacts(
         }
         if matches!(
             &artifact,
-            crate::repo::artifacts::ArtifactRef::Bundle { .. }
+            crate::artifact::reference::ArtifactRef::Bundle { .. }
         ) {
             required_bundle_count += 1;
         }

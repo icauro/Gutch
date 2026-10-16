@@ -6,14 +6,14 @@ use serde::Serialize;
 
 use crate::Result;
 use crate::capture::reuse::load_capture_reuse_state;
+use crate::capture::source_operations::SourceSnapshotOperationCandidate;
+use crate::capture::source_operations::discover_source_snapshot_operations;
 use crate::progress;
 use crate::progress::GutchOperation;
 use crate::progress::GutchProgressEvent;
 use crate::progress::GutchProgressPhase;
 use crate::progress::GutchProgressSink;
 use crate::repo::status::RepoStatus;
-use crate::repo::status::SourceSnapshotOperationCandidate;
-use crate::repo::status::discover_source_snapshot_operations;
 use crate::repo::status::read_repo_status;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,12 +269,12 @@ impl GutchProgressSink for SnapshotSourcesCandidateProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capture::source_operations::discover_source_snapshot_operations;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
     use crate::repo::paths::GutchRepoPaths;
     use crate::repo::paths::ensure_gutch_repo_layout;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
-    use crate::repo::status::discover_source_snapshot_operations;
     use crate::snapshot::identity::format_system_time_utc;
     use std::time::Duration;
     use std::time::SystemTime;
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn equal_tag_sources_plan_without_removals() {
-        use crate::repo::status::SourceSnapshotOperationDisposition;
+        use crate::capture::source_operations::SourceSnapshotOperationDisposition;
 
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
@@ -357,17 +357,18 @@ mod tests {
             "os=windows".to_string(),
         ])
         .unwrap();
-        let candidate = |folder: &str| crate::repo::status::SourceSnapshotOperationCandidate {
-            path: source_root.join(folder).display().to_string(),
-            folder_name: folder.to_string(),
-            source_modified_at: String::new(),
-            version_tag: String::from("1.0.0"),
-            os: String::from("windows"),
-            arch: String::new(),
-            snapshot_tags: tags.clone(),
-            disposition: SourceSnapshotOperationDisposition::Unchanged,
-            error: None,
-        };
+        let candidate =
+            |folder: &str| crate::capture::source_operations::SourceSnapshotOperationCandidate {
+                path: source_root.join(folder).display().to_string(),
+                folder_name: folder.to_string(),
+                source_modified_at: String::new(),
+                version_tag: String::from("1.0.0"),
+                os: String::from("windows"),
+                arch: String::new(),
+                snapshot_tags: tags.clone(),
+                disposition: SourceSnapshotOperationDisposition::Unchanged,
+                error: None,
+            };
         let plan = plan_snapshot_sources_capture_with_context(
             &repo_root,
             Some(&source_root),
@@ -384,7 +385,7 @@ mod tests {
     fn pre_scan_contracts_carry_no_snapshot_id() {
         use crate::capture::contracts::SnapshotCapturePlan;
 
-        let candidate = crate::repo::status::SourceSnapshotOperationCandidate {
+        let candidate = crate::capture::source_operations::SourceSnapshotOperationCandidate {
             path: "game-a".to_string(),
             folder_name: String::from("game-a"),
             source_modified_at: String::new(),
@@ -395,7 +396,8 @@ mod tests {
                 "version=1.0.0".to_string()
             ])
             .unwrap(),
-            disposition: crate::repo::status::SourceSnapshotOperationDisposition::Unchanged,
+            disposition:
+                crate::capture::source_operations::SourceSnapshotOperationDisposition::Unchanged,
             error: None,
         };
         let candidate_json = serde_json::to_value(&candidate).unwrap();

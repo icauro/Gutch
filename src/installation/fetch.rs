@@ -5,12 +5,12 @@ use crate::installation::jobs::ReconstructPipelineApplyRequest;
 use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
 use crate::installation::types::{InstallationReconstructResult, SnapshotReconstructSource};
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::repo::fetch::{
+use crate::runtime::RuntimeResourceHints;
+use crate::sync::fetch::{
     build_fetch_result, prepare_snapshot_fetch, publish_fetched_snapshot,
     select_pending_artifact_downloads,
 };
-use crate::repo::fetch_types::{SnapshotFetchRequest, SnapshotFetchResult};
-use crate::runtime::RuntimeResourceHints;
+use crate::sync::fetch_types::{SnapshotFetchRequest, SnapshotFetchResult};
 use crate::transfer::http::build_download_client;
 use crate::transfer::progress::FetchTransferProgress;
 use std::path::PathBuf;
@@ -128,7 +128,7 @@ pub fn fetch_and_reconstruct_snapshot(
                     .filter(|download| {
                         matches!(
                             download.artifact,
-                            crate::repo::artifacts::ArtifactRef::Bundle { .. }
+                            crate::artifact::reference::ArtifactRef::Bundle { .. }
                         )
                     })
                     .count(),
