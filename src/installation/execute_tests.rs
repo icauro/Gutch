@@ -1177,3 +1177,81 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         );
     }
 }
+
+#[test]
+fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
+    use crate::artifact::hash::ChunkHash;
+    use crate::artifact::profiles::ArtifactStorageMode;
+    use crate::repo::artifacts::ArtifactRef;
+    let workspace = tempfile::tempdir().unwrap();
+    let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(workspace.path());
+    let hash = ChunkHash::from_blake3(blake3::hash(b"game"));
+    for mode in [
+        ArtifactStorageMode::Bundled,
+        ArtifactStorageMode::LooseChunks,
+    ] {
+        let id = match mode {
+            ArtifactStorageMode::Bundled => "ab".repeat(32),
+            ArtifactStorageMode::LooseChunks => hash.to_hex(),
+        };
+        let entry = crate::repo::index::ChunkIndexEntry::new(128, 0, id.into(), 4, mode);
+        let artifact = ArtifactRef::from_chunk_entry(&hash, &entry);
+        let index = crate::repo::index::ChunkIndex {
+            format_version: "1".into(),
+            entries: [(hash, entry)].into_iter().collect(),
+        };
+        let mut snapshot = snapshot_manifest_with_file("snapshot", &hash.to_hex());
+        let mut first = snapshot.files().next().unwrap().clone();
+        first.path = "first.bin".into();
+        first.chunks.push(first.chunks[0].clone());
+        first.size = 8;
+        first.full_file_hash = test_hash(b"gamegame");
+        let mut second = first.clone();
+        second.path = "second.bin".into();
+        second.chunks.truncate(1);
+        second.size = 4;
+        second.full_file_hash = hash.to_hex();
+        snapshot.set_files(vec![first, second]);
+        for cached in [false, true] {
+            let available = if cached {
+                HashSet::from([artifact.clone()])
+            } else {
+                HashSet::new()
+            };
+            let plan = build_reconstruct_pipeline_plan(&snapshot, &index, &paths, &available, None)
+                .unwrap();
+            assert_eq!(plan.jobs.len(), 1);
+            let ReconstructJob::Artifact(job) = &plan.jobs[0] else {
+                panic!("expected artifact job")
+            };
+            assert_eq!(job.chunks.len(), 1);
+            let targets = job.targets[job.chunks[0].target_range.clone()]
+                .iter()
+                .map(|target| (target.file_index, target.file_offset))
+                .collect::<Vec<_>>();
+            assert_eq!(targets, [(0, 0), (0, 4), (1, 0)]);
+            assert_eq!(
+                plan.missing_artifact_counts,
+                if cached { vec![0, 0] } else { vec![1, 1] }
+            );
+            if cached {
+                assert!(plan.missing_artifact_to_file_indices.is_empty());
+            } else {
+                assert_eq!(plan.missing_artifact_to_file_indices[&artifact], [0, 1]);
+            }
+        }
+        // Reject wrong sizes before and after the same hash has been resolved.
+        for (file_index, chunk_index) in [(0, 0), (0, 1), (1, 0)] {
+            let mut invalid = snapshot.clone();
+            let mut files = invalid.files().cloned().collect::<Vec<_>>();
+            files[file_index].chunks[chunk_index].raw_size = 3;
+            files[file_index].size -= 1;
+            invalid.set_files(files);
+            let error =
+                build_reconstruct_pipeline_plan(&invalid, &index, &paths, &HashSet::new(), None)
+                    .err()
+                    .expect("wrong chunk size must be rejected");
+            assert!(error.to_string().contains("manifest 3, index 4"), "{error}");
+        }
+    }
+}

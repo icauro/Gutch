@@ -1007,3 +1007,34 @@ indexes, missing bundles and loose artifacts. Installation coverage includes an
 incorrect declared loose size and confirms that failed artifacts do not publish
 precomputed file hashes. Artifact and ordinal validation remain in the index owner.
 Evidence: `tests/.artifacts/research_optimization_pass/round28_report.md`.
+
+
+## Reuse resolved reconstruction chunk positions, October 2026
+
+Reconstruction planning keys its existing chunk-position map by content hash and
+retains both the artifact-job index and chunk position. The first occurrence
+resolves the repository index and artifact job; repeated occurrences go directly
+to that position. Every reference still validates its raw size and records its
+own file index, offset, and missing-artifact dependency. The resolved positions
+are scoped to one immutable-index plan and are no longer used after sorting.
+Source-file and source-chunk reuse retain their existing paths.
+
+On Windows with warm caches, the small repeated-content fixture has 64 identical
+1 MiB files and 835 distinct 1 KiB-preset chunks. A 41-pair confirmation reduced
+whole reconstruction median from 177.21 to 172.26 ms (2.8%). After consolidating
+size checks, 41 final pairs reduced 175.70 to 172.07 ms (2.1%); the paired median
+change was -2.0%, with a bootstrap interval of -3.1% to -1.2%. The initial 21-pair
+ratio of medians was flat, so the repeated confirmations matter.
+
+A separate seven-pair summary profile reduced planning from 8.53 to 3.52 ms
+(58.7%). Profiling was separate from unprofiled whole-operation comparisons.
+The four-file 64 MiB / 53,822-unique-chunk control did not establish a consistent
+speed change; no general throughput or process-memory benefit is claimed.
+Every reconstruction trial matched independently calculated source SHA-256 maps.
+
+Regression coverage checks repeated references within and across files, bundled
+and loose storage, available and missing artifacts, all output offsets, and one
+missing dependency per file. Incorrect declared sizes are rejected on the first
+occurrence and after a hash has already been resolved. File formats, artifact
+verification and publication ordering are unchanged. Evidence:
+`tests/.artifacts/research_optimization_pass/round31_report.md`.

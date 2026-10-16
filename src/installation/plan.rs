@@ -63,7 +63,8 @@ pub(crate) fn build_reconstruct_pipeline_plan(
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
     let mut jobs = Vec::new();
-    let mut chunk_positions: HashMap<(usize, crate::artifact::hash::ChunkHash), usize> =
+    // One indexed location per hash; repeated references reuse its resolved job and slot.
+    let mut artifact_chunk_positions: HashMap<crate::artifact::hash::ChunkHash, (usize, usize)> =
         HashMap::new();
     // Jobs and their chunks already have dense indices; targets use the same layout.
     let mut chunk_targets: Vec<Vec<Vec<ReconstructTarget>>> = Vec::new();
@@ -164,64 +165,68 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                     })?;
                 continue;
             }
-            let entry = chunk_index
-                .entries
-                .get_hash(&chunk_ref.chunk_hash)
-                .ok_or_else(|| {
-                    Error::manifest(format!(
-                        "missing chunk index entry for required chunk '{}'",
-                        chunk_ref.chunk_hash
-                    ))
-                })?;
-            if entry.raw_size != chunk_ref.raw_size {
-                return Err(Error::manifest(format!(
-                    "chunk '{}' size mismatch in file '{}': manifest {}, index {}",
-                    chunk_ref.chunk_hash, file_manifest.path, chunk_ref.raw_size, entry.raw_size
-                )));
-            }
-            let artifact =
-                crate::repo::artifacts::ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry);
-            let job_index = if let Some(&job_index) = artifact_job_indices.get(&artifact) {
-                job_index
-            } else {
-                let job_index = jobs.len();
-                jobs.push(ReconstructJob::Artifact(ReconstructArtifactJob {
-                    artifact: artifact.clone(),
-                    artifact_path: artifact.local_path(repo_paths)?,
-                    encoded_size: entry.artifact_size,
-                    chunks: Vec::new(),
-                    targets: Vec::new(),
-                }));
-                // Copy/source jobs keep empty slots so artifact slots retain job indices.
-                chunk_targets.resize_with(jobs.len(), Vec::new);
-                artifact_job_indices.insert(artifact.clone(), job_index);
-                job_index
+            let hash = chunk_ref.chunk_hash;
+            let (job_index, position) = match artifact_chunk_positions.entry(hash) {
+                std::collections::hash_map::Entry::Occupied(position) => *position.get(),
+                std::collections::hash_map::Entry::Vacant(position_entry) => {
+                    let entry = chunk_index
+                        .entries
+                        .get_hash(&chunk_ref.chunk_hash)
+                        .ok_or_else(|| {
+                            Error::manifest(format!(
+                                "missing chunk index entry for required chunk '{}'",
+                                chunk_ref.chunk_hash
+                            ))
+                        })?;
+                    let artifact = crate::repo::artifacts::ArtifactRef::from_chunk_entry(
+                        &chunk_ref.chunk_hash,
+                        entry,
+                    );
+                    let job_index = if let Some(&job_index) = artifact_job_indices.get(&artifact) {
+                        job_index
+                    } else {
+                        let job_index = jobs.len();
+                        jobs.push(ReconstructJob::Artifact(ReconstructArtifactJob {
+                            artifact: artifact.clone(),
+                            artifact_path: artifact.local_path(repo_paths)?,
+                            encoded_size: entry.artifact_size,
+                            chunks: Vec::new(),
+                            targets: Vec::new(),
+                        }));
+                        // Copy/source jobs keep empty slots so artifact slots retain job indices.
+                        chunk_targets.resize_with(jobs.len(), Vec::new);
+                        artifact_job_indices.insert(artifact.clone(), job_index);
+                        job_index
+                    };
+                    let ReconstructJob::Artifact(artifact_job) = &mut jobs[job_index] else {
+                        unreachable!("artifact job index points to another job kind");
+                    };
+                    let position = artifact_job.chunks.len();
+                    chunk_targets[job_index].push(Vec::new());
+                    artifact_job.chunks.push(ReconstructArtifactChunk {
+                        chunk_hash: hash,
+                        raw_size: entry.raw_size,
+                        target_range: 0..0,
+                    });
+                    *position_entry.insert((job_index, position))
+                }
             };
             let ReconstructJob::Artifact(artifact_job) = &mut jobs[job_index] else {
                 unreachable!("artifact job index points to another job kind");
             };
-            let hash = chunk_ref.chunk_hash;
-            let position = *chunk_positions.entry((job_index, hash)).or_insert_with(|| {
-                let position = artifact_job.chunks.len();
-                chunk_targets[job_index].push(Vec::new());
-                artifact_job.chunks.push(ReconstructArtifactChunk {
-                    chunk_hash: hash,
-                    raw_size: chunk_ref.raw_size,
-                    target_range: 0..0,
-                });
-                position
-            });
-            if artifact_job.chunks[position].raw_size != chunk_ref.raw_size {
-                return Err(Error::manifest(
-                    "inconsistent chunk sizes in reconstruction plan",
-                ));
+            let indexed_raw_size = artifact_job.chunks[position].raw_size;
+            if indexed_raw_size != chunk_ref.raw_size {
+                return Err(Error::manifest(format!(
+                    "chunk '{}' size mismatch in file '{}': manifest {}, index {}",
+                    hash, file_manifest.path, chunk_ref.raw_size, indexed_raw_size
+                )));
             }
             chunk_targets[job_index][position].push(ReconstructTarget {
                 file_index,
                 file_offset,
             });
-            if !existing_artifacts.contains(&artifact) {
-                missing_artifact_dependencies.insert(artifact.clone());
+            if !existing_artifacts.contains(&artifact_job.artifact) {
+                missing_artifact_dependencies.insert(artifact_job.artifact.clone());
             }
             file_offset = file_offset
                 .checked_add(u64::from(chunk_ref.raw_size))
