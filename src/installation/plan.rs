@@ -122,7 +122,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         }
 
         let file_index = files.len();
-        let mut missing_artifact_dependencies = HashSet::new();
         let mut file_offset = 0u64;
         for chunk_ref in &file_manifest.chunks {
             if let Some(source_chunk) = source_chunk_locations
@@ -225,9 +224,6 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 file_index,
                 file_offset,
             });
-            if !existing_artifacts.contains(&artifact_job.artifact) {
-                missing_artifact_dependencies.insert(artifact_job.artifact.clone());
-            }
             file_offset = file_offset
                 .checked_add(u64::from(chunk_ref.raw_size))
                 .ok_or_else(|| {
@@ -241,13 +237,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 file_manifest.path, file_offset, file_manifest.size
             )));
         }
-        for artifact in &missing_artifact_dependencies {
-            missing_artifact_to_file_indices
-                .entry(artifact.clone())
-                .or_default()
-                .push(file_index);
-        }
-        missing_artifact_counts.push(missing_artifact_dependencies.len());
+        missing_artifact_counts.push(0);
         files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
@@ -257,6 +247,8 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         });
     }
 
+    // Only missing artifacts need dependency scratch; reuse it between jobs.
+    let mut seen_dependent_files = Vec::new();
     // Resolve ranges before jobs and chunks are sorted: slots use insertion order.
     for (job_index, job) in jobs.iter_mut().enumerate() {
         if let ReconstructJob::Artifact(job) = job {
@@ -265,6 +257,23 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 job.targets
                     .extend(std::mem::take(&mut chunk_targets[job_index][position]));
                 chunk.target_range = start..job.targets.len();
+            }
+            // Artifact targets are the authoritative file dependencies for this job.
+            if !existing_artifacts.contains(&job.artifact) {
+                seen_dependent_files.resize(files.len(), false);
+                let mut file_indices = Vec::new();
+                for target in &job.targets {
+                    if !seen_dependent_files[target.file_index] {
+                        seen_dependent_files[target.file_index] = true;
+                        file_indices.push(target.file_index);
+                    }
+                }
+                file_indices.sort_unstable();
+                for &file_index in &file_indices {
+                    missing_artifact_counts[file_index] += 1;
+                    seen_dependent_files[file_index] = false;
+                }
+                missing_artifact_to_file_indices.insert(job.artifact.clone(), file_indices);
             }
             job.chunks.sort_by_key(|chunk| chunk.chunk_hash);
         }

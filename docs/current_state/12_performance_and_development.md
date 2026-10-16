@@ -1038,3 +1038,33 @@ missing dependency per file. Incorrect declared sizes are rejected on the first
 occurrence and after a hash has already been resolved. File formats, artifact
 verification and publication ordering are unchanged. Evidence:
 `tests/.artifacts/research_optimization_pass/round31_report.md`.
+
+
+## Derive missing dependencies from job targets, October 2026
+
+Reconstruction creates missing-file dependency lists from the completed artifact
+jobs rather than maintaining a second view while visiting file chunks. Artifact
+availability is checked once per job. Repeated targets are deduplicated by file
+index, preserving one dependency per missing artifact and file. File indexes are
+sorted to retain the previous ordering. Copied files and source chunks retain
+zero artifact dependencies.
+
+A reusable marker buffer is allocated only when a missing artifact is found.
+Its length follows the planned file count, and only marked positions are reset
+between jobs. Available artifacts do not scan target lists for dependencies.
+No per-chunk artifact-identity hashing or per-file dependency sets remain.
+
+A separate seven-pair Windows summary profile on the 64-file / 835-distinct-chunk
+repeated-content fixture reduced planning from 3.40 to 2.08 ms (38.7%). Final
+unprofiled 41-pair comparisons were flat: repeated-content reconstruction
+171.74 to 171.60 ms, and the four-file / 53,822-unique-chunk control 138.15 to
+137.66 ms. Paired intervals included zero in both cases. This is a planning-phase
+improvement and a consolidation of dependency ownership; no whole-reconstruction
+speedup or measured process-memory reduction is claimed.
+
+Every reconstruction trial matched independently calculated source SHA-256 maps.
+The expanded regression covers interleaved copied/source/artifact jobs, repeated
+targets, two missing artifacts for one file, cached artifacts, canonical file-index
+order, and resetting markers between missing jobs. Existing bundled/loose repeated
+reference and wrong-size checks remain. Evidence:
+`tests/.artifacts/research_optimization_pass/round32_report.md`.

@@ -59,6 +59,9 @@ Each distinct artifact-backed chunk hash resolves its indexed location and job
 once during planning. Repeated references reuse that job and chunk position;
 every reference still checks its declared size against the indexed raw size.
 The lookup is local to one plan and is not used after jobs or chunks are sorted.
+Missing-file dependencies are derived from the flattened artifact-job targets.
+Availability is checked once per artifact job, and each dependent file is counted
+once for that artifact. Copied files and source-chunk jobs add no artifact dependency.
 
 During planning, temporary target lists use the existing job and chunk insertion
 positions as vector indexes. Copy/source jobs keep empty slots in that layout.

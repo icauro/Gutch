@@ -1075,9 +1075,9 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         "mixed.bin",
         &[b"same", b"newA", b"newB", b"newA"],
     ));
-    snapshot.push_file(make_file("following.bin", &[b"newB", b"newA"]));
+    snapshot.push_file(make_file("following.bin", &[b"newB"]));
     snapshot.push_file(copied_later);
-    snapshot.push_file(make_file("last.bin", &[b"newC"]));
+    snapshot.push_file(make_file("last.bin", &[b"newC", b"newA", b"newC", b"newB"]));
     let first_bundle = test_hash(b"first bundle");
     let second_bundle = test_hash(b"second bundle");
     let index = crate::repo::index::ChunkIndex {
@@ -1133,12 +1133,31 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
             HashSet::from([first_bundle.as_str(), second_bundle.as_str()])
         );
         assert_eq!(plan.reused_source_chunk_count, 3);
+        let first_artifact = crate::repo::artifacts::ArtifactRef::Bundle {
+            id: first_bundle.as_str().into(),
+        };
+        let second_artifact = crate::repo::artifacts::ArtifactRef::Bundle {
+            id: second_bundle.as_str().into(),
+        };
+        if first_bundle_cached {
+            assert!(
+                !plan
+                    .missing_artifact_to_file_indices
+                    .contains_key(&first_artifact)
+            );
+        } else {
+            assert_eq!(
+                plan.missing_artifact_to_file_indices[&first_artifact],
+                [1, 2, 4]
+            );
+        }
+        assert_eq!(plan.missing_artifact_to_file_indices[&second_artifact], [4]);
         assert_eq!(
             plan.missing_artifact_counts,
             if first_bundle_cached {
                 vec![0, 0, 0, 0, 1]
             } else {
-                vec![0, 1, 1, 0, 1]
+                vec![0, 1, 1, 0, 2]
             }
         );
         assert_eq!(
@@ -1170,9 +1189,9 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         assert_eq!(
             targets,
             BTreeMap::from([
-                (chunk_hash(b"newA"), vec![(1, 4), (1, 12), (2, 4)]),
-                (chunk_hash(b"newB"), vec![(1, 8), (2, 0)]),
-                (chunk_hash(b"newC"), vec![(4, 0)]),
+                (chunk_hash(b"newA"), vec![(1, 4), (1, 12), (4, 4)]),
+                (chunk_hash(b"newB"), vec![(1, 8), (2, 0), (4, 12)]),
+                (chunk_hash(b"newC"), vec![(4, 0), (4, 8)]),
             ])
         );
     }
