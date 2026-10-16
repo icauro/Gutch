@@ -1160,3 +1160,37 @@ working set, not general update throughput. The strengthened regression selects
 a middle chunk after an excluded prefix from a source file already copied whole,
 and checks the exact source path and byte offset. Evidence:
 `tests/.artifacts/research_optimization_pass/round35_report.md`.
+
+
+## Reuse source chunk identity and path storage, October 2026
+
+The source catalog selects one location for each chunk hash. Planning now keys
+its source-job lookup by that hash, after validating raw size against the chosen
+location, instead of cloning a path/offset/size/hash tuple for every reference.
+Locations and jobs share one immutable native path allocation per source file.
+Source-job ordering still compares path values and offsets; source eligibility,
+byte hashing, file-handle ownership and publication ordering remain unchanged.
+
+On Windows with four workers, a four-file 64 MiB / 53,822-chunk fixture renamed
+all files and reused every chunk from the source. An initial 41-pair comparison
+reduced median reconstruction 520.17 to 460.72 ms (11.4%). A separate 41-pair
+confirmation reduced 520.14 to 472.11 ms (9.2%); paired median change was -10.2%,
+with a bootstrap interval of -11.5% to -8.5%. A 21-pair ablation showed path
+sharing was another 2.9% faster than compact lookup keys alone.
+
+With only one renamed file, 41 pairs reduced 183.53 to 176.32 ms (3.9%). Every
+restored tree matched independently calculated source SHA-256 expectations.
+The whole-copy control was inconclusive. The no-source control was slightly
+favorable in one comparison; no general reconstruction gain is claimed.
+
+Separate 21-pair native checks reduced median peak commit from 61.59 to 34.18 MiB
+(44.5%) for full-source reuse and from 23.31 to 16.64 MiB (28.6%) for partial reuse.
+Peak working sets stayed near 74 MiB; no working-set reduction is claimed. All
+84 final post-exit queries succeeded. Savings depend on chunk count and path
+length; these are fixture-specific results, not a global memory bound.
+
+The expanded regression checks repeated source hashes within/across files,
+first-location selection among duplicate source candidates, distinct source
+hashes sharing path storage, exact offsets and every target range. A wrong raw
+size on an already-seen hash must fail instead of reusing its cached job.
+Evidence: `tests/.artifacts/research_optimization_pass/round36_report.md`.

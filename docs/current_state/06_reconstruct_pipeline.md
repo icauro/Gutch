@@ -154,7 +154,9 @@ than the source, the index retains only hashes those targets require; otherwise
 it retains the full source index. Source offsets include excluded chunks.
 Source verification still runs before this derived index is built.
 
-Source-chunk jobs are deduplicated by source path, offset, raw size, and hash.
+Source-chunk jobs are deduplicated by chunk hash after checking the requested
+raw size against the chosen source location. The source catalog fixes one path
+and offset per hash. Locations and jobs share one immutable path per source file.
 Source handles are cached (up to 64 entries), and source jobs are ordered by
 path and offset to reduce reopen/seek work. Artifact job targets occupy flat
 arrays and refer to typed chunk hashes. Artifact jobs are deduplicated by artifact identity. This prevents repeated

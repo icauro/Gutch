@@ -578,10 +578,12 @@ pub(super) fn build_source_chunk_locations(
     let mut chunk_locations = HashMap::new();
     for file_manifest in source.snapshot_manifest.files() {
         let typed_file = crate::manifest::typed::typed_file_manifest(file_manifest)?;
-        let source_path = crate::filesystem::paths::resolve_manifest_relative_path(
-            source.destination_dir,
-            &file_manifest.path,
-        )?;
+        // One immutable path per file is shared by its locations and source jobs.
+        let source_path =
+            std::sync::Arc::new(crate::filesystem::paths::resolve_manifest_relative_path(
+                source.destination_dir,
+                &file_manifest.path,
+            )?);
         let mut offset = 0u64;
         for chunk_ref in typed_file.chunks {
             let raw_size = u64::from(chunk_ref.raw_size);

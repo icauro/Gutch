@@ -78,7 +78,7 @@ pub(crate) struct ReconstructArtifactChunk {
 pub(crate) struct ReconstructSourceChunkJob {
     pub(crate) chunk_hash: crate::artifact::hash::ChunkHash,
     pub(crate) raw_size: u32,
-    pub(crate) source_path: PathBuf,
+    pub(crate) source_path: Arc<PathBuf>,
     pub(crate) source_offset: u64,
     pub(crate) targets: Vec<ReconstructTarget>,
 }
@@ -90,7 +90,7 @@ pub(crate) struct ReconstructTarget {
 }
 
 pub(crate) struct SourceChunkLocation {
-    pub(crate) path: PathBuf,
+    pub(crate) path: Arc<PathBuf>,
     pub(crate) offset: u64,
     pub(crate) raw_size: u64,
 }

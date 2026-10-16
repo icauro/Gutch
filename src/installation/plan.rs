@@ -19,7 +19,6 @@ use rayon::ThreadPool;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
-use std::path::PathBuf;
 
 pub(crate) fn build_artifact_priorities(
     pipeline_plan: &ReconstructPipelinePlan,
@@ -108,10 +107,8 @@ pub(crate) fn build_reconstruct_pipeline_plan(
     let mut chunk_targets: Vec<Vec<Vec<ReconstructTarget>>> = Vec::new();
     let mut artifact_job_indices: HashMap<crate::repo::artifacts::ArtifactRef, usize> =
         HashMap::new();
-    let mut source_chunk_job_indices: HashMap<
-        (PathBuf, u64, u32, crate::artifact::hash::ChunkHash),
-        usize,
-    > = HashMap::new();
+    // The source catalog fixes one location for each hash; size is checked before lookup.
+    let mut source_chunk_job_indices: HashMap<ChunkHash, usize> = HashMap::new();
     let mut missing_artifact_to_file_indices: HashMap<
         crate::repo::artifacts::ArtifactRef,
         Vec<usize>,
@@ -179,12 +176,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                 .get(&chunk_ref.chunk_hash)
                 .filter(|source_chunk| source_chunk.raw_size == u64::from(chunk_ref.raw_size))
             {
-                let source_key = (
-                    source_chunk.path.clone(),
-                    source_chunk.offset,
-                    chunk_ref.raw_size,
-                    chunk_ref.chunk_hash,
-                );
+                let source_key = chunk_ref.chunk_hash;
                 let source_job_index =
                     if let Some(&job_index) = source_chunk_job_indices.get(&source_key) {
                         job_index

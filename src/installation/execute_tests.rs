@@ -1063,20 +1063,23 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
             })
             .collect(),
     };
-    let copied = make_file("copied.bin", &[b"skip", b"copy", b"tail"]);
+    let copied = make_file("copied.bin", &[b"skip", b"copy", b"next", b"tail"]);
     let copied_later = make_file("copied-later.bin", &[b"late"]);
     let mut source = SnapshotManifest::new(test_hash(b"source"), SnapshotTagSet::default());
     source.push_file(copied.clone());
     source.push_file(copied_later.clone());
-    source.push_file(make_file("unused.bin", &[b"skip".as_slice(); 16]));
+    source.push_file(make_file("unused.bin", &[b"copy".as_slice(); 16]));
     let mut snapshot = SnapshotManifest::new(test_hash(b"target"), SnapshotTagSet::default());
     snapshot.push_file(copied);
-    // The changed file reuses a chunk from the file already planned as a whole copy.
+    // Changed files reuse middle chunks from the file already planned as a whole copy.
     snapshot.push_file(make_file(
         "mixed.bin",
-        &[b"copy", b"newA", b"newB", b"newA"],
+        &[b"copy", b"newA", b"newB", b"copy", b"next", b"newA"],
     ));
-    snapshot.push_file(make_file("following.bin", &[b"newB"]));
+    snapshot.push_file(make_file(
+        "following.bin",
+        &[b"copy", b"newB", b"copy", b"next"],
+    ));
     snapshot.push_file(copied_later);
     snapshot.push_file(make_file("last.bin", &[b"newC", b"newA", b"newC", b"newB"]));
     let first_bundle = test_hash(b"first bundle");
@@ -1133,7 +1136,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
             artifact_ids,
             HashSet::from([first_bundle.as_str(), second_bundle.as_str()])
         );
-        assert_eq!(plan.reused_source_chunk_count, 5);
+        assert_eq!(plan.reused_source_chunk_count, 11);
         let first_artifact = crate::repo::artifacts::ArtifactRef::Bundle {
             id: first_bundle.as_str().into(),
         };
@@ -1173,18 +1176,55 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
                 .iter()
                 .filter(|job| matches!(job, ReconstructJob::SourceChunk(_)))
                 .count(),
-            1
+            2
         );
         let source_job = plan
             .jobs
             .iter()
             .find_map(|job| match job {
-                ReconstructJob::SourceChunk(job) => Some(job),
+                ReconstructJob::SourceChunk(job) if job.chunk_hash == chunk_hash(b"copy") => {
+                    Some(job)
+                }
                 _ => None,
             })
             .unwrap();
-        assert_eq!(source_job.source_path, directory.path().join("copied.bin"));
+        assert_eq!(
+            source_job.source_path.as_ref(),
+            &directory.path().join("copied.bin")
+        );
         assert_eq!(source_job.source_offset, 4);
+        let next_source_job = plan
+            .jobs
+            .iter()
+            .find_map(|job| match job {
+                ReconstructJob::SourceChunk(job) if job.chunk_hash == chunk_hash(b"next") => {
+                    Some(job)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(next_source_job.source_offset, 8);
+        assert_eq!(
+            next_source_job
+                .targets
+                .iter()
+                .map(|target| (target.file_index, target.file_offset))
+                .collect::<Vec<_>>(),
+            [(1, 16), (2, 12)]
+        );
+        assert!(Arc::ptr_eq(
+            &source_job.source_path,
+            &next_source_job.source_path
+        ));
+        assert_eq!(source_job.raw_size, 4);
+        assert_eq!(
+            source_job
+                .targets
+                .iter()
+                .map(|target| (target.file_index, target.file_offset))
+                .collect::<Vec<_>>(),
+            [(1, 0), (1, 12), (2, 0), (2, 8)]
+        );
         let mut targets = BTreeMap::new();
         for job in &plan.jobs {
             if let ReconstructJob::Artifact(job) = job {
@@ -1200,10 +1240,28 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         assert_eq!(
             targets,
             BTreeMap::from([
-                (chunk_hash(b"newA"), vec![(1, 4), (1, 12), (4, 4)]),
-                (chunk_hash(b"newB"), vec![(1, 8), (2, 0), (4, 12)]),
+                (chunk_hash(b"newA"), vec![(1, 4), (1, 20), (4, 4)]),
+                (chunk_hash(b"newB"), vec![(1, 8), (2, 4), (4, 12)]),
                 (chunk_hash(b"newC"), vec![(4, 0), (4, 8)]),
             ])
+        );
+        let mut invalid = snapshot.clone();
+        let mut invalid_files = invalid.files().cloned().collect::<Vec<_>>();
+        invalid_files[2].chunks[0].raw_size = 3;
+        invalid_files[2].size -= 1;
+        invalid.set_files(invalid_files);
+        assert!(
+            build_reconstruct_pipeline_plan(
+                &invalid,
+                &index,
+                &repo_paths,
+                &existing,
+                Some(SnapshotReconstructSource {
+                    snapshot_manifest: &source,
+                    destination_dir: directory.path()
+                }),
+            )
+            .is_err()
         );
     }
 }
