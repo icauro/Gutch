@@ -12,9 +12,11 @@ use std::sync::{Arc, Mutex, mpsc};
 // Bound both per-task metadata work and serial hashing before a worker yields.
 const MAX_VERIFICATION_BATCH_FILES: usize = 32;
 const MAX_VERIFICATION_BATCH_BYTES: u64 = 1024 * 1024;
+const MAX_SOURCE_BATCH_JOBS: usize = 32;
+const MAX_SOURCE_BATCH_BYTES: u64 = 64 * 1024;
 
 pub(super) enum ReconstructWorkItem {
-    Job(usize),
+    Jobs(std::ops::Range<usize>),
     VerifyFiles(Vec<usize>),
 }
 
@@ -42,7 +44,9 @@ impl ReconstructionWorkQueue {
     ) -> Result<Option<AdmittedReconstructionWork>> {
         for (index, (work, _)) in self.ready.iter().enumerate() {
             let bytes = match work {
-                ReconstructWorkItem::Job(job_index) => jobs[*job_index].memory_reservation_bytes(),
+                ReconstructWorkItem::Jobs(indices) => {
+                    jobs[indices.start].memory_reservation_bytes()
+                }
                 ReconstructWorkItem::VerifyFiles(_) => 0,
             };
             if let Some(permit) = memory.try_acquire(bytes)? {
@@ -68,6 +72,35 @@ impl ReconstructionWorkQueue {
                         bytes += next_bytes;
                     }
                 }
+                // Source buffers are used sequentially. Merge only jobs covered by the
+                // first permit, without crossing another work kind or source file.
+                if let ReconstructWorkItem::Jobs(indices) = &mut work
+                    && let ReconstructJob::SourceChunk(first) = &jobs[indices.start]
+                    && u64::from(first.raw_size) < MAX_SOURCE_BATCH_BYTES
+                {
+                    let mut source_bytes = u64::from(first.raw_size);
+                    while indices.len() < MAX_SOURCE_BATCH_JOBS {
+                        let Some((ReconstructWorkItem::Jobs(next), _)) = self.ready.get(index)
+                        else {
+                            break;
+                        };
+                        if next.start != indices.end || next.len() != 1 {
+                            break;
+                        }
+                        let ReconstructJob::SourceChunk(chunk) = &jobs[next.start] else {
+                            break;
+                        };
+                        if chunk.source_path != first.source_path
+                            || jobs[next.start].memory_reservation_bytes() > bytes
+                            || source_bytes + u64::from(chunk.raw_size) > MAX_SOURCE_BATCH_BYTES
+                        {
+                            break;
+                        }
+                        source_bytes += u64::from(chunk.raw_size);
+                        indices.end = next.end;
+                        self.ready.remove(index);
+                    }
+                }
                 self.in_flight += 1;
                 return Ok(Some(AdmittedReconstructionWork {
                     work,
@@ -86,8 +119,8 @@ impl ReconstructionWorkQueue {
 
 pub(super) enum ReconstructJobEvent {
     Completed {
-        job_index: usize,
-        timings: Box<ReconstructTimings>,
+        job_indices: std::ops::Range<usize>,
+        timings: Vec<ReconstructTimings>,
     },
     Verified {
         file_count: usize,
@@ -164,27 +197,30 @@ pub(super) fn spawn_reconstruct_work(
                         (
                             "work_kind".into(),
                             serde_json::json!(match &work_item {
-                                ReconstructWorkItem::Job(_) => "reconstruct",
+                                ReconstructWorkItem::Jobs(_) => "reconstruct",
                                 ReconstructWorkItem::VerifyFiles(_) => "verify",
                             }),
                         ),
                     ])
                 });
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
-            ReconstructWorkItem::Job(job_index) => {
-                reconstruct_job(super::io::ReconstructJobRequest {
-                    job: &context.jobs[job_index],
-                    file_plans: &context.file_plans,
-                    output_paths: &context.output_paths,
-                    precomputed_file_hashes: &context.precomputed_file_hashes,
-                    output_handles: &context.output_handles,
-                    source_handles: &context.source_handles,
-                    compression_profile: &context.compression_profile,
-                    control: &context.control,
-                })
-                .map(|timings| ReconstructJobEvent::Completed {
-                    job_index,
-                    timings: Box::new(timings),
+            ReconstructWorkItem::Jobs(job_indices) => {
+                let mut timings = Vec::with_capacity(job_indices.len());
+                for job_index in job_indices.clone() {
+                    timings.push(reconstruct_job(super::io::ReconstructJobRequest {
+                        job: &context.jobs[job_index],
+                        file_plans: &context.file_plans,
+                        output_paths: &context.output_paths,
+                        precomputed_file_hashes: &context.precomputed_file_hashes,
+                        output_handles: &context.output_handles,
+                        source_handles: &context.source_handles,
+                        compression_profile: &context.compression_profile,
+                        control: &context.control,
+                    })?);
+                }
+                Ok(ReconstructJobEvent::Completed {
+                    job_indices,
+                    timings,
                 })
             }
             ReconstructWorkItem::VerifyFiles(file_indices) => {
@@ -252,9 +288,10 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let mut queue = ReconstructionWorkQueue::default();
-        queue
-            .ready
-            .push_back((ReconstructWorkItem::Job(0), ProfileInstant::detailed(None)));
+        queue.ready.push_back((
+            ReconstructWorkItem::Jobs(0..1),
+            ProfileInstant::detailed(None),
+        ));
         queue.ready.push_back((
             ReconstructWorkItem::VerifyFiles(vec![1]),
             ProfileInstant::detailed(None),
@@ -268,7 +305,9 @@ mod tests {
         assert!(queue.admit_next(&jobs, &files, &memory).unwrap().is_none());
         drop(occupied);
         let source = queue.admit_next(&jobs, &files, &memory).unwrap().unwrap();
-        assert!(matches!(source.work, ReconstructWorkItem::Job(0)));
+        assert!(
+            matches!(source.work, ReconstructWorkItem::Jobs(ref indices) if indices == &(0..1))
+        );
         assert_eq!(queue.in_flight, 2);
         queue.ready.push_back((
             ReconstructWorkItem::VerifyFiles(vec![2]),
@@ -341,7 +380,7 @@ mod tests {
         let mut queue = ReconstructionWorkQueue::default();
         for work in [
             ReconstructWorkItem::VerifyFiles(vec![0]),
-            ReconstructWorkItem::Job(0),
+            ReconstructWorkItem::Jobs(0..1),
             ReconstructWorkItem::VerifyFiles(vec![1]),
         ] {
             queue
@@ -354,7 +393,7 @@ mod tests {
         );
         assert!(matches!(
             queue.ready.front().unwrap().0,
-            ReconstructWorkItem::Job(0)
+            ReconstructWorkItem::Jobs(ref indices) if indices == &(0..1)
         ));
     }
 
@@ -446,6 +485,261 @@ mod tests {
             assert!(weak_context.upgrade().is_none());
             assert!(weak_handles.upgrade().is_none());
             assert!(memory.try_acquire(4096).unwrap().is_some());
+            assert!(
+                receiver.try_recv().is_err(),
+                "a batch emits one terminal event"
+            );
+        }
+    }
+
+    fn source_job(path: &Arc<PathBuf>, offset: u64, size: u32) -> ReconstructJob {
+        ReconstructJob::SourceChunk(super::super::jobs::ReconstructSourceChunkJob {
+            chunk_hash: crate::artifact::hash::ChunkHash::from_blake3(blake3::hash(b"data")),
+            raw_size: size,
+            source_path: Arc::clone(path),
+            source_offset: offset,
+            first_target: super::super::jobs::ReconstructTarget {
+                file_index: 0,
+                file_offset: offset,
+            },
+            additional_targets: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn source_batches_bound_jobs_bytes_and_reservations() {
+        for (sizes, expected) in [
+            (vec![4; 65], vec![32, 32, 1]),
+            (vec![40 * 1024, 40 * 1024, 1], vec![1, 2]),
+            (vec![128 * 1024, 4], vec![1, 1]),
+            (vec![4, 8, 4], vec![1, 2]),
+        ] {
+            let path = Arc::new(PathBuf::from("source"));
+            let jobs = sizes
+                .iter()
+                .map(|&size| source_job(&path, 0, size))
+                .collect::<Vec<_>>();
+            let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
+            let mut queue = ReconstructionWorkQueue::default();
+            for index in 0..jobs.len() {
+                queue.ready.push_back((
+                    ReconstructWorkItem::Jobs(index..index + 1),
+                    ProfileInstant::detailed(None),
+                ));
+            }
+            let mut start = 0;
+            for length in expected {
+                let admitted = queue.admit_next(&jobs, &[], &memory).unwrap().unwrap();
+                assert!(
+                    matches!(&admitted.work, ReconstructWorkItem::Jobs(indices) if indices == &(start..start + length))
+                );
+                assert_eq!(queue.in_flight, 1);
+                let reserved = jobs[start].memory_reservation_bytes();
+                // Sequential jobs share one permit, not one permit per chunk.
+                assert!(
+                    memory
+                        .try_acquire(2 * 1024 * 1024 - reserved + 1)
+                        .unwrap()
+                        .is_none()
+                );
+                assert!(
+                    memory
+                        .try_acquire(2 * 1024 * 1024 - reserved)
+                        .unwrap()
+                        .is_some()
+                );
+                drop(admitted);
+                queue.complete();
+                start += length;
+            }
+            assert_eq!(start, jobs.len());
+            assert!(queue.ready.is_empty());
+            assert!(memory.try_acquire(2 * 1024 * 1024).unwrap().is_some());
+        }
+    }
+
+    #[test]
+    fn source_batches_preserve_source_and_work_boundaries() {
+        let first = Arc::new(PathBuf::from("first"));
+        let second = Arc::new(PathBuf::from("second"));
+        let jobs = vec![
+            source_job(&first, 0, 4),
+            source_job(&second, 0, 4),
+            source_job(&second, 4, 4),
+            ReconstructJob::CopySourceFile {
+                file_index: 0,
+                source_path: PathBuf::from("copied"),
+            },
+            source_job(&second, 8, 4),
+        ];
+        let files = verification_files(&[4]);
+        let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
+        let mut queue = ReconstructionWorkQueue::default();
+        for work in [
+            ReconstructWorkItem::Jobs(0..1),
+            ReconstructWorkItem::Jobs(1..2),
+            ReconstructWorkItem::VerifyFiles(vec![0]),
+            ReconstructWorkItem::Jobs(2..3),
+            ReconstructWorkItem::Jobs(3..4),
+            ReconstructWorkItem::Jobs(4..5),
+        ] {
+            queue
+                .ready
+                .push_back((work, ProfileInstant::detailed(None)));
+        }
+        for index in 0..jobs.len() {
+            let admitted = queue.admit_next(&jobs, &files, &memory).unwrap().unwrap();
+            assert!(
+                matches!(&admitted.work, ReconstructWorkItem::Jobs(indices) if indices == &(index..index+1))
+            );
+            drop(admitted);
+            queue.complete();
+            if index == 1 {
+                let verification = queue.admit_next(&jobs, &files, &memory).unwrap().unwrap();
+                assert!(matches!(
+                    verification.work,
+                    ReconstructWorkItem::VerifyFiles(_)
+                ));
+                drop(verification);
+                queue.complete();
+            }
+        }
+        assert!(queue.ready.is_empty());
+
+        // An unqueued job between ready indexes must not enter the batch.
+        let jobs = (0..3)
+            .map(|index| source_job(&first, index * 4, 4))
+            .collect::<Vec<_>>();
+        for index in [0, 2] {
+            queue.ready.push_back((
+                ReconstructWorkItem::Jobs(index..index + 1),
+                ProfileInstant::detailed(None),
+            ));
+        }
+        let admitted = queue.admit_next(&jobs, &files, &memory).unwrap().unwrap();
+        assert!(matches!(&admitted.work, ReconstructWorkItem::Jobs(indices) if indices == &(0..1)));
+        assert!(
+            matches!(&queue.ready.front().unwrap().0, ReconstructWorkItem::Jobs(indices) if indices == &(2..3))
+        );
+    }
+
+    #[test]
+    fn source_batch_reports_success_or_stops_on_failure_and_releases_resources() {
+        #[derive(Debug)]
+        struct CancelAfterFirstChunk(std::sync::atomic::AtomicUsize);
+        impl crate::progress::GutchCancellationHook for CancelAfterFirstChunk {
+            fn is_cancelled(&self) -> bool {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
+            }
+        }
+        for outcome in ["success", "hash_failure", "cancel"] {
+            let cancel = outcome == "cancel";
+            let root = tempfile::tempdir().unwrap();
+            let source = Arc::new(root.path().join("source"));
+            std::fs::write(
+                source.as_ref(),
+                if outcome == "success" {
+                    b"datadatadata"
+                } else {
+                    b"databad!data"
+                },
+            )
+            .unwrap();
+            let jobs = (0..3)
+                .map(|index| source_job(&source, index * 4, 4))
+                .collect::<Vec<_>>();
+            let files = verification_files(&[12]);
+            let output = root.path().join("output");
+            let paths = Arc::new(vec![output.clone()]);
+            let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
+            let permit = memory.try_acquire(2 * 1024 * 1024).unwrap().unwrap();
+            let handles = Arc::new(OutputHandleCache::new(
+                Arc::clone(&paths),
+                Arc::new(vec![12]),
+                &[3],
+                1,
+            ));
+            let weak_handles = Arc::downgrade(&handles);
+            let control = if cancel {
+                GutchOperationControl::default().with_cancellation(Arc::new(CancelAfterFirstChunk(
+                    std::sync::atomic::AtomicUsize::new(0),
+                )))
+            } else {
+                GutchOperationControl::default()
+            };
+            let context = Arc::new(ReconstructWorkContext {
+                memory: Arc::clone(&memory),
+                source_handles: SourceHandleCache::default(),
+                jobs: Arc::new(jobs),
+                file_plans: Arc::new(files),
+                output_paths: paths,
+                precomputed_file_hashes: Arc::new(vec![Mutex::new(None)]),
+                output_handles: handles,
+                compression_profile: Arc::new(Default::default()),
+                control,
+                reconstruct_worker_count: 1,
+            });
+            let weak_context = Arc::downgrade(&context);
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .unwrap();
+            let (sender, receiver) = mpsc::channel();
+            spawn_reconstruct_work(
+                &pool,
+                ReconstructWorkItem::Jobs(0..3),
+                &context,
+                &sender,
+                permit,
+                ProfileInstant::detailed(None),
+            );
+            drop(context);
+            let event = receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            match outcome {
+                "success" => {
+                    let ReconstructJobEvent::Completed {
+                        job_indices,
+                        timings,
+                    } = event
+                    else {
+                        panic!("expected completed source batch")
+                    };
+                    assert_eq!(job_indices, 0..3);
+                    assert_eq!(timings.len(), 3);
+                    assert_eq!(
+                        timings
+                            .iter()
+                            .map(|job| job.chunk_verify_bytes)
+                            .sum::<u64>(),
+                        12
+                    );
+                    assert_eq!(
+                        timings.iter().map(|job| job.file_write_bytes).sum::<u64>(),
+                        12
+                    );
+                }
+                "cancel" => assert!(matches!(
+                    event,
+                    ReconstructJobEvent::Failed(Error::Cancelled)
+                )),
+                _ => assert!(matches!(
+                    event,
+                    ReconstructJobEvent::Failed(Error::HashMismatch { .. })
+                )),
+            }
+            assert!(weak_context.upgrade().is_none());
+            assert!(weak_handles.upgrade().is_none());
+            assert!(memory.try_acquire(2 * 1024 * 1024).unwrap().is_some());
+            assert_eq!(
+                std::fs::read(&output).unwrap(),
+                if outcome == "success" {
+                    b"datadatadata"
+                } else {
+                    b"data\0\0\0\0\0\0\0\0"
+                }
+            );
             assert!(
                 receiver.try_recv().is_err(),
                 "a batch emits one terminal event"

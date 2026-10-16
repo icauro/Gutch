@@ -1221,3 +1221,35 @@ no-source paired intervals crossed zero; whole-copy was slightly favorable in
 the larger run. Retention is based on the lower measured peak commit, not speed.
 These results concern this host and fixture, not general throughput or a global
 memory bound. Evidence: `tests/.artifacts/research_optimization_pass/round37_report.md`.
+
+
+## Bounded source-worker batches, October 2026
+
+Source-chunk jobs retain their individual hashing, writes and producer/file
+relationships, but adjacent ready jobs can share one sequential worker task.
+Admission limits groups to 32 jobs and 64 KiB of source bytes, within one source
+path and the first job's memory reservation. Larger chunks run independently.
+One terminal event carries the original job indexes and timings; the coordinator
+counts all their producers before queuing file verification. Handles and permits
+are released before that event, and failure drains dispatched tasks.
+
+On Windows with four workers, 21 alternating pairs over four 16 MiB files with
+53,822 source-chunk references reduced median full-source reconstruction from
+456.12 to 340.82 ms (25.3%). Paired median change was -26.6%, with a bootstrap
+interval of -29.1% to -23.6%. With only one renamed file, medians fell from
+196.81 to 151.23 ms (23.2%); paired median change was -18.2%, interval -24.0%
+to -16.1%. Every restored tree matched independent source SHA-256 expectations.
+
+The initial 1 MiB batch limit also improved small-chunk reuse, but slowed a
+larger-chunk control in repeated runs; it was rejected. The final 64 KiB limit
+was inconclusive over 41 pairs with 421 larger chunk references. Whole-copy,
+source-fanout, artifact-only and artifact-fanout paired intervals also crossed
+zero. No general reconstruction or fanout speedup is claimed.
+
+Separate 21-pair native checks showed peak commit near flat: partial reuse
+16,867,328 to 16,891,904 bytes, full source reuse 31,756,288 to 31,715,328 bytes.
+All 84 final post-exit high-water queries succeeded; no memory reduction is
+claimed. Worker tests cover count/byte/reservation limits, source paths, work
+boundaries and unqueued index gaps, success counts/timings, hash mismatch,
+cancellation, stopping later writes and resource release before the one terminal
+event. Evidence: `tests/.artifacts/research_optimization_pass/round40_report.md`.

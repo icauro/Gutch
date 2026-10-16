@@ -216,7 +216,7 @@ pub(super) fn run_reconstruction_jobs(
             };
             if ready {
                 work_queue.ready.push_back((
-                    ReconstructWorkItem::Job(job_index),
+                    ReconstructWorkItem::Jobs(job_index..job_index + 1),
                     ProfileInstant::detailed(control.profiler()),
                 ));
                 scheduled_job_indices.insert(job_index);
@@ -285,7 +285,7 @@ pub(super) fn run_reconstruction_jobs(
                             let _dispatch_span = control
                                 .profile_span("installation.reconstruct.dispatch.downloaded");
                             work_queue.ready.push_back((
-                                ReconstructWorkItem::Job(job_index),
+                                ReconstructWorkItem::Jobs(job_index..job_index + 1),
                                 ProfileInstant::detailed(control.profiler()),
                             ));
 
@@ -342,22 +342,24 @@ pub(super) fn run_reconstruction_jobs(
         };
         match event {
             Ok(ReconstructJobEvent::Completed {
-                job_index,
+                job_indices,
                 timings: job_timings,
             }) => {
                 work_queue.complete();
-                completed_job_count += 1;
+                completed_job_count += job_indices.len();
                 update_reconstruct_backpressure(
                     transfer_progress,
                     enqueued_job_count,
                     completed_job_count,
                     runtime_plan.worker_count,
                 );
-                accumulate_pipeline_timings(
-                    &mut reconstruct_timings,
-                    &mut verify_timings,
-                    &job_timings,
-                );
+                for timings in &job_timings {
+                    accumulate_pipeline_timings(
+                        &mut reconstruct_timings,
+                        &mut verify_timings,
+                        timings,
+                    );
+                }
                 emit_progress(
                     control.progress(),
                     GutchProgressEvent {
@@ -381,7 +383,9 @@ pub(super) fn run_reconstruction_jobs(
                     reconstruct_finished_at = Some(ProfileInstant::start(control.profiler()));
                     control.output_finished();
                 }
-                for &file_index in &job_file_indices[job_index] {
+                for &file_index in
+                    job_indices.flat_map(|job_index| job_file_indices[job_index].iter())
+                {
                     remaining_file_jobs[file_index] =
                         remaining_file_jobs[file_index].saturating_sub(1);
                     if remaining_file_jobs[file_index] == 0 && !verification_queued[file_index] {

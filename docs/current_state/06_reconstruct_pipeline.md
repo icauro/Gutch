@@ -77,6 +77,19 @@ jobs. This overlaps hashing with remaining reconstruction and can read recently
 written pages from the filesystem cache. Empty-file checks need no such priority.
 Verification never starts while a producer for that file is still running.
 
+Source-chunk admission groups adjacent ready jobs from the same source path into
+one sequential worker task, up to 32 jobs and 64 KiB of source bytes. A larger
+chunk runs alone. A group stops at another work kind, another source path, a
+nonadjacent job index, or a chunk needing a larger memory reservation than its
+first job. The first permit covers each sequential chunk; buffers are released
+between chunks. Each chunk still checks cancellation, reads and hashes its own
+source bytes, then writes its targets. Success sends one terminal event containing
+all completed job indexes and per-job timings. The coordinator advances progress
+by the job count and decrements every original producer/file dependency. A failed
+or cancelled group stops immediately; it cannot make its files verification-ready.
+Worker handles, context and the permit are released before the terminal event.
+Draining counts dispatched tasks, including groups, rather than constituent jobs.
+
 Verification admission groups adjacent ready checks into one worker task, up to
 32 files and 1 MiB of expected file bytes. A file larger than that byte limit
 runs alone. Groups stop at queued producing jobs; batching does not change
