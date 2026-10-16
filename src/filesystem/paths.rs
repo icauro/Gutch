@@ -358,8 +358,12 @@ fn ensure_existing_ancestors_stay_within_root(
         if already_validated {
             continue;
         }
-        if !current.exists() {
-            break;
+        // Inspect the link itself: a dangling symlink reports `exists() == false`,
+        // yet a later create through it would land wherever the link points.
+        match std::fs::symlink_metadata(&current) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error.into()),
         }
         let canonical_current = current.canonicalize().map_err(|error| Error::PathError {
             path: current.clone(),
@@ -508,6 +512,22 @@ mod tests {
             assert!(resolve_manifest_relative_path(&root, "escape/game").is_err());
         }
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn rejects_dangling_link_that_would_create_outside_root() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("root");
+        fs::create_dir_all(&root).unwrap();
+        let missing_outside = base.path().join("missing");
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&missing_outside, root.join("leaf")).is_ok();
+        #[cfg(windows)]
+        let linked =
+            std::os::windows::fs::symlink_file(&missing_outside, root.join("leaf")).is_ok();
+        if linked {
+            assert!(resolve_manifest_relative_path(&root, "leaf").is_err());
+        }
     }
 }
 pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Result<String> {

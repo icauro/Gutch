@@ -296,7 +296,8 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
     if !backup.exists() {
         return Ok(());
     }
-    if read(&backup.with_extension("owner"))? != b"GUTCH_PROMOTION_V1" {
+    // A missing marker means Gutch did not create this backup; report it as unowned.
+    if !read(&backup.with_extension("owner")).is_ok_and(|owner| owner == b"GUTCH_PROMOTION_V1") {
         return Err(Error::manifest("unowned promotion backup exists"));
     }
     if std::fs::symlink_metadata(&backup)?.file_type().is_symlink() {

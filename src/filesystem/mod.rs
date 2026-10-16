@@ -61,7 +61,7 @@ where
     Ok(())
 }
 
-/// Replace a directory with a fully prepared same-parent directory.
+/// Create a directory and all missing ancestors.
 pub(crate) fn create_dir_all(path: &Path) -> Result<(), Error> {
     std::fs::create_dir_all(path).map_err(|e| Error::io_context("creating directory tree", path, e))
 }
