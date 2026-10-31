@@ -59,9 +59,8 @@ def test_network_reservation_retries_a_concurrent_overlap(monkeypatch):
     assert attempts[0][-1] == attempts[1][-1] == services.project
 
 
-def test_consumer_names_stay_in_the_integration_example():
+def test_sources_and_docs_remain_consumer_independent():
     forbidden = re.compile(r"private-consumer-names", re.IGNORECASE)
-    example = ROOT / "docs/current_state/hostapp_integration_example.md"
     candidates = {path for path, _ in source_files()}
     candidates.update((ROOT / "docs").rglob("*.md"))
     candidates.update(
@@ -69,7 +68,6 @@ def test_consumer_names_stay_in_the_integration_example():
         for name in (
             "README.md",
             "usage.md",
-            "AGENTS.md",
             "index.md",
             "tests/benchmarks/README.md",
             "tests/benchmarks/.gitignore",
@@ -78,7 +76,6 @@ def test_consumer_names_stay_in_the_integration_example():
     for path in sorted(candidates):
         if (
             not path.is_file()
-            or path == example
             or path.resolve() == Path(__file__).resolve()
         ):
             continue
@@ -89,10 +86,6 @@ def test_consumer_names_stay_in_the_integration_example():
         ):
             continue
         content = path.read_text(encoding="utf-8")
-        if path.suffix == ".md":
-            content = content.replace(
-                "hostapp_integration_example.md", "consumer_example.md"
-            )
         assert not forbidden.search(content), path.relative_to(ROOT)
 
 

@@ -169,8 +169,8 @@ repository checks and native restore-over-existing behavior.
 `python gutch.py benchmark` lists internal Gutch fixtures. The interactive,
 explicit fixture, Docker, reconstruction-storage, and S3 commands remain.
 External-tool fixtures and their binary provisioning have been removed from
-Gutch; cross-tool comparisons run only in the separate
-[comparison suite](../../../comparison_benchmark_suite/README.md).
+Gutch; cross-tool comparisons run only in the separately installed
+`comparison-benchmark-suite` package.
 
 Internal diagnostics retain chunk/compression/worker profiles, individual versus
 batch capture, filesystem baselines, and storage/recovery workloads. Reports

@@ -75,11 +75,12 @@ def test_internal_fixture_catalog_excludes_external_tools():
 
 
 def test_internal_runner_rejects_external_tools_before_creating_artifacts(tmp_path):
+    import comparison_benchmark_suite
     import pytest
 
     fixture = load_fixture(
-        Path(__file__).resolve().parents[3]
-        / "comparison_benchmark_suite/fixtures/blender/fixture.yaml"
+        Path(comparison_benchmark_suite.__file__).resolve().parent
+        / "fixtures/blender/fixture.yaml"
     )
     artifacts = tmp_path / "runs"
     with pytest.raises(ValueError, match="standalone suite"):

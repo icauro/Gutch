@@ -30,7 +30,7 @@ The public `gutch::api` functions above are the cross-crate entrypoints. Interna
 modules, worker functions, path helpers, and profiler recording machinery are
 implementation details and should not be reimplemented by adapters.
 
-Source navigation and import boundaries are maintained in the [module map](../../AGENTS.md).
+The module map below records source navigation and import boundaries.
 Artifact mechanics own packaging profiles; repository and snapshot schemas
 consume those profiles without defining a separate codec policy.
 The shared installation entrypoint is `install_snapshot_from_repo`; reconstruction
@@ -49,6 +49,54 @@ CLI helpers.
 Local installation and combined fetch share source verification and reconstruction
 preparation. Their callers retain repository coordination and destination guards
 through execution and publication. Remote metadata publication belongs to the repository acquisition workflow.
+
+## Crate and Module Map
+
+This project contains one Rust library crate, `gutch`. It captures files into
+deduplicated snapshots, stores compressed artifacts, synchronizes repositories,
+and fetches, reconstructs, verifies, and repairs snapshot content. Hosts call
+`gutch::api`, including its generic CLI entry points; all modules below are
+internal implementation owners.
+
+| Module | Responsibility and features |
+|---|---|
+| `api` | Supported public types, operations, provider contracts, and CLI entry points |
+| `cli` | Generic command parsing, family handlers, terminal progress, and reporting |
+| `capture` | Source configuration and discovery, scanning, estimation, planning, packing, and capture execution |
+| `installation` | Inspection, change previews, shared execution, selective publication, installation state, and combined fetch/reconstruction |
+| `repo` | Layout, guarded readers, persistence, indexes, transactions, recovery, and cleanup |
+| `sync` | URL-based snapshot fetch into a repository and provider-driven push, pull, and remote linking |
+| `transfer` | Artifact URL contracts, HTTP streaming/retry, download scheduling, adaptive concurrency, and transfer feedback |
+| `artifact` | Packaging profiles, chunking, hashes, full-file integrity, artifact references, compression, and repository-independent bundle/loose codecs |
+| `manifest` | Repository/snapshot schemas, tags, launch metadata, and typed views |
+| `snapshot` | Canonical content identity and snapshot comparison |
+| `filesystem` | Atomic I/O, path safety, filesystem naming targets, locks, and recoverable directory replacement shared by repository and installation publication |
+| `path_compare` | Physical tree comparison |
+| `runtime`, `progress`, `profile` | Resources, workers, cancellation, progress, timings, and traces |
+| `config`, `error` | CLI-local configuration and typed failures |
+
+Internal callers import the owning module directly. Engine modules form fixed
+layers: `filesystem` < `artifact` < `manifest` < `snapshot` < `repo`;
+`transfer` sits on `artifact`; `sync` builds on `repo` and `transfer`; `capture`
+and `installation` are the top. A module never imports a higher layer;
+`src/tests/module_boundaries.rs` enforces this. Artifact codecs do not call
+repository workflows; repository persistence does not call installation
+orchestration. Repository artifact verification uses its own structure/identity
+policy, independent of installation file/chunk inspection. Repository integrity
+errors describe stored snapshot identity; capture translates them into its own
+outcomes at the operation boundary. Transfer uses repository-independent artifact
+references, but never acquires repository locks, loads/publishes snapshot
+metadata, or drives installation execution. Combined fetch/reconstruction belongs
+to installation and consumes `sync` fetch preparation under one write lock.
+The public `api` module only re-exports owner operations and contracts; guarded
+reader implementation belongs to `repo/read`. CLI handlers call `crate::api`.
+Keep phase types with their owner and tests beside the code they exercise.
+Packaging profiles belong to `artifact/profiles`; codecs do not import manifest
+schemas. Manifest validation may consume artifact profiles, hashes and codecs.
+Installation `execute` owns staging and publication, `pipeline` coordinates
+artifact readiness and file verification, and `workers` owns memory admission,
+dispatch and terminal events. Keep cancellation, draining and handle-release
+ordering intact across these boundaries.
 
 ## Public naming
 

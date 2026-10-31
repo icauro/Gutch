@@ -7,8 +7,8 @@ Run these commands from the Gutch project root.
 `--product` / `--dataset` for a scripted run. These compare Gutch profiles,
 capture modes, reconstruction paths, storage layouts, and a filesystem baseline.
 
-Comparisons against other tools belong exclusively to the separate
-[comparison suite](../../../comparison_benchmark_suite/README.md). Run its
+Comparisons against other tools belong exclusively to the separately
+installed `comparison-benchmark-suite` package. From its checkout, run
 `python run.py`; Gutch no longer downloads or uploads competitor binaries.
 
 This directory retains advanced diagnostic fixtures and optional Docker/S3
