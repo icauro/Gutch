@@ -9,7 +9,7 @@ capture modes, reconstruction paths, storage layouts, and a filesystem baseline.
 
 Comparisons against other tools belong exclusively to the separately
 installed `comparison-benchmark-suite` package. From its checkout, run
-`python run.py`; Gutch no longer downloads or uploads competitor binaries.
+`gutch-bench`; Gutch no longer downloads or uploads competitor binaries.
 
 This directory retains advanced diagnostic fixtures and optional Docker/S3
 workflows. They import the same command, validation, scheduling, and comparison

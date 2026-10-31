@@ -206,7 +206,7 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
                 rendered,
                 0.01,
                 0,
-                "borg 2.0.0b23" if rendered[1] == "--version" else "",
+                "borg 2.0.0b25" if rendered[1] == "--version" else "",
                 "",
             )
 
@@ -234,7 +234,7 @@ def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
         "--repo",
         str(tmp_path / "run/lanes/borg/payload/repo"),
         "--encryption",
-        "none-sha256",
+        "authenticated-sha256",
     )
     assert all("--repo" in call for call in commands.calls[1:])
 
