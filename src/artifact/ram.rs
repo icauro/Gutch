@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2023 WASL
+// Modified for Gutch, copyright (c) 2026 icauro: Rust port and bounded AVX2 reductions.
 //! Scalar RAM and AVX2 VectorCDC with identical boundaries.
 //! Algorithm reference: UWASL/dedup-bench, commit
 //! 8e2697cbf6332ac5da6dc615bfab82a720e820e4, ram_chunking.cpp (Apache-2.0).

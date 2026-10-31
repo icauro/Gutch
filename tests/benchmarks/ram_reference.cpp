@@ -1,4 +1,5 @@
 // Reference kernels from UWASL/dedup-bench, copyright WASL 2023, Apache-2.0.
+// SPDX-License-Identifier: Apache-2.0
 // Commit 8e2697cbf6332ac5da6dc615bfab82a720e820e4.
 // License: ../../src/artifact/ram/LICENSE. Standalone timing wrapper added for Gutch.
 #include <immintrin.h>

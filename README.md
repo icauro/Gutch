@@ -1,5 +1,8 @@
 # Gutch
 
+Original project code is [MIT licensed](LICENSE). Included third-party source
+retains its own terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
 Gutch is a Rust artifact engine for software delivery. It packages source folders
 into deduplicated, compressed snapshots and reconstructs verified installations
 from them. Applications use the `gutch::api` library or the `gutch-cli` executable.

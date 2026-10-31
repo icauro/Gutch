@@ -5,6 +5,8 @@ Paths are relative to this project root.
 ```
 Cargo.toml
 CONTRIBUTING.md
+LICENSE
+THIRD_PARTY_NOTICES.md
 docs/
 docs/current_state/
 docs/current_state/01_operation_ownership.md
@@ -26,6 +28,7 @@ docs/current_state/cdc_experiment.md
 docs/current_state/README.md
 gutch-cli/
 gutch-cli/Cargo.toml
+gutch-cli/LICENSE
 gutch-cli/src/
 gutch-cli/src/main.rs
 gutch.py
@@ -54,6 +57,7 @@ src/artifact/gear.rs
 src/artifact/hash.rs
 src/artifact/hash_tests.rs
 src/artifact/integrity.rs
+src/artifact/jc.LICENSE
 src/artifact/jc.rs
 src/artifact/jc_gear.rs
 src/artifact/jc_tests.rs
