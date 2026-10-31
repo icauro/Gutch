@@ -80,7 +80,7 @@ def test_internal_runner_rejects_external_tools_before_creating_artifacts(tmp_pa
 
     fixture = load_fixture(
         Path(comparison_benchmark_suite.__file__).resolve().parent
-        / "fixtures/blender/fixture.yaml"
+        / "fixtures/gutch_vs_restic.yaml"
     )
     artifacts = tmp_path / "runs"
     with pytest.raises(ValueError, match="standalone suite"):
