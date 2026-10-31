@@ -186,7 +186,7 @@ with cargo-bolero and a compatible Rust toolchain. Inputs are capped at 64 KiB;
 malformed decompression output is capped at 65,537 bytes. Corpus/crash artifacts
 are under `tests/.artifacts/fuzz/`. Bolero shrinks failing native inputs.
 
-The frozen corpus contains ten generated cases plus Blender. All generated cases
+The frozen corpus contains ten generated cases; Blender uses a pinned download recipe. All generated cases
 are below 16 MiB including source, metadata and repository. Normal tests never
 regenerate committed repositories. Windows validates every supported attribute;
 Linux also validates executable bits.

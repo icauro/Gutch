@@ -143,7 +143,8 @@ authority for success or failure.
 [Correctness testing](13_correctness_testing.md) uses the shared immutable
 [dataset corpus](../../tests/datasets/README.md). Benchmarks can select the same
 case with `--dataset` after its source has been prepared. Both consumers own their
-working copies and result directories. Normal tests never download Blender.
+working copies and result directories. Ordinary tests stay offline; explicitly
+selecting Blender prepares missing downloads automatically.
 
 ```sh
 python gutch.py dataset prepare 02_chunk_boundaries
