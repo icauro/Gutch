@@ -1,4 +1,4 @@
-"""Explicitly freeze source datasets; normal regression runs only read this corpus."""
+"""Read frozen synthetic repositories or capture disposable real-source inputs."""
 
 import argparse
 import hashlib
@@ -25,18 +25,41 @@ from tests.helpers.filesystem import (
 )
 
 
-def repository_input(name, version="v1"):
+def repository_input(name, version="v1", *, case=None):
     definition = load_case(name)
     if version not in definition["repositories"] or not re.fullmatch(
         r"v[1-9][0-9]*", version
     ):
-        raise ValueError(f"no frozen {version} repository for {name}")
+        raise ValueError(f"no {version} repository recipe for {name}")
     root = CORPUS_ROOT / name
     record = definition["repositories"][version]
     expected = json.loads((root / "expected.json").read_text(encoding="utf-8"))
-    return root / "repository" / f"format-{version}", {
+    snapshots = {
         snapshot: expected[source] for snapshot, source in record["snapshots"].items()
     }
+    if record.get("preparation") == "capture":
+        if case is None:
+            raise ValueError(f"{name} requires a run-owned case for preparation")
+        # Expectations and snapshot IDs stay pinned; a new capture is never a
+        # replacement oracle for a failed reconstruction or compatibility test.
+        source = prepare_case_source(name)
+        preparation = Case(case.payload / "dataset-setup", case.executable)
+        repo = preparation.init()
+        sources = sorted(record["snapshots"].items(), key=lambda item: item[1])
+        for index, (snapshot, source_name) in enumerate(sources, 1):
+            captured = preparation.capture(
+                repo,
+                source / source_name,
+                "--compression-algorithm",
+                "zstd",
+                "--tag",
+                f"version={index}.0.0",
+            )
+            assert captured["snapshot_id"] == snapshot, (
+                f"captured snapshot identity differs from pinned {name}/{source_name}"
+            )
+        return repo, snapshots
+    return root / "repository" / f"format-{version}", snapshots
 
 
 def freeze(name, version, executable, source=None):
@@ -46,6 +69,8 @@ def freeze(name, version, executable, source=None):
     destination = CORPUS_ROOT / name / "repository" / f"format-{version}"
     if destination.exists() or version in definition["repositories"]:
         raise ValueError(f"frozen repository already exists: {destination}")
+    if definition["source"]["kind"] == "blender":
+        raise ValueError("Blender uses disposable capture; freeze only synthetic cases")
     source = source.resolve() if source else prepare_case_source(name)
     settings = definition["source"]
     names = (

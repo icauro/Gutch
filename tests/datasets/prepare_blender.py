@@ -378,7 +378,8 @@ def prepare_blender_product(
         archive_path = cache_dir / asset.archive_name
         if not archive_path.is_file() or _sha256_file(archive_path) != asset.sha256:
             print(
-                f"Downloading Blender {asset.version} {asset.platform}: {asset.archive_name}"
+                f"Downloading Blender {asset.version} {asset.platform}: {asset.archive_name}",
+                flush=True,
             )
             try:
                 _download_blender_asset(asset, archive_path, base_url)

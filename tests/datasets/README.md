@@ -18,7 +18,7 @@ case.json                 # Purpose, generator inputs or pinned downloads, creat
 expected.json             # Independent source inventories, indexed by source version
 source/v1/                # Committed generated input bytes
 source/v2/
-repository/format-v1/      # Committed frozen Gutch repository
+repository/format-v1/      # Committed frozen Gutch repository (synthetic cases only)
 ```
 
 There are ten fuzz-generated cases. Each case's complete committed contents must
@@ -28,13 +28,19 @@ random content, Unicode, nesting, attributes, version changes and many small fil
 Generation settings and exact fuzzer input bytes live in `case.json`; there is no
 separate recipe directory.
 
-Blender uses the same schema, but only its repository and metadata are committed.
-Its full Windows 5.2.0 and 5.2.1 releases are frozen together (about 528 MiB encoded).
-The 16 MiB cap applies only to generated cases. Pinned downloads and extracted sources
-live in `tests/.artifacts/datasets/blender/`. Preparation verifies archive SHA-256
-hashes and checks prepared file contents against `expected.json`. It can use a
+Blender commits only its pinned download recipe, snapshot IDs and independent
+`expected.json` inventory. Explicitly selecting `--dataset blender` downloads
+missing Windows 5.2.0 and 5.2.1 archives and extracts them under
+`tests/.artifacts/datasets/blender/`. Preparation verifies archive SHA-256 hashes
+and checks prepared file contents against `expected.json`. It can use a
 checksum-verified mirror if the primary host rejects the download.
-Normal regression tests do not download Blender. Select its case explicitly.
+The selected test captures a new repository under its run-owned payload and
+requires the pinned snapshot IDs before running the lifecycle. Setup runs outside
+the scenario deadline. Successful-run cleanup removes that repository; archives
+and source caches remain ignored and reusable. Modified cached inputs fail validation.
+Blender exercises the current engine against real inputs; frozen synthetic cases
+retain historical format coverage. Ordinary tests stay offline. The first Blender
+run needs network access and several GiB of free space; download failures fail setup.
 
 `generate.py` owns synthetic generation, small test trees and the dataset CLI.
 `fuzzed(root, input_bytes, profile=..., version=..., max_bytes=...)` accepts arbitrary
@@ -48,7 +54,8 @@ source data; it does not generate or overwrite repositories.
 `dataset prepare` writes disposable sources under `tests/.artifacts/datasets/<case>/source/`.
 It checks existing prepared files instead of silently accepting modified content.
 Benchmarks select that prepared source using `--dataset`; normal test runs select the
-committed repository. Generated source bytes are also committed beside each case.
+committed synthetic repository or a disposable Blender capture. Generated source
+bytes are also committed beside each case.
 Git does not preserve empty directories or read-only attributes: the generator and
 expected inventory describe those properties, and tests verify them in reconstructions.
 
@@ -67,8 +74,9 @@ The CLI selector remains `--repository-version v1`; source `v1` and `v2`
 identify product snapshots, and `generator_version` identifies the generator algorithm.
 For each frozen repository, creator metadata records the
 actual crate version (currently 0.2.0). No Cargo version is inferred from the folder.
-Normal tests only mutate copies under `tests/.artifacts/runs/`. Preserve old major
-folders and add new ones; never rebuild fixtures automatically to fix a failing test.
+Normal tests only mutate copies under `tests/.artifacts/runs/`. Preserve old synthetic
+major folders and add new ones; never rebuild frozen fixtures automatically to fix
+a failing test. Blender capture preparation does not rewrite tracked expectations.
 
 Custom larger products remain available through `python gutch.py dataset --help`,
 including size/count/path/metadata ranges, version mutations and optional BLAKE3

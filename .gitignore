@@ -13,3 +13,4 @@
 !/tests/datasets/corpus/*/source/
 !/tests/datasets/corpus/*/source/**
 /tests/datasets/corpus/blender/source/
+/tests/datasets/corpus/blender/repository/

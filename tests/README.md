@@ -68,8 +68,10 @@ uses current source and reports source changes. It does not reset source history
 version and recipe options. Generated products default to `.artifacts/datasets/products/`
 inside this directory. Correctness scenarios create their own small inputs per run.
 They never consume mutable benchmark products. The default frozen scenario covers
-the ten generated corpus cases and the preserved historical fixture. Blender is
-explicit: `python gutch.py test --dataset blender --steps 0 --timeout 1800`.
+the ten generated corpus cases. Blender is explicit:
+`python gutch.py test --dataset blender --steps 0 --timeout 1800` automatically
+prepares checksum-pinned source downloads and captures a disposable repository.
+Only its recipe and independent expectations are tracked; caches are ignored.
 See [dataset corpus](datasets/README.md) for preparation and freezing rules.
 
 `python gutch.py benchmark list` lists benchmark workloads. See the

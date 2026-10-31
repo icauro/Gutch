@@ -125,12 +125,12 @@ def main(arguments=None):
     parser.add_argument(
         "--dataset",
         choices=case_names(),
-        help="Run the core lifecycle on a committed corpus case",
+        help="Run the core lifecycle on a corpus case (Blender downloads on demand)",
     )
     parser.add_argument(
         "--repository-version",
         default="v1",
-        help="Frozen binary format version (default: v1)",
+        help="Repository recipe version (default: v1; synthetic cases use frozen data)",
     )
     parser.add_argument(
         "--expected",
@@ -330,6 +330,21 @@ def main(arguments=None):
                 options.update(
                     dataset=args.dataset, repository_version=args.repository_version
                 )
+                from tests.datasets.generate import load_case
+                from tests.helpers.corpus import repository_input
+
+                record = load_case(args.dataset)["repositories"].get(
+                    args.repository_version, {}
+                )
+                if record.get("preparation") == "capture":
+                    # Network preparation belongs to setup, outside the scenario
+                    # deadline. The worker and replay use the same prepared input.
+                    source, expected = repository_input(
+                        args.dataset, args.repository_version, case=case
+                    )
+                    expected_path = case.root / "dataset-expected.json"
+                    write_json(expected_path, expected)
+                    options.update(repo=str(source), expected=str(expected_path))
             write_json(case.root / "options.json", options)
             write_json(
                 case.root / "replay.json",

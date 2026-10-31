@@ -17,11 +17,11 @@ def run(case):
         if options.get("expected")
         else None
     )
-    if options.get("dataset"):
+    if options.get("dataset") and source is None:
         from tests.helpers.corpus import repository_input
 
         source, expected = repository_input(
-            options["dataset"], options["repository_version"]
+            options["dataset"], options["repository_version"], case=case
         )
     run_lifecycle(
         case,

@@ -1,22 +1,13 @@
 {
   "name": "blender",
-  "purpose": "Full official Blender Windows releases; realistic historical reconstruction and update coverage",
+  "purpose": "Pinned official Blender Windows releases; disposable capture, reconstruction and update coverage",
   "repositories": {
     "v1": {
-      "creator": {
-        "binary_sha256": "56dae71dcc665467898a48e800c5c9ee370cda605db9020bc49b306263032ae5",
-        "crate_version": "0.2.0",
-        "engine_commit": null,
-        "engine_source_sha256": "0b70e00d845257af2c5b5a4c3a1c1e61006749a77559ee92ecfd6571092240ed"
-      },
-      "format_identifier_reset": {
-        "binary_version": 1,
-        "source_commit": "49e554d1f"
-      },
       "snapshots": {
         "7511b74b8bc7a5c97288c44c5b15c6c711a39f7ee098c9db051bf753a715672e": "blender-5.2.1-windows-x64",
         "fd0594477d535b115cece28b37e6a2d4c81ea20369625b27685c983d9e3fdccf": "blender-5.2.0-windows-x64"
-      }
+      },
+      "preparation": "capture"
     }
   },
   "schema_version": 1,

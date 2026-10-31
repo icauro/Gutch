@@ -67,18 +67,116 @@ def test_every_case_has_a_frozen_major_version_and_complete_inventory():
         if load_case(name)["source"]["kind"] == "generated"
     ]
     assert len(generated) == 10
-    for name in case_names():
+    for name in generated:
         repo, expected = repository_input(name, "v1")
         assert (repo / "repo_metadata.json").is_file()
         assert {
             path.name for path in (repo / "snapshots").iterdir() if path.is_dir()
         } == expected.keys()
     assert not (CORPUS_ROOT / "blender/source").exists()
+    assert not (CORPUS_ROOT / "blender/repository").exists()
+    definition = load_case("blender")
+    assert definition["repositories"]["v1"]["preparation"] == "capture"
+    expected = json.loads(
+        (CORPUS_ROOT / "blender/expected.json").read_text(encoding="utf-8")
+    )
+    assert set(definition["repositories"]["v1"]["snapshots"].values()) == expected.keys()
 
 
 def test_freezing_an_existing_major_version_is_rejected_before_execution():
     with pytest.raises(ValueError, match="already exists"):
         freeze("blender", "v1", Path("missing-executable"))
+    with pytest.raises(ValueError, match="disposable capture"):
+        freeze("blender", "v2", Path("missing-executable"))
+
+
+def test_blender_preparation_keeps_pinned_expectations_and_rejects_changed_cache(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    import shutil
+    import zipfile
+    from tests.datasets import generate, prepare_blender
+    from tests.helpers import corpus
+    from tests.helpers.filesystem import inventory
+
+    root = tmp_path / "corpus"
+    case_root = root / "blender"
+    case_root.mkdir(parents=True)
+    folder = "blender-5.2.0-windows-x64"
+    original = tmp_path / "original"
+    original.mkdir()
+    (original / "blender.exe").write_bytes(b"independent source bytes")
+    archive = tmp_path / f"{folder}.zip"
+    with zipfile.ZipFile(archive, "w") as output:
+        output.write(original / "blender.exe", f"{folder}/blender.exe")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    expected = {folder: {"entries": inventory(original)}}
+    definition = load_case("blender")
+    definition["source"].update(
+        selected_versions=["5.2.0"],
+        versions=[{
+            "version": "5.2.0",
+            "assets": [{
+                "archive": archive.name,
+                "platform": "windows-x64",
+                "sha256": digest,
+            }],
+        }],
+    )
+    snapshot = "1" * 64
+    definition["repositories"]["v1"]["snapshots"] = {snapshot: folder}
+    (case_root / "case.json").write_text(json.dumps(definition))
+    expected_path = case_root / "expected.json"
+    expected_path.write_text(json.dumps(expected))
+    before = expected_path.read_bytes()
+    monkeypatch.setattr(generate, "CORPUS_ROOT", root)
+    monkeypatch.setattr(generate, "TESTS_ROOT", tmp_path / "tests")
+    monkeypatch.setattr(corpus, "CORPUS_ROOT", root)
+    downloads = []
+
+    def download(asset, destination, base_url):
+        downloads.append(asset.archive_name)
+        shutil.copyfile(archive, destination)
+
+    monkeypatch.setattr(prepare_blender, "_download_blender_asset", download)
+    captures = []
+
+    class CaptureCase:
+        def __init__(self, root, executable):
+            self.root = root
+
+        def init(self):
+            return self.root / "repo"
+
+        def capture(self, repo, source, *options):
+            captures.append(source)
+            return {"snapshot_id": snapshot}
+
+    monkeypatch.setattr(corpus, "Case", CaptureCase)
+    case = SimpleNamespace(payload=tmp_path / "run/payload", executable=Path("cli"))
+    repo, observed = repository_input("blender", case=case)
+    assert repo.is_relative_to(case.payload)
+    assert observed == {snapshot: expected[folder]}
+    assert downloads == [archive.name]
+    assert len(captures) == 1
+    repository_input("blender", case=case)
+    assert downloads == [archive.name]  # Verified archive is reused offline.
+    assert expected_path.read_bytes() == before
+
+    definition["repositories"]["v1"]["snapshots"] = {"2" * 64: folder}
+    (case_root / "case.json").write_text(json.dumps(definition))
+    with pytest.raises(AssertionError, match="identity differs"):
+        repository_input("blender", case=case)
+    captures.clear()
+    cached_file = (
+        tmp_path / "tests/.artifacts/datasets/blender/source" / folder / "blender.exe"
+    )
+    cached_file.write_bytes(b"tampered cache")
+    with pytest.raises(ValueError, match="source differs"):
+        repository_input("blender", case=case)
+    assert not captures
+    assert expected_path.read_bytes() == before
 
 
 @pytest.mark.parametrize("budget", [0, 127, 4 * 1024 * 1024 + 1])

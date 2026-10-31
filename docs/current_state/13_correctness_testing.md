@@ -79,16 +79,21 @@ spans multiple bundles. Expectations come from the input bytes using SHA-256;
 they are independent of Gutch's manifests and verification implementation.
 
 `tests/datasets/corpus/` contains ten generated cases (each at most 16 MiB),
-and full Blender Windows 5.2.0/5.2.1 inputs stored
-as a frozen repository. Each case has `case.json`, independent `expected.json`,
-and `repository/format-v1/`. Generated source bytes are committed; Blender sources and
-archives are prepared only under test artifacts. Exact creator metadata and
-snapshot-to-source mappings live in the case definition. New binary format generations get new folders; existing repositories are never automatically rebuilt.
+and a pinned recipe for full Blender Windows 5.2.0/5.2.1 inputs. Each case has
+`case.json` and independent `expected.json`. Synthetic cases also commit source
+bytes and frozen `repository/format-v1/` repositories with creator metadata.
+Blender archives and sources are cached only under ignored test artifacts;
+its repository is captured per run and must match the pinned snapshot IDs.
+New frozen binary format generations get new folders; existing synthetic
+repositories are never automatically rebuilt.
 
 The default frozen scenario runs the shared lifecycle over all small corpus
 repositories. `--dataset blender --steps 0 --timeout 1800` selects the full real-world
-case without requiring source downloads. `--repository-version` selects a frozen
-binary-format folder. See [dataset corpus](../../tests/datasets/README.md) for preparation,
+case and automatically prepares missing downloads before its scenario deadline.
+This tests current-engine capture and reconstruction against pinned expectations;
+the small frozen synthetic cases retain historical format coverage.
+`--repository-version` selects a repository recipe (a frozen binary-format folder
+for synthetic cases). See [dataset corpus](../../tests/datasets/README.md) for preparation,
 byte-driven fuzz generation, size limits and the explicit freezing command.
 
 `tests/repository_suite.py` runs the same lifecycle for the frozen fixture,
