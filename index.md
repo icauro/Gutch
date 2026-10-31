@@ -4,6 +4,7 @@ Paths are relative to this project root.
 
 ```
 Cargo.toml
+.github/workflows/build-cli.yml
 CONTRIBUTING.md
 LICENSE
 THIRD_PARTY_NOTICES.md
@@ -2553,6 +2554,7 @@ tests/datasets/prepare_blender.py
 tests/datasets/README.md
 tests/datasets/tag_contract.json
 tests/harness_tests/
+tests/harness_tests/test_package_cli.py
 tests/harness_tests/gutch_scenario_fixture.py
 tests/harness_tests/test_dataset_corpus.py
 tests/harness_tests/test_developer_commands.py
@@ -2636,6 +2638,7 @@ tools/
 tools/__init__.py
 tools/artifacts.py
 tools/build_image.py
+tools/package_cli.py
 tools/docker/
 tools/docker/compose.yml
 tools/docker/Dockerfile

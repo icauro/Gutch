@@ -26,6 +26,11 @@ for supported boundaries and their reasons.
 
 ## First successful run
 
+To download the CLI, open **Actions > Build Gutch CLI** and select a successful
+run. Artifacts cover Linux and Windows on x86-64 and ARM64, with checksums and
+notices. Builds run on code pushes to `main` or manually. See
+[CLI builds](docs/current_state/12_performance_and_development.md#cli-builds-in-github-actions).
+
 Install Python 3.12 or newer, uv, and a Rust toolchain supporting edition 2024.
 The standalone CI currently uses Rust 1.97.1. On Windows, Rust also needs the
 MSVC C++ build tools. Run these commands from this directory:
@@ -94,8 +99,6 @@ Output is readable by default; use `--json-lines` to stream structured events. S
 for verification levels, extra files, estimates, and failure behavior.
 
 See [CLI usage](usage.md) and [engine contracts](docs/current_state/README.md).
-This source tree is not yet licensed for public distribution; choosing a license
-and reviewing the intended public export are required before publication.
 
 The comparison suite is a separate root project. Before using Gutch benchmark
 commands, install its checkout into the same Python environment:
