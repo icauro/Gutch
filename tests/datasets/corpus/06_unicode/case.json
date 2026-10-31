@@ -1,0 +1,32 @@
+{
+  "max_case_bytes": 16777216,
+  "name": "06_unicode",
+  "purpose": "unicode",
+  "repositories": {
+    "v1": {
+      "creator": {
+        "binary_sha256": "20369a5a19ad53ab9b7ea8cf4bd9439f4231f48048c8a0313c37785cd71df226",
+        "crate_version": "0.2.0",
+        "engine_commit": null,
+        "engine_source_sha256": "990cde573d44517b68d42038420201252e50b3d7e0772c129d81787404367187"
+      },
+      "format_identifier_reset": {
+        "binary_version": 1,
+        "source_commit": "49e554d1f"
+      },
+      "snapshots": {
+        "48112c8c3fb1b3831a0777820ad629b2be8b4f2a709b459ed57a3b588fce62f2": "v1",
+        "9b85cf377e7150e0e1d16ce8d835d0ab30463cdb187de91aba9f4a4c6a3ffde4": "v2"
+      }
+    }
+  },
+  "schema_version": 1,
+  "source": {
+    "generator_version": 2,
+    "input_hex": "208e4efcddb5085f9864d5316f9cbbecf290e364052ff4124c4dd8ce315b03ea",
+    "kind": "generated",
+    "max_bytes_per_version": 1048576,
+    "profile": "unicode",
+    "versions": 2
+  }
+}

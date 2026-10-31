@@ -1,0 +1,32 @@
+{
+  "max_case_bytes": 16777216,
+  "name": "09_version_changes",
+  "purpose": "version changes",
+  "repositories": {
+    "v1": {
+      "creator": {
+        "binary_sha256": "20369a5a19ad53ab9b7ea8cf4bd9439f4231f48048c8a0313c37785cd71df226",
+        "crate_version": "0.2.0",
+        "engine_commit": null,
+        "engine_source_sha256": "990cde573d44517b68d42038420201252e50b3d7e0772c129d81787404367187"
+      },
+      "format_identifier_reset": {
+        "binary_version": 1,
+        "source_commit": "49e554d1f"
+      },
+      "snapshots": {
+        "42300ee03bf8c06e51e9fcd6de2864c2f811ee676ce8e62c287ce2b39fdaf900": "v1",
+        "4f588d335db7b28bce1c0281e0df44799c0e4740ef34fd305a8bd59140943338": "v2"
+      }
+    }
+  },
+  "schema_version": 1,
+  "source": {
+    "generator_version": 2,
+    "input_hex": "4d29618d4012699c9e5ad5c1879759dbf7a4e913879d1dee9939263a2e0c4787",
+    "kind": "generated",
+    "max_bytes_per_version": 1048576,
+    "profile": "version_changes",
+    "versions": 2
+  }
+}

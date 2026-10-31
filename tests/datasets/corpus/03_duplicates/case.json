@@ -1,0 +1,32 @@
+{
+  "max_case_bytes": 16777216,
+  "name": "03_duplicates",
+  "purpose": "duplicates",
+  "repositories": {
+    "v1": {
+      "creator": {
+        "binary_sha256": "20369a5a19ad53ab9b7ea8cf4bd9439f4231f48048c8a0313c37785cd71df226",
+        "crate_version": "0.2.0",
+        "engine_commit": null,
+        "engine_source_sha256": "990cde573d44517b68d42038420201252e50b3d7e0772c129d81787404367187"
+      },
+      "format_identifier_reset": {
+        "binary_version": 1,
+        "source_commit": "49e554d1f"
+      },
+      "snapshots": {
+        "90858da9281a6cd595589da9721e5806e927cf9788f04e25846afeac3866a9d0": "v2",
+        "c31707c788885a0e8360311f17110136c9fc7a82bd4ec6ff1ea98636e75af851": "v1"
+      }
+    }
+  },
+  "schema_version": 1,
+  "source": {
+    "generator_version": 2,
+    "input_hex": "6c0ed2e8af4b10a255c39c2745029599bde9f3236f5f6f29f92389be760ad223",
+    "kind": "generated",
+    "max_bytes_per_version": 1048576,
+    "profile": "duplicates",
+    "versions": 2
+  }
+}

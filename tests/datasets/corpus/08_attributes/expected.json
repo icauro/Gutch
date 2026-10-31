@@ -1,0 +1,1020 @@
+{
+  "v1": {
+    "entries": {
+      "Case-change.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "3790b70d85fcc24e0bccb10abd14b329af7d5f1e71051f8db3e86858bb8ce2d5",
+        "size": 16
+      },
+      "changing.bin": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "18ccd70558355234f58819cf187aef2d1320c20942d5aa6a5c3965f89d451b5b",
+        "size": 65549
+      },
+      "empty": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "empty.bin": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "launch.sh": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb",
+        "size": 17
+      },
+      "names": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "names/n0-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "ac1bef7893760dabe7fcbc7ca27147f881fa6c0a74575fa4eefa6e2bc7aee011",
+        "size": 58
+      },
+      "names/n1-\u00e9\u00e0\u00f6\u00f1\u00f8\u00df\u00c6\u010c\u0141.txt": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "4ea26812c6ab23dbcefdbfc248c467a601fd4f0c2c442242886fa9311672f8f4",
+        "size": 12
+      },
+      "names/n10-punctuation !@#$%&()+={}[]'.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "fb3e237fd19f63a65611076fa1866f77dd1d2bbb65f45a5ac8054a443c6a13ba",
+        "size": 15
+      },
+      "names/n11-e\u0301a\u0308.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "a09eadd5693cf6ed1e33b51f63bb92d7de855a17b82ee1a96382757d9aba36b5",
+        "size": 20
+      },
+      "names/n12-\u200b\u200d\u2067\u2069.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "acd03f63991e3a8cd35a7b01d3f78afded1e2c47cd59e2b061f8508a7f9c4b8a",
+        "size": 52
+      },
+      "names/n2-\u0430\u0431\u0432\u0433\u0434\u0435\u0436\u0437\u0438\u0439\u043a\u043b\u043c\u043d\u043e\u043f\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447\u0448\u0449\u044d\u044e\u044f.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "9852e0d5e58381a97e2d0efaebb400529974b77165f2353b652aa9ce61019124",
+        "size": 57
+      },
+      "names/n3-\u0627\u0628\u062a\u062b\u062c\u062d\u062e\u062f\u0630\u0631\u0632\u0633\u0634\u0635\u0636\u0637\u0638\u0639\u063a\u0641\u0642\u0643\u0644\u0645\u0646\u0647\u0648\u064a.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "5525e8dd63f96c3a0f95bcbf8dbf097ffc6d10eac13cfbba6e523cc30358dc27",
+        "size": 53
+      },
+      "names/n4-\u05d0\u05d1\u05d2\u05d3\u05d4\u05d5\u05d6\u05d7\u05d8\u05d9\u05db\u05dc\u05de\u05e0\u05e1\u05e2\u05e4\u05e6\u05e7\u05e8\u05e9\u05ea.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "e509471d9f2da50e497c90435d2bb53220cf182e7129149c14f5239e4dc86830",
+        "size": 15
+      },
+      "names/n5-\u65e5\u672c\u6771\u4eac\u6f22\u5b57\u8a9e\u6570\u636e\u6587\u4ef6.txt": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "aeeb496221b2747f12be8c16e5beee33668fa089c4570f30efcd5eeed6dab7b4",
+        "size": 59
+      },
+      "names/n6-\u03b1\u03b2\u03b3\u03b4\u03b5\u03b6\u03b7\u03b8\u03b9\u03ba\u03bb\u03bc\u03bd\u03be\u03bf\u03c0\u03c1\u03c3\u03c4\u03c5\u03c6\u03c7\u03c8\u03c9.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "names/n7-\u0939\u093f\u0928\u094d\u0926\u0940\u092d\u093e\u0937\u093e\u092b\u093e\u0907\u0932.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "c0233506d165f1c4eaa0f72e91384b1041942bafaab29ce57512f9661559636d",
+        "size": 13
+      },
+      "names/n8-\ud55c\uad6d\uc5b4\ud30c\uc77c\uc774\ub984.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "67f99606ea6b2d7f9144c3c235b3bfc226890bedd9b121021984e5d6816a382a",
+        "size": 61
+      },
+      "names/n9-\ud83d\ude80\ud83d\ude00\ud83e\uddea\ud83c\udf0d.txt": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "bf20f942972af511502b0dee87835e3d13483c3e5f9f4eb7c0649bbd9471519d",
+        "size": 53
+      },
+      "old.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "8351e913cf6f3af31f7e0572509ac307cd4a7371c10272a1facc83542a43eb20",
+        "size": 25
+      },
+      "permission-change.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "74bf6e057d8961eb2c4aeed57cdbc3dfd1ab20f9458c1e5d03e2db999c88d633",
+        "size": 26
+      },
+      "random": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat/d3-n0-aaaa\u0308a\u0301\u0308\u0308\u0308aaeeea\u0308e\u0308a\u0308.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat/d3-n0-aaaa\u0308a\u0301\u0308\u0308\u0308aaeeea\u0308e\u0308a\u0308.dat/d4-n0-\u064a\u0630\u0635\u062b\u062d\u0643\u0638\u0648\u0647\u0644\u064a\u062c\u0644\u0644\u0638\u0630\u062a\u0638\u0633\u0630\u063a\u062c\u0648\u0637.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat/d3-n0-aaaa\u0308a\u0301\u0308\u0308\u0308aaeeea\u0308e\u0308a\u0308.dat/d4-n0-\u064a\u0630\u0635\u062b\u062d\u0643\u0638\u0648\u0647\u0644\u064a\u062c\u0644\u0644\u0638\u0630\u062a\u0638\u0633\u0630\u063a\u062c\u0648\u0637.dat/n0-\u05d6\u05db\u05e8\u05e0\u05d0\u05d2\u05d7\u05e1\u05e2\u05d4\u05d8\u05d8\u05e1\u05d8\u05ea\u05d6\u05d2.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat/d3-n1-\ud83d\ude00\ud83d\ude80\ud83e\uddea\ud83d\ude80.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat/d3-n1-\ud83d\ude00\ud83d\ude80\ud83e\uddea\ud83d\ude80.dat/d4-n1-]%_(+([{-[;, ${[[ .dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat/d3-n1-\ud83d\ude00\ud83d\ude80\ud83e\uddea\ud83d\ude80.dat/d4-n1-]%_(+([{-[;, ${[[ .dat/n1-\u03bf\u03c3\u03c4.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "050f420ec667ffdbd63d1d927b9612eba5139acd2ab3c347f886fc7b3727fddf",
+        "size": 127
+      },
+      "random/d0-n10-\u03c5\u03bb.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat/d2-n10-\ud30c\ud55c\ud55c\uc774\uc774\ub984\uc774\ud30c\ub984\ud30c\uad6d\ub984\uc774\ud55c\ub984\ub984.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat/d2-n10-\ud30c\ud55c\ud55c\uc774\uc774\ub984\uc774\ud30c\ub984\ud30c\uad6d\ub984\uc774\ud55c\ub984\ub984.dat/d3-n10-\u0439\u044d\udae8\udcd6\u0444\udbdf\udfa4\u0434\udabd\udee7\u0441\u0447\u0443\u0449.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat/d2-n10-\ud30c\ud55c\ud55c\uc774\uc774\ub984\uc774\ud30c\ub984\ud30c\uad6d\ub984\uc774\ud55c\ub984\ub984.dat/d3-n10-\u0439\u044d\udae8\udcd6\u0444\udbdf\udfa4\u0434\udabd\udee7\u0441\u0447\u0443\u0449.dat/n10-\u65e5.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "4666ae8a41e38908feb5c9f408409afbb45fc4c91c339d363d422b6516395eda",
+        "size": 31
+      },
+      "random/d0-n11-DuhCgtc0nU.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n11-DuhCgtc0nU.dat/d1-n11-\u05e6.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n11-DuhCgtc0nU.dat/d1-n11-\u05e6.dat/d2-n11-\u093e\u093f\u092b\u0926\u0926\u093e\u0907\u094d\u0928.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n11-DuhCgtc0nU.dat/d1-n11-\u05e6.dat/d2-n11-\u093e\u093f\u092b\u0926\u0926\u093e\u0907\u094d\u0928.dat/n11-\u00f8\ud9ca\udf34\udb71\udc9c\u00e9\u010c\ud9ca\udf34\udb3e\udd4f\u010c\u00e0\u010c\u00df.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat/d2-n13-\u200b\u200d\u2067\u2067\u200b\u2069\u200d\u200d\u200b\u200d\u2069\u2069\u2067\u2067.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat/d2-n13-\u200b\u200d\u2067\u2067\u200b\u2069\u200d\u200d\u200b\u200d\u2069\u2069\u2067\u2067.dat/d3-n13-\u05d4\u05e7\u05db\u05db\u05d4\u05e4\u05d5\u05ea\u05d2\u05d2\u05de\u05d8\u05e8\u05d9\u05d2\u05dc\u05e2\u05e6\u05e1\u05e9\u05d4\u05d5\u05dc.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat/d2-n13-\u200b\u200d\u2067\u2067\u200b\u2069\u200d\u200d\u200b\u200d\u2069\u2069\u2067\u2067.dat/d3-n13-\u05d4\u05e7\u05db\u05db\u05d4\u05e4\u05d5\u05ea\u05d2\u05d2\u05de\u05d8\u05e8\u05d9\u05d2\u05dc\u05e2\u05e6\u05e1\u05e9\u05d4\u05d5\u05dc.dat/n13-\u636e\u6f22\u8a9e\u4eac\u6570\u8a9e\u6f22.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+        "size": 1
+      },
+      "random/d0-n14-\u03ba\u03b8.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n14-\u03ba\u03b8.dat/d1-n14-\u05e0\u05e4\ud879\udf10\u05e0\u05d0\uda14\ude36\u05d9\u05e0\u05e9\u05e2\u05e6\ud95d\ude89\u05e1\u05d6\u05d7\u05d6\ud8eb\udf61\ud879\udf10.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n14-\u03ba\u03b8.dat/d1-n14-\u05e0\u05e4\ud879\udf10\u05e0\u05d0\uda14\ude36\u05d9\u05e0\u05e9\u05e2\u05e6\ud95d\ude89\u05e1\u05d6\u05d7\u05d6\ud8eb\udf61\ud879\udf10.dat/n14-\uda2d\uddc5\udbe1\udd1f\uda2d\uddc5\u0301\udbeb\udece\uda47\udf73\uda2d\uddc5\udbe1\udd1f\udbeb\udecea\u0308\udbe1\udd1f\u0301\uda2d\uddc5\u0301\ud8d5\udc76\ud8d5\udc76\uda2d\uddc5\uda47\udf73\ud8d5\udc76\ud8d5\udc76.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "6dbec05da05e1c9155dfd64c16b77a3843be802f60168be116e80d30541bcd2d",
+        "size": 4097
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat/d1-n15-\u05e7.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat/d1-n15-\u05e7.dat/d2-n15-&\uda2a\udc5c #\ud8eb\udef2\uda2a\udc5c\ud9a1\udc07{!(\uda91\udee1'+-\ud9a1\udc07\ud8b4\ude7e'\ud9d6\udfdf\ud8d1\udf59]].dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat/d1-n15-\u05e7.dat/d2-n15-&\uda2a\udc5c #\ud8eb\udef2\uda2a\udc5c\ud9a1\udc07{!(\uda91\udee1'+-\ud9a1\udc07\ud8b4\ude7e'\ud9d6\udfdf\ud8d1\udf59]].dat/n15-mzQXmmkNOaVz\uda6e\udc978.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat/d3-n16-\u200d\udb0b\udf0b\uda7c\udf9e\udb03\ude78\u200d\u200d\u2069\u2069\u2067\u2069.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat/d3-n16-\u200d\udb0b\udf0b\uda7c\udf9e\udb03\ude78\u200d\u200d\u2069\u2069\u2067\u2069.dat/d4-n16-\u03c0\u03c9\udb71\udf5f\u03be\udb8a\ude54\u03c1.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat/d3-n16-\u200d\udb0b\udf0b\uda7c\udf9e\udb03\ude78\u200d\u200d\u2069\u2069\u2067\u2069.dat/d4-n16-\u03c0\u03c9\udb71\udf5f\u03be\udb8a\ude54\u03c1.dat/n16-\u05d7\u05d1\u05d6\u05e2\uda21\udd1f\u05de\ud989\udc5b\u05d6\u05dc\udbda\udc53\u05d7\udbda\udc53\ubac3\u05d6\u05d4\ubac3\uda51\udefb\u05d0\udbda\udc53\u05d8.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat/d1-n2-\u03bb\u03bc\u03c1\u03c6\u03c0.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat/d1-n2-\u03bb\u03bc\u03c1\u03c6\u03c0.dat/d2-n2-\u5b57\u6587\u6f22\u6f22\u6570\u4eac\u6587\u6570\u672c\u6570\u6570\u636e.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat/d1-n2-\u03bb\u03bc\u03c1\u03c6\u03c0.dat/d2-n2-\u5b57\u6587\u6f22\u6f22\u6570\u4eac\u6587\u6570\u672c\u6570\u6570\u636e.dat/n2-\u00df\u010c\u00f6\u00f8\u00df\u00f8\u00df\u00f8\u00e0\u00f1\u00f6\u0141\u00e9.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "c52720ce55610e14b7d5952116b86e67eb65d184a648ca9abf14853f54a46fb2",
+        "size": 127
+      },
+      "random/d0-n3-\u05e4.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n3-\u05e4.dat/n3-\udabf\ude84\udabf\ude84\udb58\udc29\ud83c\udf0d\ud95f\udeff\ud95f\udeff.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "d1bbd73bb09190bfb883056771e22e997541ed20079793bf33975fe1654581c3",
+        "size": 1
+      },
+      "random/d0-n4-\ud862\udc60\ud862\udc60\uda3b\udd93\u6587\u8a9e\u6587\u4ef6\u6771.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n4-\ud862\udc60\ud862\udc60\uda3b\udd93\u6587\u8a9e\u6587\u4ef6\u6771.dat/n4-\u0301\u0308aeae\u0301eee\u0301.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "5d7d3cbefb51a1c2dfa40b6d62ea3c700cb238e32b551cd91ff6a3216c48f94a",
+        "size": 4097
+      },
+      "random/d0-n5-ghM\ud85c\ude7cTzZMmUaOstX.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n5-ghM\ud85c\ude7cTzZMmUaOstX.dat/d1-n5-\u0301a\u0308aa\u0301aaaae.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n5-ghM\ud85c\ude7cTzZMmUaOstX.dat/d1-n5-\u0301a\u0308aa\u0301aaaae.dat/n5-\ud90b\udfaa\udb8f\udca5\uc77c\udb8f\udca5\ud9db\ude3f\udb99\ude0c.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "668a3d69be1a1c8c3fa524edb4e935fa81bd7cdfd44852216a710b26d0215cc4",
+        "size": 127
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat/d2-n6-\u092d\u0928\u093e\u0928\u0926\u092d\u093e\u093f.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat/d2-n6-\u092d\u0928\u093e\u0928\u0926\u092d\u093e\u093f.dat/d3-n6-\ud83d\ude00\ud83e\uddea\ud83d\ude80.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat/d2-n6-\u092d\u0928\u093e\u0928\u0926\u092d\u093e\u093f.dat/d3-n6-\ud83d\ude00\ud83e\uddea\ud83d\ude80.dat/n6-kWZocNCv424BkEKfMF1AbJMR.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n7-\u03bd\u03c0\u03b5\u03b2\u03b7\u03b3\u03c1\u03c9\u03b2\u03c0.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n7-\u03bd\u03c0\u03b5\u03b2\u03b7\u03b3\u03c1\u03c9\u03b2\u03c0.dat/d1-n7-\uc774\ud30c\uc77c.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n7-\u03bd\u03c0\u03b5\u03b2\u03b7\u03b3\u03c1\u03c9\u03b2\u03c0.dat/d1-n7-\uc774\ud30c\uc77c.dat/n7-\ud83d\ude00\ud83e\uddea\ud83e\uddea\ud83d\ude00\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83d\ude00\ud83e\uddea\ud83d\ude80\ud83d\ude00\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83c\udf0d\ud83d\ude80\ud83c\udf0d\ud83e\uddea\ud83d\ude80\ud83d\ude80\ud83d\ude00.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "da22c967af89daaadcc82c8bc3561266e286e60b9291a779570681f12d416380",
+        "size": 1023
+      },
+      "random/d0-n8-\u0308\u0308e\u0301.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n8-\u0308\u0308e\u0301.dat/n8-b1LihWIyo7zScsKBWFWPopb.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "528a84ce6b18eb7d0e54be01379122a76dfdca14c97f02e0424aabf0220d9f51",
+        "size": 1
+      },
+      "random/d0-n9-\u0437\u0449\u0436\ud937\udd8e\u0444\ud937\udd8e\udab6\udcef\u0446\u0437\u0449\uda38\udddc.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n9-\u0437\u0449\u0436\ud937\udd8e\u0444\ud937\udd8e\udab6\udcef\u0446\u0437\u0449\uda38\udddc.dat/n9-\ud30c\uc77c\uc77c.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "021fb596db81e6d02bf3d2586ee3981fe519f275c0ac9ca76bbcf2ebb4097d96",
+        "size": 1
+      },
+      "random/n12-\u636e\u4ef6\u4eac\u636e\u65e5\u6587\u6f22\u6587\u6570\u4eac\u6771\u6f22\u6570.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "8503c0d4aa7daf786fca8bd80f9b40f39b6d242bd3ba296b33dc15a67cc42567",
+        "size": 31
+      },
+      "random/n17-\uda0a\udea5\uda0a\udea5\ua70c\ud83e\uddea\udbfc\udf1b\ud868\udc5a\ud936\udd2d\ud83d\ude00\ud83d\ude80\ud868\udc5a\ud84c\udc34\udbfc\udf1b\udbfc\udf1b\ud83c\udf0d\ud83d\ude00\udbfc\udf1b\udbfc\udf1b.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "88714491004a79a622447664d48f130b4170a4d9d42519227dcf9674072d7762",
+        "size": 1023
+      },
+      "random/n18-\uc5b4\uc5b4\uc774\ud30c\uc5b4\ud55c\uad6d\ud55c\uc77c\uc5b4\ud30c\uc77c\uc77c.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "cac50b2fd0af461f3d47bb458d0c2f157fee1a7c59ce49e3f2efed3978eba97b",
+        "size": 127
+      },
+      "readonly-directory": {
+        "kind": "directory",
+        "read_only": true
+      },
+      "readonly.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "cd8a3039e9d1c61e5c89b6c8169a97aabbd2f1d0817e06027cea85f7e7e04372",
+        "size": 20
+      },
+      "removed.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "05aac1b00ebc3d789da36af192a4ef0bb5ed342166088fb165ea0d60931b5425",
+        "size": 17
+      },
+      "shared.bin": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "0dc84411f675a32bb86bdfb90fc7f9fb5147e9d94bcab3f922c73876b00e3570",
+        "size": 65537
+      },
+      "type-change": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "a8561f3156e4ebf53b5039c4f3d8a9c2285f6ad5343e731ba094c97a95c9ca8d",
+        "size": 22
+      },
+      "version.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "size": 2
+      }
+    }
+  },
+  "v2": {
+    "entries": {
+      "added.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "d73f86b7b40bb08831bd371dfbca0c370c3a4939b18794fa8376f211216b44bf",
+        "size": 17
+      },
+      "case-change.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "3790b70d85fcc24e0bccb10abd14b329af7d5f1e71051f8db3e86858bb8ce2d5",
+        "size": 16
+      },
+      "changing.bin": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "64175c588d94e19916bedb391aba079ac870bf87f22862210cb0f19b01c6e265",
+        "size": 65561
+      },
+      "empty": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "empty.bin": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "launch.sh": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb",
+        "size": 17
+      },
+      "moved": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "moved/new.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "8351e913cf6f3af31f7e0572509ac307cd4a7371c10272a1facc83542a43eb20",
+        "size": 25
+      },
+      "names": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "names/n0-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "ac1bef7893760dabe7fcbc7ca27147f881fa6c0a74575fa4eefa6e2bc7aee011",
+        "size": 58
+      },
+      "names/n1-\u00e9\u00e0\u00f6\u00f1\u00f8\u00df\u00c6\u010c\u0141.txt": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "4ea26812c6ab23dbcefdbfc248c467a601fd4f0c2c442242886fa9311672f8f4",
+        "size": 12
+      },
+      "names/n10-punctuation !@#$%&()+={}[]'.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "fb3e237fd19f63a65611076fa1866f77dd1d2bbb65f45a5ac8054a443c6a13ba",
+        "size": 15
+      },
+      "names/n11-e\u0301a\u0308.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "a09eadd5693cf6ed1e33b51f63bb92d7de855a17b82ee1a96382757d9aba36b5",
+        "size": 20
+      },
+      "names/n12-\u200b\u200d\u2067\u2069.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "acd03f63991e3a8cd35a7b01d3f78afded1e2c47cd59e2b061f8508a7f9c4b8a",
+        "size": 52
+      },
+      "names/n2-\u0430\u0431\u0432\u0433\u0434\u0435\u0436\u0437\u0438\u0439\u043a\u043b\u043c\u043d\u043e\u043f\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447\u0448\u0449\u044d\u044e\u044f.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "9852e0d5e58381a97e2d0efaebb400529974b77165f2353b652aa9ce61019124",
+        "size": 57
+      },
+      "names/n3-\u0627\u0628\u062a\u062b\u062c\u062d\u062e\u062f\u0630\u0631\u0632\u0633\u0634\u0635\u0636\u0637\u0638\u0639\u063a\u0641\u0642\u0643\u0644\u0645\u0646\u0647\u0648\u064a.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "5525e8dd63f96c3a0f95bcbf8dbf097ffc6d10eac13cfbba6e523cc30358dc27",
+        "size": 53
+      },
+      "names/n4-\u05d0\u05d1\u05d2\u05d3\u05d4\u05d5\u05d6\u05d7\u05d8\u05d9\u05db\u05dc\u05de\u05e0\u05e1\u05e2\u05e4\u05e6\u05e7\u05e8\u05e9\u05ea.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "e509471d9f2da50e497c90435d2bb53220cf182e7129149c14f5239e4dc86830",
+        "size": 15
+      },
+      "names/n5-\u65e5\u672c\u6771\u4eac\u6f22\u5b57\u8a9e\u6570\u636e\u6587\u4ef6.txt": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "aeeb496221b2747f12be8c16e5beee33668fa089c4570f30efcd5eeed6dab7b4",
+        "size": 59
+      },
+      "names/n6-\u03b1\u03b2\u03b3\u03b4\u03b5\u03b6\u03b7\u03b8\u03b9\u03ba\u03bb\u03bc\u03bd\u03be\u03bf\u03c0\u03c1\u03c3\u03c4\u03c5\u03c6\u03c7\u03c8\u03c9.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "names/n7-\u0939\u093f\u0928\u094d\u0926\u0940\u092d\u093e\u0937\u093e\u092b\u093e\u0907\u0932.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "c0233506d165f1c4eaa0f72e91384b1041942bafaab29ce57512f9661559636d",
+        "size": 13
+      },
+      "names/n8-\ud55c\uad6d\uc5b4\ud30c\uc77c\uc774\ub984.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "67f99606ea6b2d7f9144c3c235b3bfc226890bedd9b121021984e5d6816a382a",
+        "size": 61
+      },
+      "names/n9-\ud83d\ude80\ud83d\ude00\ud83e\uddea\ud83c\udf0d.txt": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "bf20f942972af511502b0dee87835e3d13483c3e5f9f4eb7c0649bbd9471519d",
+        "size": 53
+      },
+      "permission-change.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "74bf6e057d8961eb2c4aeed57cdbc3dfd1ab20f9458c1e5d03e2db999c88d633",
+        "size": 26
+      },
+      "random": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat/d3-n0-aaaa\u0308a\u0301\u0308\u0308\u0308aaeeea\u0308e\u0308a\u0308.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat/d3-n0-aaaa\u0308a\u0301\u0308\u0308\u0308aaeeea\u0308e\u0308a\u0308.dat/d4-n0-\u064a\u0630\u0635\u062b\u062d\u0643\u0638\u0648\u0647\u0644\u064a\u062c\u0644\u0644\u0638\u0630\u062a\u0638\u0633\u0630\u063a\u062c\u0648\u0637.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n0-\u0141\u010c\u00f8\u00c6\u00df\u00f8\u00f6\u00e0\u00f8\u00f8\u00f6\u0141.dat/d1-n0-a\u0301\ud971\ude51\ud855\udf6e\udb35\udc3c\udb35\udc3c\ud8ac\udc7d\uda3e\udd44\ud9f6\udfcb\u0301\udb48\ude70\ud8ac\udc7d\uda3e\udd44\ud8ac\udc7d\ud8c4\udf79\udb48\ude70a\ud8ac\udc7d\u0308\u0301\ud971\ude51\ud855\udf6e\ud8c4\udf79\ud9f6\udfcb.dat/d2-n0-guIn\udb44\udce6irLIFYe\ud9d7\udec4\ud9c4\udf87aZpQTQh4.dat/d3-n0-aaaa\u0308a\u0301\u0308\u0308\u0308aaeeea\u0308e\u0308a\u0308.dat/d4-n0-\u064a\u0630\u0635\u062b\u062d\u0643\u0638\u0648\u0647\u0644\u064a\u062c\u0644\u0644\u0638\u0630\u062a\u0638\u0633\u0630\u063a\u062c\u0648\u0637.dat/n0-\u05d6\u05db\u05e8\u05e0\u05d0\u05d2\u05d7\u05e1\u05e2\u05d4\u05d8\u05d8\u05e1\u05d8\u05ea\u05d6\u05d2.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat/d3-n1-\ud83d\ude00\ud83d\ude80\ud83e\uddea\ud83d\ude80.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat/d3-n1-\ud83d\ude00\ud83d\ude80\ud83e\uddea\ud83d\ude80.dat/d4-n1-]%_(+([{-[;, ${[[ .dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n1-\uda14\uddeb\ud910\udca8\ud55c\uc774\ud55c\udaa9\udd2c\ud55c\udbe6\udd64\ub984\udbe6\udd64.dat/d1-n1-\u05d3\u05e6\u05d8\u05e6\u05e9\u05e1\u05e7\u05e4\u05d5\u05d9\u05ea.dat/d2-n1-&') )-.dat/d3-n1-\ud83d\ude00\ud83d\ude80\ud83e\uddea\ud83d\ude80.dat/d4-n1-]%_(+([{-[;, ${[[ .dat/n1-\u03bf\u03c3\u03c4.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "050f420ec667ffdbd63d1d927b9612eba5139acd2ab3c347f886fc7b3727fddf",
+        "size": 127
+      },
+      "random/d0-n10-\u03c5\u03bb.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat/d2-n10-\ud30c\ud55c\ud55c\uc774\uc774\ub984\uc774\ud30c\ub984\ud30c\uad6d\ub984\uc774\ud55c\ub984\ub984.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat/d2-n10-\ud30c\ud55c\ud55c\uc774\uc774\ub984\uc774\ud30c\ub984\ud30c\uad6d\ub984\uc774\ud55c\ub984\ub984.dat/d3-n10-\u0439\u044d\udae8\udcd6\u0444\udbdf\udfa4\u0434\udabd\udee7\u0441\u0447\u0443\u0449.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n10-\u03c5\u03bb.dat/d1-n10-\udb65\udf2a\uda6e\uddac\uc774\ua660\uad6d\udb31\udea3\ud946\uddc8.dat/d2-n10-\ud30c\ud55c\ud55c\uc774\uc774\ub984\uc774\ud30c\ub984\ud30c\uad6d\ub984\uc774\ud55c\ub984\ub984.dat/d3-n10-\u0439\u044d\udae8\udcd6\u0444\udbdf\udfa4\u0434\udabd\udee7\u0441\u0447\u0443\u0449.dat/n10-\u65e5.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "4666ae8a41e38908feb5c9f408409afbb45fc4c91c339d363d422b6516395eda",
+        "size": 31
+      },
+      "random/d0-n11-DuhCgtc0nU.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n11-DuhCgtc0nU.dat/d1-n11-\u05e6.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n11-DuhCgtc0nU.dat/d1-n11-\u05e6.dat/d2-n11-\u093e\u093f\u092b\u0926\u0926\u093e\u0907\u094d\u0928.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n11-DuhCgtc0nU.dat/d1-n11-\u05e6.dat/d2-n11-\u093e\u093f\u092b\u0926\u0926\u093e\u0907\u094d\u0928.dat/n11-\u00f8\ud9ca\udf34\udb71\udc9c\u00e9\u010c\ud9ca\udf34\udb3e\udd4f\u010c\u00e0\u010c\u00df.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat/d2-n13-\u200b\u200d\u2067\u2067\u200b\u2069\u200d\u200d\u200b\u200d\u2069\u2069\u2067\u2067.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat/d2-n13-\u200b\u200d\u2067\u2067\u200b\u2069\u200d\u200d\u200b\u200d\u2069\u2069\u2067\u2067.dat/d3-n13-\u05d4\u05e7\u05db\u05db\u05d4\u05e4\u05d5\u05ea\u05d2\u05d2\u05de\u05d8\u05e8\u05d9\u05d2\u05dc\u05e2\u05e6\u05e1\u05e9\u05d4\u05d5\u05dc.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n13-\u2069\u200d\u200d\u200b\u2069\u200d\u2067\u200b\u2067\u2067\u2067\u2067\u2069\u200b\u2069\u200d\u2067\u200b\u2069\u2067\u2069\u200d\u2069\u200d.dat/d1-n13-)%%,&@;}#[@';(==_,##%.=.dat/d2-n13-\u200b\u200d\u2067\u2067\u200b\u2069\u200d\u200d\u200b\u200d\u2069\u2069\u2067\u2067.dat/d3-n13-\u05d4\u05e7\u05db\u05db\u05d4\u05e4\u05d5\u05ea\u05d2\u05d2\u05de\u05d8\u05e8\u05d9\u05d2\u05dc\u05e2\u05e6\u05e1\u05e9\u05d4\u05d5\u05dc.dat/n13-\u636e\u6f22\u8a9e\u4eac\u6570\u8a9e\u6f22.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+        "size": 1
+      },
+      "random/d0-n14-\u03ba\u03b8.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n14-\u03ba\u03b8.dat/d1-n14-\u05e0\u05e4\ud879\udf10\u05e0\u05d0\uda14\ude36\u05d9\u05e0\u05e9\u05e2\u05e6\ud95d\ude89\u05e1\u05d6\u05d7\u05d6\ud8eb\udf61\ud879\udf10.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n14-\u03ba\u03b8.dat/d1-n14-\u05e0\u05e4\ud879\udf10\u05e0\u05d0\uda14\ude36\u05d9\u05e0\u05e9\u05e2\u05e6\ud95d\ude89\u05e1\u05d6\u05d7\u05d6\ud8eb\udf61\ud879\udf10.dat/n14-\uda2d\uddc5\udbe1\udd1f\uda2d\uddc5\u0301\udbeb\udece\uda47\udf73\uda2d\uddc5\udbe1\udd1f\udbeb\udecea\u0308\udbe1\udd1f\u0301\uda2d\uddc5\u0301\ud8d5\udc76\ud8d5\udc76\uda2d\uddc5\uda47\udf73\ud8d5\udc76\ud8d5\udc76.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "6dbec05da05e1c9155dfd64c16b77a3843be802f60168be116e80d30541bcd2d",
+        "size": 4097
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat/d1-n15-\u05e7.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat/d1-n15-\u05e7.dat/d2-n15-&\uda2a\udc5c #\ud8eb\udef2\uda2a\udc5c\ud9a1\udc07{!(\uda91\udee1'+-\ud9a1\udc07\ud8b4\ude7e'\ud9d6\udfdf\ud8d1\udf59]].dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n15-\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00.dat/d1-n15-\u05e7.dat/d2-n15-&\uda2a\udc5c #\ud8eb\udef2\uda2a\udc5c\ud9a1\udc07{!(\uda91\udee1'+-\ud9a1\udc07\ud8b4\ude7e'\ud9d6\udfdf\ud8d1\udf59]].dat/n15-mzQXmmkNOaVz\uda6e\udc978.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat/d3-n16-\u200d\udb0b\udf0b\uda7c\udf9e\udb03\ude78\u200d\u200d\u2069\u2069\u2067\u2069.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat/d3-n16-\u200d\udb0b\udf0b\uda7c\udf9e\udb03\ude78\u200d\u200d\u2069\u2069\u2067\u2069.dat/d4-n16-\u03c0\u03c9\udb71\udf5f\u03be\udb8a\ude54\u03c1.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n16-\u00f8\u00f1\u00e0\u0141\u00df.dat/d1-n16-\ud83d\ude00\ud83d\ude80\ud83c\udf0d\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83e\uddea\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83d\ude00\ud83d\ude00\ud83e\uddea\ud83c\udf0d\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude80\ud83d\ude00.dat/d2-n16-\u05d3\u05de\u05d9\u05e4\u05e4\u05d6\u05d7\u05e6\u05d4\u05e1\u05e9\u05e7\u05d6\u05d3\u05e2\u05de\u05e4\u05d6\u05d2\u05d9\u05e1\u05dc\u05d7.dat/d3-n16-\u200d\udb0b\udf0b\uda7c\udf9e\udb03\ude78\u200d\u200d\u2069\u2069\u2067\u2069.dat/d4-n16-\u03c0\u03c9\udb71\udf5f\u03be\udb8a\ude54\u03c1.dat/n16-\u05d7\u05d1\u05d6\u05e2\uda21\udd1f\u05de\ud989\udc5b\u05d6\u05dc\udbda\udc53\u05d7\udbda\udc53\ubac3\u05d6\u05d4\ubac3\uda51\udefb\u05d0\udbda\udc53\u05d8.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat/d1-n2-\u03bb\u03bc\u03c1\u03c6\u03c0.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat/d1-n2-\u03bb\u03bc\u03c1\u03c6\u03c0.dat/d2-n2-\u5b57\u6587\u6f22\u6f22\u6570\u4eac\u6587\u6570\u672c\u6570\u6570\u636e.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n2-@{]} --$]#;@@'  %{[;.dat/d1-n2-\u03bb\u03bc\u03c1\u03c6\u03c0.dat/d2-n2-\u5b57\u6587\u6f22\u6f22\u6570\u4eac\u6587\u6570\u672c\u6570\u6570\u636e.dat/n2-\u00df\u010c\u00f6\u00f8\u00df\u00f8\u00df\u00f8\u00e0\u00f1\u00f6\u0141\u00e9.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "c52720ce55610e14b7d5952116b86e67eb65d184a648ca9abf14853f54a46fb2",
+        "size": 127
+      },
+      "random/d0-n3-\u05e4.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n3-\u05e4.dat/n3-\udabf\ude84\udabf\ude84\udb58\udc29\ud83c\udf0d\ud95f\udeff\ud95f\udeff.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "d1bbd73bb09190bfb883056771e22e997541ed20079793bf33975fe1654581c3",
+        "size": 1
+      },
+      "random/d0-n4-\ud862\udc60\ud862\udc60\uda3b\udd93\u6587\u8a9e\u6587\u4ef6\u6771.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n4-\ud862\udc60\ud862\udc60\uda3b\udd93\u6587\u8a9e\u6587\u4ef6\u6771.dat/n4-\u0301\u0308aeae\u0301eee\u0301.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "5d7d3cbefb51a1c2dfa40b6d62ea3c700cb238e32b551cd91ff6a3216c48f94a",
+        "size": 4097
+      },
+      "random/d0-n5-ghM\ud85c\ude7cTzZMmUaOstX.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n5-ghM\ud85c\ude7cTzZMmUaOstX.dat/d1-n5-\u0301a\u0308aa\u0301aaaae.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n5-ghM\ud85c\ude7cTzZMmUaOstX.dat/d1-n5-\u0301a\u0308aa\u0301aaaae.dat/n5-\ud90b\udfaa\udb8f\udca5\uc77c\udb8f\udca5\ud9db\ude3f\udb99\ude0c.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "668a3d69be1a1c8c3fa524edb4e935fa81bd7cdfd44852216a710b26d0215cc4",
+        "size": 127
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat/d2-n6-\u092d\u0928\u093e\u0928\u0926\u092d\u093e\u093f.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat/d2-n6-\u092d\u0928\u093e\u0928\u0926\u092d\u093e\u093f.dat/d3-n6-\ud83d\ude00\ud83e\uddea\ud83d\ude80.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n6-MsZbHJyG4QrOiMqTffkb\udaca\udd91G.dat/d1-n6-\u03c7\u03c3.dat/d2-n6-\u092d\u0928\u093e\u0928\u0926\u092d\u093e\u093f.dat/d3-n6-\ud83d\ude00\ud83e\uddea\ud83d\ude80.dat/n6-kWZocNCv424BkEKfMF1AbJMR.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      "random/d0-n7-\u03bd\u03c0\u03b5\u03b2\u03b7\u03b3\u03c1\u03c9\u03b2\u03c0.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n7-\u03bd\u03c0\u03b5\u03b2\u03b7\u03b3\u03c1\u03c9\u03b2\u03c0.dat/d1-n7-\uc774\ud30c\uc77c.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n7-\u03bd\u03c0\u03b5\u03b2\u03b7\u03b3\u03c1\u03c9\u03b2\u03c0.dat/d1-n7-\uc774\ud30c\uc77c.dat/n7-\ud83d\ude00\ud83e\uddea\ud83e\uddea\ud83d\ude00\ud83c\udf0d\ud83c\udf0d\ud83d\ude80\ud83d\ude00\ud83e\uddea\ud83d\ude80\ud83d\ude00\ud83e\uddea\ud83d\ude80\ud83c\udf0d\ud83d\ude00\ud83d\ude00\ud83c\udf0d\ud83d\ude80\ud83c\udf0d\ud83e\uddea\ud83d\ude80\ud83d\ude80\ud83d\ude00.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "da22c967af89daaadcc82c8bc3561266e286e60b9291a779570681f12d416380",
+        "size": 1023
+      },
+      "random/d0-n8-\u0308\u0308e\u0301.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n8-\u0308\u0308e\u0301.dat/n8-b1LihWIyo7zScsKBWFWPopb.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "528a84ce6b18eb7d0e54be01379122a76dfdca14c97f02e0424aabf0220d9f51",
+        "size": 1
+      },
+      "random/d0-n9-\u0437\u0449\u0436\ud937\udd8e\u0444\ud937\udd8e\udab6\udcef\u0446\u0437\u0449\uda38\udddc.dat": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "random/d0-n9-\u0437\u0449\u0436\ud937\udd8e\u0444\ud937\udd8e\udab6\udcef\u0446\u0437\u0449\uda38\udddc.dat/n9-\ud30c\uc77c\uc77c.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "021fb596db81e6d02bf3d2586ee3981fe519f275c0ac9ca76bbcf2ebb4097d96",
+        "size": 1
+      },
+      "random/n12-\u636e\u4ef6\u4eac\u636e\u65e5\u6587\u6f22\u6587\u6570\u4eac\u6771\u6f22\u6570.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "8503c0d4aa7daf786fca8bd80f9b40f39b6d242bd3ba296b33dc15a67cc42567",
+        "size": 31
+      },
+      "random/n17-\uda0a\udea5\uda0a\udea5\ua70c\ud83e\uddea\udbfc\udf1b\ud868\udc5a\ud936\udd2d\ud83d\ude00\ud83d\ude80\ud868\udc5a\ud84c\udc34\udbfc\udf1b\udbfc\udf1b\ud83c\udf0d\ud83d\ude00\udbfc\udf1b\udbfc\udf1b.dat": {
+        "executable": true,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "88714491004a79a622447664d48f130b4170a4d9d42519227dcf9674072d7762",
+        "size": 1023
+      },
+      "random/n18-\uc5b4\uc5b4\uc774\ud30c\uc5b4\ud55c\uad6d\ud55c\uc77c\uc5b4\ud30c\uc77c\uc77c.dat": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "cac50b2fd0af461f3d47bb458d0c2f157fee1a7c59ce49e3f2efed3978eba97b",
+        "size": 127
+      },
+      "readonly-directory": {
+        "kind": "directory",
+        "read_only": true
+      },
+      "readonly.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": true,
+        "sha256": "cd8a3039e9d1c61e5c89b6c8169a97aabbd2f1d0817e06027cea85f7e7e04372",
+        "size": 20
+      },
+      "shared.bin": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "0dc84411f675a32bb86bdfb90fc7f9fb5147e9d94bcab3f922c73876b00e3570",
+        "size": 65537
+      },
+      "type-change": {
+        "kind": "directory",
+        "read_only": false
+      },
+      "type-change/child": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "c37a8910205e1a3d2028a62a9fef74adf35b764cfa44b70e6c5783fe9b07af42",
+        "size": 23
+      },
+      "version.txt": {
+        "executable": false,
+        "kind": "file",
+        "read_only": false,
+        "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+        "size": 2
+      }
+    }
+  }
+}

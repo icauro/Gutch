@@ -1,0 +1,32 @@
+{
+  "max_case_bytes": 16777216,
+  "name": "01_empty_and_tiny",
+  "purpose": "empty and tiny",
+  "repositories": {
+    "v1": {
+      "creator": {
+        "binary_sha256": "20369a5a19ad53ab9b7ea8cf4bd9439f4231f48048c8a0313c37785cd71df226",
+        "crate_version": "0.2.0",
+        "engine_commit": null,
+        "engine_source_sha256": "990cde573d44517b68d42038420201252e50b3d7e0772c129d81787404367187"
+      },
+      "format_identifier_reset": {
+        "binary_version": 1,
+        "source_commit": "49e554d1f"
+      },
+      "snapshots": {
+        "b8f966b626e4af0f22d7678c6631b66660157ad2aa86da3bb4f341bfc1d4622b": "v1",
+        "d5bd45bafe82bae6a432bc79aecef045421f21f8203e1e02688438b8d91209cb": "v2"
+      }
+    }
+  },
+  "schema_version": 1,
+  "source": {
+    "generator_version": 2,
+    "input_hex": "4b58e3e641c7b1d8f073295f37e4ccde3573396e93deda5cae0b4789e09dafff",
+    "kind": "generated",
+    "max_bytes_per_version": 1048576,
+    "profile": "empty_and_tiny",
+    "versions": 2
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "document_type": "gutch_repo",
+  "document_version": "1.0.0",
+  "repository_name": "repo",
+  "created_at": "2026-09-12T15:42:08Z",
+  "content_packaging_profile": {
+    "chunk_size_profile": "chunk_128KiB",
+    "bundle_size_profile": "bundle_8MiB",
+    "compression_profile": "zstd",
+    "compression_level": null,
+    "storage_mode": "bundled"
+  }
+}

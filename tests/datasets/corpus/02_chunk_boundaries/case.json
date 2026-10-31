@@ -1,0 +1,32 @@
+{
+  "max_case_bytes": 16777216,
+  "name": "02_chunk_boundaries",
+  "purpose": "chunk boundaries",
+  "repositories": {
+    "v1": {
+      "creator": {
+        "binary_sha256": "20369a5a19ad53ab9b7ea8cf4bd9439f4231f48048c8a0313c37785cd71df226",
+        "crate_version": "0.2.0",
+        "engine_commit": null,
+        "engine_source_sha256": "990cde573d44517b68d42038420201252e50b3d7e0772c129d81787404367187"
+      },
+      "format_identifier_reset": {
+        "binary_version": 1,
+        "source_commit": "49e554d1f"
+      },
+      "snapshots": {
+        "1e4e3f501f8cd17754fb1f8d236ade347fc58ff3cdf5a67fa459092e1a0526a8": "v1",
+        "c0988970c64f4901f073268a6b3daff0fa8c6962591e9932152ffda919d62fbd": "v2"
+      }
+    }
+  },
+  "schema_version": 1,
+  "source": {
+    "generator_version": 2,
+    "input_hex": "6a61908982b6bdb8ef224225a385937300180a3aad1226279094b7648e63d589",
+    "kind": "generated",
+    "max_bytes_per_version": 1048576,
+    "profile": "chunk_boundaries",
+    "versions": 2
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "max_case_bytes": 16777216,
+  "name": "07_nested_paths",
+  "purpose": "nested paths",
+  "repositories": {
+    "v1": {
+      "creator": {
+        "binary_sha256": "20369a5a19ad53ab9b7ea8cf4bd9439f4231f48048c8a0313c37785cd71df226",
+        "crate_version": "0.2.0",
+        "engine_commit": null,
+        "engine_source_sha256": "990cde573d44517b68d42038420201252e50b3d7e0772c129d81787404367187"
+      },
+      "format_identifier_reset": {
+        "binary_version": 1,
+        "source_commit": "49e554d1f"
+      },
+      "snapshots": {
+        "dccc7c3b5e04c9409704a35de4f0576e9464f7f8371a008bbb87944314364c52": "v1",
+        "f00fb4ecb903b4a13a2a00b7faa8379802244173d02118ef9309cf0ca1f453e9": "v2"
+      }
+    }
+  },
+  "schema_version": 1,
+  "source": {
+    "generator_version": 2,
+    "input_hex": "632cb7ea3a76cfc7e01060425738f8bb6b54bc6331372a15639e150294c443a0",
+    "kind": "generated",
+    "max_bytes_per_version": 1048576,
+    "profile": "nested_paths",
+    "versions": 2
+  }
+}
