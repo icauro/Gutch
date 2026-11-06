@@ -1,7 +1,7 @@
 """Capture and independently compare filesystem metadata."""
 
 from tests.datasets.generate import basic, metadata
-from tools.artifacts import remove_owned
+from _tools.artifacts import remove_owned
 
 
 def metadata_roundtrip(case, *, links):

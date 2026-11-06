@@ -74,9 +74,9 @@ def replay(directory):
 
 
 def clean():
-    from tools.artifacts import compact_success, prune_successful_runs
+    from _tools.artifacts import compact_success, prune_successful_runs
 
-    runs = ROOT / "tests/.artifacts/runs/gutch"
+    runs = ROOT / ".artifacts/tests/runs/gutch"
     removed = 0
     for manifest in runs.glob("*/run.json"):
         if manifest.parent.is_symlink() or manifest.parent.is_junction():
@@ -217,7 +217,7 @@ def main(arguments=None):
         if args.command == "clean":
             return clean()
         if args.command == "build-image":
-            from tools.build_image import build_image
+            from _tools.build_image import build_image
 
             build_image(args.tag)
             return 0

@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--product", type=Path, required=True)
     args = parser.parse_args()
     product = args.product.resolve()
-    output = ROOT / "tests/.artifacts/vram-diagnosis"
+    output = ROOT / ".artifacts/tests/vram-diagnosis"
     output.mkdir(parents=True, exist_ok=True)
     paths = sorted(
         str(f)

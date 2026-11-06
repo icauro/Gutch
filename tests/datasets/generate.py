@@ -62,7 +62,7 @@ _TIMESTAMP_EPOCH_SPAN_SECONDS = 5 * 365 * 24 * 60 * 60
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 CORPUS_ROOT = TESTS_ROOT / "datasets/corpus"
 TEST_DATASET_ROOT = TESTS_ROOT / "datasets"
-TEST_DATASET_SOURCE_ROOT = TESTS_ROOT / ".artifacts/datasets/products"
+TEST_DATASET_SOURCE_ROOT = TESTS_ROOT.parent / ".artifacts/tests/datasets/products"
 DEFAULT_TEST_DATASET_ROOT = TEST_DATASET_SOURCE_ROOT
 
 
@@ -2043,7 +2043,7 @@ def prepare_case_source(name):
     """Prepare only disposable sources, never overwrite committed corpus files."""
     definition = load_case(name)
     settings = definition["source"]
-    target = TESTS_ROOT / ".artifacts/datasets" / name / "source"
+    target = TESTS_ROOT.parent / ".artifacts/tests/datasets" / name / "source"
     if settings["kind"] == "blender":
         from .prepare_blender import prepare_blender_product
 
@@ -2109,7 +2109,7 @@ def validate_case_source(name, target):
 
 def prepared_source(name):
     load_case(name)
-    target = TESTS_ROOT / ".artifacts/datasets" / name / "source"
+    target = TESTS_ROOT.parent / ".artifacts/tests/datasets" / name / "source"
     if not target.is_dir():
         raise ValueError(
             f"missing prepared source; run: python gutch.py dataset prepare {name}"

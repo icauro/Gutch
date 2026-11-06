@@ -170,7 +170,7 @@ def test_blender_preparation_keeps_pinned_expectations_and_rejects_changed_cache
         repository_input("blender", case=case)
     captures.clear()
     cached_file = (
-        tmp_path / "tests/.artifacts/datasets/blender/source" / folder / "blender.exe"
+        tmp_path / ".artifacts/tests/datasets/blender/source" / folder / "blender.exe"
     )
     cached_file.write_bytes(b"tampered cache")
     with pytest.raises(ValueError, match="source differs"):

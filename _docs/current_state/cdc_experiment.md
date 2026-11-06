@@ -74,7 +74,7 @@ Keep JC experimental. At 128 KiB, Plakar-compatible JC improves Blender scan-plu
 
 References: [JC paper](https://doi.org/10.1109/TPDS.2023.3290770), [pinned Plakar JC source](https://github.com/PlakarKorp/go-cdc-chunkers/blob/b6c4abce19e9691184a0aceefc4e9f53fcfe79c8/chunkers/jc/jc.go). Paper-scaled masks use evenly spaced bits, one fewer embedded jump bit, and target/2 jumps; this is a documented experimental parameterization, not an asserted byte-identical author implementation.
 
-Run `python tests/benchmarks/cdc_experiment.py --base PATH --updated PATH --repetitions 11` from the project root. Raw samples and metadata are under `tests/.artifacts/jc-experiment/`. The original five-sample run is retained as `results-5-samples.json`.
+Run `python tests/benchmarks/cdc_experiment.py --base PATH --updated PATH --repetitions 11` from the project root. Raw samples and metadata are under `.artifacts/tests/jc-experiment/`. The original five-sample run is retained as `results-5-samples.json`.
 
 ## Hollow Knight follow-up — 2026-09-27
 
@@ -100,7 +100,7 @@ Paper-scaled JC is 1.9% slower at 128 KiB with 33.27 MiB more new unique data; a
 
 Plakar JC wins both measured axes at the larger targets here, unlike the Blender 128 KiB storage tradeoff. Its actual chunk sizes are also smaller. These results do not establish performance at matched actual average sizes, compressed repository size, or full capture/transfer/repair performance. FastCDC remains the default.
 
-All nine requested algorithm/size combinations completed; each has 11 measured samples for each of three timing modes. The frozen FastCDC adapter remains an additional interface control. Raw results, metadata, and the native log are in `tests/.artifacts/jc-experiment/hollow-knight/`. Existing Blender evidence was retained.
+All nine requested algorithm/size combinations completed; each has 11 measured samples for each of three timing modes. The frozen FastCDC adapter remains an additional interface control. Raw results, metadata, and the native log are in `.artifacts/tests/jc-experiment/hollow-knight/`. Existing Blender evidence was retained.
 
 Reproduce from the project root:
 
@@ -125,7 +125,7 @@ Median seconds sum both builds within each repetition:
 | jc | 2.716 | 3.812 | 0.806 | 534.50 |
 
 All six measured lanes passed independent reconstruction and corruption-repair
-comparison. Evidence: `tests/.artifacts/jc-full-flow/2026.09.27-source-16_gutch_fastcdc_vs_jc-002/`.
+comparison. Evidence: `.artifacts/tests/jc-full-flow/2026.09.27-source-16_gutch_fastcdc_vs_jc-002/`.
 An earlier run completed five lanes before Windows returned access denied during
 the final reconstruction. The fresh complete run above did not reproduce it;
 its cause is unconfirmed. Do not include the incomplete run in these medians.
@@ -158,8 +158,8 @@ Total capture improved 3.7% for FastCDC and 3.1% for JC in this run. Payload
 loading improved 28.5% and 31.2%, respectively. JC still takes longer overall
 on this input. Published artifacts, blueprints and chunk maps were byte-identical
 in all six measured before/after repository pairs.
-Evidence: `tests/.artifacts/handle-reuse-comparison/`; old binary retained under
-`tests/.artifacts/jc-timing-diagnosis/gutch-before-handle-reuse.exe`.
+Evidence: `.artifacts/tests/handle-reuse-comparison/`; old binary retained under
+`.artifacts/tests/jc-timing-diagnosis/gutch-before-handle-reuse.exe`.
 
 Validation passed 318 library tests and a full Blender capture, reconstruction,
 and corruption-repair cycle for both chunkers. The new reader test covers source
@@ -196,7 +196,7 @@ not a universal speed advantage. The repository size difference is deterministic
 across these runs. Prior 128-versus-128 measurements above retain their original
 settings and should not be treated as the current fixture configuration.
 
-Evidence: `tests/.artifacts/jc-256-blender/2026.09.27-source-16_gutch_fastcdc_vs_jc-001/`.
+Evidence: `.artifacts/tests/jc-256-blender/2026.09.27-source-16_gutch_fastcdc_vs_jc-001/`.
 Per-command capture statistics and all payloads were retained for inspection.
 
 
@@ -234,7 +234,7 @@ the difference to chunk loading, compression, or other stages.
 
 All six lanes passed independent reconstruction and corruption-repair checks.
 Evidence and retained per-command statistics:
-`tests/.artifacts/jc-256-hollow-knight/2026.09.27-HollowKnight-16_gutch_fastcdc_vs_jc-001/`.
+`.artifacts/tests/jc-256-hollow-knight/2026.09.27-HollowKnight-16_gutch_fastcdc_vs_jc-001/`.
 
 
 ## Payload ownership, JC loop and stream prototypes on Blender
@@ -273,7 +273,7 @@ published artifact bytes, snapshot blueprints and chunk maps in a two-build
 repository comparison for each chunker. Loop and stream prototypes passed the
 50 artifact tests; the combined prototype passed all 318 library tests.
 Evidence, prototype sources, binaries and per-command measurements are retained
-under `tests/.artifacts/jc-path-prototypes/`.
+under `.artifacts/tests/jc-path-prototypes/`.
 
 The retained ownership-only implementation also passed all 318 library tests
 and the Blender full-flow fixture (one validation repetition per chunker),
@@ -323,7 +323,7 @@ The RAM tests compare scalar and AVX2 with an independent literal reference,
 covering empty inputs, unaligned slices, vector tails, repeated bytes, all presets,
 short reads and small/streaming capture paths. No global AVX2 compiler flag is used.
 Evidence and per-command statistics:
-`tests/.artifacts/vram-blender-four/2026.09.27-Blender-f5c6014c-17_gutch_fastcd-12342793-001/`.
+`.artifacts/tests/vram-blender-four/2026.09.27-Blender-f5c6014c-17_gutch_fastcd-12342793-001/`.
 
 
 ## VectorCDC paper-claim diagnosis
@@ -393,8 +393,8 @@ previous full-flow run had the opposite small difference. That variation does
 not negate the large, directly measured boundary speedup. It does mean that the
 current evidence does not establish a consistent end-to-end winner.
 
-Evidence: `tests/.artifacts/vram-diagnosis/` (native timings, assembly, compiler
-metadata and boundary fingerprints) and `tests/.artifacts/vram-profiled-capture/`
+Evidence: `.artifacts/tests/vram-diagnosis/` (native timings, assembly, compiler
+metadata and boundary fingerprints) and `.artifacts/tests/vram-profiled-capture/`
 (per-command profiling, warm-up and samples). No production optimization was
 applied by this diagnosis.
 
@@ -426,7 +426,7 @@ codec trials; internal stage timings were disabled, so no causal timing
 breakdown is inferred from them.
 
 The run-specific fixture and retained evidence are under
-`tests/.artifacts/lz4-chunker-comparison/`; results directory:
+`.artifacts/tests/lz4-chunker-comparison/`; results directory:
 `2026.09.27-Blender-f5c6014c-17_gutch_fastcd-e7223052-001/`.
 
 
@@ -456,7 +456,7 @@ Repository sizes were stable. Initial required unique chunk counts were 7,173
 for FastCDC, 9,266 for JC, and 7,696 for VRAM.
 
 The run-specific fixture and retained evidence are under
-`tests/.artifacts/lz4-all-256-comparison/`; results directory:
+`.artifacts/tests/lz4-all-256-comparison/`; results directory:
 `2026.09.27-Blender-f5c6014c-all_chunkers_25-e42e5000-001/`. No production settings or algorithms changed.
 
 
@@ -483,5 +483,5 @@ repository. Timing was steadier than the earlier four-snapshot run, but the
 input also changed, so no specific cause such as NVMe cache recovery is proven.
 
 The run-specific fixture and compact results remain under
-`tests/.artifacts/blender-two-256-lz4/`; results directory:
+`.artifacts/tests/blender-two-256-lz4/`; results directory:
 `2026.09.27-Blender-786d8ef6-blender_two_all-e674645b-001/`. Normal successful-run cleanup removed large temporary payloads.

@@ -3,8 +3,8 @@
 .artifacts
 .venv
 .pytest_cache
-tests/.artifacts
-tests/.artifacts/**
+.artifacts/tests
+.artifacts/tests/**
 **/__pycache__
 **/.pytest_cache
 **/target

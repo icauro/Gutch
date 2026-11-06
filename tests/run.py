@@ -2,7 +2,7 @@
 """Run isolated Gutch correctness scenarios against the real CLI."""
 
 # Depends on Python, Cargo, and the real gutch-cli; S3 additionally uses test-owned Docker.
-# Writes isolated runs under tests/.artifacts/runs/gutch. No benchmark imports or datasets.
+# Writes isolated runs under .artifacts/tests/runs/gutch. No benchmark imports or datasets.
 # Default: tooling, Rust and all local scenarios. Docker is explicit via --suite s3/all.
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from .helpers.cli import Case, execute
 from .helpers.filesystem import write_json
 from .helpers.scenario_process import run_scenario
 from .helpers.reproduction import source_revision
-from tools.artifacts import compact_success, prune_successful_runs
+from _tools.artifacts import compact_success, prune_successful_runs
 
 
 @dataclass(frozen=True)
@@ -181,7 +181,7 @@ def main(arguments=None):
         help="Retain successful payloads as well as failed ones",
     )
     parser.add_argument(
-        "--artifacts-root", type=Path, default=REPOSITORY / "tests/.artifacts"
+        "--artifacts-root", type=Path, default=REPOSITORY / ".artifacts/tests"
     )
     parser.add_argument("--event-file", type=Path)
     parser.add_argument("--run-id")
@@ -296,7 +296,7 @@ def main(arguments=None):
         assert executable.is_file(), f"Cargo did not produce {executable}"
         scenario_environment = {}
         if any(s.suite == "s3" for s in scenarios):
-            from tools.services import Services
+            from _tools.services import Services
 
             services = Services()
             services.start()

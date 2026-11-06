@@ -13,7 +13,7 @@ import unittest
 
 from .cli import start_process
 from .cli import Case, REPOSITORY
-from tools.artifacts import remove_owned
+from _tools.artifacts import remove_owned
 from .filesystem import write_json
 
 SCENARIO_TIMEOUT_SECONDS = 10

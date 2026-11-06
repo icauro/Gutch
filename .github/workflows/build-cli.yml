@@ -10,7 +10,7 @@ on:
       - 'Cargo.lock'
       - '.cargo/**'
       - '.github/workflows/build-cli.yml'
-      - 'tools/package_cli.py'
+      - '_tools/package_cli.py'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
 permissions:
@@ -76,7 +76,7 @@ jobs:
           binary = pathlib.Path('.builds/compiler-cache/cargo') / target / 'release' / name
           subprocess.run([str(binary.resolve()), '--help'], check=True)
       - name: Package executable, provenance and notices
-        run: python tools/package_cli.py --target ${{ matrix.target }} --toolchain 1.97.1
+        run: python _tools/package_cli.py --target ${{ matrix.target }} --toolchain 1.97.1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gutch-cli-${{ matrix.platform }}

@@ -18,7 +18,7 @@ def main():
         return subprocess.call(
             [str(python), str(Path(__file__).resolve()), *sys.argv[1:]]
         )
-    from tools.runner import main as run
+    from _tools.runner import main as run
 
     return run(sys.argv[1:])
 

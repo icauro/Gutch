@@ -31,7 +31,7 @@ separate recipe directory.
 Blender commits only its pinned download recipe, snapshot IDs and independent
 `expected.json` inventory. Explicitly selecting `--dataset blender` downloads
 missing Windows 5.2.0 and 5.2.1 archives and extracts them under
-`tests/.artifacts/datasets/blender/`. Preparation verifies archive SHA-256 hashes
+`.artifacts/tests/datasets/blender/`. Preparation verifies archive SHA-256 hashes
 and checks prepared file contents against `expected.json`. It can use a
 checksum-verified mirror if the primary host rejects the download.
 The selected test captures a new repository under its run-owned payload and
@@ -51,7 +51,7 @@ repository test uses this same generation function. Rust parser and bundle round
 `python gutch.py minimize CASE_DIRECTORY` reduces a failing additional lifecycle sequence. `prepare_blender.py` only prepares real
 source data; it does not generate or overwrite repositories.
 
-`dataset prepare` writes disposable sources under `tests/.artifacts/datasets/<case>/source/`.
+`dataset prepare` writes disposable sources under `.artifacts/tests/datasets/<case>/source/`.
 It checks existing prepared files instead of silently accepting modified content.
 Benchmarks select that prepared source using `--dataset`; normal test runs select the
 committed synthetic repository or a disposable Blender capture. Generated source
@@ -74,7 +74,7 @@ The CLI selector remains `--repository-version v1`; source `v1` and `v2`
 identify product snapshots, and `generator_version` identifies the generator algorithm.
 For each frozen repository, creator metadata records the
 actual crate version (currently 0.2.0). No Cargo version is inferred from the folder.
-Normal tests only mutate copies under `tests/.artifacts/runs/`. Preserve old synthetic
+Normal tests only mutate copies under `.artifacts/tests/runs/`. Preserve old synthetic
 major folders and add new ones; never rebuild frozen fixtures automatically to fix
 a failing test. Blender capture preparation does not rewrite tracked expectations.
 

@@ -6,8 +6,8 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
-from tools.build_image import ROOT, source_files
-from tools.services import Services
+from _tools.build_image import ROOT, source_files
+from _tools.services import Services
 
 
 def test_source_inventory_excludes_private_configuration_and_artifacts():
@@ -38,7 +38,7 @@ def test_source_inventory_excludes_private_configuration_and_artifacts():
 
 
 def test_network_reservation_retries_a_concurrent_overlap(monkeypatch):
-    import tools.services as fixture
+    import _tools.services as fixture
 
     monkeypatch.setattr(fixture.subprocess, "check_output", lambda *args, **kwargs: "")
     attempts = []
@@ -62,7 +62,7 @@ def test_network_reservation_retries_a_concurrent_overlap(monkeypatch):
 def test_sources_and_docs_remain_consumer_independent():
     forbidden = re.compile(r"private-consumer-names", re.IGNORECASE)
     candidates = {path for path, _ in source_files()}
-    candidates.update((ROOT / "docs").rglob("*.md"))
+    candidates.update((ROOT / "_docs").rglob("*.md"))
     candidates.update(
         ROOT / name
         for name in (

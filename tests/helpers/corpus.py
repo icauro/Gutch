@@ -82,7 +82,7 @@ def freeze(name, version, executable, source=None):
             for platform in settings["selected_platforms"]
         ]
     )
-    work = TESTS_ROOT / ".artifacts/tasks" / ("freeze-" + uuid4().hex[:10])
+    work = TESTS_ROOT.parent / ".artifacts/tests/tasks" / ("freeze-" + uuid4().hex[:10])
     case = Case(work, executable.resolve())
     repo = case.init()
     expected = {}
@@ -214,7 +214,7 @@ def freeze(name, version, executable, source=None):
         f"Frozen {name}/{version}: repository {repo_bytes / 1048576:.2f} MiB",
         flush=True,
     )
-    from tools.artifacts import remove_owned
+    from _tools.artifacts import remove_owned
 
     remove_owned(work, work.parent)
 

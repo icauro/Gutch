@@ -45,7 +45,7 @@ def main():
         and item.get("executable")
         and item.get("profile", {}).get("test")
     )
-    output = ROOT / "tests/.artifacts/binary-layouts"
+    output = ROOT / ".artifacts/tests/binary-layouts"
     output.mkdir(parents=True, exist_ok=True)
     with (output / "native.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen(

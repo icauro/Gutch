@@ -8,7 +8,7 @@ fn fuzz_binary_decoders() {
     bolero::check!(
         name = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/.artifacts/fuzz/binary_decoders"
+            "/.artifacts/tests/fuzz/binary_decoders"
         )
     )
     .for_each(|bytes: &[u8]| {
@@ -54,7 +54,7 @@ fn fuzz_bundle_roundtrip() {
     bolero::check!(
         name = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/.artifacts/fuzz/bundle_roundtrip"
+            "/.artifacts/tests/fuzz/bundle_roundtrip"
         )
     )
     .for_each(|bytes: &[u8]| {
@@ -90,7 +90,7 @@ fn fuzz_blueprint_roundtrip() {
     bolero::check!(
         name = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/.artifacts/fuzz/blueprint_roundtrip"
+            "/.artifacts/tests/fuzz/blueprint_roundtrip"
         )
     )
     .for_each(|bytes: &[u8]| {

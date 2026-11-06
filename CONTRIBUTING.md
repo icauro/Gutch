@@ -5,7 +5,7 @@ All commands below run from this directory; no containing project is required.
 
 1. Run `python gutch.py test` to establish a baseline. It runs Python tooling,
    Rust tests and local CLI scenarios. S3 is an explicit additional suite.
-2. Find the owner in the [module map](docs/current_state/01_operation_ownership.md#crate-and-module-map). Public contracts live in
+2. Find the owner in the [module map](_docs/current_state/01_operation_ownership.md#crate-and-module-map). Public contracts live in
    `src/api`; algorithm tests stay beside the Rust implementation.
 3. Find a relevant scenario with `python gutch.py test --list`. A case such as
    `repository/deletion_preserves_shared_artifacts` maps directly to
@@ -16,7 +16,7 @@ All commands below run from this directory; no containing project is required.
    `tests/run.py`. Use independent source inventories for content assertions.
 5. Run the default suite again. Run `python gutch.py test --suite s3` when
    changing remote delivery or service setup. Docker must be running.
-6. Update the owning page under `docs/current_state/`. Include validation and
+6. Update the owning page under `_docs/current_state/`. Include validation and
    any skipped or unavailable checks in the change description.
 
 ## Investigate a failure
@@ -46,7 +46,7 @@ not a recorded operating-system schedule.
 | Performance comparisons and storage measurements | `tests/benchmarks/` |
 | Tests of Python tools | `tests/harness_tests/` |
 | Process control and independent test assertions | `tests/helpers/` |
-| Developer commands, Docker image and service lifecycle | `tools/` |
+| Developer commands, Docker image and service lifecycle | `_tools/` |
 
-Generated files belong under `tests/.artifacts/`; compiler outputs belong under
+Generated files belong under `.artifacts/tests/`; compiler outputs belong under
 `.builds/`. Do not update frozen expectations merely to make a failing test pass.

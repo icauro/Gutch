@@ -14,7 +14,7 @@ dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/harness_tests"]
-cache_dir = "tests/.artifacts/cache/pytest"
+cache_dir = ".artifacts/tests/cache/pytest"
 
 [tool.uv]
 package = false

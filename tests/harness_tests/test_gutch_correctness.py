@@ -10,7 +10,7 @@ import unittest
 from tests import run
 from tests.helpers.cli import execute
 from tests.datasets.generate import basic
-from tools.artifacts import remove_owned
+from _tools.artifacts import remove_owned
 from tests.helpers.filesystem import assert_tree
 
 

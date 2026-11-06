@@ -32,13 +32,13 @@ def _package_sources(destination: Path) -> None:
             if path.suffix not in {".py", ".yaml"}:
                 continue
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
-        from tools.build_image import benchmark_dependency_files
+        from _tools.build_image import benchmark_dependency_files
 
         for path, relative in benchmark_dependency_files():
             package.write(path, relative.as_posix())
         package.write(REPOSITORY_ROOT / "tests/__init__.py", "tests/__init__.py")
         for name in ("__init__.py", "artifacts.py"):
-            package.write(REPOSITORY_ROOT / "tools" / name, "tools/" + name)
+            package.write(REPOSITORY_ROOT / "_tools" / name, "_tools/" + name)
         package.write(
             REPOSITORY_ROOT / "tests/datasets/__init__.py", "tests/datasets/__init__.py"
         )

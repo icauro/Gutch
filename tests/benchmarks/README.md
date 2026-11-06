@@ -81,7 +81,7 @@ read the repository-root `config.yml`.
 
 `tests/benchmarks/config.yml` is the only default local benchmark configuration.
 Paths inside it are relative to that file unless absolute. Keep generated
-repositories and datasets under `tests/.artifacts/`; obsolete top-level tooling
+repositories and datasets under `.artifacts/tests/`; obsolete top-level tooling
 directories are not configuration or data locations.
 
 Storage actions are `prepare`, `download`, `delete`, and `abort-multipart`.
@@ -183,7 +183,7 @@ lane; omit it or set it to false to skip it. Scan, recount/inventory,
 and independent output validation are always run.
 Snapshots are captured chronologically and reconstructed newest-first by
 default in every multi-snapshot lane.
-Generated repositories, payloads, and traces live below tests/.artifacts/ and are
+Generated repositories, payloads, and traces live below .artifacts/tests/ and are
 never part of the source tree.
 
 ## Process memory profiling
@@ -225,7 +225,7 @@ and synthetic edge cases, checking complete encoding round trips. It reads the
 frozen repositories without modifying them and requires no services or builds.
 
 Results, input hashes, script identity and warm Python timings are written to
-`tests/.artifacts/binary-layouts/results.json`. Timings are prototype measurements,
+`.artifacts/tests/binary-layouts/results.json`. Timings are prototype measurements,
 not native Gutch performance claims. The script handles trusted experiment inputs;
 it is not a production decoder or a substitute for malformed-input fuzzing.
 

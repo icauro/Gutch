@@ -4,7 +4,7 @@ import hashlib
 
 
 def source_revision():
-    from tools.build_image import source_files
+    from _tools.build_image import source_files
 
     digest = hashlib.sha256()
     for path, relative in sorted(source_files(), key=lambda item: item[1].as_posix()):

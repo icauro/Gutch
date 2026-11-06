@@ -31,7 +31,7 @@ def main():
         else (args.target,)
     )
     for target in targets:
-        root = REPOSITORY / "tests/.artifacts/fuzz" / target
+        root = REPOSITORY / ".artifacts/tests/fuzz" / target
         corpus = root / "corpus"
         corpus.mkdir(parents=True, exist_ok=True)
         if target == "binary_decoders":

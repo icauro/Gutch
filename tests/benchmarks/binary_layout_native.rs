@@ -113,7 +113,7 @@ fn native_corpus_layout_comparison() {
         report.push(serde_json::json!({"path": item.path().strip_prefix(root).unwrap(), "current_bytes": original.len(), "whole_bytes": whole.len(), "group_bytes": grouped.len(), "full_decode_median_us": full_decode_us, "whole_decode_median_us": whole_decode_us, "column_validation_materialization_median_us": columns_decode_us, "encode_median_us": encode_us, "repetitions": repetitions}));
     }
     assert!(!report.is_empty(), "corpus blueprint files must be present");
-    let directory = root.join("tests/.artifacts/binary-layouts");
+    let directory = root.join(".artifacts/tests/binary-layouts");
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(
         directory.join("native.json"),

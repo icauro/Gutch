@@ -30,7 +30,7 @@ def main():
         parser.error(
             "Use a dataset name with letters, digits, underscores or hyphens; synthetic names are reserved"
         )
-    output = ROOT / "tests/.artifacts/jc-experiment" / args.name
+    output = ROOT / ".artifacts/tests/jc-experiment" / args.name
     output.mkdir(parents=True, exist_ok=True)
     with (output / "build.log").open("w", encoding="utf-8") as log:
         built = subprocess.run(

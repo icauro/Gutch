@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tools import runner
+from _tools import runner
 from tests.run import SCENARIOS, selected_scenarios
 
 
@@ -74,7 +74,7 @@ def test_replay_validates_case_and_reports_source_changes(
 def test_clean_keeps_failed_payloads_and_successful_reports(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     for status in ("passed", "failed", "running"):
-        root = tmp_path / "tests/.artifacts/runs/gutch" / status
+        root = tmp_path / ".artifacts/tests/runs/gutch" / status
         payload = root / "cases/repository/example/payload"
         payload.mkdir(parents=True)
         (payload / "source.bin").write_bytes(b"evidence")
@@ -94,7 +94,7 @@ def test_clean_keeps_failed_payloads_and_successful_reports(tmp_path, monkeypatc
         )
     assert runner.clean() == 0
     for status in ("passed", "failed", "running"):
-        root = tmp_path / "tests/.artifacts/runs/gutch" / status
+        root = tmp_path / ".artifacts/tests/runs/gutch" / status
         assert (root / "run.json").is_file()
         assert (root / "cases/repository/example/payload").exists() == (
             status != "passed"
@@ -103,7 +103,7 @@ def test_clean_keeps_failed_payloads_and_successful_reports(tmp_path, monkeypatc
 
 def test_clean_rejects_a_case_outside_its_run(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "ROOT", tmp_path)
-    root = tmp_path / "tests/.artifacts/runs/gutch/example"
+    root = tmp_path / ".artifacts/tests/runs/gutch/example"
     root.mkdir(parents=True)
     (root / "run.json").write_text(
         json.dumps({"status": "passed", "cases": [{"evidence": "../../../../.."}]})
@@ -115,7 +115,7 @@ def test_clean_rejects_a_case_outside_its_run(tmp_path, monkeypatch):
 def test_source_revision_changes_when_test_or_engine_bytes_change(
     tmp_path, monkeypatch
 ):
-    from tools import build_image
+    from _tools import build_image
     from tests.helpers.reproduction import source_revision
 
     source = tmp_path / "code.rs"

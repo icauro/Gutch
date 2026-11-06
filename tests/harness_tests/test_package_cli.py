@@ -7,7 +7,7 @@ import shutil
 
 import pytest
 
-from tools.package_cli import ROOT, SOURCE_NOTICES, TARGETS, cli_dependencies, stage_package
+from _tools.package_cli import ROOT, SOURCE_NOTICES, TARGETS, cli_dependencies, stage_package
 
 
 def metadata_for(root):

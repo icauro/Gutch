@@ -11,7 +11,7 @@ import pytest
 from tests.datasets.generate import generated
 from tests.repository_suite import copy_repository
 from tests.helpers.filesystem import inventory
-from tools.artifacts import compact_success, prune_successful_runs
+from _tools.artifacts import compact_success, prune_successful_runs
 
 
 def test_generator_is_deterministic_and_consumers_can_validate_independently(tmp_path):
@@ -44,7 +44,7 @@ def test_dataset_modules_do_not_import_consumers():
             )
             assert not any(
                 name.startswith(
-                    ("tests.helpers", "tests.benchmarks", "tests.scenarios", "tools.")
+                    ("tests.helpers", "tests.benchmarks", "tests.scenarios", "_tools.")
                 )
                 for name in names
             ), path
@@ -126,10 +126,10 @@ def test_benchmark_compaction_removes_owned_external_caches(tmp_path):
 def test_clean_migrates_old_success_without_dangling_evidence_links(
     tmp_path, monkeypatch
 ):
-    from tools import runner
+    from _tools import runner
 
     monkeypatch.setattr(runner, "ROOT", tmp_path)
-    run = tmp_path / "tests/.artifacts/runs/gutch/old"
+    run = tmp_path / ".artifacts/tests/runs/gutch/old"
     evidence = run / "cases/example"
     evidence.mkdir(parents=True)
     (evidence / "input.bin").write_bytes(b"temporary")

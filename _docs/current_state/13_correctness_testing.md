@@ -116,7 +116,7 @@ attributes and link targets. There are no benchmark performance thresholds.
 
 ## Isolation and Evidence
 
-Each run writes `tests/.artifacts/runs/gutch/<timestamp>-<id>/summary.md` and `run.json`.
+Each run writes `.artifacts/tests/runs/gutch/<timestamp>-<id>/summary.md` and `run.json`.
 The terminal also prints the overall result, Rust test status and CLI scenario
 totals, including failures, skips, cancellations and cases that did not run.
 Each case has its own payload, configuration, command logs, stats, expected
@@ -155,7 +155,7 @@ Automatic minimization is not implemented. `python gutch.py clean` compacts olde
 successful correctness runs and applies summary retention, preserving failures and
 pinned runs. Unmanaged scratch files and shared datasets are outside automatic cleanup.
 
-S3 uses Gutch's `tools/docker/compose.yml` with synthetic credentials, a
+S3 uses Gutch's `_tools/docker/compose.yml` with synthetic credentials, a
 run-owned /24 network, a dynamically published loopback port, and a unique
 bucket. Final teardown removes containers, volumes, and the network even after
 failure. Local case evidence remains available. No host application environment
@@ -184,7 +184,7 @@ inputs; `cargo bolero test engine_fuzz::fuzz_binary_decoders -T 30s -l 65536` an
 `cargo bolero test engine_fuzz::fuzz_bundle_roundtrip -T 30s -l 65536` run instrumented fuzzing
 with cargo-bolero and a compatible Rust toolchain. Inputs are capped at 64 KiB;
 malformed decompression output is capped at 65,537 bytes. Corpus/crash artifacts
-are under `tests/.artifacts/fuzz/`. Bolero shrinks failing native inputs.
+are under `.artifacts/tests/fuzz/`. Bolero shrinks failing native inputs.
 
 The frozen corpus contains ten generated cases; Blender uses a pinned download recipe. All generated cases
 are below 16 MiB including source, metadata and repository. Normal tests never
@@ -195,7 +195,7 @@ Linux also validates executable bits.
 Use `python gutch.py fuzz --seconds 30 --rustc-bootstrap` on Linux after installing
 `cargo-bolero` (`cargo install cargo-bolero --locked --no-default-features`).
 This runs both native targets and seeds the decoder target with committed
-blueprints and indexes, keeping logs, corpus and crashes under `tests/.artifacts/fuzz`.
+blueprints and indexes, keeping logs, corpus and crashes under `.artifacts/tests/fuzz`.
 `--rustc-bootstrap` enables the instrumentation features needed on the installed
 stable compiler; omit it when using a supported nightly toolchain.
 

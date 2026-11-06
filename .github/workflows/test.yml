@@ -27,4 +27,4 @@ jobs:
         if: always()
         with:
           name: gutch-${{ runner.os }}
-          path: tests/.artifacts/runs/
+          path: .artifacts/tests/runs/

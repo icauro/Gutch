@@ -233,7 +233,7 @@ baseline. Its native measurement code lives in
 The driver builds release tests, measures warm encode/decode and map
 lookups, samples process RSS, and records file-read timings. Linux also requests
 page-cache eviction for a separate I/O measurement; hardware caches are not
-controlled. Results live in `tests/.artifacts/binary-layouts/`. The comparison
+controlled. Results live in `.artifacts/tests/binary-layouts/`. The comparison
 process holds multiple representations, so its RSS is not an isolated decoder
 allocation measurement. There are no performance pass/fail thresholds.
 
@@ -282,7 +282,7 @@ current FastCDC, Plakar-compatible JC, and paper-scaled JC. It accepts `--base`
 and `--updated` build directories, `--name` for a dataset label, and
 `--repetitions` (default five). Run from
 the project root with `python tests/benchmarks/cdc_experiment.py --base PATH
---updated PATH`. Evidence is written to `tests/.artifacts/jc-experiment/<name>/`, so datasets
+--updated PATH`. Evidence is written to `.artifacts/tests/jc-experiment/<name>/`, so datasets
 do not overwrite each other. The base build is resident during measurement;
 updated files are loaded one at a time during untimed reuse analysis.
 
@@ -348,7 +348,7 @@ chunk map were byte-identical in a before/after two-build repository comparison.
 All 320 library tests passed, including source modification, truncation,
 addition, removal and permission-change checks. Results are Windows-specific;
 other platforms do not receive the same cached-metadata optimization.
-Evidence: `tests/.artifacts/inventory-metadata/`.
+Evidence: `.artifacts/tests/inventory-metadata/`.
 
 A follow-up full-flow validation passed independent reconstruction and
 corruption-repair checks with the optimized release binary.
@@ -379,7 +379,7 @@ Both candidate variants produced byte-identical artifacts, blueprints and chunk
 maps compared with baseline. All 321 library tests passed; coverage includes
 probe threshold/metadata accounting, actual-load failures, contiguous/backward
 reads, source switches and recovery after a partial read failure.
-Evidence: `tests/.artifacts/probe-seek/`.
+Evidence: `.artifacts/tests/probe-seek/`.
 
 Full-flow validation also passed independent reconstruction and corruption
 repair with both uncompressed and LZ4 bundles on the two Blender builds.
@@ -418,7 +418,7 @@ covers bundle/loose totals and ignored filenames. Baseline/final status matched
 for file and broken symlinks. Blender 5.0/5.1 capture, independent reconstruction,
 and corruption repair passed with uncompressed and LZ4 profiles. Successful
 full-flow validation removed its payloads. Diagnostic captures remain in the
-ignored evidence directory: `tests/.artifacts/walkdir-review/`.
+ignored evidence directory: `.artifacts/tests/walkdir-review/`.
 
 
 ## Capture and reconstruction follow-up, September 2026
@@ -458,7 +458,7 @@ All comparison lanes passed independent reconstruction and corruption-repair
 validation. Final library validation passed 323 tests with two ignored. These
 are Windows Blender measurements, not universal speedup claims. Evidence,
 prototype binaries and alternating samples are under
-`tests/.artifacts/capture-reconstruct-review/`; successful workflow runs remove
+`.artifacts/tests/capture-reconstruct-review/`; successful workflow runs remove
 their large payloads and retain compact reports and combined traces.
 
 After removing buffering, the final binary passed both full workflows again.
@@ -494,7 +494,7 @@ fails to reopen rather than being silently recreated.
 
 Library validation passed 324 tests with two ignored. Coverage includes eviction
 with preserved output ranges and decoding large/small/larger selected chunks.
-Evidence is under `tests/.artifacts/reconstruct-reuse/`. Successful full-flow runs
+Evidence is under `.artifacts/tests/reconstruct-reuse/`. Successful full-flow runs
 removed their payloads. No extra comparison runs were performed.
 
 
@@ -525,7 +525,7 @@ All 325 library tests passed with two ignored. The added test covers sequential
 and backward reads, partial-read failure followed by file extension/retry, and
 concurrent requests. Independent SHA-256 comparison checked every output file
 against the target source for both binaries. Evidence and outputs are under
-`tests/.artifacts/repair-cursor/`.
+`.artifacts/tests/repair-cursor/`.
 
 
 ## Reconstruction I/O failure diagnostics
@@ -547,7 +547,7 @@ Validation: 328 library tests passed, two ignored, and the release CLI built.
 Focused tests cover native-error preservation, an actual output-open failure,
 and a failed staging promotion that restores the old destination and reports
 both paths. No benchmark or large reconstruction was rerun. Logs are under
-`tests/.artifacts/io-diagnostics/`.
+`.artifacts/tests/io-diagnostics/`.
 
 
 ## Streaming bundle capture, October 2026
@@ -579,7 +579,7 @@ Six comparisons also matched every encoded bundle byte and snapshot identity:
 small files at 128 KiB and large files at 1 KiB, each with None, Zstd, and LZ4.
 Regression tests cover chunk release order, input length errors, late loader
 failure cleanup, invalid descriptors, and admission below the whole raw-group
-size. Evidence: `tests/.artifacts/research_optimization_pass/round9_report.md`.
+size. Evidence: `.artifacts/tests/research_optimization_pass/round9_report.md`.
 
 
 ## Typed manifest chunk identities, October 2026
@@ -611,7 +611,7 @@ These are workload-specific observations, not cross-platform guarantees.
 Reconstructed trees matched independent SHA-256 expectations. Six comparisons
 also matched bundle and blueprint bytes across None, Zstd and LZ4 at 128 KiB and
 1 KiB presets. JSON tests preserve canonical text and reject malformed or
-uppercase hashes. Evidence: `tests/.artifacts/research_optimization_pass/round11_report.md`.
+uppercase hashes. Evidence: `.artifacts/tests/research_optimization_pass/round11_report.md`.
 
 
 ## Capture accounting and reuse-cache follow-up, October 2026
@@ -638,7 +638,7 @@ A regression covers fresh, unchanged, partially reused, historical/unreferenced,
 loose-only, and mixed-storage snapshots. It failed before the fix with two required
 bundles for a one-bundle capture. Six byte comparisons still matched bundles,
 blueprints and chunk indexes across None, Zstd and LZ4. Evidence:
-`tests/.artifacts/research_optimization_pass/round12_report.md`.
+`.artifacts/tests/research_optimization_pass/round12_report.md`.
 
 ## Compression probe source reuse, October 2026
 
@@ -668,7 +668,7 @@ profile supports the early-stage mechanism only; timing claims use unprofiled
 commands. Six comparisons matched bundle, blueprint and chunk-index bytes across
 None, Zstd and LZ4. Restored trees matched independent SHA-256 expectations.
 Regression tests cover sample order, source eviction, seeks and hash failures on
-reader reuse. Evidence: `tests/.artifacts/research_optimization_pass/round13_report.md`.
+reader reuse. Evidence: `.artifacts/tests/research_optimization_pass/round13_report.md`.
 
 ## Streaming compression samples, October 2026
 
@@ -692,7 +692,7 @@ mixed/large inputs respectively. The retained benefit is lower memory use.
 Six comparisons matched bundle, blueprint and chunk-index bytes across
 None, Zstd and LZ4; restored files matched independent SHA-256 expectations.
 Errors while producing sample bytes propagate instead of returning partial
-compressed sizes. Evidence: `tests/.artifacts/research_optimization_pass/round14_report.md`.
+compressed sizes. Evidence: `.artifacts/tests/research_optimization_pass/round14_report.md`.
 
 ## Distinct bundle IDs during index writing, October 2026
 
@@ -713,7 +713,7 @@ None, Zstd and LZ4. Tests also reject inconsistent sizes, uppercase, non-hex and
 short bundle IDs without replacing the existing index. Two other experiments,
 empty-update short-circuiting and sorted-vector batch updates, were discarded
 after longer comparisons failed to show useful latency or memory improvements.
-Evidence: `tests/.artifacts/research_optimization_pass/round15_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round15_report.md`.
 
 ## Indexed reconstruction target lists, October 2026
 
@@ -735,7 +735,7 @@ A focused regression checks repeated chunks at multiple offsets and files,
 multiple chunks per artifact, intervening copy/source jobs, and cached/missing
 artifact dependencies. All target ranges are checked against explicit expected
 file indexes and offsets. Evidence:
-`tests/.artifacts/research_optimization_pass/round16_report.md`.
+`.artifacts/tests/research_optimization_pass/round16_report.md`.
 
 ## Coalesced reconstruction writes, October 2026
 
@@ -761,7 +761,7 @@ workload-specific measurements, not cross-platform guarantees.
 Tests cover gaps, backward writes, file switches, capacity, large-write bypass,
 direct/buffered transitions, typed cancellation, failed final flushes and hash
 forwarding only after successful writes. Evidence:
-`tests/.artifacts/research_optimization_pass/round18_report.md`.
+`.artifacts/tests/research_optimization_pass/round18_report.md`.
 
 ## Shared artifact identities and derived plan sets, October 2026
 
@@ -790,7 +790,7 @@ process-memory benefit is claimed from this small difference.
 
 Required-set regressions cover source-only copying, mixed source/loose reuse,
 repeated bundled references, and cached versus missing artifacts. Evidence:
-`tests/.artifacts/research_optimization_pass/round19_report.md`.
+`.artifacts/tests/research_optimization_pass/round19_report.md`.
 
 ## Direct index-row decoding, October 2026
 
@@ -816,7 +816,7 @@ A second prototype reserved duplicate-ordinal set capacity. Its incremental
 41-pair reconstruction check was near flat and memory differences were small,
 so it was discarded. Tests cover empty/singleton imports, strict ordering,
 duplicates and an encoded index with descending keys. Evidence:
-`tests/.artifacts/research_optimization_pass/round20_report.md`.
+`.artifacts/tests/research_optimization_pass/round20_report.md`.
 
 
 ## Reuse validated artifact requirements, October 2026
@@ -833,7 +833,7 @@ fixture with 1 KiB chunks reduced median status latency from 49.58 to 38.86 ms
 (21.6%) and fast repository verification from 90.66 to 70.89 ms (21.8%). Entire
 result JSON matched the baseline on every invocation. These measurements target
 metadata-heavy small-chunk workloads; no general throughput claim is made.
-Evidence: `tests/.artifacts/research_optimization_pass/round21_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round21_report.md`.
 
 
 ## Direct repository verification, October 2026
@@ -864,8 +864,8 @@ Focused regressions cover snapshot selection, missing unselected payloads,
 unselected missing/size-mismatched index references, unselected blueprint identity,
 empty repositories and unknown selections. Borrowed metadata/blueprint publication
 prototypes were discarded after timing confirmations and memory checks showed no
-material benefit. Evidence: `tests/.artifacts/research_optimization_pass/round22_report.md`
-and `tests/.artifacts/research_optimization_pass/round23_report.md`.
+material benefit. Evidence: `.artifacts/tests/research_optimization_pass/round22_report.md`
+and `.artifacts/tests/research_optimization_pass/round23_report.md`.
 
 
 ## Capture reuse accounting memory, October 2026
@@ -891,7 +891,7 @@ extensions, replacements, missing artifacts and mixed storage modes.
 Two additional prototypes were discarded: collecting unchanged-capture required
 IDs once, and directly building the availability map. Their incremental latency
 checks did not hold up in confirmation, including 81 pairs for the latter.
-Evidence: `tests/.artifacts/research_optimization_pass/round24_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round24_report.md`.
 
 
 ## Borrow decoded metadata columns, October 2026
@@ -925,7 +925,7 @@ peak working set from 20.22 to 18.23 MiB (9.8%) and peak commit from 14.50 to
 Regression coverage truncates index groups at every byte and rejects trailing
 data. Blueprint coverage mixes distinct explicit sequences with implicit/empty
 files, interleaved directories and symlinks, and truncated chunk columns.
-Evidence: `tests/.artifacts/research_optimization_pass/round25_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round25_report.md`.
 
 
 ## Bound metadata output reservations, October 2026
@@ -953,7 +953,7 @@ Single-buffer envelope assembly, encoded-file buffer sizing, and explicit path
 capacity were also tested and discarded after comparisons failed to establish
 consistent benefits. Regression tests cover raw, mildly and strongly compressed
 groups, maximum decoded-length declarations, corruption and existing framing bounds.
-Evidence: `tests/.artifacts/research_optimization_pass/round26_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round26_report.md`.
 
 
 ## Index accounting by artifact row, October 2026
@@ -976,7 +976,7 @@ A five-row regression interleaves loose storage with two bundles whose hash orde
 artifact order and chunk ordinals differ. It checks exact rounded shares and the
 unchanged loose-artifact size. Existing sorted-key, malformed-reference, truncation,
 trailing-byte and shared-artifact checks remain in place.
-Evidence: `tests/.artifacts/research_optimization_pass/round27_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round27_report.md`.
 
 The capture-owned estimates below supersede this reader accounting pass.
 
@@ -1007,7 +1007,7 @@ Accounting regressions now live with capture and cover weighted rounding, partia
 indexes, missing bundles and loose artifacts. Installation coverage includes an
 incorrect declared loose size and confirms that failed artifacts do not publish
 precomputed file hashes. Artifact and ordinal validation remain in the index owner.
-Evidence: `tests/.artifacts/research_optimization_pass/round28_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round28_report.md`.
 
 
 ## Reuse resolved reconstruction chunk positions, October 2026
@@ -1038,7 +1038,7 @@ and loose storage, available and missing artifacts, all output offsets, and one
 missing dependency per file. Incorrect declared sizes are rejected on the first
 occurrence and after a hash has already been resolved. File formats, artifact
 verification and publication ordering are unchanged. Evidence:
-`tests/.artifacts/research_optimization_pass/round31_report.md`.
+`.artifacts/tests/research_optimization_pass/round31_report.md`.
 
 
 ## Derive missing dependencies from job targets, October 2026
@@ -1068,7 +1068,7 @@ The expanded regression covers interleaved copied/source/artifact jobs, repeated
 targets, two missing artifacts for one file, cached artifacts, canonical file-index
 order, and resetting markers between missing jobs. Existing bundled/loose repeated
 reference and wrong-size checks remain. Evidence:
-`tests/.artifacts/research_optimization_pass/round32_report.md`.
+`.artifacts/tests/research_optimization_pass/round32_report.md`.
 
 
 ## Keep small shared-output working sets local, October 2026
@@ -1098,7 +1098,7 @@ Regressions check the 64/65-file boundary, a single independent output among
 shared files, worker/producer thresholds, and reuse of identical global file
 objects across jobs. Existing range, eviction, cancellation and failed-flush
 coverage remains. Evidence:
-`tests/.artifacts/research_optimization_pass/round33_report.md`.
+`.artifacts/tests/research_optimization_pass/round33_report.md`.
 
 
 ## Defer source chunk indexing for whole-file reuse, October 2026
@@ -1127,7 +1127,7 @@ a small slowdown, but an isolated 81-pair confirmation did not establish a chang
 The no-source reconstruction control was also inconclusive. No general update or
 partial-reuse speedup is claimed. The strengthened planner regression confirms
 that a changed file can reuse chunks from a file already copied whole.
-Evidence: `tests/.artifacts/research_optimization_pass/round34_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round34_report.md`.
 
 
 ## Limit source chunk locations to partial targets, October 2026
@@ -1160,7 +1160,7 @@ consistent changes. These results concern partial reuse with a smaller target
 working set, not general update throughput. The strengthened regression selects
 a middle chunk after an excluded prefix from a source file already copied whole,
 and checks the exact source path and byte offset. Evidence:
-`tests/.artifacts/research_optimization_pass/round35_report.md`.
+`.artifacts/tests/research_optimization_pass/round35_report.md`.
 
 
 ## Reuse source chunk identity and path storage, October 2026
@@ -1194,7 +1194,7 @@ The expanded regression checks repeated source hashes within/across files,
 first-location selection among duplicate source candidates, distinct source
 hashes sharing path storage, exact offsets and every target range. A wrong raw
 size on an already-seen hash must fail instead of reusing its cached job.
-Evidence: `tests/.artifacts/research_optimization_pass/round36_report.md`.
+Evidence: `.artifacts/tests/research_optimization_pass/round36_report.md`.
 
 
 ## Inline first source destination, October 2026
@@ -1221,7 +1221,7 @@ consistent runtime regression is established across runs. Partial-reuse and
 no-source paired intervals crossed zero; whole-copy was slightly favorable in
 the larger run. Retention is based on the lower measured peak commit, not speed.
 These results concern this host and fixture, not general throughput or a global
-memory bound. Evidence: `tests/.artifacts/research_optimization_pass/round37_report.md`.
+memory bound. Evidence: `.artifacts/tests/research_optimization_pass/round37_report.md`.
 
 
 ## Bounded source-worker batches, October 2026
@@ -1253,7 +1253,7 @@ All 84 final post-exit high-water queries succeeded; no memory reduction is
 claimed. Worker tests cover count/byte/reservation limits, source paths, work
 boundaries and unqueued index gaps, success counts/timings, hash mismatch,
 cancellation, stopping later writes and resource release before the one terminal
-event. Evidence: `tests/.artifacts/research_optimization_pass/round40_report.md`.
+event. Evidence: `.artifacts/tests/research_optimization_pass/round40_report.md`.
 
 
 ## Combined reads inside source-worker batches, October 2026
@@ -1287,7 +1287,7 @@ fallback and one-event resource-release ordering. Read time is charged once to
 the first chunk record, preserving aggregate timings and per-chunk byte counts.
 Combined reads have an `installation.source_batch.read` trace span; chunk byte
 hash/write timings remain per job. Evidence:
-`tests/.artifacts/research_optimization_pass/round42_report.md`.
+`.artifacts/tests/research_optimization_pass/round42_report.md`.
 
 
 ## Shared bounded output for source batches, October 2026
@@ -1319,7 +1319,7 @@ The expanded worker test checks cross-file fanout, final-flush failure, no retry
 on drop, pending-byte discard, byte totals and resource release before one
 terminal event. Existing shared-writer tests cover gaps, target switches, large
 ranges and flush failures. Evidence:
-`tests/.artifacts/research_optimization_pass/round43_report.md`.
+`.artifacts/tests/research_optimization_pass/round43_report.md`.
 
 
 ## Dense scheduled-job flags, October 2026
@@ -1346,7 +1346,7 @@ Separate native trials showed peak commit near flat, with all 84 final post-exit
 queries successful. Retention is based on lower measured initial-dispatch work
 and direct membership storage for dense job indexes, not a claimed whole-process
 memory saving or general reconstruction speedup. Evidence:
-`tests/.artifacts/research_optimization_pass/round45_report.md`.
+`.artifacts/tests/research_optimization_pass/round45_report.md`.
 
 
 ## CLI builds in GitHub Actions
@@ -1372,6 +1372,6 @@ notices fail packaging.
 These are unsigned CI builds retained for 30 days. Linux builds use GNU libc
 from Ubuntu 24.04; runtime system libraries are not bundled.
 
-`tools/package_cli.py` stages packages under `.builds/releases/<target>/`.
+`_tools/package_cli.py` stages packages under `.builds/releases/<target>/`.
 Intermediate compilation and dependency caches stay under
 `.builds/compiler-cache/cargo/`; neither binaries nor generated notices enter Git.

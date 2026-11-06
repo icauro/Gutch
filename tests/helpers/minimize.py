@@ -52,7 +52,7 @@ def minimize(directory):
 
     original_identity = identity(directory, result)
     root = Path(__file__).resolve().parents[2]
-    output = root / "tests/.artifacts/tasks" / ("minimize-" + uuid4().hex[:10])
+    output = root / ".artifacts/tests/tasks" / ("minimize-" + uuid4().hex[:10])
     output.mkdir(parents=True)
     deadline = time.monotonic() + 120
     attempts = 0
