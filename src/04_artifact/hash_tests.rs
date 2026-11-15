@@ -11,21 +11,6 @@ fn test_hash_chunk() {
 }
 
 #[test]
-fn test_hex_decode_roundtrip() {
-    let data = b"test data for hex encoding";
-    let hash = hash_chunk(data);
-    let hex = hash_hex(&hash);
-    let bytes = hex_decode(&hex).unwrap();
-    assert_eq!(bytes.as_slice(), hash.as_bytes());
-}
-
-#[test]
-fn test_hex_decode_invalid_length() {
-    let result = hex_decode("abcde");
-    assert!(result.is_err());
-}
-
-#[test]
 fn test_chunk_hash_byte_roundtrip() {
     let hash = ChunkHash::of(b"hello");
     let reparsed = ChunkHash::from_bytes(*hash.as_bytes());

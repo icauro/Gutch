@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use crate::artifact::compression::DECODE_WORKING_MEMORY_BYTES;
 use crate::artifact::hash::ChunkHash;
-use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
@@ -35,7 +34,6 @@ pub(crate) struct ReconstructPipelinePlan {
 pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub publication: super::publish::Publication<'a>,
     pub repo_root: &'a Path,
-    pub compression_profile: CompressionProfile,
     pub snapshot_manifest: &'a SnapshotManifest,
     pub destination_dir: &'a Path,
     pub staging_dir: Option<&'a Path>,

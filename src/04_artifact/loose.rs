@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crate::Error;
 use crate::Result;
+use crate::artifact::compression::corrupt_payload;
 use crate::artifact::compression::decoder_from_reader;
 use crate::artifact::compression::encode_to_writer;
 use crate::artifact::hash::ChunkHash;
@@ -56,7 +57,9 @@ pub(crate) fn read_loose_chunk(
 
         let mut decoder = decoder_from_reader(&mut file, codec)?.take(raw_size + 1);
         let mut bytes = Vec::with_capacity(raw_size as usize);
-        decoder.read_to_end(&mut bytes)?;
+        decoder
+            .read_to_end(&mut bytes)
+            .map_err(corrupt_payload("decoding loose chunk"))?;
         metrics.decompress = started_at.elapsed();
         metrics.raw_bytes = bytes.len() as u64;
         bytes
@@ -65,7 +68,7 @@ pub(crate) fn read_loose_chunk(
         let started_at = ProfileInstant::detailed(profiler);
 
         if bytes.len() as u64 != raw_size {
-            return Err(Error::reconstruct(format!(
+            return Err(Error::Artifact(format!(
                 "loose chunk '{}' has size {}, expected {}",
                 chunk_hash,
                 bytes.len(),

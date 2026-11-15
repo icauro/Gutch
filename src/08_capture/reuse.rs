@@ -16,7 +16,6 @@ use crate::repo::index::{
     collect_file_paths, empty_chunk_index, load_chunk_index, rebuild_chunk_index_from_bundles,
 };
 use crate::repo::inventory::list_repo_snapshot_ids;
-use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::{RepoPaths, bundle_id_from_bundle_path, chunk_path};
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
@@ -58,8 +57,6 @@ pub fn load_capture_reuse_state(
 ) -> Result<CaptureReuseState> {
     let mut state = CaptureReuseState::default();
     let chunk_index = load_chunk_index(paths)?;
-    let (_, repo_manifest) = load_gutch_repo_manifest(&paths.repo_root)?;
-    let compression_profile = repo_manifest.compression_profile();
 
     let _bundle_ids_span =
         control.profile_span("capture.prepare_source.load_existing_store_state.bundle_ids");
@@ -75,7 +72,7 @@ pub fn load_capture_reuse_state(
     state.chunk_index = if chunk_index.entries.is_empty() {
         let _rebuild_span = control
             .profile_span("capture.prepare_source.load_existing_store_state.rebuild_chunk_index");
-        let result = rebuild_chunk_index_from_bundles(paths, &compression_profile, pool);
+        let result = rebuild_chunk_index_from_bundles(paths, pool);
         drop(_rebuild_span);
         result?
     } else {
@@ -236,6 +233,7 @@ pub(crate) fn add_built_loose_chunks_to_chunk_index(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact::format::FORMAT_VERSION;
     use ArtifactStorageMode::{Bundled, LooseChunks};
 
     #[test]
@@ -270,7 +268,7 @@ mod tests {
             })
             .collect();
         let index = crate::repo::index::ChunkIndex {
-            format_version: "1".into(),
+            format_version: FORMAT_VERSION.into(),
             entries,
         };
         let pool = crate::runtime::build_thread_pool(1, "capture-test").unwrap();
@@ -287,7 +285,7 @@ mod tests {
         }
 
         let partial = crate::repo::index::ChunkIndex {
-            format_version: "1".into(),
+            format_version: FORMAT_VERSION.into(),
             entries: index
                 .entries
                 .iter()

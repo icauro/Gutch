@@ -136,10 +136,6 @@ impl RepoManifest {
             ArtifactProfile::for_presets(chunk, compression, compression_level, bundle, storage);
     }
 
-    pub(crate) fn compression_profile(&self) -> CompressionProfile {
-        self.artifact_profile.compression_profile()
-    }
-
     pub fn is_linked(&self) -> bool {
         !self.remote_repo_id.is_empty()
     }

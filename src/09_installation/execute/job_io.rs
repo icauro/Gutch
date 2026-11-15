@@ -25,7 +25,6 @@ use crate::Result;
 use crate::artifact::bundle::BundleReader;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::read_loose_chunk;
-use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::filesystem::paths::ManifestPathResolver;
 use crate::installation::contracts::ReconstructTimings;
@@ -43,7 +42,6 @@ pub(crate) struct ReconstructJobRequest<'a> {
     pub(crate) output_paths: &'a [PathBuf],
     pub(crate) output_handles: &'a OutputHandleCache,
     pub(crate) source_handles: &'a SourceHandleCache,
-    pub(crate) compression_profile: &'a CompressionProfile,
     pub(crate) control: &'a OperationControl,
 }
 
@@ -54,15 +52,11 @@ pub(crate) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
         output_paths,
         output_handles,
         source_handles,
-        compression_profile,
         control,
     } = request;
     match job {
-        ReconstructJob::Artifact(job) => {
-            reconstruct_artifact_job(job, output_handles, compression_profile, control).map_err(
-                |e| e.with_io_context("reading reconstruction artifact", &job.artifact_path),
-            )
-        }
+        ReconstructJob::Artifact(job) => reconstruct_artifact_job(job, output_handles, control)
+            .map_err(|e| e.with_io_context("reading reconstruction artifact", &job.artifact_path)),
         ReconstructJob::SourceChunk(job) => {
             reconstruct_source_chunk_job(job, output_handles, source_handles, control)
         }
@@ -76,7 +70,6 @@ pub(crate) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
 fn reconstruct_artifact_job(
     job: &ReconstructArtifactJob,
     output_handles: &OutputHandleCache,
-    compression_profile: &CompressionProfile,
     control: &OperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
@@ -95,12 +88,9 @@ fn reconstruct_artifact_job(
 
     match &job.artifact {
         ArtifactRef::Bundle { .. } => {
-            let mut reader = BundleReader::open(
-                File::open(&job.artifact_path).map_err(|e| {
-                    Error::io_context("opening reconstruction artifact", &job.artifact_path, e)
-                })?,
-                compression_profile,
-            )?;
+            let mut reader = BundleReader::open(File::open(&job.artifact_path).map_err(|e| {
+                Error::io_context("opening reconstruction artifact", &job.artifact_path, e)
+            })?)?;
             let mut required = vec![false; reader.entries().len()];
             let mut required_chunks = vec![None; reader.entries().len()];
             for (index, entry) in reader.entries().iter().enumerate() {

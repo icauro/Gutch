@@ -69,7 +69,7 @@ fn test_chunk_bytes_basic() {
     assert!(!results.is_empty());
     for r in &results {
         assert!(r.size > 0);
-        assert!(r.size as u32 <= profile.max_chunk_size_bytes());
+        assert!(r.size as u32 <= profile.max_chunk_bytes);
     }
 }
 
@@ -228,9 +228,9 @@ fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
         for preset in ChunkSizingPreset::value_variants() {
             let profile = ChunkSizingProfile::for_preset(*preset).with_chunker(Chunker::Jc);
             let boundary = JumpChunker::new(
-                profile.min_chunk_size_bytes() as usize,
-                profile.avg_chunk_size_bytes() as usize,
-                profile.max_chunk_size_bytes() as usize,
+                profile.min_chunk_bytes as usize,
+                profile.avg_chunk_bytes as usize,
+                profile.max_chunk_bytes as usize,
                 Parameters::Plakar,
             );
             let (scan, _) =

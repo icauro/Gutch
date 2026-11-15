@@ -84,7 +84,6 @@ pub fn visit_installation_plan(
         let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest: target_manifest,
-            ..
         } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let content_inspected = inspection == InstallationInspection::Content;

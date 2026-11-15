@@ -10,7 +10,6 @@ use crate::installation::execute::jobs::ReconstructPipelinePlan;
 use crate::installation::plan::build_reconstruct_pipeline_plan;
 use crate::installation::source::VerifiedSource;
 use crate::installation::source::resolve_verified_source;
-use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
@@ -23,7 +22,6 @@ use std::path::PathBuf;
 
 pub(super) struct LoadedRepoSnapshot {
     pub repo_paths: RepoPaths,
-    pub repo_manifest: RepoManifest,
     pub snapshot_manifest: SnapshotManifest,
 }
 
@@ -44,7 +42,6 @@ pub(super) fn load_repo_snapshot_manifest(
     )?;
     Ok(LoadedRepoSnapshot {
         repo_paths,
-        repo_manifest,
         snapshot_manifest,
     })
 }

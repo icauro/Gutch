@@ -63,9 +63,9 @@ pub(crate) fn chunk_bytes(data: &[u8], profile: &ChunkSizingProfile) -> Vec<Chun
 
 #[cfg(test)]
 fn chunk_slices(data: &[u8], profile: &ChunkSizingProfile) -> (Vec<ChunkSlice>, ChunkScanTimings) {
-    let min = profile.min_chunk_size_bytes() as usize;
-    let avg = profile.avg_chunk_size_bytes() as usize;
-    let max = profile.max_chunk_size_bytes() as usize;
+    let min = profile.min_chunk_bytes as usize;
+    let avg = profile.avg_chunk_bytes as usize;
+    let max = profile.max_chunk_bytes as usize;
 
     let boundary_start = ProfileInstant::detailed(None);
     let chunker = FastCDC::with_level(data, min, avg, max, Normalization::Level1);

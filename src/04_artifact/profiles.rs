@@ -3,10 +3,6 @@
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
-use smol_str::SmolStr;
-
-use super::format::CHUNK_HASH_BLAKE3;
-use super::format::FORMAT_VERSION;
 
 /// CLI names are short; serialized names pin the exact boundary algorithm.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
@@ -58,7 +54,8 @@ pub(crate) enum CompressionUnit {
 }
 
 impl ArtifactStorageMode {
-    pub(crate) fn cli_name(self) -> &'static str {
+    /// Name used in statistics output, matching the serialized form.
+    pub(crate) fn stats_name(self) -> &'static str {
         match self {
             Self::Bundled => "bundled",
             Self::LooseChunks => "loose_chunks",
@@ -143,9 +140,6 @@ pub(crate) struct ChunkSizingProfile {
     pub min_chunk_bytes: u32,
     pub avg_chunk_bytes: u32,
     pub max_chunk_bytes: u32,
-    pub gear_table_id: u32,
-    pub chunk_hash_algorithm: SmolStr,
-    pub format_version: SmolStr,
 }
 
 impl Default for ChunkSizingProfile {
@@ -179,9 +173,6 @@ impl ChunkSizingProfile {
             min_chunk_bytes,
             avg_chunk_bytes,
             max_chunk_bytes,
-            gear_table_id: 3,
-            chunk_hash_algorithm: CHUNK_HASH_BLAKE3.into(),
-            format_version: FORMAT_VERSION.into(),
         }
     }
 
@@ -192,24 +183,7 @@ impl ChunkSizingProfile {
         } else {
             self.avg_chunk_bytes / 4
         };
-        self.gear_table_id = match chunker {
-            Chunker::FastCdc => 3,
-            Chunker::Jc => 4,
-            Chunker::Vram256 => 0,
-        };
         self
-    }
-
-    pub fn min_chunk_size_bytes(&self) -> u32 {
-        self.min_chunk_bytes
-    }
-
-    pub fn avg_chunk_size_bytes(&self) -> u32 {
-        self.avg_chunk_bytes
-    }
-
-    pub fn max_chunk_size_bytes(&self) -> u32 {
-        self.max_chunk_bytes
     }
 }
 
@@ -382,46 +356,45 @@ mod contract_tests {
         assert_eq!(p.min_chunk_bytes, 32 * 1024);
         assert_eq!(p.avg_chunk_bytes, 128 * 1024);
         assert_eq!(p.max_chunk_bytes, 512 * 1024);
-        assert_eq!(p.min_chunk_size_bytes(), 32 * 1024);
-        assert_eq!(p.avg_chunk_size_bytes(), 128 * 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 512 * 1024);
-        assert_eq!(p.chunk_hash_algorithm, "blake3");
+        assert_eq!(p.min_chunk_bytes, 32 * 1024);
+        assert_eq!(p.avg_chunk_bytes, 128 * 1024);
+        assert_eq!(p.max_chunk_bytes, 512 * 1024);
     }
 
     #[test]
     fn test_small_chunk_profile_uses_sub_kib_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1KiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk1KiB);
-        assert_eq!(p.min_chunk_size_bytes(), 256);
-        assert_eq!(p.avg_chunk_size_bytes(), 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 4 * 1024);
+        assert_eq!(p.min_chunk_bytes, 256);
+        assert_eq!(p.avg_chunk_bytes, 1024);
+        assert_eq!(p.max_chunk_bytes, 4 * 1024);
     }
 
     #[test]
     fn test_chunk_profile_4kib_uses_expected_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk4KiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk4KiB);
-        assert_eq!(p.min_chunk_size_bytes(), 1024);
-        assert_eq!(p.avg_chunk_size_bytes(), 4 * 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 16 * 1024);
+        assert_eq!(p.min_chunk_bytes, 1024);
+        assert_eq!(p.avg_chunk_bytes, 4 * 1024);
+        assert_eq!(p.max_chunk_bytes, 16 * 1024);
     }
 
     #[test]
     fn test_chunk_profile_512kib_uses_expected_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk512KiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk512KiB);
-        assert_eq!(p.min_chunk_size_bytes(), 128 * 1024);
-        assert_eq!(p.avg_chunk_size_bytes(), 512 * 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 2 * 1024 * 1024);
+        assert_eq!(p.min_chunk_bytes, 128 * 1024);
+        assert_eq!(p.avg_chunk_bytes, 512 * 1024);
+        assert_eq!(p.max_chunk_bytes, 2 * 1024 * 1024);
     }
 
     #[test]
     fn test_chunk_profile_1mib_uses_expected_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1MiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk1MiB);
-        assert_eq!(p.min_chunk_size_bytes(), 256 * 1024);
-        assert_eq!(p.avg_chunk_size_bytes(), 1024 * 1024);
-        assert_eq!(p.max_chunk_size_bytes(), 4 * 1024 * 1024);
+        assert_eq!(p.min_chunk_bytes, 256 * 1024);
+        assert_eq!(p.avg_chunk_bytes, 1024 * 1024);
+        assert_eq!(p.max_chunk_bytes, 4 * 1024 * 1024);
     }
 
     #[test]

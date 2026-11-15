@@ -80,30 +80,26 @@ pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
 
 pub fn rebuild_chunk_index_from_bundles(
     paths: &RepoPaths,
-    compression_profile: &CompressionProfile,
     pool: &rayon::ThreadPool,
 ) -> Result<ChunkIndex> {
     let bundle_paths = collect_file_paths(&paths.bundles_root)?;
     let bundle_entries = pool.install(|| {
         bundle_paths
             .par_iter()
-            .map(|path| read_bundle_index_entries(path, compression_profile))
+            .map(|path| read_bundle_index_entries(path))
             .collect::<Result<Vec<_>>>()
     })?;
     build_chunk_index_from_bundle_entries(bundle_entries)
 }
 
-fn read_bundle_index_entries(
-    path: &Path,
-    compression_profile: &CompressionProfile,
-) -> Result<Vec<(String, ChunkIndexEntry)>> {
+fn read_bundle_index_entries(path: &Path) -> Result<Vec<(String, ChunkIndexEntry)>> {
     let Some(bundle_id) = bundle_id_from_bundle_path(path) else {
         return Ok(Vec::new());
     };
     let shared_bundle_id = smol_str::SmolStr::new(&bundle_id);
     let artifact_size = size_u32(fs::metadata(path)?.len())?;
     let file = File::open(path)?;
-    let reader = BundleReader::open(file, compression_profile)?;
+    let reader = BundleReader::open(file)?;
     Ok(reader
         .entries()
         .iter()
@@ -150,7 +146,6 @@ mod records;
 use crate::artifact::bundle::BundleReader;
 use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::format::size_u32;
-use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::repo::artifacts::required_artifacts;
 pub use entries::ChunkIndexEntries;

@@ -289,7 +289,7 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
     });
 
     let chunk_index = ChunkIndex {
-        format_version: "1".into(),
+        format_version: FORMAT_VERSION.into(),
 
         entries: chunk_entries(BTreeMap::from([
             (
@@ -510,7 +510,7 @@ fn chunk_index_write_and_load_roundtrip() {
         ),
     );
     let index = ChunkIndex {
-        format_version: "1".to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: chunk_entries(entries),
     };
@@ -518,7 +518,7 @@ fn chunk_index_write_and_load_roundtrip() {
     assert!(paths.chunk_map_path.exists());
 
     let loaded = load_chunk_index(&paths).unwrap();
-    assert_eq!(loaded.format_version, "1");
+    assert_eq!(loaded.format_version, FORMAT_VERSION);
     assert_eq!(loaded.entries.len(), 3);
     assert_eq!(
         loaded
@@ -548,7 +548,7 @@ fn chunk_index_load_empty_when_file_missing() {
 
     let loaded = load_chunk_index(&paths).unwrap();
     assert!(loaded.entries.is_empty());
-    assert_eq!(loaded.format_version, "1");
+    assert_eq!(loaded.format_version, FORMAT_VERSION);
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -566,7 +566,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let (bundle_id, data) = builder.build_with_id().unwrap();
     let staged_path = root.join("staged-bundle");
     fs::write(&staged_path, &data).unwrap();
-    let reader = read_bundle(&data, &CompressionProfile::default()).unwrap();
+    let reader = read_bundle(&data).unwrap();
     let built_bundle = BuiltBundle {
         bundle_id: bundle_id.clone(),
         staged_file: StagedArtifactFile::new(staged_path),
@@ -585,8 +585,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     fs::copy(built_bundle.staged_file.path(), bundle_path).unwrap();
     let pool = build_thread_pool(1, "gutch-test").unwrap();
-    let rebuilt =
-        rebuild_chunk_index_from_bundles(&paths, &CompressionProfile::default(), &pool).unwrap();
+    let rebuilt = rebuild_chunk_index_from_bundles(&paths, &pool).unwrap();
 
     assert_eq!(incremental.entries, rebuilt.entries);
     assert_eq!(

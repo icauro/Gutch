@@ -243,7 +243,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
             &source.path.display().to_string(),
             &repo_manifest,
             &source.tags,
-            build_profile.storage_mode.cli_name().to_string(),
+            build_profile.storage_mode.stats_name().to_string(),
             result,
             profile_mode(profile.as_deref()),
         ));

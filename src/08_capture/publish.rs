@@ -161,7 +161,7 @@ pub(super) fn publish_snapshot_artifacts(
         for chunk in &bundle.entries {
             reuse_state
                 .available_chunk_sizes
-                .insert(chunk.chunk_hash, u64::from(chunk.compressed_size));
+                .insert(chunk.chunk_hash, u64::from(chunk.estimated_compressed_size));
         }
     }
     for chunk in &result.loose_chunks {

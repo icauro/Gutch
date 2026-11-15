@@ -68,7 +68,6 @@ pub(crate) fn apply_reconstruct_pipeline(
             pipeline_plan,
             output_paths,
             snapshot_id: &request.snapshot_manifest.snapshot_id,
-            compression_profile: &request.compression_profile,
             runtime_hints: request.runtime_hints,
             existing_artifacts: request.existing_artifacts,
             pending_artifact_downloads: request.pending_artifact_downloads,

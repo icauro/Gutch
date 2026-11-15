@@ -207,8 +207,6 @@ pub(crate) enum BundleCommands {
     Inspect {
         #[arg(short, long, value_parser = parse_cli_path)]
         bundle: PathBuf,
-        #[arg(short, long, value_parser = parse_cli_path)]
-        repo: PathBuf,
     },
 }
 

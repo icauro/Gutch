@@ -73,7 +73,7 @@ pub(crate) fn run(
             profile,
         ),
         Commands::Bundle { command } => match command {
-            BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
+            BundleCommands::Inspect { bundle } => bundle::inspect(bundle),
         },
         Commands::Tree { command } => match command {
             TreeCommands::Compare {

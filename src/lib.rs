@@ -51,5 +51,5 @@ pub(crate) use error::Result;
 mod tests;
 
 #[cfg(test)]
-#[path = "04_artifact/fuzz_tests.rs"]
+#[path = "tests/engine_fuzz.rs"]
 mod engine_fuzz;

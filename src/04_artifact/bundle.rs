@@ -13,7 +13,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::artifact::compression::validate_profile;
 use crate::artifact::hash;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::CompressionKind;
@@ -21,6 +20,7 @@ use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::profiles::CompressionUnit;
 use crate::error::Result;
 
+use crate::artifact::compression::corrupt_payload;
 use crate::artifact::compression::decoder_from_reader;
 use crate::artifact::compression::encode_to_writer;
 use crate::artifact::format;
@@ -218,7 +218,7 @@ fn write_bundle<B: AsRef<[u8]>>(
         entries.push(BundleTableEntry {
             chunk_hash,
             raw_size: format::size_u32(raw_size)?,
-            compressed_size: 0,
+            estimated_compressed_size: 0,
             raw_offset: format::size_u32(raw_offset)?,
         });
         raw_offset = raw_offset
@@ -233,13 +233,8 @@ fn write_bundle<B: AsRef<[u8]>>(
             BTreeMap::from([("chunk_count".to_string(), serde_json::json!(chunks.len()))])
         })
     });
-    let raw_size = raw_offset;
-    validate_profile(profile)?;
-    if raw_size > format::MAX_RAW_BUNDLE_SIZE {
-        return Err(crate::Error::artifact("bundle exceeds raw size limit"));
-    }
     let mut input_load_time = Duration::ZERO;
-    encode_to_writer(&mut hashing, profile, raw_size, |writer| {
+    encode_to_writer(&mut hashing, profile, raw_offset, |writer| {
         for (index, &(_, expected_size)) in chunks.iter().enumerate() {
             let load_started = ProfileInstant::detailed(profiler);
             let bytes = load_chunk(index)?;
@@ -275,9 +270,14 @@ fn write_bundle<B: AsRef<[u8]>>(
     hashing.write_all(FOOTER_MAGIC)?;
     let bytes_without_id = hashing.position()?;
 
+    let footer_bytes = bytes_without_id
+        .checked_sub(payload_end)
+        .ok_or_else(|| Error::Artifact("bundle footer position underflow".into()))?;
+
     let HashingWriter { file, hasher } = hashing;
-    let bundle_id = hash::hash_hex(&hasher.finalize());
-    file.write_all(hasher.finalize().as_bytes())?;
+    let digest = hasher.finalize();
+    file.write_all(digest.as_bytes())?;
+    let bundle_id = hash::hash_hex(&digest);
     let bundle_size = bytes_without_id
         .checked_add(BUNDLE_ID_SIZE)
         .ok_or_else(|| Error::Artifact("bundle size overflow".into()))?;
@@ -293,7 +293,7 @@ fn write_bundle<B: AsRef<[u8]>>(
             frame_input_bytes: raw_offset,
             frame_output_bytes: compressed_output_bytes,
             footer_serialization: serialization_started_at.elapsed(),
-            footer_serialization_bytes: bytes_without_id,
+            footer_serialization_bytes: footer_bytes,
         },
     })
 }
@@ -333,6 +333,7 @@ pub(crate) struct BundleReader<R: Read + Seek> {
     chunk_index_by_hash: HashMap<ChunkHash, usize>,
     data_start: u64,
     payload_end: u64,
+    id_start: u64,
     compression: CompressionKind,
     #[cfg(test)]
     compression_unit: CompressionUnit,
@@ -340,7 +341,7 @@ pub(crate) struct BundleReader<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> BundleReader<R> {
-    pub(crate) fn open(mut reader: R, _compression_profile: &CompressionProfile) -> Result<Self> {
+    pub(crate) fn open(mut reader: R) -> Result<Self> {
         let end = reader.seek(SeekFrom::End(0))?;
         let minimum_size = BUNDLE_HEADER_SIZE + BUNDLE_TRAILER_SIZE + BUNDLE_ID_SIZE;
         format::size_u32(end)?;
@@ -357,15 +358,16 @@ impl<R: Read + Seek> BundleReader<R> {
         let compression = format::read_codec(&mut reader)?;
         let chunk_count = read_u32(&mut reader)? as usize;
         let data_start = BUNDLE_HEADER_SIZE;
+        // `end` covers the fixed framing, so these offsets cannot underflow.
+        let id_start = end - BUNDLE_ID_SIZE;
 
-        reader.seek(SeekFrom::Start(end - BUNDLE_ID_SIZE - BUNDLE_TRAILER_SIZE))?;
+        reader.seek(SeekFrom::Start(id_start - BUNDLE_TRAILER_SIZE))?;
         let footer_length = u64::from(read_u32(&mut reader)?);
         if &read_exact_array::<16>(&mut reader)? != FOOTER_MAGIC {
             return Err(Error::Artifact("bundle footer magic is invalid".into()));
         }
-        let footer_start = end
-            .checked_sub(BUNDLE_ID_SIZE + BUNDLE_TRAILER_SIZE)
-            .and_then(|position| position.checked_sub(footer_length))
+        let footer_start = (id_start - BUNDLE_TRAILER_SIZE)
+            .checked_sub(footer_length)
             .ok_or_else(|| Error::Artifact("bundle footer position underflow".into()))?;
         if footer_start < data_start {
             return Err(Error::Artifact("bundle footer overlaps its header".into()));
@@ -421,6 +423,7 @@ impl<R: Read + Seek> BundleReader<R> {
             chunk_index_by_hash,
             data_start,
             payload_end: footer_start,
+            id_start,
             compression,
             #[cfg(test)]
             compression_unit: CompressionUnit::Bundle,
@@ -442,11 +445,8 @@ impl<R: Read + Seek> BundleReader<R> {
         self.compression_unit
     }
 
-    /// Read and decompress the complete bundle payload.
-    ///
-    /// This compatibility helper uses the streaming decoder internally, but
-    /// retains the complete decoded payload for callers such as verification
-    /// that need random access to every chunk.
+    /// Read and decompress the complete bundle payload, for tests that need
+    /// random access to every chunk.
     #[cfg(test)]
     pub(crate) fn read_bundle_payload(
         &mut self,
@@ -482,10 +482,29 @@ impl<R: Read + Seek> BundleReader<R> {
     /// callback; unselected chunks are decoded into a reusable discard buffer.
     /// This lets reconstruction verify and fan out a chunk before decoding the
     /// next one without changing the one-frame-per-bundle format.
+    ///
+    /// The bundle's own content hash is not checked: callers verify each
+    /// delivered chunk's hash, which `verify` does for every chunk.
     pub(crate) fn stream_bundle_chunks<F>(
         &mut self,
         profiler: Option<&Profiler>,
         required: &[bool],
+        on_chunk: F,
+    ) -> Result<BundleReadMetrics>
+    where
+        F: FnMut(usize, &[u8]) -> Result<()>,
+    {
+        self.stream_chunks(profiler, required, false, on_chunk)
+    }
+
+    /// Streams chunks as `stream_bundle_chunks` does. With `check_identity`,
+    /// also hashes the whole bundle in the same pass and compares it with
+    /// the trailing ID.
+    fn stream_chunks<F>(
+        &mut self,
+        profiler: Option<&Profiler>,
+        required: &[bool],
+        check_identity: bool,
         mut on_chunk: F,
     ) -> Result<BundleReadMetrics>
     where
@@ -511,46 +530,41 @@ impl<R: Read + Seek> BundleReader<R> {
 
         let read_started_at = ProfileInstant::detailed(profiler);
 
-        self.reader.seek(SeekFrom::Start(0))?;
-        let mut hasher = blake3::Hasher::new();
-        let mut header = [0u8; BUNDLE_HEADER_SIZE as usize];
-        self.reader.read_exact(&mut header)?;
-        hasher.update(&header);
+        let mut hasher = check_identity.then(blake3::Hasher::new);
+        if let Some(hasher) = hasher.as_mut() {
+            self.reader.seek(SeekFrom::Start(0))?;
+            let mut header = [0u8; BUNDLE_HEADER_SIZE as usize];
+            self.reader.read_exact(&mut header)?;
+            hasher.update(&header);
+        } else {
+            self.reader.seek(SeekFrom::Start(self.data_start))?;
+        }
         let read = read_started_at.elapsed();
 
         let mut decompress = Duration::default();
         let mut encoded = HashingReader {
             reader: (&mut self.reader).take(compressed_size),
-            hasher: &mut hasher,
+            hasher,
         };
         let mut decoder = decoder_from_reader(&mut encoded, self.compression)?;
-        let stream_result = stream_decoded_chunks(
+        stream_decoded_chunks(
             &mut decoder,
             &self.entries,
             required,
             &mut decompress,
             profiler,
             &mut on_chunk,
-        );
-        stream_result?;
-        drop(decoder);
-        io::copy(&mut encoded, &mut io::sink())?;
-        if encoded.reader.limit() != 0 {
-            return Err(crate::Error::artifact("truncated bundle payload"));
-        }
-        let end = self.reader.seek(SeekFrom::End(0))?;
-        self.reader.seek(SeekFrom::Start(self.payload_end))?;
-        let metadata_length = end - BUNDLE_ID_SIZE - self.payload_end;
-        io::copy(
-            &mut HashingReader {
-                reader: (&mut self.reader).take(metadata_length),
-                hasher: &mut hasher,
-            },
-            &mut io::sink(),
         )?;
-        let trailer = read_exact_array::<32>(&mut self.reader)?;
-        if trailer != *hasher.finalize().as_bytes() {
-            return Err(crate::Error::artifact("bundle content identity mismatch"));
+        drop(decoder);
+        if encoded.hasher.is_some() {
+            // The decoder may stop before the frame's end; hash the rest too.
+            io::copy(&mut encoded, &mut io::sink())?;
+            if encoded.reader.limit() != 0 {
+                return Err(crate::Error::artifact("truncated bundle payload"));
+            }
+        }
+        if let Some(hasher) = encoded.hasher.take() {
+            self.check_trailing_id(hasher)?;
         }
         // Keep the timing metric focused on decoder reads. The callback can
         // perform hashing and positional output writes, which are accounted
@@ -602,14 +616,36 @@ impl<R: Read + Seek> BundleReader<R> {
                 "bundle filename and trailing identity disagree",
             ));
         }
-        self.verify()?;
+        self.verify()
+    }
+
+    /// Hashes the footer after the payload and compares the whole bundle's
+    /// hash with its trailing ID.
+    fn check_trailing_id(&mut self, mut hasher: blake3::Hasher) -> Result<()> {
+        let footer_length = self
+            .id_start
+            .checked_sub(self.payload_end)
+            .and_then(|length| usize::try_from(length).ok())
+            .ok_or_else(|| Error::Artifact("bundle footer position underflow".into()))?;
+        self.reader.seek(SeekFrom::Start(self.payload_end))?;
+        let mut footer = vec![0u8; footer_length];
+        self.reader
+            .read_exact(&mut footer)
+            .map_err(corrupt_payload("reading bundle footer"))?;
+        hasher.update(&footer);
+        let trailer = read_exact_array::<32>(&mut self.reader)?;
+        if trailer != *hasher.finalize().as_bytes() {
+            return Err(crate::Error::artifact("bundle content identity mismatch"));
+        }
         Ok(())
     }
 
-    pub(crate) fn verify(&mut self) -> Result<bool> {
+    /// Decodes every chunk, checks each chunk's hash and the bundle's own
+    /// content hash.
+    fn verify(&mut self) -> Result<()> {
         let hashes: Vec<_> = self.entries.iter().map(|entry| entry.chunk_hash).collect();
         let required = vec![true; hashes.len()];
-        self.stream_bundle_chunks(None, &required, |index, bytes| {
+        self.stream_chunks(None, &required, true, |index, bytes| {
             let actual = ChunkHash::of(bytes);
             if actual != hashes[index] {
                 return Err(crate::Error::HashMismatch {
@@ -619,14 +655,14 @@ impl<R: Read + Seek> BundleReader<R> {
             }
             Ok(())
         })?;
-        Ok(true)
+        Ok(())
     }
 }
 
 /// Verifies complete bundle identity for in-memory bytes: the BLAKE3 of all
 /// bytes before the trailing 32-byte binary ID must equal the expected ID, and
-/// the trailing bytes must repeat it. Shared by local verification and
-/// remote download so both reject the same identity failures.
+/// the trailing bytes must repeat it. Production paths stream through
+/// `BundleIdentityWriter` or `verify_bundle_identity_reader` instead.
 #[cfg(test)]
 pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Result<()> {
     let expected_hash = ChunkHash::parse_hex(bundle_id)?;
@@ -759,14 +795,17 @@ impl<W: Write> Write for BundleIdentityWriter<W> {
     }
 }
 
-struct HashingReader<'a, R> {
+/// Hashes what passes through when a hasher is present.
+struct HashingReader<R> {
     reader: R,
-    hasher: &'a mut blake3::Hasher,
+    hasher: Option<blake3::Hasher>,
 }
-impl<R: Read> Read for HashingReader<'_, R> {
+impl<R: Read> Read for HashingReader<R> {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
         let count = self.reader.read(bytes)?;
-        self.hasher.update(&bytes[..count]);
+        if let Some(hasher) = self.hasher.as_mut() {
+            hasher.update(&bytes[..count]);
+        }
         Ok(count)
     }
 }
@@ -783,6 +822,7 @@ where
     R: Read,
     F: FnMut(usize, &[u8]) -> Result<()>,
 {
+    let corrupt = corrupt_payload("decoding bundle payload");
     let mut chunk_buffer = Vec::new();
     let mut discard_buffer = vec![0u8; STREAM_BUFFER_SIZE];
 
@@ -802,7 +842,7 @@ where
             }
             let chunk = &mut chunk_buffer[..raw_size];
             let decode_started_at = ProfileInstant::detailed(profiler);
-            reader.read_exact(chunk)?;
+            reader.read_exact(chunk).map_err(&corrupt)?;
             *decompress += decode_started_at.elapsed();
             on_chunk(index, chunk)?;
         } else {
@@ -810,7 +850,9 @@ where
             while remaining > 0 {
                 let read_size = remaining.min(discard_buffer.len());
                 let decode_started_at = ProfileInstant::detailed(profiler);
-                reader.read_exact(&mut discard_buffer[..read_size])?;
+                reader
+                    .read_exact(&mut discard_buffer[..read_size])
+                    .map_err(&corrupt)?;
                 *decompress += decode_started_at.elapsed();
                 remaining -= read_size;
             }
@@ -819,7 +861,7 @@ where
 
     let mut trailing = [0u8; 1];
     let decode_started_at = ProfileInstant::detailed(profiler);
-    let trailing_bytes = reader.read(&mut trailing)?;
+    let trailing_bytes = reader.read(&mut trailing).map_err(&corrupt)?;
     *decompress += decode_started_at.elapsed();
     if trailing_bytes != 0 {
         return Err(Error::Artifact(
@@ -854,7 +896,7 @@ fn assign_compressed_size_estimates(
             ((entry.raw_size as u128 * compressed_payload_size as u128) / total_raw_size as u128)
                 as u64
         };
-        entry.compressed_size = format::size_u32(compressed_size)?;
+        entry.estimated_compressed_size = format::size_u32(compressed_size)?;
         assigned = assigned
             .checked_add(compressed_size)
             .ok_or_else(|| Error::Artifact("bundle compressed size overflow".into()))?;
@@ -919,11 +961,10 @@ fn read_bundle_table_entries(
     let mut raw_offset = 0u64;
     for chunk_hash in chunk_hashes {
         let raw_size = u64::from(read_u32(reader)?);
-        let compressed_size = 0;
         entries.push(BundleTableEntry {
             chunk_hash,
             raw_size: format::size_u32(raw_size)?,
-            compressed_size,
+            estimated_compressed_size: 0,
             raw_offset: format::size_u32(raw_offset)?,
         });
         raw_offset = raw_offset
@@ -934,23 +975,20 @@ fn read_bundle_table_entries(
 }
 
 #[cfg(test)]
-pub(crate) fn read_bundle<'a>(
-    data: &'a [u8],
-    compression_profile: &CompressionProfile,
-) -> Result<BundleReader<Cursor<&'a [u8]>>> {
-    let cursor = Cursor::new(data);
-    BundleReader::open(cursor, compression_profile)
+pub(crate) fn read_bundle(data: &[u8]) -> Result<BundleReader<Cursor<&[u8]>>> {
+    BundleReader::open(Cursor::new(data))
 }
 
 #[cfg(test)]
 #[path = "bundle_tests.rs"]
 mod tests;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct BundleTableEntry {
     pub chunk_hash: ChunkHash,
     pub raw_size: u32,
-    pub compressed_size: u32,
-    #[serde(default)]
+    /// Share of the bundle's compressed bytes, proportional to raw size;
+    /// chunks compress jointly, so per-chunk sizes are not recorded.
+    pub estimated_compressed_size: u32,
     pub raw_offset: u32,
 }

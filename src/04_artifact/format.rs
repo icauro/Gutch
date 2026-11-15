@@ -6,8 +6,8 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::profiles::CompressionKind;
 
+/// `VERSION` as recorded in JSON and index records.
 pub(crate) const FORMAT_VERSION: &str = "1";
-pub(crate) const CHUNK_HASH_BLAKE3: &str = "blake3";
 pub(crate) const VERSION: u16 = 1;
 pub(crate) const BUNDLE_MAGIC: &[u8; 16] = b"GUTCH_BUNDLE\0\0\0\0";
 pub(crate) const BUNDLE_FOOTER_MAGIC: &[u8; 16] = b"GUTCH_BUNDLE_END";

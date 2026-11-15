@@ -106,7 +106,6 @@ pub fn fetch_and_reconstruct_snapshot(
                 ReconstructPipelineApplyRequest {
                     publication: Publication::ReplaceDirectory,
                     repo_root: &prepared.repo_paths.repo_root,
-                    compression_profile: prepared.compression_profile.clone(),
                     snapshot_manifest: &prepared.snapshot_manifest,
                     destination_dir: &request.destination_dir,
                     staging_dir: request.staging_dir.as_deref(),

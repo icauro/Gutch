@@ -38,7 +38,6 @@ use super::workers::{
     ReconstructJobEvent, ReconstructWorkContext, ReconstructWorkItem, ReconstructWorkQueue,
     dispatch_ready_work,
 };
-use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyTimings;
@@ -52,7 +51,6 @@ pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
     pub(crate) pipeline_plan: ReconstructPipelinePlan,
     pub(crate) output_paths: Arc<Vec<PathBuf>>,
     pub(crate) snapshot_id: &'a str,
-    pub(crate) compression_profile: &'a CompressionProfile,
     pub(crate) runtime_hints: &'a RuntimeResourceHints,
     pub(crate) existing_artifacts: &'a HashSet<ArtifactRef>,
     pub(crate) pending_artifact_downloads: &'a [PendingArtifactDownload],
@@ -70,7 +68,6 @@ pub(crate) fn run_reconstruction_jobs(
         pipeline_plan,
         output_paths,
         snapshot_id,
-        compression_profile,
         runtime_hints,
         existing_artifacts,
         pending_artifact_downloads,
@@ -152,7 +149,6 @@ pub(crate) fn run_reconstruction_jobs(
         file_plans: Arc::clone(&file_plans),
         output_paths: Arc::clone(&output_paths),
         output_handles,
-        compression_profile: Arc::new(compression_profile.clone()),
         control: control.clone(),
         reconstruct_worker_count: runtime_plan.worker_count,
     });

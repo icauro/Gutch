@@ -73,7 +73,6 @@ src/04_artifact/fastcdc_v2020/LICENSE
 src/04_artifact/fastcdc_v2020/mod.rs
 src/04_artifact/fastcdc_v2020/README.md
 src/04_artifact/format.rs
-src/04_artifact/fuzz_tests.rs
 src/04_artifact/gear.rs
 src/04_artifact/hash.rs
 src/04_artifact/hash_tests.rs
@@ -238,6 +237,7 @@ src/lib.rs
 src/test_util/
 src/test_util/mod.rs
 src/tests/
+src/tests/engine_fuzz.rs
 src/tests/mod.rs
 src/tests/module_boundaries.rs
 tests/

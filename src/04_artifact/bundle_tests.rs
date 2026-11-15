@@ -30,7 +30,7 @@ fn test_build_and_read_bundle() {
 
     let (_bundle_id, bundle_data) = builder.build_with_id().unwrap();
 
-    let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
+    let mut reader = read_bundle(&bundle_data).unwrap();
     assert_eq!(reader.chunk_count(), 2);
 
     let read1 = reader.read_chunk_by_hash(&hash1.to_string()).unwrap();
@@ -46,7 +46,7 @@ fn test_empty_bundle() {
     assert!(builder.is_empty());
     assert_eq!(builder.chunk_count(), 0);
     let bundle_data = builder.build().unwrap();
-    let reader = read_bundle(&bundle_data, &profile()).unwrap();
+    let reader = read_bundle(&bundle_data).unwrap();
     assert_eq!(reader.chunk_count(), 0);
 }
 
@@ -55,9 +55,9 @@ fn test_empty_lz4_bundle() {
     let profile = CompressionProfile::for_algorithm(CompressionKind::Lz4, None);
     let builder = BundleBuilder::new(profile.clone());
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
+    let mut reader = read_bundle(&bundle_data).unwrap();
     assert_eq!(reader.chunk_count(), 0);
-    assert!(reader.verify().unwrap());
+    reader.verify().unwrap();
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn test_single_chunk_bundle() {
     builder.add_chunk(hash, data.to_vec());
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
+    let mut reader = read_bundle(&bundle_data).unwrap();
     assert_eq!(reader.chunk_count(), 1);
 
     let result = reader.read_chunk(0).unwrap();
@@ -86,8 +86,8 @@ fn test_verify_bundle() {
     builder.add_chunk(ChunkHash::of(&chunk2), chunk2.to_vec());
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data, &profile()).unwrap();
-    assert!(reader.verify().unwrap());
+    let mut reader = read_bundle(&bundle_data).unwrap();
+    reader.verify().unwrap();
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn test_build_and_read_bundle_compressed_payload() {
     builder.add_chunk(ChunkHash::of(&chunk2), chunk2.to_vec());
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
+    let mut reader = read_bundle(&bundle_data).unwrap();
 
     let payload = &bundle_data[reader.data_start as usize..reader.payload_end as usize];
     let frame_size = zstd::zstd_safe::find_frame_compressed_size(payload).unwrap();
@@ -118,14 +118,14 @@ fn test_build_and_read_bundle_compressed_payload() {
         reader
             .entries()
             .iter()
-            .all(|entry| entry.compressed_size > 0)
+            .all(|entry| entry.estimated_compressed_size > 0)
     );
     assert_eq!(reader.read_chunk(0).unwrap(), chunk1.to_vec());
     assert_eq!(reader.read_chunk(1).unwrap(), chunk2.to_vec());
 
     let staged = tempfile::NamedTempFile::new().unwrap();
     fs::write(staged.path(), &bundle_data).unwrap();
-    let mut file_reader = BundleReader::open(File::open(staged.path()).unwrap(), &profile).unwrap();
+    let mut file_reader = BundleReader::open(File::open(staged.path()).unwrap()).unwrap();
     let profiler = Profiler::new(ProfileMode::Detailed);
     let (read, metrics) = file_reader.read_bundle_payload(Some(&profiler)).unwrap();
     let second = &read[reader.entries()[1].raw_offset as usize
@@ -182,7 +182,7 @@ fn test_stream_bundle_chunks_only_delivers_required_chunks() {
     }
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
+    let mut reader = read_bundle(&bundle_data).unwrap();
     let mut delivered = Vec::new();
     let metrics = reader
         .stream_bundle_chunks(None, &[false, true, true, true], |index, chunk| {
@@ -216,7 +216,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     builder.add_chunk(ChunkHash::of(&chunk2), chunk2.clone());
 
     let bundle_data = builder.build().unwrap();
-    let mut reader = read_bundle(&bundle_data, &profile).unwrap();
+    let mut reader = read_bundle(&bundle_data).unwrap();
 
     assert_eq!(reader.compression_unit(), CompressionUnit::Bundle);
     assert_eq!(reader.read_chunk(0).unwrap(), chunk1);
@@ -261,7 +261,7 @@ fn test_bundle_id_depends_on_final_bundle_bytes() {
 
 #[test]
 fn test_invalid_bundle_table() {
-    let result = read_bundle(b"XXXX extra data to read", &profile());
+    let result = read_bundle(b"XXXX extra data to read");
     assert!(
         matches!(result, Err(Error::Artifact(_))),
         "should reject invalid magic"
@@ -380,7 +380,7 @@ fn test_bundle_identity_rejects_corrupt_framing_and_payload() {
     // Corrupt framing: the magic no longer parses.
     let mut framed = bundle_data.clone();
     framed[0] ^= 0xff;
-    assert!(read_bundle(&framed, &profile()).is_err());
+    assert!(read_bundle(&framed).is_err());
     assert!(verify_bundle_identity_bytes(&bundle_id, &framed).is_err());
 
     // Corrupt payload: framing still parses, but the content hash no longer
@@ -477,7 +477,7 @@ fn streamed_bundle_releases_each_loaded_chunk_before_requesting_the_next() {
         assert_eq!(next_index, inputs.len());
         assert_eq!(live.load(Ordering::SeqCst), 0);
         let encoded = fs::read(&artifact.staged_path).unwrap();
-        let mut reader = read_bundle(&encoded, &profile).unwrap();
+        let mut reader = read_bundle(&encoded).unwrap();
         for ((hash, _), expected) in descriptors.iter().zip(&inputs) {
             assert_eq!(
                 &reader.read_chunk_by_hash(&hash.to_string()).unwrap(),
@@ -536,4 +536,38 @@ fn streamed_bundle_validates_descriptors_before_loading_payloads() {
         assert!(!loaded);
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
+}
+
+#[test]
+fn only_verification_checks_the_trailing_bundle_id() {
+    let bytes = b"identity checked on demand".repeat(10);
+    let mut builder = BundleBuilder::new(profile());
+    builder.add_chunk(ChunkHash::of(&bytes), bytes.clone());
+    let mut bundle_data = builder.build().unwrap();
+    *bundle_data.last_mut().unwrap() ^= 1;
+
+    let mut reader = read_bundle(&bundle_data).unwrap();
+    reader
+        .stream_bundle_chunks(None, &[true], |_, chunk| {
+            assert_eq!(chunk, bytes.as_slice());
+            Ok(())
+        })
+        .unwrap();
+    assert!(reader.verify().is_err());
+}
+
+#[test]
+fn damaged_compressed_payload_is_an_artifact_error() {
+    let bytes = b"compressible payload ".repeat(100);
+    let mut builder = BundleBuilder::new(profile());
+    builder.add_chunk(ChunkHash::of(&bytes), bytes);
+    let mut bundle_data = builder.build().unwrap();
+    // Damage the first compressed byte, right after the bundle header.
+    bundle_data[BUNDLE_HEADER_SIZE as usize] ^= 0xff;
+
+    let mut reader = read_bundle(&bundle_data).unwrap();
+    let error = reader
+        .stream_bundle_chunks(None, &[true], |_, _| Ok(()))
+        .unwrap_err();
+    assert!(matches!(error, Error::Artifact(_)), "{error:?}");
 }

@@ -23,14 +23,17 @@ impl ChunkHash {
 
     pub fn parse_hex(hex: &str) -> Result<Self> {
         if hex.len() != 64 {
-            return Err(crate::Error::verify("hash must contain 64 hex bytes"));
+            return Err(crate::Error::Artifact(format!(
+                "hash must contain 64 hexadecimal characters, found {}",
+                hex.len()
+            )));
         }
         let mut bytes = [0u8; 32];
         for (output, [high, low]) in bytes.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) {
             let digit = |byte: u8| match byte {
                 b'0'..=b'9' => Ok(byte - b'0'),
                 b'a'..=b'f' => Ok(byte - b'a' + 10),
-                _ => Err(crate::Error::verify(
+                _ => Err(crate::Error::artifact(
                     "hash must use lowercase ASCII hexadecimal",
                 )),
             };
@@ -77,22 +80,6 @@ pub fn hash_chunk(data: &[u8]) -> blake3::Hash {
 
 pub fn hash_hex(hash: &blake3::Hash) -> String {
     hash.to_hex().to_string()
-}
-
-#[cfg(test)]
-pub(crate) fn hex_decode(hex: &str) -> Result<Vec<u8>> {
-    use crate::error::Error;
-
-    if !hex.len().is_multiple_of(2) {
-        return Err(Error::verify("hex string has odd length"));
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&hex[i..i + 2], 16)
-                .map_err(|e| Error::verify(format!("invalid hex: {}", e)))
-        })
-        .collect()
 }
 
 #[cfg(test)]

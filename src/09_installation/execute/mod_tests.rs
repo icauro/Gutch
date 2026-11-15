@@ -98,7 +98,7 @@ fn snapshot_manifest_with_chunk(
 
 fn bundled_chunk_index() -> ChunkIndex {
     ChunkIndex {
-        format_version: "1".to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: chunk_entries(BTreeMap::from([(
             test_hash(b"game"),
@@ -179,7 +179,6 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
         ReconstructPipelineApplyRequest {
             publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: CompressionProfile::default(),
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
@@ -262,7 +261,7 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
     let _ = fs::remove_dir_all(&repo_root);
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     let chunk_index = ChunkIndex {
-        format_version: "1".to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: chunk_entries(BTreeMap::from([(
             snapshot_only_chunk_hash,
@@ -346,7 +345,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
         replacement_chunk_hash.clone(),
     );
     let chunk_index = ChunkIndex {
-        format_version: "1".to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: chunk_entries(BTreeMap::from([(
             replacement_chunk_hash.clone(),
@@ -392,7 +391,6 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
         ReconstructPipelineApplyRequest {
             publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile,
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
@@ -436,7 +434,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     let compression_profile = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(3));
     fs::write(&chunk_path, loose_bytes(b"game", &compression_profile)).unwrap();
     let chunk_index = ChunkIndex {
-        format_version: "1".to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
@@ -468,7 +466,6 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
         ReconstructPipelineApplyRequest {
             publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(3)),
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
@@ -557,7 +554,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         ],
     });
     let chunk_index = ChunkIndex {
-        format_version: "1".to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: chunk_entries(BTreeMap::from([
             (
@@ -613,7 +610,6 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         ReconstructPipelineApplyRequest {
             publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile,
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
@@ -697,7 +693,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         existing_artifacts.insert(artifact);
     }
     let chunk_index = ChunkIndex {
-        format_version: "1".to_string(),
+        format_version: FORMAT_VERSION.to_string(),
         entries: chunk_entries(entries_by_hash),
     };
     let mut snapshot = SnapshotManifest::new("readiness".to_string(), SnapshotTagSet::default());
@@ -736,7 +732,6 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         ReconstructPipelineApplyRequest {
             publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: compression,
             snapshot_manifest: &snapshot,
             destination_dir: &destination,
             staging_dir: None,
@@ -811,7 +806,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         snapshot.push_file(file);
     }
     let index = ChunkIndex {
-        format_version: "1".into(),
+        format_version: FORMAT_VERSION.into(),
 
         entries: chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
@@ -838,7 +833,6 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         ReconstructPipelineApplyRequest {
             publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: compression,
             snapshot_manifest: &snapshot,
             destination_dir: &destination,
             staging_dir: None,
@@ -900,7 +894,10 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
                 )
             };
             if corrupt {
-                *encoded.last_mut().unwrap() ^= 1;
+                // Reconstruction checks chunk hashes, not the bundle trailer, so
+                // damage the first payload byte after the 24-byte bundle header.
+                let index = if bundled { 24 } else { encoded.len() - 1 };
+                encoded[index] ^= 1;
             }
             fs::write(&artifact_path, &encoded).unwrap();
             // Shared whole-file targets, a prefix, a suffix, and a differing full hash.
@@ -955,7 +952,6 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
                 output_paths: &paths,
                 output_handles: &handles,
                 source_handles: &SourceHandleCache::default(),
-                compression_profile: &profile,
                 control: &control,
             });
             assert_eq!(
@@ -1213,7 +1209,7 @@ fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
         let entry = ChunkIndexEntry::new(128, 0, id.into(), 4, mode);
         let artifact = ArtifactRef::from_chunk_entry(&hash, &entry);
         let index = ChunkIndex {
-            format_version: "1".into(),
+            format_version: FORMAT_VERSION.into(),
             entries: [(hash, entry)].into_iter().collect(),
         };
         let mut snapshot = snapshot_manifest_with_file("snapshot", &hash.to_hex());

@@ -14,7 +14,6 @@ pub fn verify_installation(request: InstallationVerifyRequest) -> Result<Install
         let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest,
-            ..
         } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let (classification, verify_timings) = classify_directory(VerifyRequest {
             snapshot_manifest: &snapshot_manifest,

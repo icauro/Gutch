@@ -40,7 +40,11 @@ fn fuzz_binary_decoders() {
         if let Ok(encoded) = metadata::encode(CHUNK_INDEX_MAGIC, &groups[..2]) {
             let _ = load_chunk_index_binary_from_bytes(&encoded);
         }
-        let _ = bundle::read_bundle(bytes, &CompressionProfile::default());
+        if let Ok(mut reader) = bundle::read_bundle(bytes) {
+            // Opening checks only framing; streaming reaches the codec decoders.
+            let required = vec![true; reader.entries().len()];
+            let _ = reader.stream_bundle_chunks(None, &required, |_, _| Ok(()));
+        }
         let _ = read_loose_header(&mut Cursor::new(bytes));
         for kind in [
             CompressionKind::None,
@@ -83,7 +87,7 @@ fn fuzz_bundle_roundtrip() {
         let mut builder = bundle::BundleBuilder::new(profile.clone());
         builder.add_chunk(hash, bytes.to_vec());
         let (id, encoded) = builder.build_with_id().unwrap();
-        let mut reader = bundle::read_bundle(&encoded, &profile).unwrap();
+        let mut reader = bundle::read_bundle(&encoded).unwrap();
         reader.verify_identity(&id).unwrap();
         assert_eq!(reader.read_chunk(0).unwrap(), bytes);
         let mut damaged = encoded.clone();

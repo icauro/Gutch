@@ -5,6 +5,7 @@ use std::io::Read;
 use crate::artifact::binary_io::{
     read_exact_array, read_u8, read_u16, read_u32, write_u16, write_u32,
 };
+use crate::artifact::compression::{ZSTD_WINDOW_LOG, corrupt_payload};
 use crate::{Error, Result};
 use std::fs::File;
 use std::path::Path;
@@ -18,6 +19,8 @@ const MAX_GROUP_COUNT: usize = 16;
 const REQUIRED_GROUP_FLAG: u8 = 1;
 const RAW_CODEC: u8 = 0;
 const ZSTD_CODEC: u8 = 1;
+/// Metadata favours fast encoding; groups are small and written often.
+const ZSTD_LEVEL: i32 = 3;
 
 pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
     if groups.is_empty() || groups.len() > MAX_GROUP_COUNT {
@@ -34,7 +37,7 @@ pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
             .checked_add(group.len())
             .filter(|size| *size <= MAX_METADATA_BYTES)
             .ok_or_else(|| Error::artifact("metadata exceeds decoded size limit"))?;
-        let compressed = zstd::stream::encode_all(group.as_slice(), 3)?;
+        let compressed = zstd::stream::encode_all(group.as_slice(), ZSTD_LEVEL)?;
         let (codec, payload) = if compressed.len() < group.len() {
             (ZSTD_CODEC, compressed.as_slice())
         } else {
@@ -112,8 +115,9 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
         let decoded = match codec {
             RAW_CODEC if encoded_size == decoded_size => encoded.to_vec(),
             ZSTD_CODEC => {
-                let mut decoder = zstd::stream::read::Decoder::new(encoded)?;
-                decoder.window_log_max(28)?;
+                let corrupt = corrupt_payload("decoding metadata group");
+                let mut decoder = zstd::stream::read::Decoder::new(encoded).map_err(&corrupt)?;
+                decoder.window_log_max(ZSTD_WINDOW_LOG)?;
                 // Reserve a whole group only when bounded by twice the actual input.
                 // A partial hint can waste capacity when highly compressed groups grow.
                 let initial_capacity = if decoded_size <= encoded_size * 2 {
@@ -124,7 +128,8 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
                 let mut output = Vec::with_capacity(initial_capacity);
                 decoder
                     .take(decoded_size as u64 + 1)
-                    .read_to_end(&mut output)?;
+                    .read_to_end(&mut output)
+                    .map_err(&corrupt)?;
                 if output.len() != decoded_size {
                     return Err(Error::artifact("metadata decoded length mismatch"));
                 }

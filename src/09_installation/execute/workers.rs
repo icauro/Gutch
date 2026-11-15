@@ -5,7 +5,6 @@ use super::job_io::{
     ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file,
 };
 use super::jobs::{ReconstructJob, ReconstructPipelineFile};
-use crate::artifact::profiles::CompressionProfile;
 use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::ProfileInstant;
 use crate::progress::OperationControl;
@@ -169,7 +168,6 @@ pub(crate) struct ReconstructWorkContext {
     pub(crate) file_plans: Arc<Vec<ReconstructPipelineFile>>,
     pub(crate) output_paths: Arc<Vec<PathBuf>>,
     pub(crate) output_handles: Arc<OutputHandleCache>,
-    pub(crate) compression_profile: Arc<CompressionProfile>,
     pub(crate) control: OperationControl,
     pub(crate) reconstruct_worker_count: usize,
 }
@@ -253,7 +251,6 @@ pub(crate) fn spawn_reconstruct_work(
                             output_paths: &context.output_paths,
                             output_handles: &context.output_handles,
                             source_handles: &context.source_handles,
-                            compression_profile: &context.compression_profile,
                             control: &context.control,
                         })?);
                     }
@@ -475,9 +472,6 @@ mod tests {
                 file_plans: Arc::new(files),
                 output_paths: paths,
                 output_handles: handles,
-                compression_profile: Arc::new(
-                    crate::artifact::profiles::CompressionProfile::default(),
-                ),
                 control,
                 reconstruct_worker_count: 1,
             });
@@ -753,7 +747,6 @@ mod tests {
                 file_plans: Arc::new(files),
                 output_paths: paths,
                 output_handles: handles,
-                compression_profile: Arc::new(Default::default()),
                 control,
                 reconstruct_worker_count: 1,
             });

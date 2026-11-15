@@ -12,7 +12,6 @@ use crate::manifest::SnapshotManifest;
 
 use super::inventory::list_repo_snapshot_ids;
 use crate::artifact::loose::read_loose_chunk;
-use crate::artifact::profiles::CompressionProfile;
 use crate::filesystem::constraints::validate_paths;
 use crate::repo::artifacts::RequiredArtifacts;
 use crate::repo::artifacts::classify_required_artifacts;
@@ -80,7 +79,6 @@ pub fn verify_gutch_repo_artifacts(
         let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let constraints = repo_manifest.constraints.clone().unwrap_or_default();
-        let compression_profile = repo_manifest.compression_profile();
 
         let mut snapshots = Vec::new();
         let mut verified = HashMap::new();
@@ -100,7 +98,6 @@ pub fn verify_gutch_repo_artifacts(
             snapshots.push(verify_snapshot_artifacts_cached(
                 &repo_paths,
                 &chunk_index,
-                &compression_profile,
                 &manifest,
                 mode,
                 &mut verified,
@@ -129,7 +126,6 @@ pub fn verify_gutch_repo_artifacts(
 pub(crate) fn verify_snapshot_artifacts(
     repo_paths: &RepoPaths,
     chunk_index: &ChunkIndex,
-    compression_profile: &CompressionProfile,
     snapshot_id: &str,
     mode: RepoArtifactVerification,
 ) -> Result<SnapshotArtifactVerifyResult> {
@@ -137,7 +133,6 @@ pub(crate) fn verify_snapshot_artifacts(
     verify_snapshot_artifacts_cached(
         repo_paths,
         chunk_index,
-        compression_profile,
         &manifest,
         mode,
         &mut HashMap::new(),
@@ -147,7 +142,6 @@ pub(crate) fn verify_snapshot_artifacts(
 fn verify_snapshot_artifacts_cached(
     repo_paths: &RepoPaths,
     chunk_index: &ChunkIndex,
-    compression_profile: &CompressionProfile,
     snapshot_manifest: &SnapshotManifest,
     mode: RepoArtifactVerification,
     verified: &mut HashMap<ArtifactRef, std::result::Result<(), String>>,
@@ -183,9 +177,7 @@ fn verify_snapshot_artifacts_cached(
             result.clone()
         } else {
             let result = match artifact {
-                ArtifactRef::Bundle { id } => {
-                    verify_bundle_file(&path, id, compression_profile, mode)
-                }
+                ArtifactRef::Bundle { id } => verify_bundle_file(&path, id, mode),
                 ArtifactRef::LooseChunk { hash } => {
                     let entry = chunk_index.entries.get(hash).ok_or_else(|| {
                         Error::repository(format!(
@@ -229,13 +221,8 @@ fn verify_snapshot_artifacts_cached(
     })
 }
 
-fn verify_bundle_file(
-    path: &Path,
-    bundle_id: &str,
-    compression_profile: &CompressionProfile,
-    mode: RepoArtifactVerification,
-) -> Result<()> {
-    let mut reader = bundle::BundleReader::open(File::open(path)?, compression_profile)?;
+fn verify_bundle_file(path: &Path, bundle_id: &str, mode: RepoArtifactVerification) -> Result<()> {
+    let mut reader = bundle::BundleReader::open(File::open(path)?)?;
     if mode == RepoArtifactVerification::Identity {
         reader.verify_identity(bundle_id)?;
     }
@@ -383,29 +370,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("bundle");
         std::fs::write(&path, encoded).unwrap();
-        verify_bundle_file(
-            &path,
-            &bundle_id,
-            &profile,
-            RepoArtifactVerification::Identity,
-        )
-        .unwrap();
+        verify_bundle_file(&path, &bundle_id, RepoArtifactVerification::Identity).unwrap();
         let incorrect_id = "0".repeat(64);
-        verify_bundle_file(
-            &path,
-            &incorrect_id,
-            &profile,
-            RepoArtifactVerification::Structure,
-        )
-        .unwrap();
+        verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Structure).unwrap();
         assert!(
-            verify_bundle_file(
-                &path,
-                &incorrect_id,
-                &profile,
-                RepoArtifactVerification::Identity
-            )
-            .is_err()
+            verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Identity).is_err()
         );
     }
 }

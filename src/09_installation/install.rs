@@ -58,7 +58,6 @@ pub fn install_snapshot_from_repo(
         });
         let LoadedRepoSnapshot {
             repo_paths,
-            repo_manifest,
             snapshot_manifest,
         } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
@@ -137,7 +136,6 @@ pub fn install_snapshot_from_repo(
                     None => Publication::ReplaceDirectory,
                 },
                 repo_root: &repo_paths.repo_root,
-                compression_profile: repo_manifest.compression_profile(),
                 snapshot_manifest: execution_manifest,
                 destination_dir: &request.destination_dir,
                 staging_dir: request.staging_dir.as_deref(),

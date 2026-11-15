@@ -12,7 +12,7 @@ use crate::error::Result;
 
 // Admission estimates for codec work, not a bound on total process RSS.
 // Keep encoder and decoder reservations separate: their live buffers differ.
-const ZSTD_WINDOW_LOG: u32 = 27;
+pub(crate) const ZSTD_WINDOW_LOG: u32 = 27;
 pub(crate) const ENCODE_WORKING_MEMORY_BYTES: u64 = 1 << ZSTD_WINDOW_LOG;
 pub(crate) const DECODE_WORKING_MEMORY_BYTES: u64 = (1 << ZSTD_WINDOW_LOG) + 8 * 1024 * 1024;
 
@@ -122,18 +122,25 @@ pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Resu
     Ok(output)
 }
 
+/// Maps a failure to decode stored bytes to `Error::Artifact`: the bytes are
+/// damaged or malformed, which callers must not mistake for a disk fault.
+pub(crate) fn corrupt_payload(context: &'static str) -> impl Fn(std::io::Error) -> Error {
+    move |error| Error::Artifact(format!("{context}: {error}"))
+}
+
 pub(crate) fn decoder_from_reader<'a>(
     reader: impl Read + 'a,
     compression: CompressionKind,
 ) -> Result<Box<dyn Read + 'a>> {
+    let corrupt = corrupt_payload("opening compressed payload");
     Ok(match compression {
         CompressionKind::None => Box::new(reader),
         CompressionKind::Zstd => {
-            let mut decoder = zstd::stream::read::Decoder::new(reader)?;
+            let mut decoder = zstd::stream::read::Decoder::new(reader).map_err(&corrupt)?;
             decoder.window_log_max(ZSTD_WINDOW_LOG)?;
             Box::new(decoder)
         }
-        CompressionKind::Lz4 => Box::new(lz4::Decoder::new(reader)?),
+        CompressionKind::Lz4 => Box::new(lz4::Decoder::new(reader).map_err(&corrupt)?),
     })
 }
 

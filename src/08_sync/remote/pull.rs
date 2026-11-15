@@ -107,12 +107,10 @@ pub(super) fn compute_pull_plan(
             &snapshot.blueprint_hash_b3,
         ) && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
             && compute_snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
-            && let Ok((_, local_repo)) = load_gutch_repo_manifest(repo_root)
             && let Ok(index) = load_chunk_index(repo_paths)
             && verify_snapshot_artifacts(
                 repo_paths,
                 &index,
-                &local_repo.compression_profile(),
                 &snapshot.snapshot_id,
                 RepoArtifactVerification::Identity,
             )

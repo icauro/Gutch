@@ -3,12 +3,12 @@
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle::BundleReader;
+use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::format::size_u32;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::loose::read_loose_header;
 use crate::artifact::profiles::ArtifactStorageMode;
-use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
@@ -45,7 +45,6 @@ pub fn rebuild_index(
 ) -> Result<IndexRebuildResult> {
     let work = || {
         let (paths, _) = load_gutch_repo_manifest(root)?;
-        let profile = CompressionProfile::default();
         let mut entries: BTreeMap<String, ChunkIndexEntry> = BTreeMap::new();
         let mut result = IndexRebuildResult {
             complete: false,
@@ -60,7 +59,7 @@ pub fn rebuild_index(
         let artifacts = super::inventory::list_repo_artifact_paths(&paths)?;
         for (artifact, path) in artifacts {
             control.checkpoint()?;
-            match recover_artifact_chunks(&artifact, &path, &profile) {
+            match recover_artifact_chunks(&artifact, &path) {
                 Err(error) => result
                     .corrupt_artifacts
                     .push(format!("{}: {error}", artifact.id())),
@@ -100,7 +99,7 @@ pub fn rebuild_index(
             write_chunk_index(
                 &paths,
                 &ChunkIndex {
-                    format_version: "1".into(),
+                    format_version: FORMAT_VERSION.into(),
 
                     entries: entries
                         .into_iter()
@@ -124,12 +123,11 @@ pub fn rebuild_index(
 fn recover_artifact_chunks(
     artifact: &ArtifactRef,
     path: &Path,
-    profile: &CompressionProfile,
 ) -> Result<Vec<(String, ChunkIndexEntry)>> {
     let size = size_u32(fs::metadata(path)?.len())?;
     match artifact {
         ArtifactRef::Bundle { id } => {
-            let mut reader = BundleReader::open(File::open(path)?, profile)?;
+            let mut reader = BundleReader::open(File::open(path)?)?;
             reader.verify_identity(id)?;
             let shared_id = smol_str::SmolStr::new(id);
             Ok(reader

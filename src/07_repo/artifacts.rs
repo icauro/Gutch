@@ -12,7 +12,6 @@ use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_id_from_bundle_path;
 use crate::repo::paths::bundle_path;
 use crate::repo::paths::chunk_path;
-use crate::repo::paths::load_gutch_repo_manifest;
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::fs::File;
@@ -107,9 +106,8 @@ pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Resul
     verify_bundle_identity_reader(&mut File::open(path)?, bundle_id)
 }
 
-/// Inspect a bundle using its repository's compression profile without rendering output.
-pub fn inspect_bundle(bundle: &Path, repo: &Path) -> Result<Vec<BundleTableEntry>> {
-    let (_, manifest) = load_gutch_repo_manifest(repo)?;
-    let reader = BundleReader::open(File::open(bundle)?, &manifest.compression_profile())?;
+/// Read a bundle's table of contents without rendering output.
+pub fn inspect_bundle(bundle: &Path) -> Result<Vec<BundleTableEntry>> {
+    let reader = BundleReader::open(File::open(bundle)?)?;
     Ok(reader.entries().to_vec())
 }

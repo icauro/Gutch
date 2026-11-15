@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use crate::Error;
 use crate::Result;
-use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::filesystem;
 use crate::filesystem::constraints::validate_paths;
@@ -62,7 +61,6 @@ use std::fs;
 pub(crate) struct PreparedSnapshotFetch {
     pub(crate) repo_paths: RepoPaths,
     pub(crate) repo_manifest: RepoManifest,
-    pub(crate) compression_profile: CompressionProfile,
     pub(crate) snapshot_manifest: SnapshotManifest,
     pub(crate) chunk_index: ChunkIndex,
     pub(crate) required_artifacts: HashSet<ArtifactRef>,
@@ -208,7 +206,6 @@ pub(crate) fn prepare_snapshot_fetch(
     let snapshot_manifest = prefer_verified_local_snapshot(
         snapshot_id,
         &repo_paths,
-        &repo_manifest,
         downloaded_manifest,
         &blueprint_bytes,
     )?;
@@ -230,7 +227,6 @@ pub(crate) fn prepare_snapshot_fetch(
     };
     preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
     request.control.checkpoint()?;
-    let compression_profile = repo_manifest.compression_profile();
     let required_artifacts = required_artifacts(&snapshot_manifest, &chunk_index)?;
     let existing_artifacts = find_existing_artifacts(&required_artifacts, &repo_paths)?;
     let required_artifact_ids = required_artifacts
@@ -253,7 +249,6 @@ pub(crate) fn prepare_snapshot_fetch(
     Ok(PreparedSnapshotFetch {
         repo_paths,
         repo_manifest,
-        compression_profile,
         snapshot_manifest,
         chunk_index,
         required_artifacts,
@@ -394,7 +389,6 @@ fn check_incoming_constraints(
 fn prefer_verified_local_snapshot(
     snapshot_id: &str,
     repo_paths: &RepoPaths,
-    repo_manifest: &RepoManifest,
     downloaded: SnapshotManifest,
     blueprint_bytes: &[u8],
 ) -> Result<SnapshotManifest> {
@@ -408,7 +402,6 @@ fn prefer_verified_local_snapshot(
         && verify_snapshot_artifacts(
             repo_paths,
             &local_index,
-            &repo_manifest.compression_profile(),
             snapshot_id,
             RepoArtifactVerification::Identity,
         )

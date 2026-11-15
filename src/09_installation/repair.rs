@@ -57,7 +57,6 @@ pub fn plan_installation_repair(
         let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest,
-            ..
         } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let repair_plan = inspect_installation_changes(
