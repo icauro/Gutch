@@ -130,10 +130,13 @@ metadata and blueprint, optional snapshot product metadata, and the complete
 bundle-reference set as first-class artifacts. Backend repo and snapshot
 records persist their BLAKE3 identities. The backend reconciles remote object
 storage and removes remote bundles no longer referenced by the complete pushed
-state.
+state. Push uploads only the bundles local snapshots reference and fails before
+any upload when one of them is missing locally.
 
 Pull compares local and backend-recorded artifact hashes and applies the
-selected conflict policy. Local repo linkage remains local-only and is
+selected conflict policy. Every downloaded artifact must match a recorded
+hash; a remote record without one is an error, not a skip. Snapshots whose
+remote artifacts are not ready yet are skipped until a later pull. Local repo linkage remains local-only and is
 not part of that artifact set.
 
 When a repo is linked, Gutch can inspect tag references supplied by its remote

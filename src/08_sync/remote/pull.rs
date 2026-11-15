@@ -95,6 +95,11 @@ pub(super) fn compute_pull_plan(
     let mut snapshots_to_skip = Vec::new();
     let mut kept_newer_local_snapshots = Vec::new();
     for snapshot in snapshots {
+        // A snapshot whose artifacts are still uploading cannot be pulled yet.
+        if !snapshot.artifact_ready {
+            snapshots_to_skip.push(snapshot.snapshot_id.clone());
+            continue;
+        }
         // A healthy local installation does not need another repository's layout.
         // This also avoids attempting to fetch local-only chunks from that layout.
         if hashes_differ(
@@ -447,7 +452,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
     fn download_chunk_index(&self) -> Result<()> {
         let bytes = self.download(
             &self.provider.chunk_index_source(self.repository)?,
-            MAX_REMOTE_JSON_BYTES,
+            MAX_REMOTE_BINARY_BYTES,
         )?;
         verify_remote_artifact(&bytes, &self.repository.chunk_map_hash_b3, "chunk index")?;
         let mut chunk_index = load_chunk_index_binary_from_bytes(&bytes)?;
@@ -524,28 +529,31 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
         Ok(bundle_sources)
     }
 
-    /// Removes local snapshots the remote does not have and bundles no
-    /// remaining snapshot needs. Returns the removed snapshot and bundle counts.
-    fn prune(
-        &self,
-        local_only_snapshots: &[String],
-        required_bundles: &HashSet<String>,
-    ) -> Result<(usize, usize)> {
+    /// Removes local snapshots the remote does not have.
+    fn prune_snapshots(&self, local_only_snapshots: &[String]) -> Result<usize> {
         for snapshot_id in local_only_snapshots {
             self.control.checkpoint()?;
             remove_snapshot_from_repo(self.repo, snapshot_id)?;
         }
+        Ok(local_only_snapshots.len())
+    }
+
+    /// Removes bundles no remaining snapshot needs. Deletion is deferred until
+    /// the repository transaction commits.
+    fn prune_bundles(&self, required_bundles: &HashSet<String>) -> Result<usize> {
         let mut pruned_bundle_count = 0;
         for path in local_bundle_paths(&self.repo_paths.bundles_root)? {
             self.control.checkpoint()?;
             if let Some(bundle_id) = bundle_id_from_bundle_path(&path)
                 && !required_bundles.contains(&bundle_id)
             {
-                fs::remove_file(&path)?;
+                if !coordination::defer_artifact_deletion(&path)? {
+                    fs::remove_file(&path)?;
+                }
                 pruned_bundle_count += 1;
             }
         }
-        Ok((local_only_snapshots.len(), pruned_bundle_count))
+        Ok(pruned_bundle_count)
     }
 }
 
@@ -558,7 +566,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
     control: OperationControl,
 ) -> Result<RepoPullStats> {
     fs::create_dir_all(&repo)?;
-    coordination::write(&repo, || {
+    coordination::write_with_control(&repo, &control.clone(), || {
         control.checkpoint()?;
         let mut progress = RemoteProgress::new(&control, OperationKind::Pull);
         let bound_remote_repo_id = bound_remote_repo_id(&repo)?;
@@ -647,8 +655,31 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             stats.snapshot_downloaded_count += 1;
         }
 
+        if prune {
+            // Pruned snapshots neither request bundles nor keep them alive.
+            control.checkpoint()?;
+            stats.pruned_snapshot_count = context.prune_snapshots(&plan.local_only_snapshots)?;
+        } else {
+            stats.local_only_snapshots_kept = plan.local_only_snapshots.len();
+        }
+
         progress.next_step(ProgressPhase::Artifact, "Resolving bundles", None);
-        let bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
+        let local_bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
+        let kept_bundles: HashSet<String> = local_bundles_by_snapshot
+            .iter()
+            .flat_map(|snapshot| snapshot.bundle_ids.iter())
+            .cloned()
+            .collect();
+        // Only ready remote snapshots can supply bundles; kept local-only
+        // snapshots retain whatever bundles they already have.
+        let bundles_by_snapshot: Vec<SnapshotBundleIds> = local_bundles_by_snapshot
+            .into_iter()
+            .filter(|snapshot| {
+                snapshots_by_id
+                    .get(snapshot.snapshot_id.as_str())
+                    .is_some_and(|remote| remote.artifact_ready)
+            })
+            .collect();
         let required_bundles: HashSet<String> = bundles_by_snapshot
             .iter()
             .flat_map(|snapshot| snapshot.bundle_ids.iter())
@@ -695,11 +726,8 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
 
         if prune {
             control.checkpoint()?;
-            progress.next_step(ProgressPhase::Prune, "Removing local-only content", None);
-            (stats.pruned_snapshot_count, stats.pruned_bundle_count) =
-                context.prune(&plan.local_only_snapshots, &required_bundles)?;
-        } else {
-            stats.local_only_snapshots_kept = plan.local_only_snapshots.len();
+            progress.next_step(ProgressPhase::Prune, "Removing unreferenced bundles", None);
+            stats.pruned_bundle_count = context.prune_bundles(&kept_bundles)?;
         }
 
         progress.finish("Pull complete");

@@ -138,7 +138,9 @@ delete it.
 3. The preview identifies fetch, skip, retained-local, and local-only outcomes.
 4. After caller confirmation, Gutch asks the provider for required sources,
    downloads artifacts to temporary paths, validates them, and promotes them.
-5. Explicit pruning removes only layout-owned artifacts selected by the plan.
+5. Explicit pruning removes local-only snapshots before bundles are requested,
+   so their bundles are never downloaded, then removes bundles no remaining
+   snapshot references.
 6. The final result reports applied, skipped, retained, and pruned counts.
 
 ## Failure Boundaries

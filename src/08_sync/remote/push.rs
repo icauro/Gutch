@@ -16,7 +16,6 @@ use super::provider::RemoteSnapshot;
 use super::provider::RepoPushPlan;
 use super::provider::RepoPushSnapshotChange;
 use super::provider::RepoPushStats;
-use super::pull::local_bundle_paths;
 use crate::Error;
 use crate::Result;
 use crate::filesystem;
@@ -30,7 +29,7 @@ use crate::repo::coordination;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::bundle_id_from_bundle_path;
+use crate::repo::paths::bundle_path;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote;
@@ -341,20 +340,18 @@ impl<P: RemoteRepositoryWriter + ?Sized> PushContext<'_, P> {
         Ok(())
     }
 
-    /// Uploads each local bundle the remote does not have yet, one progress
-    /// step per bundle file.
+    /// Uploads each bundle the local snapshots need that the remote does not
+    /// have yet, one progress step per bundle.
     fn upload_bundles(
         &self,
         progress: &mut RemoteProgress,
         stats: &mut RepoPushStats,
-        bundle_paths: Vec<PathBuf>,
+        required_bundle_ids: &[String],
     ) -> Result<()> {
-        for bundle_path in bundle_paths {
+        for bundle_id in required_bundle_ids {
             self.control.checkpoint()?;
-            let Some(bundle_id) = bundle_id_from_bundle_path(&bundle_path) else {
-                progress.skip_step();
-                continue;
-            };
+            let bundle_id = bundle_id.clone();
+            let bundle_path = bundle_path(self.repo_paths, &bundle_id)?;
             if self.provider.bundle_exists(self.repository, &bundle_id)? {
                 stats.bundle_skipped_count += 1;
                 progress.next_step(
@@ -400,7 +397,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
     provider: &P,
     control: OperationControl,
 ) -> Result<RepoPushStats> {
-    coordination::write(&repo, || {
+    coordination::write_with_control(&repo, &control.clone(), || {
         control.checkpoint()?;
         let mut progress = RemoteProgress::new(&control, OperationKind::Push);
         let bound_remote_repo_id = linked_remote_repo_id(&repo)?;
@@ -416,8 +413,15 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             &remote_snapshots,
         )?;
         control.checkpoint()?;
-        let bundle_paths = local_bundle_paths(&repo_paths.bundles_root)?;
         let required_bundle_ids = required_local_bundle_ids(&repo_paths, &status)?;
+        // Fail before any upload so the remote never records an unbacked snapshot.
+        for bundle_id in &required_bundle_ids {
+            if !bundle_path(&repo_paths, bundle_id)?.is_file() {
+                return Err(Error::artifact(format!(
+                    "bundle '{bundle_id}' is required by a local snapshot but missing; run repo verify before pushing"
+                )));
+            }
+        }
         let has_chunk_index = repo_paths.chunk_map_path.exists();
         let snapshot_upload_count = plan.to_add.len() + plan.to_update.len();
         progress.set_total_steps(
@@ -425,7 +429,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
                 + 1
                 + usize::from(has_chunk_index)
                 + snapshot_upload_count * 3
-                + bundle_paths.len()
+                + required_bundle_ids.len()
                 + 1,
         );
         let mut stats = RepoPushStats {
@@ -441,7 +445,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             bundle_skipped_count: 0,
             remote_bundle_deleted_count: 0,
             snapshot_count: status.snapshots.len(),
-            bundle_count: bundle_paths.len(),
+            bundle_count: required_bundle_ids.len(),
             snapshot_added_count: plan.to_add.len(),
             snapshot_removed_count: plan.to_remove.len(),
             snapshot_updated_count: plan.to_update.len(),
@@ -528,7 +532,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             context.upload_snapshot(&mut progress, &mut stats, &manifest, &remote_snapshot)?;
         }
 
-        context.upload_bundles(&mut progress, &mut stats, bundle_paths)?;
+        context.upload_bundles(&mut progress, &mut stats, &required_bundle_ids)?;
 
         control.checkpoint()?;
         progress.next_step(

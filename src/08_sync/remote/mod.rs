@@ -73,8 +73,11 @@ fn repo_file_hash(bytes: &[u8]) -> String {
 
 fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &str) -> Result<()> {
     let expected_hash = expected_hash.trim();
+    // Without a recorded hash the download cannot be verified.
     if expected_hash.is_empty() {
-        return Ok(());
+        return Err(Error::repository(format!(
+            "remote did not record a hash for the {label}"
+        )));
     }
     let actual_hash = repo_file_hash(bytes);
     if actual_hash != expected_hash {
@@ -225,11 +228,6 @@ impl RemoteProgress {
         self.total_steps = total_steps;
     }
 
-    /// Counts a step without reporting it.
-    fn skip_step(&mut self) {
-        self.step += 1;
-    }
-
     /// Moves to the next step and reports it.
     fn next_step(
         &mut self,
@@ -281,6 +279,9 @@ impl RemoteProgress {
         );
     }
 }
+
+#[cfg(test)]
+mod roundtrip_tests;
 
 #[cfg(test)]
 mod tests {
@@ -387,6 +388,7 @@ mod tests {
         let expected = repo_file_hash(bytes);
         assert!(verify_remote_artifact(bytes, &expected, "metadata").is_ok());
         assert!(verify_remote_artifact(b"tampered", &expected, "metadata").is_err());
+        assert!(verify_remote_artifact(bytes, "", "metadata").is_err());
     }
 
     #[test]
