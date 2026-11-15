@@ -608,11 +608,13 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             pruned_snapshot_count: 0,
             pruned_bundle_count: 0,
         };
+        // Repo metadata, chunk map, one per snapshot, bundle resolution, bundle pruning.
         progress.set_total_steps(
-            1 + usize::from(plan.repo_manifest_needed)
+            usize::from(plan.repo_manifest_needed)
                 + usize::from(plan.chunk_map_needed)
                 + plan.snapshots_to_download.len()
-                + 2,
+                + 1
+                + usize::from(prune),
         );
 
         if plan.repo_manifest_needed {
