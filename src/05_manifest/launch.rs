@@ -31,13 +31,6 @@ pub struct ResolvedLaunchAction {
 pub(crate) fn validate_resolved_launch_for_snapshot(
     configuration: &ResolvedLaunchConfiguration,
     snapshot: &SnapshotManifest,
-) -> Result<()> {
-    validate_resolved_launch_for_snapshot_os(configuration, snapshot, None)
-}
-
-pub(crate) fn validate_resolved_launch_for_snapshot_os(
-    configuration: &ResolvedLaunchConfiguration,
-    snapshot: &SnapshotManifest,
     target_os: Option<&str>,
 ) -> Result<()> {
     validate_action_names_and_primary(

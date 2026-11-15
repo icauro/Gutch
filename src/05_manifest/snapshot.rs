@@ -269,7 +269,7 @@ fn validate_snapshot_launch_actions_for_snapshot(
     target_os: Option<&str>,
 ) -> crate::Result<()> {
     let configuration = resolved_launch_configuration(actions);
-    launch::validate_resolved_launch_for_snapshot_os(&configuration, snapshot, target_os)
+    launch::validate_resolved_launch_for_snapshot(&configuration, snapshot, target_os)
 }
 
 pub(crate) fn validate_runtime_actions(

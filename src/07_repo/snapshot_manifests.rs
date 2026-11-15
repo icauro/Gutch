@@ -10,7 +10,6 @@ use crate::manifest::{
 };
 
 use crate::filesystem::constraints::validate_paths;
-use crate::manifest::launch::validate_resolved_launch_for_snapshot;
 use crate::manifest::validate_snapshot_entries;
 use crate::progress::OperationControl;
 use crate::repo::coordination;
@@ -89,8 +88,7 @@ pub(crate) fn snapshot_product_metadata_path(
 pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<SnapshotManifest> {
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
     let metadata_json = filesystem::read_to_string(&metadata_path)?;
-    let mut manifest = load_snapshot_metadata_from_json_text(snapshot_id, &metadata_json)?;
-    manifest.product_metadata = load_snapshot_product_metadata(paths, snapshot_id)?;
+    let manifest = load_snapshot_metadata_from_json_text(snapshot_id, &metadata_json)?;
     let blueprint_path = snapshot_blueprint_path(paths, snapshot_id)?;
     if !blueprint_path.is_file() {
         return Err(crate::Error::repository(format!(
@@ -98,16 +96,13 @@ pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<Sn
             blueprint_path.display()
         )));
     }
-    manifest.entries = blueprint_codec::read_snapshot_blueprint_binary(&blueprint_path)?;
-    validate_snapshot_identity(&manifest)?;
-    manifest.total_logical_size = manifest.files().map(|file| file.size).sum();
-    manifest.sync_launch_from_product_metadata();
-    if let Some(launch) = manifest.launch.as_ref() {
-        validate_resolved_launch_for_snapshot(launch, &manifest)?;
-    }
-    Ok(manifest)
+    let product_metadata = load_snapshot_product_metadata(paths, snapshot_id)?;
+    let blueprint = crate::artifact::metadata::read_file(&blueprint_path)?;
+    snapshot_manifest_from_parts(manifest, product_metadata, &blueprint)
 }
 
+/// Completes snapshot metadata with its product metadata and blueprint, then
+/// checks the snapshot's identity and every launch configuration it carries.
 pub(crate) fn snapshot_manifest_from_parts(
     mut metadata: SnapshotManifest,
     product_metadata: Option<SnapshotProductMetadata>,

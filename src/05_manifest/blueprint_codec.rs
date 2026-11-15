@@ -18,9 +18,6 @@ pub(crate) fn write_snapshot_blueprint_binary(
         Ok(())
     })
 }
-pub(crate) fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest::SnapshotEntry>> {
-    read_snapshot_blueprint_bytes(&metadata::read_file(path)?)
-}
 pub(crate) fn read_snapshot_blueprint_bytes(bytes: &[u8]) -> Result<Vec<manifest::SnapshotEntry>> {
     super::blueprint_columns::decode(&metadata::decode(bytes, SNAPSHOT_BLUEPRINT_MAGIC, 3)?)
 }
@@ -28,6 +25,10 @@ pub(crate) fn read_snapshot_blueprint_bytes(bytes: &[u8]) -> Result<Vec<manifest
 #[cfg(test)]
 mod snapshot_blueprint_tests {
     use super::*;
+
+    fn read_snapshot_blueprint_binary(path: &Path) -> Result<Vec<manifest::SnapshotEntry>> {
+        read_snapshot_blueprint_bytes(&metadata::read_file(path)?)
+    }
     use crate::artifact::hash::ChunkHash;
 
     #[test]
