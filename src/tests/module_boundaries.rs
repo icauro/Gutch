@@ -5,6 +5,9 @@
 //! layer its production code uses, so modules sharing a layer never use each
 //! other. Test modules are skipped because fixtures may build state through
 //! higher layers. `api` is the public facade over every other layer.
+//!
+//! A `mod.rs` is a thin wrapper: its doc, its `mod` lines and its re-exports.
+//! Code lives in named sibling files.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -297,5 +300,77 @@ pub use b::nested::Thing;
             ("Error".to_string(), "a".to_string()),
             ("Thing".to_string(), "b".to_string()),
         ])
+    );
+}
+
+/// `mod.rs` files that keep code: a pinned port of outside code and test-only trees.
+const CODE_HOLDING_MOD_FILES: [&str; 3] = [
+    "04_artifact/fastcdc_v2020/mod.rs",
+    "tests/mod.rs",
+    "test_util/mod.rs",
+];
+
+#[test]
+fn mod_files_only_declare_modules_and_reexport() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+    for entry in walkdir::WalkDir::new(&source_root) {
+        let path = entry.unwrap().into_path();
+        if path.file_name().is_none_or(|name| name != "mod.rs") {
+            continue;
+        }
+        let relative = path.strip_prefix(&source_root).unwrap();
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        if CODE_HOLDING_MOD_FILES.contains(&relative.as_str()) {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        violations.extend(code_items(&source).map(|line| format!("{relative}: {line}")));
+    }
+    assert!(
+        violations.is_empty(),
+        "mod.rs files hold code; move it to a named sibling file:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Top-level lines that start an item other than a `mod` declaration or a `use`.
+fn code_items(source: &str) -> impl Iterator<Item = &str> {
+    const KINDS: [&str; 10] = [
+        "fn ",
+        "struct ",
+        "enum ",
+        "union ",
+        "trait ",
+        "impl",
+        "type ",
+        "const ",
+        "static ",
+        "macro_rules!",
+    ];
+    source.lines().filter(|line| {
+        let item = without_visibility(line);
+        let item = item.strip_prefix("unsafe ").unwrap_or(item);
+        let inline_module = item.starts_with("mod ") && item.trim_end().ends_with('{');
+        inline_module || KINDS.iter().any(|kind| item.starts_with(kind))
+    })
+}
+
+#[test]
+fn code_items_flags_definitions_and_inline_modules_only() {
+    let source = "//! Doc.
+mod a;
+pub(crate) use a::X;
+pub fn f() {}
+impl X {}
+mod inline {
+    fn g() {}
+}
+#[cfg(test)]
+mod tests;
+";
+    assert_eq!(
+        code_items(source).collect::<Vec<_>>(),
+        ["pub fn f() {}", "impl X {}", "mod inline {"]
     );
 }
