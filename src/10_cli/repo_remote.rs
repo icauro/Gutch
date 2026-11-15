@@ -261,7 +261,7 @@ fn require_provider(
     provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<&dyn RemoteRepositoryCommandProvider> {
     provider.ok_or_else(|| {
-        Error::manifest(
+        Error::invalid_input(
             "remote provider context is required; configure a backend endpoint and session",
         )
     })

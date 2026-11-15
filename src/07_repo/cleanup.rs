@@ -31,7 +31,7 @@ pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> 
         .repo_root
         .join(format!(".deleting-snapshot-{snapshot_id}"));
     if staged_snapshot_dir.exists() {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::repository(format!(
             "staged snapshot deletion already exists at {}",
             staged_snapshot_dir.display()
         )));
@@ -116,7 +116,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
         for artifact in &required_artifacts {
             let path = artifact.local_path(&repo_paths)?;
             if !path.is_file() {
-                return Err(crate::Error::manifest(format!(
+                return Err(crate::Error::repository(format!(
                     "cannot clean repository: snapshot '{snapshot_id}' requires missing artifact '{}'",
                     path.display()
                 )));

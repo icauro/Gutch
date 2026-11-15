@@ -28,7 +28,7 @@ pub fn corrupt_installation(
     let _operation_span = request.control.profile_span("installation.corrupt");
     let root_metadata = fs::symlink_metadata(&request.destination_dir)?;
     if !root_metadata.file_type().is_dir() {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::invalid_input(format!(
             "reconstructed destination is not a directory: {}",
             request.destination_dir.display()
         )));
@@ -68,7 +68,7 @@ fn flip_byte(root: &Path, relative: &str, offset: u64, mask: u8) -> Result<()> {
     file.seek(SeekFrom::Start(offset))?;
     let mut byte = [0u8; 1];
     file.read_exact(&mut byte).map_err(|error| {
-        crate::Error::manifest(format!(
+        crate::Error::invalid_input(format!(
             "cannot flip byte at offset {offset} in '{}': {error}",
             relative
         ))
@@ -82,7 +82,7 @@ fn flip_byte(root: &Path, relative: &str, offset: u64, mask: u8) -> Result<()> {
 fn delete_entry(root: &Path, relative: &str) -> Result<()> {
     let path = resolve(root, relative)?;
     let metadata = fs::symlink_metadata(&path).map_err(|error| {
-        crate::Error::manifest(format!(
+        crate::Error::invalid_input(format!(
             "cannot delete corruption target '{}': {error}",
             relative
         ))
@@ -98,7 +98,7 @@ fn delete_entry(root: &Path, relative: &str) -> Result<()> {
 fn add_file(root: &Path, relative: &str, content: &[u8]) -> Result<()> {
     let path = resolve(root, relative)?;
     if path.exists() {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::invalid_input(format!(
             "cannot add corruption file because it already exists: {}",
             relative
         )));

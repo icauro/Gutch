@@ -21,7 +21,7 @@ const ZSTD_CODEC: u8 = 1;
 
 pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
     if groups.is_empty() || groups.len() > MAX_GROUP_COUNT {
-        return Err(Error::manifest("invalid metadata group count"));
+        return Err(Error::artifact("invalid metadata group count"));
     }
     let mut directory = magic.to_vec();
     write_u16(&mut directory, VERSION)?;
@@ -33,7 +33,7 @@ pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
         decoded_total = decoded_total
             .checked_add(group.len())
             .filter(|size| *size <= MAX_METADATA_BYTES)
-            .ok_or_else(|| Error::manifest("metadata exceeds decoded size limit"))?;
+            .ok_or_else(|| Error::artifact("metadata exceeds decoded size limit"))?;
         let compressed = zstd::stream::encode_all(group.as_slice(), 3)?;
         let (codec, payload) = if compressed.len() < group.len() {
             (ZSTD_CODEC, compressed.as_slice())
@@ -51,7 +51,7 @@ pub(crate) fn encode(magic: &[u8; 16], groups: &[Vec<u8>]) -> Result<Vec<u8>> {
     directory.extend_from_slice(digest.as_bytes());
     directory.extend_from_slice(&payloads);
     if directory.len() > MAX_METADATA_BYTES {
-        return Err(Error::manifest("metadata exceeds encoded size limit"));
+        return Err(Error::artifact("metadata exceeds encoded size limit"));
     }
     Ok(directory)
 }
@@ -61,17 +61,17 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
         || bytes.len() < FIXED_HEADER_BYTES + DIGEST_BYTES
         || &bytes[..16] != magic
     {
-        return Err(Error::manifest("invalid metadata envelope or size"));
+        return Err(Error::artifact("invalid metadata envelope or size"));
     }
     let mut header = &bytes[16..FIXED_HEADER_BYTES];
     if read_u16(&mut header)? != VERSION || read_u16(&mut header)? != 0 {
-        return Err(Error::manifest("unsupported metadata version or features"));
+        return Err(Error::artifact("unsupported metadata version or features"));
     }
     let count = read_u32(&mut header)? as usize;
     // Refuse unknown optional groups as well: this API materializes data that may
     // be rewritten, so silently discarding an extension would be lossy.
     if count != group_count || count > MAX_GROUP_COUNT {
-        return Err(Error::manifest(
+        return Err(Error::artifact(
             "unsupported metadata groups; refusing lossy rewrite",
         ));
     }
@@ -80,7 +80,7 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
         || blake3::hash(&bytes[..directory_end]).as_bytes()
             != &bytes[directory_end..directory_end + DIGEST_BYTES]
     {
-        return Err(Error::manifest("metadata directory integrity mismatch"));
+        return Err(Error::artifact("metadata directory integrity mismatch"));
     }
     // Validate framing before trusting encoded lengths or allocating decoded groups.
     let mut descriptors = &bytes[FIXED_HEADER_BYTES..directory_end];
@@ -91,7 +91,7 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
         if read_u16(&mut descriptors)? as usize != index + 1
             || read_u8(&mut descriptors)? != REQUIRED_GROUP_FLAG
         {
-            return Err(Error::manifest("unsupported metadata group or flags"));
+            return Err(Error::artifact("unsupported metadata group or flags"));
         }
         let codec = read_u8(&mut descriptors)?;
         let encoded_size = read_u32(&mut descriptors)? as usize;
@@ -100,14 +100,14 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
         decoded_total = decoded_total
             .checked_add(decoded_size)
             .filter(|size| *size <= MAX_METADATA_BYTES)
-            .ok_or_else(|| Error::manifest("metadata exceeds decoded size limit"))?;
+            .ok_or_else(|| Error::artifact("metadata exceeds decoded size limit"))?;
         if encoded_size > payload.len() {
-            return Err(Error::manifest("truncated metadata group"));
+            return Err(Error::artifact("truncated metadata group"));
         }
         let (encoded, rest) = payload.split_at(encoded_size);
         payload = rest;
         if blake3::hash(encoded).as_bytes() != &digest {
-            return Err(Error::manifest("metadata group integrity mismatch"));
+            return Err(Error::artifact("metadata group integrity mismatch"));
         }
         let decoded = match codec {
             RAW_CODEC if encoded_size == decoded_size => encoded.to_vec(),
@@ -126,16 +126,16 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
                     .take(decoded_size as u64 + 1)
                     .read_to_end(&mut output)?;
                 if output.len() != decoded_size {
-                    return Err(Error::manifest("metadata decoded length mismatch"));
+                    return Err(Error::artifact("metadata decoded length mismatch"));
                 }
                 output
             }
-            _ => return Err(Error::manifest("invalid metadata codec or raw length")),
+            _ => return Err(Error::artifact("invalid metadata codec or raw length")),
         };
         groups.push(decoded);
     }
     if !payload.is_empty() {
-        return Err(Error::manifest("trailing metadata bytes"));
+        return Err(Error::artifact("trailing metadata bytes"));
     }
     Ok(groups)
 }
@@ -143,13 +143,13 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
 pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>> {
     let file = File::open(path)?;
     if file.metadata()?.len() > MAX_METADATA_BYTES as u64 {
-        return Err(Error::manifest("metadata exceeds encoded size limit"));
+        return Err(Error::artifact("metadata exceeds encoded size limit"));
     }
     let mut bytes = Vec::new();
     file.take(MAX_METADATA_BYTES as u64 + 1)
         .read_to_end(&mut bytes)?;
     if bytes.len() > MAX_METADATA_BYTES {
-        return Err(Error::manifest("metadata exceeds encoded size limit"));
+        return Err(Error::artifact("metadata exceeds encoded size limit"));
     }
     Ok(bytes)
 }

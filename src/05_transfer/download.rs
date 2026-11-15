@@ -264,7 +264,7 @@ fn resolve_transfer_worker_limits(
         TransferConcurrencyPolicy::Adaptive { initial, maximum } => (initial, maximum),
     };
     if initial == 0 || maximum == 0 || initial > maximum || maximum > MAX_TRANSFER_CONCURRENCY {
-        return Err(Error::manifest(format!(
+        return Err(Error::invalid_input(format!(
             "transfer concurrency must be between 1 and {MAX_TRANSFER_CONCURRENCY}, with initial no greater than maximum"
         )));
     }

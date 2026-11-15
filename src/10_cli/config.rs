@@ -100,7 +100,7 @@ pub fn save_config(path: &Path, config: &CliConfig) -> Result<(), crate::Error> 
 fn validate_config_paths(config: &CliConfig) -> Result<(), crate::Error> {
     for repo in &config.repos {
         if !Path::new(repo.path.trim()).is_absolute() {
-            return Err(crate::Error::manifest(
+            return Err(crate::Error::invalid_input(
                 "tracked Gutch repo paths must be absolute",
             ));
         }
@@ -109,7 +109,7 @@ fn validate_config_paths(config: &CliConfig) -> Result<(), crate::Error> {
             .as_deref()
             .is_some_and(|path| !Path::new(path.trim()).is_absolute())
         {
-            return Err(crate::Error::manifest(
+            return Err(crate::Error::invalid_input(
                 "tracked Gutch snapshot source paths must be absolute",
             ));
         }

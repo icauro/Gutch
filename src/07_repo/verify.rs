@@ -107,7 +107,9 @@ pub fn verify_gutch_repo_artifacts(
         if let Some(id) = snapshot_id
             && snapshots.is_empty()
         {
-            return Err(Error::manifest(format!("snapshot not found in repo: {id}")));
+            return Err(Error::repository(format!(
+                "snapshot not found in repo: {id}"
+            )));
         }
         let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
         let ok = snapshots_ok == snapshots.len();
@@ -177,7 +179,7 @@ fn verify_snapshot_artifacts_cached(
                 }
                 ArtifactRef::LooseChunk { hash } => {
                     let entry = chunk_index.entries.get(hash).ok_or_else(|| {
-                        Error::manifest(format!(
+                        Error::repository(format!(
                             "missing chunk index entry for required chunk '{hash}'"
                         ))
                     });

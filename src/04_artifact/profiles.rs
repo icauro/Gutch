@@ -286,7 +286,7 @@ pub(crate) fn validate_packaging_sizes(
     if storage == ArtifactStorageMode::Bundled
         && u64::from(chunk.max_chunk_bytes) >= bundle.bundle_max_size_bytes()
     {
-        return Err(crate::Error::manifest(
+        return Err(crate::Error::invalid_input(
             "bundle maximum must exceed the maximum raw chunk size; choose a larger bundle preset or loose-chunks storage",
         ));
     }

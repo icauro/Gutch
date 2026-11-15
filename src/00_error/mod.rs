@@ -35,11 +35,25 @@ pub enum Error {
     #[error("Walkdir error: {0}")]
     Walkdir(#[from] walkdir::Error),
 
-    #[error("Bundle error: {0}")]
-    Bundle(String),
+    /// Caller-supplied arguments, configuration or source selection is unusable.
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 
+    /// Stored or received artifact bytes are malformed, unsupported or inconsistent.
+    #[error("Invalid artifact: {0}")]
+    Artifact(String),
+
+    /// Snapshot manifest, blueprint or tag data is malformed or inconsistent.
     #[error("Manifest error: {0}")]
     Manifest(String),
+
+    /// Repository layout, metadata, coordination or synchronization failed.
+    #[error("Repository error: {0}")]
+    Repository(String),
+
+    /// Source content could not be captured as a snapshot.
+    #[error("Capture error: {0}")]
+    Capture(String),
 
     #[error("Download error: {message}")]
     Download { message: String, retryable: bool },
@@ -58,20 +72,11 @@ pub enum Error {
     #[error("Reconstruction error: {0}")]
     Reconstruct(String),
 
-    #[error("Chunk error: {0}")]
-    Chunk(String),
-
-    #[error("Invalid bundle: {0}")]
-    InvalidBundle(String),
-
     #[error("Hash mismatch: expected {expected}, got {actual}")]
     HashMismatch { expected: String, actual: String },
 
-    #[error("Chunk not found in any bundle: {0}")]
-    ChunkNotFound(String),
-
-    #[error("Path error for {path}: {reason}")]
-    PathError { path: PathBuf, reason: String },
+    #[error("Invalid path {path}: {reason}")]
+    InvalidPath { path: PathBuf, reason: String },
 }
 
 impl Error {
@@ -115,12 +120,24 @@ impl Error {
         }
     }
 
-    pub fn bundle(msg: impl Into<String>) -> Self {
-        Error::Bundle(msg.into())
+    pub fn invalid_input(message: impl Into<String>) -> Self {
+        Error::InvalidInput(message.into())
     }
 
-    pub fn manifest(msg: impl Into<String>) -> Self {
-        Error::Manifest(msg.into())
+    pub fn artifact(message: impl Into<String>) -> Self {
+        Error::Artifact(message.into())
+    }
+
+    pub fn manifest(message: impl Into<String>) -> Self {
+        Error::Manifest(message.into())
+    }
+
+    pub fn repository(message: impl Into<String>) -> Self {
+        Error::Repository(message.into())
+    }
+
+    pub fn capture(message: impl Into<String>) -> Self {
+        Error::Capture(message.into())
     }
 
     pub fn download(msg: impl Into<String>, retryable: bool) -> Self {

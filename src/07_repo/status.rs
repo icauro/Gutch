@@ -171,7 +171,7 @@ fn check_snapshot_manifests(
         let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
         let snapshot_metadata =
             Some(serde_json::to_value(manifest.metadata()).map_err(|error| {
-                Error::manifest(format!("failed to serialize snapshot metadata: {error}"))
+                Error::repository(format!("failed to serialize snapshot metadata: {error}"))
             })?);
         let snapshot_product_metadata_hash_b3 =
             serialize_snapshot_product_metadata_for_remote(&manifest)?

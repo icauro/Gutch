@@ -263,7 +263,7 @@ impl Profiler {
     /// Export after joining producers and dropping operation controls and span guards.
     pub fn finish(&self, directory: &Path, operation_succeeded: bool) -> crate::Result<()> {
         if self.state.active_spans.load(Ordering::Acquire) != 0 {
-            return Err(crate::Error::manifest(
+            return Err(crate::Error::invalid_input(
                 "join profiling workers and close spans before exporting",
             ));
         }

@@ -14,13 +14,13 @@ use std::path::Path;
 pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
     let (_paths, manifest) = load_gutch_repo_manifest(repo_root)?;
     if !manifest.is_linked() {
-        return Err(Error::manifest(format!(
+        return Err(Error::repository(format!(
             "repo '{}' is not linked. Use 'gutch repo remote create' first.",
             repo_root.display()
         )));
     }
     if manifest.remote_repo_id.trim().is_empty() {
-        return Err(Error::manifest("linked repo is missing remote_repo_id"));
+        return Err(Error::repository("linked repo is missing remote_repo_id"));
     }
     Ok(manifest.remote_repo_id)
 }
@@ -30,7 +30,7 @@ pub fn bind_remote_repo(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
     coordination::write(&operation_root, || {
         let remote_repo_id = remote_repo_id.trim();
         if remote_repo_id.is_empty() {
-            return Err(Error::manifest("remote repo ID is required"));
+            return Err(Error::repository("remote repo ID is required"));
         }
 
         let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
@@ -54,7 +54,7 @@ pub fn create_remote_repo(
     coordination::write(&operation_root, || {
         let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
         if manifest.is_linked() {
-            return Err(Error::manifest(format!(
+            return Err(Error::repository(format!(
                 "repo '{}' is already linked (remote_repo_id={}). Unlink first.",
                 paths.repo_root().display(),
                 manifest.remote_repo_id
@@ -63,11 +63,13 @@ pub fn create_remote_repo(
 
         let scope_id = scope_id.trim();
         if scope_id.is_empty() {
-            return Err(Error::manifest("remote repo scope is required"));
+            return Err(Error::repository("remote repo scope is required"));
         }
         let remote_repo_id = provider.create_remote_repository(scope_id, &manifest.name)?;
         if remote_repo_id.trim().is_empty() {
-            return Err(Error::manifest("remote provider returned an empty repo ID"));
+            return Err(Error::repository(
+                "remote provider returned an empty repo ID",
+            ));
         }
         manifest.remote_repo_id = remote_repo_id;
         write_gutch_repo_manifest(&paths, &manifest)?;
@@ -90,14 +92,16 @@ pub fn unbind_remote_repo(
         if delete_remote {
             let remote_repo_id = manifest.remote_repo_id.trim();
             if remote_repo_id.is_empty() {
-                return Err(Error::manifest(format!(
+                return Err(Error::repository(format!(
                     "invalid remote_repo_id '{}' in manifest",
                     manifest.remote_repo_id
                 )));
             }
             let remote_repo_id = remote_repo_id.to_string();
             let provider = provider.ok_or_else(|| {
-                Error::manifest("remote provider context is required when deleting the remote repo")
+                Error::repository(
+                    "remote provider context is required when deleting the remote repo",
+                )
             })?;
             let repository = provider
                 .repository_provider()
@@ -118,7 +122,7 @@ pub fn inspect_repo_tag_references(
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let remote_repo_id = repo_manifest.remote_repo_id.trim();
     if remote_repo_id.is_empty() {
-        return Err(Error::manifest(format!(
+        return Err(Error::repository(format!(
             "repo '{}' is not linked. Use 'gutch repo remote create' first.",
             repo_paths.repo_root().display()
         )));

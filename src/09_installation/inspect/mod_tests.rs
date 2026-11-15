@@ -288,7 +288,7 @@ fn verify_rejects_manifest_path_traversal() {
     });
 
     let error = verify_fast(&manifest, &dir).unwrap_err();
-    assert!(matches!(error, crate::Error::PathError { .. }));
+    assert!(matches!(error, crate::Error::InvalidPath { .. }));
 
     let _ = fs::remove_dir_all(&dir);
 }

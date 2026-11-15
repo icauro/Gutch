@@ -109,7 +109,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
     if root_path.is_file() {
         let file_name = root_path
             .file_name()
-            .ok_or_else(|| crate::Error::PathError {
+            .ok_or_else(|| crate::Error::InvalidPath {
                 path: root_path.to_path_buf(),
                 reason: "file path has no file name".to_string(),
             })?;
@@ -132,7 +132,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
             let relative_path = entry
                 .path()
                 .strip_prefix(root_path)
-                .map_err(|err| crate::Error::PathError {
+                .map_err(|err| crate::Error::InvalidPath {
                     path: entry.path().to_path_buf(),
                     reason: err.to_string(),
                 })?
@@ -145,7 +145,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
             } else if entry.file_type().is_symlink() {
                 ComparableKind::Symlink
             } else {
-                return Err(crate::Error::PathError {
+                return Err(crate::Error::InvalidPath {
                     path: entry.path().to_path_buf(),
                     reason: "unsupported filesystem entry".to_string(),
                 });
@@ -161,7 +161,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
         return Ok(files);
     }
 
-    Err(crate::Error::PathError {
+    Err(crate::Error::InvalidPath {
         path: root_path.to_path_buf(),
         reason: "path does not exist or is unsupported".to_string(),
     })

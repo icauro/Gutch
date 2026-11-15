@@ -156,7 +156,7 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
     mut load_chunk: impl FnMut(usize) -> Result<B>,
 ) -> Result<BundleBuildArtifact> {
     if profile.compression_unit != CompressionUnit::Bundle {
-        return Err(Error::InvalidBundle(
+        return Err(Error::Artifact(
             "gutch only supports bundle-compressed bundles".into(),
         ));
     }
@@ -205,7 +205,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     load_chunk: &mut impl FnMut(usize) -> Result<B>,
 ) -> Result<BundleBuildArtifact> {
     let chunk_count = u32::try_from(chunks.len())
-        .map_err(|_| Error::InvalidBundle("bundle contains too many chunks".into()))?;
+        .map_err(|_| Error::Artifact("bundle contains too many chunks".into()))?;
     let mut hashing = HashingWriter::new(file);
     hashing.write_all(BUNDLE_MAGIC)?;
     hashing.write_all(&format::VERSION.to_le_bytes())?;
@@ -223,7 +223,7 @@ fn write_bundle<B: AsRef<[u8]>>(
         });
         raw_offset = raw_offset
             .checked_add(raw_size)
-            .ok_or_else(|| Error::InvalidBundle("bundle raw size overflow".into()))?;
+            .ok_or_else(|| Error::Artifact("bundle raw size overflow".into()))?;
     }
 
     validate_bundle_entries(&entries)?;
@@ -236,7 +236,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     let raw_size = raw_offset;
     validate_profile(profile)?;
     if raw_size > format::MAX_RAW_BUNDLE_SIZE {
-        return Err(crate::Error::bundle("bundle exceeds raw size limit"));
+        return Err(crate::Error::artifact("bundle exceeds raw size limit"));
     }
     let mut input_load_time = Duration::ZERO;
     encode_to_writer(&mut hashing, profile, raw_size, |writer| {
@@ -246,7 +246,7 @@ fn write_bundle<B: AsRef<[u8]>>(
             input_load_time += load_started.elapsed();
             let bytes = bytes.as_ref();
             if bytes.len() as u64 != expected_size {
-                return Err(crate::Error::bundle(
+                return Err(crate::Error::artifact(
                     "bundle chunk raw size changed before writing",
                 ));
             }
@@ -260,7 +260,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     let payload_end = hashing.position()?;
     let compressed_output_bytes = payload_end
         .checked_sub(BUNDLE_HEADER_SIZE)
-        .ok_or_else(|| Error::InvalidBundle("bundle payload position underflow".into()))?;
+        .ok_or_else(|| Error::Artifact("bundle payload position underflow".into()))?;
     assign_compressed_size_estimates(&mut entries, compressed_output_bytes)?;
     drop(_payload_span);
     let serialization_started_at = ProfileInstant::detailed(profiler);
@@ -269,7 +269,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     footer.extend_from_slice(&chunk_count.to_le_bytes());
     write_bundle_table_entries(&mut footer, &entries)?;
     let footer_length = u64::try_from(footer.len())
-        .map_err(|_| Error::InvalidBundle("bundle footer is too large".into()))?;
+        .map_err(|_| Error::Artifact("bundle footer is too large".into()))?;
     hashing.write_all(&footer)?;
     hashing.write_all(&format::size_u32(footer_length)?.to_le_bytes())?;
     hashing.write_all(FOOTER_MAGIC)?;
@@ -280,7 +280,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     file.write_all(hasher.finalize().as_bytes())?;
     let bundle_size = bytes_without_id
         .checked_add(BUNDLE_ID_SIZE)
-        .ok_or_else(|| Error::InvalidBundle("bundle size overflow".into()))?;
+        .ok_or_else(|| Error::Artifact("bundle size overflow".into()))?;
     format::size_u32(bundle_size)?;
 
     Ok(BundleBuildArtifact {
@@ -345,13 +345,13 @@ impl<R: Read + Seek> BundleReader<R> {
         let minimum_size = BUNDLE_HEADER_SIZE + BUNDLE_TRAILER_SIZE + BUNDLE_ID_SIZE;
         format::size_u32(end)?;
         if end < minimum_size {
-            return Err(Error::InvalidBundle(
+            return Err(Error::Artifact(
                 "bundle is smaller than its fixed framing".into(),
             ));
         }
         reader.seek(SeekFrom::Start(0))?;
         if &read_exact_array::<16>(&mut reader)? != BUNDLE_MAGIC {
-            return Err(Error::InvalidBundle("bundle magic is invalid".into()));
+            return Err(Error::Artifact("bundle magic is invalid".into()));
         }
         format::read_version(&mut reader)?;
         let compression = format::read_codec(&mut reader)?;
@@ -361,33 +361,28 @@ impl<R: Read + Seek> BundleReader<R> {
         reader.seek(SeekFrom::Start(end - BUNDLE_ID_SIZE - BUNDLE_TRAILER_SIZE))?;
         let footer_length = u64::from(read_u32(&mut reader)?);
         if &read_exact_array::<16>(&mut reader)? != FOOTER_MAGIC {
-            return Err(Error::InvalidBundle(
-                "bundle footer magic is invalid".into(),
-            ));
+            return Err(Error::Artifact("bundle footer magic is invalid".into()));
         }
         let footer_start = end
             .checked_sub(BUNDLE_ID_SIZE + BUNDLE_TRAILER_SIZE)
             .and_then(|position| position.checked_sub(footer_length))
-            .ok_or_else(|| Error::InvalidBundle("bundle footer position underflow".into()))?;
+            .ok_or_else(|| Error::Artifact("bundle footer position underflow".into()))?;
         if footer_start < data_start {
-            return Err(Error::InvalidBundle(
-                "bundle footer overlaps its header".into(),
-            ));
+            return Err(Error::Artifact("bundle footer overlaps its header".into()));
         }
-        let footer_length_usize = usize::try_from(footer_length).map_err(|_| {
-            Error::InvalidBundle("bundle footer is too large for this platform".into())
-        })?;
+        let footer_length_usize = usize::try_from(footer_length)
+            .map_err(|_| Error::Artifact("bundle footer is too large for this platform".into()))?;
         reader.seek(SeekFrom::Start(footer_start))?;
         if footer_length_usize
             != 4usize
                 .checked_add(
                     chunk_count
                         .checked_mul(BUNDLE_TABLE_ENTRY_SIZE)
-                        .ok_or_else(|| crate::Error::bundle("bundle table size overflow"))?,
+                        .ok_or_else(|| crate::Error::artifact("bundle table size overflow"))?,
                 )
-                .ok_or_else(|| crate::Error::bundle("bundle footer size overflow"))?
+                .ok_or_else(|| crate::Error::artifact("bundle footer size overflow"))?
         {
-            return Err(crate::Error::bundle(
+            return Err(crate::Error::artifact(
                 "bundle footer length disagrees with chunk count",
             ));
         }
@@ -396,17 +391,17 @@ impl<R: Read + Seek> BundleReader<R> {
         let mut footer_reader = Cursor::new(footer.as_slice());
         let footer_chunk_count = read_u32(&mut footer_reader)? as usize;
         if footer_chunk_count != chunk_count {
-            return Err(Error::InvalidBundle(format!(
+            return Err(Error::Artifact(format!(
                 "bundle header declares {} chunks but footer declares {}",
                 chunk_count, footer_chunk_count
             )));
         }
         let table_length = footer_length_usize
             .checked_sub(4)
-            .ok_or_else(|| Error::InvalidBundle("bundle footer is missing its table".into()))?;
+            .ok_or_else(|| Error::Artifact("bundle footer is missing its table".into()))?;
         let mut entries = read_bundle_table_entries(&mut footer_reader, chunk_count, table_length)?;
         if footer_reader.position() != footer_length {
-            return Err(Error::InvalidBundle(
+            return Err(Error::Artifact(
                 "bundle footer contains trailing bytes".into(),
             ));
         }
@@ -461,18 +456,17 @@ impl<R: Read + Seek> BundleReader<R> {
         let expected_raw_size = self.entries.iter().try_fold(0u64, |total, entry| {
             total
                 .checked_add(u64::from(entry.raw_size))
-                .ok_or_else(|| Error::InvalidBundle("bundle raw size overflow".into()))
+                .ok_or_else(|| Error::Artifact("bundle raw size overflow".into()))
         })?;
-        let decoded_capacity = usize::try_from(expected_raw_size).map_err(|_| {
-            Error::InvalidBundle("bundle payload is too large for this platform".into())
-        })?;
+        let decoded_capacity = usize::try_from(expected_raw_size)
+            .map_err(|_| Error::Artifact("bundle payload is too large for this platform".into()))?;
         let mut bytes = Vec::with_capacity(decoded_capacity);
         let metrics = self.stream_bundle_chunks(profiler, &required, |_, chunk| {
             bytes.extend_from_slice(chunk);
             Ok(())
         })?;
         if bytes.len() as u64 != metrics.raw_bytes {
-            return Err(Error::InvalidBundle(format!(
+            return Err(Error::Artifact(format!(
                 "bundle payload has raw size {}, expected {}",
                 bytes.len(),
                 metrics.raw_bytes
@@ -498,7 +492,7 @@ impl<R: Read + Seek> BundleReader<R> {
         F: FnMut(usize, &[u8]) -> Result<()>,
     {
         if required.len() != self.entries.len() {
-            return Err(Error::InvalidBundle(format!(
+            return Err(Error::Artifact(format!(
                 "bundle stream selection has {} entries, expected {}",
                 required.len(),
                 self.entries.len()
@@ -508,11 +502,11 @@ impl<R: Read + Seek> BundleReader<R> {
         let compressed_size = self
             .payload_end
             .checked_sub(self.data_start)
-            .ok_or_else(|| Error::InvalidBundle("bundle payload position underflow".into()))?;
+            .ok_or_else(|| Error::Artifact("bundle payload position underflow".into()))?;
         let expected_raw_size = self.entries.iter().try_fold(0u64, |total, entry| {
             total
                 .checked_add(u64::from(entry.raw_size))
-                .ok_or_else(|| Error::InvalidBundle("bundle raw size overflow".into()))
+                .ok_or_else(|| Error::Artifact("bundle raw size overflow".into()))
         })?;
 
         let read_started_at = ProfileInstant::detailed(profiler);
@@ -542,7 +536,7 @@ impl<R: Read + Seek> BundleReader<R> {
         drop(decoder);
         io::copy(&mut encoded, &mut io::sink())?;
         if encoded.reader.limit() != 0 {
-            return Err(crate::Error::bundle("truncated bundle payload"));
+            return Err(crate::Error::artifact("truncated bundle payload"));
         }
         let end = self.reader.seek(SeekFrom::End(0))?;
         self.reader.seek(SeekFrom::Start(self.payload_end))?;
@@ -556,7 +550,7 @@ impl<R: Read + Seek> BundleReader<R> {
         )?;
         let trailer = read_exact_array::<32>(&mut self.reader)?;
         if trailer != *hasher.finalize().as_bytes() {
-            return Err(crate::Error::bundle("bundle content identity mismatch"));
+            return Err(crate::Error::artifact("bundle content identity mismatch"));
         }
         // Keep the timing metric focused on decoder reads. The callback can
         // perform hashing and positional output writes, which are accounted
@@ -573,19 +567,19 @@ impl<R: Read + Seek> BundleReader<R> {
     #[cfg(test)]
     pub(crate) fn read_chunk(&mut self, index: usize) -> Result<Vec<u8>> {
         let entry = self.entries.get(index).ok_or_else(|| {
-            Error::InvalidBundle(format!(
+            Error::Artifact(format!(
                 "chunk index {} out of range ({} chunks)",
                 index,
                 self.entries.len()
             ))
         })?;
         let raw_offset = usize::try_from(entry.raw_offset)
-            .map_err(|_| Error::InvalidBundle("bundle raw offset is too large".into()))?;
+            .map_err(|_| Error::Artifact("bundle raw offset is too large".into()))?;
         let raw_size = usize::try_from(entry.raw_size)
-            .map_err(|_| Error::InvalidBundle("bundle raw size is too large".into()))?;
+            .map_err(|_| Error::Artifact("bundle raw size is too large".into()))?;
         let raw_end = raw_offset
             .checked_add(raw_size)
-            .ok_or_else(|| Error::InvalidBundle("bundle raw size overflow".into()))?;
+            .ok_or_else(|| Error::Artifact("bundle raw size overflow".into()))?;
         let (bytes, _) = self.read_bundle_payload(None)?;
         Ok(bytes[raw_offset..raw_end].to_vec())
     }
@@ -596,7 +590,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let index = *self
             .chunk_index_by_hash
             .get(&expected_hash)
-            .ok_or_else(|| Error::ChunkNotFound(hash.to_string()))?;
+            .ok_or_else(|| Error::artifact(format!("chunk {hash} is not in the bundle")))?;
         self.read_chunk(index)
     }
 
@@ -604,7 +598,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let expected = ChunkHash::parse_hex(expected_id)?;
         self.reader.seek(SeekFrom::End(-(BUNDLE_ID_SIZE as i64)))?;
         if read_exact_array::<32>(&mut self.reader)?.as_slice() != expected.as_bytes() {
-            return Err(crate::Error::bundle(
+            return Err(crate::Error::artifact(
                 "bundle filename and trailing identity disagree",
             ));
         }
@@ -638,7 +632,7 @@ pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Res
     let expected_hash = ChunkHash::parse_hex(bundle_id)?;
     let id_size = BUNDLE_ID_SIZE as usize;
     if bytes.len() < id_size {
-        return Err(Error::InvalidBundle(format!(
+        return Err(Error::Artifact(format!(
             "bundle '{bundle_id}' is missing its content hash"
         )));
     }
@@ -658,7 +652,7 @@ pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     let total_len = file.seek(SeekFrom::End(0))?;
     file.seek(SeekFrom::Start(0))?;
     let content_len = total_len.checked_sub(id_size as u64).ok_or_else(|| {
-        Error::InvalidBundle(format!("bundle '{bundle_id}' is missing its content hash"))
+        Error::Artifact(format!("bundle '{bundle_id}' is missing its content hash"))
     })?;
     let mut hasher = blake3::Hasher::new();
     let mut remaining = content_len;
@@ -696,7 +690,7 @@ fn check_bundle_identity(
         });
     }
     if trailing != expected_hash.as_bytes() {
-        return Err(Error::InvalidBundle(format!(
+        return Err(Error::Artifact(format!(
             "bundle '{bundle_id}' has an inconsistent trailing content hash"
         )));
     }
@@ -726,7 +720,7 @@ impl<W: Write> BundleIdentityWriter<W> {
         self.output.flush()?;
         let expected_hash = ChunkHash::parse_hex(bundle_id)?;
         if self.tail.len() < BUNDLE_ID_SIZE as usize {
-            return Err(Error::InvalidBundle(format!(
+            return Err(Error::Artifact(format!(
                 "bundle '{bundle_id}' is missing its content hash"
             )));
         }
@@ -794,7 +788,7 @@ where
 
     for (index, entry) in entries.iter().enumerate() {
         let raw_size = usize::try_from(entry.raw_size).map_err(|_| {
-            Error::InvalidBundle(format!(
+            Error::Artifact(format!(
                 "bundle chunk {} is too large for this platform",
                 index
             ))
@@ -828,7 +822,7 @@ where
     let trailing_bytes = reader.read(&mut trailing)?;
     *decompress += decode_started_at.elapsed();
     if trailing_bytes != 0 {
-        return Err(Error::InvalidBundle(
+        return Err(Error::Artifact(
             "bundle payload contains decoded bytes after its table entries".into(),
         ));
     }
@@ -846,7 +840,7 @@ fn assign_compressed_size_estimates(
     let total_raw_size = entries.iter().try_fold(0u64, |total, entry| {
         total
             .checked_add(u64::from(entry.raw_size))
-            .ok_or_else(|| Error::InvalidBundle("bundle raw size overflow".into()))
+            .ok_or_else(|| Error::Artifact("bundle raw size overflow".into()))
     })?;
     let mut assigned = 0u64;
     let entry_count = entries.len();
@@ -863,10 +857,10 @@ fn assign_compressed_size_estimates(
         entry.compressed_size = format::size_u32(compressed_size)?;
         assigned = assigned
             .checked_add(compressed_size)
-            .ok_or_else(|| Error::InvalidBundle("bundle compressed size overflow".into()))?;
+            .ok_or_else(|| Error::Artifact("bundle compressed size overflow".into()))?;
     }
     if assigned != compressed_payload_size {
-        return Err(Error::InvalidBundle(
+        return Err(Error::Artifact(
             "bundle compressed-size estimates do not cover its payload".into(),
         ));
     }
@@ -881,13 +875,13 @@ fn validate_bundle_entries(entries: &[BundleTableEntry]) -> Result<()> {
             || u64::from(entry.raw_size) > format::MAX_RAW_CHUNK_SIZE
             || !hashes.insert(&entry.chunk_hash)
         {
-            return Err(crate::Error::bundle("invalid or duplicate bundle chunk"));
+            return Err(crate::Error::artifact("invalid or duplicate bundle chunk"));
         }
         total = total
             .checked_add(u64::from(entry.raw_size))
-            .ok_or_else(|| crate::Error::bundle("bundle size overflow"))?;
+            .ok_or_else(|| crate::Error::artifact("bundle size overflow"))?;
         if total > format::MAX_RAW_BUNDLE_SIZE {
-            return Err(crate::Error::bundle("bundle exceeds raw size limit"));
+            return Err(crate::Error::artifact("bundle exceeds raw size limit"));
         }
     }
     Ok(())
@@ -910,9 +904,9 @@ fn read_bundle_table_entries(
 ) -> Result<Vec<BundleTableEntry>> {
     let expected_table_len = chunk_count
         .checked_mul(BUNDLE_TABLE_ENTRY_SIZE)
-        .ok_or_else(|| Error::InvalidBundle("bundle table too large".into()))?;
+        .ok_or_else(|| Error::Artifact("bundle table too large".into()))?;
     if table_len != expected_table_len {
-        return Err(Error::InvalidBundle(format!(
+        return Err(Error::Artifact(format!(
             "bundle table length {} does not match {} entries",
             table_len, chunk_count
         )));
@@ -934,7 +928,7 @@ fn read_bundle_table_entries(
         });
         raw_offset = raw_offset
             .checked_add(raw_size)
-            .ok_or_else(|| crate::Error::bundle("bundle raw offset overflow"))?;
+            .ok_or_else(|| crate::Error::artifact("bundle raw offset overflow"))?;
     }
     Ok(entries)
 }

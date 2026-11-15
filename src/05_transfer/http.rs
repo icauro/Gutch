@@ -27,7 +27,9 @@ pub(crate) fn build_download_client() -> Result<DownloadClient> {
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30 * 60))
         .build()
-        .map_err(|error| Error::manifest(format!("failed to create download client: {error}")))?;
+        .map_err(|error| {
+            Error::download(format!("failed to create download client: {error}"), false)
+        })?;
     Ok(DownloadClient {
         client,
         runtime: Arc::new(runtime),
@@ -73,7 +75,7 @@ where
             let total_bytes = response.content_length();
             if maximum_bytes.is_some_and(|maximum| total_bytes.is_some_and(|total| total > maximum))
             {
-                return Err(Error::manifest("download exceeded the allowed size"));
+                return Err(Error::download("download exceeded the allowed size", false));
             }
             on_content_length(total_bytes)?;
             let mut transferred_bytes = 0_u64;
@@ -84,7 +86,7 @@ where
             {
                 transferred_bytes = transferred_bytes.saturating_add(chunk.len() as u64);
                 if maximum_bytes.is_some_and(|maximum| transferred_bytes > maximum) {
-                    return Err(Error::manifest("response exceeded the allowed size"));
+                    return Err(Error::download("response exceeded the allowed size", false));
                 }
                 for bytes in chunk.chunks(64 * 1024) {
                     control.checkpoint()?;
@@ -143,7 +145,7 @@ where
         }
         transferred_bytes = transferred_bytes.saturating_add(read as u64);
         if maximum_bytes.is_some_and(|maximum| transferred_bytes > maximum) {
-            return Err(Error::manifest("response exceeded the allowed size"));
+            return Err(Error::download("response exceeded the allowed size", false));
         }
         on_chunk(&buffer[..read])?;
     }
@@ -163,7 +165,7 @@ where
         .content_length()
         .is_some_and(|length| length > maximum_bytes)
     {
-        return Err(Error::manifest("response exceeded the allowed size"));
+        return Err(Error::download("response exceeded the allowed size", false));
     }
     let mut bytes = Vec::new();
     read_bounded_chunks(&mut response, Some(maximum_bytes), checkpoint, |chunk| {

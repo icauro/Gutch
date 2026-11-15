@@ -64,10 +64,10 @@ pub fn plan_repo_rename(repo_root: &Path, name: &str) -> Result<String> {
 fn validated_repo_name(name: &str) -> Result<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(crate::Error::manifest("repo name cannot be empty"));
+        return Err(crate::Error::repository("repo name cannot be empty"));
     }
     if trimmed.contains('/') || trimmed.contains('\\') {
-        return Err(crate::Error::manifest(
+        return Err(crate::Error::repository(
             "repo name cannot contain path separators",
         ));
     }
@@ -153,6 +153,6 @@ pub(crate) fn validate_proposed_snapshot_tags(
     if violations.is_empty() {
         Ok(())
     } else {
-        Err(crate::Error::manifest(violations.join("\n")))
+        Err(crate::Error::repository(violations.join("\n")))
     }
 }

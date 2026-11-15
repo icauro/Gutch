@@ -1,69 +1,28 @@
 use super::*;
-use std::io::ErrorKind;
 use std::path::Path;
 
 #[test]
-fn error_display_bundle() {
-    let e = Error::bundle("corrupt data");
-    assert_eq!(e.to_string(), "Bundle error: corrupt data");
+fn only_downloads_marked_retryable_are_retried() {
+    assert!(Error::download("connection reset", true).is_retryable_download());
+    assert!(!Error::download("response exceeded the allowed size", false).is_retryable_download());
+    assert!(!Error::from(std::io::Error::other("disk full")).is_retryable_download());
 }
 
 #[test]
-fn error_display_manifest() {
-    let e = Error::manifest("missing field");
-    assert_eq!(e.to_string(), "Manifest error: missing field");
-}
-
-#[test]
-fn error_display_verify() {
-    let e = Error::verify("hash mismatch");
-    assert_eq!(e.to_string(), "Verification error: hash mismatch");
-}
-
-#[test]
-fn error_display_reconstruct() {
-    let e = Error::reconstruct("output dir missing");
-    assert_eq!(e.to_string(), "Reconstruction error: output dir missing");
-}
-
-#[test]
-fn error_display_io() {
-    let io_err = std::io::Error::new(ErrorKind::NotFound, "file not found");
-    let e = Error::from(io_err);
-    assert!(e.to_string().contains("I/O error:"));
-}
-
-#[test]
-fn error_display_hash_mismatch() {
-    let e = Error::HashMismatch {
-        expected: "abc".into(),
-        actual: "def".into(),
-    };
-    assert_eq!(e.to_string(), "Hash mismatch: expected abc, got def");
-}
-
-#[test]
-fn error_display_chunk_not_found() {
-    let e = Error::ChunkNotFound("abc123".into());
-    assert_eq!(e.to_string(), "Chunk not found in any bundle: abc123");
-}
-
-#[test]
-fn error_display_path_error() {
-    let e = Error::PathError {
-        path: PathBuf::from("/bad/path"),
-        reason: "permission denied".into(),
-    };
-    assert!(e.to_string().contains("/bad/path"));
-    assert!(e.to_string().contains("permission denied"));
-}
-
-#[test]
-fn error_is_debug() {
-    let e = Error::bundle("debug test");
-    let debug = format!("{e:?}");
-    assert!(debug.contains("Bundle"));
-    assert!(debug.contains("debug test"));
+fn diagnostic_report_classifies_structured_failures() {
+    let path_failure = Error::PathValidation(path_validation::PathValidationFailure {
+        operation: "Capture".into(),
+        snapshot_id: None,
+        violations: Vec::new(),
+    });
+    assert_eq!(
+        path_failure.diagnostic_report()["code"],
+        "filename_constraints"
+    );
+    assert_eq!(
+        Error::artifact("truncated").diagnostic_report(),
+        serde_json::json!({"code": "operation_failed", "message": "Invalid artifact: truncated"})
+    );
 }
 
 #[test]

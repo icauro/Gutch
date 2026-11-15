@@ -228,7 +228,9 @@ fn write_source(
     match source {
         RemoteArtifactSource::Bytes(bytes) => {
             if bytes.len() as u64 > maximum_bytes {
-                return Err(Error::manifest("remote artifact exceeded the allowed size"));
+                return Err(Error::repository(
+                    "remote artifact exceeded the allowed size",
+                ));
             }
             output.write_all(bytes)?;
             Ok(())
@@ -355,7 +357,7 @@ pub(super) fn record_bundle_sources(
 ) -> Result<()> {
     for source in sources {
         if !expected_bundle_ids.contains(source.bundle_id.as_str()) {
-            return Err(Error::manifest(format!(
+            return Err(Error::repository(format!(
                 "remote provider returned an unexpected bundle '{}'",
                 source.bundle_id
             )));
@@ -364,7 +366,7 @@ pub(super) fn record_bundle_sources(
             .insert(source.bundle_id.clone(), source.source)
             .is_some()
         {
-            return Err(Error::manifest(format!(
+            return Err(Error::repository(format!(
                 "remote provider returned duplicate bundle '{}'",
                 source.bundle_id
             )));
@@ -433,7 +435,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
             .unwrap_or_default();
         let incoming_constraints = manifest.constraints.clone().unwrap_or_default();
         if repository_existed && local_constraints != incoming_constraints {
-            return Err(Error::manifest(
+            return Err(Error::repository(
                 "remote repository constraints differ; explicitly update local constraints before pulling",
             ));
         }
@@ -506,7 +508,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
         } in bundle_source_requests(bundles_by_snapshot, missing_bundles)
         {
             let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
-                Error::manifest(format!(
+                Error::repository(format!(
                     "remote snapshot '{snapshot_id}' disappeared during bundle resolution"
                 ))
             })?;
@@ -637,7 +639,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 Some(snapshot_id.clone()),
             );
             let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
-                Error::manifest(format!(
+                Error::repository(format!(
                     "remote snapshot '{snapshot_id}' disappeared during pull"
                 ))
             })?;
@@ -667,7 +669,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         for (index, bundle_id) in missing_bundles.iter().enumerate() {
             control.checkpoint()?;
             let source = bundle_sources.get(bundle_id).ok_or_else(|| {
-                Error::manifest(format!(
+                Error::repository(format!(
                     "remote provider did not return a source for required bundle '{bundle_id}'"
                 ))
             })?;

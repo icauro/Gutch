@@ -228,7 +228,7 @@ impl PullConflictPolicy {
             "keep-local" => Ok(Self::KeepLocal),
             "keep-remote" => Ok(Self::KeepRemote),
             "keep-newer" => Ok(Self::KeepNewer),
-            other => Err(Error::manifest(format!(
+            other => Err(Error::invalid_input(format!(
                 "invalid --on-conflict value '{}' (expected keep-local, keep-remote, or keep-newer)",
                 other
             ))),

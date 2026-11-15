@@ -126,7 +126,7 @@ mod tests {
         write(&path, b"original").unwrap();
 
         let result = write_atomic_with(&path, |_file| {
-            Err(crate::Error::manifest("simulated write failure"))
+            Err(crate::Error::repository("simulated write failure"))
         });
 
         assert!(result.is_err());

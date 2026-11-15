@@ -51,13 +51,13 @@ pub(crate) fn required_artifacts(
                 .entries
                 .get_hash(&chunk_ref.chunk_hash)
                 .ok_or_else(|| {
-                    Error::manifest(format!(
+                    Error::repository(format!(
                         "missing chunk index entry for required chunk '{}'",
                         chunk_ref.chunk_hash
                     ))
                 })?;
             if entry.raw_size != chunk_ref.raw_size {
-                return Err(Error::manifest(format!(
+                return Err(Error::repository(format!(
                     "chunk index size disagrees with snapshot for '{}'",
                     chunk_ref.chunk_hash
                 )));
@@ -70,7 +70,7 @@ pub(crate) fn required_artifacts(
 pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Result<()> {
     let expected_hash = ChunkHash::parse_hex(bundle_id)?;
     let path_id = bundle_id_from_bundle_path(path).ok_or_else(|| {
-        crate::error::Error::InvalidBundle(format!(
+        crate::error::Error::Artifact(format!(
             "bundle path '{}' does not name a bundle ID",
             path.display()
         ))

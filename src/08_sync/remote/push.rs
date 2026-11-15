@@ -71,7 +71,7 @@ fn collect_local_sync_snapshots(
 ) -> Result<(RepoStatus, RepoPaths, Vec<LocalSyncSnapshot>)> {
     let status = read_repo_status(repo_root)?;
     if !status.is_repo {
-        return Err(Error::manifest(format!(
+        return Err(Error::repository(format!(
             "no gutch repo found at {}",
             repo_root.display()
         )));

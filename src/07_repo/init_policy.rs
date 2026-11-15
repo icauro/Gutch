@@ -159,7 +159,7 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()>
     let assessment = assess_repo_init_path(repo_root)?;
 
     if assessment.path_kind == RepoInitPathKind::NotADirectory {
-        return Err(Error::manifest(
+        return Err(Error::repository(
             assessment
                 .risks
                 .first()
@@ -175,7 +175,7 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()>
     fs::create_dir_all(repo_root)?;
     super::coordination::write(repo_root, || {
         if !options.force && repo_root.join("repo_metadata.json").exists() {
-            return Err(Error::manifest(
+            return Err(Error::repository(
                 "repository was initialized by another writer",
             ));
         }
@@ -230,7 +230,7 @@ fn non_empty_risk(entry_count: usize) -> RepoInitRisk {
 
 pub(crate) fn repo_init_needs_confirmation_error(assessment: &RepoInitAssessment) -> Error {
     let payload = serde_json::to_string(assessment).unwrap_or_else(|_| "{}".to_string());
-    Error::manifest(format!("{REPO_INIT_NEEDS_CONFIRMATION}:{payload}"))
+    Error::repository(format!("{REPO_INIT_NEEDS_CONFIRMATION}:{payload}"))
 }
 
 pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {

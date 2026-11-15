@@ -88,7 +88,7 @@ fn collect_capture_sources(
     let mut sources: Vec<self::config::ResolvedSourceSnapshot> = Vec::new();
     if let Some(source_root) = source_root {
         if !source_root.is_dir() {
-            return Err(crate::Error::manifest(format!(
+            return Err(crate::Error::invalid_input(format!(
                 "source root is not a directory: {}",
                 source_root.display()
             )));
@@ -107,7 +107,7 @@ fn collect_capture_sources(
     sources.sort_by(|left, right| left.path.cmp(&right.path));
     sources.dedup_by(|left, right| left.path == right.path);
     if sources.is_empty() {
-        return Err(crate::Error::manifest(
+        return Err(crate::Error::invalid_input(
             "capture requires at least one source directory or a source root with snapshot folders",
         ));
     }
@@ -121,7 +121,7 @@ fn collect_capture_sources(
 /// tags when the source is listed in explicit mode.
 fn resolve_single_source_config_tags(dir: &Path) -> crate::Result<Option<SnapshotTagSet>> {
     let parent = dir.parent().ok_or_else(|| {
-        crate::Error::manifest(format!(
+        crate::Error::invalid_input(format!(
             "snapshot input has no parent directory: {}",
             dir.display()
         ))
@@ -130,7 +130,7 @@ fn resolve_single_source_config_tags(dir: &Path) -> crate::Result<Option<Snapsho
         return Ok(None);
     };
     let Some(name) = dir.file_name().and_then(|value| value.to_str()) else {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::invalid_input(format!(
             "snapshot input has no usable folder name: {}",
             dir.display()
         )));
@@ -151,7 +151,7 @@ fn resolve_single_source_config_tags(dir: &Path) -> crate::Result<Option<Snapsho
             match entry {
                 Some(rule) => {
                     let tags = SnapshotTagSet::from_compact_strings(&rule.tags).map_err(|err| {
-                        crate::Error::manifest(format!(
+                        crate::Error::invalid_input(format!(
                             "invalid tags for explicit snapshot '{}': {err}",
                             rule.path
                         ))

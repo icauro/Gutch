@@ -13,7 +13,7 @@ pub(crate) fn normalize_artifact_downloads(
             .insert(artifact_id.to_string(), url.to_string())
             .is_some()
         {
-            return Err(Error::manifest(format!(
+            return Err(Error::invalid_input(format!(
                 "duplicate direct artifact URL for '{}'",
                 artifact_id
             )));
@@ -32,7 +32,7 @@ pub(crate) fn normalize_artifact_download(artifact: &ArtifactDownload) -> Result
 fn non_empty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(Error::manifest(format!("{label} is required")));
+        return Err(Error::invalid_input(format!("{label} is required")));
     }
     Ok(trimmed)
 }

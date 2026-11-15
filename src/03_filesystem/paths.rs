@@ -21,11 +21,11 @@ pub(crate) fn manifest_path_from_native(path: &Path) -> Result<String> {
     let parts = path
         .components()
         .map(|part| match part {
-            Component::Normal(name) => name.to_str().ok_or_else(|| Error::PathError {
+            Component::Normal(name) => name.to_str().ok_or_else(|| Error::InvalidPath {
                 path: path.to_path_buf(),
                 reason: "filename is not valid Unicode; lossless capture is unavailable".into(),
             }),
-            _ => Err(Error::manifest(
+            _ => Err(Error::invalid_input(
                 "source path must be relative and normalized",
             )),
         })
@@ -40,7 +40,7 @@ pub(crate) fn validate_destination_paths<'a>(
     paths: impl Iterator<Item = &'a str>,
 ) -> Result<()> {
     validate_paths_on_destination_volume(root, paths).map_err(|error| match error {
-        Error::PathError { path, reason } => Error::PathValidation(PathValidationFailure {
+        Error::InvalidPath { path, reason } => Error::PathValidation(PathValidationFailure {
             operation: "installation".into(),
             snapshot_id: None,
             violations: vec![PathViolation {
@@ -63,7 +63,7 @@ fn validate_paths_on_destination_volume<'a>(
     let parent = absolute
         .ancestors()
         .find(|p| p.is_dir())
-        .ok_or_else(|| Error::manifest("destination has no existing parent"))?;
+        .ok_or_else(|| Error::invalid_input("destination has no existing parent"))?;
     let probe = tempfile::Builder::new()
         .prefix(".gutch-path-probe-")
         .tempdir_in(parent)?;
@@ -100,7 +100,7 @@ fn validate_paths_on_destination_volume<'a>(
                     b"",
                 )?;
                 if comparison.path().join(part).exists() {
-                    return Err(Error::PathError {
+                    return Err(Error::InvalidPath {
                         path: absolute.join(relative),
                         reason: format!(
                             "destination aliases distinct paths {previous:?} and {prefix:?}"
@@ -116,7 +116,7 @@ fn validate_paths_on_destination_volume<'a>(
     Ok(())
 }
 fn validate_destination_length(path: &Path) -> Result<()> {
-    let fail = |reason: &str| Error::PathError {
+    let fail = |reason: &str| Error::InvalidPath {
         path: path.to_path_buf(),
         reason: reason.into(),
     };
@@ -197,7 +197,7 @@ pub(crate) fn require_disjoint_paths(left: &Path, right: &Path) -> Result<()> {
     let resolved_left = resolve_operation_path(left)?;
     let resolved_right = resolve_operation_path(right)?;
     if resolved_left.starts_with(&resolved_right) || resolved_right.starts_with(&resolved_left) {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: left.to_path_buf(),
             reason: format!(
                 "operation paths must not overlap: '{}' and '{}'",
@@ -227,7 +227,7 @@ pub(crate) struct ManifestPathResolver {
 impl ManifestPathResolver {
     pub(crate) fn new(root: &Path) -> Result<Self> {
         let canonical_root = if root.exists() {
-            Some(root.canonicalize().map_err(|error| Error::PathError {
+            Some(root.canonicalize().map_err(|error| Error::InvalidPath {
                 path: root.to_path_buf(),
                 reason: format!("failed to resolve snapshot root: {error}"),
             })?)
@@ -276,7 +276,7 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
     if relative.len() > MAX_MANIFEST_PATH_BYTES
         || relative.split('/').count() > MAX_MANIFEST_PATH_COMPONENTS
     {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: PathBuf::from(relative),
             reason: "manifest path exceeds 128 KiB or 256 components".into(),
         });
@@ -287,7 +287,7 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
         return if allow_root {
             Ok(())
         } else {
-            Err(Error::PathError {
+            Err(Error::InvalidPath {
                 path: relative_path.to_path_buf(),
                 reason: "manifest path must identify an entry beneath the snapshot root".into(),
             })
@@ -308,7 +308,7 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
             )
         })
     {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: relative_path.to_path_buf(),
             reason: format!(
                 "manifest path must stay within the snapshot root: '{}'",
@@ -320,7 +320,7 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
         .split('/')
         .any(|part| part.is_empty() || part == "." || part == "..")
     {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: relative_path.to_path_buf(),
             reason: format!(
                 "manifest path must be normalized beneath the snapshot root: '{}'",
@@ -340,10 +340,12 @@ fn ensure_existing_ancestors_stay_within_root(
     validated_ancestors: &Mutex<HashSet<PathBuf>>,
 ) -> Result<()> {
     let mut current = root.to_path_buf();
-    let relative = candidate.strip_prefix(root).map_err(|_| Error::PathError {
-        path: candidate.to_path_buf(),
-        reason: "candidate path is not beneath the snapshot root".into(),
-    })?;
+    let relative = candidate
+        .strip_prefix(root)
+        .map_err(|_| Error::InvalidPath {
+            path: candidate.to_path_buf(),
+            reason: "candidate path is not beneath the snapshot root".into(),
+        })?;
     for component in relative.components() {
         current.push(component);
         // Successful components already passed containment validation for this
@@ -351,7 +353,7 @@ fn ensure_existing_ancestors_stay_within_root(
         // Missing components are never cached, so later creations are checked.
         let already_validated = validated_ancestors
             .lock()
-            .map_err(|_| Error::PathError {
+            .map_err(|_| Error::InvalidPath {
                 path: current.clone(),
                 reason: "path validation cache is poisoned".to_string(),
             })?
@@ -366,19 +368,19 @@ fn ensure_existing_ancestors_stay_within_root(
             Err(error) if error.kind() == ErrorKind::NotFound => break,
             Err(error) => return Err(error.into()),
         }
-        let canonical_current = current.canonicalize().map_err(|error| Error::PathError {
+        let canonical_current = current.canonicalize().map_err(|error| Error::InvalidPath {
             path: current.clone(),
             reason: format!("failed to resolve snapshot path component: {error}"),
         })?;
         if !canonical_current.starts_with(canonical_root) {
-            return Err(Error::PathError {
+            return Err(Error::InvalidPath {
                 path: current,
                 reason: "snapshot path resolves outside the snapshot root".into(),
             });
         }
         validated_ancestors
             .lock()
-            .map_err(|_| Error::PathError {
+            .map_err(|_| Error::InvalidPath {
                 path: current.clone(),
                 reason: "path validation cache is poisoned".to_string(),
             })?
@@ -395,7 +397,7 @@ pub fn resolve_existing_destination_path(
     validate_manifest_relative_path(relative, allow_root)?;
     let canonical_root = install_root
         .canonicalize()
-        .map_err(|error| Error::PathError {
+        .map_err(|error| Error::InvalidPath {
             path: install_root.to_path_buf(),
             reason: format!("failed to resolve installation root: {error}"),
         })?;
@@ -404,12 +406,14 @@ pub fn resolve_existing_destination_path(
     } else {
         canonical_root.join(relative)
     };
-    let canonical_candidate = candidate.canonicalize().map_err(|error| Error::PathError {
-        path: candidate.clone(),
-        reason: format!("declared installation path does not exist: {error}"),
-    })?;
+    let canonical_candidate = candidate
+        .canonicalize()
+        .map_err(|error| Error::InvalidPath {
+            path: candidate.clone(),
+            reason: format!("declared installation path does not exist: {error}"),
+        })?;
     if !canonical_candidate.starts_with(&canonical_root) {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: candidate,
             reason: "declared installation path resolves outside the installation root".into(),
         });
@@ -422,7 +426,7 @@ pub fn resolve_existing_destination_path(
         }
     };
     if !valid_kind {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: canonical_candidate,
             reason: format!("declared installation path is not a {:?}", expected_kind),
         });
@@ -534,7 +538,7 @@ mod tests {
 pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Result<String> {
     let link_path = Path::new(relative_path);
     if target.is_absolute() {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: link_path.to_path_buf(),
             reason: "absolute symbolic-link target".into(),
         });
@@ -550,7 +554,7 @@ pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Resul
             Component::CurDir => {}
             Component::ParentDir if normalized.pop() => {}
             _ => {
-                return Err(Error::PathError {
+                return Err(Error::InvalidPath {
                     path: link_path.to_path_buf(),
                     reason: "symbolic-link target escapes root".into(),
                 });

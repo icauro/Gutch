@@ -123,7 +123,7 @@ fn stream_propagates_read_errors_and_retries_interruption() {
     let mut stream = ChunkStream::new(FaultReader { calls: 0 }, &ChunkSizingProfile::default(), 0);
     assert!(matches!(
         stream.next(&Default::default()),
-        Err(crate::Error::Chunk(_))
+        Err(crate::Error::Io(_))
     ));
     assert_eq!(stream.reader.calls, 2);
 }

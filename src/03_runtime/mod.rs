@@ -36,7 +36,7 @@ impl MemoryBudget {
     }
     fn validate_request(&self, bytes: u64) -> Result<()> {
         if bytes > self.limit {
-            return Err(Error::manifest(format!(
+            return Err(Error::invalid_input(format!(
                 "job requires {bytes} bytes but memory budget is {} bytes; increase the memory budget",
                 self.limit
             )));
@@ -111,7 +111,7 @@ pub(crate) fn build_thread_pool(
         .num_threads(worker_count.max(1))
         .thread_name(move |index| format!("{thread_name} #{}", index + 1))
         .build()
-        .map_err(|err| Error::manifest(format!("failed to create thread pool: {err}")))
+        .map_err(|err| Error::invalid_input(format!("failed to create thread pool: {err}")))
 }
 
 pub(crate) fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
@@ -156,7 +156,7 @@ fn budget_from_limits(total: u64, cgroup_limit: Option<u64>) -> u64 {
 }
 
 fn memory_budget_poisoned<T>(_: T) -> Error {
-    Error::manifest("memory budget poisoned")
+    Error::invalid_input("memory budget poisoned")
 }
 
 #[cfg(test)]

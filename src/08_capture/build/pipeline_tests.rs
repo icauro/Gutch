@@ -370,7 +370,7 @@ fn capture_result_slots_join_workers_before_returning_an_error() {
         |index, _| {
             completed.fetch_add(1, Ordering::Relaxed);
             if index == 3 {
-                Err(crate::Error::manifest("worker failed"))
+                Err(crate::Error::capture("worker failed"))
             } else {
                 Ok(index)
             }

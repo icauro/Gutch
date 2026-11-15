@@ -20,7 +20,7 @@ pub(crate) fn format_system_time_utc(time: SystemTime) -> String {
 
 fn max_file_modified_time(dir: &Path) -> Result<SystemTime> {
     if !dir.is_dir() {
-        return Err(Error::manifest(format!(
+        return Err(Error::invalid_input(format!(
             "source path is not a directory: {}",
             dir.display()
         )));
@@ -45,7 +45,7 @@ fn max_file_modified_time(dir: &Path) -> Result<SystemTime> {
     }
 
     dir.metadata()?.modified().map_err(|err| {
-        Error::manifest(format!(
+        Error::invalid_input(format!(
             "failed to read source directory mtime for {}: {err}",
             dir.display()
         ))

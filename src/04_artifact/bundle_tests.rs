@@ -263,7 +263,7 @@ fn test_bundle_id_depends_on_final_bundle_bytes() {
 fn test_invalid_bundle_table() {
     let result = read_bundle(b"XXXX extra data to read", &profile());
     assert!(
-        matches!(result, Err(Error::InvalidBundle(_))),
+        matches!(result, Err(Error::Artifact(_))),
         "should reject invalid magic"
     );
 }
@@ -508,7 +508,7 @@ fn streamed_bundle_discards_partial_staging_on_loader_failure_or_wrong_length() 
                     }
                     match wrong_length {
                         Some(size) => Ok(vec![0; size]),
-                        None => Err(crate::Error::bundle("injected source read failure")),
+                        None => Err(crate::Error::artifact("injected source read failure")),
                     }
                 });
             assert!(result.is_err(), "{codec:?} {wrong_length:?}");

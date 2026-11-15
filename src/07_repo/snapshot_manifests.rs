@@ -53,7 +53,7 @@ pub(crate) fn validate_snapshot_id(snapshot_id: &str) -> Result<()> {
     {
         Ok(())
     } else {
-        Err(crate::Error::manifest(format!(
+        Err(crate::Error::repository(format!(
             "invalid BLAKE3 snapshot id '{snapshot_id}'"
         )))
     }
@@ -93,7 +93,7 @@ pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<Sn
     manifest.product_metadata = load_snapshot_product_metadata(paths, snapshot_id)?;
     let blueprint_path = snapshot_blueprint_path(paths, snapshot_id)?;
     if !blueprint_path.is_file() {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::repository(format!(
             "snapshot blueprint not found at {}",
             blueprint_path.display()
         )));
@@ -201,7 +201,7 @@ pub fn save_snapshot_product_metadata_for_snapshots(
             product_metadata.as_ref(),
         )?;
         if snapshot_ids.is_empty() {
-            return Err(crate::Error::manifest(
+            return Err(crate::Error::repository(
                 "at least one snapshot id is required to save product metadata",
             ));
         }
@@ -229,7 +229,7 @@ pub fn validate_snapshot_product_metadata_for_snapshots(
     product_metadata: Option<&SnapshotProductMetadata>,
 ) -> Result<()> {
     if snapshot_ids.is_empty() {
-        return Err(crate::Error::manifest(
+        return Err(crate::Error::repository(
             "at least one snapshot id is required to validate product metadata",
         ));
     }
@@ -321,7 +321,7 @@ pub(crate) fn snapshot_manifest_from_download(
     manifest_bytes: &[u8],
 ) -> Result<SnapshotManifest> {
     let metadata_json = from_utf8(manifest_bytes).map_err(|err| {
-        crate::Error::manifest(format!("snapshot metadata is not valid UTF-8: {}", err))
+        crate::Error::repository(format!("snapshot metadata is not valid UTF-8: {}", err))
     })?;
     crate::repo::snapshot_manifests::load_snapshot_metadata_from_json_text(
         snapshot_id,

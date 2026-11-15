@@ -159,7 +159,7 @@ pub fn capture_snapshot_sources(
         control.checkpoint()?;
         let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path))?;
         if !plan.sources_ready {
-            return Err(crate::Error::manifest(
+            return Err(crate::Error::invalid_input(
                 "snapshot sources path is missing or invalid",
             ));
         }

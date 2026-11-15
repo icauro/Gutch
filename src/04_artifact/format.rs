@@ -18,7 +18,7 @@ pub(crate) const MAX_RAW_BUNDLE_SIZE: u64 = 256 * 1024 * 1024;
 pub(crate) const MAX_RAW_CHUNK_SIZE: u64 = 16 * 1024 * 1024;
 
 pub(crate) fn size_u32(size: impl Into<u64>) -> Result<u32> {
-    u32::try_from(size.into()).map_err(|_| Error::manifest("artifact size exceeds u32"))
+    u32::try_from(size.into()).map_err(|_| Error::artifact("artifact size exceeds u32"))
 }
 
 pub(crate) fn write_codec(writer: &mut impl Write, codec: CompressionKind) -> Result<()> {
@@ -37,13 +37,13 @@ pub(crate) fn read_codec(reader: &mut impl Read) -> Result<CompressionKind> {
     let mut bytes = [0; 2];
     reader.read_exact(&mut bytes)?;
     if bytes[1] != 0 {
-        return Err(Error::manifest("nonzero artifact reserved byte"));
+        return Err(Error::artifact("nonzero artifact reserved byte"));
     }
     match bytes[0] {
         0 => Ok(CompressionKind::None),
         1 => Ok(CompressionKind::Zstd),
         2 => Ok(CompressionKind::Lz4),
-        _ => Err(Error::manifest("unsupported artifact codec")),
+        _ => Err(Error::artifact("unsupported artifact codec")),
     }
 }
 
@@ -51,7 +51,7 @@ pub(crate) fn read_version(reader: &mut impl Read) -> Result<()> {
     let mut bytes = [0; 2];
     reader.read_exact(&mut bytes)?;
     if u16::from_le_bytes(bytes) != VERSION {
-        return Err(Error::manifest("unsupported artifact format version"));
+        return Err(Error::artifact("unsupported artifact format version"));
     }
     Ok(())
 }

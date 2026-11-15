@@ -188,7 +188,7 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
     if !manifest_path.exists() {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::invalid_input(format!(
             "snapshot metadata not found at {}",
             manifest_path.display()
         )));
@@ -205,7 +205,7 @@ pub(crate) fn parse_artifact_downloads(
         .iter()
         .map(|artifact_arg| {
             let Some((artifact_id, url)) = artifact_arg.split_once('=') else {
-                return Err(crate::Error::manifest(format!(
+                return Err(crate::Error::invalid_input(format!(
                     "invalid --artifact value '{}'; use <artifact-id>=<url>",
                     artifact_arg
                 )));
@@ -213,7 +213,7 @@ pub(crate) fn parse_artifact_downloads(
             let artifact_id = artifact_id.trim();
             let url = url.trim();
             if artifact_id.is_empty() || url.is_empty() {
-                return Err(crate::Error::manifest(format!(
+                return Err(crate::Error::invalid_input(format!(
                     "invalid --artifact value '{}'; use <artifact-id>=<url>",
                     artifact_arg
                 )));
@@ -233,13 +233,13 @@ pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> crate::Result<bo
         eprint!("{} {}: ", prompt, suffix);
         io::stderr()
             .flush()
-            .map_err(|err| crate::Error::manifest(format!("io error: {}", err)))?;
+            .map_err(|err| crate::Error::invalid_input(format!("io error: {}", err)))?;
         let mut line = String::new();
         let bytes_read = io::stdin()
             .read_line(&mut line)
-            .map_err(|err| crate::Error::manifest(format!("io error: {}", err)))?;
+            .map_err(|err| crate::Error::invalid_input(format!("io error: {}", err)))?;
         if bytes_read == 0 {
-            return Err(crate::Error::manifest("confirmation requires input"));
+            return Err(crate::Error::invalid_input("confirmation requires input"));
         }
         let trimmed = line.trim().to_ascii_lowercase();
         if trimmed.is_empty() {

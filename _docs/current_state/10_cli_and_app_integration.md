@@ -203,6 +203,14 @@ The public API exposes `RepositoryConstraints`, `FilesystemTarget`,
 `read_repository_constraints`, `update_repository_constraints` and
 `Error::PathValidation`. Consumers translate these types at their own boundary.
 
+Other `Error` kinds name the failing domain: `InvalidInput` for caller
+arguments and configuration, `Artifact` for malformed stored or received
+artifact bytes, `Manifest` for snapshot manifest data, `Repository` for
+repository state and synchronization, `Capture` for source capture, and
+`Download`, `Verify` and `Reconstruct` for their operations. Structured kinds
+include `Cancelled`, `IoContext`, `HashMismatch`, `InvalidPath`,
+`SnapshotIntegrityMismatch` and `SnapshotCaptureConflict`.
+
 ## Output and previews
 
 Every command supports readable output (default), `--json`, or `--json-lines`,

@@ -109,7 +109,7 @@ fn streaming_size_does_not_return_partial_counts_after_source_failure() {
         let profile = CompressionProfile::for_algorithm(codec, None);
         let error = compressed_size_from_stream(&profile, 12, |writer| {
             writer.write_all(b"first")?;
-            Err(crate::Error::manifest("sample source failed"))
+            Err(crate::Error::artifact("sample source failed"))
         })
         .unwrap_err();
         assert!(error.to_string().contains("sample source failed"));

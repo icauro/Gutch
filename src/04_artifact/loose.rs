@@ -44,7 +44,7 @@ pub(crate) fn read_loose_chunk(
         format::size_u32(metrics.compressed_bytes)?;
         let (declared_hash, declared_size, codec) = read_loose_header(&mut file)?;
         if declared_hash.to_hex() != chunk_hash || u64::from(declared_size) != raw_size {
-            return Err(Error::manifest(
+            return Err(Error::artifact(
                 "loose chunk header disagrees with requested content",
             ));
         }
@@ -96,7 +96,7 @@ pub(crate) fn write_loose_chunk(
     profile: &CompressionProfile,
 ) -> Result<()> {
     if bytes.is_empty() || bytes.len() as u64 > format::MAX_RAW_CHUNK_SIZE {
-        return Err(Error::manifest("loose chunk exceeds raw size limit"));
+        return Err(Error::artifact("loose chunk exceeds raw size limit"));
     }
     writer.write_all(format::LOOSE_CHUNK_MAGIC)?;
     writer.write_all(&format::VERSION.to_le_bytes())?;
@@ -115,7 +115,7 @@ pub(crate) fn read_loose_header(
     let mut magic = [0u8; 16];
     reader.read_exact(&mut magic)?;
     if &magic != format::LOOSE_CHUNK_MAGIC {
-        return Err(Error::manifest("invalid loose chunk magic"));
+        return Err(Error::artifact("invalid loose chunk magic"));
     }
     format::read_version(reader)?;
     let codec = format::read_codec(reader)?;
@@ -123,7 +123,7 @@ pub(crate) fn read_loose_header(
     reader.read_exact(&mut size)?;
     let size = u32::from_le_bytes(size);
     if size == 0 || u64::from(size) > format::MAX_RAW_CHUNK_SIZE {
-        return Err(Error::manifest("invalid loose chunk raw size"));
+        return Err(Error::artifact("invalid loose chunk raw size"));
     }
     let mut hash = [0u8; 32];
     reader.read_exact(&mut hash)?;

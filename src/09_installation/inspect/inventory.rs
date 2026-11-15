@@ -56,7 +56,7 @@ pub(super) fn build_filesystem_inventory(
             });
         }
         Err(error) => {
-            return Err(crate::Error::PathError {
+            return Err(crate::Error::InvalidPath {
                 path: dir.to_path_buf(),
                 reason: format!("failed to resolve snapshot root: {error}"),
             });
@@ -96,12 +96,12 @@ pub(super) fn build_filesystem_inventory(
                 entry
                     .path()
                     .canonicalize()
-                    .map_err(|error| crate::Error::PathError {
+                    .map_err(|error| crate::Error::InvalidPath {
                         path: entry.path().to_path_buf(),
                         reason: format!("failed to resolve snapshot path component: {error}"),
                     })?;
             if !canonical_entry.starts_with(&canonical_root) {
-                return Err(crate::Error::PathError {
+                return Err(crate::Error::InvalidPath {
                     path: entry.path().to_path_buf(),
                     reason: "snapshot path resolves outside the snapshot root".into(),
                 });

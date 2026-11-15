@@ -228,7 +228,7 @@ impl ChunkPayloadReader {
         }
         let mut bytes = vec![
             0;
-            usize::try_from(payload.size).map_err(|_| crate::Error::manifest(
+            usize::try_from(payload.size).map_err(|_| crate::Error::capture(
                 "chunk exceeds address space"
             ))?
         ];
@@ -239,7 +239,7 @@ impl ChunkPayloadReader {
         self.position = payload.offset.checked_add(payload.size);
         // Reusing a handle never skips validation against the scan-time hash.
         if ChunkHash::of(&bytes) != payload.hash {
-            return Err(crate::Error::manifest(format!(
+            return Err(crate::Error::capture(format!(
                 "source changed during capture: {}",
                 payload.source.display()
             )));

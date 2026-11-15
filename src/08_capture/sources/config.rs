@@ -122,7 +122,7 @@ impl SourceConfig {
     pub fn write(&self, source_root: &Path) -> Result<()> {
         let path = source_root.join(SOURCE_CONFIG_FILE_NAME);
         let text = serde_json::to_string_pretty(self)
-            .map_err(|err| Error::manifest(format!("serialize source config: {err}")))?;
+            .map_err(|err| Error::invalid_input(format!("serialize source config: {err}")))?;
         filesystem::write(&path, text)
     }
 
@@ -144,14 +144,14 @@ impl SourceConfig {
     fn discover_auto(&self, source_root: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
         for pattern in &self.auto_ingestion_rules.ignore_paths {
             if pattern.is_empty() || pattern.contains('/') || pattern.contains('\\') {
-                return Err(Error::manifest(format!(
+                return Err(Error::invalid_input(format!(
                     "auto_ingestion_rules.ignore_paths entries must be plain folder names, got '{}'",
                     pattern
                 )));
             }
         }
         if !source_root.is_dir() {
-            return Err(Error::manifest(format!(
+            return Err(Error::invalid_input(format!(
                 "source root is not a directory: {}",
                 source_root.display()
             )));
@@ -168,7 +168,7 @@ impl SourceConfig {
                 .and_then(|value| value.to_str())
                 .map(str::to_owned)
                 .ok_or_else(|| {
-                    Error::manifest(format!("invalid source folder name: {}", path.display()))
+                    Error::invalid_input(format!("invalid source folder name: {}", path.display()))
                 })?;
             if self
                 .auto_ingestion_rules
@@ -190,7 +190,7 @@ impl SourceConfig {
 
     fn discover_explicit(&self, source_root: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
         if self.explicit_ingestion_rules.snapshots.is_empty() {
-            return Err(Error::manifest(
+            return Err(Error::invalid_input(
                 "explicit ingestion mode requires at least one snapshot in explicit_ingestion_rules.snapshots",
             ));
         }
@@ -199,13 +199,13 @@ impl SourceConfig {
         for rule in &self.explicit_ingestion_rules.snapshots {
             let normalized = normalize_relative_path(&rule.path)?;
             if !seen.insert(normalized.clone()) {
-                return Err(Error::manifest(format!(
+                return Err(Error::invalid_input(format!(
                     "duplicate explicit snapshot path '{}'",
                     rule.path
                 )));
             }
             let tags = SnapshotTagSet::from_compact_strings(&rule.tags).map_err(|err| {
-                Error::manifest(format!(
+                Error::invalid_input(format!(
                     "invalid tags for explicit snapshot '{}': {err}",
                     rule.path
                 ))
@@ -213,7 +213,7 @@ impl SourceConfig {
             let relative_path = PathBuf::from(&normalized);
             let path = source_root.join(&relative_path);
             if !path.is_dir() {
-                return Err(Error::manifest(format!(
+                return Err(Error::invalid_input(format!(
                     "explicit snapshot path does not exist or is not a directory: {}",
                     path.display()
                 )));
@@ -235,7 +235,9 @@ impl SourceConfig {
 pub fn normalize_relative_path(raw: &str) -> Result<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed == "." {
-        return Err(Error::manifest("explicit snapshot path must not be empty"));
+        return Err(Error::invalid_input(
+            "explicit snapshot path must not be empty",
+        ));
     }
     let with_forward_slashes = trimmed.replace('\\', "/");
     let mut parts: Vec<&str> = Vec::new();
@@ -243,7 +245,7 @@ pub fn normalize_relative_path(raw: &str) -> Result<String> {
         match part {
             "" | "." => {}
             ".." => {
-                return Err(Error::manifest(
+                return Err(Error::invalid_input(
                     "explicit snapshot path must not contain '..' segments",
                 ));
             }
@@ -251,10 +253,12 @@ pub fn normalize_relative_path(raw: &str) -> Result<String> {
         }
     }
     if parts.is_empty() {
-        return Err(Error::manifest("explicit snapshot path must not be empty"));
+        return Err(Error::invalid_input(
+            "explicit snapshot path must not be empty",
+        ));
     }
     if with_forward_slashes.starts_with('/') || is_windows_drive_prefix(parts[0]) {
-        return Err(Error::manifest(
+        return Err(Error::invalid_input(
             "explicit snapshot path must be relative to the source root",
         ));
     }

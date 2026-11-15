@@ -33,7 +33,7 @@ impl CompressionAdapter for NoneAdapter {
     fn validate_level(&self, level: Option<i32>) -> Result<i32> {
         match level {
             None => Ok(0),
-            Some(level) => Err(Error::bundle(format!(
+            Some(level) => Err(Error::artifact(format!(
                 "compression level {level} is invalid for uncompressed content"
             ))),
         }
@@ -57,7 +57,7 @@ impl CompressionAdapter for ZstdAdapter {
         if (1..=22).contains(&level) {
             Ok(level)
         } else {
-            Err(Error::bundle(format!(
+            Err(Error::artifact(format!(
                 "zstd compression level {level} is outside the supported range 1..=22"
             )))
         }
@@ -66,7 +66,7 @@ impl CompressionAdapter for ZstdAdapter {
     #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>> {
         let decoder = zstd::stream::read::Decoder::new(Cursor::new(data))
-            .map_err(|error| Error::bundle(format!("zstd decompress: {error}")))?;
+            .map_err(|error| Error::artifact(format!("zstd decompress: {error}")))?;
         Ok(Box::new(decoder))
     }
 }
@@ -83,7 +83,7 @@ impl CompressionAdapter for Lz4Adapter {
         if (0..=9).contains(&level) {
             Ok(level)
         } else {
-            Err(Error::bundle(format!(
+            Err(Error::artifact(format!(
                 "lz4 compression level {level} is outside the supported range 0..=9"
             )))
         }
@@ -92,7 +92,7 @@ impl CompressionAdapter for Lz4Adapter {
     #[cfg(test)]
     fn decoder<'a>(&self, data: &'a [u8]) -> Result<Box<dyn Read + 'a>> {
         let decoder = lz4::Decoder::new(Cursor::new(data))
-            .map_err(|error| Error::bundle(format!("lz4 decompress: {error}")))?;
+            .map_err(|error| Error::artifact(format!("lz4 decompress: {error}")))?;
         Ok(Box::new(decoder))
     }
 }
@@ -118,7 +118,7 @@ pub(crate) fn decompress_data(data: &[u8], compression: CompressionKind) -> Resu
     let mut output = Vec::new();
     decoder
         .read_to_end(&mut output)
-        .map_err(|error| Error::bundle(format!("decompress: {error}")))?;
+        .map_err(|error| Error::artifact(format!("decompress: {error}")))?;
     Ok(output)
 }
 

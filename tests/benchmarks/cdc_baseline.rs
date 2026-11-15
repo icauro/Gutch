@@ -89,7 +89,7 @@ impl<R: Read> ChunkStream<R> {
                     Ok(0) => self.eof = true,
                     Ok(count) => self.end += count,
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(error) => return Err(crate::Error::Chunk(error.to_string())),
+                    Err(error) => return Err(error.into()),
                 }
             }
         }

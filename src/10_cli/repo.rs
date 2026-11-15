@@ -154,7 +154,7 @@ fn rebuild_chunk_index(repo: &Path, apply: bool, json_out: Option<&Path>) -> cra
     }
     output::line(format_args!("{}", String::from_utf8_lossy(&json)));
     if !result.complete {
-        return Err(crate::Error::manifest(
+        return Err(crate::Error::invalid_input(
             "chunk index rebuild is incomplete; the index was not replaced",
         ));
     }
@@ -272,7 +272,7 @@ pub(crate) fn init_repo(
     let mut proceed_force = force;
     if assessment.requires_confirmation && !proceed_force {
         if !confirm_repo_init_stdio(&assessment)? {
-            return Err(crate::Error::manifest("repo creation cancelled"));
+            return Err(crate::Error::invalid_input("repo creation cancelled"));
         }
         proceed_force = true;
     }

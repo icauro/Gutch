@@ -110,7 +110,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         );
     }
     if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
-        return Err(crate::Error::manifest("installation repair cancelled"));
+        return Err(crate::Error::invalid_input("installation repair cancelled"));
     }
     let started_at = ProfileInstant::start(profile.as_deref());
     let execution = repair_installation(InstallationRepairRequest {
@@ -169,21 +169,23 @@ pub(crate) struct CorruptCommand {
 
 pub(crate) fn corrupt(command: CorruptCommand, profile: &Profile) -> crate::Result<()> {
     let plan_bytes = fs::read(&command.plan).map_err(|error| {
-        crate::Error::manifest(format!(
+        crate::Error::invalid_input(format!(
             "failed to read corruption plan '{}': {error}",
             command.plan.display()
         ))
     })?;
     let plan: InstallationCorruptionPlan =
         serde_json::from_slice(&plan_bytes).map_err(|error| {
-            crate::Error::manifest(format!(
+            crate::Error::invalid_input(format!(
                 "invalid corruption plan '{}': {error}",
                 command.plan.display()
             ))
         })?;
     // Parse the plan first so the user never confirms a plan that cannot run.
     if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
-        return Err(crate::Error::manifest("installation corruption cancelled"));
+        return Err(crate::Error::invalid_input(
+            "installation corruption cancelled",
+        ));
     }
     let started_at = ProfileInstant::start(profile.as_deref());
     let result = corrupt_installation(InstallationCorruptionRequest {

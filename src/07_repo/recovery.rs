@@ -153,7 +153,7 @@ fn recover_artifact_chunks(
         ArtifactRef::LooseChunk { hash } => {
             let (declared, raw, _) = read_loose_header(&mut File::open(path)?)?;
             if declared.to_hex() != *hash {
-                return Err(Error::manifest(
+                return Err(Error::repository(
                     "loose artifact filename disagrees with header",
                 ));
             }

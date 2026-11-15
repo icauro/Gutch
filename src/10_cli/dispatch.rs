@@ -46,7 +46,7 @@ pub(crate) fn run(
                 if !arguments.fetch
         );
         if !supported {
-            return Err(crate::Error::manifest(
+            return Err(crate::Error::invalid_input(
                 "--dry-run is not supported for this command",
             ));
         }

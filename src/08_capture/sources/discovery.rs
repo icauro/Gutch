@@ -44,13 +44,13 @@ pub fn discover_source_snapshots(
     source_snapshots_root: &Path,
 ) -> Result<Vec<SourceSnapshotCandidate>> {
     if !source_snapshots_root.exists() {
-        return Err(Error::manifest(format!(
+        return Err(Error::invalid_input(format!(
             "source snapshots path does not exist: {}",
             source_snapshots_root.display()
         )));
     }
     if !source_snapshots_root.is_dir() {
-        return Err(Error::manifest(format!(
+        return Err(Error::invalid_input(format!(
             "source snapshots path is not a directory: {}",
             source_snapshots_root.display()
         )));
@@ -107,7 +107,7 @@ pub(crate) fn source_snapshot_candidate(
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            Error::manifest(format!("invalid source snapshot path: {}", path.display()))
+            Error::invalid_input(format!("invalid source snapshot path: {}", path.display()))
         })?
         .to_string();
 

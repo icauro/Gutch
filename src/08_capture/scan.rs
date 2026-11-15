@@ -149,23 +149,25 @@ pub(crate) fn collect_scanned_chunks(
 }
 
 fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
-    let relative = path.strip_prefix(root).map_err(|error| Error::PathError {
-        path: path.to_path_buf(),
-        reason: error.to_string(),
-    })?;
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|error| Error::InvalidPath {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        })?;
     manifest_path_from_native(relative)
 }
 
 fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Result<String> {
     if raw_target.is_absolute() {
-        return Err(Error::manifest(format!(
+        return Err(Error::capture(format!(
             "symbolic link '{}' has an absolute target",
             link_path.display()
         )));
     }
     let link_relative = link_path
         .strip_prefix(root)
-        .map_err(|error| Error::PathError {
+        .map_err(|error| Error::InvalidPath {
             path: link_path.to_path_buf(),
             reason: error.to_string(),
         })?;
@@ -180,13 +182,13 @@ fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Re
             Component::CurDir => {}
             Component::ParentDir => {
                 if parts.pop().is_none() {
-                    return Err(Error::manifest(format!(
+                    return Err(Error::capture(format!(
                         "symbolic link '{}' escapes the snapshot root",
                         link_path.display()
                     )));
                 }
             }
-            _ => return Err(Error::manifest("symbolic link target is not relative")),
+            _ => return Err(Error::capture("symbolic link target is not relative")),
         }
     }
     let normalized = parts.iter().collect::<PathBuf>();
@@ -249,7 +251,7 @@ pub(crate) fn scan_source_inventory(
             } else if entry.file_type().is_symlink() {
                 MetadataEntryKind::Symlink
             } else {
-                return Err(Error::manifest(format!(
+                return Err(Error::capture(format!(
                     "unsupported filesystem object '{}'",
                     entry.path().display()
                 )));
@@ -474,7 +476,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
             }
             file_offset = file_offset
                 .checked_add(raw_size)
-                .ok_or_else(|| Error::manifest("file chunk offsets overflow"))?;
+                .ok_or_else(|| Error::capture("file chunk offsets overflow"))?;
         }
         (chunk_refs, chunks, new_chunk_offsets)
     };
@@ -563,7 +565,7 @@ pub(crate) fn verify_source_inventory_stable(
             metadata.len(),
             metadata
                 .modified()
-                .map_err(|_| Error::manifest("source changed during capture".to_string()))?,
+                .map_err(|_| Error::capture("source changed during capture".to_string()))?,
             metadata.permissions().readonly(),
             executable,
         ))
@@ -591,7 +593,7 @@ pub(crate) fn verify_source_inventory_stable(
         .map(metadata_observation)
         .collect();
     if before_metadata != after_metadata {
-        return Err(Error::manifest("source changed during capture"));
+        return Err(Error::capture("source changed during capture"));
     }
 
     let mut before_files: Vec<_> = before
@@ -607,7 +609,7 @@ pub(crate) fn verify_source_inventory_stable(
     before_files.sort();
     after_files.sort();
     if before_files != after_files {
-        return Err(Error::manifest("source changed during capture"));
+        return Err(Error::capture("source changed during capture"));
     }
     Ok(())
 }

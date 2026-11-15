@@ -75,7 +75,9 @@ impl FetchCommand {
                     .timeout(Duration::from_secs(30 * 60))
                     .build()
                     .map_err(|err| {
-                        crate::Error::manifest(format!("failed to create download client: {err}"))
+                        crate::Error::invalid_input(format!(
+                            "failed to create download client: {err}"
+                        ))
                     })?;
                 let session_id = session_id.clone();
                 Ok::<Arc<dyn ArtifactUrlProvider>, crate::Error>(Arc::new(
@@ -276,9 +278,9 @@ fn resolve_artifact_urls(
     }
     let response = request
         .send()
-        .map_err(|err| crate::Error::manifest(format!("bundle URL request failed: {err}")))?;
+        .map_err(|err| crate::Error::invalid_input(format!("bundle URL request failed: {err}")))?;
     if !response.status().is_success() {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::invalid_input(format!(
             "bundle URL request failed with status {}",
             response.status()
         )));
@@ -312,7 +314,7 @@ fn resolve_artifact_urls(
 fn parse_artifact_url_manifest(path: &Path) -> crate::Result<Vec<ArtifactDownload>> {
     let bytes = fs::read(path)?;
     let urls = serde_json::from_slice::<BTreeMap<String, String>>(&bytes).map_err(|error| {
-        crate::Error::manifest(format!(
+        crate::Error::invalid_input(format!(
             "invalid artifact URL manifest '{}': {error}",
             path.display()
         ))
@@ -320,7 +322,7 @@ fn parse_artifact_url_manifest(path: &Path) -> crate::Result<Vec<ArtifactDownloa
     urls.into_iter()
         .map(|(artifact_id, url)| {
             if artifact_id.trim().is_empty() || url.trim().is_empty() {
-                return Err(crate::Error::manifest(format!(
+                return Err(crate::Error::invalid_input(format!(
                     "artifact URL manifest '{}' contains an empty artifact ID or URL",
                     path.display()
                 )));

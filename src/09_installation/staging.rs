@@ -59,13 +59,13 @@ pub(crate) fn create_snapshot_staging(
     let resolved_staging = resolve_operation_path(staging_parent)?;
     let resolved_repo = resolve_operation_path(repo_root)?;
     if resolved_repo.starts_with(resolve_operation_path(destination)?) {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: destination.to_path_buf(),
             reason: "destination must not contain the repository".into(),
         });
     }
     if resolved_repo.starts_with(&resolved_staging) {
-        return Err(Error::PathError {
+        return Err(Error::InvalidPath {
             path: staging_parent.to_path_buf(),
             reason: "staging must not contain the repository".into(),
         });
@@ -116,7 +116,7 @@ pub(crate) fn validate_installation_paths(
     let resolved_destination = resolve_operation_path(destination)?;
     let repository = resolve_operation_path(repository_path)?;
     if repository.starts_with(&resolved_destination) {
-        return Err(Error::manifest(
+        return Err(Error::invalid_input(
             "destination must not contain the repository",
         ));
     }

@@ -61,7 +61,7 @@ pub(crate) fn validate_path_component(value: &str, label: &str) -> Result<()> {
         || value.contains(':')
         || Path::new(value).components().count() != 1
     {
-        return Err(Error::manifest(format!(
+        return Err(Error::repository(format!(
             "invalid {label} path component '{value}'"
         )));
     }
@@ -90,7 +90,7 @@ pub(crate) fn ensure_gutch_repo_layout(paths: &RepoPaths, name: &str) -> Result<
 pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoManifest)> {
     let paths = RepoPaths::from_repo_root(repo_root);
     if !paths.repo_metadata_path.exists() {
-        return Err(Error::manifest(format!(
+        return Err(Error::repository(format!(
             "gutch repo manifest not found at {}",
             paths.repo_metadata_path.display()
         )));

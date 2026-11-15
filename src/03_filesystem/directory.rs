@@ -86,7 +86,7 @@ fn replace_directory_with_operations(
     })?;
     let backup_dir = if destination_dir.exists() {
         if backup_path.exists() {
-            return Err(Error::manifest("unowned promotion backup exists"));
+            return Err(Error::repository("unowned promotion backup exists"));
         }
         let owner_path = backup_path.with_extension("owner");
         write(&owner_path, b"GUTCH_PROMOTION_V1").map_err(|error| {
@@ -243,7 +243,7 @@ pub(crate) fn lock_directory_promotion(
         fs::create_dir_all(parent)?;
     }
     if fs::symlink_metadata(&lock_path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err(Error::manifest(
+        return Err(Error::repository(
             "promotion lock must not be a symbolic link",
         ));
     }
@@ -275,10 +275,10 @@ pub(crate) fn lock_directory_promotion(
 fn promotion_backup_path(destination: &Path) -> Result<PathBuf, Error> {
     let parent = destination
         .parent()
-        .ok_or_else(|| Error::manifest("destination has no parent"))?;
+        .ok_or_else(|| Error::repository("destination has no parent"))?;
     let name = destination
         .file_name()
-        .ok_or_else(|| Error::manifest("destination has no filename"))?;
+        .ok_or_else(|| Error::repository("destination has no filename"))?;
     #[cfg(windows)]
     let name = name.to_string_lossy().to_lowercase();
     #[cfg(windows)]
@@ -313,10 +313,10 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
     }
     // A missing marker means Gutch did not create this backup; report it as unowned.
     if !read(&backup.with_extension("owner")).is_ok_and(|owner| owner == b"GUTCH_PROMOTION_V1") {
-        return Err(Error::manifest("unowned promotion backup exists"));
+        return Err(Error::repository("unowned promotion backup exists"));
     }
     if fs::symlink_metadata(&backup)?.file_type().is_symlink() {
-        return Err(Error::manifest(
+        return Err(Error::repository(
             "promotion backup must not be a symbolic link",
         ));
     }

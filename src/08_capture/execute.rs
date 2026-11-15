@@ -441,7 +441,7 @@ pub(super) fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
     if path.is_file() {
         let tempdir = tempfile::Builder::new().prefix("gutch_input_").tempdir()?;
         let filename = path.file_name().ok_or_else(|| {
-            crate::Error::manifest(format!("input file has no name: {}", path.display()))
+            crate::Error::invalid_input(format!("input file has no name: {}", path.display()))
         })?;
         let staged_path = tempdir.path().join(filename);
         fs::copy(path, &staged_path)?;
@@ -450,7 +450,7 @@ pub(super) fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
             _tempdir: Some(tempdir),
         });
     }
-    Err(crate::Error::manifest(format!(
+    Err(crate::Error::invalid_input(format!(
         "input path does not exist or is unsupported: {}",
         path.display()
     )))

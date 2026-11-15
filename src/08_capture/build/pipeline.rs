@@ -316,7 +316,7 @@ fn sort_chunks_by_file_locality(
         .iter()
         .find(|(hash, _)| !chunk_placements.contains_key(hash))
     {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::capture(format!(
             "missing file placement metadata for new chunk '{hash}'"
         )));
     }
@@ -564,7 +564,7 @@ fn build_bounded_bundle_groups(
     }
     drop(built);
     if planned.len() < 2 {
-        return Err(crate::Error::bundle(
+        return Err(crate::Error::artifact(
             "single chunk cannot fit encoded bundle limit",
         ));
     }
@@ -891,7 +891,7 @@ fn build_capture_artifacts(
         match config.storage_mode {
             ArtifactStorageMode::Bundled => {
                 if compression_profile.compression_unit != CompressionUnit::Bundle {
-                    return Err(crate::Error::manifest(
+                    return Err(crate::Error::capture(
                         "gutch only supports bundle-compressed storage".to_string(),
                     ));
                 }

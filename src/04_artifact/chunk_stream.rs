@@ -113,7 +113,7 @@ impl<R: Read, C: ChunkBoundary> ChunkStream<R, C> {
                     Ok(0) => self.eof = true,
                     Ok(count) => self.end += count,
                     Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-                    Err(error) => return Err(crate::Error::Chunk(error.to_string())),
+                    Err(error) => return Err(error.into()),
                 }
             }
         }

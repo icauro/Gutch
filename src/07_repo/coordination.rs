@@ -72,7 +72,7 @@ fn with_repository_transaction<T>(
     let root = fs::canonicalize(root)?;
     if let Some(exclusive) = HELD_REPOSITORY_LOCKS.with(|held| held.borrow().get(&root).copied()) {
         if write && !exclusive {
-            return Err(Error::manifest("repository lock upgrade is not allowed"));
+            return Err(Error::repository("repository lock upgrade is not allowed"));
         }
         return work();
     }
@@ -80,7 +80,7 @@ fn with_repository_transaction<T>(
         if fs::symlink_metadata(root.join(owned))
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
         {
-            return Err(Error::manifest(
+            return Err(Error::repository(
                 "repository coordination paths must not be symbolic links",
             ));
         }
@@ -120,7 +120,7 @@ fn with_repository_transaction<T>(
     let pending = journal.join("pending");
     if pending.exists() {
         if !write {
-            return Err(Error::manifest(
+            return Err(Error::repository(
                 "repository publication interrupted; run repo regenerate-chunk-map or retry a mutation to recover",
             ));
         }
@@ -170,7 +170,7 @@ fn with_repository_transaction<T>(
 fn copy_entry(source: &Path, target: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(source)?;
     if metadata.file_type().is_symlink() {
-        return Err(Error::manifest(
+        return Err(Error::repository(
             "repository metadata must not contain symbolic links",
         ));
     }
@@ -186,7 +186,7 @@ fn copy_entry(source: &Path, target: &Path) -> Result<()> {
             Ok(())
         })?;
     } else {
-        return Err(Error::manifest("unsupported repository metadata entry"));
+        return Err(Error::repository("unsupported repository metadata entry"));
     }
     Ok(())
 }
@@ -195,11 +195,13 @@ fn committed_directory(journal: &Path) -> Result<PathBuf> {
     let name = fs::read_to_string(journal.join("committed"))?;
     validate_path_component(&name, "metadata generation")?;
     if !name.starts_with("generation-") {
-        return Err(Error::manifest("invalid metadata generation"));
+        return Err(Error::repository("invalid metadata generation"));
     }
     let directory = journal.join(name);
     if !directory.is_dir() {
-        return Err(Error::manifest("committed metadata generation is missing"));
+        return Err(Error::repository(
+            "committed metadata generation is missing",
+        ));
     }
     Ok(directory)
 }
@@ -221,7 +223,7 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
         .path()
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| Error::manifest("invalid generated directory name"))?;
+        .ok_or_else(|| Error::repository("invalid generated directory name"))?;
     filesystem::write(&journal.join("committed"), name.as_bytes())?;
     let committed_generation = generation.keep();
     // The pointer is committed. Retry obsolete generations left by interrupted
@@ -249,7 +251,7 @@ fn restore_committed(root: &Path, journal: &Path) -> Result<()> {
         if target.exists() {
             let metadata = fs::symlink_metadata(&target)?;
             if metadata.file_type().is_symlink() {
-                return Err(Error::manifest("unsafe metadata recovery target"));
+                return Err(Error::repository("unsafe metadata recovery target"));
             }
             if metadata.is_dir() {
                 fs::remove_dir_all(&target)?;
@@ -378,7 +380,7 @@ mod tests {
             std::fs::write(root.path().join("repo_metadata.json"), b"after")?;
             std::fs::write(root.path().join("chunk_map.gtcbin"), b"partial")?;
             assert!(defer_artifact_deletion(&artifact)?);
-            Err(Error::manifest("injected publication failure"))
+            Err(Error::repository("injected publication failure"))
         });
         assert!(result.is_err());
         assert_eq!(

@@ -119,7 +119,7 @@ where
     let command = Cli::command().bin_name(bin_name);
     let cli = match command.try_get_matches_from(args) {
         Ok(matches) => Cli::from_arg_matches(&matches)
-            .map_err(|error| crate::Error::manifest(error.to_string()))?,
+            .map_err(|error| crate::Error::invalid_input(error.to_string()))?,
         Err(error)
             if matches!(
                 error.kind(),
@@ -128,10 +128,10 @@ where
         {
             error
                 .print()
-                .map_err(|err| crate::Error::manifest(err.to_string()))?;
+                .map_err(|err| crate::Error::invalid_input(err.to_string()))?;
             return Ok(());
         }
-        Err(error) => return Err(crate::Error::manifest(error.to_string())),
+        Err(error) => return Err(crate::Error::invalid_input(error.to_string())),
     };
     set_verbose_output_enabled(cli.verbose);
     let profile_out = cli.profile_out.clone();
@@ -139,7 +139,7 @@ where
     if (cli.profile == ProfileMode::Off && profile_out.is_some())
         || (cli.profile == ProfileMode::Detailed && profile_out.is_none())
     {
-        return Err(crate::Error::manifest(
+        return Err(crate::Error::invalid_input(
             "--profile detailed requires --profile-dir; off forbids profile output",
         ));
     }
@@ -173,7 +173,7 @@ where
             }
             Err(error)
         }
-        (Ok(()), Err(error)) => Err(crate::Error::manifest(format!(
+        (Ok(()), Err(error)) => Err(crate::Error::invalid_input(format!(
             "Operation succeeded but profiling export failed: {error}"
         ))),
         (Ok(()), Ok(())) => Ok(()),

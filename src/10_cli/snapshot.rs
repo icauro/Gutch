@@ -228,7 +228,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
             output::line(format_args!("  {}", describe_snapshot_capture_plan(&plan)));
         }
         if !prompt_yes_no("Proceed?", false)? {
-            return Err(crate::Error::manifest("snapshot capture cancelled"));
+            return Err(crate::Error::invalid_input("snapshot capture cancelled"));
         }
     }
     let results = capture_snapshots(requests)?;
@@ -305,7 +305,7 @@ fn list(repo: &Path, json_out: Option<&Path>) -> crate::Result<()> {
     let status = read_repo_status(repo)?;
     output::record(&status.snapshots)?;
     if !status.is_repo {
-        return Err(crate::Error::manifest(format!(
+        return Err(crate::Error::invalid_input(format!(
             "no gutch repo found at {}",
             repo.display()
         )));
@@ -339,7 +339,7 @@ fn delete(repo: &Path, snapshot_id: &str, yes: bool, profile: &Profile) -> crate
             false,
         )?
     {
-        return Err(crate::Error::manifest("snapshot deletion cancelled"));
+        return Err(crate::Error::invalid_input("snapshot deletion cancelled"));
     }
 
     let control = control_with_profile(profile).with_progress(CliProgressSink::new());
@@ -363,12 +363,13 @@ fn replace_tags(
         serde_json::from_str(&filesystem::read_to_string(path)?)?
     } else {
         BTreeMap::from([(
-            snapshot_id.ok_or_else(|| crate::Error::manifest("select a snapshot or tags file"))?,
+            snapshot_id
+                .ok_or_else(|| crate::Error::invalid_input("select a snapshot or tags file"))?,
             parse_cli_tags(tags)?,
         )])
     };
     if replacements.is_empty() {
-        return Err(crate::Error::manifest("select at least one snapshot"));
+        return Err(crate::Error::invalid_input("select at least one snapshot"));
     }
     let preview = plan_snapshot_tag_updates(repo, &replacements)?;
     for change in &preview {
@@ -384,7 +385,9 @@ fn replace_tags(
         return Ok(());
     }
     if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
-        return Err(crate::Error::manifest("snapshot tag replacement cancelled"));
+        return Err(crate::Error::invalid_input(
+            "snapshot tag replacement cancelled",
+        ));
     }
     let results = retag_snapshots(repo, replacements, &control_with_profile(profile))?;
     if single_snapshot {
