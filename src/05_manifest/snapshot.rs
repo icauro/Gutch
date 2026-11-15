@@ -16,7 +16,6 @@ use std::slice::from_ref;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotProductMetadata {
-    #[serde(rename = "document_version")]
     pub document_version: String,
     pub runtime: SnapshotRuntimeMetadata,
 }
@@ -282,23 +281,17 @@ pub(crate) fn validate_runtime_actions(
             "snapshot product metadata launch_actions must not be empty",
         ));
     }
-    let mut action_names = HashSet::new();
-    for action in actions {
-        if action.action_name.trim().is_empty()
-            || !action_names.insert(action.action_name.trim().to_ascii_lowercase())
-        {
-            return Err(crate::Error::manifest(
-                "snapshot product metadata action_name is empty or duplicated",
-            ));
-        }
-    }
-    Ok(())
+    super::launch::validate_unique_action_names(
+        actions.iter().map(|action| action.action_name.as_str()),
+    )
 }
+
+const MAX_RUNTIME_IDENTIFIER_BYTES: usize = 64;
 
 fn is_runtime_identifier(value: &str) -> bool {
     let mut characters = value.chars();
     matches!(characters.next(), Some(first) if first.is_ascii_lowercase())
-        && value.len() <= 64
+        && value.len() <= MAX_RUNTIME_IDENTIFIER_BYTES
         && characters.all(|character| {
             character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
         })
@@ -337,7 +330,6 @@ pub(crate) struct SnapshotMetadata {
     pub metadata_version: String,
     #[serde(skip)]
     pub snapshot_id: String,
-    #[serde(rename = "captured_at")]
     pub captured_at: String,
     #[serde(default, rename = "tags")]
     pub snapshot_tags: SnapshotTagSet,

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileManifest {
     pub path: String,
     pub size: u64,
@@ -60,10 +60,17 @@ impl SnapshotEntry {
     }
 }
 
+/// Checks one stored path; a bad path is damaged manifest data.
+pub(crate) fn validate_entry_path(path: &str) -> crate::Result<()> {
+    validate_manifest_relative_path(path, false)
+        .map_err(|err| crate::Error::manifest(format!("invalid snapshot path: {err}")))
+}
+
 pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Result<()> {
+    let empty_file_hash = ChunkHash::of(b"");
     let mut paths = HashSet::with_capacity(entries.len());
     for entry in entries {
-        validate_manifest_relative_path(entry.path(), false)?;
+        validate_entry_path(entry.path())?;
         if !paths.insert(entry.path()) {
             return Err(crate::Error::manifest(format!(
                 "snapshot blueprint contains duplicate path '{}'",
@@ -73,7 +80,10 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
         if let SnapshotEntry::File(file) = entry {
             for chunk in &file.chunks {
                 if chunk.raw_size == 0 || u64::from(chunk.raw_size) > MAX_RAW_CHUNK_SIZE {
-                    return Err(crate::Error::manifest("invalid snapshot chunk size"));
+                    return Err(crate::Error::manifest(format!(
+                        "snapshot file '{}' has an invalid chunk size",
+                        file.path
+                    )));
                 }
             }
             let chunk_bytes = file.chunks.iter().try_fold(0u64, |total, chunk| {
@@ -84,6 +94,12 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             if chunk_bytes != file.size {
                 return Err(crate::Error::manifest(format!(
                     "snapshot blueprint file '{}' size does not match its chunks",
+                    file.path
+                )));
+            }
+            if file.size == 0 && file.full_file_hash != empty_file_hash {
+                return Err(crate::Error::manifest(format!(
+                    "empty snapshot file '{}' has a non-empty content hash",
                     file.path
                 )));
             }
@@ -103,7 +119,7 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             }
         }
         if let SnapshotEntry::Symlink(link) = entry {
-            validate_manifest_relative_path(&link.target_path, false)?;
+            validate_entry_path(&link.target_path)?;
             if !paths.contains(link.target_path.as_str()) {
                 return Err(crate::Error::manifest(format!(
                     "snapshot symlink '{}' has missing target '{}'",
@@ -115,7 +131,7 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChunkRef {
     pub chunk_hash: ChunkHash,
     pub raw_size: u32,

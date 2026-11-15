@@ -22,7 +22,6 @@ pub struct ArtifactProfile {
     pub bundle: BundleSizingPreset,
     #[serde(rename = "compression_profile")]
     pub compression: CompressionKind,
-    #[serde(rename = "compression_level")]
     pub compression_level: Option<i32>,
     #[serde(rename = "storage_mode")]
     pub storage: ArtifactStorageMode,
@@ -107,8 +106,9 @@ pub struct RepoManifest {
         deserialize_with = "deserialize_artifact_profile"
     )]
     pub artifact_profile: ArtifactProfile,
+    /// Local link to a remote repository; stored outside the shared metadata.
     #[serde(skip)]
-    pub remote_repo_id: String,
+    pub remote_repo_id: Option<String>,
 }
 
 impl RepoManifest {
@@ -120,7 +120,7 @@ impl RepoManifest {
             constraints: None,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             artifact_profile: ArtifactProfile::default(),
-            remote_repo_id: String::new(),
+            remote_repo_id: None,
         }
     }
 
@@ -137,11 +137,7 @@ impl RepoManifest {
     }
 
     pub fn is_linked(&self) -> bool {
-        !self.remote_repo_id.is_empty()
-    }
-
-    pub fn remote_repo_id_value(&self) -> Option<i64> {
-        self.remote_repo_id.parse::<i64>().ok()
+        self.remote_repo_id.is_some()
     }
 }
 

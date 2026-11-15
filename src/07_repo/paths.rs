@@ -109,17 +109,18 @@ pub(crate) fn write_gutch_repo_manifest(
     repo_manifest: &RepoManifest,
 ) -> Result<()> {
     write_json(&paths.repo_metadata_path, repo_manifest)?;
-    if repo_manifest.remote_repo_id.is_empty() {
-        if paths.local_repo_config_path.exists() {
-            fs::remove_file(&paths.local_repo_config_path)?;
+    match &repo_manifest.remote_repo_id {
+        None => {
+            if paths.local_repo_config_path.exists() {
+                fs::remove_file(&paths.local_repo_config_path)?;
+            }
         }
-    } else {
-        write_json(
+        Some(remote_repo_id) => write_json(
             &paths.local_repo_config_path,
             &LocalRepoConfig {
-                remote_repo_id: repo_manifest.remote_repo_id.clone(),
+                remote_repo_id: remote_repo_id.clone(),
             },
-        )?;
+        )?,
     }
     Ok(())
 }
@@ -136,7 +137,14 @@ fn apply_local_repo_config(paths: &RepoPaths, manifest: &mut RepoManifest) -> Re
     }
     let config: LocalRepoConfig =
         from_json_str(&filesystem::read_to_string(&paths.local_repo_config_path)?)?;
-    manifest.remote_repo_id = config.remote_repo_id;
+    let remote_repo_id = config.remote_repo_id.trim();
+    if remote_repo_id.is_empty() {
+        return Err(Error::repository(format!(
+            "{} has an empty remote_repo_id",
+            paths.local_repo_config_path.display()
+        )));
+    }
+    manifest.remote_repo_id = Some(remote_repo_id.to_owned());
     Ok(())
 }
 

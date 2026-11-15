@@ -152,12 +152,13 @@ pub(crate) fn create(
     let provider = require_provider(remote_provider)?;
     create_remote_repo(&repo, &scope_id, provider)?;
     let (_, manifest) = load_gutch_repo_manifest(&repo)?;
-    provider.configure_repository_binding(&repo, &manifest.remote_repo_id)?;
+    let remote_repo_id = manifest
+        .remote_repo_id
+        .ok_or_else(|| Error::repository("created remote repo was not linked"))?;
+    provider.configure_repository_binding(&repo, &remote_repo_id)?;
     output::line(format_args!(
-        "bound repo '{}' to remote repo {} (scope {})",
+        "bound repo '{}' to remote repo {remote_repo_id} (scope {scope_id})",
         repo.display(),
-        manifest.remote_repo_id,
-        scope_id
     ));
     Ok(())
 }
@@ -185,15 +186,14 @@ pub(crate) fn unbind(
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()> {
     let (paths, manifest) = load_gutch_repo_manifest(&repo)?;
-    if !manifest.is_linked() {
+    let Some(remote_repo_id) = manifest.remote_repo_id else {
         output::line(format_args!(
             "repo '{}' is not bound, nothing to do.",
             paths.repo_root().display()
         ));
         return Ok(());
-    }
+    };
 
-    let remote_repo_id = manifest.remote_repo_id.clone();
     let provider = if delete_remote {
         Some(require_provider(remote_provider)?)
     } else {

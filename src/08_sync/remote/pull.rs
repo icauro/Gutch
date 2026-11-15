@@ -443,7 +443,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
             ));
         }
         validate_existing_constraints(self.repo, &incoming_constraints, "pull")?;
-        manifest.remote_repo_id = self.repository.id.clone();
+        manifest.remote_repo_id = Some(self.repository.id.clone());
         write_gutch_repo_manifest(self.repo_paths, &manifest)
     }
 

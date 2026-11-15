@@ -58,7 +58,6 @@ pub use snapshot::SnapshotProductMetadata;
 pub use snapshot::SnapshotRuntimeMetadata;
 pub(crate) use snapshot::current_host_tags;
 pub use tags::SnapshotTagSet;
-pub use tags::StructuredVersion;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

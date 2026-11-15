@@ -29,7 +29,6 @@ pub(crate) fn read_snapshot_blueprint_bytes(bytes: &[u8]) -> Result<Vec<manifest
 mod snapshot_blueprint_tests {
     use super::*;
     use crate::artifact::hash::ChunkHash;
-    use crate::repo::index::binary_codec::*;
 
     #[test]
     fn rejects_impossible_column_counts_before_allocation() {
@@ -43,44 +42,6 @@ mod snapshot_blueprint_tests {
         )
         .unwrap();
         assert!(read_snapshot_blueprint_bytes(&blueprint).is_err());
-        let index = metadata::encode(
-            crate::artifact::format::CHUNK_INDEX_MAGIC,
-            &[vec![0; 4], u32::MAX.to_le_bytes().to_vec()],
-        )
-        .unwrap();
-        assert!(load_chunk_index_binary_from_bytes(&index).is_err());
-    }
-
-    #[test]
-    fn independent_index_fixture_rejects_damaged_framing_and_trailing_bytes() {
-        let mut artifacts = 1u32.to_le_bytes().to_vec();
-        artifacts.extend_from_slice(&[7; 32]);
-        artifacts.extend_from_slice(&200u32.to_le_bytes());
-        let mut chunks = 1u32.to_le_bytes().to_vec();
-        chunks.extend_from_slice(&[9; 32]);
-        chunks.extend_from_slice(&0u32.to_le_bytes());
-        chunks.extend_from_slice(&0u32.to_le_bytes());
-        chunks.extend_from_slice(&128u32.to_le_bytes());
-        let mut bytes = crate::artifact::metadata::encode(
-            crate::artifact::format::CHUNK_INDEX_MAGIC,
-            &[artifacts, chunks],
-        )
-        .unwrap();
-        let index = load_chunk_index_binary_from_bytes(&bytes).unwrap();
-        let entry = index.entries.get(&ChunkHash::from_bytes([9; 32])).unwrap();
-        assert_eq!(entry.bundle_id.as_str(), "07".repeat(32));
-        assert_eq!(entry.artifact_size, 200);
-        assert_eq!(entry.raw_size, 128);
-        for offset in [0, 15, 16, 18, 72, 108] {
-            let mut malformed = bytes.clone();
-            malformed[offset] = 255;
-            assert!(
-                load_chunk_index_binary_from_bytes(&malformed).is_err(),
-                "offset {offset}"
-            );
-        }
-        bytes.push(0);
-        assert!(load_chunk_index_binary_from_bytes(&bytes).is_err());
     }
 
     #[test]

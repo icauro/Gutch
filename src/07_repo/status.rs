@@ -32,7 +32,7 @@ pub struct RepoStatus {
     pub is_repo: bool,
     pub repo_path: String,
     pub name: String,
-    pub remote_repo_id: String,
+    pub remote_repo_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_manifest: Option<serde_json::Value>,
     pub snapshots: Vec<RepoSnapshotStatus>,
@@ -144,7 +144,7 @@ fn empty_repo_check_status(repo_path: String, exists: bool, error: Option<String
         is_repo: false,
         repo_path,
         name: String::new(),
-        remote_repo_id: String::new(),
+        remote_repo_id: None,
         repo_manifest: None,
         snapshots: Vec::new(),
         bundle_count: 0,

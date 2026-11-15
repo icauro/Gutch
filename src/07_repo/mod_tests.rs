@@ -208,7 +208,7 @@ fn local_repo_config_contains_only_the_remote_link() {
     ensure_gutch_repo_layout(&paths, "linked").unwrap();
 
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
-    repo_manifest.remote_repo_id = "99".to_string();
+    repo_manifest.remote_repo_id = Some("99".to_string());
     write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
 
     let local_config: serde_json::Value =

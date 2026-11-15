@@ -48,6 +48,9 @@ pub(crate) fn validate_external_product_dependency_requirements(
     Ok(())
 }
 
+const MAX_DEPENDENCY_ID_BYTES: usize = 160;
+const MAX_DEPENDENCY_VERSION_BYTES: usize = 64;
+
 fn validate_dependency_id(dependency_id: &str) -> Result<()> {
     let components = dependency_id.split('.').collect::<Vec<_>>();
     let is_valid = components.len() >= 3
@@ -61,7 +64,7 @@ fn validate_dependency_id(dependency_id: &str) -> Result<()> {
                     .next()
                     .is_some_and(|character| character.is_ascii_lowercase())
         });
-    if !is_valid || dependency_id.len() > 160 {
+    if !is_valid || dependency_id.len() > MAX_DEPENDENCY_ID_BYTES {
         return Err(Error::manifest(format!(
             "invalid external dependency id '{dependency_id}'"
         )));
@@ -74,7 +77,7 @@ fn validate_version(field: &str, version: Option<&str>) -> Result<()> {
         return Ok(());
     };
     let is_valid = !version.is_empty()
-        && version.len() <= 64
+        && version.len() <= MAX_DEPENDENCY_VERSION_BYTES
         && version.split('.').all(|component| {
             !component.is_empty()
                 && component

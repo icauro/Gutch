@@ -120,24 +120,31 @@ fn validate_arguments(arguments: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Requires non-blank action names that stay distinct after trimming and case folding.
+pub(crate) fn validate_unique_action_names<'a>(
+    action_names: impl IntoIterator<Item = &'a str>,
+) -> Result<()> {
+    let mut normalized_names = HashSet::new();
+    for name in action_names {
+        if name.trim().is_empty() {
+            return Err(Error::manifest("launch action name is required"));
+        }
+        if !normalized_names.insert(name.trim().to_lowercase()) {
+            return Err(Error::manifest(format!(
+                "launch action name '{name}' is duplicated"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate_action_names_and_primary<'a>(
     action_names: impl Iterator<Item = &'a str>,
     primary: Option<&str>,
     require_primary_for_multiple: bool,
 ) -> Result<()> {
     let names = action_names.collect::<Vec<_>>();
-    let mut normalized_names = HashSet::new();
-    for name in &names {
-        if name.trim().is_empty() {
-            return Err(Error::manifest("launch action name is required"));
-        }
-        if !normalized_names.insert(name.trim().to_lowercase()) {
-            return Err(Error::manifest(format!(
-                "launch action name '{}' is duplicated",
-                name
-            )));
-        }
-    }
+    validate_unique_action_names(names.iter().copied())?;
     if names.is_empty() {
         if primary.is_some() {
             return Err(Error::manifest(

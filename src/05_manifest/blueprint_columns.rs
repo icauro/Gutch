@@ -16,7 +16,7 @@ use crate::artifact::format::MAX_RAW_CHUNK_SIZE;
 use crate::artifact::metadata::MAX_METADATA_BYTES;
 use crate::artifact::{binary_io::*, hash::ChunkHash};
 use crate::filesystem::paths::MAX_MANIFEST_PATH_BYTES;
-use crate::filesystem::paths::validate_manifest_relative_path;
+use crate::manifest::content::validate_entry_path;
 use crate::manifest::{
     self, ChunkRef, DirectoryManifest, FileManifest, SnapshotEntry, SymlinkManifest,
 };
@@ -50,13 +50,17 @@ fn column_length_u32(value: usize) -> Result<u32> {
     u32::try_from(value).map_err(|_| Error::manifest("blueprint column exceeds u32 range"))
 }
 
+fn too_many_path_rows() -> Error {
+    Error::manifest(format!("blueprint exceeds {MAX_PATH_ROWS} path rows"))
+}
+
 fn split_path(path: &str) -> (&str, &str) {
     path.rsplit_once('/').unwrap_or(("", path))
 }
 
 pub(crate) fn encode(entries: &[SnapshotEntry]) -> Result<Vec<Vec<u8>>> {
     if entries.len() > MAX_PATH_ROWS {
-        return Err(Error::manifest("blueprint exceeds 2097152 path rows"));
+        return Err(too_many_path_rows());
     }
     manifest::validate_snapshot_entries(entries)?;
     let mut entries_sorted_by_path: Vec<_> = entries.iter().collect();
@@ -83,7 +87,7 @@ fn encode_paths(entries_sorted_by_path: &[&SnapshotEntry]) -> Result<Vec<u8>> {
         for (offset, _) in entry.path().match_indices('/') {
             if directories.insert(&entry.path()[..offset]) {
                 if directories.len() > MAX_PATH_ROWS - entries_sorted_by_path.len() {
-                    return Err(Error::manifest("blueprint exceeds 2097152 path rows"));
+                    return Err(too_many_path_rows());
                 }
                 expanded_path_bytes = expanded_path_bytes
                     .checked_add(offset)
@@ -169,15 +173,9 @@ fn encode_entry_metadata(
     for file in files {
         write_u64(&mut entry_metadata, file.size)?;
     }
-    for file in files {
-        let hash = file.full_file_hash;
-        if file.size == 0 {
-            if hash.as_bytes() != blake3::hash(b"").as_bytes() {
-                return Err(Error::manifest("invalid empty file hash"));
-            }
-        } else {
-            entry_metadata.extend_from_slice(hash.as_bytes());
-        }
+    // Validation fixed every empty file's hash, so only non-empty files store one.
+    for file in files.iter().filter(|file| file.size > 0) {
+        entry_metadata.extend_from_slice(file.full_file_hash.as_bytes());
     }
     for file in files {
         entry_metadata.push(file_representation(file));
@@ -263,7 +261,7 @@ fn decode_paths(bytes: &[u8]) -> Result<Vec<String>> {
         .checked_add(entry_count)
         .ok_or_else(|| Error::manifest("path row overflow"))?;
     if path_row_count > MAX_PATH_ROWS {
-        return Err(Error::manifest("blueprint exceeds 2097152 path rows"));
+        return Err(too_many_path_rows());
     }
     path_reader.require_records(path_row_count as u64, 8)?;
     let parent_directory_ids: Vec<_> = (0..path_row_count)
@@ -316,7 +314,7 @@ fn decode_paths(bytes: &[u8]) -> Result<Vec<String>> {
         } else {
             format!("{parent_path}/{leaf_name}")
         };
-        validate_manifest_relative_path(&path, false)?;
+        validate_entry_path(&path)?;
         if row < directory_count {
             if directory_paths.last().is_some_and(|last| last >= &path) {
                 return Err(Error::manifest("directory paths must be sorted and unique"));

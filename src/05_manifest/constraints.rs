@@ -31,7 +31,7 @@ impl PartialEq for RepositoryConstraints {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotTagConstraints {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_tag_rules")]
     pub key_value: BTreeMap<String, SnapshotTagRule>,
 }
 
@@ -108,6 +108,28 @@ impl SnapshotTagValueFormat {
     }
 }
 
+fn deserialize_tag_rules<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, SnapshotTagRule>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let rules = BTreeMap::<String, SnapshotTagRule>::deserialize(deserializer)?;
+    validate_tag_rule_keys(&rules).map_err(serde::de::Error::custom)?;
+    Ok(rules)
+}
+
+fn validate_tag_rule_keys(rules: &BTreeMap<String, SnapshotTagRule>) -> crate::Result<()> {
+    for key in rules.keys() {
+        if super::tags::normalize_snapshot_tag_key(key)? != *key {
+            return Err(crate::Error::manifest(format!(
+                "constraint tag key '{key}' must already use lower snake case"
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl RepositoryConstraints {
     pub fn is_empty(&self) -> bool {
         self.targets.is_empty()
@@ -115,15 +137,9 @@ impl RepositoryConstraints {
             && !self.require_matching_tag_keys_across_snapshots
     }
 
+    /// Checks constraints built in code; deserialization already checks stored ones.
     pub fn validate_definition(&self) -> crate::Result<()> {
-        for key in self.snapshot_tags.key_value.keys() {
-            if super::tags::normalize_snapshot_tag_key(key)? != *key {
-                return Err(crate::Error::manifest(format!(
-                    "constraint tag key '{key}' must already use lower snake case"
-                )));
-            }
-        }
-        Ok(())
+        validate_tag_rule_keys(&self.snapshot_tags.key_value)
     }
 
     pub fn validate_snapshot_tags(
@@ -131,7 +147,6 @@ impl RepositoryConstraints {
         tags: &super::SnapshotTagSet,
         snapshot_id: &str,
     ) -> crate::Result<()> {
-        self.validate_definition()?;
         let tags = tags.normalized()?;
         let mut violations = Vec::new();
         for (key, rule) in &self.snapshot_tags.key_value {
@@ -220,6 +235,11 @@ mod tag_rule_tests {
             )
             .is_err()
         );
+        let error = serde_json::from_str::<RepositoryConstraints>(
+            r#"{"snapshot_tags":{"key_value":{"Build":{}}}}"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("lower snake case"), "{error}");
     }
 }
 

@@ -175,63 +175,6 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StructuredVersion {
-    pub major: u32,
-    pub minor: u32,
-    pub patch: u32,
-    pub revision: u32,
-}
-
-impl StructuredVersion {
-    pub fn parse(raw: &str) -> crate::Result<Self> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return Err(crate::Error::manifest("version cannot be empty"));
-        }
-
-        let candidate = trimmed
-            .strip_prefix('v')
-            .or_else(|| trimmed.strip_prefix('V'))
-            .unwrap_or(trimmed);
-        let parts: Vec<&str> = candidate.split('.').collect();
-        if parts.len() < 3
-            || parts.len() > 4
-            || parts.iter().any(|part| {
-                part.is_empty() || !part.chars().all(|character| character.is_ascii_digit())
-            })
-        {
-            return Err(crate::Error::manifest(format!("invalid version '{}'", raw)));
-        }
-
-        let parsed_parts = parts
-            .iter()
-            .map(|part| {
-                part.parse::<u32>()
-                    .map_err(|_| crate::Error::manifest(format!("invalid version '{}'", raw)))
-            })
-            .collect::<crate::Result<Vec<_>>>()?;
-
-        Ok(Self {
-            major: parsed_parts[0],
-            minor: parsed_parts[1],
-            patch: parsed_parts[2],
-            revision: parsed_parts.get(3).copied().unwrap_or(0),
-        })
-    }
-
-    pub fn canonical_string(&self) -> String {
-        if self.revision == 0 {
-            format!("{}.{}.{}", self.major, self.minor, self.patch)
-        } else {
-            format!(
-                "{}.{}.{}.{}",
-                self.major, self.minor, self.patch, self.revision
-            )
-        }
-    }
-}
-
 #[cfg(test)]
 mod conformance_tests {
     use super::*;

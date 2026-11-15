@@ -190,11 +190,7 @@ fn status(repo: &Path, json_out: Option<&Path>, profile: &Profile) -> crate::Res
             snapshot.missing_artifact_count
         ));
     }
-    let remote_repo_id = if status.remote_repo_id.is_empty() {
-        "(not linked)"
-    } else {
-        &status.remote_repo_id
-    };
+    let remote_repo_id = status.remote_repo_id.as_deref().unwrap_or("(not linked)");
     output::line(format_args!("{SECTION_SEPARATOR}"));
     output::line(format_args!("Total"));
     output::line(format_args!("name: {}", status.name));

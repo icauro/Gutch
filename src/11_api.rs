@@ -49,7 +49,6 @@ pub use crate::manifest::SnapshotManifest;
 pub use crate::manifest::SnapshotProductMetadata;
 pub use crate::manifest::SnapshotRuntimeMetadata;
 pub use crate::manifest::SnapshotTagSet;
-pub use crate::manifest::StructuredVersion;
 pub use crate::manifest::SymlinkManifest;
 pub use crate::manifest::constraints::{FilesystemTarget, RepositoryConstraints};
 pub use crate::manifest::constraints::{

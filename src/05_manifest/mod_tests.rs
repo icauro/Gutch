@@ -22,44 +22,43 @@ fn test_file_manifest_serialization() {
     };
     let json = serde_json::to_string(&fm).unwrap();
     let fm2: FileManifest = serde_json::from_str(&json).unwrap();
-    assert_eq!(fm.path, fm2.path);
-    assert_eq!(fm.chunks.len(), 2);
+    assert_eq!(fm, fm2);
+}
+
+fn file(path: &str, bytes: &[u8]) -> SnapshotEntry {
+    FileManifest {
+        path: path.into(),
+        size: bytes.len() as u64,
+        executable: false,
+        read_only: false,
+        full_file_hash: ChunkHash::of(bytes),
+        chunks: (!bytes.is_empty())
+            .then(|| ChunkRef {
+                chunk_hash: ChunkHash::of(bytes),
+                raw_size: bytes.len() as u32,
+            })
+            .into_iter()
+            .collect(),
+    }
+    .into()
 }
 
 #[test]
-fn test_structured_version_parses_three_parts() {
-    let version = StructuredVersion::parse("v1.2.3").unwrap();
-    assert_eq!(version.major, 1);
-    assert_eq!(version.minor, 2);
-    assert_eq!(version.patch, 3);
-    assert_eq!(version.revision, 0);
-    assert_eq!(version.canonical_string(), "1.2.3");
-}
+fn entry_validation_reports_damaged_data_as_manifest_errors() {
+    assert!(validate_snapshot_entries(&[file("a", b""), file("b", b"data")]).is_ok());
 
-#[test]
-fn test_structured_version_parses_revision() {
-    let version = StructuredVersion::parse("2025.05.30.1").unwrap();
-    assert_eq!(version.major, 2025);
-    assert_eq!(version.minor, 5);
-    assert_eq!(version.patch, 30);
-    assert_eq!(version.revision, 1);
-    assert_eq!(version.canonical_string(), "2025.5.30.1");
-}
-
-#[test]
-fn test_structured_version_accepts_generic_revision_and_omits_zero() {
-    assert_eq!(
-        StructuredVersion::parse("1.2.3.4")
-            .unwrap()
-            .canonical_string(),
-        "1.2.3.4"
-    );
-    assert_eq!(
-        StructuredVersion::parse("1.2.3.0")
-            .unwrap()
-            .canonical_string(),
-        "1.2.3"
-    );
+    let mut empty_with_content_hash = file("a", b"");
+    if let SnapshotEntry::File(file) = &mut empty_with_content_hash {
+        file.full_file_hash = ChunkHash::of(b"data");
+    }
+    for entries in [
+        vec![empty_with_content_hash],
+        vec![file("../escape", b"data")],
+        vec![file("a\\b", b"data")],
+    ] {
+        let error = validate_snapshot_entries(&entries).unwrap_err();
+        assert!(matches!(error, crate::Error::Manifest(_)), "{error:?}");
+    }
 }
 
 #[test]
