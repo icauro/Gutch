@@ -29,8 +29,95 @@ pub(super) struct FilesystemInventoryEntry {
 #[derive(Debug)]
 pub(super) struct FilesystemInventory {
     pub(super) canonical_root: PathBuf,
+    pub(super) name_case: NameCase,
     pub(super) entries: HashMap<String, FilesystemInventoryEntry>,
     pub(super) extra_paths: Vec<String>,
+}
+
+impl FilesystemInventory {
+    /// The `entries` key for a manifest-relative path.
+    pub(super) fn key(&self, relative: &str) -> String {
+        self.name_case.key(relative)
+    }
+}
+
+/// Whether the inspected tree tells names apart by letter case. This belongs
+/// to the filesystem (and on some systems the folder), not the OS, so it is
+/// probed in the tree itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NameCase {
+    Sensitive,
+    Insensitive,
+}
+
+impl NameCase {
+    pub(super) fn detect(root: &Path) -> Self {
+        probe_name_case(root)
+            .or_else(|| root.parent().and_then(probe_name_case))
+            .unwrap_or(if cfg!(any(windows, target_os = "macos")) {
+                Self::Insensitive
+            } else {
+                Self::Sensitive
+            })
+    }
+
+    pub(super) fn key(self, relative: &str) -> String {
+        match self {
+            Self::Sensitive => relative.to_string(),
+            Self::Insensitive => fold_case(relative),
+        }
+    }
+}
+
+/// Per-character uppercase mapping, like the NTFS and APFS case tables;
+/// characters whose uppercase form is several characters (`ß`) stay as is.
+fn fold_case(text: &str) -> String {
+    text.chars()
+        .map(|character| single_char(character.to_uppercase()).unwrap_or(character))
+        .collect()
+}
+
+fn single_char(mut mapped: impl Iterator<Item = char>) -> Option<char> {
+    match (mapped.next(), mapped.next()) {
+        (Some(character), None) => Some(character),
+        _ => None,
+    }
+}
+
+/// The name with every cased letter flipped, or `None` if nothing changes.
+fn swap_case(name: &str) -> Option<String> {
+    let swapped: String = name
+        .chars()
+        .map(|character| {
+            let mapped = if character.is_lowercase() {
+                single_char(character.to_uppercase())
+            } else {
+                single_char(character.to_lowercase())
+            };
+            mapped.unwrap_or(character)
+        })
+        .collect();
+    (swapped != name).then_some(swapped)
+}
+
+/// Looks up one entry of `dir` under a case-swapped spelling. If that spelling
+/// exists without being listed separately, the folder ignores case.
+fn probe_name_case(dir: &Path) -> Option<NameCase> {
+    let names = fs::read_dir(dir)
+        .ok()?
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .collect::<HashSet<_>>();
+    names.iter().find_map(|name| {
+        let swapped = swap_case(name)?;
+        if names.contains(&swapped) {
+            return Some(NameCase::Sensitive);
+        }
+        match fs::symlink_metadata(dir.join(&swapped)) {
+            Ok(_) => Some(NameCase::Insensitive),
+            Err(error) if error.kind() == ErrorKind::NotFound => Some(NameCase::Sensitive),
+            Err(_) => None,
+        }
+    })
 }
 
 pub(super) fn build_filesystem_inventory(
@@ -46,11 +133,13 @@ pub(super) fn build_filesystem_inventory(
     for path in &expected_paths {
         validate_manifest_relative_path(path, false)?;
     }
+    let name_case = NameCase::detect(dir);
     let canonical_root = match dir.canonicalize() {
         Ok(path) => path,
         Err(error) if error.kind() == ErrorKind::NotFound => {
             return Ok(FilesystemInventory {
                 canonical_root: dir.to_path_buf(),
+                name_case,
                 entries: HashMap::new(),
                 extra_paths: Vec::new(),
             });
@@ -65,7 +154,7 @@ pub(super) fn build_filesystem_inventory(
 
     let expected_path_keys = expected_paths
         .iter()
-        .map(|path| inventory_path_key(path))
+        .map(|path| name_case.key(path))
         .collect::<HashSet<_>>();
     let mut entries = HashMap::with_capacity(expected_path_keys.len());
     let mut extra_paths = Vec::new();
@@ -107,7 +196,7 @@ pub(super) fn build_filesystem_inventory(
                 });
             }
         }
-        let key = inventory_path_key(&relative);
+        let key = name_case.key(&relative);
         let metadata = if expected_path_keys.contains(&key) {
             Some(entry.metadata()?)
         } else {
@@ -125,6 +214,7 @@ pub(super) fn build_filesystem_inventory(
     }
     Ok(FilesystemInventory {
         canonical_root,
+        name_case,
         entries,
         extra_paths,
     })
@@ -137,9 +227,7 @@ pub(super) fn augment_inventory_for_symlinked_parents(
     control: &OperationControl,
 ) -> Result<()> {
     let needs_fallback = snapshot_manifest.entries.iter().any(|entry| {
-        !inventory
-            .entries
-            .contains_key(&inventory_path_key(entry.path()))
+        !inventory.entries.contains_key(&inventory.key(entry.path()))
             && inventory_has_symlink_parent(entry.path(), inventory)
     });
     if !needs_fallback {
@@ -148,7 +236,7 @@ pub(super) fn augment_inventory_for_symlinked_parents(
     let path_resolver = ManifestPathResolver::new(dir)?;
     for entry in &snapshot_manifest.entries {
         control.checkpoint()?;
-        let key = inventory_path_key(entry.path());
+        let key = inventory.key(entry.path());
         if inventory.entries.contains_key(&key)
             || !inventory_has_symlink_parent(entry.path(), inventory)
         {
@@ -202,22 +290,11 @@ pub(super) fn inventory_has_symlink_parent(
         parent.push_str(component);
         if inventory
             .entries
-            .get(&inventory_path_key(&parent))
+            .get(&inventory.key(&parent))
             .is_some_and(|entry| entry.kind == InventoryEntryKind::Symlink)
         {
             return true;
         }
     }
     false
-}
-
-pub(super) fn inventory_path_key(relative: &str) -> String {
-    #[cfg(windows)]
-    {
-        relative.to_ascii_lowercase()
-    }
-    #[cfg(not(windows))]
-    {
-        relative.to_string()
-    }
 }

@@ -1,5 +1,5 @@
 //! Directory and symlink checks for inventoried or individually resolved entries.
-use super::inventory::{FilesystemInventory, InventoryEntryKind, inventory_path_key};
+use super::inventory::{FilesystemInventory, InventoryEntryKind};
 use super::types::{RepairClassification, RepairIssue};
 use crate::Result;
 use crate::filesystem::paths::normalize_link_target;
@@ -27,7 +27,7 @@ pub(super) fn classify_inventory_non_files(
         let Some(manifest_path) = non_file_path(entry) else {
             continue;
         };
-        let found = match inventory.entries.get(&inventory_path_key(manifest_path)) {
+        let found = match inventory.entries.get(&inventory.key(manifest_path)) {
             None => FoundEntry::Nothing,
             Some(actual) => match actual.kind {
                 InventoryEntryKind::Directory => FoundEntry::Directory {

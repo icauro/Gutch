@@ -7,7 +7,6 @@ use crate::profiling::ProfileInstant;
 use content::verify_manifest_file;
 use inventory::{
     FilesystemInventory, augment_inventory_for_symlinked_parents, build_filesystem_inventory,
-    inventory_path_key,
 };
 use non_files::{classify_inventory_non_files, classify_resolved_non_files};
 use std::fs::Metadata;
@@ -225,7 +224,7 @@ impl EntryLocations {
             Self::Inventory(inventory) => snapshot_manifest
                 .files()
                 .map(|file| {
-                    let actual = inventory.entries.get(&inventory_path_key(&file.path));
+                    let actual = inventory.entries.get(&inventory.key(&file.path));
                     PreparedVerifyFile {
                         manifest: file,
                         path: actual
