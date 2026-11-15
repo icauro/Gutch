@@ -17,6 +17,7 @@ use crate::filesystem::from_json_bytes;
 use crate::manifest::SnapshotProductMetadata;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
 use crate::progress::OperationKind;
 use crate::progress::ProgressEvent;
 use crate::progress::ProgressPhase;
@@ -162,231 +163,73 @@ pub(crate) fn prepare_snapshot_fetch(
 ) -> Result<PreparedSnapshotFetch> {
     request.control.checkpoint()?;
     let _prepare_span = request.control.profile_span("transfer.prepare");
-    emit_progress(
+    let downloader = MetadataDownloader {
+        client: download_client,
+        control: &request.control,
         progress,
-        ProgressEvent {
-            feedback: None,
-            operation: OperationKind::Fetch,
-            phase: ProgressPhase::Prepare,
-            message: "Preparing local repo layout".to_string(),
-            current: 0,
-            total: 1,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: Some(request.snapshot_id.clone()),
-            done: false,
-        },
+        transfer_progress,
+    };
+    let snapshot_id = request.snapshot_id.as_str();
+    downloader.announce(
+        ProgressPhase::Prepare,
+        "Preparing local repo layout",
+        Some(snapshot_id),
     );
-
     let repo_paths = RepoPaths::from_repo_root(&request.repo_path);
     let repository_existed = repo_paths.repo_metadata_path.exists();
     ensure_gutch_repo_layout(&repo_paths, "download")?;
 
-    let repo_manifest = if let Some(repo_metadata_url) = request.repo_metadata_url.as_deref() {
-        emit_progress(
-            progress,
-            ProgressEvent {
-                feedback: None,
-                operation: OperationKind::Fetch,
-                phase: ProgressPhase::RepoMetadata,
-                message: "Downloading repo metadata".to_string(),
-                current: 0,
-                total: 1,
-                transferred_bytes: 0,
-                total_bytes: 0,
-                detail: None,
-                done: false,
-            },
-        );
-        let repo_manifest_bytes = TransferDownloadRequest {
-            client: download_client,
-            url: repo_metadata_url,
-            control: &request.control,
-            transfer_progress,
-            phase: ProgressPhase::RepoMetadata,
-            message: "Downloading repo metadata",
-            counters: TransferPhaseCounters {
-                current: 0,
-                total: 1,
-            },
-            detail: None,
+    let repo_manifest: RepoManifest = match request.repo_metadata_url.as_deref() {
+        Some(url) => {
+            let phase = ProgressPhase::RepoMetadata;
+            let message = "Downloading repo metadata";
+            downloader.announce(phase, message, None);
+            from_json_bytes(&downloader.download(
+                url,
+                phase,
+                message,
+                None,
+                MAX_SNAPSHOT_METADATA_BYTES,
+            )?)?
         }
-        .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-        let repo_manifest: RepoManifest = from_json_bytes(&repo_manifest_bytes)?;
-        repo_manifest
-    } else {
-        load_gutch_repo_manifest(&repo_paths.repo_root)?.1
+        None => load_gutch_repo_manifest(&repo_paths.repo_root)?.1,
     };
-
-    emit_progress(
-        progress,
-        ProgressEvent {
-            feedback: None,
-            operation: OperationKind::Fetch,
-            phase: ProgressPhase::SnapshotMetadata,
-            message: "Downloading snapshot metadata".to_string(),
-            current: 0,
-            total: 1,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: Some(request.snapshot_id.clone()),
-            done: false,
-        },
-    );
-    let snapshot_manifest_bytes = TransferDownloadRequest {
-        client: download_client,
-        url: &request.metadata_url,
-        control: &request.control,
-        transfer_progress,
-        phase: ProgressPhase::SnapshotMetadata,
-        message: "Downloading snapshot metadata",
-        counters: TransferPhaseCounters {
-            current: 0,
-            total: 1,
-        },
-        detail: Some(request.snapshot_id.as_str()),
-    }
-    .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-    let snapshot_metadata =
-        snapshot_manifest_from_download(&request.snapshot_id, &snapshot_manifest_bytes)?;
-
-    let product_metadata =
-        if let Some(product_metadata_url) = request.product_metadata_url.as_deref() {
-            let product_metadata_bytes = TransferDownloadRequest {
-                client: download_client,
-                url: product_metadata_url,
-                control: &request.control,
-                transfer_progress,
-                phase: ProgressPhase::SnapshotMetadata,
-                message: "Downloading snapshot product metadata",
-                counters: TransferPhaseCounters {
-                    current: 0,
-                    total: 1,
-                },
-                detail: Some(request.snapshot_id.as_str()),
-            }
-            .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-            Some(SnapshotProductMetadata::from_json_bytes(
-                &product_metadata_bytes,
-            )?)
-        } else {
-            None
-        };
-
-    let blueprint_bytes = TransferDownloadRequest {
-        client: download_client,
-        url: &request.blueprint_url,
-        control: &request.control,
-        transfer_progress,
-        phase: ProgressPhase::SnapshotMetadata,
-        message: "Downloading snapshot blueprint",
-        counters: TransferPhaseCounters {
-            current: 0,
-            total: 1,
-        },
-        detail: Some(request.snapshot_id.as_str()),
-    }
-    .download_bounded(MAX_SNAPSHOT_BLUEPRINT_BYTES)?;
-    let mut snapshot_manifest =
-        snapshot_manifest_from_parts(snapshot_metadata, product_metadata, &blueprint_bytes)?;
-
-    let incoming_constraints = repo_manifest.constraints.clone().unwrap_or_default();
-    incoming_constraints
-        .validate_snapshot_tags(&snapshot_manifest.snapshot_tags, &request.snapshot_id)?;
-    validate_paths(
-        &incoming_constraints.targets,
-        snapshot_manifest.entries.iter().map(|entry| entry.path()),
-        "fetch",
-        Some(&request.snapshot_id),
+    let (downloaded_manifest, blueprint_bytes) = download_snapshot_manifest(request, &downloader)?;
+    check_incoming_constraints(
+        snapshot_id,
+        &repo_paths,
+        &repo_manifest,
+        &downloaded_manifest,
+        repository_existed,
     )?;
-    if repository_existed {
-        let local_constraints = load_gutch_repo_manifest(&repo_paths.repo_root)?
-            .1
-            .constraints
-            .unwrap_or_default();
-        if local_constraints != incoming_constraints {
-            return Err(Error::manifest(
-                "incoming repository constraints differ; explicitly update local constraints before fetching",
-            ));
-        }
-    }
+    let snapshot_manifest = prefer_verified_local_snapshot(
+        snapshot_id,
+        &repo_paths,
+        &repo_manifest,
+        downloaded_manifest,
+        &blueprint_bytes,
+    )?;
 
-    // Equivalent installations can have different blueprints. Preserve a complete
-    // cached representation instead of replacing it merely because packaging differs.
-    let local_blueprint = snapshot_blueprint_path(&repo_paths, &request.snapshot_id)?;
-    if local_blueprint.is_file() && filesystem::read(&local_blueprint)? != blueprint_bytes {
-        let local = load_snapshot_manifest(&repo_paths, &request.snapshot_id)?;
-        let local_index = load_chunk_index(&repo_paths)?;
-        if compute_snapshot_id_from_entries(&local.entries) == request.snapshot_id
-            && verify_snapshot_artifacts(
-                &repo_paths,
-                &local_index,
-                &repo_manifest.compression_profile(),
-                &request.snapshot_id,
-                RepoArtifactVerification::Identity,
-            )
-            .is_ok_and(|result| result.ok)
-        {
-            snapshot_manifest = local;
+    let mut chunk_index = match request.chunk_index_url.as_deref() {
+        Some(url) => {
+            let phase = ProgressPhase::ChunkIndex;
+            let message = "Downloading chunk index";
+            downloader.announce(phase, message, None);
+            load_chunk_index_binary_from_bytes(&downloader.download(
+                url,
+                phase,
+                message,
+                None,
+                MAX_CHUNK_INDEX_BYTES,
+            )?)?
         }
-    }
-
-    let mut chunk_index = if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
-        emit_progress(
-            progress,
-            ProgressEvent {
-                feedback: None,
-                operation: OperationKind::Fetch,
-                phase: ProgressPhase::ChunkIndex,
-                message: "Downloading chunk index".to_string(),
-                current: 0,
-                total: 1,
-                transferred_bytes: 0,
-                total_bytes: 0,
-                detail: None,
-                done: false,
-            },
-        );
-        let chunk_index_bytes = TransferDownloadRequest {
-            client: download_client,
-            url: chunk_index_url,
-            control: &request.control,
-            transfer_progress,
-            phase: ProgressPhase::ChunkIndex,
-            message: "Downloading chunk index",
-            counters: TransferPhaseCounters {
-                current: 0,
-                total: 1,
-            },
-            detail: None,
-        }
-        .download_bounded(MAX_CHUNK_INDEX_BYTES)?;
-
-        load_chunk_index_binary_from_bytes(&chunk_index_bytes)?
-    } else {
-        load_chunk_index(&repo_paths)?
+        None => load_chunk_index(&repo_paths)?,
     };
     preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
     request.control.checkpoint()?;
     let compression_profile = repo_manifest.compression_profile();
     let required_artifacts = required_artifacts(&snapshot_manifest, &chunk_index)?;
-    let mut existing_artifacts = HashSet::new();
-    for artifact in &required_artifacts {
-        let path = artifact.local_path(&repo_paths)?;
-        if path.is_file() {
-            if let ArtifactRef::Bundle { id } = artifact {
-                match verify_bundle_identity_file(&path, id) {
-                    Ok(()) => {}
-                    Err(Error::InvalidBundle(_) | Error::HashMismatch { .. }) => {
-                        fs::remove_file(&path)?;
-                        continue;
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            existing_artifacts.insert(artifact.clone());
-        }
-    }
+    let existing_artifacts = find_existing_artifacts(&required_artifacts, &repo_paths)?;
     let required_artifact_ids = required_artifacts
         .iter()
         .map(|artifact| artifact.id().to_string())
@@ -414,6 +257,187 @@ pub(crate) fn prepare_snapshot_fetch(
         existing_artifacts,
         pending_artifact_downloads,
     })
+}
+
+/// Downloads the single files that precede the artifact transfer.
+struct MetadataDownloader<'a> {
+    client: &'a DownloadClient,
+    control: &'a OperationControl,
+    progress: &'a Option<Arc<dyn ProgressSink>>,
+    transfer_progress: &'a Arc<FetchTransferProgress>,
+}
+
+impl MetadataDownloader<'_> {
+    /// Reports that a preparation phase has started.
+    fn announce(&self, phase: ProgressPhase, message: &str, detail: Option<&str>) {
+        emit_progress(
+            self.progress,
+            ProgressEvent {
+                feedback: None,
+                operation: OperationKind::Fetch,
+                phase,
+                message: message.to_string(),
+                current: 0,
+                total: 1,
+                transferred_bytes: 0,
+                total_bytes: 0,
+                detail: detail.map(str::to_string),
+                done: false,
+            },
+        );
+    }
+
+    fn download(
+        &self,
+        url: &str,
+        phase: ProgressPhase,
+        message: &str,
+        detail: Option<&str>,
+        maximum_bytes: u64,
+    ) -> Result<Vec<u8>> {
+        TransferDownloadRequest {
+            client: self.client,
+            url,
+            control: self.control,
+            transfer_progress: self.transfer_progress,
+            phase,
+            message,
+            counters: TransferPhaseCounters {
+                current: 0,
+                total: 1,
+            },
+            detail,
+        }
+        .download_bounded(maximum_bytes)
+    }
+}
+
+/// Downloads the snapshot metadata, optional product metadata and blueprint
+/// and assembles the manifest. Also returns the blueprint bytes.
+fn download_snapshot_manifest(
+    request: &SnapshotFetchRequest,
+    downloader: &MetadataDownloader<'_>,
+) -> Result<(SnapshotManifest, Vec<u8>)> {
+    let snapshot_id = request.snapshot_id.as_str();
+    let phase = ProgressPhase::SnapshotMetadata;
+    let message = "Downloading snapshot metadata";
+    downloader.announce(phase, message, Some(snapshot_id));
+    let metadata_bytes = downloader.download(
+        &request.metadata_url,
+        phase,
+        message,
+        Some(snapshot_id),
+        MAX_SNAPSHOT_METADATA_BYTES,
+    )?;
+    let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
+    let product_metadata = match request.product_metadata_url.as_deref() {
+        Some(url) => {
+            let bytes = downloader.download(
+                url,
+                phase,
+                "Downloading snapshot product metadata",
+                Some(snapshot_id),
+                MAX_SNAPSHOT_METADATA_BYTES,
+            )?;
+            Some(SnapshotProductMetadata::from_json_bytes(&bytes)?)
+        }
+        None => None,
+    };
+    let blueprint_bytes = downloader.download(
+        &request.blueprint_url,
+        phase,
+        "Downloading snapshot blueprint",
+        Some(snapshot_id),
+        MAX_SNAPSHOT_BLUEPRINT_BYTES,
+    )?;
+    let manifest = snapshot_manifest_from_parts(metadata, product_metadata, &blueprint_bytes)?;
+    Ok((manifest, blueprint_bytes))
+}
+
+/// Rejects a snapshot that breaks the incoming repository constraints, and
+/// incoming constraints that differ from an existing local repository's.
+fn check_incoming_constraints(
+    snapshot_id: &str,
+    repo_paths: &RepoPaths,
+    repo_manifest: &RepoManifest,
+    snapshot_manifest: &SnapshotManifest,
+    repository_existed: bool,
+) -> Result<()> {
+    let incoming_constraints = repo_manifest.constraints.clone().unwrap_or_default();
+    incoming_constraints.validate_snapshot_tags(&snapshot_manifest.snapshot_tags, snapshot_id)?;
+    validate_paths(
+        &incoming_constraints.targets,
+        snapshot_manifest.entries.iter().map(|entry| entry.path()),
+        "fetch",
+        Some(snapshot_id),
+    )?;
+    if repository_existed {
+        let local_constraints = load_gutch_repo_manifest(&repo_paths.repo_root)?
+            .1
+            .constraints
+            .unwrap_or_default();
+        if local_constraints != incoming_constraints {
+            return Err(Error::manifest(
+                "incoming repository constraints differ; explicitly update local constraints before fetching",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Equivalent installations can have different blueprints. Keeps a complete,
+/// verified local copy of the snapshot instead of replacing it merely because
+/// its packaging differs.
+fn prefer_verified_local_snapshot(
+    snapshot_id: &str,
+    repo_paths: &RepoPaths,
+    repo_manifest: &RepoManifest,
+    downloaded: SnapshotManifest,
+    blueprint_bytes: &[u8],
+) -> Result<SnapshotManifest> {
+    let local_blueprint = snapshot_blueprint_path(repo_paths, snapshot_id)?;
+    if !local_blueprint.is_file() || filesystem::read(&local_blueprint)? == blueprint_bytes {
+        return Ok(downloaded);
+    }
+    let local = load_snapshot_manifest(repo_paths, snapshot_id)?;
+    let local_index = load_chunk_index(repo_paths)?;
+    let local_is_complete = compute_snapshot_id_from_entries(&local.entries) == snapshot_id
+        && verify_snapshot_artifacts(
+            repo_paths,
+            &local_index,
+            &repo_manifest.compression_profile(),
+            snapshot_id,
+            RepoArtifactVerification::Identity,
+        )
+        .is_ok_and(|result| result.ok);
+    Ok(if local_is_complete { local } else { downloaded })
+}
+
+/// Returns the required artifacts already stored locally. A bundle that
+/// fails its identity check is deleted so it is downloaded again.
+fn find_existing_artifacts(
+    required_artifacts: &HashSet<ArtifactRef>,
+    repo_paths: &RepoPaths,
+) -> Result<HashSet<ArtifactRef>> {
+    let mut existing_artifacts = HashSet::new();
+    for artifact in required_artifacts {
+        let path = artifact.local_path(repo_paths)?;
+        if !path.is_file() {
+            continue;
+        }
+        if let ArtifactRef::Bundle { id } = artifact {
+            match verify_bundle_identity_file(&path, id) {
+                Ok(()) => {}
+                Err(Error::InvalidBundle(_) | Error::HashMismatch { .. }) => {
+                    fs::remove_file(&path)?;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        existing_artifacts.insert(artifact.clone());
+    }
+    Ok(existing_artifacts)
 }
 
 fn build_pending_artifact_downloads(
